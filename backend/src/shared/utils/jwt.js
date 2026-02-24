@@ -1,10 +1,13 @@
-// src/shared/utils/jwt.js
 import jwt from "jsonwebtoken";
 
-export function signAccessToken(payload) {
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
+export function signAccessToken(user) {
+  return jwt.sign(
+    { sub: user.id, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
 }
 
-export function verifyToken(token) {
+export function verifyAccessToken(token) {
   return jwt.verify(token, process.env.JWT_SECRET);
 }
