@@ -99,6 +99,18 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
         title: const Text('مساعد الطلب الذكي'),
         actions: [
           IconButton(
+            tooltip: 'جلسة جديدة',
+            onPressed: state.loading || state.sending
+                ? null
+                : () async {
+                    setState(() => _selectedAddressId = null);
+                    await ref
+                        .read(assistantControllerProvider.notifier)
+                        .startNewSession();
+                  },
+            icon: const Icon(Icons.add_comment_rounded),
+          ),
+          IconButton(
             tooltip: 'تحديث',
             onPressed: state.loading
                 ? null

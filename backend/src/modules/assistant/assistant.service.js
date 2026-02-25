@@ -716,8 +716,10 @@ function decideConversationMode({ intent, model }) {
   }
 
   const filled = conversationCoreFilledCount(model);
-  const minimumTurns = intent.primaryIntent === "RECOMMEND" || intent.primaryIntent === "MOOD_BASED" ? 1 : 2;
-  const ready = filled >= 2 && model.turns >= minimumTurns;
+  const minimumTurns =
+    intent.primaryIntent === "RECOMMEND" || intent.primaryIntent === "MOOD_BASED" ? 2 : 3;
+  const minimumSlots = intent.primaryIntent === "ORDER_DIRECT" ? 3 : 3;
+  const ready = filled >= minimumSlots && model.turns >= minimumTurns;
   if (ready) return { mode: "recommendation", ready: true };
   return { mode: "discovery", ready: false, missingSlot: nextMissingSlot(model), filled };
 }
@@ -794,7 +796,11 @@ function detectIntent(message) {
     wantsFreeDelivery ||
     wantsFast;
 
-  const offTopicIntent = !hardOrderSignals && !hasDomainTerms && tokens.length > 0;
+  const offTopicIntent =
+    !hardOrderSignals &&
+    !hasDomainTerms &&
+    tokens.length > 0 &&
+    smallTalkType !== "greeting";
   const offTopicTheme = offTopicIntent ? detectOffTopicTheme(normalized) : "none";
   const primaryIntent = detectPrimaryIntent(normalized, supportIntent);
 
@@ -1566,7 +1572,17 @@ function merchantReason(intent, merchant, lang) {
   return reasons.slice(0, 2).join(tr(lang, "، ", ", "));
 }
 
-function pickSmartQuestion(intent, profile, lang) {
+function pickSmartQuestion(intent, profile, lang, conversationModel = null) {
+  const model = normalizeConversationModel(conversationModel || profile?.conversationModel);
+  const missingSlot = nextMissingSlot(model);
+  if (missingSlot) {
+    return pickScenarioQuestion(
+      missingSlot,
+      lang,
+      `${intent.originalText}|${model.turns}|${model.clarificationTurns}`
+    );
+  }
+
   if (intent.supportIntent) {
     return tr(
       lang,
@@ -1631,24 +1647,54 @@ function tonePrefix(intent, lang) {
 }
 
 function buildOffTopicSnippet(intent, lang) {
+  const seed = `${intent.originalText}|${intent.normalizedText || ""}|${intent.offTopicTheme || "general"}`;
   const ar = {
     weather: "الجو يتغيّر بسرعة ببسماية، أقدر أرشّحلك خيارات أقرب وتوصيلها أسرع.",
     joke: "حتى لو الجو يخربط، الطلب المضبوط يبقى مزاج 😄",
     bot_identity: "أني مساعد تطبيق سوقي، شغلي أسهّل عليك الاختيار والطلب.",
     mood: "تمام الحمدلله، شلونك إنت اليوم؟",
-    general: "أحب الدردشة وياك، وبنفس الوقت أرتبلك أفضل خيار للطلب.",
+    general: [
+      "سوالفك حلوة، ومن تجهز نرتبلك طلب مضبوط بسرعة.",
+      "تمام وياك، وبنفس الوقت أكدر أساعدك تختار طلب يناسبك.",
+      "أحب الأجواء الحلوة، ومن تكتبلي مزاجك أطلعلك خيارات دقيقة.",
+    ],
   };
   const en = {
     weather: "Weather keeps changing, so I can suggest closer options with quicker delivery.",
     joke: "Quick one: good food always improves the mood 😄",
     bot_identity: "I am Souqi in-app assistant, focused on smart ordering choices.",
     mood: "I am good, thanks. How are you today?",
-    general: "I can chat with you and still help you decide the best order fast.",
+    general: [
+      "I enjoy the chat, and once you are ready I can rank precise options fast.",
+      "All good, and I can still help you decide the right order when you are ready.",
+      "Nice vibe. Share your mood any time and I will shape the best options.",
+    ],
   };
-  return lang === "en" ? en[intent.offTopicTheme] || en.general : ar[intent.offTopicTheme] || ar.general;
+  if (lang === "en") {
+    const snippet = en[intent.offTopicTheme] || en.general;
+    if (Array.isArray(snippet)) {
+      return snippet[simpleHash(seed) % snippet.length];
+    }
+    return snippet;
+  }
+
+  const snippet = ar[intent.offTopicTheme] || ar.general;
+  if (Array.isArray(snippet)) {
+    return snippet[simpleHash(seed) % snippet.length];
+  }
+  return snippet;
 }
 
-function buildSmallTalkReply({ intent, profile, merchants, products, lang }) {
+function buildSmallTalkReply({
+  intent,
+  profile,
+  merchants,
+  products,
+  conversationModel = null,
+  conversationDecision = null,
+  lang,
+}) {
+  const model = normalizeConversationModel(conversationModel || profile?.conversationModel);
   let intro = tr(lang, "هلا بيك 🌟", "Hey there 🌟");
   if (intent.smallTalkType === "greeting") {
     intro = tr(
@@ -1682,7 +1728,21 @@ function buildSmallTalkReply({ intent, profile, merchants, products, lang }) {
       )
     : "";
 
-  return `${intro} ${quickHint} ${productHint} ${pickSmartQuestion(intent, profile, lang)}`.trim();
+  const transitionLine = tr(
+    lang,
+    "إذا تحب نكمل سوالف أكيد، وبمجرد تحب تطلب أنا حاضر.",
+    "We can keep chatting, and whenever you want to order I am ready."
+  );
+  const followQuestion =
+    conversationDecision?.mode === "discovery"
+      ? pickScenarioQuestion(
+          conversationDecision.missingSlot || nextMissingSlot(model) || "cuisine",
+          lang,
+          `${intent.originalText}|${model.turns}|${model.clarificationTurns}|smalltalk`
+        )
+      : pickSmartQuestion(intent, profile, lang, model);
+
+  return `${intro} ${quickHint} ${productHint} ${transitionLine} ${followQuestion}`.trim();
 }
 
 function summarizeRecentContext(recentMessages, lang) {
@@ -1834,7 +1894,11 @@ function buildDiscoveryReply({
     ? scenario.trackOrder.find((key) => key === missingSlot)
     : null;
   const slot = slotFromScenario || missingSlot || "cuisine";
-  const question = pickScenarioQuestion(slot, lang, intent.originalText);
+  const question = pickScenarioQuestion(
+    slot,
+    lang,
+    `${intent.originalText}|${conversationModel?.turns || 0}|${conversationModel?.clarificationTurns || 0}`
+  );
   const digest = describeCollectedPreferences(conversationModel, lang);
   const phaseLine = tr(
     lang,
@@ -2027,7 +2091,15 @@ function buildIntentAwareReply({
   }
 
   if (intent.offTopicIntent || intent.smallTalkType !== "none") {
-    return buildSmallTalkReply({ intent, profile, merchants, products, lang });
+    return buildSmallTalkReply({
+      intent,
+      profile,
+      merchants,
+      products,
+      conversationModel,
+      conversationDecision,
+      lang,
+    });
   }
 
   if (conversationDecision?.mode === "discovery") {
@@ -2418,6 +2490,16 @@ export async function getCurrentConversation(customerUserId, options = {}) {
   return buildSessionPayload(customerUserId, session.id, profile);
 }
 
+export async function startNewConversation(customerUserId) {
+  await repo.expireOldDrafts(customerUserId);
+  const session = await repo.createSession(customerUserId);
+  await ensureWelcomeMessage(session.id);
+
+  const rawProfile = await repo.getProfile(customerUserId);
+  const profile = parseProfile(rawProfile);
+  return buildSessionPayload(customerUserId, session.id, profile);
+}
+
 export async function confirmDraft(customerUserId, token, options = {}) {
   await repo.expireOldDrafts(customerUserId);
 
@@ -2663,8 +2745,15 @@ export async function chat(customerUserId, dto) {
   const productSuggestions = buildProductSuggestions(ranked);
 
   let createdDraft = null;
+  const hasEnoughOrderSignals =
+    intent.categoryHints.length > 0 ||
+    intent.budgetIqd != null ||
+    intent.peopleCount != null ||
+    intent.mealType !== "any" ||
+    intent.spiceLevel !== "unknown" ||
+    intent.tokens.length >= 3;
   const shouldDraft =
-    (intent.orderIntent || dto.createDraft === true) &&
+    (dto.createDraft === true || (intent.orderIntent && hasEnoughOrderSignals)) &&
     !intent.offTopicIntent &&
     conversationDecision.mode === "recommendation";
   if (shouldDraft && ranked.length) {

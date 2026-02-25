@@ -23,6 +23,15 @@ export async function getCurrentSession(req, res, next) {
   }
 }
 
+export async function startNewSession(req, res, next) {
+  try {
+    const data = await service.startNewConversation(req.userId);
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function chat(req, res, next) {
   try {
     const body = req.body || {};

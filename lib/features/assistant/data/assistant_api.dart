@@ -16,6 +16,11 @@ class AssistantApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> startNewSession() async {
+    final response = await dio.post('/api/assistant/session/new');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> chat({
     required String message,
     int? sessionId,

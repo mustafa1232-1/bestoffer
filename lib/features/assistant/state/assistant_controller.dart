@@ -97,6 +97,29 @@ class AssistantController extends StateNotifier<AssistantState> {
     }
   }
 
+  Future<void> startNewSession() async {
+    state = state.copyWith(
+      loading: true,
+      error: null,
+      clearDraftOrder: true,
+      clearCreatedOrder: true,
+      messages: const <AssistantMessageModel>[],
+      merchants: const <AssistantMerchantSuggestionModel>[],
+      products: const <AssistantProductSuggestionModel>[],
+    );
+    try {
+      final json = await ref.read(assistantApiProvider).startNewSession();
+      _applyPayload(json, loading: false, sending: false);
+    } on DioException catch (e) {
+      state = state.copyWith(loading: false, error: _mapError(e));
+    } catch (_) {
+      state = state.copyWith(
+        loading: false,
+        error: 'Failed to start a new session',
+      );
+    }
+  }
+
   Future<void> sendMessage(
     String message, {
     int? addressId,

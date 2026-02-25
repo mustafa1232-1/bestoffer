@@ -9,5 +9,6 @@ export const assistantRouter = Router();
 assistantRouter.use(requireAuth, requireCustomer);
 
 assistantRouter.get("/session", c.getCurrentSession);
+assistantRouter.post("/session/new", c.startNewSession);
 assistantRouter.post("/chat", c.chat);
 assistantRouter.post("/draft/:token/confirm", c.confirmDraft);

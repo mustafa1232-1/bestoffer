@@ -65,12 +65,25 @@ class OrdersController extends StateNotifier<OrdersState> {
     }
     try {
       final response = await ref.read(ordersApiProvider).listMyOrders();
-      final orders = response
-          .map((e) => OrderModel.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
+      final orders = <OrderModel>[];
+      var skipped = 0;
+      for (final entry in response) {
+        try {
+          if (entry is Map) {
+            orders.add(OrderModel.fromJson(Map<String, dynamic>.from(entry)));
+          } else {
+            skipped += 1;
+          }
+        } catch (_) {
+          skipped += 1;
+        }
+      }
       state = state.copyWith(
         loading: silent ? state.loading : false,
         orders: orders,
+        error: skipped > 0
+            ? 'تم تجاهل بعض الطلبات بسبب بيانات غير مكتملة'
+            : null,
       );
     } on DioException catch (e) {
       state = state.copyWith(

@@ -56,9 +56,7 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'طلباتي',
-        ),
+        title: const Text('طلباتي'),
         actions: const [NotificationsBellButton()],
       ),
       body: RefreshIndicator(
@@ -70,11 +68,7 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
             ? ListView(
                 children: const [
                   SizedBox(height: 140),
-                  Center(
-                    child: Text(
-                      'لا توجد طلبات حالياً',
-                    ),
-                  ),
+                  Center(child: Text('لا توجد طلبات حالياً')),
                 ],
               )
             : ListView.separated(
@@ -122,116 +116,154 @@ class _OrderCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final status = orderStatusLabel(order.status);
+    try {
+      final status = orderStatusLabel(order.status);
 
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: highlighted
-            ? BorderSide(
-                color: Theme.of(
-                  context,
-                ).colorScheme.primary.withValues(alpha: 0.55),
-              )
-            : BorderSide.none,
-      ),
-      child: ExpansionTile(
-        key: PageStorageKey('order_card_${order.id}'),
-        initiallyExpanded: initiallyExpanded,
-        title: Text(
-          'طلب #${order.id} - $status',
-          textDirection: TextDirection.rtl,
+      return Card(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: highlighted
+              ? BorderSide(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primary.withValues(alpha: 0.55),
+                )
+              : BorderSide.none,
         ),
-        subtitle: Text(
-          'المتجر: ${order.merchantName} | الإجمالي: ${formatIqd(order.totalAmount)}',
-          textDirection: TextDirection.rtl,
-        ),
-        childrenPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 8,
-        ),
-        children: [
-          _OrderStatusTimeline(order: order),
-          if (order.status == 'on_the_way') ...[
-            const SizedBox(height: 10),
-            _DeliveryEtaPanel(order: order),
-          ],
-          if (order.deliveryFullName != null) ...[
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                'السائق: ${order.deliveryFullName} - ${order.deliveryPhone ?? ''}',
-                textDirection: TextDirection.rtl,
+        child: ExpansionTile(
+          key: PageStorageKey('order_card_${order.id}'),
+          initiallyExpanded: initiallyExpanded,
+          title: Text(
+            'طلب #${order.id} - $status',
+            textDirection: TextDirection.rtl,
+          ),
+          subtitle: Text(
+            'المتجر: ${order.merchantName} | الإجمالي: ${formatIqd(order.totalAmount)}',
+            textDirection: TextDirection.rtl,
+          ),
+          childrenPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 8,
+          ),
+          children: [
+            _OrderStatusTimeline(order: order),
+            if (order.status == 'on_the_way') ...[
+              const SizedBox(height: 10),
+              _DeliveryEtaPanel(order: order),
+            ],
+            if (order.deliveryFullName != null) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'السائق: ${order.deliveryFullName} - ${order.deliveryPhone ?? ''}',
+                  textDirection: TextDirection.rtl,
+                ),
               ),
-            ),
-          ],
-          if (order.imageUrl?.trim().isNotEmpty == true) ...[
+            ],
+            if (order.imageUrl?.trim().isNotEmpty == true) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'صورة الطلب',
+                  textDirection: TextDirection.rtl,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(
+                  order.imageUrl!,
+                  height: 130,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    height: 90,
+                    alignment: Alignment.center,
+                    color: Colors.black12,
+                    child: const Icon(Icons.image_not_supported_outlined),
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                'صورة الطلب',
-                textDirection: TextDirection.rtl,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                order.imageUrl!,
-                height: 130,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  height: 90,
-                  alignment: Alignment.center,
-                  color: Colors.black12,
-                  child: const Icon(Icons.image_not_supported_outlined),
+            ...order.items.map(
+              (item) => Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  '- ${item.productName} x ${item.quantity} (${formatIqd(item.lineTotal)})',
+                  textDirection: TextDirection.rtl,
                 ),
               ),
             ),
-          ],
-          const SizedBox(height: 8),
-          ...order.items.map(
-            (item) => Align(
+            const Divider(height: 22),
+            Align(
               alignment: Alignment.centerRight,
               child: Text(
-                '- ${item.productName} x ${item.quantity} (${formatIqd(item.lineTotal)})',
+                'المجموع الفرعي: ${formatIqd(order.subtotal)}\n'
+                'رسوم الخدمة: ${formatIqd(order.serviceFee)}\n'
+                'أجور التوصيل: ${formatIqd(order.deliveryFee)}\n'
+                'الإجمالي: ${formatIqd(order.totalAmount)}',
                 textDirection: TextDirection.rtl,
               ),
             ),
-          ),
-          const Divider(height: 22),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              'المجموع الفرعي: ${formatIqd(order.subtotal)}\n'
-              'رسوم الخدمة: ${formatIqd(order.serviceFee)}\n'
-              'أجور التوصيل: ${formatIqd(order.deliveryFee)}\n'
-              'الإجمالي: ${formatIqd(order.totalAmount)}',
-              textDirection: TextDirection.rtl,
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (order.status == 'delivered' && order.customerConfirmedAt == null)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () async {
-                  final ok = await ref
-                      .read(ordersControllerProvider.notifier)
-                      .confirmDelivered(order.id);
-                  if (!ok || !context.mounted) return;
+            const SizedBox(height: 10),
+            if (order.status == 'delivered' &&
+                order.customerConfirmedAt == null)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    final ok = await ref
+                        .read(ordersControllerProvider.notifier)
+                        .confirmDelivered(order.id);
+                    if (!ok || !context.mounted) return;
 
-                  final result = await _showRatingDialog(
-                    context,
-                    title:
-                        'تقييم المندوب',
-                  );
-                  if (!context.mounted) return;
-                  if (result != null) {
+                    final result = await _showRatingDialog(
+                      context,
+                      title: 'تقييم المندوب',
+                    );
+                    if (!context.mounted) return;
+                    if (result != null) {
+                      await ref
+                          .read(ordersControllerProvider.notifier)
+                          .rateDelivery(
+                            orderId: order.id,
+                            rating: result.rating,
+                            review: result.review,
+                          );
+                      if (!context.mounted) return;
+                    }
+
+                    await _showFirstAppRating(context, ref);
+                  },
+                  child: const Text('تم استلام الطلب'),
+                ),
+              ),
+            if (order.status == 'delivered')
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () async {
+                    await ref
+                        .read(ordersControllerProvider.notifier)
+                        .reorder(order.id, note: order.note);
+                  },
+                  child: const Text('إعادة الطلب'),
+                ),
+              ),
+            if (order.status == 'delivered' && order.deliveryRating == null)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () async {
+                    final result = await _showRatingDialog(
+                      context,
+                      title: 'تقييم المندوب',
+                    );
+                    if (result == null) return;
                     await ref
                         .read(ordersControllerProvider.notifier)
                         .rateDelivery(
@@ -239,95 +271,61 @@ class _OrderCard extends ConsumerWidget {
                           rating: result.rating,
                           review: result.review,
                         );
-                    if (!context.mounted) return;
-                  }
-
-                  await _showFirstAppRating(context, ref);
-                },
-                child: const Text(
-                  'تم استلام الطلب',
+                  },
+                  child: const Text('تقييم المندوب'),
                 ),
               ),
-            ),
-          if (order.status == 'delivered')
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () async {
-                  await ref
-                      .read(ordersControllerProvider.notifier)
-                      .reorder(order.id, note: order.note);
-                },
-                child: const Text(
-                  'إعادة الطلب',
+            if (order.status == 'delivered' && order.merchantRating == null)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () async {
+                    final result = await _showRatingDialog(
+                      context,
+                      title: 'تقييم المتجر',
+                    );
+                    if (result == null) return;
+                    await ref
+                        .read(ordersControllerProvider.notifier)
+                        .rateMerchant(
+                          orderId: order.id,
+                          rating: result.rating,
+                          review: result.review,
+                        );
+                  },
+                  child: const Text('تقييم المتجر'),
                 ),
               ),
-            ),
-          if (order.status == 'delivered' && order.deliveryRating == null)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () async {
-                  final result = await _showRatingDialog(
-                    context,
-                    title:
-                        'تقييم المندوب',
-                  );
-                  if (result == null) return;
-                  await ref
-                      .read(ordersControllerProvider.notifier)
-                      .rateDelivery(
-                        orderId: order.id,
-                        rating: result.rating,
-                        review: result.review,
-                      );
-                },
-                child: const Text(
-                  'تقييم المندوب',
+            if (order.deliveryRating != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'تقييم المندوب: ${'⭐' * (order.deliveryRating ?? 0)}',
                 ),
               ),
-            ),
-          if (order.status == 'delivered' && order.merchantRating == null)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () async {
-                  final result = await _showRatingDialog(
-                    context,
-                    title: 'تقييم المتجر',
-                  );
-                  if (result == null) return;
-                  await ref
-                      .read(ordersControllerProvider.notifier)
-                      .rateMerchant(
-                        orderId: order.id,
-                        rating: result.rating,
-                        review: result.review,
-                      );
-                },
-                child: const Text(
-                  'تقييم المتجر',
+            if (order.merchantRating != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'تقييم المتجر: ${'⭐' * (order.merchantRating ?? 0)}',
                 ),
               ),
-            ),
-          if (order.deliveryRating != null)
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                'تقييم المندوب: ${'⭐' * (order.deliveryRating ?? 0)}',
-              ),
-            ),
-          if (order.merchantRating != null)
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                'تقييم المتجر: ${'⭐' * (order.merchantRating ?? 0)}',
-              ),
-            ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    );
+            const SizedBox(height: 8),
+          ],
+        ),
+      );
+    } catch (_) {
+      return Card(
+        child: ListTile(
+          title: Text('طلب #${order.id}'),
+          subtitle: const Text(
+            'تعذر عرض تفاصيل هذا الطلب حالياً، حاول تحديث الصفحة.',
+            textDirection: TextDirection.rtl,
+          ),
+          trailing: const Icon(Icons.error_outline_rounded),
+        ),
+      );
+    }
   }
 
   Future<_RatingResult?> _showRatingDialog(
@@ -365,8 +363,7 @@ class _OrderCard extends ConsumerWidget {
                 TextField(
                   controller: reviewCtrl,
                   decoration: const InputDecoration(
-                    labelText:
-                        'ملاحظة (اختياري)',
+                    labelText: 'ملاحظة (اختياري)',
                   ),
                 ),
               ],
@@ -374,9 +371,7 @@ class _OrderCard extends ConsumerWidget {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  'إلغاء',
-                ),
+                child: const Text('إلغاء'),
               ),
               TextButton(
                 onPressed: () {
@@ -388,9 +383,7 @@ class _OrderCard extends ConsumerWidget {
                     ),
                   );
                 },
-                child: const Text(
-                  'إرسال',
-                ),
+                child: const Text('إرسال'),
               ),
             ],
           );
@@ -449,6 +442,10 @@ class _OrderStatusTimeline extends StatelessWidget {
       _TimelineStep(label: 'وصل السائق', icon: Icons.location_on_outlined),
       _TimelineStep(label: 'تم استلام الطلب', icon: Icons.check_circle_outline),
     ];
+    final safeDoneFlags = List<bool>.generate(
+      steps.length,
+      (i) => i < progress.doneFlags.length ? progress.doneFlags[i] : false,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -490,18 +487,18 @@ class _OrderStatusTimeline extends StatelessWidget {
                 for (var i = 0; i < steps.length; i++) ...[
                   _TimelineChip(
                     step: steps[i],
-                    done: progress.doneFlags[i] && order.status != 'cancelled',
+                    done: safeDoneFlags[i] && order.status != 'cancelled',
                     active:
                         i == progress.activeIndex &&
                         order.status != 'cancelled' &&
-                        !progress.doneFlags.last,
+                        !safeDoneFlags.last,
                   ),
                   if (i < steps.length - 1)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 6),
                       child: Icon(
                         Icons.arrow_left_rounded,
-                        color: progress.doneFlags[i]
+                        color: safeDoneFlags[i]
                             ? Theme.of(context).colorScheme.primary
                             : Colors.white54,
                       ),
