@@ -5,8 +5,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/notifications/local_notification_service.dart';
+import 'core/notifications/push_notification_service.dart';
 import 'core/settings/app_settings_controller.dart';
 import 'core/theme/app_backdrop.dart';
+import 'core/theme/app_responsive_shell.dart';
 import 'core/theme/app_theme.dart';
 import 'features/admin/ui/admin_dashboard_screen.dart';
 import 'features/auth/presentation/login_screen.dart';
@@ -31,7 +33,10 @@ class BestOfferApp extends ConsumerStatefulWidget {
 class _BestOfferAppState extends ConsumerState<BestOfferApp> {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   StreamSubscription<NotificationTapPayload>? _notificationTapSub;
+  StreamSubscription<NotificationTapPayload>? _pushTapSub;
   NotificationTapPayload? _pendingTapPayload;
+  int? _pushSyncedUserId;
+  bool _pushSyncInFlight = false;
 
   @override
   void initState() {
@@ -42,6 +47,9 @@ class _BestOfferAppState extends ConsumerState<BestOfferApp> {
       _notificationTapSub = localNotifications.tapStream.listen(
         _handleNotificationTap,
       );
+      final push = ref.read(pushNotificationsProvider);
+      await push.initialize();
+      _pushTapSub = push.tapStream.listen(_handleNotificationTap);
       await ref.read(authControllerProvider.notifier).bootstrap();
     });
   }
@@ -49,6 +57,7 @@ class _BestOfferAppState extends ConsumerState<BestOfferApp> {
   @override
   void dispose() {
     _notificationTapSub?.cancel();
+    _pushTapSub?.cancel();
     super.dispose();
   }
 
@@ -84,6 +93,28 @@ class _BestOfferAppState extends ConsumerState<BestOfferApp> {
     final settings = ref.watch(appSettingsControllerProvider);
     final pendingPayload = _pendingTapPayload;
 
+    if (auth.isAuthed && auth.user != null) {
+      final userId = auth.user!.id;
+      if (_pushSyncedUserId != userId && !_pushSyncInFlight) {
+        _pushSyncInFlight = true;
+        Future.microtask(() async {
+          try {
+            await ref.read(pushNotificationsProvider).syncToken();
+            _pushSyncedUserId = userId;
+          } catch (_) {
+            // Keep _pushSyncedUserId unchanged to allow retry on next rebuild.
+          } finally {
+            _pushSyncInFlight = false;
+          }
+        });
+      }
+    } else if (_pushSyncedUserId != null) {
+      _pushSyncedUserId = null;
+      Future.microtask(() async {
+        await ref.read(pushNotificationsProvider).unregisterCurrentToken();
+      });
+    }
+
     if (auth.isAuthed && pendingPayload != null) {
       _pendingTapPayload = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -109,7 +140,7 @@ class _BestOfferAppState extends ConsumerState<BestOfferApp> {
         return AppBackdrop(
           animationsEnabled: settings.animationsEnabled,
           weatherEffectsEnabled: settings.weatherEffectsEnabled,
-          child: child,
+          child: AppResponsiveShell(child: child),
         );
       },
       home: auth.isAuthed
