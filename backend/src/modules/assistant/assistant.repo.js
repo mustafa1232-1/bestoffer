@@ -320,6 +320,9 @@ export async function listRecommendationPool(customerUserId, limit = 500) {
            FILTER (WHERE o.status = 'delivered' AND o.merchant_rating IS NOT NULL),
          0
        )::double precision AS merchant_avg_rating,
+       AVG(o.estimated_delivery_minutes)
+         FILTER (WHERE o.estimated_delivery_minutes IS NOT NULL)::double precision
+         AS merchant_avg_delivery_minutes,
        COUNT(o.id)
          FILTER (WHERE o.status = 'delivered')::int AS merchant_completed_orders,
        EXISTS (
@@ -360,6 +363,10 @@ export async function listRecommendationPool(customerUserId, limit = 500) {
     merchantImageUrl: row.merchant_image_url || null,
     merchantIsOpen: row.is_open === true,
     merchantAvgRating: Number(row.merchant_avg_rating || 0),
+    merchantAvgDeliveryMinutes:
+      row.merchant_avg_delivery_minutes == null
+        ? null
+        : Number(row.merchant_avg_delivery_minutes),
     merchantCompletedOrders: Number(row.merchant_completed_orders || 0),
     isFavorite: row.is_favorite === true,
   }));

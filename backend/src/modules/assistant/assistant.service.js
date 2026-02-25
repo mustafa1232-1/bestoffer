@@ -215,6 +215,127 @@ const MOOD_CHITCHAT_KEYWORDS = [
   '\u0634\u062e\u0628\u0627\u0631\u0643',
 ];
 
+const LANG_EN_KEYWORDS = [
+  'english',
+  'in english',
+  '\u0627\u0646\u0643\u0644\u064a\u0632\u064a',
+  '\u0627\u0646\u0643\u0644\u0634',
+  '\u0628\u0627\u0644\u0627\u0646\u0643\u0644\u064a\u0632\u064a',
+];
+
+const LANG_AR_KEYWORDS = [
+  'arabic',
+  '\u0639\u0631\u0628\u064a',
+  '\u0628\u0627\u0644\u0639\u0631\u0628\u064a',
+];
+
+const DISCOVER_NEW_KEYWORDS = [
+  'new',
+  '\u062c\u062f\u064a\u062f',
+  '\u0634\u0646\u0648 \u0627\u0644\u062c\u062f\u064a\u062f',
+];
+
+const OFFERS_KEYWORDS = [
+  'offers',
+  'offer',
+  'discount',
+  '\u0639\u0631\u0648\u0636',
+  '\u062e\u0635\u0645',
+  '\u062d\u0633\u0648\u0645\u0627\u062a',
+  '1+1',
+];
+
+const RECOMMEND_KEYWORDS = [
+  'recommend',
+  '\u0627\u0646\u0635\u062d\u0646\u064a',
+  '\u0631\u0634\u062d\u0644\u064a',
+  '\u0627\u0642\u062a\u0631\u062d',
+];
+
+const EVALUATE_KEYWORDS = [
+  'what do you think',
+  '\u0631\u0623\u064a\u0643',
+  '\u0634\u0631\u0623\u064a\u0643',
+  '\u0631\u0627\u064a\u0643',
+];
+
+const SUPPORT_KEYWORDS = [
+  'problem',
+  'issue',
+  'late',
+  'missing',
+  'wrong',
+  '\u0645\u0634\u0643\u0644\u0629',
+  '\u062a\u0623\u062e\u0631',
+  '\u0646\u0627\u0642\u0635',
+  '\u063a\u0644\u0637',
+  '\u0633\u064a\u0621',
+  '\u0627\u0634\u062a\u0643\u064a',
+  '\u0634\u0643\u0648\u0649',
+];
+
+const MOOD_BASED_KEYWORDS = [
+  'what to eat',
+  '\u0634\u0646\u0648 \u0622\u0643\u0644',
+  '\u0634\u0646\u0648 \u0627\u0643\u0644',
+  '\u0645\u0632\u0627\u062c',
+  '\u0634\u0646\u0648 \u062a\u0634\u062a\u0647\u064a',
+];
+
+const COMPARISON_KEYWORDS = [
+  'compare',
+  '\u0642\u0627\u0631\u0646',
+  '\u0645\u0642\u0627\u0631\u0646\u0629',
+];
+
+const HURRY_KEYWORDS = [
+  '\u0645\u0633\u062a\u0639\u062c\u0644',
+  '\u0633\u0631\u064a\u0639',
+  '\u0628\u0633\u0631\u0639\u0629',
+  'quick',
+  'fast',
+  'hurry',
+];
+
+const FORMAL_STYLE_KEYWORDS = [
+  '\u0645\u0646 \u0641\u0636\u0644\u0643',
+  '\u0631\u062c\u0627\u0621',
+  'please',
+];
+
+const PLAYFUL_STYLE_KEYWORDS = [
+  '\u0647\u0647',
+  '\u0644\u0648\u0644',
+  '\u0645\u0632\u062d',
+  'haha',
+  'lol',
+];
+
+const DIETARY_KEYWORDS = [
+  { key: '\u0628\u062f\u0648\u0646 \u0644\u062d\u0645', words: ['\u0628\u062f\u0648\u0646 \u0644\u062d\u0645', 'no meat'] },
+  { key: '\u0646\u0628\u0627\u062a\u064a', words: ['\u0646\u0628\u0627\u062a\u064a', 'vegan', 'vegetarian'] },
+  { key: '\u0628\u062f\u0648\u0646 \u063a\u0644\u0648\u062a\u064a\u0646', words: ['\u0628\u062f\u0648\u0646 \u063a\u0644\u0648\u062a\u064a\u0646', 'gluten'] },
+  { key: '\u062d\u0633\u0627\u0633\u064a\u0629', words: ['\u062d\u0633\u0627\u0633\u064a\u0629', 'allergy'] },
+];
+
+const SUPPORT_DELAY_KEYWORDS = [
+  '\u062a\u0623\u062e\u0631',
+  'late',
+  '\u0645\u062a\u0623\u062e\u0631',
+];
+
+const SUPPORT_MISSING_KEYWORDS = [
+  '\u0646\u0627\u0642\u0635',
+  'missing',
+  '\u0645\u0627 \u0648\u0635\u0644',
+];
+
+const SUPPORT_WRONG_KEYWORDS = [
+  '\u063a\u0644\u0637',
+  'wrong',
+  '\u063a\u064a\u0631 \u0627\u0644\u0645\u0637\u0644\u0648\u0628',
+];
+
 function appError(message, status = 400) {
   const err = new Error(message);
   err.status = status;
@@ -224,6 +345,12 @@ function appError(message, status = 400) {
 function countArabicChars(value) {
   const text = String(value || '');
   const matches = text.match(/[\u0600-\u06FF]/g);
+  return matches ? matches.length : 0;
+}
+
+function countLatinChars(value) {
+  const text = String(value || '');
+  const matches = text.match(/[A-Za-z]/g);
   return matches ? matches.length : 0;
 }
 
@@ -348,8 +475,82 @@ function detectOffTopicTheme(normalizedText) {
   return "general";
 }
 
+function detectLanguageSwitch(normalizedText) {
+  if (containsAny(normalizedText, LANG_EN_KEYWORDS)) return "en";
+  if (containsAny(normalizedText, LANG_AR_KEYWORDS)) return "ar";
+  return null;
+}
+
+function detectTextLanguage(rawText) {
+  const text = String(rawText || "");
+  const arabic = countArabicChars(text);
+  const latin = countLatinChars(text);
+  const enHint =
+    /\b(hello|hi|hey|please|what|want|order|restaurant|menu|offer|delivery|price|cheap|rating|thanks|english)\b/i.test(
+      text
+    );
+  if (arabic === 0 && latin === 0) return "ar";
+  if (arabic === 0) return enHint ? "en" : "ar";
+  if (arabic >= latin * 0.6) return "ar";
+  if (enHint) return "en";
+  return "en";
+}
+
+function detectConversationStyle(normalizedText) {
+  if (containsAny(normalizedText, HURRY_KEYWORDS)) return "rush";
+  if (containsAny(normalizedText, FORMAL_STYLE_KEYWORDS)) return "formal";
+  if (containsAny(normalizedText, PLAYFUL_STYLE_KEYWORDS)) return "playful";
+  return "neutral";
+}
+
+function detectDietaryNotes(normalizedText) {
+  const notes = [];
+  for (const note of DIETARY_KEYWORDS) {
+    if (containsAny(normalizedText, note.words)) notes.push(note.key);
+  }
+  return Array.from(new Set(notes));
+}
+
+function detectSupportType(normalizedText) {
+  if (containsAny(normalizedText, SUPPORT_DELAY_KEYWORDS)) return "delay";
+  if (containsAny(normalizedText, SUPPORT_MISSING_KEYWORDS)) return "missing_items";
+  if (containsAny(normalizedText, SUPPORT_WRONG_KEYWORDS)) return "wrong_order";
+  return "general";
+}
+
+function detectPrimaryIntent(normalizedText, supportIntent) {
+  if (supportIntent) return "SUPPORT";
+  if (containsAny(normalizedText, DISCOVER_NEW_KEYWORDS)) return "DISCOVER_NEW";
+  if (containsAny(normalizedText, OFFERS_KEYWORDS)) return "OFFERS";
+  if (containsAny(normalizedText, EVALUATE_KEYWORDS)) return "EVALUATE";
+  if (containsAny(normalizedText, MOOD_BASED_KEYWORDS)) return "MOOD_BASED";
+  if (containsAny(normalizedText, RECOMMEND_KEYWORDS)) return "RECOMMEND";
+  if (containsAny(normalizedText, ORDER_KEYWORDS)) return "ORDER_DIRECT";
+  return "BROWSE";
+}
+
+function extractCityAreaHints(normalizedText) {
+  const hints = { city: null, area: null };
+  if (
+    normalizedText.includes(normalizeForNlp("\u0628\u0633\u0645\u0627\u064a\u0629")) ||
+    normalizedText.includes(normalizeForNlp("\u0645\u062f\u064a\u0646\u0629 \u0628\u0633\u0645\u0627\u064a\u0629"))
+  ) {
+    hints.city = "\u0645\u062f\u064a\u0646\u0629 \u0628\u0633\u0645\u0627\u064a\u0629";
+  }
+
+  const blockMatch = normalizedText.match(
+    /(?:block|bl|b|بلوك)\s*([a-z0-9\u0660-\u0669\u06F0-\u06F9]+)/iu
+  );
+  if (blockMatch?.[1]) {
+    hints.area = `\u0628\u0644\u0648\u0643 ${normalizeDigits(blockMatch[1])}`;
+  }
+
+  return hints;
+}
+
 function detectIntent(message) {
-  const normalized = normalizeForNlp(message || "");
+  const rawMessage = String(message || "");
+  const normalized = normalizeForNlp(rawMessage);
   const categoryHints = detectCategoryHints(normalized);
   const smallTalkType = detectSmallTalkType(normalized);
   const audienceType = detectAudienceType(normalized);
@@ -360,13 +561,22 @@ function detectIntent(message) {
   const orderIntent = containsAny(normalized, ORDER_KEYWORDS);
   const confirmIntent = containsAny(normalized, CONFIRM_KEYWORDS);
   const cancelIntent = containsAny(normalized, CANCEL_KEYWORDS);
+  const comparisonIntent = containsAny(normalized, COMPARISON_KEYWORDS);
+  const supportIntent = containsAny(normalized, SUPPORT_KEYWORDS);
   const budgetIqd = extractBudgetIqd(normalized);
   const tokens = tokenize(normalized);
+  const supportType = detectSupportType(normalized);
+  const dietaryNotes = detectDietaryNotes(normalized);
+  const style = detectConversationStyle(normalized);
+  const languageSwitch = detectLanguageSwitch(normalized);
+  const inferredLanguage = languageSwitch || detectTextLanguage(rawMessage);
+  const cityAreaHints = extractCityAreaHints(normalized);
 
   const hasDomainTerms =
     containsAny(normalized, ORDER_DOMAIN_KEYWORDS) ||
     categoryHints.length > 0 ||
-    budgetIqd != null;
+    budgetIqd != null ||
+    supportIntent;
 
   const hardOrderSignals =
     orderIntent ||
@@ -379,9 +589,11 @@ function detectIntent(message) {
 
   const offTopicIntent = !hardOrderSignals && !hasDomainTerms && tokens.length > 0;
   const offTopicTheme = offTopicIntent ? detectOffTopicTheme(normalized) : "none";
+  const primaryIntent = detectPrimaryIntent(normalized, supportIntent);
 
   return {
     normalizedText: normalized,
+    originalText: rawMessage,
     tokens,
     wantsCheap,
     wantsTopRated,
@@ -390,11 +602,21 @@ function detectIntent(message) {
     orderIntent,
     confirmIntent,
     cancelIntent,
+    comparisonIntent,
+    supportIntent,
+    supportType,
     offTopicIntent,
     offTopicTheme,
     smallTalkType,
     audienceType,
     budgetIqd,
+    dietaryNotes,
+    style,
+    inferredLanguage,
+    explicitLanguageSwitch: languageSwitch,
+    primaryIntent,
+    cityHint: cityAreaHints.city,
+    areaHint: cityAreaHints.area,
     requestedQuantity: extractRequestedQuantity(normalized),
     categoryHints,
   };
@@ -407,6 +629,39 @@ function parseProfile(rawProfile) {
       : {};
 
   return {
+    languagePreference: preferenceJson.languagePreference || "ar",
+    personalityStyle: preferenceJson.personalityStyle || "neutral",
+    city: preferenceJson.city || null,
+    area: preferenceJson.area || null,
+    dietaryNotes: Array.isArray(preferenceJson.dietaryNotes)
+      ? preferenceJson.dietaryNotes.filter((x) => typeof x === "string")
+      : [],
+    preferredCuisines: Array.isArray(preferenceJson.preferredCuisines)
+      ? preferenceJson.preferredCuisines.filter((x) => typeof x === "string")
+      : [],
+    budgetLevel: preferenceJson.budgetLevel || "unknown",
+    speedPriority: preferenceJson.speedPriority || "balanced",
+    qualityPriority: preferenceJson.qualityPriority || "balanced",
+    favoriteRestaurants: Array.isArray(preferenceJson.favoriteRestaurants)
+      ? preferenceJson.favoriteRestaurants.filter((x) => typeof x === "string")
+      : [],
+    dislikedRestaurants: Array.isArray(preferenceJson.dislikedRestaurants)
+      ? preferenceJson.dislikedRestaurants.filter((x) => typeof x === "string")
+      : [],
+    issueHistory: Array.isArray(preferenceJson.issueHistory)
+      ? preferenceJson.issueHistory.slice(0, 30)
+      : [],
+    satisfactionHistory: Array.isArray(preferenceJson.satisfactionHistory)
+      ? preferenceJson.satisfactionHistory.slice(0, 25)
+      : [],
+    commonOrderTime: preferenceJson.commonOrderTime || null,
+    averageRatingGiven:
+      preferenceJson.averageRatingGiven == null
+        ? null
+        : Number(preferenceJson.averageRatingGiven),
+    lastInteractionSummary: preferenceJson.lastInteractionSummary || null,
+    loyaltyLevel: preferenceJson.loyaltyLevel || "new",
+    learningConfidence: preferenceJson.learningConfidence || "low",
     pricePreference: preferenceJson.pricePreference || "balanced",
     counters: {
       cheap: Number(preferenceJson?.counters?.cheap || 0),
@@ -495,6 +750,12 @@ function mergeProfileSignals(profile, intent) {
     tokenSignals: decaySignalMap(profile.tokenSignals, 0.985, 0.15),
     audienceSignals: decaySignalMap(profile.audienceSignals, 0.993, 0.2),
     conversation: { ...profile.conversation },
+    dietaryNotes: [...(profile.dietaryNotes || [])],
+    preferredCuisines: [...(profile.preferredCuisines || [])],
+    favoriteRestaurants: [...(profile.favoriteRestaurants || [])],
+    dislikedRestaurants: [...(profile.dislikedRestaurants || [])],
+    issueHistory: [...(profile.issueHistory || [])],
+    satisfactionHistory: [...(profile.satisfactionHistory || [])],
   };
 
   if (intent.wantsCheap) next.counters.cheap += 1;
@@ -503,9 +764,27 @@ function mergeProfileSignals(profile, intent) {
   if (intent.orderIntent) next.counters.ordering += 1;
   if (intent.smallTalkType !== "none") next.conversation.smallTalkCount += 1;
   if (intent.offTopicIntent) next.conversation.offTopicCount += 1;
+  if (intent.explicitLanguageSwitch) {
+    next.languagePreference = intent.explicitLanguageSwitch;
+  } else {
+    next.languagePreference = profile.languagePreference || intent.inferredLanguage || "ar";
+  }
+
+  if (intent.style === "formal") next.personalityStyle = "formal";
+  if (intent.style === "playful") next.personalityStyle = "playful";
+  if (intent.style === "rush") next.personalityStyle = "rush";
+
+  if (intent.cityHint) next.city = intent.cityHint;
+  if (intent.areaHint) next.area = intent.areaHint;
+  for (const dietary of intent.dietaryNotes || []) {
+    if (!next.dietaryNotes.includes(dietary)) next.dietaryNotes.push(dietary);
+  }
 
   for (const category of intent.categoryHints) {
     bumpMapCount(next.categorySignals, category, 1);
+    if (!next.preferredCuisines.includes(category)) {
+      next.preferredCuisines.push(category);
+    }
   }
   if (intent.audienceType !== "unknown") {
     bumpMapCount(next.audienceSignals, intent.audienceType, 1.1);
@@ -538,6 +817,26 @@ function mergeProfileSignals(profile, intent) {
   next.conversation.lastTopic = intent.offTopicIntent
     ? intent.offTopicTheme
     : intent.categoryHints[0] || "none";
+
+  if (intent.budgetIqd != null) {
+    if (intent.budgetIqd <= 12000) next.budgetLevel = "low";
+    else if (intent.budgetIqd <= 30000) next.budgetLevel = "medium";
+    else next.budgetLevel = "high";
+  }
+
+  if (intent.wantsFast) next.speedPriority = "high";
+  else if (intent.wantsCheap) next.speedPriority = next.speedPriority || "balanced";
+
+  if (intent.wantsTopRated) next.qualityPriority = "high";
+  if (intent.wantsCheap && !intent.wantsTopRated) next.qualityPriority = "balanced";
+
+  // Keep compact memory buffers.
+  next.dietaryNotes = Array.from(new Set(next.dietaryNotes)).slice(0, 10);
+  next.preferredCuisines = Array.from(new Set(next.preferredCuisines)).slice(0, 12);
+  next.favoriteRestaurants = Array.from(new Set(next.favoriteRestaurants)).slice(0, 20);
+  next.dislikedRestaurants = Array.from(new Set(next.dislikedRestaurants)).slice(0, 20);
+  next.issueHistory = next.issueHistory.slice(0, 20);
+  next.satisfactionHistory = next.satisfactionHistory.slice(0, 20);
 
   return next;
 }
@@ -780,6 +1079,8 @@ function buildMerchantSuggestions(scoredProducts) {
       maxPrice: 0,
       avgRating: candidate.merchantAvgRating || 0,
       completedOrders: candidate.merchantCompletedOrders || 0,
+      deliveryMinutesSum: 0,
+      deliveryMinutesCount: 0,
       hasFreeDelivery: false,
       topProducts: [],
     };
@@ -789,6 +1090,10 @@ function buildMerchantSuggestions(scoredProducts) {
     current.minPrice = Math.min(current.minPrice, candidate.effectivePrice);
     current.maxPrice = Math.max(current.maxPrice, candidate.effectivePrice);
     current.hasFreeDelivery = current.hasFreeDelivery || candidate.freeDelivery;
+    if (Number.isFinite(Number(candidate.merchantAvgDeliveryMinutes))) {
+      current.deliveryMinutesSum += Number(candidate.merchantAvgDeliveryMinutes);
+      current.deliveryMinutesCount += 1;
+    }
 
     if (current.topProducts.length < 3) {
       current.topProducts.push(candidate.productName);
@@ -809,6 +1114,10 @@ function buildMerchantSuggestions(scoredProducts) {
       minPrice: Number.isFinite(merchant.minPrice) ? merchant.minPrice : 0,
       maxPrice: merchant.maxPrice,
       avgRating: merchant.avgRating,
+      avgDeliveryMinutes:
+        merchant.deliveryMinutesCount > 0
+          ? merchant.deliveryMinutesSum / merchant.deliveryMinutesCount
+          : null,
       completedOrders: merchant.completedOrders,
       hasFreeDelivery: merchant.hasFreeDelivery,
       topProducts: merchant.topProducts,
@@ -939,6 +1248,24 @@ function mapProfileForApi(profile) {
     .slice(0, 3);
 
   return {
+    languagePreference: profile.languagePreference,
+    personalityStyle: profile.personalityStyle,
+    city: profile.city,
+    area: profile.area,
+    dietaryNotes: profile.dietaryNotes,
+    preferredCuisines: profile.preferredCuisines,
+    budgetLevel: profile.budgetLevel,
+    speedPriority: profile.speedPriority,
+    qualityPriority: profile.qualityPriority,
+    favoriteRestaurants: profile.favoriteRestaurants,
+    dislikedRestaurants: profile.dislikedRestaurants,
+    issueHistory: profile.issueHistory,
+    satisfactionHistory: profile.satisfactionHistory,
+    commonOrderTime: profile.commonOrderTime,
+    averageRatingGiven: profile.averageRatingGiven,
+    loyaltyLevel: profile.loyaltyLevel,
+    learningConfidence: profile.learningConfidence,
+    lastInteractionSummary: profile.lastInteractionSummary,
     pricePreference: profile.pricePreference,
     counters: profile.counters,
     topCategories,
@@ -949,90 +1276,429 @@ function mapProfileForApi(profile) {
   };
 }
 
-function buildReasonPhrases(intent, merchants) {
-  const reasons = [];
-  if (intent.wantsCheap) reasons.push('rakazt 3al ar5as');
-  if (intent.wantsTopRated) reasons.push('rakazt 3al a3la taqyeem');
-  if (intent.wantsFreeDelivery) reasons.push('free delivery dakhal bil awlawiya');
-  if (intent.categoryHints.length) reasons.push('t7adeed no3 el matloob');
-  if (intent.wantsFast) reasons.push('afdal tawseel saree3');
-  if (!reasons.length) {
-    reasons.push('esta5damt tareekh t6labatk w soug el yom');
+function resolveResponseLanguage(intent, profile) {
+  if (intent.explicitLanguageSwitch) return intent.explicitLanguageSwitch;
+  if (profile?.languagePreference === "en" || profile?.languagePreference === "ar") {
+    return profile.languagePreference;
   }
-
-  if (merchants.length) {
-    reasons.push(`a7san taree7 hassa: ${merchants[0].merchantName}`);
-  }
-
-  return reasons;
+  return intent.inferredLanguage || "ar";
 }
 
-function buildRefocusQuestion(intent, profile) {
-  if (intent.audienceType === 'group') {
-    return 'momtaz, andak 9youf. trid draft jahiz l3adad akbar?';
+function tr(lang, arText, enText) {
+  return lang === "en" ? enText : arText;
+}
+
+function mapMerchantTypeLabel(type, lang) {
+  const key = String(type || "").toLowerCase();
+  const labelsEn = {
+    restaurant: "restaurant",
+    market: "market",
+    grocery: "grocery",
+    bakery: "bakery",
+    pharmacy: "pharmacy",
+    electronics: "electronics",
+  };
+  const labelsAr = {
+    restaurant: "مطعم",
+    market: "سوق",
+    grocery: "بقالة",
+    bakery: "معجنات",
+    pharmacy: "صيدلية",
+    electronics: "كهربائيات",
+  };
+  if (lang === "en") return labelsEn[key] || "store";
+  return labelsAr[key] || "متجر";
+}
+
+function describePriceBand(merchant, lang) {
+  const maxPrice = Number(merchant.maxPrice || 0);
+  if (maxPrice <= 12000) return tr(lang, "رخيص", "cheap");
+  if (maxPrice <= 28000) return tr(lang, "متوسط", "medium");
+  return tr(lang, "غالي", "expensive");
+}
+
+function formatEtaText(avgDeliveryMinutes, lang) {
+  if (avgDeliveryMinutes == null || !Number.isFinite(Number(avgDeliveryMinutes))) {
+    return tr(lang, "غير متوفر حالياً", "not available");
   }
-  if (intent.audienceType === 'family') {
-    return 'tam, ll3a2la. t7eb options tashba3 aktar bse3r monaseb?';
+  const minutes = Math.max(7, Math.round(Number(avgDeliveryMinutes)));
+  return lang === "en" ? `${minutes} min` : `${minutes} دقيقة`;
+}
+
+function formatDeliveryFeeText(hasFreeDelivery, lang) {
+  if (hasFreeDelivery) return tr(lang, "مجاني", "free");
+  return formatIqd(FIXED_DELIVERY_FEE);
+}
+
+function merchantReason(intent, merchant, lang) {
+  const reasons = [];
+  if (intent.wantsFast && merchant.avgDeliveryMinutes != null) {
+    reasons.push(tr(lang, "توصيله أسرع من المعدل", "faster delivery window"));
+  }
+  if (intent.wantsCheap) {
+    reasons.push(tr(lang, "سعره مناسب", "budget friendly"));
+  }
+  if (intent.wantsTopRated) {
+    reasons.push(tr(lang, "تقييمه عالي", "high rating"));
+  }
+  if (intent.wantsFreeDelivery && merchant.hasFreeDelivery) {
+    reasons.push(tr(lang, "يوفر توصيل مجاني", "offers free delivery"));
+  }
+  if (intent.categoryHints.length) {
+    reasons.push(tr(lang, "قريب من الصنف اللي طلبته", "matches your requested category"));
+  }
+  if (!reasons.length) {
+    reasons.push(tr(lang, "مناسب لطلباتك السابقة", "aligned with your recent orders"));
+  }
+  return reasons.slice(0, 2).join(tr(lang, "، ", ", "));
+}
+
+function pickSmartQuestion(intent, profile, lang) {
+  if (intent.supportIntent) {
+    return tr(
+      lang,
+      "تكدر ترسلي رقم الطلب حتى أتابعه إلك مباشرة؟",
+      "Can you send the order number so I can follow it up now?"
+    );
+  }
+  if (intent.primaryIntent === "OFFERS") {
+    return tr(
+      lang,
+      "تحب عروض الشرقي لو البرغر والبيتزا؟",
+      "Do you want Eastern offers or burger and pizza offers?"
+    );
+  }
+  if (intent.primaryIntent === "MOOD_BASED") {
+    return tr(
+      lang,
+      "مزاجك اليوم خفيف لو وجبة دسمة؟",
+      "Do you want a light meal or a heavy meal today?"
+    );
+  }
+  if (intent.wantsFast && !intent.wantsCheap) {
+    return tr(
+      lang,
+      "تريد توصيل أسرع لو سعر أقل؟",
+      "Do you prefer the fastest delivery or the lower price?"
+    );
   }
   if (!intent.categoryHints.length) {
-    return 'shno t7eb hassa? burger, pizza, mashawi, baqala, aw electronics?';
+    return tr(
+      lang,
+      "تميل اليوم لشرقي لو غربي؟",
+      "Do you prefer Eastern food or Western today?"
+    );
   }
-  if (!intent.budgetIqd && profile.pricePreference !== 'premium') {
-    return '7adedly budget taqreebi bil IQD ta asawi rank adaq.';
+  if (intent.budgetIqd == null && profile.budgetLevel === "unknown") {
+    return tr(
+      lang,
+      "شكد ميزانيتك تقريباً بالدينار؟",
+      "What is your approximate budget in IQD?"
+    );
   }
-  if (!intent.orderIntent) {
-    return 'trid asawilek draft jahiz hassa?';
+  if (intent.comparisonIntent) {
+    return tr(
+      lang,
+      "تحب أقارنلك حسب السعر لو حسب سرعة التوصيل؟",
+      "Should I compare by price or by delivery speed?"
+    );
   }
-  return 'qabel el tatbeet, t7eb azid aw ashil shay?';
+  return tr(
+    lang,
+    "تحب أختارلك أفضل واحد وأكمل الطلب لو أعرض خيارات أكثر؟",
+    "Do you want me to confirm one of these options, or show more?"
+  );
 }
 
-function buildOffTopicSnippet(intent) {
-  switch (intent.offTopicTheme) {
-    case "weather":
-      return 'jaw basmaya yitghayar, fa afdal n5tar option qareeb w saree3.';
-    case "joke":
-      return 'nokta sree3a: el diet yebda ba3ad bokra dyman :)';
-    case "bot_identity":
-      return 'ana mosa3ed BestOffer, artab matager w products b7asab talabak.';
-    case "mood":
-      return 'ana tamam, weyak step by step l7ad ma yethabet talabak.';
-    default:
-      return 'aqdar a7chi wayak, bas dawari el asasi khidmat el talabat.';
-  }
+function tonePrefix(intent, lang) {
+  if (intent?.style === "formal") return tr(lang, "أكيد، ", "Certainly, ");
+  if (intent?.style === "playful") return tr(lang, "حلو 😄 ", "Nice 😄 ");
+  if (intent?.style === "rush") return tr(lang, "باختصار: ", "Quickly: ");
+  return "";
 }
 
-function buildSmallTalkReply({ intent, profile, merchants, products }) {
-  let intro = 'ana weyak.';
-  if (intent.smallTalkType === 'greeting') {
-    intro = 'hala beek, nwartna.';
-  } else if (intent.smallTalkType === 'thanks') {
-    intro = 'tadlal, hatha wajebna.';
-  } else if (intent.smallTalkType === 'chitchat' || intent.offTopicIntent) {
-    intro = buildOffTopicSnippet(intent);
-  }
-
-  const merchantHint = merchants.length
-    ? `aqarab match hassa: ${merchants[0].merchantName}.`
-    : 'min t7aded talabak, aratablik afdal options fawran.';
-  const productHint = products.length
-    ? `mathal sree3: ${products[0].productName} b ${formatIqd(products[0].effectivePrice)}.`
-    : '';
-  const refocus = buildRefocusQuestion(intent, profile);
-  return `${intro} ${merchantHint} ${productHint} ${refocus}`;
+function buildOffTopicSnippet(intent, lang) {
+  const ar = {
+    weather: "الجو يتغيّر بسرعة ببسماية، أقدر أرشّحلك خيارات أقرب وتوصيلها أسرع.",
+    joke: "حتى لو الجو يخربط، الطلب المضبوط يبقى مزاج 😄",
+    bot_identity: "أني مساعد تطبيق سوقي، شغلي أسهّل عليك الاختيار والطلب.",
+    mood: "تمام الحمدلله، شلونك إنت اليوم؟",
+    general: "أحب الدردشة وياك، وبنفس الوقت أرتبلك أفضل خيار للطلب.",
+  };
+  const en = {
+    weather: "Weather keeps changing, so I can suggest closer options with quicker delivery.",
+    joke: "Quick one: good food always improves the mood 😄",
+    bot_identity: "I am Souqi in-app assistant, focused on smart ordering choices.",
+    mood: "I am good, thanks. How are you today?",
+    general: "I can chat with you and still help you decide the best order fast.",
+  };
+  return lang === "en" ? en[intent.offTopicTheme] || en.general : ar[intent.offTopicTheme] || ar.general;
 }
 
-function summarizeRecentContext(recentMessages) {
+function buildSmallTalkReply({ intent, profile, merchants, products, lang }) {
+  let intro = tr(lang, "هلا بيك 🌟", "Hey there 🌟");
+  if (intent.smallTalkType === "greeting") {
+    intro = tr(
+      lang,
+      "هلا بيك 🌟 شلونك اليوم؟ تحب أشوفلك عروض اليوم لو أختارلك مطعم حسب مزاجك؟",
+      "Hey 🌟 how are you today? Want today's offers or a mood-based recommendation?"
+    );
+  } else if (intent.smallTalkType === "thanks") {
+    intro = tr(lang, "تدلل 🙏", "You are welcome 🙏");
+  } else if (intent.smallTalkType === "chitchat" || intent.offTopicIntent) {
+    intro = buildOffTopicSnippet(intent, lang);
+  }
+
+  const quickHint = merchants.length
+    ? tr(
+        lang,
+        `أقرب ترشيح عندي هسه: ${merchants[0].merchantName}.`,
+        `Best current match: ${merchants[0].merchantName}.`
+      )
+    : tr(
+        lang,
+        "من تحدد شتريد أرتبلك الخيارات فوراً.",
+        "Once you tell me what you want, I will rank the best options instantly."
+      );
+
+  const productHint = products.length > 0
+    ? tr(
+        lang,
+        `مثال سريع: ${products[0].productName} بسعر ${formatIqd(products[0].effectivePrice)}.`,
+        `Quick example: ${products[0].productName} at ${formatIqd(products[0].effectivePrice)}.`
+      )
+    : "";
+
+  return `${intro} ${quickHint} ${productHint} ${pickSmartQuestion(intent, profile, lang)}`.trim();
+}
+
+function summarizeRecentContext(recentMessages, lang) {
   const recentUser = (recentMessages || [])
-    .filter((msg) => msg.role === 'user' && typeof msg.text === 'string')
+    .filter((msg) => msg.role === "user" && typeof msg.text === "string")
     .slice(-2)
     .map((msg) => msg.text.trim())
     .filter(Boolean);
   if (!recentUser.length) return null;
-  if (recentUser.length === 1) return `a5er taleb: ${recentUser[0]}.`;
-  return `a5er talabeen: ${recentUser[0]} , ba3daha ${recentUser[1]}.`;
+  if (recentUser.length === 1) {
+    return tr(lang, `آخر طلب: ${recentUser[0]}.`, `Last request: ${recentUser[0]}.`);
+  }
+  return tr(
+    lang,
+    `آخر طلبين: ${recentUser[0]} بعدها ${recentUser[1]}.`,
+    `Last two requests: ${recentUser[0]}, then ${recentUser[1]}.`
+  );
 }
 
-function buildAssistantReply({
+function buildRecommendationLines(merchants, intent, lang) {
+  return merchants.slice(0, 3).map((merchant, index) => {
+    const priceBand = describePriceBand(merchant, lang);
+    const etaText = formatEtaText(merchant.avgDeliveryMinutes, lang);
+    const feeText = formatDeliveryFeeText(merchant.hasFreeDelivery, lang);
+    const reasonText = merchantReason(intent, merchant, lang);
+    const topDishes =
+      merchant.topProducts && merchant.topProducts.length
+        ? merchant.topProducts.slice(0, 2).join(" - ")
+        : tr(lang, "غير متوفر حالياً", "not available");
+
+    const header = `${index + 1}) ${merchant.merchantName} - (${mapMerchantTypeLabel(
+      merchant.merchantType,
+      lang
+    )}) - ${priceBand} - ⭐ ${Number(merchant.avgRating || 0).toFixed(1)} (${Number(
+      merchant.completedOrders || 0
+    )}) - ⏱ ${etaText} - 🚚 ${feeText}`;
+
+    const reasonLine = tr(lang, `- ليش مناسب: ${reasonText}`, `- Why it fits: ${reasonText}`);
+    const dishesLine = tr(lang, `- أشهر شي: ${topDishes}`, `- Popular: ${topDishes}`);
+    return `${header}\n${reasonLine}\n${dishesLine}`;
+  });
+}
+
+function extractMerchantNameHint(message) {
+  const raw = String(message || "").trim();
+  if (!raw) return null;
+  const arMatch = raw.match(/(?:مطعم|بمطعم|رأيك\s*(?:ب|في)?|قيم)\s+([^\n\r\.,!\?]+)/u);
+  if (arMatch?.[1]) return arMatch[1].trim();
+  const enMatch = raw.match(/(?:restaurant)\s+([^\n\r\.,!\?]+)/i);
+  if (enMatch?.[1]) return enMatch[1].trim();
+  return null;
+}
+
+function buildSupportReply(intent, lang) {
+  const intro = tr(
+    lang,
+    "حقك علينا، آسف على الإزعاج 🙏",
+    "Sorry about that, and thanks for your patience 🙏"
+  );
+  if (intent.supportType === "delay") {
+    return `${intro} ${tr(
+      lang,
+      "أقدر أتابع حالة التأخير هسه، ارسل رقم الطلب واسم المطعم.",
+      "I can follow up the delay right now. Please send the order number and restaurant name."
+    )}`;
+  }
+  if (intent.supportType === "missing_items") {
+    return `${intro} ${tr(
+      lang,
+      "ممكن تكتب شنو الأصناف الناقصة ورقم الطلب حتى أرفع البلاغ فوراً؟",
+      "Please share the missing items and order number so I can open a complaint now."
+    )}`;
+  }
+  if (intent.supportType === "wrong_order") {
+    return `${intro} ${tr(
+      lang,
+      "ممكن توضح شنو الغلط بالطلب ورقمه حتى أعالجه ويا الدعم؟",
+      "Please tell me what was wrong in the order and share the order number so I can escalate it."
+    )}`;
+  }
+  return `${intro} ${tr(
+    lang,
+    "وضحلي باختصار رقم الطلب وشنو المشكلة بالضبط حتى أتابعها إلك.",
+    "Please share order number and a short issue description so I can follow it up."
+  )}`;
+}
+
+function buildOffersReply({ products, intent, profile, lang }) {
+  const offerProducts = products
+    .filter((p) => p.offerLabel || (p.discountedPrice != null && p.discountedPrice < p.basePrice))
+    .slice(0, 5);
+
+  if (!offerProducts.length) {
+    return `${tr(
+      lang,
+      "حالياً ما عندي عروض مؤكدة ببيانات التطبيق لهذه اللحظة.",
+      "I do not have confirmed offer records in the current data right now."
+    )} ${pickSmartQuestion(intent, profile, lang)}`;
+  }
+
+  const lines = offerProducts.slice(0, 3).map((p, idx) => {
+    const offerText = p.offerLabel || tr(lang, "خصم مباشر", "direct discount");
+    return `${idx + 1}) ${p.merchantName} - ${p.productName} - ${offerText} - ${formatIqd(
+      p.effectivePrice
+    )}`;
+  });
+
+  return `${tr(
+    lang,
+    "عروض اليوم حسب بيانات التطبيق:",
+    "Today's offers based on available app data:"
+  )}\n${lines.join("\n")}\n${pickSmartQuestion(intent, profile, lang)}`;
+}
+
+function buildDiscoverReply({ merchants, intent, profile, lang }) {
+  const latest = merchants.slice(0, 3);
+  if (!latest.length) {
+    return `${tr(
+      lang,
+      "حالياً ما عندي قائمة جاهزة للجديد، بس أقدر أجيبلك أفضل الخيارات إذا تحددلي المنطقة.",
+      "I do not have a direct new list right now, but I can fetch best options if you share your area."
+    )} ${pickSmartQuestion(intent, profile, lang)}`;
+  }
+
+  const lines = latest.map((m, idx) => {
+    const eta = formatEtaText(m.avgDeliveryMinutes, lang);
+    return `${idx + 1}) ${m.merchantName} - ⭐ ${Number(m.avgRating || 0).toFixed(1)} - ⏱ ${eta}`;
+  });
+
+  return `${tr(
+    lang,
+    "هذني أحدث الخيارات النشطة حالياً:",
+    "These are the latest active options right now:"
+  )}\n${lines.join("\n")}\n${pickSmartQuestion(intent, profile, lang)}`;
+}
+
+function buildEvaluateReply({ intent, merchantCatalog, lang }) {
+  const hint = extractMerchantNameHint(intent.originalText);
+  if (!hint) {
+    return tr(
+      lang,
+      "اكتب اسم المطعم بالضبط وأنا أقيمه إلك بشفافية.",
+      "Share the exact restaurant name and I will evaluate it transparently for you."
+    );
+  }
+
+  const normalizedHint = normalizeForNlp(hint);
+  const found = merchantCatalog.find((m) =>
+    normalizeForNlp(m.merchantName).includes(normalizedHint)
+  );
+  if (!found) {
+    return tr(
+      lang,
+      "ما لقيت هذا المطعم بالبيانات الحالية. تكدر تعيد كتابة الاسم بالضبط؟",
+      "I could not find this restaurant in the current data. Can you re-send its exact name?"
+    );
+  }
+
+  const positives = [
+    tr(
+      lang,
+      `تقييمه ${Number(found.avgRating || 0).toFixed(1)} من 5`,
+      `Rating is ${Number(found.avgRating || 0).toFixed(1)} / 5`
+    ),
+    tr(
+      lang,
+      `عدد الطلبات المكتملة ${Number(found.completedOrders || 0)}`,
+      `Completed orders: ${Number(found.completedOrders || 0)}`
+    ),
+    tr(
+      lang,
+      `متوسط التوصيل ${formatEtaText(found.avgDeliveryMinutes, lang)}`,
+      `Average delivery: ${formatEtaText(found.avgDeliveryMinutes, lang)}`
+    ),
+  ];
+
+  const issues = [];
+  if (!found.hasFreeDelivery) {
+    issues.push(tr(lang, "أجور التوصيل مو مجانية", "Delivery is not free"));
+  }
+  if (found.avgDeliveryMinutes != null && Number(found.avgDeliveryMinutes) > 45) {
+    issues.push(tr(lang, "ممكن يتأخر بالتوصيل عن المعدل", "Delivery can be slower than average"));
+  }
+  const issueText =
+    issues.length > 0
+      ? issues.join(tr(lang, "، ", ", "))
+      : tr(lang, "ما عندي مشاكل مسجلة عليه حالياً.", "No issue records available right now.");
+
+  return `${tr(lang, `تقييمي لمطعم ${found.merchantName}:`, `My evaluation for ${found.merchantName}:`)}
+- ${positives.join("\n- ")}
+- ${tr(lang, "ملاحظة", "Note")}: ${issueText}
+${tr(
+  lang,
+  "تحب أطلعلك بديلين بنفس المستوى بس توصيلهم أسرع؟",
+  "Do you want two alternatives in similar level but faster delivery?"
+)}`;
+}
+
+function buildComparisonReply({ merchants, intent, profile, lang }) {
+  if (merchants.length < 2) {
+    return `${tr(
+      lang,
+      "ما عندي خيارين كافيين للمقارنة حالياً. خليه علي وأجهزلك أفضل خيار مباشرة.",
+      "I do not have two strong options to compare yet. Let me rank the best one directly."
+    )} ${pickSmartQuestion(intent, profile, lang)}`;
+  }
+
+  const left = merchants[0];
+  const right = merchants[1];
+  const leftEta = formatEtaText(left.avgDeliveryMinutes, lang);
+  const rightEta = formatEtaText(right.avgDeliveryMinutes, lang);
+  const leftPrice = describePriceBand(left, lang);
+  const rightPrice = describePriceBand(right, lang);
+
+  return `${tr(lang, "مقارنة سريعة:", "Quick comparison:")}
+1) ${left.merchantName} - ${tr(lang, "السعر", "price")}: ${leftPrice} - ${tr(
+    lang,
+    "التوصيل",
+    "delivery"
+  )}: ${leftEta} - ⭐ ${Number(left.avgRating || 0).toFixed(1)}
+2) ${right.merchantName} - ${tr(lang, "السعر", "price")}: ${rightPrice} - ${tr(
+    lang,
+    "التوصيل",
+    "delivery"
+  )}: ${rightEta} - ⭐ ${Number(right.avgRating || 0).toFixed(1)}
+${pickSmartQuestion(intent, profile, lang)}`;
+}
+
+function buildIntentAwareReply({
   intent,
   merchants,
   products,
@@ -1041,33 +1707,280 @@ function buildAssistantReply({
   confirmFromDraft,
   profile,
   recentContext,
+  merchantCatalog = [],
+  lang,
 }) {
   if (createdOrder && confirmFromDraft) {
-    return `tm. talab #${createdOrder.id} t2akad mn ${createdOrder.merchantName} bmajmoo3 ${formatIqd(createdOrder.totalAmount)}. tqdar ttaab3a mn talabati.`;
+    return tr(
+      lang,
+      `تم تثبيت الطلب #${createdOrder.id} من ${createdOrder.merchantName} بمبلغ ${formatIqd(
+        createdOrder.totalAmount
+      )}. تكدر تتابعه من صفحة طلباتي.`,
+      `Order #${createdOrder.id} was confirmed from ${createdOrder.merchantName} with total ${formatIqd(
+        createdOrder.totalAmount
+      )}. You can track it now from My Orders.`
+    );
   }
 
-  if (intent.offTopicIntent || intent.smallTalkType !== 'none') {
-    return buildSmallTalkReply({ intent, profile, merchants, products });
+  if (intent.explicitLanguageSwitch) {
+    return `${tr(
+      lang,
+      "تمام، من هسه راح أحچي وياك بالعربي.",
+      "Done, I will continue with you in English."
+    )} ${pickSmartQuestion(intent, profile, lang)}`;
+  }
+
+  if (intent.supportIntent || intent.primaryIntent === "SUPPORT") {
+    return buildSupportReply(intent, lang);
+  }
+
+  if (intent.offTopicIntent || intent.smallTalkType !== "none") {
+    return buildSmallTalkReply({ intent, profile, merchants, products, lang });
+  }
+
+  if (intent.primaryIntent === "OFFERS") {
+    return buildOffersReply({ products, intent, profile, lang });
+  }
+
+  if (intent.primaryIntent === "DISCOVER_NEW") {
+    return buildDiscoverReply({
+      merchants: merchantCatalog.length ? merchantCatalog : merchants,
+      intent,
+      profile,
+      lang,
+    });
+  }
+
+  if (intent.primaryIntent === "EVALUATE") {
+    return buildEvaluateReply({ intent, merchantCatalog, lang });
+  }
+
+  if (intent.comparisonIntent) {
+    return buildComparisonReply({ merchants, intent, profile, lang });
   }
 
   if (draft) {
     const firstItem = draft.items[0];
     const itemText = firstItem
       ? `${firstItem.productName} x${firstItem.quantity}`
-      : 'items murtaba';
-    const contextLine = recentContext ? `${recentContext} ` : '';
-    return `${contextLine}sawaitlak draft jahiz mn ${draft.merchantName} b ${itemText}. if kulshi zain dos confirm, w if trid taghyeer golii hassa.`;
+      : tr(lang, "أصناف مناسبة", "matched items");
+    const contextLine = recentContext ? `${recentContext}\n` : "";
+    return `${contextLine}${tr(
+      lang,
+      `جهزت مسودة طلب من ${draft.merchantName} بمحتوى ${itemText}.`,
+      `I prepared a draft from ${draft.merchantName} including ${itemText}.`
+    )}\n${pickSmartQuestion(intent, profile, lang)}`;
   }
 
-  if (!products.length) {
-    return 'hassa ma leget match qawi. 7aded no3 el talab aw budget bil IQD w ana azabitha.';
+  if (!products.length || !merchants.length) {
+    return `${tr(
+      lang,
+      "ما حصلت مطابقة قوية هسه. إذا تحددلي النوع أو الميزانية أضبطها بسرعة.",
+      "I could not find strong matches yet. I can improve results fast if you set budget or food type."
+    )} ${pickSmartQuestion(intent, profile, lang)}`;
   }
 
-  const topMerchants = merchants.slice(0, 3).map((m) => m.merchantName).join(', ');
-  const reasons = buildReasonPhrases(intent, merchants).join(' | ');
-  const refocus = buildRefocusQuestion(intent, profile);
-  const contextLine = recentContext ? `${recentContext} ` : '';
-  return `${contextLine}ratabt el options el an b7asab talabak. stores el mrfadla: ${topMerchants || 'stores qareeba'}. asbab el tarteeb: ${reasons}. ${refocus}`;
+  const contextLine = recentContext ? `${recentContext}\n` : "";
+  const lines = buildRecommendationLines(merchants, intent, lang);
+  const intro = tr(lang, "رتبتلك أفضل 3 خيارات:", "I ranked the top 3 options for your request:");
+  const followUp = pickSmartQuestion(intent, profile, lang);
+  return `${contextLine}${intro}\n${lines.join("\n")}\n${followUp}`;
+}
+
+function buildAssistantReply(args) {
+  const lang = args.lang || resolveResponseLanguage(args.intent || {}, args.profile || {});
+  const text = buildIntentAwareReply({ ...args, lang });
+  const prefix = tonePrefix(args.intent, lang);
+  return `${prefix}${text}`.trim();
+}
+
+function resolveFinalIntent(intent) {
+  if (!intent) return "BROWSE";
+  if (intent.primaryIntent && intent.primaryIntent !== "BROWSE") return intent.primaryIntent;
+  if (intent.supportIntent) return "SUPPORT";
+  if (intent.orderIntent) return "ORDER_DIRECT";
+  if (intent.offTopicIntent) return "SMALL_TALK";
+  return "BROWSE";
+}
+
+function estimateSatisfaction({ intent, draft, createdOrder, merchants, products }) {
+  if (createdOrder) return "High";
+  if (intent?.supportIntent) return "Medium";
+  if (draft) return "High";
+  if ((merchants?.length || 0) >= 3 || (products?.length || 0) >= 3) return "High";
+  if ((merchants?.length || 0) > 0 || (products?.length || 0) > 0) return "Medium";
+  return "Low";
+}
+
+function detectUpsellOpportunity({ intent, draft, products, lang }) {
+  if (intent?.supportIntent) return tr(lang, "لا يوجد حالياً", "none for now");
+  if (draft && Number(draft.totalAmount || 0) < 15000) {
+    return tr(
+      lang,
+      "إضافة مشروب أو حلوى لرفع قيمة السلة",
+      "add a drink or dessert to increase basket value"
+    );
+  }
+  if ((products || []).some((p) => p.offerLabel)) {
+    return tr(lang, "ترويج منتج عليه عرض", "promote an offer product");
+  }
+  return tr(lang, "اقتراح منتج تكميلي", "suggest a complementary item");
+}
+
+function nextRecommendationStrategy({ intent, profile, merchants, lang }) {
+  if (intent?.supportIntent) {
+    return tr(
+      lang,
+      "تحويل المحادثة لمسار دعم + متابعة حالة الطلب",
+      "switch to support flow and track order status"
+    );
+  }
+  if (!merchants?.length) {
+    return tr(
+      lang,
+      "جمع تفضيلات أكثر (نوع الأكل + الميزانية + المنطقة)",
+      "collect more preferences (food type + budget + area)"
+    );
+  }
+  if (profile?.pricePreference === "cheap" || intent?.wantsCheap) {
+    return tr(lang, "التركيز على الأرخص مع تقييم مقبول", "prioritize cheaper options with acceptable rating");
+  }
+  if (intent?.wantsTopRated || profile?.qualityPriority === "high") {
+    return tr(lang, "التركيز على الأعلى تقييماً", "prioritize top-rated options");
+  }
+  return tr(lang, "موازنة السعر مع سرعة التوصيل", "balance price with delivery speed");
+}
+
+function buildConversationSummaryText({ intent, draft, createdOrder, merchants, lang }) {
+  const intentCode = resolveFinalIntent(intent);
+  if (createdOrder) {
+    return tr(
+      lang,
+      `تم تثبيت طلب مباشر. النية: ${intentCode}.`,
+      `Confirmed a direct order. Intent: ${intentCode}.`
+    );
+  }
+  if (draft) {
+    return tr(
+      lang,
+      `تم تجهيز مسودة طلب. النية: ${intentCode}.`,
+      `Prepared a draft order. Intent: ${intentCode}.`
+    );
+  }
+  if ((merchants || []).length) {
+    return tr(
+      lang,
+      `تم تقديم ${Math.min(3, merchants.length)} خيارات. النية: ${intentCode}.`,
+      `Provided ${Math.min(3, merchants.length)} options. Intent: ${intentCode}.`
+    );
+  }
+  return tr(
+    lang,
+    `تم طلب معلومات إضافية لإكمال الترشيح. النية: ${intentCode}.`,
+    `Asked for more details to complete recommendation. Intent: ${intentCode}.`
+  );
+}
+
+function enrichProfileAfterConversation(profile, context) {
+  const next = {
+    ...profile,
+    issueHistory: [...(profile.issueHistory || [])],
+    satisfactionHistory: [...(profile.satisfactionHistory || [])],
+  };
+
+  const hour = new Date().getHours().toString().padStart(2, "0");
+  if (context.intent?.orderIntent || context.draft || context.createdOrder) {
+    next.commonOrderTime = `${hour}:00`;
+  }
+
+  if (context.intent?.supportIntent) {
+    next.issueHistory.unshift({
+      at: new Date().toISOString(),
+      type: context.intent.supportType || "general",
+      text: String(context.intent.originalText || "").slice(0, 180),
+    });
+  }
+  next.issueHistory = next.issueHistory.slice(0, 20);
+
+  next.satisfactionHistory.unshift(context.satisfactionEstimate);
+  next.satisfactionHistory = next.satisfactionHistory.slice(0, 20);
+
+  const ordersScore =
+    Number(next.counters?.ordering || 0) + Number(next.conversation?.confirmedDrafts || 0);
+  if (ordersScore >= 20) next.loyaltyLevel = "vip";
+  else if (ordersScore >= 8) next.loyaltyLevel = "active";
+  else if (ordersScore >= 3) next.loyaltyLevel = "growing";
+  else next.loyaltyLevel = "new";
+
+  const signalSize =
+    Object.keys(next.tokenSignals || {}).length +
+    Object.keys(next.categorySignals || {}).length +
+    Object.keys(next.merchantSignals || {}).length;
+  if (signalSize >= 80) next.learningConfidence = "high";
+  else if (signalSize >= 35) next.learningConfidence = "medium";
+  else next.learningConfidence = "low";
+
+  next.lastInteractionSummary = context.summaryText;
+  return next;
+}
+
+function buildConversationArtifacts({
+  intent,
+  profile,
+  updatedProfile,
+  merchants,
+  products,
+  draft,
+  createdOrder,
+  summaryText,
+  lang,
+}) {
+  const finalIntent = resolveFinalIntent(intent);
+  const satisfactionEstimate = estimateSatisfaction({
+    intent,
+    draft,
+    createdOrder,
+    merchants,
+    products,
+  });
+
+  const customerProfileUpdate = {
+    customer_name: "",
+    city: updatedProfile?.city || "",
+    area: updatedProfile?.area || "",
+    preferred_cuisines: (updatedProfile?.preferredCuisines || []).slice(0, 12),
+    budget_level: updatedProfile?.budgetLevel || "unknown",
+    speed_priority: updatedProfile?.speedPriority || "balanced",
+    quality_priority: updatedProfile?.qualityPriority || "balanced",
+    favorite_restaurants: (updatedProfile?.favoriteRestaurants || []).slice(0, 20),
+    disliked_restaurants: (updatedProfile?.dislikedRestaurants || []).slice(0, 20),
+    dietary_notes: (updatedProfile?.dietaryNotes || []).slice(0, 10),
+    common_order_time: updatedProfile?.commonOrderTime || "",
+    average_rating_given:
+      updatedProfile?.averageRatingGiven == null
+        ? ""
+        : String(updatedProfile.averageRatingGiven),
+    issue_history: (updatedProfile?.issueHistory || []).slice(0, 20),
+    personality_style: updatedProfile?.personalityStyle || "neutral",
+    loyalty_level: updatedProfile?.loyaltyLevel || "new",
+    last_interaction_summary: updatedProfile?.lastInteractionSummary || summaryText,
+    learning_confidence: updatedProfile?.learningConfidence || "low",
+  };
+
+  const adminSummary = {
+    summary: summaryText,
+    finalIntent,
+    satisfactionEstimate,
+    upsellOpportunity: detectUpsellOpportunity({ intent, draft, products, lang }),
+    recommendationStrategy: nextRecommendationStrategy({
+      intent,
+      profile: updatedProfile || profile,
+      merchants,
+      lang,
+    }),
+  };
+
+  return { customerProfileUpdate, adminSummary, satisfactionEstimate };
 }
 
 function buildDraftRationale(intent) {
@@ -1162,7 +2075,7 @@ async function ensureWelcomeMessage(sessionId) {
   await repo.insertMessage(
     sessionId,
     'assistant',
-    'hala beek. ani mosa3edak bil talab. akdarlak aratab el stores w asawilek draft jahiz.'
+    'هلا بيك 🌟 أني مساعد سوقي. أكدر أرتبلك أفضل خيارات الطلب وأجهزلك مسودة جاهزة.'
   );
 }
 
@@ -1246,11 +2159,11 @@ export async function confirmDraft(customerUserId, token, options = {}) {
   await repo.markDraftConfirmed(draft.id, createdOrder.id);
 
   const rawProfile = await repo.getProfile(customerUserId);
-  const profile = learnFromConfirmedDraft(parseProfile(rawProfile), draft);
-  await repo.upsertProfile(
-    customerUserId,
-    profile,
-    "updated_from_draft_confirmation"
+  const learnedProfile = learnFromConfirmedDraft(parseProfile(rawProfile), draft);
+  const createdOrderApi = mapOrderForApi(createdOrder);
+  const lang = resolveResponseLanguage(
+    { inferredLanguage: learnedProfile.languagePreference || "ar" },
+    learnedProfile
   );
 
   const assistantText = buildAssistantReply({
@@ -1258,24 +2171,62 @@ export async function confirmDraft(customerUserId, token, options = {}) {
     merchants: [],
     products: [],
     draft: null,
-    createdOrder: mapOrderForApi(createdOrder),
+    createdOrder: createdOrderApi,
     confirmFromDraft: true,
-    profile,
+    profile: learnedProfile,
     recentContext: null,
+    lang,
   });
+
+  const summaryText = buildConversationSummaryText({
+    intent: { primaryIntent: "ORDER_DIRECT", orderIntent: true },
+    draft: null,
+    createdOrder: createdOrderApi,
+    merchants: [],
+    lang,
+  });
+
+  const updatedProfile = enrichProfileAfterConversation(learnedProfile, {
+    intent: { primaryIntent: "ORDER_DIRECT", orderIntent: true },
+    draft: null,
+    createdOrder: createdOrderApi,
+    satisfactionEstimate: "High",
+    summaryText,
+  });
+
+  const artifacts = buildConversationArtifacts({
+    intent: { primaryIntent: "ORDER_DIRECT", orderIntent: true },
+    profile: learnedProfile,
+    updatedProfile,
+    merchants: [],
+    products: [],
+    draft: null,
+    createdOrder: createdOrderApi,
+    summaryText,
+    lang,
+  });
+
+  await repo.upsertProfile(
+    customerUserId,
+    updatedProfile,
+    artifacts.adminSummary.summary
+  );
 
   const assistantMessage = await repo.insertMessage(session.id, "assistant", assistantText, {
     type: "draft_confirmed",
     draftToken: draft.token,
     orderId: createdOrder.id,
+    language: lang,
+    CUSTOMER_PROFILE_UPDATE: artifacts.customerProfileUpdate,
+    ADMIN_SUMMARY: artifacts.adminSummary,
   });
 
-  const payload = await buildSessionPayload(customerUserId, session.id, profile);
+  const payload = await buildSessionPayload(customerUserId, session.id, updatedProfile);
   return {
     ...payload,
     assistantMessage,
     suggestions: { merchants: [], products: [] },
-    createdOrder: mapOrderForApi(createdOrder),
+    createdOrder: createdOrderApi,
   };
 }
 
@@ -1309,15 +2260,50 @@ export async function chat(customerUserId, dto) {
       await repo.markDraftCancelled(pending.id);
     }
 
-    const cancelMessage = await repo.insertMessage(
-      session.id,
-      'assistant',
-      'tlaqa el draft. goli shno t7eb t6lob hassa w asawilek tarteeb jadeed.'
-    );
-
     const rawProfile = await repo.getProfile(customerUserId);
     const profile = parseProfile(rawProfile);
-    const payload = await buildSessionPayload(customerUserId, session.id, profile);
+    const lang = resolveResponseLanguage(intent, profile);
+    const cancelText = tr(
+      lang,
+      "تم إلغاء المسودة ✅ إذا تريد، أرتبلك خيارات جديدة الآن حسب مزاجك وميزانيتك.",
+      "Draft cancelled ✅ I can prepare fresh options now based on your mood and budget."
+    );
+    const summaryText = buildConversationSummaryText({
+      intent: { primaryIntent: "BROWSE" },
+      draft: null,
+      createdOrder: null,
+      merchants: [],
+      lang,
+    });
+    const preArtifactsSatisfaction = "Medium";
+    const updatedProfile = enrichProfileAfterConversation(profile, {
+      intent: { primaryIntent: "BROWSE" },
+      draft: null,
+      createdOrder: null,
+      satisfactionEstimate: preArtifactsSatisfaction,
+      summaryText,
+    });
+    const artifacts = buildConversationArtifacts({
+      intent: { primaryIntent: "BROWSE" },
+      profile,
+      updatedProfile,
+      merchants: [],
+      products: [],
+      draft: null,
+      createdOrder: null,
+      summaryText,
+      lang,
+    });
+    await repo.upsertProfile(customerUserId, updatedProfile, artifacts.adminSummary.summary);
+
+    const cancelMessage = await repo.insertMessage(session.id, "assistant", cancelText, {
+      type: "draft_cancelled",
+      language: lang,
+      CUSTOMER_PROFILE_UPDATE: artifacts.customerProfileUpdate,
+      ADMIN_SUMMARY: artifacts.adminSummary,
+    });
+
+    const payload = await buildSessionPayload(customerUserId, session.id, updatedProfile);
     return {
       ...payload,
       assistantMessage: cancelMessage,
@@ -1344,6 +2330,7 @@ export async function chat(customerUserId, dto) {
 
   const profile = mergeProfileSignals(parseProfile(rawProfile), intent);
   await repo.upsertProfile(customerUserId, profile, "updated_from_chat");
+  const lang = resolveResponseLanguage(intent, profile);
 
   const historyWeights = buildHistoryWeights(historySignals, globalSignals);
   const ranked = rankProducts({
@@ -1352,7 +2339,7 @@ export async function chat(customerUserId, dto) {
     profile,
     historyWeights,
   });
-  const recentContext = summarizeRecentContext(recentMessages);
+  const recentContext = summarizeRecentContext(recentMessages, lang);
 
   const merchantSuggestions = buildMerchantSuggestions(ranked);
   const productSuggestions = buildProductSuggestions(ranked);
@@ -1412,16 +2399,63 @@ export async function chat(customerUserId, dto) {
     confirmFromDraft: false,
     profile,
     recentContext,
+    merchantCatalog: merchantSuggestions,
+    lang,
   });
+
+  const summaryText = buildConversationSummaryText({
+    intent,
+    draft: createdDraft,
+    createdOrder: null,
+    merchants: merchantSuggestions,
+    lang,
+  });
+
+  const preArtifactsSatisfaction = estimateSatisfaction({
+    intent,
+    draft: createdDraft,
+    createdOrder: null,
+    merchants: merchantSuggestions,
+    products: productSuggestions,
+  });
+
+  const updatedProfile = enrichProfileAfterConversation(profile, {
+    intent,
+    draft: createdDraft,
+    createdOrder: null,
+    satisfactionEstimate: preArtifactsSatisfaction,
+    summaryText,
+  });
+
+  const artifacts = buildConversationArtifacts({
+    intent,
+    profile,
+    updatedProfile,
+    merchants: merchantSuggestions,
+    products: productSuggestions,
+    draft: createdDraft,
+    createdOrder: null,
+    summaryText,
+    lang,
+  });
+
+  await repo.upsertProfile(
+    customerUserId,
+    updatedProfile,
+    artifacts.adminSummary.summary
+  );
 
   const assistantMessage = await repo.insertMessage(session.id, "assistant", assistantText, {
     type: createdDraft ? "draft_created" : "recommendation",
     draftToken: createdDraft?.token || null,
     merchantsCount: merchantSuggestions.length,
     productsCount: productSuggestions.length,
+    language: lang,
+    CUSTOMER_PROFILE_UPDATE: artifacts.customerProfileUpdate,
+    ADMIN_SUMMARY: artifacts.adminSummary,
   });
 
-  const payload = await buildSessionPayload(customerUserId, session.id, profile);
+  const payload = await buildSessionPayload(customerUserId, session.id, updatedProfile);
 
   return {
     ...payload,
@@ -1433,4 +2467,5 @@ export async function chat(customerUserId, dto) {
     createdOrder: null,
   };
 }
+
 
