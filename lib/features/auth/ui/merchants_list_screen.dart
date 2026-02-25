@@ -16,6 +16,7 @@ import '../../orders/state/delivery_address_controller.dart';
 import '../../orders/ui/cart_screen.dart';
 import '../../orders/ui/customer_orders_screen.dart';
 import '../../orders/ui/delivery_addresses_screen.dart';
+import '../../assistant/ui/assistant_chat_screen.dart';
 import '../state/auth_controller.dart';
 import 'add_merchant_screen.dart';
 
@@ -94,6 +95,12 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     ).push(MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()));
   }
 
+  Future<void> _openAssistant() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const AssistantChatScreen()));
+  }
+
   Future<void> _refresh() {
     return ref
         .read(merchantsControllerProvider.notifier)
@@ -159,6 +166,12 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
           label: 'عناوين التوصيل',
           onTap: (_) async => _openAddresses(),
         ),
+      if (showCustomerActions)
+        AppUserDrawerItem(
+          icon: Icons.smart_toy_outlined,
+          label: 'المساعد الذكي',
+          onTap: (_) async => _openAssistant(),
+        ),
       if (auth.isAdmin)
         AppUserDrawerItem(
           icon: Icons.add_business_rounded,
@@ -195,6 +208,12 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
             ),
           if (showCustomerActions)
             IconButton(
+              tooltip: 'المساعد الذكي',
+              onPressed: _openAssistant,
+              icon: const Icon(Icons.smart_toy_outlined),
+            ),
+          if (showCustomerActions)
+            IconButton(
               tooltip: 'عناوين التوصيل',
               onPressed: _openAddresses,
               icon: const Icon(Icons.location_on_outlined),
@@ -216,6 +235,12 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
               },
               label: const Text('إنشاء متجر'),
               icon: const Icon(Icons.add_business_rounded),
+            )
+          : showCustomerActions
+          ? FloatingActionButton.small(
+              onPressed: _openAssistant,
+              tooltip: 'المساعد الذكي',
+              child: const Icon(Icons.smart_toy_outlined),
             )
           : null,
       body: merchants.when(
@@ -388,7 +413,7 @@ class _BackofficeMerchantsView extends StatelessWidget {
                     itemBuilder: (_, index) {
                       final merchant = merchants[index];
                       final typeLabel = merchant.type == 'restaurant'
-                          ? '�.طع�.'
+                          ? 'مطعم'
                           : 'سوق';
                       return Card(
                         child: ListTile(
@@ -398,12 +423,10 @@ class _BackofficeMerchantsView extends StatelessWidget {
                             textDirection: TextDirection.rtl,
                           ),
                           subtitle: Text(
-                            '$typeLabel â€¢ ${merchant.phone ?? ''}',
+                            '$typeLabel • ${merchant.phone ?? ''}',
                             textDirection: TextDirection.rtl,
                           ),
-                          trailing: Text(
-                            merchant.isOpen ? '�.فت�^ح' : '�.غ�"�,',
-                          ),
+                          trailing: Text(merchant.isOpen ? 'مفتوح' : 'مغلق'),
                         ),
                       );
                     },
@@ -897,12 +920,14 @@ class _MerchantTalabatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final typeLabel = merchant.type == 'restaurant' ? '�.طع�.' : '�.تجر';
+    final typeLabel = merchant.type == 'restaurant' ? 'مطعم' : 'متجر';
     final hasOffers =
         merchant.hasDiscountOffer || merchant.hasFreeDeliveryOffer;
     final deliveryLabel = merchant.hasFreeDeliveryOffer
-        ? 'ت�^ص�S�" �.جا�?�S'
+        ? 'توصيل مجاني'
         : formatIqd(deliveryFeeIqd);
+    final etaLabel = merchant.isOpen ? '25 - 40 دقيقة' : 'خارج الدوام';
+    final statusLabel = merchant.isOpen ? 'مفتوح الآن' : 'مغلق الآن';
 
     return Material(
       color: Colors.transparent,
@@ -1023,37 +1048,52 @@ class _MerchantTalabatCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _MetaChip(
-                      icon: Icons.schedule_rounded,
-                      text: merchant.isOpen
-                          ? '25-40 د�,�S�,ة'
-                          : 'خارج ا�"د�^ا�.',
-                    ),
-                    const SizedBox(width: 8),
-                    _MetaChip(
-                      icon: Icons.local_shipping_rounded,
-                      text: deliveryLabel,
-                    ),
-                    const SizedBox(width: 8),
-                    _MetaChip(icon: Icons.category_rounded, text: typeLabel),
-                    const Spacer(),
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 220),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    textDirection: TextDirection.rtl,
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(999),
+                          color: merchant.isOpen
+                              ? Colors.green.withValues(alpha: 0.20)
+                              : Colors.red.withValues(alpha: 0.20),
+                          border: Border.all(
+                            color: merchant.isOpen
+                                ? Colors.green.withValues(alpha: 0.45)
+                                : Colors.red.withValues(alpha: 0.45),
+                          ),
+                        ),
+                        child: Text(
+                          statusLabel,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        color: merchant.isOpen
-                            ? Colors.green.withValues(alpha: 0.20)
-                            : Colors.red.withValues(alpha: 0.20),
+                      _MetaChip(icon: Icons.category_rounded, text: typeLabel),
+                      _MetaChip(
+                        icon: Icons.local_shipping_rounded,
+                        text: deliveryLabel,
                       ),
-                      child: Text(merchant.isOpen ? '�.فت�^ح' : '�.غ�"�,'),
-                    ),
-                  ],
+                      _MetaChip(
+                        icon: Icons.schedule_rounded,
+                        text: etaLabel,
+                        maxTextWidth: 118,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -1067,8 +1107,13 @@ class _MerchantTalabatCard extends StatelessWidget {
 class _MetaChip extends StatelessWidget {
   final IconData icon;
   final String text;
+  final double maxTextWidth;
 
-  const _MetaChip({required this.icon, required this.text});
+  const _MetaChip({
+    required this.icon,
+    required this.text,
+    this.maxTextWidth = 110,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1079,10 +1124,19 @@ class _MetaChip extends StatelessWidget {
         color: Colors.white.withValues(alpha: 0.10),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14),
+          Icon(icon, size: 14, color: Colors.white70),
           const SizedBox(width: 4),
-          Text(text, style: const TextStyle(fontSize: 12)),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxTextWidth),
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
         ],
       ),
     );

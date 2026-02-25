@@ -3,6 +3,7 @@ import express from "express";
 import path from "path";
 
 import { adminRouter } from "./modules/admin/admin.routes.js";
+import { assistantRouter } from "./modules/assistant/assistant.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { getUserPublicById } from "./modules/auth/auth.repo.js";
 import { deliveryRouter } from "./modules/delivery/delivery.routes.js";
@@ -54,6 +55,7 @@ app.use("/api/owner", ownerRouter);
 app.use("/api/orders", ordersRouter);
 app.use("/api/delivery", deliveryRouter);
 app.use("/api/notifications", notificationsRouter);
+app.use("/api/assistant", assistantRouter);
 
 app.get("/api/me", requireAuth, async (req, res, next) => {
   try {

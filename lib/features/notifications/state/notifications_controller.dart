@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/notifications/local_notification_service.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../orders/state/orders_controller.dart';
 import '../data/notifications_api.dart';
@@ -66,7 +67,7 @@ class NotificationsController extends StateNotifier<NotificationsState> {
       final count = await ref.read(notificationsApiProvider).unreadCount();
       state = state.copyWith(unreadCount: count);
     } catch (_) {
-      // ignore
+      // ignore silently
     }
   }
 
@@ -77,6 +78,7 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     if (!silent) {
       state = state.copyWith(loading: true, error: null);
     }
+
     try {
       final raw = await ref
           .read(notificationsApiProvider)
@@ -89,12 +91,10 @@ class NotificationsController extends StateNotifier<NotificationsState> {
           )
           .toList();
 
-      final unread = list.where((n) => !n.isRead).length;
-
       state = state.copyWith(
         loading: silent ? state.loading : false,
         notifications: list,
-        unreadCount: unread,
+        unreadCount: list.where((n) => !n.isRead).length,
       );
     } on DioException catch (e) {
       state = state.copyWith(
@@ -204,13 +204,19 @@ class NotificationsController extends StateNotifier<NotificationsState> {
           Map<String, dynamic>.from(rawNotification),
         );
 
+        if (!model.isRead) {
+          unawaited(_showNativeNotification(model));
+        }
+
         final withoutCurrent = state.notifications
             .where((n) => n.id != model.id)
             .toList();
         final nextList = [model, ...withoutCurrent];
-        final unread = nextList.where((n) => !n.isRead).length;
 
-        state = state.copyWith(notifications: nextList, unreadCount: unread);
+        state = state.copyWith(
+          notifications: nextList,
+          unreadCount: nextList.where((n) => !n.isRead).length,
+        );
 
         final orderId = model.orderId ?? model.payload?['orderId'];
         if (orderId != null) {
@@ -237,8 +243,10 @@ class NotificationsController extends StateNotifier<NotificationsState> {
                 : n,
           )
           .toList();
-      final unread = updated.where((n) => !n.isRead).length;
-      state = state.copyWith(notifications: updated, unreadCount: unread);
+      state = state.copyWith(
+        notifications: updated,
+        unreadCount: updated.where((n) => !n.isRead).length,
+      );
       return;
     }
 
@@ -253,6 +261,14 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     }
 
     unawaited(refreshUnreadCount());
+  }
+
+  Future<void> _showNativeNotification(AppNotificationModel model) async {
+    try {
+      await ref.read(localNotificationsProvider).showFromModel(model);
+    } catch (_) {
+      // Best-effort local notification. Ignore any platform/runtime errors.
+    }
   }
 
   String _mapError(DioException e) {

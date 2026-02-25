@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/state/auth_controller.dart';
+import '../../orders/ui/customer_orders_screen.dart';
+import '../models/app_notification_model.dart';
 import '../state/notifications_controller.dart';
 
 class NotificationsScreen extends ConsumerStatefulWidget {
@@ -75,9 +79,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                         ? null
                         : Theme.of(context).colorScheme.primaryContainer,
                     child: ListTile(
-                      onTap: () => ref
-                          .read(notificationsControllerProvider.notifier)
-                          .markRead(n.id),
+                      onTap: () => _openNotification(n),
                       title: Text(n.title, textDirection: TextDirection.rtl),
                       subtitle: Text(
                         n.body ?? '',
@@ -92,5 +94,38 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
               ),
       ),
     );
+  }
+
+  Future<void> _openNotification(AppNotificationModel notification) async {
+    await SystemSound.play(SystemSoundType.click);
+    await ref
+        .read(notificationsControllerProvider.notifier)
+        .markRead(notification.id);
+    if (!mounted) return;
+
+    final auth = ref.read(authControllerProvider);
+    final orderId = _extractOrderId(notification);
+
+    // Customer notifications: open order tracking directly.
+    if (!auth.isBackoffice && !auth.isOwner && !auth.isDelivery) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => CustomerOrdersScreen(initialOrderId: orderId),
+        ),
+      );
+      return;
+    }
+
+    if (orderId != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('الإشعار مرتبط بالطلب #$orderId')),
+      );
+    }
+  }
+
+  int? _extractOrderId(AppNotificationModel notification) {
+    if (notification.orderId != null) return notification.orderId;
+    final payloadId = notification.payload?['orderId'];
+    return int.tryParse('$payloadId');
   }
 }

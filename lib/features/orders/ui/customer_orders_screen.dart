@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,7 +11,9 @@ import '../models/order_model.dart';
 import '../state/orders_controller.dart';
 
 class CustomerOrdersScreen extends ConsumerStatefulWidget {
-  const CustomerOrdersScreen({super.key});
+  final int? initialOrderId;
+
+  const CustomerOrdersScreen({super.key, this.initialOrderId});
 
   @override
   ConsumerState<CustomerOrdersScreen> createState() =>
@@ -17,9 +21,12 @@ class CustomerOrdersScreen extends ConsumerStatefulWidget {
 }
 
 class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
+  int? _focusedOrderId;
+
   @override
   void initState() {
     super.initState();
+    _focusedOrderId = widget.initialOrderId;
     Future.microtask(() async {
       final controller = ref.read(ordersControllerProvider.notifier);
       await controller.loadMyOrders();
@@ -45,6 +52,8 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
       }
     });
 
+    final orders = _prioritizeOrders(state.orders, _focusedOrderId);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('طلباتي'),
@@ -55,7 +64,7 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
             ref.read(ordersControllerProvider.notifier).loadMyOrders(),
         child: state.loading
             ? const Center(child: CircularProgressIndicator())
-            : state.orders.isEmpty
+            : orders.isEmpty
             ? ListView(
                 children: const [
                   SizedBox(height: 140),
@@ -64,33 +73,61 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
               )
             : ListView.separated(
                 padding: const EdgeInsets.all(12),
-                itemCount: state.orders.length,
+                itemCount: orders.length,
                 separatorBuilder: (_, index) => const SizedBox(height: 10),
                 itemBuilder: (_, index) {
-                  final order = state.orders[index];
-                  return _OrderCard(order: order);
+                  final order = orders[index];
+                  final highlighted = _focusedOrderId == order.id;
+                  return _OrderCard(
+                    order: order,
+                    initiallyExpanded: highlighted,
+                    highlighted: highlighted,
+                  );
                 },
               ),
       ),
     );
   }
+
+  List<OrderModel> _prioritizeOrders(List<OrderModel> orders, int? focusOrderId) {
+    if (focusOrderId == null) return orders;
+    final list = [...orders];
+    final index = list.indexWhere((o) => o.id == focusOrderId);
+    if (index <= 0) return list;
+    final target = list.removeAt(index);
+    list.insert(0, target);
+    return list;
+  }
 }
 
 class _OrderCard extends ConsumerWidget {
   final OrderModel order;
+  final bool initiallyExpanded;
+  final bool highlighted;
 
-  const _OrderCard({required this.order});
+  const _OrderCard({
+    required this.order,
+    required this.initiallyExpanded,
+    required this.highlighted,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = orderStatusLabel(order.status);
 
     return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: highlighted
+            ? BorderSide(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.55),
+              )
+            : BorderSide.none,
+      ),
       child: ExpansionTile(
-        title: Text(
-          'طلب #${order.id} - $status',
-          textDirection: TextDirection.rtl,
-        ),
+        key: PageStorageKey('order_card_${order.id}'),
+        initiallyExpanded: initiallyExpanded,
+        title: Text('طلب #${order.id} - $status', textDirection: TextDirection.rtl),
         subtitle: Text(
           'المتجر: ${order.merchantName} | الإجمالي: ${formatIqd(order.totalAmount)}',
           textDirection: TextDirection.rtl,
@@ -110,7 +147,7 @@ class _OrderCard extends ConsumerWidget {
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'الدلفري: ${order.deliveryFullName} - ${order.deliveryPhone ?? ''}',
+                'السائق: ${order.deliveryFullName} - ${order.deliveryPhone ?? ''}',
                 textDirection: TextDirection.rtl,
               ),
             ),
@@ -192,7 +229,7 @@ class _OrderCard extends ConsumerWidget {
 
                   await _showFirstAppRating(context, ref);
                 },
-                child: const Text('الدلفري وصل الطلب'),
+                child: const Text('تم استلام الطلب'),
               ),
             ),
           if (order.status == 'delivered')
@@ -252,9 +289,7 @@ class _OrderCard extends ConsumerWidget {
           if (order.deliveryRating != null)
             Align(
               alignment: Alignment.centerRight,
-              child: Text(
-                'تقييم المندوب: ${'⭐' * (order.deliveryRating ?? 0)}',
-              ),
+              child: Text('تقييم المندوب: ${'⭐' * (order.deliveryRating ?? 0)}'),
             ),
           if (order.merchantRating != null)
             Align(
@@ -359,39 +394,34 @@ class _OrderStatusTimeline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const steps = <_TimelineStep>[
-      _TimelineStep(
-        id: 'pending',
-        label: 'استلام الطلب',
-        icon: Icons.receipt_long_outlined,
-      ),
-      _TimelineStep(
-        id: 'preparing',
-        label: 'قيد التحضير',
-        icon: Icons.local_dining_outlined,
-      ),
-      _TimelineStep(
-        id: 'ready_for_delivery',
-        label: 'بانتظار السائق',
-        icon: Icons.store_mall_directory_outlined,
-      ),
-      _TimelineStep(
-        id: 'on_the_way',
-        label: 'استلم السائق الطلب',
-        icon: Icons.two_wheeler_outlined,
-      ),
-      _TimelineStep(
-        id: 'delivered',
-        label: 'تم التسليم',
-        icon: Icons.check_circle_outline,
-      ),
-    ];
+    final progress = _buildProgress(order);
 
-    final activeIndex = _statusToTimelineIndex(order.status);
+    const steps = <_TimelineStep>[
+      _TimelineStep(label: 'الموافقة على الطلب', icon: Icons.verified_outlined),
+      _TimelineStep(label: 'تعيين سائق', icon: Icons.assignment_ind_outlined),
+      _TimelineStep(label: 'تحضير الطلب', icon: Icons.restaurant_menu_outlined),
+      _TimelineStep(label: 'استلم السائق الطلب', icon: Icons.two_wheeler_outlined),
+      _TimelineStep(label: 'وصل السائق', icon: Icons.location_on_outlined),
+      _TimelineStep(label: 'تم استلام الطلب', icon: Icons.check_circle_outline),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (order.status == 'pending')
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.orange.withValues(alpha: 0.45)),
+            ),
+            child: const Text(
+              'بانتظار موافقة المتجر على الطلب',
+              textDirection: TextDirection.rtl,
+            ),
+          ),
         if (order.status == 'cancelled')
           Container(
             margin: const EdgeInsets.only(bottom: 8),
@@ -399,7 +429,7 @@ class _OrderStatusTimeline extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.red.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+              border: Border.all(color: Colors.red.withValues(alpha: 0.45)),
             ),
             child: const Text(
               'تم إلغاء الطلب من المتجر',
@@ -414,15 +444,18 @@ class _OrderStatusTimeline extends StatelessWidget {
               for (var i = 0; i < steps.length; i++) ...[
                 _TimelineChip(
                   step: steps[i],
-                  done: i <= activeIndex && order.status != 'cancelled',
-                  active: i == activeIndex && order.status != 'cancelled',
+                  done: progress.doneFlags[i] && order.status != 'cancelled',
+                  active:
+                      i == progress.activeIndex &&
+                      order.status != 'cancelled' &&
+                      !progress.doneFlags.last,
                 ),
                 if (i < steps.length - 1)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     child: Icon(
                       Icons.arrow_back_rounded,
-                      color: i < activeIndex
+                      color: progress.doneFlags[i]
                           ? Theme.of(context).colorScheme.primary
                           : Colors.white54,
                     ),
@@ -541,22 +574,124 @@ class _DeliveryEtaPanel extends StatelessWidget {
             borderRadius: BorderRadius.circular(999),
             backgroundColor: Colors.white.withValues(alpha: 0.1),
           ),
+          const SizedBox(height: 10),
+          _MotorcycleRoadLane(progress: eta.progress, isLate: eta.isLate),
         ],
       ),
     );
   }
 }
 
+class _MotorcycleRoadLane extends StatefulWidget {
+  final double progress;
+  final bool isLate;
+
+  const _MotorcycleRoadLane({required this.progress, required this.isLate});
+
+  @override
+  State<_MotorcycleRoadLane> createState() => _MotorcycleRoadLaneState();
+}
+
+class _MotorcycleRoadLaneState extends State<_MotorcycleRoadLane>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _floatController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1050),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _floatController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final clamped = widget.progress.clamp(0.0, 1.0);
+    return SizedBox(
+      height: 42,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final laneWidth = (constraints.maxWidth - 58).clamp(20.0, 5000.0);
+          return Stack(
+            children: [
+              Positioned(
+                left: 22,
+                right: 22,
+                top: 20,
+                child: Container(
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 0,
+                top: 10,
+                child: Icon(
+                  Icons.storefront_rounded,
+                  size: 18,
+                  color: Colors.white.withValues(alpha: 0.8),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                top: 10,
+                child: Icon(
+                  Icons.home_rounded,
+                  size: 18,
+                  color: Colors.white.withValues(alpha: 0.8),
+                ),
+              ),
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: clamped),
+                duration: const Duration(milliseconds: 420),
+                curve: Curves.easeOutCubic,
+                builder: (context, animatedProgress, child) {
+                  return AnimatedBuilder(
+                    animation: _floatController,
+                    builder: (context, _) {
+                      final bounce =
+                          math.sin(_floatController.value * math.pi * 2) *
+                          (widget.isLate ? 1.6 : 3.0);
+                      final x = 22 + (laneWidth * animatedProgress);
+                      return Positioned(
+                        left: x,
+                        top: 10 + bounce,
+                        child: Icon(
+                          Icons.two_wheeler_rounded,
+                          size: 20,
+                          color: widget.isLate
+                              ? Colors.orange.shade300
+                              : Theme.of(context).colorScheme.primary,
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _TimelineStep {
-  final String id;
   final String label;
   final IconData icon;
 
-  const _TimelineStep({
-    required this.id,
-    required this.label,
-    required this.icon,
-  });
+  const _TimelineStep({required this.label, required this.icon});
+}
+
+class _TimelineProgress {
+  final List<bool> doneFlags;
+  final int activeIndex;
+
+  const _TimelineProgress({required this.doneFlags, required this.activeIndex});
 }
 
 class _EtaWindow {
@@ -575,23 +710,34 @@ class _EtaWindow {
   });
 }
 
-int _statusToTimelineIndex(String status) {
-  switch (status) {
-    case 'pending':
-      return 0;
-    case 'preparing':
-      return 1;
-    case 'ready_for_delivery':
-      return 2;
-    case 'on_the_way':
-      return 3;
-    case 'delivered':
-      return 4;
-    case 'cancelled':
-      return 0;
-    default:
-      return 0;
+_TimelineProgress _buildProgress(OrderModel order) {
+  final approved = order.approvedAt != null || order.status != 'pending';
+  final assignedDriver = order.deliveryUserId != null;
+  final preparing =
+      order.preparingStartedAt != null ||
+      const {'preparing', 'ready_for_delivery', 'on_the_way', 'delivered'}
+          .contains(order.status);
+  final picked =
+      order.pickedUpAt != null ||
+      const {'on_the_way', 'delivered'}.contains(order.status);
+  final arrived =
+      order.deliveredAt != null || const {'delivered'}.contains(order.status);
+  final received = order.customerConfirmedAt != null;
+
+  final done = [
+    approved,
+    assignedDriver,
+    preparing,
+    picked,
+    arrived,
+    received,
+  ];
+
+  var activeIndex = 0;
+  for (var i = 0; i < done.length; i++) {
+    if (done[i]) activeIndex = i;
   }
+  return _TimelineProgress(doneFlags: done, activeIndex: activeIndex);
 }
 
 _EtaWindow _computeEta(OrderModel order, DateTime now) {

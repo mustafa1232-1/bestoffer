@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/notifications/local_notification_service.dart';
 import 'core/settings/app_settings_controller.dart';
 import 'core/theme/app_backdrop.dart';
 import 'core/theme/app_theme.dart';
@@ -10,7 +13,9 @@ import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/state/auth_controller.dart';
 import 'features/auth/ui/merchants_list_screen.dart';
 import 'features/delivery/ui/delivery_dashboard_screen.dart';
+import 'features/notifications/ui/notifications_screen.dart';
 import 'features/owner/ui/owner_dashboard_screen.dart';
+import 'features/orders/ui/customer_orders_screen.dart';
 
 void main() {
   runApp(const ProviderScope(child: BestOfferApp()));
@@ -24,21 +29,71 @@ class BestOfferApp extends ConsumerStatefulWidget {
 }
 
 class _BestOfferAppState extends ConsumerState<BestOfferApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  StreamSubscription<NotificationTapPayload>? _notificationTapSub;
+  NotificationTapPayload? _pendingTapPayload;
+
   @override
   void initState() {
     super.initState();
-    Future.microtask(
-      () => ref.read(authControllerProvider.notifier).bootstrap(),
-    );
+    Future.microtask(() async {
+      final localNotifications = ref.read(localNotificationsProvider);
+      await localNotifications.initialize();
+      _notificationTapSub = localNotifications.tapStream.listen(
+        _handleNotificationTap,
+      );
+      await ref.read(authControllerProvider.notifier).bootstrap();
+    });
+  }
+
+  @override
+  void dispose() {
+    _notificationTapSub?.cancel();
+    super.dispose();
+  }
+
+  void _handleNotificationTap(NotificationTapPayload payload) {
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isAuthed) {
+      _pendingTapPayload = payload;
+      return;
+    }
+    _openFromNotificationPayload(payload);
+  }
+
+  void _openFromNotificationPayload(NotificationTapPayload payload) {
+    final nav = _navigatorKey.currentState;
+    if (nav == null) return;
+
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isBackoffice && !auth.isOwner && !auth.isDelivery) {
+      nav.push(
+        MaterialPageRoute(
+          builder: (_) => CustomerOrdersScreen(initialOrderId: payload.orderId),
+        ),
+      );
+      return;
+    }
+
+    nav.push(MaterialPageRoute(builder: (_) => const NotificationsScreen()));
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
     final settings = ref.watch(appSettingsControllerProvider);
+    final pendingPayload = _pendingTapPayload;
+
+    if (auth.isAuthed && pendingPayload != null) {
+      _pendingTapPayload = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _openFromNotificationPayload(pendingPayload);
+      });
+    }
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      navigatorKey: _navigatorKey,
       locale: settings.locale,
       supportedLocales: const [Locale('ar'), Locale('en')],
       localizationsDelegates: const [
