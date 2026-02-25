@@ -10,16 +10,65 @@ import {
 
 const FIXED_SERVICE_FEE = 500;
 const FIXED_DELIVERY_FEE = 1000;
+const OPENAI_ENABLED = readBooleanEnv("OPENAI_ENABLED", true);
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "").trim();
-const OPENAI_MODEL = String(process.env.OPENAI_MODEL || "gpt-4o-mini").trim();
-const OPENAI_TIMEOUT_MS = Math.min(
-  Math.max(Number(process.env.OPENAI_TIMEOUT_MS || 9000), 3000),
-  20000
+const OPENAI_BASE_URL = String(
+  process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"
+)
+  .trim()
+  .replace(/\/+$/, "");
+const OPENAI_MODEL = String(process.env.OPENAI_MODEL || "gpt-4.1-mini").trim();
+const OPENAI_FALLBACK_MODEL = String(
+  process.env.OPENAI_FALLBACK_MODEL || "gpt-4o-mini"
+).trim();
+const OPENAI_TIMEOUT_MS = clampNumber(
+  process.env.OPENAI_TIMEOUT_MS,
+  3000,
+  20000,
+  9000
 );
-const OPENAI_MAX_PROMPT_ITEMS = Math.min(
-  Math.max(Number(process.env.OPENAI_MAX_PROMPT_ITEMS || 6), 2),
-  12
+const OPENAI_MAX_PROMPT_ITEMS = clampInteger(
+  process.env.OPENAI_MAX_PROMPT_ITEMS,
+  2,
+  12,
+  6
 );
+const OPENAI_TEMPERATURE = clampNumber(
+  process.env.OPENAI_TEMPERATURE,
+  0,
+  1.2,
+  0.55
+);
+const OPENAI_TOP_P = clampNumber(process.env.OPENAI_TOP_P, 0.1, 1, 0.95);
+const OPENAI_MAX_TOKENS = clampInteger(
+  process.env.OPENAI_MAX_TOKENS,
+  220,
+  1200,
+  600
+);
+const OPENAI_PRESENCE_PENALTY = clampNumber(
+  process.env.OPENAI_PRESENCE_PENALTY,
+  -2,
+  2,
+  0.25
+);
+const OPENAI_FREQUENCY_PENALTY = clampNumber(
+  process.env.OPENAI_FREQUENCY_PENALTY,
+  -2,
+  2,
+  0.45
+);
+const OPENAI_RETRIES = clampInteger(process.env.OPENAI_RETRIES, 0, 3, 1);
+const OPENAI_ASSISTANT_NAME = String(
+  process.env.OPENAI_ASSISTANT_NAME || "سوقي"
+).trim();
+const OPENAI_LANGUAGE_LOCK = readBooleanEnv("OPENAI_LANGUAGE_LOCK", true);
+const OPENAI_SYSTEM_PROMPT_AR = String(
+  process.env.OPENAI_SYSTEM_PROMPT_AR || ""
+).trim();
+const OPENAI_SYSTEM_PROMPT_EN = String(
+  process.env.OPENAI_SYSTEM_PROMPT_EN || ""
+).trim();
 
 const IRAQI_DIALECT_TOKEN_MAP = {
   شنو: "ماذا",
@@ -411,6 +460,30 @@ function appError(message, status = 400) {
   const err = new Error(message);
   err.status = status;
   return err;
+}
+
+function clampNumber(raw, min, max, fallback) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}
+
+function clampInteger(raw, min, max, fallback) {
+  const n = Math.trunc(clampNumber(raw, min, max, fallback));
+  if (!Number.isFinite(n)) return fallback;
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}
+
+function readBooleanEnv(name, fallback = false) {
+  const raw = String(process.env[name] || "").trim().toLowerCase();
+  if (!raw) return fallback;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  return fallback;
 }
 
 function simpleHash(value) {
@@ -1944,25 +2017,30 @@ function compactLlmProduct(product) {
 }
 
 function buildLlmSystemPrompt(lang) {
+  if (lang === "en" && OPENAI_SYSTEM_PROMPT_EN) return OPENAI_SYSTEM_PROMPT_EN;
+  if (lang !== "en" && OPENAI_SYSTEM_PROMPT_AR) return OPENAI_SYSTEM_PROMPT_AR;
+
   if (lang === "en") {
     return [
-      "You are Souqi in-app ordering assistant for Bismayah.",
+      `You are ${OPENAI_ASSISTANT_NAME}, in-app ordering assistant for Bismayah.`,
       "Reply naturally, warmly, and practically.",
       "Use app data only. Never invent unavailable restaurants, offers, or ETA.",
       "When data is missing, ask one smart follow-up question only.",
       "Do not push ordering too early; understand the user first.",
       "If user is off-topic, answer briefly then gently return to ordering help.",
+      "Avoid repeating the same opening phrase between turns.",
       "Keep answer concise (2-6 lines), no markdown.",
     ].join(" ");
   }
 
   return [
-    "أنت مساعد تطبيق سوقي داخل بسماية.",
+    `أنت ${OPENAI_ASSISTANT_NAME} داخل تطبيق سوقي في بسماية.`,
     "ردك يكون طبيعي ولهجة عراقية بسيطة ومريحة.",
     "لا تخترع عروض أو مطاعم أو أوقات توصيل غير موجودة بالبيانات.",
     "إذا البيانات ناقصة اسأل سؤال ذكي واحد فقط.",
     "لا تدفع المستخدم للطلب بسرعة؛ افهمه أولاً ثم اقترح.",
     "إذا المستخدم خارج الموضوع جاوبه باختصار ثم ارجعه بلطف لطلب الأكل.",
+    "تجنب تكرار نفس مقدمة الجملة بكل رد.",
     "الإجابة قصيرة وواضحة من 2 إلى 6 أسطر وبدون تنسيق ماركداون.",
   ].join(" ");
 }
@@ -1976,13 +2054,15 @@ async function maybeBuildOpenAiReply({
   merchants,
   products,
   conversationDecision,
+  recentAssistantReplies = [],
   draft,
   createdOrder,
 }) {
-  if (!OPENAI_API_KEY) return null;
+  if (!OPENAI_ENABLED || !OPENAI_API_KEY) return null;
 
   const payload = {
     userMessage: intent.originalText,
+    language: lang,
     intent: {
       primary: intent.primaryIntent,
       support: intent.supportIntent,
@@ -2005,6 +2085,7 @@ async function maybeBuildOpenAiReply({
     },
     recentContext,
     historicalMemory: historicalMemory?.snippets || [],
+    recentAssistantReplies: (recentAssistantReplies || []).slice(-3),
     merchants: (merchants || []).slice(0, OPENAI_MAX_PROMPT_ITEMS).map(compactLlmMerchant),
     products: (products || []).slice(0, OPENAI_MAX_PROMPT_ITEMS).map(compactLlmProduct),
     draft: draft
@@ -2031,29 +2112,58 @@ async function maybeBuildOpenAiReply({
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
+    const messages = [
+      { role: "system", content: buildLlmSystemPrompt(lang) },
+      {
+        role: "system",
+        content: OPENAI_LANGUAGE_LOCK
+          ? lang === "en"
+            ? "Answer in English unless the user explicitly asks for Arabic."
+            : "جاوب بالعربية العراقية ما لم يطلب المستخدم الإنجليزية بشكل صريح."
+          : "Use the language that best matches user input.",
       },
-      body: JSON.stringify({
-        model: OPENAI_MODEL,
-        temperature: 0.65,
-        max_tokens: 500,
-        messages: [
-          { role: "system", content: buildLlmSystemPrompt(lang) },
-          { role: "user", content: JSON.stringify(payload) },
-        ],
-      }),
-      signal: controller.signal,
-    });
+      { role: "user", content: JSON.stringify(payload) },
+    ];
 
-    if (!response.ok) return null;
-    const json = await response.json();
-    const content = String(json?.choices?.[0]?.message?.content || "").trim();
-    if (!content) return null;
-    return content.slice(0, 1800);
+    const models = [OPENAI_MODEL];
+    if (OPENAI_FALLBACK_MODEL && OPENAI_FALLBACK_MODEL !== OPENAI_MODEL) {
+      models.push(OPENAI_FALLBACK_MODEL);
+    }
+
+    for (let attempt = 0; attempt <= OPENAI_RETRIES; attempt += 1) {
+      for (const model of models) {
+        const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            temperature: OPENAI_TEMPERATURE,
+            top_p: OPENAI_TOP_P,
+            presence_penalty: OPENAI_PRESENCE_PENALTY,
+            frequency_penalty: OPENAI_FREQUENCY_PENALTY,
+            max_tokens: OPENAI_MAX_TOKENS,
+            messages,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) continue;
+        const json = await response.json();
+        const content = String(json?.choices?.[0]?.message?.content || "").trim();
+        if (!content) continue;
+        const normalizedContent = normalizeForNlp(content);
+        const repeated = (recentAssistantReplies || []).some(
+          (line) => normalizeForNlp(line || "") === normalizedContent
+        );
+        if (repeated) continue;
+        return content.slice(0, 1800);
+      }
+    }
+
+    return null;
   } catch (_) {
     return null;
   } finally {
@@ -3058,6 +3168,11 @@ export async function chat(customerUserId, dto) {
     historyWeights,
   });
   const recentContext = summarizeRecentContext(recentMessages, lang);
+  const recentAssistantReplies = (recentMessages || [])
+    .filter((msg) => msg.role === "assistant" && typeof msg.text === "string")
+    .map((msg) => msg.text.trim())
+    .filter((text) => text.length >= 2)
+    .slice(-3);
   const historicalMemory = buildHistoricalMemoryContext(
     historicalMessages,
     intent,
@@ -3165,6 +3280,7 @@ export async function chat(customerUserId, dto) {
     merchants: visibleMerchants,
     products: visibleProducts,
     conversationDecision,
+    recentAssistantReplies,
     draft: createdDraft,
     createdOrder: null,
   });

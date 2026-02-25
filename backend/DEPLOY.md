@@ -67,3 +67,20 @@ flutter build apk --release --dart-define=API_BASE_URL=https://api.YOURDOMAIN.co
 - Do not use `10.0.2.2`/`127.0.0.1` for production phones.
 - Open firewall port `3000` or put API behind Nginx + HTTPS.
 - Keep database and uploads volumes backed up.
+
+## 7) Optional GPT assistant tuning (Railway variables)
+Set these in Railway service variables if you want stronger AI chat quality:
+- `OPENAI_ENABLED=true`
+- `OPENAI_API_KEY=...`
+- `OPENAI_MODEL=gpt-4.1-mini`
+- `OPENAI_FALLBACK_MODEL=gpt-4o-mini`
+- `OPENAI_TIMEOUT_MS=9000`
+- `OPENAI_RETRIES=1`
+- `OPENAI_MAX_PROMPT_ITEMS=6`
+- `OPENAI_TEMPERATURE=0.55`
+- `OPENAI_TOP_P=0.95`
+- `OPENAI_MAX_TOKENS=600`
+- `OPENAI_PRESENCE_PENALTY=0.25`
+- `OPENAI_FREQUENCY_PENALTY=0.45`
+- `OPENAI_ASSISTANT_NAME=سوقي`
+- `OPENAI_LANGUAGE_LOCK=true`
