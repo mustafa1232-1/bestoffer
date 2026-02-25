@@ -360,6 +360,15 @@ function appError(message, status = 400) {
   return err;
 }
 
+function simpleHash(value) {
+  const text = String(value || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) % 2147483647;
+  }
+  return Math.abs(hash);
+}
+
 function countArabicChars(value) {
   const text = String(value || '');
   const matches = text.match(/[\u0600-\u06FF]/g);

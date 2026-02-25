@@ -146,7 +146,10 @@ class _OrderCard extends ConsumerWidget {
             vertical: 8,
           ),
           children: [
-            _OrderStatusTimeline(order: order),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 160),
+              child: _OrderStatusTimeline(order: order),
+            ),
             if (order.status == 'on_the_way') ...[
               const SizedBox(height: 10),
               _DeliveryEtaPanel(order: order),
@@ -420,96 +423,117 @@ class _OrderStatusTimeline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = _buildProgress(order);
+    try {
+      final progress = _buildProgress(order);
 
-    const steps = <_TimelineStep>[
-      _TimelineStep(
-        label: 'تمت الموافقة على الطلب',
-        icon: Icons.verified_outlined,
-      ),
-      _TimelineStep(
-        label: 'تم تعيين السائق',
-        icon: Icons.assignment_ind_outlined,
-      ),
-      _TimelineStep(
-        label: 'بدء تحضير الطلب',
-        icon: Icons.restaurant_menu_outlined,
-      ),
-      _TimelineStep(
-        label: 'استلم السائق الطلب',
-        icon: Icons.two_wheeler_outlined,
-      ),
-      _TimelineStep(label: 'وصل السائق', icon: Icons.location_on_outlined),
-      _TimelineStep(label: 'تم استلام الطلب', icon: Icons.check_circle_outline),
-    ];
-    final safeDoneFlags = List<bool>.generate(
-      steps.length,
-      (i) => i < progress.doneFlags.length ? progress.doneFlags[i] : false,
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (order.status == 'pending')
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.orange.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.orange.withValues(alpha: 0.45)),
-            ),
-            child: const Text(
-              'بانتظار موافقة المتجر على الطلب',
-              textDirection: TextDirection.rtl,
-            ),
-          ),
-        if (order.status == 'cancelled')
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.red.withValues(alpha: 0.45)),
-            ),
-            child: const Text(
-              'تم إلغاء الطلب من المتجر',
-              textDirection: TextDirection.rtl,
-            ),
-          ),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Directionality(
-            textDirection: TextDirection.rtl,
-            child: Row(
-              children: [
-                for (var i = 0; i < steps.length; i++) ...[
-                  _TimelineChip(
-                    step: steps[i],
-                    done: safeDoneFlags[i] && order.status != 'cancelled',
-                    active:
-                        i == progress.activeIndex &&
-                        order.status != 'cancelled' &&
-                        !safeDoneFlags.last,
-                  ),
-                  if (i < steps.length - 1)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: Icon(
-                        Icons.arrow_left_rounded,
-                        color: safeDoneFlags[i]
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.white54,
-                      ),
-                    ),
-                ],
-              ],
-            ),
-          ),
+      const steps = <_TimelineStep>[
+        _TimelineStep(
+          label: 'تمت الموافقة على الطلب',
+          icon: Icons.verified_outlined,
         ),
-      ],
-    );
+        _TimelineStep(
+          label: 'تم تعيين السائق',
+          icon: Icons.assignment_ind_outlined,
+        ),
+        _TimelineStep(
+          label: 'بدء تحضير الطلب',
+          icon: Icons.restaurant_menu_outlined,
+        ),
+        _TimelineStep(
+          label: 'استلم السائق الطلب',
+          icon: Icons.two_wheeler_outlined,
+        ),
+        _TimelineStep(label: 'وصل السائق', icon: Icons.location_on_outlined),
+        _TimelineStep(
+          label: 'تم استلام الطلب',
+          icon: Icons.check_circle_outline,
+        ),
+      ];
+      final safeDoneFlags = List<bool>.generate(
+        steps.length,
+        (i) => i < progress.doneFlags.length ? progress.doneFlags[i] : false,
+      );
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (order.status == 'pending')
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: Colors.orange.withValues(alpha: 0.45),
+                ),
+              ),
+              child: const Text(
+                'بانتظار موافقة المتجر على الطلب',
+                textDirection: TextDirection.rtl,
+              ),
+            ),
+          if (order.status == 'cancelled')
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.45)),
+              ),
+              child: const Text(
+                'تم إلغاء الطلب من المتجر',
+                textDirection: TextDirection.rtl,
+              ),
+            ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Directionality(
+              textDirection: TextDirection.rtl,
+              child: Row(
+                children: [
+                  for (var i = 0; i < steps.length; i++) ...[
+                    _TimelineChip(
+                      step: steps[i],
+                      done: safeDoneFlags[i] && order.status != 'cancelled',
+                      active:
+                          i == progress.activeIndex &&
+                          order.status != 'cancelled' &&
+                          !safeDoneFlags.last,
+                    ),
+                    if (i < steps.length - 1)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Icon(
+                          Icons.arrow_left_rounded,
+                          color: safeDoneFlags[i]
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.white54,
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    } catch (_) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        margin: const EdgeInsets.only(bottom: 6),
+        decoration: BoxDecoration(
+          color: Colors.orange.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
+        ),
+        child: const Text(
+          'تعذر عرض خط تتبع الطلب حالياً، اسحب للتحديث.',
+          textDirection: TextDirection.rtl,
+        ),
+      );
+    }
   }
 }
 
