@@ -2,6 +2,11 @@ import crypto from "crypto";
 
 import { createOrder } from "../orders/orders.service.js";
 import * as repo from "./assistant.repo.js";
+import {
+  getScenarioLibrarySize,
+  pickScenarioBlueprint,
+  pickScenarioQuestion,
+} from "./assistant.scenarios.js";
 
 const FIXED_SERVICE_FEE = 500;
 const FIXED_DELIVERY_FEE = 1000;
@@ -336,6 +341,19 @@ const SUPPORT_WRONG_KEYWORDS = [
   '\u063a\u064a\u0631 \u0627\u0644\u0645\u0637\u0644\u0648\u0628',
 ];
 
+const MEAL_TYPE_KEYWORDS = {
+  breakfast: ['\u0641\u0637\u0648\u0631', 'breakfast'],
+  lunch: ['\u063a\u062f\u0627\u0621', 'lunch'],
+  dinner: ['\u0639\u0634\u0627\u0621', 'dinner'],
+  snack: ['\u0633\u0646\u0627\u0643', 'snack'],
+};
+
+const SPICE_LEVEL_KEYWORDS = {
+  mild: ['\u0639\u0627\u062f\u064a', 'mild'],
+  medium: ['\u062d\u0627\u0631', 'medium spicy'],
+  hot: ['\u0646\u0627\u0631', '\u062d\u0627\u0631 \u062c\u062f\u0627', 'very spicy', 'hot'],
+};
+
 function appError(message, status = 400) {
   const err = new Error(message);
   err.status = status;
@@ -518,6 +536,192 @@ function detectSupportType(normalizedText) {
   return "general";
 }
 
+function detectMealType(normalizedText) {
+  for (const [key, words] of Object.entries(MEAL_TYPE_KEYWORDS)) {
+    if (containsAny(normalizedText, words)) return key;
+  }
+  return "any";
+}
+
+function detectSpiceLevel(normalizedText) {
+  for (const [key, words] of Object.entries(SPICE_LEVEL_KEYWORDS)) {
+    if (containsAny(normalizedText, words)) return key;
+  }
+  return "unknown";
+}
+
+function extractPeopleCount(normalizedText, audienceType = "unknown") {
+  const match = normalizedText.match(
+    /(\d{1,2})\s*(?:\u0634\u062e\u0635|\u0627\u0634\u062e\u0627\u0635|person|people)/iu
+  );
+  if (match?.[1]) {
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n >= 1 && n <= 40) return n;
+  }
+  if (audienceType === "solo") return 1;
+  if (audienceType === "family") return 4;
+  if (audienceType === "group") return 6;
+  return null;
+}
+
+function defaultConversationModel() {
+  return {
+    phase: "discovery",
+    turns: 0,
+    clarificationTurns: 0,
+    recommendationTurns: 0,
+    lastQuestionSlot: null,
+    lastQuestionAt: null,
+    slots: {
+      cuisine: null,
+      budgetLevel: "unknown",
+      budgetIqd: null,
+      speedPriority: "balanced",
+      qualityPriority: "balanced",
+      mealType: "any",
+      spiceLevel: "unknown",
+      audienceType: "unknown",
+      peopleCount: null,
+      dietary: [],
+      city: null,
+      area: null,
+    },
+  };
+}
+
+function normalizeConversationModel(raw) {
+  const base = defaultConversationModel();
+  if (!raw || typeof raw !== "object") return base;
+  const slots = raw.slots && typeof raw.slots === "object" ? raw.slots : {};
+  return {
+    phase: ["discovery", "understanding", "recommendation", "support", "checkout"].includes(
+      raw.phase
+    )
+      ? raw.phase
+      : base.phase,
+    turns: Number(raw.turns || 0),
+    clarificationTurns: Number(raw.clarificationTurns || 0),
+    recommendationTurns: Number(raw.recommendationTurns || 0),
+    lastQuestionSlot: raw.lastQuestionSlot || null,
+    lastQuestionAt: raw.lastQuestionAt || null,
+    slots: {
+      ...base.slots,
+      ...slots,
+      dietary: Array.isArray(slots.dietary)
+        ? slots.dietary.filter((x) => typeof x === "string")
+        : [],
+    },
+  };
+}
+
+function deriveConversationPriority(intent, profile) {
+  if (intent.wantsCheap) return "cheap";
+  if (intent.wantsFast) return "fast";
+  if (intent.wantsTopRated) return "quality";
+  if (profile?.pricePreference === "cheap") return "cheap";
+  if (profile?.qualityPriority === "high") return "quality";
+  return "balanced";
+}
+
+function deriveConversationSlots(intent, profile) {
+  const slots = {};
+  if (intent.categoryHints?.[0]) slots.cuisine = intent.categoryHints[0];
+  if (intent.budgetIqd != null) {
+    slots.budgetIqd = intent.budgetIqd;
+    if (intent.budgetIqd <= 12000) slots.budgetLevel = "low";
+    else if (intent.budgetIqd <= 30000) slots.budgetLevel = "medium";
+    else slots.budgetLevel = "high";
+  }
+
+  if (intent.wantsFast) slots.speedPriority = "high";
+  if (intent.wantsTopRated) slots.qualityPriority = "high";
+  if (intent.wantsCheap && !intent.wantsTopRated) {
+    slots.qualityPriority = "balanced";
+  }
+
+  if (intent.audienceType && intent.audienceType !== "unknown") {
+    slots.audienceType = intent.audienceType;
+  }
+  const people = extractPeopleCount(intent.normalizedText, intent.audienceType);
+  if (people != null) slots.peopleCount = people;
+  const mealType = detectMealType(intent.normalizedText);
+  if (mealType !== "any") slots.mealType = mealType;
+  const spiceLevel = detectSpiceLevel(intent.normalizedText);
+  if (spiceLevel !== "unknown") slots.spiceLevel = spiceLevel;
+  if (intent.cityHint) slots.city = intent.cityHint;
+  if (intent.areaHint) slots.area = intent.areaHint;
+  if (intent.dietaryNotes?.length) slots.dietary = intent.dietaryNotes;
+
+  if (!slots.city && profile?.city) slots.city = profile.city;
+  if (!slots.area && profile?.area) slots.area = profile.area;
+  return slots;
+}
+
+function mergeConversationModel(profile, intent) {
+  const model = normalizeConversationModel(profile.conversationModel);
+  model.turns += 1;
+  const derived = deriveConversationSlots(intent, profile);
+
+  if (derived.cuisine) model.slots.cuisine = derived.cuisine;
+  if (derived.budgetLevel) model.slots.budgetLevel = derived.budgetLevel;
+  if (derived.budgetIqd != null) model.slots.budgetIqd = derived.budgetIqd;
+  if (derived.speedPriority) model.slots.speedPriority = derived.speedPriority;
+  if (derived.qualityPriority) model.slots.qualityPriority = derived.qualityPriority;
+  if (derived.mealType) model.slots.mealType = derived.mealType;
+  if (derived.spiceLevel) model.slots.spiceLevel = derived.spiceLevel;
+  if (derived.audienceType) model.slots.audienceType = derived.audienceType;
+  if (derived.peopleCount != null) model.slots.peopleCount = derived.peopleCount;
+  if (derived.city) model.slots.city = derived.city;
+  if (derived.area) model.slots.area = derived.area;
+  if (Array.isArray(derived.dietary) && derived.dietary.length) {
+    model.slots.dietary = Array.from(new Set([...model.slots.dietary, ...derived.dietary]));
+  }
+
+  if (intent.supportIntent) {
+    model.phase = "support";
+  } else if (model.phase !== "recommendation") {
+    model.phase = model.turns >= 2 ? "understanding" : "discovery";
+  }
+
+  return model;
+}
+
+function conversationCoreFilledCount(model) {
+  const slots = model?.slots || {};
+  let count = 0;
+  if (slots.cuisine) count += 1;
+  if (slots.budgetLevel && slots.budgetLevel !== "unknown") count += 1;
+  if (slots.speedPriority && slots.speedPriority !== "balanced") count += 1;
+  if (slots.mealType && slots.mealType !== "any") count += 1;
+  if (slots.peopleCount != null) count += 1;
+  if (Array.isArray(slots.dietary) && slots.dietary.length) count += 1;
+  return count;
+}
+
+function nextMissingSlot(model) {
+  const slots = model?.slots || {};
+  if (!slots.cuisine) return "cuisine";
+  if (!slots.budgetLevel || slots.budgetLevel === "unknown") return "budget";
+  if (!slots.speedPriority || slots.speedPriority === "balanced") return "speed";
+  if (!slots.mealType || slots.mealType === "any") return "meal";
+  if (slots.peopleCount == null) return "audience";
+  if (!Array.isArray(slots.dietary) || slots.dietary.length === 0) return "dietary";
+  return null;
+}
+
+function decideConversationMode({ intent, model }) {
+  const directIntentTypes = new Set(["OFFERS", "DISCOVER_NEW", "EVALUATE", "SUPPORT"]);
+  if (intent.supportIntent || directIntentTypes.has(intent.primaryIntent) || intent.comparisonIntent) {
+    return { mode: "specialized", ready: true };
+  }
+
+  const filled = conversationCoreFilledCount(model);
+  const minimumTurns = intent.primaryIntent === "RECOMMEND" || intent.primaryIntent === "MOOD_BASED" ? 1 : 2;
+  const ready = filled >= 2 && model.turns >= minimumTurns;
+  if (ready) return { mode: "recommendation", ready: true };
+  return { mode: "discovery", ready: false, missingSlot: nextMissingSlot(model), filled };
+}
+
 function detectPrimaryIntent(normalizedText, supportIntent) {
   if (supportIntent) return "SUPPORT";
   if (containsAny(normalizedText, DISCOVER_NEW_KEYWORDS)) return "DISCOVER_NEW";
@@ -567,10 +771,13 @@ function detectIntent(message) {
   const tokens = tokenize(normalized);
   const supportType = detectSupportType(normalized);
   const dietaryNotes = detectDietaryNotes(normalized);
+  const mealType = detectMealType(normalized);
+  const spiceLevel = detectSpiceLevel(normalized);
   const style = detectConversationStyle(normalized);
   const languageSwitch = detectLanguageSwitch(normalized);
   const inferredLanguage = languageSwitch || detectTextLanguage(rawMessage);
   const cityAreaHints = extractCityAreaHints(normalized);
+  const peopleCount = extractPeopleCount(normalized, audienceType);
 
   const hasDomainTerms =
     containsAny(normalized, ORDER_DOMAIN_KEYWORDS) ||
@@ -610,6 +817,9 @@ function detectIntent(message) {
     smallTalkType,
     audienceType,
     budgetIqd,
+    mealType,
+    spiceLevel,
+    peopleCount,
     dietaryNotes,
     style,
     inferredLanguage,
@@ -706,6 +916,7 @@ function parseProfile(rawProfile) {
             lastIntent: "unknown",
             lastTopic: "none",
           },
+    conversationModel: normalizeConversationModel(preferenceJson.conversationModel),
   };
 }
 
@@ -750,6 +961,7 @@ function mergeProfileSignals(profile, intent) {
     tokenSignals: decaySignalMap(profile.tokenSignals, 0.985, 0.15),
     audienceSignals: decaySignalMap(profile.audienceSignals, 0.993, 0.2),
     conversation: { ...profile.conversation },
+    conversationModel: normalizeConversationModel(profile.conversationModel),
     dietaryNotes: [...(profile.dietaryNotes || [])],
     preferredCuisines: [...(profile.preferredCuisines || [])],
     favoriteRestaurants: [...(profile.favoriteRestaurants || [])],
@@ -1273,6 +1485,7 @@ function mapProfileForApi(profile) {
     topMerchants,
     topAudiences,
     conversation: profile.conversation,
+    conversationModel: profile.conversationModel,
   };
 }
 
@@ -1557,6 +1770,83 @@ function buildSupportReply(intent, lang) {
   )}`;
 }
 
+function describeCollectedPreferences(model, lang) {
+  const slots = model?.slots || {};
+  const pieces = [];
+  if (slots.cuisine) {
+    pieces.push(
+      tr(
+        lang,
+        `نوع الأكل: ${slots.cuisine}`,
+        `Cuisine: ${slots.cuisine}`
+      )
+    );
+  }
+  if (slots.budgetLevel && slots.budgetLevel !== "unknown") {
+    pieces.push(
+      tr(
+        lang,
+        `الميزانية: ${slots.budgetLevel}`,
+        `Budget: ${slots.budgetLevel}`
+      )
+    );
+  }
+  if (slots.mealType && slots.mealType !== "any") {
+    pieces.push(
+      tr(
+        lang,
+        `الوجبة: ${slots.mealType}`,
+        `Meal: ${slots.mealType}`
+      )
+    );
+  }
+  if (slots.peopleCount != null) {
+    pieces.push(
+      tr(
+        lang,
+        `عدد الأشخاص: ${slots.peopleCount}`,
+        `People: ${slots.peopleCount}`
+      )
+    );
+  }
+  if (!pieces.length) return null;
+  return pieces.slice(0, 2).join(tr(lang, " | ", " | "));
+}
+
+function buildDiscoveryReply({
+  intent,
+  profile,
+  conversationModel,
+  missingSlot,
+  lang,
+}) {
+  const scenario = pickScenarioBlueprint({
+    intent: intent.primaryIntent || "BROWSE",
+    style: intent.style || profile.personalityStyle || "neutral",
+    audience: conversationModel?.slots?.audienceType || intent.audienceType || "unknown",
+    meal: conversationModel?.slots?.mealType || intent.mealType || "any",
+    priority: deriveConversationPriority(intent, profile),
+    seed: `${intent.originalText}|${conversationModel?.turns || 0}`,
+  });
+
+  const opener = lang === "en" ? scenario.openerEn : scenario.openerAr;
+  const slotFromScenario = Array.isArray(scenario.trackOrder)
+    ? scenario.trackOrder.find((key) => key === missingSlot)
+    : null;
+  const slot = slotFromScenario || missingSlot || "cuisine";
+  const question = pickScenarioQuestion(slot, lang, intent.originalText);
+  const digest = describeCollectedPreferences(conversationModel, lang);
+  const phaseLine = tr(
+    lang,
+    "خليني أفهمك أكثر وبعدين أطلعلك أفضل 3 خيارات مناسبة.",
+    "Let me understand you first, then I will rank the best 3 options for you."
+  );
+  const digestLine = digest
+    ? tr(lang, `اللي فهمته لحد الآن: ${digest}.`, `What I got so far: ${digest}.`)
+    : "";
+  return `${opener} ${phaseLine} ${digestLine} ${question}`.trim();
+}
+
 function buildOffersReply({ products, intent, profile, lang }) {
   const offerProducts = products
     .filter((p) => p.offerLabel || (p.discountedPrice != null && p.discountedPrice < p.basePrice))
@@ -1708,6 +1998,8 @@ function buildIntentAwareReply({
   profile,
   recentContext,
   merchantCatalog = [],
+  conversationModel = null,
+  conversationDecision = null,
   lang,
 }) {
   if (createdOrder && confirmFromDraft) {
@@ -1736,6 +2028,16 @@ function buildIntentAwareReply({
 
   if (intent.offTopicIntent || intent.smallTalkType !== "none") {
     return buildSmallTalkReply({ intent, profile, merchants, products, lang });
+  }
+
+  if (conversationDecision?.mode === "discovery") {
+    return buildDiscoveryReply({
+      intent,
+      profile,
+      conversationModel,
+      missingSlot: conversationDecision.missingSlot,
+      lang,
+    });
   }
 
   if (intent.primaryIntent === "OFFERS") {
@@ -1933,6 +2235,7 @@ function buildConversationArtifacts({
   draft,
   createdOrder,
   summaryText,
+  conversationMode = null,
   lang,
 }) {
   const finalIntent = resolveFinalIntent(intent);
@@ -1971,6 +2274,8 @@ function buildConversationArtifacts({
     summary: summaryText,
     finalIntent,
     satisfactionEstimate,
+    conversationMode: conversationMode || "unknown",
+    scenarioLibrarySize: getScenarioLibrarySize(),
     upsellOpportunity: detectUpsellOpportunity({ intent, draft, products, lang }),
     recommendationStrategy: nextRecommendationStrategy({
       intent,
@@ -2193,6 +2498,9 @@ export async function confirmDraft(customerUserId, token, options = {}) {
     satisfactionEstimate: "High",
     summaryText,
   });
+  updatedProfile.conversationModel = normalizeConversationModel(updatedProfile.conversationModel);
+  updatedProfile.conversationModel.phase = "checkout";
+  updatedProfile.conversationModel.recommendationTurns += 1;
 
   const artifacts = buildConversationArtifacts({
     intent: { primaryIntent: "ORDER_DIRECT", orderIntent: true },
@@ -2203,6 +2511,7 @@ export async function confirmDraft(customerUserId, token, options = {}) {
     draft: null,
     createdOrder: createdOrderApi,
     summaryText,
+    conversationMode: "checkout",
     lang,
   });
 
@@ -2216,6 +2525,7 @@ export async function confirmDraft(customerUserId, token, options = {}) {
     type: "draft_confirmed",
     draftToken: draft.token,
     orderId: createdOrder.id,
+    scenarioLibrarySize: getScenarioLibrarySize(),
     language: lang,
     CUSTOMER_PROFILE_UPDATE: artifacts.customerProfileUpdate,
     ADMIN_SUMMARY: artifacts.adminSummary,
@@ -2283,6 +2593,8 @@ export async function chat(customerUserId, dto) {
       satisfactionEstimate: preArtifactsSatisfaction,
       summaryText,
     });
+    updatedProfile.conversationModel = normalizeConversationModel(updatedProfile.conversationModel);
+    updatedProfile.conversationModel.phase = "discovery";
     const artifacts = buildConversationArtifacts({
       intent: { primaryIntent: "BROWSE" },
       profile,
@@ -2292,12 +2604,14 @@ export async function chat(customerUserId, dto) {
       draft: null,
       createdOrder: null,
       summaryText,
+      conversationMode: "discovery",
       lang,
     });
     await repo.upsertProfile(customerUserId, updatedProfile, artifacts.adminSummary.summary);
 
     const cancelMessage = await repo.insertMessage(session.id, "assistant", cancelText, {
       type: "draft_cancelled",
+      scenarioLibrarySize: getScenarioLibrarySize(),
       language: lang,
       CUSTOMER_PROFILE_UPDATE: artifacts.customerProfileUpdate,
       ADMIN_SUMMARY: artifacts.adminSummary,
@@ -2329,7 +2643,11 @@ export async function chat(customerUserId, dto) {
   ]);
 
   const profile = mergeProfileSignals(parseProfile(rawProfile), intent);
-  await repo.upsertProfile(customerUserId, profile, "updated_from_chat");
+  profile.conversationModel = mergeConversationModel(profile, intent);
+  const conversationDecision = decideConversationMode({
+    intent,
+    model: profile.conversationModel,
+  });
   const lang = resolveResponseLanguage(intent, profile);
 
   const historyWeights = buildHistoryWeights(historySignals, globalSignals);
@@ -2346,7 +2664,9 @@ export async function chat(customerUserId, dto) {
 
   let createdDraft = null;
   const shouldDraft =
-    (intent.orderIntent || dto.createDraft === true) && !intent.offTopicIntent;
+    (intent.orderIntent || dto.createDraft === true) &&
+    !intent.offTopicIntent &&
+    conversationDecision.mode === "recommendation";
   if (shouldDraft && ranked.length) {
     const draftCandidate = buildDraftCandidate(
       ranked,
@@ -2390,16 +2710,36 @@ export async function chat(customerUserId, dto) {
     }
   }
 
+  const canRecommendNow =
+    conversationDecision.mode === "recommendation" ||
+    (conversationDecision.mode === "specialized" && !intent.supportIntent);
+  const visibleMerchants = canRecommendNow ? merchantSuggestions : [];
+  const visibleProducts = canRecommendNow ? productSuggestions : [];
+  if (conversationDecision.mode === "discovery") {
+    profile.conversationModel.phase = "understanding";
+    profile.conversationModel.clarificationTurns += 1;
+    profile.conversationModel.lastQuestionSlot = conversationDecision.missingSlot || null;
+    profile.conversationModel.lastQuestionAt = new Date().toISOString();
+  } else if (conversationDecision.mode === "specialized") {
+    profile.conversationModel.phase = intent.supportIntent ? "support" : "recommendation";
+    profile.conversationModel.recommendationTurns += 1;
+  } else {
+    profile.conversationModel.phase = "recommendation";
+    profile.conversationModel.recommendationTurns += 1;
+  }
+
   const assistantText = buildAssistantReply({
     intent,
-    merchants: merchantSuggestions,
-    products: productSuggestions,
+    merchants: visibleMerchants,
+    products: visibleProducts,
     draft: createdDraft,
     createdOrder: null,
     confirmFromDraft: false,
     profile,
     recentContext,
     merchantCatalog: merchantSuggestions,
+    conversationModel: profile.conversationModel,
+    conversationDecision,
     lang,
   });
 
@@ -2407,7 +2747,7 @@ export async function chat(customerUserId, dto) {
     intent,
     draft: createdDraft,
     createdOrder: null,
-    merchants: merchantSuggestions,
+    merchants: visibleMerchants,
     lang,
   });
 
@@ -2415,8 +2755,8 @@ export async function chat(customerUserId, dto) {
     intent,
     draft: createdDraft,
     createdOrder: null,
-    merchants: merchantSuggestions,
-    products: productSuggestions,
+    merchants: visibleMerchants,
+    products: visibleProducts,
   });
 
   const updatedProfile = enrichProfileAfterConversation(profile, {
@@ -2431,11 +2771,12 @@ export async function chat(customerUserId, dto) {
     intent,
     profile,
     updatedProfile,
-    merchants: merchantSuggestions,
-    products: productSuggestions,
+    merchants: visibleMerchants,
+    products: visibleProducts,
     draft: createdDraft,
     createdOrder: null,
     summaryText,
+    conversationMode: conversationDecision.mode,
     lang,
   });
 
@@ -2446,10 +2787,18 @@ export async function chat(customerUserId, dto) {
   );
 
   const assistantMessage = await repo.insertMessage(session.id, "assistant", assistantText, {
-    type: createdDraft ? "draft_created" : "recommendation",
+    type:
+      conversationDecision.mode === "discovery"
+        ? "discovery"
+        : createdDraft
+        ? "draft_created"
+        : "recommendation",
     draftToken: createdDraft?.token || null,
-    merchantsCount: merchantSuggestions.length,
-    productsCount: productSuggestions.length,
+    merchantsCount: visibleMerchants.length,
+    productsCount: visibleProducts.length,
+    conversationPhase: profile.conversationModel?.phase || "discovery",
+    conversationMode: conversationDecision.mode,
+    scenarioLibrarySize: getScenarioLibrarySize(),
     language: lang,
     CUSTOMER_PROFILE_UPDATE: artifacts.customerProfileUpdate,
     ADMIN_SUMMARY: artifacts.adminSummary,
@@ -2461,8 +2810,8 @@ export async function chat(customerUserId, dto) {
     ...payload,
     assistantMessage,
     suggestions: {
-      merchants: merchantSuggestions,
-      products: productSuggestions,
+      merchants: visibleMerchants,
+      products: visibleProducts,
     },
     createdOrder: null,
   };
