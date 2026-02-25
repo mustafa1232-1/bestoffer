@@ -1148,10 +1148,9 @@ function mapOrderForApi(order) {
 async function resolveSession(customerUserId, sessionId) {
   if (sessionId != null) {
     const existing = await repo.getSessionById(customerUserId, Number(sessionId));
-    if (!existing) {
-      throw appError("AI_SESSION_NOT_FOUND", 404);
-    }
-    return existing;
+    // Client can hold a stale session id after app reinstall / DB reset.
+    // Fallback to latest session (or create one) instead of failing hard.
+    if (existing) return existing;
   }
 
   return (await repo.getLatestSession(customerUserId)) || repo.createSession(customerUserId);
