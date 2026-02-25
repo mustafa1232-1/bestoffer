@@ -17,11 +17,11 @@ class _NotificationsBellButtonState
   @override
   void initState() {
     super.initState();
-    Future.microtask(
-      () => ref
-          .read(notificationsControllerProvider.notifier)
-          .refreshUnreadCount(),
-    );
+    Future.microtask(() {
+      final controller = ref.read(notificationsControllerProvider.notifier);
+      controller.startRealtime();
+      return controller.refreshUnreadCount();
+    });
   }
 
   @override

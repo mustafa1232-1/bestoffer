@@ -842,6 +842,8 @@ export async function markOrderOnTheWay(deliveryUserId, orderId, estimatedDelive
         payload: {
           orderId: row.id,
           status: "on_the_way",
+          etaMinMinutes: 7,
+          etaMaxMinutes: 10,
         },
       },
       row.owner_user_id
@@ -855,6 +857,8 @@ export async function markOrderOnTheWay(deliveryUserId, orderId, estimatedDelive
             payload: {
               orderId: row.id,
               status: "on_the_way",
+              etaMinMinutes: 7,
+              etaMaxMinutes: 10,
             },
           }
         : null,

@@ -30,6 +30,10 @@ class OrderModel {
   final String? merchantReview;
   final DateTime? merchantRatedAt;
   final DateTime? createdAt;
+  final DateTime? approvedAt;
+  final DateTime? preparingStartedAt;
+  final DateTime? preparedAt;
+  final DateTime? pickedUpAt;
   final DateTime? deliveredAt;
   final DateTime? customerConfirmedAt;
   final List<OrderItemModel> items;
@@ -63,6 +67,10 @@ class OrderModel {
     required this.merchantReview,
     required this.merchantRatedAt,
     required this.createdAt,
+    required this.approvedAt,
+    required this.preparingStartedAt,
+    required this.preparedAt,
+    required this.pickedUpAt,
     required this.deliveredAt,
     required this.customerConfirmedAt,
     required this.items,
@@ -120,6 +128,10 @@ class OrderModel {
       merchantReview: parseNullableString(j['merchant_review']),
       merchantRatedAt: _parseDate(j['merchant_rated_at']),
       createdAt: _parseDate(j['created_at']),
+      approvedAt: _parseDate(j['approved_at']),
+      preparingStartedAt: _parseDate(j['preparing_started_at']),
+      preparedAt: _parseDate(j['prepared_at']),
+      pickedUpAt: _parseDate(j['picked_up_at']),
       deliveredAt: _parseDate(j['delivered_at']),
       customerConfirmedAt: _parseDate(j['customer_confirmed_at']),
       items: rawItems

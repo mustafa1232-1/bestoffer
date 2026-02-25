@@ -1,4 +1,13 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
+
+class NotificationLiveEvent {
+  final String event;
+  final Map<String, dynamic> data;
+
+  const NotificationLiveEvent({required this.event, required this.data});
+}
 
 class NotificationsApi {
   final Dio dio;
@@ -25,5 +34,64 @@ class NotificationsApi {
 
   Future<void> markAllRead() async {
     await dio.patch('/api/notifications/read-all');
+  }
+
+  Stream<NotificationLiveEvent> streamEvents() async* {
+    final response = await dio.get<ResponseBody>(
+      '/api/notifications/stream',
+      options: Options(
+        responseType: ResponseType.stream,
+        sendTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(hours: 1),
+        headers: const {'Accept': 'text/event-stream'},
+      ),
+    );
+
+    final body = response.data;
+    if (body == null) return;
+
+    final lines = body.stream
+        .cast<List<int>>()
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+
+    String eventName = 'message';
+    var dataBuffer = '';
+
+    await for (final line in lines) {
+      if (line.startsWith('event:')) {
+        eventName = line.substring(6).trim();
+        continue;
+      }
+
+      if (line.startsWith('data:')) {
+        final chunk = line.substring(5).trimLeft();
+        dataBuffer = dataBuffer.isEmpty ? chunk : '$dataBuffer\n$chunk';
+        continue;
+      }
+
+      if (line.isNotEmpty) continue;
+      if (dataBuffer.isEmpty) {
+        eventName = 'message';
+        continue;
+      }
+
+      final data = _parseSsePayload(dataBuffer);
+      yield NotificationLiveEvent(event: eventName, data: data);
+      eventName = 'message';
+      dataBuffer = '';
+    }
+  }
+
+  Map<String, dynamic> _parseSsePayload(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+      return {'value': decoded};
+    } catch (_) {
+      return {'raw': raw};
+    }
   }
 }

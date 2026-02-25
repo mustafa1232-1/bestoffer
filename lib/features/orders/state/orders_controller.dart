@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -52,22 +54,53 @@ class OrdersState {
 
 class OrdersController extends StateNotifier<OrdersState> {
   final Ref ref;
+  Timer? _liveOrdersTimer;
+  bool _liveFetchInFlight = false;
 
   OrdersController(this.ref) : super(const OrdersState());
 
-  Future<void> loadMyOrders() async {
-    state = state.copyWith(loading: true, error: null);
+  Future<void> loadMyOrders({bool silent = false}) async {
+    if (!silent) {
+      state = state.copyWith(loading: true, error: null);
+    }
     try {
       final response = await ref.read(ordersApiProvider).listMyOrders();
       final orders = response
           .map((e) => OrderModel.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList();
-      state = state.copyWith(loading: false, orders: orders);
+      state = state.copyWith(
+        loading: silent ? state.loading : false,
+        orders: orders,
+      );
     } on DioException catch (e) {
-      state = state.copyWith(loading: false, error: _mapError(e));
+      state = state.copyWith(
+        loading: silent ? state.loading : false,
+        error: _mapError(e),
+      );
     } catch (_) {
-      state = state.copyWith(loading: false, error: 'فشل تحميل الطلبات');
+      state = state.copyWith(
+        loading: silent ? state.loading : false,
+        error: 'فشل تحميل الطلبات',
+      );
     }
+  }
+
+  void startLiveOrders({Duration interval = const Duration(seconds: 4)}) {
+    _liveOrdersTimer?.cancel();
+    _liveOrdersTimer = Timer.periodic(interval, (_) async {
+      if (_liveFetchInFlight) return;
+      _liveFetchInFlight = true;
+      try {
+        await loadMyOrders(silent: true);
+      } finally {
+        _liveFetchInFlight = false;
+      }
+    });
+  }
+
+  void stopLiveOrders() {
+    _liveOrdersTimer?.cancel();
+    _liveOrdersTimer = null;
   }
 
   Future<bool> checkout({String? note, LocalImageFile? imageFile}) async {
@@ -223,5 +256,11 @@ class OrdersController extends StateNotifier<OrdersState> {
       }
     }
     return 'حدث خطأ في الاتصال بالخادم';
+  }
+
+  @override
+  void dispose() {
+    stopLiveOrders();
+    super.dispose();
   }
 }

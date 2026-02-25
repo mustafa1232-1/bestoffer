@@ -20,9 +20,17 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(
-      () => ref.read(ordersControllerProvider.notifier).loadMyOrders(),
-    );
+    Future.microtask(() async {
+      final controller = ref.read(ordersControllerProvider.notifier);
+      await controller.loadMyOrders();
+      controller.startLiveOrders();
+    });
+  }
+
+  @override
+  void dispose() {
+    ref.read(ordersControllerProvider.notifier).stopLiveOrders();
+    super.dispose();
   }
 
   @override
@@ -76,7 +84,6 @@ class _OrderCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = orderStatusLabel(order.status);
-    final estimate = order.estimatedDeliveryMinutes;
 
     return Card(
       child: ExpansionTile(
@@ -93,18 +100,21 @@ class _OrderCard extends ConsumerWidget {
           vertical: 8,
         ),
         children: [
-          if (estimate != null && order.status != 'delivered')
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text('الوقت التقريبي للوصول: $estimate دقيقة'),
-            ),
-          if (order.deliveryFullName != null)
+          _OrderStatusTimeline(order: order),
+          if (order.status == 'on_the_way') ...[
+            const SizedBox(height: 10),
+            _DeliveryEtaPanel(order: order),
+          ],
+          if (order.deliveryFullName != null) ...[
+            const SizedBox(height: 10),
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'ا�"د�"فر�S: ${order.deliveryFullName} - ${order.deliveryPhone ?? ''}',
+                'الدلفري: ${order.deliveryFullName} - ${order.deliveryPhone ?? ''}',
+                textDirection: TextDirection.rtl,
               ),
             ),
+          ],
           if (order.imageUrl?.trim().isNotEmpty == true) ...[
             const SizedBox(height: 8),
             Align(
@@ -138,6 +148,7 @@ class _OrderCard extends ConsumerWidget {
               alignment: Alignment.centerRight,
               child: Text(
                 '- ${item.productName} x ${item.quantity} (${formatIqd(item.lineTotal)})',
+                textDirection: TextDirection.rtl,
               ),
             ),
           ),
@@ -337,8 +348,296 @@ class _OrderCard extends ConsumerWidget {
     if (!context.mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('شكرًا لتقييمك')));
+    ).showSnackBar(const SnackBar(content: Text('شكراً لتقييمك')));
   }
+}
+
+class _OrderStatusTimeline extends StatelessWidget {
+  final OrderModel order;
+
+  const _OrderStatusTimeline({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    const steps = <_TimelineStep>[
+      _TimelineStep(
+        id: 'pending',
+        label: 'استلام الطلب',
+        icon: Icons.receipt_long_outlined,
+      ),
+      _TimelineStep(
+        id: 'preparing',
+        label: 'قيد التحضير',
+        icon: Icons.local_dining_outlined,
+      ),
+      _TimelineStep(
+        id: 'ready_for_delivery',
+        label: 'بانتظار السائق',
+        icon: Icons.store_mall_directory_outlined,
+      ),
+      _TimelineStep(
+        id: 'on_the_way',
+        label: 'استلم السائق الطلب',
+        icon: Icons.two_wheeler_outlined,
+      ),
+      _TimelineStep(
+        id: 'delivered',
+        label: 'تم التسليم',
+        icon: Icons.check_circle_outline,
+      ),
+    ];
+
+    final activeIndex = _statusToTimelineIndex(order.status);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (order.status == 'cancelled')
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.red.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+            ),
+            child: const Text(
+              'تم إلغاء الطلب من المتجر',
+              textDirection: TextDirection.rtl,
+            ),
+          ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          reverse: true,
+          child: Row(
+            children: [
+              for (var i = 0; i < steps.length; i++) ...[
+                _TimelineChip(
+                  step: steps[i],
+                  done: i <= activeIndex && order.status != 'cancelled',
+                  active: i == activeIndex && order.status != 'cancelled',
+                ),
+                if (i < steps.length - 1)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Icon(
+                      Icons.arrow_back_rounded,
+                      color: i < activeIndex
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.white54,
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TimelineChip extends StatelessWidget {
+  final _TimelineStep step;
+  final bool done;
+  final bool active;
+
+  const _TimelineChip({
+    required this.step,
+    required this.done,
+    required this.active,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = done
+        ? Theme.of(context).colorScheme.primary
+        : Colors.white.withValues(alpha: 0.18);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 320),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: done ? 0.2 : 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.8)),
+        boxShadow: active
+            ? [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.25),
+                  blurRadius: 14,
+                  spreadRadius: 1,
+                ),
+              ]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            done ? Icons.check_circle : step.icon,
+            size: 16,
+            color: done
+                ? Theme.of(context).colorScheme.primary
+                : Colors.white70,
+          ),
+          const SizedBox(width: 6),
+          Text(step.label, style: const TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
+
+class _DeliveryEtaPanel extends StatelessWidget {
+  final OrderModel order;
+
+  const _DeliveryEtaPanel({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    final eta = _computeEta(order, DateTime.now());
+    final title = eta.isLate
+        ? 'السائق متأخر ${eta.lateByMinutes} دقيقة'
+        : 'وقت الوصول التقديري';
+    final etaText = eta.minMinutes == eta.maxMinutes
+        ? '${eta.minMinutes} دقيقة'
+        : '${eta.minMinutes} - ${eta.maxMinutes} دقائق';
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeInOut,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: eta.isLate
+            ? Colors.orange.withValues(alpha: 0.15)
+            : Colors.cyan.withValues(alpha: 0.12),
+        border: Border.all(
+          color: eta.isLate
+              ? Colors.orange.withValues(alpha: 0.45)
+              : Colors.cyan.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, textDirection: TextDirection.rtl),
+          const SizedBox(height: 4),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 350),
+            child: Text(
+              key: ValueKey('$title|$etaText'),
+              eta.isLate
+                  ? 'الوقت المحدّث للوصول: $etaText'
+                  : 'الوصول خلال: $etaText',
+              textDirection: TextDirection.rtl,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: eta.progress,
+            minHeight: 7,
+            borderRadius: BorderRadius.circular(999),
+            backgroundColor: Colors.white.withValues(alpha: 0.1),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelineStep {
+  final String id;
+  final String label;
+  final IconData icon;
+
+  const _TimelineStep({
+    required this.id,
+    required this.label,
+    required this.icon,
+  });
+}
+
+class _EtaWindow {
+  final int minMinutes;
+  final int maxMinutes;
+  final bool isLate;
+  final int lateByMinutes;
+  final double progress;
+
+  const _EtaWindow({
+    required this.minMinutes,
+    required this.maxMinutes,
+    required this.isLate,
+    required this.lateByMinutes,
+    required this.progress,
+  });
+}
+
+int _statusToTimelineIndex(String status) {
+  switch (status) {
+    case 'pending':
+      return 0;
+    case 'preparing':
+      return 1;
+    case 'ready_for_delivery':
+      return 2;
+    case 'on_the_way':
+      return 3;
+    case 'delivered':
+      return 4;
+    case 'cancelled':
+      return 0;
+    default:
+      return 0;
+  }
+}
+
+_EtaWindow _computeEta(OrderModel order, DateTime now) {
+  const baseMin = 7;
+  const baseMax = 10;
+
+  final pickupAt =
+      order.pickedUpAt ??
+      order.preparedAt ??
+      order.preparingStartedAt ??
+      order.createdAt;
+
+  if (pickupAt == null) {
+    return const _EtaWindow(
+      minMinutes: baseMin,
+      maxMinutes: baseMax,
+      isLate: false,
+      lateByMinutes: 0,
+      progress: 0,
+    );
+  }
+
+  final elapsed = now.difference(pickupAt).inMinutes;
+  final remainingMin = baseMin - elapsed;
+  final remainingMax = baseMax - elapsed;
+
+  if (remainingMax >= 0) {
+    return _EtaWindow(
+      minMinutes: remainingMin < 0 ? 0 : remainingMin,
+      maxMinutes: remainingMax < 1 ? 1 : remainingMax,
+      isLate: false,
+      lateByMinutes: 0,
+      progress: (elapsed / baseMax).clamp(0, 1),
+    );
+  }
+
+  final lateBy = -remainingMax;
+  final updatedMin = 2 + (lateBy ~/ 2);
+  final updatedMax = updatedMin + 3;
+  return _EtaWindow(
+    minMinutes: updatedMin,
+    maxMinutes: updatedMax,
+    isLate: true,
+    lateByMinutes: lateBy,
+    progress: 1,
+  );
 }
 
 class _RatingResult {

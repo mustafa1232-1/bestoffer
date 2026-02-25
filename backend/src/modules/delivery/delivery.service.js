@@ -67,12 +67,11 @@ export async function claimOrder(deliveryUserId, orderId) {
 }
 
 export async function startOrder(deliveryUserId, orderId, estimatedDeliveryMinutes) {
+  const fixedEtaMaxMinutes = 10;
   const ok = await ordersRepo.markOrderOnTheWay(
     deliveryUserId,
     Number(orderId),
-    estimatedDeliveryMinutes === undefined
-      ? null
-      : Number(estimatedDeliveryMinutes)
+    fixedEtaMaxMinutes
   );
   if (!ok) {
     const err = new Error("ORDER_NOT_AVAILABLE");

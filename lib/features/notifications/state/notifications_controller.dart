@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/state/auth_controller.dart';
+import '../../orders/state/orders_controller.dart';
 import '../data/notifications_api.dart';
 import '../models/app_notification_model.dart';
 
@@ -49,8 +52,14 @@ class NotificationsState {
 
 class NotificationsController extends StateNotifier<NotificationsState> {
   final Ref ref;
+  Timer? _fallbackPollTimer;
+  Timer? _reconnectTimer;
+  StreamSubscription<NotificationLiveEvent>? _liveSub;
+  bool _realtimeStarted = false;
 
-  NotificationsController(this.ref) : super(const NotificationsState());
+  NotificationsController(this.ref) : super(const NotificationsState()) {
+    startRealtime();
+  }
 
   Future<void> refreshUnreadCount() async {
     try {
@@ -61,8 +70,13 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     }
   }
 
-  Future<void> loadNotifications({bool unreadOnly = false}) async {
-    state = state.copyWith(loading: true, error: null);
+  Future<void> loadNotifications({
+    bool unreadOnly = false,
+    bool silent = false,
+  }) async {
+    if (!silent) {
+      state = state.copyWith(loading: true, error: null);
+    }
     try {
       final raw = await ref
           .read(notificationsApiProvider)
@@ -78,14 +92,20 @@ class NotificationsController extends StateNotifier<NotificationsState> {
       final unread = list.where((n) => !n.isRead).length;
 
       state = state.copyWith(
-        loading: false,
+        loading: silent ? state.loading : false,
         notifications: list,
         unreadCount: unread,
       );
     } on DioException catch (e) {
-      state = state.copyWith(loading: false, error: _mapError(e));
+      state = state.copyWith(
+        loading: silent ? state.loading : false,
+        error: _mapError(e),
+      );
     } catch (_) {
-      state = state.copyWith(loading: false, error: 'فشل تحميل الإشعارات');
+      state = state.copyWith(
+        loading: silent ? state.loading : false,
+        error: 'فشل تحميل الإشعارات',
+      );
     }
   }
 
@@ -130,6 +150,111 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     }
   }
 
+  void startRealtime() {
+    if (_realtimeStarted) return;
+    _realtimeStarted = true;
+
+    unawaited(refreshUnreadCount());
+    _fallbackPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      unawaited(refreshUnreadCount());
+      if (state.notifications.isNotEmpty) {
+        unawaited(loadNotifications(silent: true));
+      }
+    });
+
+    _connectLiveStream();
+  }
+
+  void stopRealtime() {
+    _realtimeStarted = false;
+    _fallbackPollTimer?.cancel();
+    _fallbackPollTimer = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _liveSub?.cancel();
+    _liveSub = null;
+  }
+
+  void _connectLiveStream() {
+    _liveSub?.cancel();
+    _liveSub = ref
+        .read(notificationsApiProvider)
+        .streamEvents()
+        .listen(
+          _onLiveEvent,
+          onError: (_) => _scheduleReconnect(),
+          onDone: _scheduleReconnect,
+          cancelOnError: true,
+        );
+  }
+
+  void _scheduleReconnect() {
+    if (!_realtimeStarted) return;
+    if (_reconnectTimer?.isActive == true) return;
+    _reconnectTimer = Timer(const Duration(seconds: 3), _connectLiveStream);
+  }
+
+  void _onLiveEvent(NotificationLiveEvent event) {
+    if (event.event == 'heartbeat' || event.event == 'connected') return;
+
+    if (event.event == 'notification') {
+      final rawNotification = event.data['notification'];
+      if (rawNotification is Map) {
+        final model = AppNotificationModel.fromJson(
+          Map<String, dynamic>.from(rawNotification),
+        );
+
+        final withoutCurrent = state.notifications
+            .where((n) => n.id != model.id)
+            .toList();
+        final nextList = [model, ...withoutCurrent];
+        final unread = nextList.where((n) => !n.isRead).length;
+
+        state = state.copyWith(notifications: nextList, unreadCount: unread);
+
+        final orderId = model.orderId ?? model.payload?['orderId'];
+        if (orderId != null) {
+          unawaited(
+            ref
+                .read(ordersControllerProvider.notifier)
+                .loadMyOrders(silent: true),
+          );
+        }
+      } else {
+        unawaited(refreshUnreadCount());
+      }
+      return;
+    }
+
+    if (event.event == 'notification_read') {
+      final id = int.tryParse('${event.data['notificationId']}');
+      if (id == null) return;
+
+      final updated = state.notifications
+          .map(
+            (n) => n.id == id
+                ? n.copyWith(isRead: true, readAt: DateTime.now())
+                : n,
+          )
+          .toList();
+      final unread = updated.where((n) => !n.isRead).length;
+      state = state.copyWith(notifications: updated, unreadCount: unread);
+      return;
+    }
+
+    if (event.event == 'notification_read_all') {
+      state = state.copyWith(
+        unreadCount: 0,
+        notifications: state.notifications
+            .map((n) => n.copyWith(isRead: true, readAt: DateTime.now()))
+            .toList(),
+      );
+      return;
+    }
+
+    unawaited(refreshUnreadCount());
+  }
+
   String _mapError(DioException e) {
     final data = e.response?.data;
     if (data is Map<String, dynamic>) {
@@ -139,5 +264,11 @@ class NotificationsController extends StateNotifier<NotificationsState> {
       }
     }
     return 'حدث خطأ في الاتصال بالخادم';
+  }
+
+  @override
+  void dispose() {
+    stopRealtime();
+    super.dispose();
   }
 }

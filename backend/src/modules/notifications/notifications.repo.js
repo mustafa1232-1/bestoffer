@@ -1,4 +1,5 @@
 import { q } from "../../config/db.js";
+import { emitToUser } from "../../shared/realtime/live-events.js";
 
 function toNotificationRow(row) {
   if (!row) return null;
@@ -35,7 +36,11 @@ export async function createNotification({
     ]
   );
 
-  return toNotificationRow(r.rows[0]);
+  const notification = toNotificationRow(r.rows[0]);
+  if (notification) {
+    emitToUser(Number(userId), "notification", { notification });
+  }
+  return notification;
 }
 
 export async function createManyNotifications(rows) {
@@ -89,7 +94,13 @@ export async function markNotificationRead(userId, notificationId) {
     [Number(notificationId), Number(userId)]
   );
 
-  return !!r.rows[0];
+  const ok = !!r.rows[0];
+  if (ok) {
+    emitToUser(Number(userId), "notification_read", {
+      notificationId: Number(notificationId),
+    });
+  }
+  return ok;
 }
 
 export async function markAllNotificationsRead(userId) {
@@ -103,7 +114,13 @@ export async function markAllNotificationsRead(userId) {
     [Number(userId)]
   );
 
-  return {
+  const out = {
     updatedCount: r.rowCount || 0,
   };
+
+  if (out.updatedCount > 0) {
+    emitToUser(Number(userId), "notification_read_all", out);
+  }
+
+  return out;
 }

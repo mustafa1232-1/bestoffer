@@ -27,12 +27,23 @@ class AdminDashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _analyticsSectionKey = GlobalKey();
+  final GlobalKey _settlementsSectionKey = GlobalKey();
+  final GlobalKey _approvalsSectionKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
     Future.microtask(
       () => ref.read(adminControllerProvider.notifier).bootstrap(),
     );
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _openCreateUserSheet() async {
@@ -147,6 +158,28 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     );
   }
 
+  Future<void> _scrollToTop() async {
+    if (!_scrollController.hasClients) return;
+    await _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Future<void> _scrollToSection(GlobalKey sectionKey) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final sectionContext = sectionKey.currentContext;
+      if (sectionContext == null) return;
+      Scrollable.ensureVisible(
+        sectionContext,
+        duration: const Duration(milliseconds: 360),
+        curve: Curves.easeOutCubic,
+        alignment: 0.03,
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(adminControllerProvider);
@@ -168,14 +201,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       AppUserDrawerItem(
         icon: Icons.dashboard_outlined,
         label: strings.t('drawerHome'),
+        onTap: (_) => _scrollToTop(),
       ),
       AppUserDrawerItem(
         icon: Icons.pending_actions_outlined,
         label: strings.t('drawerPendingApprovals'),
+        onTap: (_) => _scrollToSection(_approvalsSectionKey),
       ),
       AppUserDrawerItem(
         icon: Icons.account_balance_wallet_outlined,
         label: strings.t('drawerPendingSettlements'),
+        onTap: (_) => _scrollToSection(_settlementsSectionKey),
       ),
       AppUserDrawerItem(
         icon: Icons.refresh_rounded,
@@ -220,46 +256,56 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               onRefresh: () =>
                   ref.read(adminControllerProvider.notifier).bootstrap(),
               child: ListView(
+                controller: _scrollController,
                 padding: const EdgeInsets.all(12),
                 children: [
-                  _AnalyticsSection(
-                    day: state.day,
-                    month: state.month,
-                    year: state.year,
-                    onOpenDetails:
-                        ({
-                          required title,
-                          required lines,
-                          required reportPeriod,
-                        }) {
-                          return _openAnalyticsDetails(
-                            title: title,
-                            lines: lines,
-                            reportPeriod: reportPeriod,
-                          );
-                        },
+                  KeyedSubtree(
+                    key: _analyticsSectionKey,
+                    child: _AnalyticsSection(
+                      day: state.day,
+                      month: state.month,
+                      year: state.year,
+                      onOpenDetails:
+                          ({
+                            required title,
+                            required lines,
+                            required reportPeriod,
+                          }) {
+                            return _openAnalyticsDetails(
+                              title: title,
+                              lines: lines,
+                              reportPeriod: reportPeriod,
+                            );
+                          },
+                    ),
                   ),
                   const SizedBox(height: 12),
-                  _PendingSettlementsSection(
-                    saving: state.saving,
-                    canApprove: isAdmin,
-                    settlements: state.pendingSettlements,
-                    onApprove: (settlementId) async {
-                      await ref
-                          .read(adminControllerProvider.notifier)
-                          .approveSettlement(settlementId);
-                    },
+                  KeyedSubtree(
+                    key: _settlementsSectionKey,
+                    child: _PendingSettlementsSection(
+                      saving: state.saving,
+                      canApprove: isAdmin,
+                      settlements: state.pendingSettlements,
+                      onApprove: (settlementId) async {
+                        await ref
+                            .read(adminControllerProvider.notifier)
+                            .approveSettlement(settlementId);
+                      },
+                    ),
                   ),
                   const SizedBox(height: 12),
-                  _PendingMerchantsSection(
-                    saving: state.saving,
-                    canApprove: isAdmin,
-                    merchants: state.pendingMerchants,
-                    onApprove: (merchantId) async {
-                      await ref
-                          .read(adminControllerProvider.notifier)
-                          .approveMerchant(merchantId);
-                    },
+                  KeyedSubtree(
+                    key: _approvalsSectionKey,
+                    child: _PendingMerchantsSection(
+                      saving: state.saving,
+                      canApprove: isAdmin,
+                      merchants: state.pendingMerchants,
+                      onApprove: (merchantId) async {
+                        await ref
+                            .read(adminControllerProvider.notifier)
+                            .approveMerchant(merchantId);
+                      },
+                    ),
                   ),
                   const SizedBox(height: 12),
                   _MerchantsStatusSection(
