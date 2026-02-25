@@ -57,7 +57,7 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'ÃƒËœÃ‚Â·Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â§ÃƒËœÃ‚ÂªÃƒâ„¢Ã…Â ',
+          'طلباتي',
         ),
         actions: const [NotificationsBellButton()],
       ),
@@ -72,7 +72,7 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
                   SizedBox(height: 140),
                   Center(
                     child: Text(
-                      'Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¬ÃƒËœÃ‚Â¯ ÃƒËœÃ‚Â·Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¨ÃƒËœÃ‚Â§ÃƒËœÃ‚Âª',
+                      'لا توجد طلبات حالياً',
                     ),
                   ),
                 ],
@@ -139,11 +139,11 @@ class _OrderCard extends ConsumerWidget {
         key: PageStorageKey('order_card_${order.id}'),
         initiallyExpanded: initiallyExpanded,
         title: Text(
-          'ÃƒËœÃ‚Â·Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¨ #${order.id} - $status',
+          'طلب #${order.id} - $status',
           textDirection: TextDirection.rtl,
         ),
         subtitle: Text(
-          'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂªÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±: ${order.merchantName} | ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â : ${formatIqd(order.totalAmount)}',
+          'المتجر: ${order.merchantName} | الإجمالي: ${formatIqd(order.totalAmount)}',
           textDirection: TextDirection.rtl,
         ),
         childrenPadding: const EdgeInsets.symmetric(
@@ -161,7 +161,7 @@ class _OrderCard extends ConsumerWidget {
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â³ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¦Ãƒâ„¢Ã¢â‚¬Å¡: ${order.deliveryFullName} - ${order.deliveryPhone ?? ''}',
+                'السائق: ${order.deliveryFullName} - ${order.deliveryPhone ?? ''}',
                 textDirection: TextDirection.rtl,
               ),
             ),
@@ -171,7 +171,7 @@ class _OrderCard extends ConsumerWidget {
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'ÃƒËœÃ‚ÂµÃƒâ„¢Ã‹â€ ÃƒËœÃ‚Â±ÃƒËœÃ‚Â© ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â·Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¨',
+                'صورة الطلب',
                 textDirection: TextDirection.rtl,
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
@@ -207,10 +207,10 @@ class _OrderCard extends ConsumerWidget {
           Align(
             alignment: Alignment.centerRight,
             child: Text(
-              'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¹ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±ÃƒËœÃ‚Â¹Ãƒâ„¢Ã…Â : ${formatIqd(order.subtotal)}\n'
-              'ÃƒËœÃ‚Â±ÃƒËœÃ‚Â³Ãƒâ„¢Ã‹â€ Ãƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â®ÃƒËœÃ‚Â¯Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â©: ${formatIqd(order.serviceFee)}\n'
-              'ÃƒËœÃ‚Â£ÃƒËœÃ‚Â¬Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â± ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂªÃƒâ„¢Ã‹â€ ÃƒËœÃ‚ÂµÃƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Å¾: ${formatIqd(order.deliveryFee)}\n'
-              'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¬Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã…Â : ${formatIqd(order.totalAmount)}',
+              'المجموع الفرعي: ${formatIqd(order.subtotal)}\n'
+              'رسوم الخدمة: ${formatIqd(order.serviceFee)}\n'
+              'أجور التوصيل: ${formatIqd(order.deliveryFee)}\n'
+              'الإجمالي: ${formatIqd(order.totalAmount)}',
               textDirection: TextDirection.rtl,
             ),
           ),
@@ -228,7 +228,7 @@ class _OrderCard extends ConsumerWidget {
                   final result = await _showRatingDialog(
                     context,
                     title:
-                        'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡Ãƒâ„¢Ã…Â Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¨',
+                        'تقييم المندوب',
                   );
                   if (!context.mounted) return;
                   if (result != null) {
@@ -245,7 +245,7 @@ class _OrderCard extends ConsumerWidget {
                   await _showFirstAppRating(context, ref);
                 },
                 child: const Text(
-                  'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§ÃƒËœÃ‚Â³ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â·Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¨',
+                  'تم استلام الطلب',
                 ),
               ),
             ),
@@ -259,7 +259,7 @@ class _OrderCard extends ConsumerWidget {
                       .reorder(order.id, note: order.note);
                 },
                 child: const Text(
-                  'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â¹ÃƒËœÃ‚Â§ÃƒËœÃ‚Â¯ÃƒËœÃ‚Â© ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â·Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¨',
+                  'إعادة الطلب',
                 ),
               ),
             ),
@@ -271,7 +271,7 @@ class _OrderCard extends ConsumerWidget {
                   final result = await _showRatingDialog(
                     context,
                     title:
-                        'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡Ãƒâ„¢Ã…Â Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¯Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ',
+                        'تقييم المندوب',
                   );
                   if (result == null) return;
                   await ref
@@ -283,7 +283,7 @@ class _OrderCard extends ConsumerWidget {
                       );
                 },
                 child: const Text(
-                  'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡Ãƒâ„¢Ã…Â Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â¯Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã‚ÂÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â ',
+                  'تقييم المندوب',
                 ),
               ),
             ),
@@ -294,7 +294,7 @@ class _OrderCard extends ConsumerWidget {
                 onPressed: () async {
                   final result = await _showRatingDialog(
                     context,
-                    title: 'تقييم التطبيق',
+                    title: 'تقييم المتجر',
                   );
                   if (result == null) return;
                   await ref
@@ -306,7 +306,7 @@ class _OrderCard extends ConsumerWidget {
                       );
                 },
                 child: const Text(
-                  'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡Ãƒâ„¢Ã…Â Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂªÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±',
+                  'تقييم المتجر',
                 ),
               ),
             ),
@@ -314,14 +314,14 @@ class _OrderCard extends ConsumerWidget {
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡Ãƒâ„¢Ã…Â Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Â ÃƒËœÃ‚Â¯Ãƒâ„¢Ã‹â€ ÃƒËœÃ‚Â¨: ${'ÃƒÂ¢Ã‚Â­Ã‚Â' * (order.deliveryRating ?? 0)}',
+                'تقييم المندوب: ${'⭐' * (order.deliveryRating ?? 0)}',
               ),
             ),
           if (order.merchantRating != null)
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'ÃƒËœÃ‚ÂªÃƒâ„¢Ã¢â‚¬Å¡Ãƒâ„¢Ã…Â Ãƒâ„¢Ã…Â Ãƒâ„¢Ã¢â‚¬Â¦ ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ãƒâ„¢Ã¢â‚¬Â¦ÃƒËœÃ‚ÂªÃƒËœÃ‚Â¬ÃƒËœÃ‚Â±: ${'ÃƒÂ¢Ã‚Â­Ã‚Â' * (order.merchantRating ?? 0)}',
+                'تقييم المتجر: ${'⭐' * (order.merchantRating ?? 0)}',
               ),
             ),
           const SizedBox(height: 8),
@@ -366,7 +366,7 @@ class _OrderCard extends ConsumerWidget {
                   controller: reviewCtrl,
                   decoration: const InputDecoration(
                     labelText:
-                        'Ãƒâ„¢Ã¢â‚¬Â¦Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚Â§ÃƒËœÃ‚Â­ÃƒËœÃ‚Â¸ÃƒËœÃ‚Â© (ÃƒËœÃ‚Â§ÃƒËœÃ‚Â®ÃƒËœÃ‚ÂªÃƒâ„¢Ã…Â ÃƒËœÃ‚Â§ÃƒËœÃ‚Â±Ãƒâ„¢Ã…Â )',
+                        'ملاحظة (اختياري)',
                   ),
                 ),
               ],
@@ -375,7 +375,7 @@ class _OrderCard extends ConsumerWidget {
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text(
-                  'ÃƒËœÃ‚Â¥Ãƒâ„¢Ã¢â‚¬Å¾ÃƒËœÃ‚ÂºÃƒËœÃ‚Â§ÃƒËœÃ‚Â¡',
+                  'إلغاء',
                 ),
               ),
               TextButton(
@@ -389,7 +389,7 @@ class _OrderCard extends ConsumerWidget {
                   );
                 },
                 child: const Text(
-                  'ÃƒËœÃ‚Â¥ÃƒËœÃ‚Â±ÃƒËœÃ‚Â³ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾',
+                  'إرسال',
                 ),
               ),
             ],

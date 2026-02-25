@@ -55,12 +55,12 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       appBar: AppBar(
         title: Text(
           cart.merchantName == null
-              ? 'س�"ة ا�"تس�^�,'
-              : 'س�"ة ${cart.merchantName}',
+              ? 'سلة التسوق'
+              : 'سلة ${cart.merchantName}',
         ),
       ),
       body: cart.items.isEmpty
-          ? const Center(child: Text('ا�"س�"ة فارغة'))
+          ? const Center(child: Text('السلة فارغة'))
           : Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -185,7 +185,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                           ),
                           _SummaryRow(
                             cart.deliveryFee <= 0
-                                ? 'أج�^ر ا�"ت�^ص�S�" (ت�^ص�S�" �.جا�?�S)'
+                                ? 'أجور التوصيل (توصيل مجاني)'
                                 : 'أجور التوصيل',
                             formatIqd(cart.deliveryFee),
                           ),
