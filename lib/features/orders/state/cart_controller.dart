@@ -14,8 +14,14 @@ class CartState {
   final int? merchantId;
   final String? merchantName;
   final List<CartItemModel> items;
+  final String? draftNote;
 
-  const CartState({this.merchantId, this.merchantName, this.items = const []});
+  const CartState({
+    this.merchantId,
+    this.merchantName,
+    this.items = const [],
+    this.draftNote,
+  });
 
   double get subtotal {
     return items.fold(0, (sum, item) {
@@ -41,11 +47,13 @@ class CartState {
     int? merchantId,
     String? merchantName,
     List<CartItemModel>? items,
+    String? draftNote,
   }) {
     return CartState(
       merchantId: merchantId ?? this.merchantId,
       merchantName: merchantName ?? this.merchantName,
       items: items ?? this.items,
+      draftNote: draftNote ?? this.draftNote,
     );
   }
 }
@@ -76,6 +84,7 @@ class CartController extends StateNotifier<CartState> {
       merchantId: merchantId,
       merchantName: merchantName,
       items: nextItems,
+      draftNote: state.draftNote,
     );
   }
 
@@ -111,5 +120,16 @@ class CartController extends StateNotifier<CartState> {
 
   void clear() {
     state = const CartState();
+  }
+
+  void setDraftNote(String value) {
+    final normalized = value.trim().isEmpty ? null : value;
+    if ((state.draftNote ?? '') == (normalized ?? '')) return;
+    state = CartState(
+      merchantId: state.merchantId,
+      merchantName: state.merchantName,
+      items: state.items,
+      draftNote: normalized,
+    );
   }
 }

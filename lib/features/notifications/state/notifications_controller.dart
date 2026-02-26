@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/notifications/local_notification_service.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../orders/state/orders_controller.dart';
 import '../data/notifications_api.dart';
@@ -204,10 +203,6 @@ class NotificationsController extends StateNotifier<NotificationsState> {
           Map<String, dynamic>.from(rawNotification),
         );
 
-        if (!model.isRead) {
-          unawaited(_showNativeNotification(model));
-        }
-
         final withoutCurrent = state.notifications
             .where((n) => n.id != model.id)
             .toList();
@@ -261,14 +256,6 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     }
 
     unawaited(refreshUnreadCount());
-  }
-
-  Future<void> _showNativeNotification(AppNotificationModel model) async {
-    try {
-      await ref.read(localNotificationsProvider).showFromModel(model);
-    } catch (_) {
-      // Best-effort local notification. Ignore any platform/runtime errors.
-    }
   }
 
   String _mapError(DioException e) {

@@ -36,6 +36,32 @@ class NotificationsApi {
     await dio.patch('/api/notifications/read-all');
   }
 
+  Future<void> registerPushToken({
+    required String token,
+    String? platform,
+    String? appVersion,
+    String? deviceModel,
+  }) async {
+    await dio.post(
+      '/api/notifications/push-token',
+      data: {
+        'token': token,
+        'platform': platform,
+        'appVersion': appVersion,
+        'deviceModel': deviceModel,
+      },
+    );
+  }
+
+  Future<void> unregisterPushToken({required String token}) async {
+    await dio.delete('/api/notifications/push-token', data: {'token': token});
+  }
+
+  Future<Map<String, dynamic>> pushStatus() async {
+    final response = await dio.get('/api/notifications/push-status');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Stream<NotificationLiveEvent> streamEvents() async* {
     final response = await dio.get<ResponseBody>(
       '/api/notifications/stream',

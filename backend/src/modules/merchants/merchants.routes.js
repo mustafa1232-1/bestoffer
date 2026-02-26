@@ -2,11 +2,13 @@ import { Router } from "express";
 import * as c from "./merchants.controller.js";
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireAdmin } from "../../shared/middleware/admin.middleware.js";
+import { requireCustomer } from "../../shared/middleware/customer.middleware.js";
 import { imageUpload } from "../../shared/utils/upload.js";
 
 export const merchantsRouter = Router();
 
 merchantsRouter.get("/", c.list);
+merchantsRouter.get("/discovery", requireAuth, requireCustomer, c.discovery);
 merchantsRouter.get("/:merchantId/products", c.listProducts);
 merchantsRouter.get("/:merchantId/categories", c.listCategories);
 merchantsRouter.post(

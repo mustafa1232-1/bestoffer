@@ -1,0 +1,183 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../features/auth/state/auth_controller.dart';
+import '../../features/notifications/data/notifications_api.dart';
+import 'firebase_runtime_options.dart';
+import 'local_notification_service.dart';
+
+final pushNotificationsProvider = Provider<PushNotificationService>((ref) {
+  final service = PushNotificationService(
+    api: NotificationsApi(ref.read(dioClientProvider).dio),
+    local: ref.read(localNotificationsProvider),
+  );
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+class PushNotificationService {
+  final NotificationsApi api;
+  final LocalNotificationService local;
+
+  PushNotificationService({required this.api, required this.local});
+
+  final StreamController<NotificationTapPayload> _tapController =
+      StreamController<NotificationTapPayload>.broadcast();
+
+  StreamSubscription<String>? _tokenRefreshSub;
+  StreamSubscription<RemoteMessage>? _foregroundSub;
+  StreamSubscription<RemoteMessage>? _openedAppSub;
+
+  bool _initialized = false;
+  bool _firebaseReady = false;
+  String? _lastSyncedToken;
+
+  Stream<NotificationTapPayload> get tapStream => _tapController.stream;
+
+  Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
+
+    _firebaseReady = await _ensureFirebaseInitialized();
+    if (!_firebaseReady) return;
+
+    final messaging = FirebaseMessaging.instance;
+    await messaging.setAutoInitEnabled(true);
+    await messaging.requestPermission(alert: true, badge: true, sound: true);
+    await messaging.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    final initialMessage = await messaging.getInitialMessage();
+    if (initialMessage != null) {
+      _tapController.add(_parseTapPayload(initialMessage));
+    }
+
+    _openedAppSub = FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      _tapController.add(_parseTapPayload(message));
+    });
+
+    _foregroundSub = FirebaseMessaging.onMessage.listen((message) async {
+      final title =
+          message.notification?.title ??
+          _asString(message.data['title']) ??
+          'BestOffer';
+      final body =
+          message.notification?.body ??
+          _asString(message.data['body']) ??
+          'يوجد تحديث جديد';
+      final parsed = _parseTapPayload(message);
+      await local.showRaw(
+        title: title,
+        body: body,
+        orderId: parsed.orderId,
+        type: parsed.type,
+      );
+    });
+
+    _tokenRefreshSub = messaging.onTokenRefresh.listen((token) {
+      unawaited(_registerToken(token));
+    });
+  }
+
+  Future<void> syncToken() async {
+    await initialize();
+    if (!_firebaseReady) return;
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token == null || token.isEmpty) return;
+    await _registerToken(token);
+  }
+
+  Future<void> unregisterCurrentToken() async {
+    if (!_firebaseReady) return;
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token == null || token.isEmpty) return;
+    try {
+      await api.unregisterPushToken(token: token);
+    } catch (_) {
+      // Best effort only.
+    } finally {
+      _lastSyncedToken = null;
+    }
+  }
+
+  Future<void> _registerToken(String token) async {
+    final clean = token.trim();
+    if (clean.isEmpty) return;
+    if (_lastSyncedToken == clean) return;
+
+    await api.registerPushToken(
+      token: clean,
+      platform: _platformName(),
+      deviceModel: _deviceModel(),
+    );
+    _lastSyncedToken = clean;
+  }
+
+  NotificationTapPayload _parseTapPayload(RemoteMessage message) {
+    final orderId = int.tryParse(
+      '${message.data['orderId'] ?? message.data['order_id'] ?? ''}',
+    );
+    final type =
+        _asString(message.data['type']) ??
+        _asString(message.data['notificationType']) ??
+        _asString(message.messageType);
+    return NotificationTapPayload(orderId: orderId, type: type);
+  }
+
+  static Future<bool> _ensureFirebaseInitialized() async {
+    try {
+      if (Firebase.apps.isNotEmpty) return true;
+      final runtimeOptions = FirebaseRuntimeOptions.currentPlatform();
+      if (runtimeOptions != null) {
+        await Firebase.initializeApp(options: runtimeOptions);
+      } else {
+        await Firebase.initializeApp();
+      }
+      return true;
+    } catch (e) {
+      debugPrint('Push Firebase init failed: $e');
+      return false;
+    }
+  }
+
+  static String _platformName() {
+    if (kIsWeb) return 'web';
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+    if (Platform.isWindows) return 'windows';
+    if (Platform.isMacOS) return 'macos';
+    if (Platform.isLinux) return 'linux';
+    return 'unknown';
+  }
+
+  static String _deviceModel() {
+    if (kIsWeb) return 'web';
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+    if (Platform.isWindows) return 'windows';
+    if (Platform.isMacOS) return 'macos';
+    if (Platform.isLinux) return 'linux';
+    return 'unknown';
+  }
+
+  static String? _asString(dynamic value) {
+    if (value == null) return null;
+    final out = value.toString().trim();
+    return out.isEmpty ? null : out;
+  }
+
+  void dispose() {
+    _tokenRefreshSub?.cancel();
+    _foregroundSub?.cancel();
+    _openedAppSub?.cancel();
+    _tapController.close();
+  }
+}

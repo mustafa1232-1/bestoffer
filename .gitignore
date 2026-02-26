@@ -48,3 +48,8 @@ app.*.map.json
 /backend/node_modules/
 /backend/.env
 /backend/uploads/
+
+# Firebase secrets (do not commit)
+/android/app/google-services.json
+/ios/Runner/GoogleService-Info.plist
+/backend/deploy/*service-account*.json

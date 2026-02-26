@@ -1,6 +1,6 @@
 import cors from "cors";
 import express from "express";
-import path from "path";
+import fs from "fs";
 
 import { adminRouter } from "./modules/admin/admin.routes.js";
 import { assistantRouter } from "./modules/assistant/assistant.routes.js";
@@ -12,6 +12,11 @@ import { notificationsRouter } from "./modules/notifications/notifications.route
 import { ordersRouter } from "./modules/orders/orders.routes.js";
 import { ownerRouter } from "./modules/owner/owner.routes.js";
 import { requireAuth } from "./shared/middleware/auth.middleware.js";
+import {
+  missingImagePng,
+  resolveUploadFilePath,
+  uploadsDir,
+} from "./shared/utils/uploads.js";
 
 export const app = express();
 
@@ -44,7 +49,27 @@ app.use((req, res, next) => {
   }
   next();
 });
-app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
+app.use(
+  "/uploads",
+  express.static(uploadsDir, {
+    fallthrough: true,
+    maxAge: "7d",
+  })
+);
+app.get("/uploads/:fileName", (req, res) => {
+  const filePath = resolveUploadFilePath(req.params.fileName);
+  if (fs.existsSync(filePath)) {
+    res.sendFile(filePath);
+    return;
+  }
+
+  // Avoid broken image responses when historical files are missing on disk.
+  res
+    .status(200)
+    .set("Content-Type", "image/png")
+    .set("Cache-Control", "public, max-age=300")
+    .send(missingImagePng);
+});
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 

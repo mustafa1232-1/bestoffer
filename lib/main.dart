@@ -13,7 +13,7 @@ import 'core/theme/app_theme.dart';
 import 'features/admin/ui/admin_dashboard_screen.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/state/auth_controller.dart';
-import 'features/auth/ui/merchants_list_screen.dart';
+import 'features/customer/ui/customer_discovery_screen.dart';
 import 'features/delivery/ui/delivery_dashboard_screen.dart';
 import 'features/notifications/ui/notifications_screen.dart';
 import 'features/owner/ui/owner_dashboard_screen.dart';
@@ -150,7 +150,7 @@ class _BestOfferAppState extends ConsumerState<BestOfferApp> {
                 ? const OwnerDashboardScreen()
                 : auth.isDelivery
                 ? const DeliveryDashboardScreen()
-                : const MerchantsListScreen())
+                : const CustomerDiscoveryScreen())
           : const LoginScreen(),
     );
   }

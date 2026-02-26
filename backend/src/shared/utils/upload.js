@@ -1,13 +1,9 @@
-import fs from "fs";
 import path from "path";
 
 import multer from "multer";
+import { ensureUploadsDir, uploadsDir } from "./uploads.js";
 
-const uploadsDir = path.resolve(process.cwd(), "uploads");
-
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+ensureUploadsDir();
 
 const allowedMimeTypes = new Set([
   "image/jpeg",
@@ -54,4 +50,3 @@ export function buildUploadedFileUrl(req, file) {
   if (!file) return null;
   return `${req.protocol}://${req.get("host")}/uploads/${file.filename}`;
 }
-

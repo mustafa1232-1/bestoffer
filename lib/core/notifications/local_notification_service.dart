@@ -76,9 +76,31 @@ class LocalNotificationService {
     final orderId =
         notification.orderId ??
         int.tryParse('${notification.payload?['orderId'] ?? ''}');
-    final payload = jsonEncode({'orderId': orderId, 'type': notification.type});
-
     final id = notification.id > 0 ? notification.id : ++_fallbackId;
+
+    await showRaw(
+      title: notification.title,
+      body: notification.body ?? 'يوجد تحديث جديد',
+      orderId: orderId,
+      type: notification.type,
+      notificationId: id,
+    );
+  }
+
+  Future<void> showRaw({
+    required String title,
+    required String body,
+    int? orderId,
+    String? type,
+    int? notificationId,
+  }) async {
+    await initialize();
+
+    final payload = jsonEncode({'orderId': orderId, 'type': type});
+    final id = (notificationId != null && notificationId > 0)
+        ? notificationId
+        : ++_fallbackId;
+
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
         _channel.id,
@@ -92,13 +114,7 @@ class LocalNotificationService {
       ),
     );
 
-    await _plugin.show(
-      id,
-      notification.title,
-      notification.body ?? 'يوجد تحديث جديد',
-      details,
-      payload: payload,
-    );
+    await _plugin.show(id, title, body, details, payload: payload);
   }
 
   void _onNotificationResponse(NotificationResponse response) {

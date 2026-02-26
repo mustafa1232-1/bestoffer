@@ -17,6 +17,14 @@ class MerchantsApi {
     return List<dynamic>.from(response.data as List);
   }
 
+  Future<Map<String, dynamic>> customerDiscovery({required String type}) async {
+    final response = await dio.get(
+      '/api/merchants/discovery',
+      queryParameters: {'type': type},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> create(
     Map<String, dynamic> body, {
     LocalImageFile? merchantImageFile,
@@ -82,4 +90,3 @@ Future<Object> _withOptionalFiles(
 
   return FormData.fromMap(map);
 }
-

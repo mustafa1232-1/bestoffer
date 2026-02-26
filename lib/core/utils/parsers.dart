@@ -15,6 +15,28 @@ double parseDouble(dynamic value, {double fallback = 0}) {
   return fallback;
 }
 
+bool parseBool(dynamic value, {bool fallback = false}) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1' || normalized == 'yes') {
+      return true;
+    }
+    if (normalized == 'false' || normalized == '0' || normalized == 'no') {
+      return false;
+    }
+  }
+  return fallback;
+}
+
+DateTime? parseNullableDateTime(dynamic value) {
+  if (value == null) return null;
+  final text = parseString(value, fallback: '');
+  if (text.isEmpty) return null;
+  return DateTime.tryParse(text);
+}
+
 String parseString(dynamic value, {String fallback = ''}) {
   if (value == null) return fallback;
   final normalized = normalizeText(value.toString());

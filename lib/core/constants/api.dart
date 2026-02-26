@@ -4,7 +4,7 @@ class Api {
   static const String _baseUrlFromEnv = String.fromEnvironment('API_BASE_URL');
   static const String _defaultProductionUrl = String.fromEnvironment(
     'API_DEFAULT_PROD_URL',
-    defaultValue: 'https://bestoffer-production.up.railway.app',
+    defaultValue: 'https://bestoffer-production-549e.up.railway.app',
   );
 
   static List<String> get fallbackBaseUrls {
@@ -33,7 +33,7 @@ class Api {
           'http://10.0.2.2:3000',
           'http://127.0.0.1:3000',
           'http://10.0.3.2:3000',
-          'https://bestoffer-production.up.railway.app',
+          'https://bestoffer-production-549e.up.railway.app',
         ];
       case TargetPlatform.iOS:
       case TargetPlatform.macOS:
@@ -42,12 +42,12 @@ class Api {
         return const [
           'http://127.0.0.1:3000',
           'http://localhost:3000',
-          'https://bestoffer-production.up.railway.app',
+          'https://bestoffer-production-549e.up.railway.app',
         ];
       case TargetPlatform.fuchsia:
         return const [
           'http://localhost:3000',
-          'https://bestoffer-production.up.railway.app',
+          'https://bestoffer-production-549e.up.railway.app',
         ];
     }
   }
