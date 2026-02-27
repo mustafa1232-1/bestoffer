@@ -61,3 +61,55 @@ export function validateConfirmDraft(body) {
   if (!isOptionalPositiveInt(body.sessionId)) errors.push("sessionId");
   return { ok: errors.length === 0, errors };
 }
+
+const homeAudienceValues = new Set([
+  "women",
+  "men",
+  "family",
+  "mixed",
+  "any",
+]);
+const homePriorityValues = new Set([
+  "offers",
+  "price",
+  "speed",
+  "rating",
+  "balanced",
+]);
+
+function isOptionalEnum(value, allowedValues) {
+  if (value === undefined || value === null || value === "") return true;
+  if (typeof value !== "string") return false;
+  return allowedValues.has(value.trim().toLowerCase());
+}
+
+function isOptionalStringList(value, { maxItems = 20, maxItemLength = 40 } = {}) {
+  if (value === undefined || value === null) return true;
+  if (!Array.isArray(value)) return false;
+  if (value.length > maxItems) return false;
+  return value.every(
+    (entry) =>
+      typeof entry === "string" &&
+      entry.trim().length > 0 &&
+      entry.trim().length <= maxItemLength
+  );
+}
+
+export function validateHomePreferencesBody(body) {
+  const errors = [];
+
+  if (!isOptionalEnum(body.audience, homeAudienceValues)) errors.push("audience");
+  if (!isOptionalEnum(body.priority, homePriorityValues)) errors.push("priority");
+  if (!isOptionalStringList(body.interests, { maxItems: 24, maxItemLength: 48 })) {
+    errors.push("interests");
+  }
+  if (
+    body.completed !== undefined &&
+    body.completed !== null &&
+    typeof body.completed !== "boolean"
+  ) {
+    errors.push("completed");
+  }
+
+  return { ok: errors.length === 0, errors };
+}

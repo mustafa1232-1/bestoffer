@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -247,7 +247,7 @@ class _OrderCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  const Icon(Icons.arrow_back_ios_new_rounded, size: 14),
                 ],
               ),
               const SizedBox(height: 8),
@@ -320,6 +320,12 @@ class _OrderTrackingDetailsScreenState
               order: order,
               currentStepLabel: currentStep,
               isLive: isLive,
+            ),
+            const SizedBox(height: 12),
+            _OrderJourneyRibbon(
+              order: order,
+              progress: progress,
+              isCancelled: isCancelled,
             ),
             const SizedBox(height: 12),
             _OrderStatusTimeline(order: order),
@@ -528,7 +534,7 @@ class _OrderTrackingDetailsScreenState
         ? eta.isLate
               ? 'متأخر (${eta.lateByMinutes} دقيقة) - وصول محدث خلال ${eta.minMinutes}-${eta.maxMinutes} دقيقة'
               : 'وصول خلال ${eta.minMinutes}-${eta.maxMinutes} دقيقة'
-        : 'غير متاح حالياً';
+        : 'غير متاح حاليًا';
 
     final text =
         'تحديث الطلب #${order.id}\n'
@@ -736,6 +742,156 @@ class _TrackingHeroCard extends StatelessWidget {
   }
 }
 
+class _OrderJourneyRibbon extends StatelessWidget {
+  final OrderModel order;
+  final _TimelineProgress progress;
+  final bool isCancelled;
+
+  const _OrderJourneyRibbon({
+    required this.order,
+    required this.progress,
+    required this.isCancelled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDelivered = order.status == 'delivered';
+    final doneFlags = List<bool>.generate(
+      _kTrackingSteps.length,
+      (index) =>
+          index < progress.doneFlags.length ? progress.doneFlags[index] : false,
+    );
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: Colors.white.withValues(alpha: 0.06),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'رحلة الطلب المباشرة',
+            textDirection: TextDirection.rtl,
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15.4),
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            reverse: true,
+            child: Row(
+              textDirection: TextDirection.rtl,
+              children: [
+                for (var i = 0; i < _kTrackingSteps.length; i++) ...[
+                  _JourneyStepNode(
+                    step: _kTrackingSteps[i],
+                    done: doneFlags[i] && !isCancelled,
+                    active:
+                        i == progress.activeIndex &&
+                        !isCancelled &&
+                        !isDelivered,
+                  ),
+                  if (i < _kTrackingSteps.length - 1)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Icon(
+                        Icons.arrow_back_rounded,
+                        size: 17,
+                        color: doneFlags[i]
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.white54,
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _JourneyStepNode extends StatelessWidget {
+  final _TimelineStep step;
+  final bool done;
+  final bool active;
+
+  const _JourneyStepNode({
+    required this.step,
+    required this.done,
+    required this.active,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final border = done
+        ? primary
+        : active
+        ? Colors.cyanAccent
+        : Colors.white54;
+    final bg = done
+        ? primary.withValues(alpha: 0.18)
+        : active
+        ? Colors.cyan.withValues(alpha: 0.20)
+        : Colors.white.withValues(alpha: 0.06);
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 104, maxWidth: 124),
+      child: Column(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: bg,
+              border: Border.all(color: border, width: 1.6),
+              boxShadow: active
+                  ? [
+                      BoxShadow(
+                        color: border.withValues(alpha: 0.42),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: active
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    done ? Icons.check_rounded : step.icon,
+                    size: 18,
+                    color: done ? border : Colors.white,
+                  ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            step.label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              fontSize: _responsiveFont(context, 11.2),
+              fontWeight: done || active ? FontWeight.w800 : FontWeight.w700,
+              color: done || active ? Colors.white : Colors.white70,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _OrderItemsSection extends StatelessWidget {
   final OrderModel order;
 
@@ -765,7 +921,10 @@ class _OrderItemsSection extends StatelessWidget {
               child: Text(
                 '- ${item.productName} \u00D7 ${item.quantity} (${formatIqd(item.lineTotal)})',
                 textDirection: TextDirection.rtl,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13.4,
+                ),
               ),
             ),
           ),
@@ -795,7 +954,11 @@ class _OrderInvoiceSection extends StatelessWidget {
         '\u0623\u062c\u0648\u0631 \u0627\u0644\u062a\u0648\u0635\u064a\u0644: ${formatIqd(order.deliveryFee)}\n'
         '\u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a: ${formatIqd(order.totalAmount)}',
         textDirection: TextDirection.rtl,
-        style: const TextStyle(fontWeight: FontWeight.w700, height: 1.5),
+        style: const TextStyle(
+          fontWeight: FontWeight.w800,
+          fontSize: 14,
+          height: 1.55,
+        ),
       ),
     );
   }

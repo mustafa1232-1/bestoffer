@@ -37,10 +37,6 @@ class DioClient {
           }
 
           final request = error.requestOptions;
-          if (!_isAuthLoginRequest(request)) {
-            return handler.next(error);
-          }
-
           final fallbackUrls = Api.fallbackBaseUrls;
           if (fallbackUrls.length <= 1) {
             return handler.next(error);
@@ -65,6 +61,8 @@ class DioClient {
               }
 
               final response = await dio.fetch<dynamic>(retryOptions);
+              // Persist the first reachable base URL for all next requests.
+              dio.options.baseUrl = url;
               response.data = _normalizePayload(response.data);
               return handler.resolve(response);
             } on DioException catch (retryError) {
@@ -86,10 +84,6 @@ bool _isRetryableConnectionError(DioException error) {
       error.type == DioExceptionType.connectionTimeout ||
       error.type == DioExceptionType.sendTimeout ||
       error.type == DioExceptionType.receiveTimeout;
-}
-
-bool _isAuthLoginRequest(RequestOptions request) {
-  return request.path.contains('/api/auth/login');
 }
 
 List<String> _readTriedBaseUrls(RequestOptions request) {

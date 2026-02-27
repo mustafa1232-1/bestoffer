@@ -21,6 +21,31 @@ class AssistantApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> getProfile() async {
+    final response = await dio.get('/api/assistant/profile');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> updateHomePreferences({
+    String? audience,
+    String? priority,
+    List<String>? interests,
+    bool? completed,
+  }) async {
+    final payload = <String, dynamic>{
+      'audience': audience,
+      'priority': priority,
+      'interests': interests,
+      'completed': completed,
+    }..removeWhere((_, value) => value == null);
+
+    final response = await dio.post(
+      '/api/assistant/profile/home',
+      data: payload,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> chat({
     required String message,
     int? sessionId,

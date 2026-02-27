@@ -75,6 +75,24 @@ const OFF_TOPIC_REDIRECT_THRESHOLD = clampInteger(
   100,
   20
 );
+const HOME_AUDIENCES = new Set(["women", "men", "family", "mixed", "any"]);
+const HOME_PRIORITIES = new Set(["offers", "price", "speed", "rating", "balanced"]);
+const HOME_INTERESTS_ALLOWED = new Set([
+  "restaurants",
+  "sweets",
+  "markets",
+  "women_fashion",
+  "men_fashion",
+  "shoes",
+  "bags",
+  "electronics",
+  "home",
+  "beauty",
+  "kids",
+  "sports",
+  "coffee",
+  "gifts",
+]);
 
 const IRAQI_DIALECT_TOKEN_MAP = {
   شنو: "ماذا",
@@ -1029,6 +1047,50 @@ function detectIntent(message) {
   };
 }
 
+function normalizeHomeInterests(values) {
+  if (!Array.isArray(values)) return [];
+  const unique = [];
+  for (const item of values) {
+    const normalized = String(item || "")
+      .trim()
+      .toLowerCase();
+    if (!normalized || !HOME_INTERESTS_ALLOWED.has(normalized)) continue;
+    if (!unique.includes(normalized)) unique.push(normalized);
+  }
+  return unique.slice(0, 24);
+}
+
+function parseHomePreferences(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const audience = HOME_AUDIENCES.has(String(source.audience || "").toLowerCase())
+    ? String(source.audience).toLowerCase()
+    : "any";
+  const priority = HOME_PRIORITIES.has(String(source.priority || "").toLowerCase())
+    ? String(source.priority).toLowerCase()
+    : "balanced";
+  return {
+    completed: source.completed === true,
+    audience,
+    priority,
+    interests: normalizeHomeInterests(source.interests),
+    updatedAt:
+      typeof source.updatedAt === "string" && source.updatedAt.trim().length
+        ? source.updatedAt
+        : null,
+  };
+}
+
+function mapHomePreferencesForApi(homePreferences) {
+  const home = parseHomePreferences(homePreferences);
+  return {
+    completed: home.completed,
+    audience: home.audience,
+    priority: home.priority,
+    interests: [...home.interests],
+    updatedAt: home.updatedAt,
+  };
+}
+
 function parseProfile(rawProfile) {
   const preferenceJson =
     rawProfile && typeof rawProfile.preference_json === "object"
@@ -1114,6 +1176,7 @@ function parseProfile(rawProfile) {
             lastTopic: "none",
           },
     conversationModel: normalizeConversationModel(preferenceJson.conversationModel),
+    homePreferences: parseHomePreferences(preferenceJson.homePreferences),
   };
 }
 
@@ -1684,6 +1747,7 @@ function mapProfileForApi(profile) {
     topAudiences,
     conversation: profile.conversation,
     conversationModel: profile.conversationModel,
+    homePreferences: mapHomePreferencesForApi(profile.homePreferences),
   };
 }
 
@@ -3113,6 +3177,46 @@ async function buildSessionPayload(customerUserId, sessionId, profile) {
       isDefault: a.is_default === true,
     })),
     profile: mapProfileForApi(profile),
+  };
+}
+
+export async function getCustomerProfile(customerUserId) {
+  const rawProfile = await repo.getProfile(customerUserId);
+  const profile = parseProfile(rawProfile);
+  return {
+    profile: mapProfileForApi(profile),
+    homePreferences: mapHomePreferencesForApi(profile.homePreferences),
+  };
+}
+
+export async function saveHomePreferences(customerUserId, dto = {}) {
+  const rawProfile = await repo.getProfile(customerUserId);
+  const profile = parseProfile(rawProfile);
+
+  const nextHome = parseHomePreferences({
+    ...(profile.homePreferences || {}),
+    ...(dto || {}),
+    updatedAt: new Date().toISOString(),
+  });
+  if (dto.completed === true) {
+    nextHome.completed = true;
+  }
+
+  const updatedProfile = {
+    ...profile,
+    homePreferences: nextHome,
+    conversationModel: normalizeConversationModel(profile.conversationModel),
+  };
+
+  await repo.upsertProfile(
+    customerUserId,
+    updatedProfile,
+    rawProfile?.last_summary || null
+  );
+
+  return {
+    profile: mapProfileForApi(updatedProfile),
+    homePreferences: mapHomePreferencesForApi(nextHome),
   };
 }
 

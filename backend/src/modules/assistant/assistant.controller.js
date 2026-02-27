@@ -2,6 +2,7 @@ import * as service from "./assistant.service.js";
 import {
   validateChatBody,
   validateConfirmDraft,
+  validateHomePreferencesBody,
   validateSessionQuery,
 } from "./assistant.validators.js";
 
@@ -66,6 +67,35 @@ export async function confirmDraft(req, res, next) {
       sessionId: req.body?.sessionId == null ? null : Number(req.body.sessionId),
       addressId: req.body?.addressId == null ? null : Number(req.body.addressId),
       note: req.body?.note || null,
+    });
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getProfile(req, res, next) {
+  try {
+    const data = await service.getCustomerProfile(req.userId);
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function updateHomePreferences(req, res, next) {
+  try {
+    const body = req.body || {};
+    const v = validateHomePreferencesBody(body);
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const data = await service.saveHomePreferences(req.userId, {
+      audience: body.audience,
+      priority: body.priority,
+      interests: body.interests,
+      completed: body.completed,
     });
     res.json(data);
   } catch (e) {

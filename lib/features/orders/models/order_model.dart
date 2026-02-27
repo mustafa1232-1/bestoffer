@@ -1,4 +1,4 @@
-import '../../../core/utils/parsers.dart';
+﻿import '../../../core/utils/parsers.dart';
 import 'order_item_model.dart';
 
 class OrderModel {

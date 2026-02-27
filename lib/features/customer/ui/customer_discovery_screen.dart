@@ -6,7 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/widgets/app_user_drawer.dart';
 import '../../assistant/ui/assistant_chat_screen.dart';
+import '../../auth/state/auth_controller.dart';
 import '../../auth/ui/merchants_list_screen.dart';
+import '../models/customer_home_prefs.dart';
+import '../state/customer_home_prefs_controller.dart';
+import 'customer_personalization_dialog.dart';
+import 'customer_style_hub_screen.dart';
 import '../../merchants/state/merchants_controller.dart';
 import '../../notifications/ui/notifications_bell.dart';
 import '../../orders/state/cart_controller.dart';
@@ -23,8 +28,7 @@ class CustomerDiscoveryScreen extends ConsumerStatefulWidget {
 }
 
 class _CustomerDiscoveryScreenState
-    extends ConsumerState<CustomerDiscoveryScreen>
-    with SingleTickerProviderStateMixin {
+    extends ConsumerState<CustomerDiscoveryScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
   final PageController _adController = PageController(viewportFraction: 0.92);
@@ -32,6 +36,7 @@ class _CustomerDiscoveryScreenState
 
   String _searchQuery = '';
   int _adPage = 0;
+  bool _didCheckPersonalization = false;
 
   @override
   void initState() {
@@ -44,6 +49,7 @@ class _CustomerDiscoveryScreenState
 
     Future.microtask(() async {
       await ref.read(merchantsControllerProvider.notifier).load();
+      await _bootstrapPersonalizationIfNeeded();
     });
 
     _adTimer = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -93,12 +99,69 @@ class _CustomerDiscoveryScreenState
     ).push(MaterialPageRoute(builder: (_) => const AssistantChatScreen()));
   }
 
+  Future<void> _openStyleHub() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CustomerStyleHubScreen()));
+  }
+
+  Future<void> _bootstrapPersonalizationIfNeeded() async {
+    if (_didCheckPersonalization) return;
+    _didCheckPersonalization = true;
+
+    final auth = ref.read(authControllerProvider);
+    if (auth.isBackoffice || auth.isOwner || auth.isDelivery) return;
+    final userId = auth.user?.id;
+    if (userId == null) return;
+
+    await ref
+        .read(customerHomePrefsProvider.notifier)
+        .bootstrap(userId: userId);
+    if (!mounted) return;
+
+    final prefs =
+        ref.read(customerHomePrefsProvider).valueOrNull ??
+        CustomerHomePrefs.empty;
+    if (prefs.completed) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _showPersonalizationDialog(userId);
+    });
+  }
+
+  Future<void> _showPersonalizationDialog(int userId) async {
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        return CustomerPersonalizationDialog(
+          onSubmit:
+              ({
+                required audience,
+                required priority,
+                required interests,
+              }) async {
+                await ref
+                    .read(customerHomePrefsProvider.notifier)
+                    .completeOnboarding(
+                      userId: userId,
+                      audience: audience,
+                      priority: priority,
+                      interests: interests,
+                    );
+              },
+        );
+      },
+    );
+  }
+
   void _openCategory(_DiscoveryCategory category) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
           initialType: category.type,
-          initialSearchQuery: '',
+          initialSearchQuery: category.seedQuery,
           overrideTitle: category.title,
           compactCustomerMode: true,
         ),
@@ -113,7 +176,7 @@ class _CustomerDiscoveryScreenState
         builder: (_) => MerchantsListScreen(
           initialType: type,
           initialSearchQuery: cleanQuery,
-          overrideTitle: title ?? (cleanQuery.isEmpty ? 'المطاعم' : cleanQuery),
+          overrideTitle: title ?? (cleanQuery.isEmpty ? 'المتاجر' : cleanQuery),
           compactCustomerMode: true,
         ),
       ),
@@ -136,12 +199,165 @@ class _CustomerDiscoveryScreenState
     _openSearchResult(query: text, title: 'نتائج "$text"');
   }
 
+  void _applyQuickNeed(_QuickNeed need) {
+    _openSearchResult(type: need.type, query: need.query, title: need.title);
+  }
+
+  List<_DiscoveryCategory> _orderedCategories(CustomerHomePrefs prefs) {
+    final sorted = [..._categories];
+    if (!prefs.completed || prefs.interests.isEmpty) {
+      return sorted;
+    }
+
+    int scoreOf(_DiscoveryCategory category) {
+      final text =
+          '${category.title} ${category.subtitle} ${category.seedQuery} ${category.tags.join(' ')}'
+              .toLowerCase();
+      var score = 0;
+
+      bool containsAny(Iterable<String> terms) =>
+          terms.any((term) => text.contains(term));
+
+      if (prefs.audience == 'women' &&
+          containsAny(const ['نسائي', 'فساتين', 'عبايات'])) {
+        score += 130;
+      }
+      if (prefs.audience == 'men' &&
+          containsAny(const ['رجالي', 'رجال', 'دشاديش'])) {
+        score += 130;
+      }
+      if (prefs.audience == 'family' &&
+          containsAny(const ['أسواق', 'منزل', 'أطفال', 'مطاعم'])) {
+        score += 110;
+      }
+
+      if (prefs.interests.contains('restaurants') &&
+          category.type == 'restaurant') {
+        score += 80;
+      }
+      if (prefs.interests.contains('markets') && category.type == 'market') {
+        score += 80;
+      }
+      if (prefs.interests.contains('sweets') &&
+          containsAny(const ['حلويات', 'كيك', 'معجنات'])) {
+        score += 95;
+      }
+      if (prefs.interests.contains('women_fashion') &&
+          containsAny(const ['نسائي', 'فساتين', 'عبايات', 'اكسسوار'])) {
+        score += 140;
+      }
+      if (prefs.interests.contains('men_fashion') &&
+          containsAny(const ['رجالي', 'رجال', 'دشاديش'])) {
+        score += 140;
+      }
+      if (prefs.interests.contains('shoes') &&
+          containsAny(const ['أحذية', 'حذاء'])) {
+        score += 110;
+      }
+      if (prefs.interests.contains('bags') &&
+          containsAny(const ['شنط', 'حقائب', 'اكسسوار'])) {
+        score += 110;
+      }
+      if (prefs.interests.contains('beauty') &&
+          containsAny(const ['عناية', 'تجميل', 'عطور'])) {
+        score += 100;
+      }
+      if (prefs.interests.contains('electronics') &&
+          containsAny(const ['كهربائيات', 'أجهزة', 'الكترون'])) {
+        score += 100;
+      }
+      if (prefs.interests.contains('home') &&
+          containsAny(const ['منزل', 'مطبخ', 'تنظيف'])) {
+        score += 95;
+      }
+      if (prefs.interests.contains('kids') &&
+          containsAny(const ['أطفال', 'طفل', 'رضع'])) {
+        score += 100;
+      }
+      if (prefs.interests.contains('sports') &&
+          containsAny(const ['رياضة', 'رياضي'])) {
+        score += 90;
+      }
+      if (prefs.interests.contains('coffee') &&
+          containsAny(const ['قهوة', 'مشروبات'])) {
+        score += 90;
+      }
+      if (prefs.interests.contains('gifts') &&
+          containsAny(const ['هدايا', 'ورد'])) {
+        score += 90;
+      }
+      return score;
+    }
+
+    sorted.sort((a, b) {
+      final scoreDiff = scoreOf(b).compareTo(scoreOf(a));
+      if (scoreDiff != 0) return scoreDiff;
+      return a.title.compareTo(b.title);
+    });
+    return sorted;
+  }
+
+  String _firstName(String? fullName) {
+    if (fullName == null) return '';
+    final clean = fullName.trim();
+    if (clean.isEmpty) return '';
+    return clean.split(RegExp(r'\s+')).first;
+  }
+
+  String _appBarGreeting(String? fullName) {
+    final first = _firstName(fullName);
+    if (first.isEmpty) return 'مرحبًا';
+    return 'مرحبًا ($first)';
+  }
+
+  _TimeGreeting _timeGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour >= 5 && hour < 11) {
+      return const _TimeGreeting(
+        title: 'صباح الخير',
+        tagline: 'شنو تحتاج اليوم؟ اختار بسهولة',
+      );
+    }
+    if (hour >= 11 && hour < 14) {
+      return const _TimeGreeting(
+        title: 'ظهر الخير',
+        tagline: 'وقت الغدا وصل، اختار وجبتك وكمّل يومك بطعم أحلى',
+      );
+    }
+    if (hour >= 14 && hour < 17) {
+      return const _TimeGreeting(
+        title: 'عصر الخير',
+        tagline: 'وقت سناك وقهوة، وخلي المزاج أخف وألذ',
+      );
+    }
+    if (hour >= 17 && hour < 19) {
+      return const _TimeGreeting(
+        title: 'مغرب الخير',
+        tagline: 'للعشا واللِمّة، اختار طلبك وخليه يوصل بسرعة',
+      );
+    }
+    return const _TimeGreeting(
+      title: 'مساء الخير',
+      tagline: 'مسّيت بالخير، اطلب وارتاح وخلي يومك ينتهي بنكهة حلوة',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = ref.watch(authControllerProvider);
+    final userId = auth.user?.id;
     final merchantsState = ref.watch(merchantsControllerProvider);
+    final userFullName = ref.watch(
+      authControllerProvider.select((state) => state.user?.fullName),
+    );
     final cartItems = ref.watch(
       cartControllerProvider.select((v) => v.totalItems),
     );
+    final timeGreeting = _timeGreeting();
+    final homePrefs =
+        ref.watch(customerHomePrefsProvider).valueOrNull ??
+        CustomerHomePrefs.empty;
+    final personalizedCategories = _orderedCategories(homePrefs);
 
     final drawerItems = <AppUserDrawerItem>[
       AppUserDrawerItem(
@@ -169,16 +385,29 @@ class _CustomerDiscoveryScreenState
         label: 'تحديث البيانات',
         onTap: (_) => ref.read(merchantsControllerProvider.notifier).load(),
       ),
+      if (userId != null)
+        AppUserDrawerItem(
+          icon: Icons.tune_rounded,
+          label: 'إعادة تخصيص الواجهة',
+          onTap: (_) async {
+            Navigator.of(context).pop();
+            await ref
+                .read(customerHomePrefsProvider.notifier)
+                .reset(userId: userId);
+            if (!mounted) return;
+            await _showPersonalizationDialog(userId);
+          },
+        ),
     ];
 
     return Scaffold(
       drawer: AppUserDrawer(
         title: 'BestOffer | بسماية',
-        subtitle: 'تسوق أسرع بطريقة أذكى',
+        subtitle: 'تجربة تسوق حديثة داخل مدينة بسماية',
         items: drawerItems,
       ),
       appBar: AppBar(
-        title: const Text('شمحتاج اليوم اختار'),
+        title: Text(_appBarGreeting(userFullName)),
         actions: [
           IconButton(
             tooltip: 'المساعد',
@@ -230,14 +459,34 @@ class _CustomerDiscoveryScreenState
         error: (error, stackTrace) => _ErrorView(
           onRetry: () => ref.read(merchantsControllerProvider.notifier).load(),
         ),
-        data: (_) {
+        data: (merchants) {
+          final openCount = merchants.where((m) => m.isOpen).length;
+          final offersCount = merchants
+              .where((m) => m.hasDiscountOffer || m.hasFreeDeliveryOffer)
+              .length;
+          final restaurantsCount = merchants
+              .where((m) => m.type == 'restaurant')
+              .length;
+          final marketsCount = merchants
+              .where((m) => m.type == 'market')
+              .length;
+
           return RefreshIndicator(
             onRefresh: () =>
                 ref.read(merchantsControllerProvider.notifier).load(),
             child: ListView(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
               children: [
-                const _NeedsTodayHeader(),
+                _HeroWelcomeCard(greeting: timeGreeting),
+                const SizedBox(height: 10),
+                _FuturePulsePanel(
+                  openCount: openCount,
+                  offersCount: offersCount,
+                  restaurantsCount: restaurantsCount,
+                  marketsCount: marketsCount,
+                ),
+                const SizedBox(height: 10),
+                _QuickNeedsRail(onTap: _applyQuickNeed),
                 const SizedBox(height: 10),
                 _AdsCarousel(controller: _adController, page: _adPage),
                 const SizedBox(height: 12),
@@ -246,9 +495,14 @@ class _CustomerDiscoveryScreenState
                   focusNode: _searchFocus,
                   onSubmit: _onSubmitSearch,
                 ),
+                const SizedBox(height: 10),
+                _StyleHubEntryCard(
+                  onTap: _openStyleHub,
+                  audience: homePrefs.audience,
+                ),
                 const SizedBox(height: 14),
                 Text(
-                  'التصنيفات',
+                  'التصنيفات الرئيسية',
                   textDirection: TextDirection.rtl,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
@@ -256,7 +510,7 @@ class _CustomerDiscoveryScreenState
                 ),
                 const SizedBox(height: 10),
                 GridView.builder(
-                  itemCount: _categories.length,
+                  itemCount: personalizedCategories.length,
                   physics: const NeverScrollableScrollPhysics(),
                   shrinkWrap: true,
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -266,7 +520,7 @@ class _CustomerDiscoveryScreenState
                     childAspectRatio: 1.06,
                   ),
                   itemBuilder: (context, index) {
-                    final category = _categories[index];
+                    final category = personalizedCategories[index];
                     return _CategoryCard(
                       category: category,
                       index: index,
@@ -283,14 +537,23 @@ class _CustomerDiscoveryScreenState
   }
 }
 
-class _NeedsTodayHeader extends StatefulWidget {
-  const _NeedsTodayHeader();
+class _TimeGreeting {
+  final String title;
+  final String tagline;
 
-  @override
-  State<_NeedsTodayHeader> createState() => _NeedsTodayHeaderState();
+  const _TimeGreeting({required this.title, required this.tagline});
 }
 
-class _NeedsTodayHeaderState extends State<_NeedsTodayHeader>
+class _HeroWelcomeCard extends StatefulWidget {
+  final _TimeGreeting greeting;
+
+  const _HeroWelcomeCard({required this.greeting});
+
+  @override
+  State<_HeroWelcomeCard> createState() => _HeroWelcomeCardState();
+}
+
+class _HeroWelcomeCardState extends State<_HeroWelcomeCard>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
@@ -311,12 +574,21 @@ class _NeedsTodayHeaderState extends State<_NeedsTodayHeader>
         child: AnimatedBuilder(
           animation: _controller,
           builder: (context, _) {
-            final pulse = 0.90 + (_controller.value * 0.1);
+            final pulse = 0.90 + (_controller.value * 0.10);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  'شمحتاج اليوم اختار',
+                  '${widget.greeting.title} 👋',
+                  textDirection: TextDirection.rtl,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white70,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  widget.greeting.tagline,
                   textDirection: TextDirection.rtl,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w900,
@@ -329,7 +601,7 @@ class _NeedsTodayHeaderState extends State<_NeedsTodayHeader>
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
-                      'ولتحتار وي تطبيق افضل العروض ',
+                      'مع ',
                       textDirection: TextDirection.rtl,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.92),
@@ -355,6 +627,15 @@ class _NeedsTodayHeaderState extends State<_NeedsTodayHeader>
                       ),
                     ),
                     const SizedBox(width: 6),
+                    Text(
+                      'كل عرض يفيدك، وطلبك بسرعة يجيك',
+                      textDirection: TextDirection.rtl,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     Transform.scale(
                       scale: pulse,
                       child: const Icon(
@@ -370,6 +651,234 @@ class _NeedsTodayHeaderState extends State<_NeedsTodayHeader>
           },
         ),
       ),
+    );
+  }
+}
+
+class _FuturePulsePanel extends StatelessWidget {
+  final int openCount;
+  final int offersCount;
+  final int restaurantsCount;
+  final int marketsCount;
+
+  const _FuturePulsePanel({
+    required this.openCount,
+    required this.offersCount,
+    required this.restaurantsCount,
+    required this.marketsCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: const LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [Color(0xFF1F4D7E), Color(0xFF173657)],
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'نبض السوق الآن',
+            textDirection: TextDirection.rtl,
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _FuturePulseItem(
+                icon: Icons.storefront_rounded,
+                label: 'متاجر مفتوحة',
+                value: '$openCount',
+              ),
+              _FuturePulseItem(
+                icon: Icons.local_offer_rounded,
+                label: 'عروض فعالة',
+                value: '$offersCount',
+              ),
+              _FuturePulseItem(
+                icon: Icons.restaurant_rounded,
+                label: 'مطاعم',
+                value: '$restaurantsCount',
+              ),
+              _FuturePulseItem(
+                icon: Icons.shopping_basket_rounded,
+                label: 'أسواق',
+                value: '$marketsCount',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FuturePulseItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _FuturePulseItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 148,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        textDirection: TextDirection.rtl,
+        children: [
+          Icon(icon, size: 18, color: Colors.white),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  label,
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11.5,
+                  ),
+                ),
+                Text(
+                  value,
+                  textDirection: TextDirection.rtl,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickNeedsRail extends StatelessWidget {
+  final ValueChanged<_QuickNeed> onTap;
+
+  const _QuickNeedsRail({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'جاهز بخيارات سريعة',
+          textDirection: TextDirection.rtl,
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 44,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemBuilder: (context, index) {
+              final need = _quickNeeds[index];
+              return _QuickNeedChip(need: need, onTap: () => onTap(need));
+            },
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemCount: _quickNeeds.length,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuickNeedChip extends StatefulWidget {
+  final _QuickNeed need;
+  final VoidCallback onTap;
+
+  const _QuickNeedChip({required this.need, required this.onTap});
+
+  @override
+  State<_QuickNeedChip> createState() => _QuickNeedChipState();
+}
+
+class _QuickNeedChipState extends State<_QuickNeedChip>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1150),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final pulse = 0.82 + (_controller.value * 0.18);
+        return InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: widget.onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              gradient: LinearGradient(
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+                colors: [
+                  widget.need.color.withValues(alpha: 0.30 + (pulse * 0.18)),
+                  widget.need.color.withValues(alpha: 0.14 + (pulse * 0.10)),
+                ],
+              ),
+              border: Border.all(
+                color: widget.need.color.withValues(alpha: 0.58),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              textDirection: TextDirection.rtl,
+              children: [
+                Icon(widget.need.icon, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  widget.need.title,
+                  textDirection: TextDirection.rtl,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -490,12 +999,87 @@ class _SearchPanel extends StatelessWidget {
           textDirection: TextDirection.rtl,
           onSubmitted: (_) => onSubmit(),
           decoration: InputDecoration(
-            hintText: 'ابحث عن المطاعم',
+            hintText: 'ابحث عن مطعم، سوق، أو منتج',
             prefixIcon: const Icon(Icons.search_rounded),
             suffixIcon: IconButton(
               onPressed: onSubmit,
               icon: const Icon(Icons.arrow_forward_rounded),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StyleHubEntryCard extends StatelessWidget {
+  final VoidCallback onTap;
+  final String audience;
+
+  const _StyleHubEntryCard({required this.onTap, required this.audience});
+
+  @override
+  Widget build(BuildContext context) {
+    final audienceLabel = switch (audience) {
+      'women' => 'مخصص أكثر لاهتمامات النساء',
+      'men' => 'مخصص أكثر لاهتمامات الرجال',
+      'family' => 'مخصص أكثر لاحتياجات العائلة',
+      'mixed' => 'مزيج نسائي ورجالي',
+      _ => 'نسائي + رجالي + تصنيفات فرعية',
+    };
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Ink(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: const LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [Color(0xFF2C5FA0), Color(0xFF223B6E)],
+          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            textDirection: TextDirection.rtl,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.14),
+                ),
+                child: const Icon(Icons.style_rounded),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Text(
+                      'سوق الأزياء',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      audienceLabel,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.86),
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+            ],
           ),
         ),
       ),
@@ -911,6 +1495,22 @@ class _AdBanner {
   });
 }
 
+class _QuickNeed {
+  final String title;
+  final String query;
+  final String? type;
+  final IconData icon;
+  final Color color;
+
+  const _QuickNeed({
+    required this.title,
+    required this.query,
+    required this.type,
+    required this.icon,
+    required this.color,
+  });
+}
+
 enum _CategoryMotion { forkKnife, meat, cake, bag, bolt, leaf, gift, coffee }
 
 const _adBanners = <_AdBanner>[
@@ -930,10 +1530,55 @@ const _adBanners = <_AdBanner>[
   ),
   _AdBanner(
     title: 'طلبك يوصل للباب',
-    subtitle: 'تتبع حي من لحظة التأكيد حتى الاستلام',
+    subtitle: 'تتبع حي من لحظة التأكيد وحتى الاستلام',
     icon: Icons.delivery_dining_rounded,
     colorA: Color(0xFF235D7E),
     colorB: Color(0xFF1B4569),
+  ),
+];
+
+const _quickNeeds = <_QuickNeed>[
+  _QuickNeed(
+    title: 'فطور سريع',
+    query: 'فطور',
+    type: 'restaurant',
+    icon: Icons.free_breakfast_rounded,
+    color: Color(0xFF5CC8FF),
+  ),
+  _QuickNeed(
+    title: 'غداء عائلي',
+    query: 'غداء',
+    type: 'restaurant',
+    icon: Icons.family_restroom_rounded,
+    color: Color(0xFF7ADBA5),
+  ),
+  _QuickNeed(
+    title: 'مشتريات بيت',
+    query: 'مواد منزلية',
+    type: 'market',
+    icon: Icons.shopping_cart_checkout_rounded,
+    color: Color(0xFFF7B267),
+  ),
+  _QuickNeed(
+    title: 'حلويات',
+    query: 'حلويات',
+    type: 'restaurant',
+    icon: Icons.cake_rounded,
+    color: Color(0xFFD9A3FF),
+  ),
+  _QuickNeed(
+    title: 'خصومات',
+    query: 'خصم',
+    type: null,
+    icon: Icons.discount_rounded,
+    color: Color(0xFFFF8C8C),
+  ),
+  _QuickNeed(
+    title: 'قهوة',
+    query: 'قهوة',
+    type: 'restaurant',
+    icon: Icons.local_cafe_rounded,
+    color: Color(0xFFB6A07D),
   ),
 ];
 
@@ -948,6 +1593,28 @@ const _categories = <_DiscoveryCategory>[
     colorA: Color(0xFF234E8A),
     colorB: Color(0xFF163A66),
     motion: _CategoryMotion.forkKnife,
+  ),
+  _DiscoveryCategory(
+    title: 'أزياء نسائية',
+    subtitle: 'ملابس، شنط، عناية وتجميل',
+    type: 'market',
+    seedQuery: 'نسائي',
+    tags: ['نسائي', 'فساتين', 'عبايات', 'شنط', 'مكياج'],
+    icon: Icons.style_rounded,
+    colorA: Color(0xFF7A3F8B),
+    colorB: Color(0xFF4A2B64),
+    motion: _CategoryMotion.gift,
+  ),
+  _DiscoveryCategory(
+    title: 'أزياء رجالية',
+    subtitle: 'ملابس، أحذية، عطور رجالية',
+    type: 'market',
+    seedQuery: 'رجالي',
+    tags: ['رجالي', 'أحذية', 'دشاديش', 'عطور'],
+    icon: Icons.checkroom_rounded,
+    colorA: Color(0xFF2A5D8C),
+    colorB: Color(0xFF1A3D63),
+    motion: _CategoryMotion.bag,
   ),
   _DiscoveryCategory(
     title: 'حلويات ومعجنات',
