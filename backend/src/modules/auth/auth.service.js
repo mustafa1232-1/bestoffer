@@ -117,6 +117,15 @@ export async function login({ phone, pin }) {
     throw err;
   }
 
+  if (
+    user.role === "delivery" &&
+    user.delivery_account_approved !== true
+  ) {
+    const err = new Error("DELIVERY_ACCOUNT_PENDING_APPROVAL");
+    err.status = 403;
+    throw err;
+  }
+
   const token = signAccessToken({
     id: user.id,
     role: user.role || "user",

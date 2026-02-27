@@ -2,7 +2,18 @@ import { pool, q } from "../../config/db.js";
 
 export async function findUserByPhone(phone) {
   const r = await q(
-    `SELECT id, full_name, phone, pin_hash, role, block, building_number, apartment, image_url, is_super_admin
+    `SELECT
+       id,
+       full_name,
+       phone,
+       pin_hash,
+       role,
+       block,
+       building_number,
+       apartment,
+       image_url,
+       is_super_admin,
+       delivery_account_approved
      FROM app_user
      WHERE regexp_replace(
        translate(
@@ -23,7 +34,18 @@ export async function findUserByPhone(phone) {
 
 export async function findUserByIdWithAuthFields(id) {
   const r = await q(
-    `SELECT id, full_name, phone, pin_hash, role, block, building_number, apartment, image_url, is_super_admin
+    `SELECT
+       id,
+       full_name,
+       phone,
+       pin_hash,
+       role,
+       block,
+       building_number,
+       apartment,
+       image_url,
+       is_super_admin,
+       delivery_account_approved
      FROM app_user
      WHERE id = $1
      LIMIT 1`,

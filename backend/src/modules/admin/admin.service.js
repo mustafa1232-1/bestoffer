@@ -162,6 +162,62 @@ export async function toggleMerchantDisabled(merchantId, isDisabled, adminUserId
   };
 }
 
+function mapPendingDeliveryAccount(row) {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    phone: row.phone,
+    block: row.block,
+    buildingNumber: row.building_number,
+    apartment: row.apartment,
+    createdAt: row.created_at,
+    vehicleType: row.vehicle_type,
+    carMake: row.car_make,
+    carModel: row.car_model,
+    carYear: row.car_year,
+    carColor: row.car_color,
+    plateNumber: row.plate_number,
+    profileImageUrl: row.profile_image_url,
+    carImageUrl: row.car_image_url,
+  };
+}
+
+export async function listPendingDeliveryAccounts() {
+  const rows = await adminRepo.listPendingDeliveryAccounts();
+  return rows.map(mapPendingDeliveryAccount);
+}
+
+export async function approveDeliveryAccount(deliveryUserId, adminUserId) {
+  const approved = await adminRepo.approveDeliveryAccount(
+    Number(deliveryUserId),
+    Number(adminUserId)
+  );
+
+  if (!approved) {
+    const err = new Error("DELIVERY_ACCOUNT_NOT_FOUND_OR_ALREADY_APPROVED");
+    err.status = 404;
+    throw err;
+  }
+
+  await createManyNotifications([
+    {
+      userId: Number(approved.id),
+      type: "delivery_account_approved",
+      title: "تمت الموافقة على حسابك",
+      body: "تمت مراجعة بياناتك ويمكنك الآن تسجيل الدخول ككابتن.",
+      payload: {
+        deliveryUserId: Number(approved.id),
+      },
+    },
+  ]);
+
+  return {
+    id: Number(approved.id),
+    fullName: approved.full_name,
+    phone: approved.phone,
+  };
+}
+
 export async function printOrdersReport(period) {
   const normalizedPeriod = String(period || "day").toLowerCase();
   return ordersRepo.listAdminOrdersForReport(normalizedPeriod);

@@ -83,6 +83,37 @@ export async function ensureSchema() {
     `);
 
     await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS delivery_account_approved BOOLEAN;
+    `);
+
+    await q(`
+      UPDATE app_user
+      SET delivery_account_approved = TRUE
+      WHERE delivery_account_approved IS NULL;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ALTER COLUMN delivery_account_approved SET DEFAULT TRUE;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ALTER COLUMN delivery_account_approved SET NOT NULL;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS delivery_approved_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS delivery_approved_at TIMESTAMPTZ;
+    `);
+
+    await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_app_user_single_super_admin
       ON app_user ((is_super_admin))
       WHERE is_super_admin = TRUE;
@@ -778,6 +809,34 @@ export async function ensureSchema() {
     await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_ride_request_status
       ON taxi_ride_request (status, created_at DESC);
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_request
+      ADD COLUMN IF NOT EXISTS search_phase SMALLINT NOT NULL DEFAULT 1;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_request
+      ADD COLUMN IF NOT EXISTS next_escalation_at TIMESTAMPTZ;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_request
+      ADD COLUMN IF NOT EXISTS no_captain_notified_at TIMESTAMPTZ;
+    `);
+
+    await q(`
+      UPDATE taxi_ride_request
+      SET next_escalation_at = COALESCE(
+        next_escalation_at,
+        CASE
+          WHEN status = 'searching' AND search_phase IN (1, 2)
+            THEN NOW() + INTERVAL '5 minutes'
+          ELSE NULL
+        END
+      )
+      WHERE next_escalation_at IS NULL;
     `);
 
     await q(`

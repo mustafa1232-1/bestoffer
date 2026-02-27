@@ -20,11 +20,17 @@ adminRouter.get(
 adminRouter.get("/orders/print-report", c.printOrdersReport);
 adminRouter.get("/merchants", c.merchants);
 adminRouter.get("/merchants/pending", c.pendingMerchants);
+adminRouter.get("/delivery/pending", c.pendingDeliveryAccounts);
 adminRouter.get("/settlements/pending", c.pendingSettlements);
 adminRouter.get("/owners/available", c.availableOwners);
 
 adminRouter.post("/users", requireAdmin, imageUpload.single("imageFile"), c.createUser);
 adminRouter.patch("/merchants/:merchantId/approve", requireAdmin, c.approveMerchant);
+adminRouter.patch(
+  "/delivery/:deliveryUserId/approve",
+  requireAdmin,
+  c.approveDeliveryAccount
+);
 adminRouter.patch(
   "/merchants/:merchantId/disabled",
   requireAdmin,

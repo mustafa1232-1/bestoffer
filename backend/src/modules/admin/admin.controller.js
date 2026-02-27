@@ -110,6 +110,27 @@ export async function pendingSettlements(req, res, next) {
   }
 }
 
+export async function pendingDeliveryAccounts(req, res, next) {
+  try {
+    const out = await service.listPendingDeliveryAccounts();
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function approveDeliveryAccount(req, res, next) {
+  try {
+    const out = await service.approveDeliveryAccount(
+      req.params.deliveryUserId,
+      req.userId
+    );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function approveSettlement(req, res, next) {
   try {
     const v = validateApproveSettlement(req.body || {});

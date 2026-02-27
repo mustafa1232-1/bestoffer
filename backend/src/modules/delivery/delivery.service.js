@@ -1,23 +1,9 @@
 import { hashPin } from "../../shared/utils/hash.js";
-import { signAccessToken } from "../../shared/utils/jwt.js";
 import { q } from "../../config/db.js";
 import * as analyticsRepo from "../analytics/analytics.repo.js";
 import { createUser, findUserByPhone } from "../auth/auth.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
-
-function mapUser(u) {
-  return {
-    id: u.id,
-    fullName: u.full_name,
-    phone: u.phone,
-    role: u.role,
-    isSuperAdmin: u.is_super_admin === true,
-    block: u.block,
-    buildingNumber: u.building_number,
-    apartment: u.apartment,
-    imageUrl: u.image_url,
-  };
-}
+import { createManyNotifications } from "../notifications/notifications.repo.js";
 
 function normalizeConsentAccepted(value) {
   if (value === true) return true;
@@ -66,6 +52,15 @@ export async function registerDelivery(dto) {
   });
 
   await q(
+    `UPDATE app_user
+     SET delivery_account_approved = FALSE,
+         delivery_approved_by_user_id = NULL,
+         delivery_approved_at = NULL
+     WHERE id = $1`,
+    [Number(user.id)]
+  );
+
+  await q(
     `INSERT INTO taxi_captain_profile
       (
         user_id,
@@ -106,15 +101,35 @@ export async function registerDelivery(dto) {
     ]
   );
 
-  const token = signAccessToken({
-    id: user.id,
-    role: user.role || "delivery",
-    isSuperAdmin: user.is_super_admin === true,
-  });
+  const approversResult = await q(
+    `SELECT DISTINCT id
+     FROM app_user
+     WHERE role IN ('admin', 'deputy_admin')
+        OR is_super_admin = TRUE`
+  );
+
+  await createManyNotifications(
+    approversResult.rows.map((row) => ({
+      userId: Number(row.id),
+      type: "admin_delivery_pending_approval",
+      title: "حساب كابتن بانتظار الموافقة",
+      body: `يوجد طلب كابتن جديد: ${dto.fullName.trim()} (${dto.phone.trim()})`,
+      payload: {
+        captainUserId: Number(user.id),
+      },
+    }))
+  );
 
   return {
-    token,
-    user: mapUser(user),
+    pendingApproval: true,
+    message: "DELIVERY_ACCOUNT_PENDING_APPROVAL",
+    user: {
+      id: Number(user.id),
+      fullName: user.full_name,
+      phone: user.phone,
+      role: user.role,
+      deliveryAccountApproved: false,
+    },
   };
 }
 

@@ -78,3 +78,48 @@ export async function isUserSuperAdmin(userId) {
 
   return r.rows[0]?.is_super_admin === true;
 }
+
+export async function listPendingDeliveryAccounts() {
+  const r = await q(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.phone,
+       u.block,
+       u.building_number,
+       u.apartment,
+       u.created_at,
+       p.vehicle_type,
+       p.car_make,
+       p.car_model,
+       p.car_year,
+       p.car_color,
+       p.plate_number,
+       p.profile_image_url,
+       p.car_image_url
+     FROM app_user u
+     LEFT JOIN taxi_captain_profile p
+       ON p.user_id = u.id
+     WHERE u.role = 'delivery'
+       AND u.delivery_account_approved = FALSE
+     ORDER BY u.created_at DESC, u.id DESC`
+  );
+
+  return r.rows;
+}
+
+export async function approveDeliveryAccount(deliveryUserId, approvedByUserId) {
+  const r = await q(
+    `UPDATE app_user
+     SET delivery_account_approved = TRUE,
+         delivery_approved_by_user_id = $2,
+         delivery_approved_at = NOW()
+     WHERE id = $1
+       AND role = 'delivery'
+       AND delivery_account_approved = FALSE
+     RETURNING id, full_name, phone`,
+    [Number(deliveryUserId), Number(approvedByUserId)]
+  );
+
+  return r.rows[0] || null;
+}
