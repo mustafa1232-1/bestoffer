@@ -256,6 +256,10 @@ export function validateLocationUpdate(body) {
 export function validateHistoryQuery(query) {
   const errors = [];
   const limit = toInt(query?.limit ?? 20);
+  const periodRaw = String(query?.period ?? "month").trim().toLowerCase();
+  const period = ["day", "week", "month", "all"].includes(periodRaw)
+    ? periodRaw
+    : "month";
 
   if (limit == null || limit < 1 || limit > 200) {
     errors.push("limit");
@@ -265,7 +269,45 @@ export function validateHistoryQuery(query) {
     ok: errors.length === 0,
     errors,
     value: {
+      period,
       limit,
+    },
+  };
+}
+
+export function validateCaptainProfileEditRequest(body) {
+  const errors = [];
+  const requestedChanges =
+    body?.requestedChanges && typeof body.requestedChanges === "object"
+      ? body.requestedChanges
+      : {};
+  const captainNote = body?.captainNote;
+
+  if (
+    requestedChanges == null ||
+    typeof requestedChanges !== "object" ||
+    Array.isArray(requestedChanges)
+  ) {
+    errors.push("requestedChanges");
+  } else if (Object.keys(requestedChanges).length === 0) {
+    errors.push("requestedChanges");
+  }
+
+  if (
+    captainNote !== undefined &&
+    captainNote !== null &&
+    (typeof captainNote !== "string" || captainNote.trim().length > 1200)
+  ) {
+    errors.push("captainNote");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      requestedChanges,
+      captainNote:
+        typeof captainNote === "string" ? captainNote.trim() : null,
     },
   };
 }

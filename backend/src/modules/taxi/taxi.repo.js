@@ -66,6 +66,9 @@ function normalizeRide(row) {
     shareToken: row.share_token || null,
     acceptedBidId: toIntOrNull(row.accepted_bid_id),
     expiresAt: row.expires_at,
+    searchPhase: toIntOrNull(row.search_phase) || 1,
+    nextEscalationAt: row.next_escalation_at || null,
+    noCaptainNotifiedAt: row.no_captain_notified_at || null,
     acceptedAt: row.accepted_at,
     captainArrivingAt: row.captain_arriving_at,
     startedAt: row.started_at,
@@ -350,10 +353,12 @@ export async function createRideRequest({
         dropoff_label,
         proposed_fare_iqd,
         search_radius_m,
+        search_phase,
+        next_escalation_at,
         note,
         status
       )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'searching')
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,NOW() + INTERVAL '5 minutes',$10,'searching')
      RETURNING id`,
     [
       Number(customerUserId),
@@ -945,7 +950,6 @@ export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 3
        ON mb.ride_request_id = r.id
       AND mb.captain_user_id = $3
      WHERE r.status = 'searching'
-       AND r.expires_at > NOW()
        AND ${distanceExpr} <= r.search_radius_m
        AND ${distanceExpr} <= $4
      ORDER BY distance_m ASC, r.created_at DESC
@@ -960,6 +964,83 @@ export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 3
   );
 
   return r.rows.map(normalizeRide);
+}
+
+export async function listRidesReadyForSearchProgression({ limit = 80 } = {}) {
+  const r = await q(
+    `${RIDE_SELECT}
+     WHERE r.status = 'searching'
+       AND r.search_phase IN (1, 2)
+       AND r.next_escalation_at IS NOT NULL
+       AND r.next_escalation_at <= NOW()
+     ORDER BY r.next_escalation_at ASC, r.created_at ASC
+     LIMIT $1`,
+    [Math.max(1, Math.min(500, Number(limit) || 80))]
+  );
+
+  return r.rows.map(normalizeRide);
+}
+
+export async function hasActiveBids(rideId) {
+  const r = await q(
+    `SELECT 1
+     FROM taxi_ride_bid
+     WHERE ride_request_id = $1
+       AND status = 'active'
+     LIMIT 1`,
+    [Number(rideId)]
+  );
+  return Boolean(r.rows[0]);
+}
+
+export async function advanceRideToExpandedSearch({ rideId, expandedRadiusM = 4000 }) {
+  const r = await q(
+    `UPDATE taxi_ride_request
+     SET search_phase = 2,
+         search_radius_m = GREATEST(search_radius_m, $2),
+         next_escalation_at = NOW() + INTERVAL '5 minutes',
+         updated_at = NOW()
+     WHERE id = $1
+       AND status = 'searching'
+       AND search_phase = 1
+     RETURNING id`,
+    [Number(rideId), Number(expandedRadiusM)]
+  );
+
+  if (!r.rows[0]) return null;
+  return getRideById(rideId);
+}
+
+export async function markRideNoCaptainFound(rideId) {
+  const r = await q(
+    `UPDATE taxi_ride_request
+     SET search_phase = 3,
+         no_captain_notified_at = COALESCE(no_captain_notified_at, NOW()),
+         next_escalation_at = NULL,
+         updated_at = NOW()
+     WHERE id = $1
+       AND status = 'searching'
+       AND search_phase = 2
+       AND no_captain_notified_at IS NULL
+     RETURNING id`,
+    [Number(rideId)]
+  );
+
+  if (!r.rows[0]) return null;
+  return getRideById(rideId);
+}
+
+export async function postponeRideEscalation({ rideId, minutes = 10 }) {
+  const safeMinutes = Math.max(1, Math.min(60, Number(minutes) || 10));
+  await q(
+    `UPDATE taxi_ride_request
+     SET next_escalation_at = NOW() + ($2::text || ' minutes')::interval,
+         updated_at = NOW()
+     WHERE id = $1
+       AND status = 'searching'
+       AND search_phase = 2`,
+    [Number(rideId), String(safeMinutes)]
+  );
 }
 
 export async function listBidCaptainUserIds(rideId) {
@@ -980,6 +1061,302 @@ export async function listCaptainRideHistory(captainUserId, { limit = 20 } = {})
      ORDER BY r.created_at DESC
      LIMIT $2`,
     [Number(captainUserId), Math.max(1, Math.min(200, Number(limit) || 20))]
+  );
+
+  return r.rows.map(normalizeRide);
+}
+
+export async function ensureCaptainSubscription(captainUserId) {
+  await q(
+    `INSERT INTO taxi_captain_subscription (captain_user_id)
+     VALUES ($1)
+     ON CONFLICT (captain_user_id) DO NOTHING`,
+    [Number(captainUserId)]
+  );
+}
+
+export async function getCaptainSubscription(captainUserId) {
+  await ensureCaptainSubscription(captainUserId);
+  const r = await q(
+    `SELECT
+       captain_user_id,
+       monthly_fee_iqd,
+       discount_percent,
+       trial_days,
+       trial_started_at,
+       current_cycle_start_at,
+       current_cycle_end_at,
+       cash_payment_pending,
+       cash_payment_requested_at,
+       last_cash_payment_confirmed_at,
+       last_payment_approved_by_user_id,
+       last_discount_set_by_user_id,
+       last_expiry_reminder_on,
+       created_at,
+       updated_at
+     FROM taxi_captain_subscription
+     WHERE captain_user_id = $1
+     LIMIT 1`,
+    [Number(captainUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function updateCaptainSubscriptionReminderDate(captainUserId, reminderOnDate) {
+  const normalized = String(reminderOnDate || "").trim();
+  const r = await q(
+    `UPDATE taxi_captain_subscription
+     SET last_expiry_reminder_on = NULLIF($2, '')::date,
+         updated_at = NOW()
+     WHERE captain_user_id = $1
+     RETURNING captain_user_id`,
+    [Number(captainUserId), normalized]
+  );
+  return !!r.rows[0];
+}
+
+export async function requestCaptainCashPayment(captainUserId) {
+  await ensureCaptainSubscription(captainUserId);
+  const r = await q(
+    `UPDATE taxi_captain_subscription
+     SET cash_payment_pending = TRUE,
+         cash_payment_requested_at = NOW(),
+         updated_at = NOW()
+     WHERE captain_user_id = $1
+     RETURNING captain_user_id, cash_payment_pending, cash_payment_requested_at`,
+    [Number(captainUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function setCaptainDiscountPercent({
+  captainUserId,
+  discountPercent,
+  updatedByUserId,
+}) {
+  await ensureCaptainSubscription(captainUserId);
+  const r = await q(
+    `UPDATE taxi_captain_subscription
+     SET discount_percent = $2,
+         last_discount_set_by_user_id = $3,
+         updated_at = NOW()
+     WHERE captain_user_id = $1
+     RETURNING captain_user_id, discount_percent, monthly_fee_iqd`,
+    [Number(captainUserId), Number(discountPercent), Number(updatedByUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function confirmCaptainCashPayment({
+  captainUserId,
+  cycleStartAt,
+  cycleEndAt,
+  approvedByUserId,
+}) {
+  const r = await q(
+    `UPDATE taxi_captain_subscription
+     SET current_cycle_start_at = $2,
+         current_cycle_end_at = $3,
+         cash_payment_pending = FALSE,
+         cash_payment_requested_at = NULL,
+         last_cash_payment_confirmed_at = NOW(),
+         last_payment_approved_by_user_id = $4,
+         updated_at = NOW()
+     WHERE captain_user_id = $1
+     RETURNING captain_user_id, current_cycle_start_at, current_cycle_end_at`,
+    [Number(captainUserId), cycleStartAt, cycleEndAt, Number(approvedByUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function getCaptainProfile(captainUserId) {
+  const r = await q(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.phone,
+       u.block,
+       u.building_number,
+       u.apartment,
+       u.image_url,
+       u.created_at,
+       u.delivery_account_approved,
+       p.profile_image_url,
+       p.car_image_url,
+       p.vehicle_type,
+       p.car_make,
+       p.car_model,
+       p.car_year,
+       p.car_color,
+       p.plate_number,
+       p.is_active,
+       p.rating_avg,
+       p.rides_count
+     FROM app_user u
+     LEFT JOIN taxi_captain_profile p
+       ON p.user_id = u.id
+     WHERE u.id = $1
+       AND u.role = 'delivery'
+     LIMIT 1`,
+    [Number(captainUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function createCaptainProfileEditRequest({
+  captainUserId,
+  requestedChanges,
+  captainNote,
+}) {
+  const r = await q(
+    `INSERT INTO taxi_captain_profile_edit_request
+      (captain_user_id, requested_changes, captain_note, status)
+     VALUES ($1, $2::jsonb, $3, 'pending')
+     RETURNING id, captain_user_id, requested_changes, captain_note, status, requested_at`,
+    [
+      Number(captainUserId),
+      JSON.stringify(requestedChanges || {}),
+      captainNote || null,
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function listBackofficeUsers() {
+  const r = await q(
+    `SELECT id
+     FROM app_user
+     WHERE role IN ('admin', 'deputy_admin')
+        OR is_super_admin = TRUE`
+  );
+  return r.rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+}
+
+export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
+  const r = await q(
+    `SELECT
+       s.captain_user_id,
+       s.monthly_fee_iqd,
+       s.discount_percent,
+       s.trial_days,
+       s.trial_started_at,
+       s.current_cycle_start_at,
+       s.current_cycle_end_at,
+       s.cash_payment_pending,
+       s.cash_payment_requested_at,
+       s.last_cash_payment_confirmed_at,
+       s.last_expiry_reminder_on,
+       u.full_name,
+       u.phone,
+       u.block,
+       u.building_number,
+       u.apartment,
+       p.profile_image_url,
+       p.car_image_url,
+       p.car_make,
+       p.car_model,
+       p.car_year,
+       p.plate_number
+     FROM taxi_captain_subscription s
+     JOIN app_user u
+       ON u.id = s.captain_user_id
+      AND u.role = 'delivery'
+     LEFT JOIN taxi_captain_profile p
+       ON p.user_id = s.captain_user_id
+     WHERE s.cash_payment_pending = TRUE
+     ORDER BY s.cash_payment_requested_at ASC NULLS LAST, s.captain_user_id ASC
+     LIMIT $1`,
+    [Math.max(1, Math.min(500, Number(limit) || 100))]
+  );
+  return r.rows;
+}
+
+export async function getCaptainDashboardMetrics(captainUserId) {
+  const r = await q(
+    `SELECT
+       COALESCE(
+         COUNT(*) FILTER (
+           WHERE r.status = 'completed'
+             AND COALESCE(r.completed_at, r.updated_at, r.created_at) >= DATE_TRUNC('day', NOW())
+         ),
+         0
+       )::int AS day_completed_count,
+       COALESCE(
+         SUM(COALESCE(r.agreed_fare_iqd, r.proposed_fare_iqd)) FILTER (
+           WHERE r.status = 'completed'
+             AND COALESCE(r.completed_at, r.updated_at, r.created_at) >= DATE_TRUNC('day', NOW())
+         ),
+         0
+       )::bigint AS day_earnings_iqd,
+
+       COALESCE(
+         COUNT(*) FILTER (
+           WHERE r.status = 'completed'
+             AND COALESCE(r.completed_at, r.updated_at, r.created_at) >= DATE_TRUNC('week', NOW())
+         ),
+         0
+       )::int AS week_completed_count,
+       COALESCE(
+         SUM(COALESCE(r.agreed_fare_iqd, r.proposed_fare_iqd)) FILTER (
+           WHERE r.status = 'completed'
+             AND COALESCE(r.completed_at, r.updated_at, r.created_at) >= DATE_TRUNC('week', NOW())
+         ),
+         0
+       )::bigint AS week_earnings_iqd,
+
+       COALESCE(
+         COUNT(*) FILTER (
+           WHERE r.status = 'completed'
+             AND COALESCE(r.completed_at, r.updated_at, r.created_at) >= DATE_TRUNC('month', NOW())
+         ),
+         0
+       )::int AS month_completed_count,
+       COALESCE(
+         SUM(COALESCE(r.agreed_fare_iqd, r.proposed_fare_iqd)) FILTER (
+           WHERE r.status = 'completed'
+             AND COALESCE(r.completed_at, r.updated_at, r.created_at) >= DATE_TRUNC('month', NOW())
+         ),
+         0
+       )::bigint AS month_earnings_iqd,
+
+       COALESCE(COUNT(*), 0)::int AS total_rides_count,
+       COALESCE(
+         SUM(COALESCE(r.agreed_fare_iqd, r.proposed_fare_iqd)) FILTER (WHERE r.status = 'completed'),
+         0
+       )::bigint AS total_earnings_iqd
+     FROM taxi_ride_request r
+     WHERE r.assigned_captain_user_id = $1`,
+    [Number(captainUserId)]
+  );
+
+  return r.rows[0] || null;
+}
+
+export async function listCaptainRideHistoryByPeriod(
+  captainUserId,
+  { period = "month", limit = 40 } = {}
+) {
+  const normalizedPeriod = ["day", "week", "month", "all"].includes(String(period || "").toLowerCase())
+    ? String(period || "").toLowerCase()
+    : "month";
+
+  const r = await q(
+    `${RIDE_SELECT}
+     WHERE r.assigned_captain_user_id = $1
+       AND r.status IN ('completed', 'cancelled', 'expired')
+       AND (
+         $3::text = 'all'
+         OR ($3::text = 'day' AND r.created_at >= DATE_TRUNC('day', NOW()))
+         OR ($3::text = 'week' AND r.created_at >= DATE_TRUNC('week', NOW()))
+         OR ($3::text = 'month' AND r.created_at >= DATE_TRUNC('month', NOW()))
+       )
+     ORDER BY r.created_at DESC
+     LIMIT $2`,
+    [
+      Number(captainUserId),
+      Math.max(1, Math.min(300, Number(limit) || 40)),
+      normalizedPeriod,
+    ]
   );
 
   return r.rows.map(normalizeRide);

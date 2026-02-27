@@ -3,6 +3,7 @@ import { createUser, findUserByPhone } from "../auth/auth.repo.js";
 import * as analyticsRepo from "../analytics/analytics.repo.js";
 import * as behaviorService from "../behavior/behavior.service.js";
 import * as ordersRepo from "../orders/orders.repo.js";
+import * as taxiService from "../taxi/taxi.service.js";
 import * as adminRepo from "./admin.repo.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 
@@ -229,4 +230,37 @@ export async function listCustomerInsights(query) {
 
 export async function getCustomerInsightDetails(customerUserId) {
   return behaviorService.getCustomerFullInsight(Number(customerUserId));
+}
+
+export async function listPendingTaxiCaptainCashPayments(query = {}) {
+  const limit = Math.max(1, Math.min(300, Number(query?.limit) || 100));
+  const items = await taxiService.listPendingCaptainCashPayments({ limit });
+  return {
+    items,
+    total: items.length,
+  };
+}
+
+export async function confirmTaxiCaptainCashPayment({
+  captainUserId,
+  cycleDays,
+  adminUserId,
+}) {
+  return taxiService.confirmCaptainCashPaymentByAdmin({
+    captainUserId: Number(captainUserId),
+    adminUserId: Number(adminUserId),
+    cycleDays: Number(cycleDays) || 30,
+  });
+}
+
+export async function setTaxiCaptainDiscount({
+  captainUserId,
+  discountPercent,
+  adminUserId,
+}) {
+  return taxiService.setCaptainDiscountByAdmin({
+    captainUserId: Number(captainUserId),
+    discountPercent: Number(discountPercent),
+    adminUserId: Number(adminUserId),
+  });
 }

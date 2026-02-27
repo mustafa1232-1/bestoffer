@@ -50,3 +50,43 @@ export function validateToggleMerchantDisabled(body) {
   if (typeof body.isDisabled !== "boolean") errors.push("isDisabled");
   return { ok: errors.length === 0, errors };
 }
+
+export function validateTaxiCaptainCashPaymentApprove(body) {
+  const errors = [];
+  const cycleDays =
+    body?.cycleDays === undefined || body?.cycleDays === null
+      ? 30
+      : Number(body.cycleDays);
+
+  if (!Number.isInteger(cycleDays) || cycleDays < 1 || cycleDays > 365) {
+    errors.push("cycleDays");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      cycleDays,
+    },
+  };
+}
+
+export function validateTaxiCaptainDiscount(body) {
+  const errors = [];
+  const discountPercent = Number(body?.discountPercent);
+  if (
+    !Number.isInteger(discountPercent) ||
+    discountPercent < 0 ||
+    discountPercent > 100
+  ) {
+    errors.push("discountPercent");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      discountPercent,
+    },
+  };
+}

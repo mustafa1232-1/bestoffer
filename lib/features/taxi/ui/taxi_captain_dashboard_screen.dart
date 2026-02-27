@@ -25,28 +25,30 @@ class TaxiCaptainDashboardScreen extends ConsumerStatefulWidget {
 
 class _TaxiCaptainDashboardScreenState
     extends ConsumerState<TaxiCaptainDashboardScreen> {
-  static const LatLng _bismayahCenter = LatLng(33.3128, 44.3615);
+  static const _center = LatLng(33.3128, 44.3615);
 
-  final MapController _mapController = MapController();
-  final Distance _distance = const Distance();
-
+  final _mapController = MapController();
   Timer? _ticker;
   StreamSubscription<TaxiLiveEvent>? _streamSub;
-  Timer? _streamReconnectTimer;
 
   bool _loading = true;
   bool _sending = false;
   bool _online = true;
   bool _streamConnected = false;
-  bool _cameraLockedToCaptain = true;
-  bool _cameraInitialized = false;
+  bool _followMe = true;
+  int _tab = 0;
+  int _tickCounter = 0;
+  String _period = 'day';
 
-  DateTime? _lastSyncAt;
   String? _error;
+  DateTime? _lastSync;
 
   LatLng? _captainPoint;
   Map<String, dynamic>? _currentRideEnvelope;
-  List<Map<String, dynamic>> _nearbyRequests = const [];
+  List<Map<String, dynamic>> _nearby = const [];
+  Map<String, dynamic>? _dashboard;
+  Map<String, dynamic>? _profile;
+  Map<String, dynamic>? _subscription;
 
   TaxiApi get _api => ref.read(taxiCaptainApiProvider);
 
@@ -60,132 +62,103 @@ class _TaxiCaptainDashboardScreenState
   void dispose() {
     _ticker?.cancel();
     _streamSub?.cancel();
-    _streamReconnectTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _bootstrap() async {
-    await _tick(fullRefresh: true);
+    await _refreshMeta();
+    await _tick(full: true);
     _connectStream();
-    _ticker = Timer.periodic(const Duration(seconds: 5), (_) {
-      _tick();
+    _ticker = Timer.periodic(const Duration(seconds: 5), (_) async {
+      await _tick();
+      _tickCounter++;
+      if (_tickCounter % 6 == 0) await _refreshMeta();
     });
   }
 
-  Future<void> _tick({bool fullRefresh = false}) async {
-    if (!mounted) return;
+  Future<void> _refreshMeta() async {
+    try {
+      final result = await Future.wait([
+        _api.getCaptainDashboard(period: _period, limit: 80),
+        _api.getCaptainProfile(),
+        _api.getCaptainSubscription(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _dashboard = result[0];
+        _profile = result[1];
+        _subscription = result[2];
+        _error = null;
+        _lastSync = DateTime.now();
+      });
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = _err(e));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = 'تعذر تحديث بيانات الكابتن');
+    }
+  }
 
-    if (!_online && _activeRide == null && !fullRefresh) {
+  Future<void> _tick({bool full = false}) async {
+    if (!mounted) return;
+    if (_locked && !full) {
+      setState(() => _loading = false);
       return;
     }
 
     try {
-      final position = await _getCurrentPosition();
-      if (position != null) {
-        _captainPoint = LatLng(position.latitude, position.longitude);
-      }
+      final pos = await _position();
+      if (pos != null) _captainPoint = LatLng(pos.latitude, pos.longitude);
 
-      if (_online && position != null) {
-        final presence = await _api.upsertCaptainPresence(
+      if (_online && pos != null) {
+        final p = await _api.upsertCaptainPresence(
           isOnline: true,
-          latitude: position.latitude,
-          longitude: position.longitude,
-          headingDeg: _sanitizeHeading(position.heading),
-          speedKmh: _sanitizeSpeedKmh(position.speed),
-          accuracyM: position.accuracy,
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+          headingDeg: _sanitizeHeading(pos.heading),
+          speedKmh: _sanitizeSpeed(pos.speed),
+          accuracyM: pos.accuracy,
           radiusM: 4000,
         );
-        _nearbyRequests = _toMapList(presence['nearbyRequests']);
+        _nearby = _toMapList(p['nearbyRequests']);
       }
 
-      final rideEnvelope = await _api.getCurrentRideForCaptain();
-      _currentRideEnvelope = rideEnvelope;
-      _syncRideMarkers();
-
-      final rideId = _readInt(_activeRide?['id']);
-      if (rideId != null && position != null) {
+      _currentRideEnvelope = await _api.getCurrentRideForCaptain();
+      final rideId = _asInt(_ride?['id']);
+      if (rideId != null && pos != null) {
         await _api.updateRideLocation(
           rideId: rideId,
-          latitude: position.latitude,
-          longitude: position.longitude,
-          headingDeg: _sanitizeHeading(position.heading),
-          speedKmh: _sanitizeSpeedKmh(position.speed),
-          accuracyM: position.accuracy,
-        );
-      } else if (_online && _nearbyRequests.isEmpty) {
-        _nearbyRequests = await _api.listNearbyRequests(
-          radiusM: 4000,
-          limit: 30,
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+          headingDeg: _sanitizeHeading(pos.heading),
+          speedKmh: _sanitizeSpeed(pos.speed),
+          accuracyM: pos.accuracy,
         );
       }
 
-      _moveCameraIfNeeded();
+      if (_followMe && _captainPoint != null) {
+        _mapController.move(_captainPoint!, 16.0);
+      }
 
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = null;
-        _lastSyncAt = DateTime.now();
+        _lastSync = DateTime.now();
       });
     } on DioException catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = _extractApiError(e);
+        _error = _err(e);
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'تعذر تحديث بيانات الكابتن الآن';
+        _error = 'تعذر تحديث بيانات الرحلات';
       });
-    }
-  }
-
-  Future<Position?> _getCurrentPosition() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return null;
-    }
-
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      return null;
-    }
-
-    return Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.bestForNavigation,
-    );
-  }
-
-  void _syncRideMarkers() {
-    final ride = _activeRide;
-    if (ride == null) return;
-
-    final latest = _latLngFromMap(_currentRideEnvelope?['latestLocation']);
-    if (latest != null) {
-      _captainPoint = latest;
-    }
-  }
-
-  void _moveCameraIfNeeded() {
-    final target =
-        _captainPoint ??
-        _latLngFromMap(_activeRide?['pickup']) ??
-        _latLngFromMap(_activeRide?['dropoff']);
-    if (target == null) return;
-
-    if (!_cameraInitialized) {
-      _cameraInitialized = true;
-      _mapController.move(target, 16.2);
-      return;
-    }
-    if (_cameraLockedToCaptain) {
-      _mapController.move(target, _mapController.camera.zoom.clamp(14.0, 17.5));
     }
   }
 
@@ -197,128 +170,147 @@ class _TaxiCaptainDashboardScreenState
         if (event.event == 'connected' || event.event == 'heartbeat') {
           setState(() {
             _streamConnected = true;
-            _lastSyncAt = DateTime.now();
+            _lastSync = DateTime.now();
           });
           return;
         }
-        _tick(fullRefresh: true);
+        _tick(full: true);
+        _refreshMeta();
       },
       onError: (_) {
-        if (!mounted) return;
-        setState(() => _streamConnected = false);
-        _scheduleStreamReconnect();
+        if (mounted) setState(() => _streamConnected = false);
       },
       onDone: () {
-        if (!mounted) return;
-        setState(() => _streamConnected = false);
-        _scheduleStreamReconnect();
+        if (mounted) setState(() => _streamConnected = false);
       },
-      cancelOnError: true,
     );
   }
 
-  void _scheduleStreamReconnect() {
-    if (_streamReconnectTimer?.isActive == true) return;
-    _streamReconnectTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      _connectStream();
-    });
+  Future<Position?> _position() async {
+    if (!await Geolocator.isLocationServiceEnabled()) return null;
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return null;
+    }
+    return Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.bestForNavigation,
+    );
   }
 
   Future<void> _setOnline(bool value) async {
-    if (_online == value) return;
     setState(() => _online = value);
-
     if (!value) {
-      final point = _captainPoint ?? _bismayahCenter;
-      try {
-        await _api.upsertCaptainPresence(
-          isOnline: false,
-          latitude: point.latitude,
-          longitude: point.longitude,
-          radiusM: 4000,
-        );
-      } catch (_) {}
+      final p = _captainPoint ?? _center;
+      await _api.upsertCaptainPresence(
+        isOnline: false,
+        latitude: p.latitude,
+        longitude: p.longitude,
+        radiusM: 4000,
+      );
+    } else {
+      await _tick(full: true);
+    }
+  }
+
+  Future<void> _advance(String action) async {
+    if (_locked) {
+      _snack('الاشتراك منتهي. اطلب تسديد الاشتراك.');
       return;
     }
+    final rideId = _asInt(_ride?['id']);
+    if (rideId == null) return;
+    setState(() => _sending = true);
+    try {
+      if (action == 'arrive') await _api.markArrived(rideId);
+      if (action == 'start') await _api.startRide(rideId);
+      if (action == 'complete') await _api.completeRide(rideId);
+      await _tick(full: true);
+    } on DioException catch (e) {
+      _snack(_err(e));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
 
-    await _tick(fullRefresh: true);
+  Future<void> _requestCashPayment() async {
+    setState(() => _sending = true);
+    try {
+      await _api.requestCaptainCashPayment();
+      await _refreshMeta();
+      _snack('تم إرسال طلب التسديد للإدارة');
+    } on DioException catch (e) {
+      _snack(_err(e));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   Future<void> _submitBid(Map<String, dynamic> ride) async {
-    final rideId = _readInt(ride['id']);
+    if (_locked) {
+      _snack('الاشتراك منتهي. اطلب التسديد أولاً.');
+      return;
+    }
+    final rideId = _asInt(ride['id']);
     if (rideId == null) return;
 
     final fareCtrl = TextEditingController(
-      text: '${_readInt(ride['proposedFareIqd']) ?? 0}',
+      text: '${_asInt(ride['proposedFareIqd']) ?? 0}',
     );
     final etaCtrl = TextEditingController(text: '8');
     final noteCtrl = TextEditingController();
 
-    final confirmed = await showModalBottomSheet<bool>(
+    final ok = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            16,
-            16,
-            MediaQuery.of(context).viewInsets.bottom + 16,
+      builder: (_) => AlertDialog(
+        title: const Text('إرسال عرض'),
+        content: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: fareCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'السعر المقترح'),
+              ),
+              TextField(
+                controller: etaCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'وقت الوصول التقديري (دقيقة)',
+                ),
+              ),
+              TextField(
+                controller: noteCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'ملاحظة (اختياري)',
+                ),
+              ),
+            ],
           ),
-          child: Directionality(
-            textDirection: TextDirection.rtl,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'إرسال عرض للزبون',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: fareCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'السعر المقترح (IQD)',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: etaCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'وقت الوصول التقديري (دقيقة)',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: noteCtrl,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'ملاحظة (اختياري)',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  icon: const Icon(Icons.send_rounded),
-                  label: const Text('إرسال العرض'),
-                ),
-              ],
-            ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
           ),
-        );
-      },
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('إرسال'),
+          ),
+        ],
+      ),
     );
 
-    if (confirmed != true) return;
-
-    final offeredFare = int.tryParse(fareCtrl.text.trim());
+    if (ok != true) return;
+    final fare = int.tryParse(fareCtrl.text.trim());
     final eta = int.tryParse(etaCtrl.text.trim());
-    if (offeredFare == null || offeredFare < 0) {
-      _showMessage('السعر غير صحيح');
+    if (fare == null || fare < 0) {
+      _snack('السعر غير صحيح');
       return;
     }
 
@@ -326,595 +318,735 @@ class _TaxiCaptainDashboardScreenState
     try {
       await _api.createBid(
         rideId: rideId,
-        offeredFareIqd: offeredFare,
+        offeredFareIqd: fare,
         etaMinutes: eta,
         note: noteCtrl.text.trim(),
       );
-      _showMessage('تم إرسال العرض بنجاح');
-      await _tick(fullRefresh: true);
+      _snack('تم إرسال العرض بنجاح');
+      await _tick(full: true);
     } on DioException catch (e) {
-      _showMessage(_extractApiError(e));
-    } catch (_) {
-      _showMessage('تعذر إرسال العرض الآن');
+      _snack(_err(e));
     } finally {
-      if (mounted) {
-        setState(() => _sending = false);
-      }
+      if (mounted) setState(() => _sending = false);
     }
   }
 
-  Future<void> _advanceRide(String action) async {
-    final rideId = _readInt(_activeRide?['id']);
-    if (rideId == null || _sending) return;
+  Future<void> _requestProfileEdit() async {
+    final p = _profileMap;
+    if (p == null) return;
+
+    final nameCtrl = TextEditingController(text: _str(p['fullName']) ?? '');
+    final phoneCtrl = TextEditingController(text: _str(p['phone']) ?? '');
+    final carMakeCtrl = TextEditingController(text: _str(p['carMake']) ?? '');
+    final carModelCtrl = TextEditingController(text: _str(p['carModel']) ?? '');
+    final noteCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('طلب تعديل البيانات'),
+        content: Directionality(
+          textDirection: TextDirection.rtl,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(labelText: 'الاسم'),
+                ),
+                TextField(
+                  controller: phoneCtrl,
+                  decoration: const InputDecoration(labelText: 'الهاتف'),
+                ),
+                TextField(
+                  controller: carMakeCtrl,
+                  decoration: const InputDecoration(labelText: 'شركة السيارة'),
+                ),
+                TextField(
+                  controller: carModelCtrl,
+                  decoration: const InputDecoration(labelText: 'موديل السيارة'),
+                ),
+                TextField(
+                  controller: noteCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'ملاحظة (اختياري)',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('إرسال'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    final changes = <String, dynamic>{};
+    if (nameCtrl.text.trim().isNotEmpty &&
+        nameCtrl.text.trim() != (_str(p['fullName']) ?? '')) {
+      changes['fullName'] = nameCtrl.text.trim();
+    }
+    if (phoneCtrl.text.trim().isNotEmpty &&
+        phoneCtrl.text.trim() != (_str(p['phone']) ?? '')) {
+      changes['phone'] = phoneCtrl.text.trim();
+    }
+    if (carMakeCtrl.text.trim().isNotEmpty &&
+        carMakeCtrl.text.trim() != (_str(p['carMake']) ?? '')) {
+      changes['carMake'] = carMakeCtrl.text.trim();
+    }
+    if (carModelCtrl.text.trim().isNotEmpty &&
+        carModelCtrl.text.trim() != (_str(p['carModel']) ?? '')) {
+      changes['carModel'] = carModelCtrl.text.trim();
+    }
+
+    if (changes.isEmpty) {
+      _snack('لا يوجد تغيير لإرساله');
+      return;
+    }
 
     setState(() => _sending = true);
     try {
-      if (action == 'arrive') {
-        await _api.markArrived(rideId);
-      } else if (action == 'start') {
-        await _api.startRide(rideId);
-      } else if (action == 'complete') {
-        await _api.completeRide(rideId);
-      }
-      await _tick(fullRefresh: true);
+      await _api.requestCaptainProfileEdit(
+        requestedChanges: changes,
+        captainNote: noteCtrl.text.trim(),
+      );
+      _snack('تم إرسال طلب التعديل بنجاح');
     } on DioException catch (e) {
-      _showMessage(_extractApiError(e));
-    } catch (_) {
-      _showMessage('تعذر تحديث حالة الرحلة');
+      _snack(_err(e));
     } finally {
-      if (mounted) {
-        setState(() => _sending = false);
-      }
+      if (mounted) setState(() => _sending = false);
     }
   }
 
-  Map<String, dynamic>? get _activeRide {
-    final envelope = _currentRideEnvelope;
-    if (envelope == null) return null;
-    final ride = envelope['ride'];
-    if (ride is Map) {
-      return Map<String, dynamic>.from(ride);
-    }
-    return null;
+  Map<String, dynamic>? get _ride {
+    final r = _currentRideEnvelope?['ride'];
+    return r is Map ? Map<String, dynamic>.from(r) : null;
   }
 
-  String _rideStatusLabel(String? status) {
-    switch (status) {
-      case 'searching':
-        return 'بانتظار اختيار الزبون';
-      case 'captain_assigned':
-        return 'تم تعيينك على الرحلة';
-      case 'captain_arriving':
-        return 'في الطريق إلى الزبون';
-      case 'ride_started':
-        return 'الرحلة جارية الآن';
-      case 'completed':
-        return 'رحلة مكتملة';
-      case 'cancelled':
-        return 'تم إلغاء الرحلة';
-      case 'expired':
-        return 'انتهت مهلة الرحلة';
-      default:
-        return 'حالة غير معروفة';
-    }
+  Map<String, dynamic>? get _profileMap {
+    final p = _profile?['profile'];
+    return p is Map ? Map<String, dynamic>.from(p) : null;
   }
 
-  Color _rideStatusColor(String? status) {
-    switch (status) {
-      case 'captain_assigned':
-        return const Color(0xFF3BC7FF);
-      case 'captain_arriving':
-        return const Color(0xFF68E0CF);
-      case 'ride_started':
-        return const Color(0xFF9EFF8E);
-      case 'completed':
-        return const Color(0xFF53C0B0);
-      case 'cancelled':
-      case 'expired':
-        return const Color(0xFFFF8C8C);
-      default:
-        return const Color(0xFFFFD166);
-    }
+  Map<String, dynamic>? get _sub {
+    final s =
+        _subscription?['subscription'] ??
+        _profile?['subscription'] ??
+        _dashboard?['subscription'];
+    return s is Map ? Map<String, dynamic>.from(s) : null;
   }
+
+  bool get _locked => _sub?['canAccess'] != true && _sub != null;
 
   @override
   Widget build(BuildContext context) {
-    final ride = _activeRide;
-    final status = _string(ride?['status']);
     return Scaffold(
       appBar: AppBar(
         title: const Text('واجهة كابتن التكسي'),
         actions: [
           IconButton(
-            tooltip: 'تحديث',
-            onPressed: _sending ? null : () => _tick(fullRefresh: true),
-            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _sending
+                ? null
+                : () async {
+                    await _refreshMeta();
+                    await _tick(full: true);
+                  },
+            icon: const Icon(Icons.refresh),
           ),
           IconButton(
-            tooltip: 'تسجيل خروج',
             onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-            icon: const Icon(Icons.logout_rounded),
+            icon: const Icon(Icons.logout),
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _bismayahCenter,
-              initialZoom: 15.5,
-              onPositionChanged: (mapCamera, hasGesture) {
-                _cameraInitialized = true;
-                if (hasGesture == true && _cameraLockedToCaptain) {
-                  setState(() => _cameraLockedToCaptain = false);
-                }
-              },
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.bestoffer',
-              ),
-              MarkerLayer(markers: _buildMarkers()),
-            ],
-          ),
-          Positioned(top: 12, left: 12, right: 12, child: _buildTopPanel()),
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
-            child: _buildBottomPanel(ride, status),
+      body: IndexedStack(
+        index: _tab,
+        children: [_rideTab(), _dashboardTab(), _profileTab()],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (v) => setState(() => _tab = v),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.local_taxi), label: 'الرحلات'),
+          NavigationDestination(icon: Icon(Icons.insights), label: 'الداشبورد'),
+          NavigationDestination(
+            icon: Icon(Icons.person),
+            label: 'الملف الشخصي',
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () =>
-            setState(() => _cameraLockedToCaptain = !_cameraLockedToCaptain),
-        icon: Icon(
-          _cameraLockedToCaptain
-              ? Icons.gps_fixed_rounded
-              : Icons.gps_not_fixed_rounded,
-        ),
-        label: Text(_cameraLockedToCaptain ? 'تتبع الكابتن' : 'تحريك حر'),
-      ),
+      floatingActionButton: _tab == 0
+          ? FloatingActionButton.extended(
+              onPressed: () => setState(() => _followMe = !_followMe),
+              icon: Icon(_followMe ? Icons.gps_fixed : Icons.gps_not_fixed),
+              label: Text(_followMe ? 'تتبع' : 'حر'),
+            )
+          : null,
     );
   }
 
-  Widget _buildTopPanel() {
-    final time = _lastSyncAt;
-    final timeLabel = time == null
-        ? '--:--'
-        : '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  Widget _rideTab() {
+    final status = _str(_ride?['status']);
+    return Stack(
+      children: [
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(initialCenter: _center, initialZoom: 15.5),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            ),
+            MarkerLayer(markers: _markers()),
+          ],
+        ),
+        Positioned(top: 12, left: 12, right: 12, child: _topPanel()),
+        Positioned(
+          left: 12,
+          right: 12,
+          bottom: 12,
+          child: _bottomPanel(status),
+        ),
+      ],
+    );
+  }
 
+  Widget _topPanel() {
+    final t = _lastSync;
+    final last = t == null
+        ? '--:--'
+        : '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.52),
-        borderRadius: BorderRadius.circular(14),
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         children: [
           Row(
             children: [
               Icon(
-                _streamConnected ? Icons.bolt_rounded : Icons.bolt_outlined,
-                color: _streamConnected
-                    ? Colors.lightGreenAccent
-                    : Colors.orangeAccent,
+                _streamConnected ? Icons.wifi : Icons.wifi_off,
+                color: _streamConnected ? Colors.greenAccent : Colors.amber,
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _streamConnected
-                      ? 'اتصال لحظي مباشر'
-                      : 'إعادة الاتصال بالبث المباشر...',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+              Text(
+                _streamConnected ? 'تحديث مباشر' : 'إعادة اتصال',
+                style: const TextStyle(color: Colors.white),
               ),
-              Text(timeLabel, style: const TextStyle(color: Colors.white70)),
+              const Spacer(),
+              Text(
+                'آخر مزامنة: $last',
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
             ],
           ),
-          const SizedBox(height: 8),
           Row(
             children: [
               const Text(
-                'متصل الآن',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
+                'متاح للطلبات',
+                style: TextStyle(color: Colors.white70),
               ),
-              const SizedBox(width: 8),
-              Switch(value: _online, onChanged: _sending ? null : _setOnline),
               const Spacer(),
-              if (_captainPoint != null)
-                Text(
-                  'Lat ${_captainPoint!.latitude.toStringAsFixed(5)}  Lng ${_captainPoint!.longitude.toStringAsFixed(5)}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
+              Switch(value: _online, onChanged: _locked ? null : _setOnline),
             ],
           ),
+          if (_locked)
+            const Text(
+              'الحساب موقوف بسبب الاشتراك',
+              style: TextStyle(
+                color: Colors.amber,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildBottomPanel(Map<String, dynamic>? ride, String? status) {
+  Widget _bottomPanel(String? status) {
     return Container(
-      constraints: const BoxConstraints(maxHeight: 360),
-      padding: const EdgeInsets.all(14),
+      height: MediaQuery.of(context).size.height * 0.34,
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 14,
-            offset: Offset(0, 8),
-          ),
-        ],
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: _loading
           ? const Center(child: CircularProgressIndicator())
-          : ride != null
-          ? _buildActiveRidePanel(ride, status)
-          : _buildNearbyPanel(),
+          : _locked
+          ? _subscriptionCard(compact: false)
+          : (_ride == null ? _nearbyPanel() : _activeRidePanel(status)),
     );
   }
 
-  Widget _buildActiveRidePanel(Map<String, dynamic> ride, String? status) {
-    final customer = ride['customer'] is Map
-        ? Map<String, dynamic>.from(ride['customer'] as Map)
-        : <String, dynamic>{};
-    final proposedFare = _readInt(ride['proposedFareIqd']) ?? 0;
-    final agreedFare = _readInt(ride['agreedFareIqd']);
-    final fare = agreedFare ?? proposedFare;
-
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'الرحلة الحالية #${ride['id']}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: _rideStatusColor(status).withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  _rideStatusLabel(status),
-                  style: TextStyle(
-                    color: _rideStatusColor(status),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text('الزبون: ${_string(customer['fullName']) ?? '-'}'),
-          Text('الهاتف: ${_string(customer['phone']) ?? '-'}'),
-          const SizedBox(height: 4),
-          Text(
-            'الأجرة: ${fare.toString()} IQD',
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 4),
-          Text('الانطلاق: ${_string(ride['pickup']?['label']) ?? '-'}'),
-          Text('الوصول: ${_string(ride['dropoff']?['label']) ?? '-'}'),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: _sending ? null : () => _tick(fullRefresh: true),
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('تحديث'),
-              ),
-              if (status == 'captain_assigned')
-                FilledButton.icon(
-                  onPressed: _sending ? null : () => _advanceRide('arrive'),
-                  icon: const Icon(Icons.directions_car_rounded),
-                  label: const Text('وصلت للزبون'),
-                ),
-              if (status == 'captain_assigned' || status == 'captain_arriving')
-                FilledButton.icon(
-                  onPressed: _sending ? null : () => _advanceRide('start'),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('بدء الرحلة'),
-                ),
-              if (status == 'ride_started' || status == 'captain_arriving')
-                FilledButton.icon(
-                  onPressed: _sending ? null : () => _advanceRide('complete'),
-                  icon: const Icon(Icons.flag_circle_rounded),
-                  label: const Text('إنهاء الرحلة'),
-                ),
-            ],
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: const TextStyle(
-                color: Colors.red,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNearbyPanel() {
+  Widget _activeRidePanel(String? status) {
+    final ride = _ride!;
+    final fare =
+        _asInt(ride['agreedFareIqd']) ?? _asInt(ride['proposedFareIqd']) ?? 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          'الطلبات القريبة منك',
-          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-        ),
-        const SizedBox(height: 8),
-        if (_nearbyRequests.isEmpty)
-          const Expanded(
-            child: Center(child: Text('لا توجد طلبات حالياً ضمن نطاقك')),
-          )
-        else
-          Expanded(
-            child: ListView.separated(
-              itemCount: _nearbyRequests.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final ride = _nearbyRequests[index];
-                final distanceM =
-                    _readDouble(ride['distanceM']) ??
-                    _calcDistanceMeters(ride['pickup']);
-                final distanceKm = (distanceM / 1000)
-                    .clamp(0, 999)
-                    .toStringAsFixed(2);
-                final fare = _readInt(ride['proposedFareIqd']) ?? 0;
-                final myBid = ride['myBid'] is Map
-                    ? Map<String, dynamic>.from(ride['myBid'] as Map)
-                    : null;
-                final myBidStatus = _string(myBid?['status']);
-                return Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: Colors.black.withValues(alpha: 0.05),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'طلب #${ride['id']} - $distanceKm كم',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            '$fare IQD',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF2BC17A),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text('من: ${_string(ride['pickup']?['label']) ?? '-'}'),
-                      Text('إلى: ${_string(ride['dropoff']?['label']) ?? '-'}'),
-                      if (myBidStatus != null)
-                        Text(
-                          'حالة عرضك: $myBidStatus',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton.tonalIcon(
-                          onPressed: _sending ? null : () => _submitBid(ride),
-                          icon: const Icon(Icons.local_offer_outlined),
-                          label: const Text('إرسال عرض'),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
+        Text(
+          'رحلة #${ride['id']}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
           ),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              _error!,
-              style: const TextStyle(
-                color: Colors.red,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'الحالة: ${_status(status)}',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        Text(
+          'من: ${_str(ride['pickup']?['label']) ?? '-'}',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        Text(
+          'إلى: ${_str(ride['dropoff']?['label']) ?? '-'}',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        Text(
+          'الأجرة: ${_money(fare)}',
+          style: const TextStyle(color: Colors.greenAccent),
+        ),
+        const Spacer(),
+        if (status == 'captain_assigned')
+          FilledButton(
+            onPressed: _sending ? null : () => _advance('arrive'),
+            child: const Text('التوجه للزبون'),
+          ),
+        if (status == 'captain_arriving')
+          FilledButton(
+            onPressed: _sending ? null : () => _advance('start'),
+            child: const Text('بدء الرحلة'),
+          ),
+        if (status == 'ride_started')
+          FilledButton(
+            onPressed: _sending ? null : () => _advance('complete'),
+            child: const Text('إنهاء الرحلة'),
           ),
       ],
     );
   }
 
-  List<Marker> _buildMarkers() {
-    final markers = <Marker>[];
+  Widget _nearbyPanel() {
+    if (_nearby.isEmpty) {
+      return const Center(
+        child: Text(
+          'لا توجد طلبات ضمن نطاقك',
+          style: TextStyle(color: Colors.white70),
+        ),
+      );
+    }
+    return ListView.separated(
+      itemCount: _nearby.length,
+      separatorBuilder: (_, index) => const SizedBox(height: 8),
+      itemBuilder: (_, i) {
+        final r = _nearby[i];
+        final fare = _asInt(r['proposedFareIqd']) ?? 0;
+        return Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.black26,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'طلب #${r['id']}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'من: ${_str(r['pickup']?['label']) ?? '-'}',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    Text(
+                      'إلى: ${_str(r['dropoff']?['label']) ?? '-'}',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                children: [
+                  Text(
+                    _money(fare),
+                    style: const TextStyle(color: Colors.greenAccent),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: _sending ? null : () => _submitBid(r),
+                    child: const Text('إرسال عرض'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
-    final ride = _activeRide;
-    final pickup = _latLngFromMap(ride?['pickup']);
-    final dropoff = _latLngFromMap(ride?['dropoff']);
+  Widget _dashboardTab() {
+    final m = (_dashboard?['metrics'] is Map)
+        ? Map<String, dynamic>.from(_dashboard!['metrics'] as Map)
+        : <String, dynamic>{};
+    final history = (_dashboard?['history'] is List)
+        ? _toMapList(_dashboard!['history'])
+        : const <Map<String, dynamic>>[];
 
+    int rides(String k) => _asInt((m[k] as Map?)?['ridesCount']) ?? 0;
+    int earn(String k) => _asInt((m[k] as Map?)?['earningsIqd']) ?? 0;
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          _subscriptionCard(compact: true),
+          const SizedBox(height: 10),
+          _metricCard('اليوم', rides('day'), earn('day')),
+          _metricCard('الأسبوع', rides('week'), earn('week')),
+          _metricCard('الشهر', rides('month'), earn('month')),
+          _metricCard('الإجمالي', rides('total'), earn('total')),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            children: [
+              _periodChip('day', 'اليوم'),
+              _periodChip('week', 'الأسبوع'),
+              _periodChip('month', 'الشهر'),
+              _periodChip('all', 'الكل'),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'سجل الرحلات',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 6),
+          if (history.isEmpty)
+            const Text(
+              'لا توجد رحلات في هذه الفترة',
+              style: TextStyle(color: Colors.white70),
+            )
+          else
+            ...history.map(
+              (r) => ListTile(
+                title: Text(
+                  'رحلة #${r['id']}',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  '${_status(_str(r['status']))} - ${_str(r['createdAt']) ?? ''}',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+                trailing: Text(
+                  _money(
+                    _asInt(r['agreedFareIqd']) ??
+                        _asInt(r['proposedFareIqd']) ??
+                        0,
+                  ),
+                  style: const TextStyle(color: Colors.greenAccent),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _profileTab() {
+    final p = _profileMap;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          _subscriptionCard(compact: false),
+          const SizedBox(height: 10),
+          _profileRow('الاسم', _str(p?['fullName']) ?? '-'),
+          _profileRow('الهاتف', _str(p?['phone']) ?? '-'),
+          _profileRow('البلوك', _str(p?['block']) ?? '-'),
+          _profileRow('العمارة', _str(p?['buildingNumber']) ?? '-'),
+          _profileRow('الشقة', _str(p?['apartment']) ?? '-'),
+          const Divider(color: Colors.white24),
+          _profileRow('شركة السيارة', _str(p?['carMake']) ?? '-'),
+          _profileRow('الموديل', _str(p?['carModel']) ?? '-'),
+          _profileRow('سنة الصنع', _str(p?['carYear']) ?? '-'),
+          _profileRow('اللوحة', _str(p?['plateNumber']) ?? '-'),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _sending ? null : _requestProfileEdit,
+            icon: const Icon(Icons.edit_note),
+            label: const Text('طلب تعديل البيانات (موافقة الأدمن)'),
+          ),
+          if (_error != null)
+            Text(_error!, style: const TextStyle(color: Colors.amber)),
+        ],
+      ),
+    );
+  }
+
+  Widget _subscriptionCard({required bool compact}) {
+    final s = _sub;
+    final can = s?['canAccess'] == true;
+    final pending = s?['cashPaymentPending'] == true;
+    final days = _asInt(s?['remainingDays']) ?? 0;
+    final fee = _asInt(s?['discountedMonthlyFeeIqd']) ?? 10000;
+    final discount = _asInt(s?['discountPercent']) ?? 0;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: can
+            ? Colors.teal.withValues(alpha: 0.2)
+            : Colors.red.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            can
+                ? 'الاشتراك فعال'
+                : (pending ? 'بانتظار اعتماد التسديد' : 'الاشتراك منتهي'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            can ? 'المتبقي: $days يوم' : 'المبلغ المطلوب: ${_money(fee)}',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          Text(
+            'الخصم: $discount%',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          if (!can)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: FilledButton(
+                onPressed: (pending || _sending) ? null : _requestCashPayment,
+                child: Text(
+                  pending ? 'تم إرسال طلب التسديد' : 'طلب تسديد نقدي',
+                ),
+              ),
+            ),
+          if (!compact && can && days <= 7)
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                'تنبيه: بقي أقل من أسبوع على انتهاء الاشتراك',
+                style: TextStyle(color: Colors.amber),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metricCard(String title, int rides, int earnings) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.black26,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Text('رحلات: $rides', style: const TextStyle(color: Colors.white70)),
+          const SizedBox(width: 12),
+          Text(
+            _money(earnings),
+            style: const TextStyle(color: Colors.greenAccent),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _periodChip(String value, String label) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: _period == value,
+      onSelected: (_) async {
+        setState(() => _period = value);
+        await _refreshMeta();
+      },
+    );
+  }
+
+  Widget _profileRow(String k, String v) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(k, style: const TextStyle(color: Colors.white70)),
+          ),
+          Expanded(
+            child: Text(v, style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Marker> _markers() {
+    final list = <Marker>[];
+    final pickup = _latLng(_ride?['pickup']);
+    final dropoff = _latLng(_ride?['dropoff']);
     if (pickup != null) {
-      markers.add(
+      list.add(
         Marker(
           point: pickup,
-          width: 42,
-          height: 42,
+          width: 40,
+          height: 40,
           child: const Icon(
-            Icons.trip_origin_rounded,
-            color: Color(0xFF2BC17A),
-            size: 34,
+            Icons.trip_origin,
+            color: Colors.greenAccent,
+            size: 30,
           ),
         ),
       );
     }
-
     if (dropoff != null) {
-      markers.add(
+      list.add(
         Marker(
           point: dropoff,
-          width: 46,
-          height: 46,
+          width: 40,
+          height: 40,
           child: const Icon(
-            Icons.location_on_rounded,
-            color: Color(0xFFFF6363),
-            size: 38,
+            Icons.location_on,
+            color: Colors.redAccent,
+            size: 32,
           ),
         ),
       );
     }
-
     if (_captainPoint != null) {
-      markers.add(
+      list.add(
         Marker(
           point: _captainPoint!,
-          width: 54,
-          height: 54,
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF1D5A9C),
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 8,
-                  offset: Offset(0, 4),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.local_taxi_rounded,
-              color: Colors.white,
-              size: 30,
-            ),
-          ),
+          width: 46,
+          height: 46,
+          child: const Icon(Icons.local_taxi, color: Colors.white, size: 34),
         ),
       );
     }
-
-    return markers;
+    return list;
   }
 
-  double _calcDistanceMeters(dynamic pickup) {
-    final from = _captainPoint;
-    final to = _latLngFromMap(pickup);
-    if (from == null || to == null) return 0;
-    return _distance(from, to);
-  }
-
-  List<Map<String, dynamic>> _toMapList(dynamic value) {
-    if (value is! List) return const [];
-    return value
-        .whereType<Map>()
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
-  }
-
-  LatLng? _latLngFromMap(dynamic value) {
-    if (value is! Map) return null;
-    final map = Map<String, dynamic>.from(value);
-    final lat = _readDouble(map['latitude']) ?? _readDouble(map['lat']);
-    final lng =
-        _readDouble(map['longitude']) ??
-        _readDouble(map['lng']) ??
-        _readDouble(map['lon']);
+  LatLng? _latLng(dynamic v) {
+    if (v is! Map) return null;
+    final m = Map<String, dynamic>.from(v);
+    final lat = _asDouble(m['latitude']) ?? _asDouble(m['lat']);
+    final lng = _asDouble(m['longitude']) ?? _asDouble(m['lng']);
     if (lat == null || lng == null) return null;
     return LatLng(lat, lng);
   }
 
-  int? _readInt(dynamic value) {
-    if (value == null) return null;
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse('$value');
+  List<Map<String, dynamic>> _toMapList(dynamic v) {
+    if (v is! List) return const [];
+    return v.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
-  double? _readDouble(dynamic value) {
-    if (value == null) return null;
-    if (value is double) return value;
-    if (value is num) return value.toDouble();
-    return double.tryParse('$value');
+  int? _asInt(dynamic v) => v is int ? v : int.tryParse('${v ?? ''}');
+  double? _asDouble(dynamic v) =>
+      v is num ? v.toDouble() : double.tryParse('${v ?? ''}');
+  String? _str(dynamic v) {
+    final s = '${v ?? ''}'.trim();
+    return s.isEmpty ? null : s;
   }
 
-  String? _string(dynamic value) {
-    if (value == null) return null;
-    final text = '$value'.trim();
-    if (text.isEmpty) return null;
-    return text;
+  String _money(int n) {
+    final s = n.toString().replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (m) => ',',
+    );
+    return '$s IQD';
   }
 
-  String _extractApiError(DioException e) {
+  String _status(String? s) {
+    switch (s) {
+      case 'searching':
+        return 'بحث عن كابتن';
+      case 'captain_assigned':
+        return 'تم التعيين';
+      case 'captain_arriving':
+        return 'في الطريق للزبون';
+      case 'ride_started':
+        return 'الرحلة جارية';
+      case 'completed':
+        return 'مكتملة';
+      case 'cancelled':
+        return 'ملغية';
+      case 'expired':
+        return 'منتهية';
+      default:
+        return 'غير معروف';
+    }
+  }
+
+  String _err(DioException e) {
     final data = e.response?.data;
-    if (data is Map<String, dynamic>) {
-      final message = data['message'];
-      if (message is String && message.trim().isNotEmpty) {
-        switch (message) {
-          case 'TAXI_RIDE_NOT_ACCEPTING_BIDS':
-            return 'الطلب لم يعد يستقبل عروضاً';
-          case 'TAXI_RIDE_OUT_OF_RANGE':
-            return 'هذا الطلب خارج نطاقك الحالي';
-          case 'TAXI_RIDE_NOT_ASSIGNED_TO_CAPTAIN':
-            return 'الرحلة غير مسندة لك';
+    if (data is Map) {
+      final msg = data['message'];
+      if (msg is String && msg.isNotEmpty) {
+        switch (msg) {
+          case 'DELIVERY_SUBSCRIPTION_EXPIRED':
+            return 'انتهى الاشتراك. اطلب التسديد النقدي';
+          case 'DELIVERY_SUBSCRIPTION_PAYMENT_PENDING':
+            return 'تم طلب التسديد، بانتظار موافقة الأدمن';
           case 'DELIVERY_ACCOUNT_PENDING_APPROVAL':
-            return 'حساب كابتن التكسي بانتظار موافقة الإدارة';
+            return 'الحساب بانتظار موافقة الإدارة';
           default:
-            return message;
+            return msg;
         }
       }
     }
     return 'تعذر الاتصال بالخادم';
   }
 
-  void _showMessage(String text) {
+  void _snack(String t) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
   }
 
-  double? _sanitizeHeading(double value) {
-    if (value.isNaN || value.isInfinite) return null;
-    if (value < 0 || value > 360) return null;
-    return value;
-  }
-
-  double? _sanitizeSpeedKmh(double value) {
-    if (value.isNaN || value.isInfinite) return null;
-    if (value < 0) return null;
-    return value * 3.6;
-  }
+  double? _sanitizeHeading(double v) =>
+      (v.isFinite && v >= 0 && v <= 360) ? v : null;
+  double? _sanitizeSpeed(double v) => (v.isFinite && v >= 0) ? v * 3.6 : null;
 }

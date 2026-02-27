@@ -4,6 +4,7 @@
 } from "../../shared/realtime/live-events.js";
 import * as service from "./taxi.service.js";
 import {
+  validateCaptainProfileEditRequest,
   validateBidId,
   validateCaptainPresence,
   validateCreateBid,
@@ -262,6 +263,60 @@ export async function listCaptainHistory(req, res, next) {
 
     const out = await service.listCaptainHistory(req.userId, v.value);
     return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getCaptainDashboard(req, res, next) {
+  try {
+    const v = validateHistoryQuery(req.query || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.getCaptainDashboard(req.userId, v.value);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getCaptainProfile(req, res, next) {
+  try {
+    const out = await service.getCaptainProfile(req.userId);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getCaptainSubscription(req, res, next) {
+  try {
+    const out = await service.getCaptainSubscriptionStatus(req.userId);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function requestCaptainCashPayment(req, res, next) {
+  try {
+    const out = await service.requestCaptainCashPayment(req.userId);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function requestCaptainProfileEdit(req, res, next) {
+  try {
+    const v = validateCaptainProfileEditRequest(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.requestCaptainProfileEdit({
+      captainUserId: req.userId,
+      dto: v.value,
+    });
+    return res.status(201).json(out);
   } catch (error) {
     return next(error);
   }

@@ -926,6 +926,51 @@ export async function ensureSchema() {
       CREATE INDEX IF NOT EXISTS idx_taxi_ride_event_ride_time
       ON taxi_ride_event (ride_request_id, created_at DESC);
     `);
+
+    await q(`
+      CREATE TABLE IF NOT EXISTS taxi_captain_subscription (
+        captain_user_id                    BIGINT PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
+        monthly_fee_iqd                    INTEGER NOT NULL DEFAULT 10000 CHECK (monthly_fee_iqd >= 0),
+        discount_percent                   SMALLINT NOT NULL DEFAULT 0 CHECK (discount_percent BETWEEN 0 AND 100),
+        trial_days                         SMALLINT NOT NULL DEFAULT 30 CHECK (trial_days BETWEEN 0 AND 365),
+        trial_started_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        current_cycle_start_at             TIMESTAMPTZ,
+        current_cycle_end_at               TIMESTAMPTZ,
+        cash_payment_pending               BOOLEAN NOT NULL DEFAULT FALSE,
+        cash_payment_requested_at          TIMESTAMPTZ,
+        last_cash_payment_confirmed_at     TIMESTAMPTZ,
+        last_payment_approved_by_user_id   BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+        last_discount_set_by_user_id       BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+        last_expiry_reminder_on            DATE,
+        created_at                         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at                         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_taxi_captain_subscription_cycle
+      ON taxi_captain_subscription (current_cycle_end_at, cash_payment_pending, captain_user_id);
+    `);
+
+    await q(`
+      CREATE TABLE IF NOT EXISTS taxi_captain_profile_edit_request (
+        id                  BIGSERIAL PRIMARY KEY,
+        captain_user_id     BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+        requested_changes   JSONB NOT NULL,
+        captain_note        TEXT,
+        status              VARCHAR(16) NOT NULL DEFAULT 'pending',
+        admin_note          TEXT,
+        reviewed_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+        requested_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        reviewed_at         TIMESTAMPTZ,
+        CHECK (status IN ('pending', 'approved', 'rejected'))
+      );
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_taxi_captain_profile_edit_request_status
+      ON taxi_captain_profile_edit_request (captain_user_id, status, requested_at DESC);
+    `);
   })();
 
   return ensureSchemaPromise;

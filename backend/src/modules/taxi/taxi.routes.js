@@ -42,6 +42,19 @@ taxiRouter.get(
 );
 taxiRouter.get("/captain/current-ride", requireDelivery, c.getCurrentRideForCaptain);
 taxiRouter.get("/captain/history", requireDelivery, c.listCaptainHistory);
+taxiRouter.get("/captain/dashboard", requireDelivery, c.getCaptainDashboard);
+taxiRouter.get("/captain/profile", requireDelivery, c.getCaptainProfile);
+taxiRouter.get("/captain/subscription", requireDelivery, c.getCaptainSubscription);
+taxiRouter.post(
+  "/captain/subscription/request-cash-payment",
+  requireDelivery,
+  c.requestCaptainCashPayment
+);
+taxiRouter.post(
+  "/captain/profile-edit-requests",
+  requireDelivery,
+  c.requestCaptainProfileEdit
+);
 
 taxiRouter.post("/rides/:rideId/bids", requireDelivery, c.createBid);
 taxiRouter.post("/rides/:rideId/arrive", requireDelivery, c.markArrived);

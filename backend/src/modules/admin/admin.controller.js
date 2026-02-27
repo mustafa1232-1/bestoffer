@@ -2,6 +2,8 @@ import * as service from "./admin.service.js";
 import {
   validateAdminCreateUser,
   validateApproveSettlement,
+  validateTaxiCaptainCashPaymentApprove,
+  validateTaxiCaptainDiscount,
   validateToggleMerchantDisabled,
 } from "./admin.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
@@ -161,6 +163,51 @@ export async function toggleMerchantDisabled(req, res, next) {
       req.body?.isDisabled,
       req.userId
     );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function pendingTaxiCaptainCashPayments(req, res, next) {
+  try {
+    const out = await service.listPendingTaxiCaptainCashPayments(req.query || {});
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function confirmTaxiCaptainCashPayment(req, res, next) {
+  try {
+    const v = validateTaxiCaptainCashPaymentApprove(req.body || {});
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const out = await service.confirmTaxiCaptainCashPayment({
+      captainUserId: req.params.captainUserId,
+      cycleDays: v.value.cycleDays,
+      adminUserId: req.userId,
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function setTaxiCaptainDiscount(req, res, next) {
+  try {
+    const v = validateTaxiCaptainDiscount(req.body || {});
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const out = await service.setTaxiCaptainDiscount({
+      captainUserId: req.params.captainUserId,
+      discountPercent: v.value.discountPercent,
+      adminUserId: req.userId,
+    });
     res.json(out);
   } catch (e) {
     next(e);

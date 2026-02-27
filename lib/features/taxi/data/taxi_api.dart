@@ -34,6 +34,45 @@ class TaxiApi {
     return null;
   }
 
+  Future<Map<String, dynamic>> getCaptainDashboard({
+    String period = 'month',
+    int limit = 40,
+  }) async {
+    final response = await dio.get(
+      '/api/taxi/captain/dashboard',
+      queryParameters: {'period': period, 'limit': limit},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getCaptainProfile() async {
+    final response = await dio.get('/api/taxi/captain/profile');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getCaptainSubscription() async {
+    final response = await dio.get('/api/taxi/captain/subscription');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> requestCaptainCashPayment() async {
+    final response = await dio.post(
+      '/api/taxi/captain/subscription/request-cash-payment',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> requestCaptainProfileEdit({
+    required Map<String, dynamic> requestedChanges,
+    String? captainNote,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/captain/profile-edit-requests',
+      data: {'requestedChanges': requestedChanges, 'captainNote': captainNote},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> createRide({
     required double pickupLatitude,
     required double pickupLongitude,
@@ -101,6 +140,17 @@ class TaxiApi {
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
+  }
+
+  Future<Map<String, dynamic>> getCaptainHistory({
+    String period = 'month',
+    int limit = 30,
+  }) async {
+    final response = await dio.get(
+      '/api/taxi/captain/history',
+      queryParameters: {'period': period, 'limit': limit},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
   }
 
   Future<Map<String, dynamic>> createBid({
