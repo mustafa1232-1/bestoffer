@@ -5,6 +5,14 @@ import { emitToUser } from "../../shared/realtime/live-events.js";
 
 let firebaseInitAttempted = false;
 let firebaseMessaging = null;
+const PUSH_MAX_RETRIES = 3;
+const PUSH_RETRY_BASE_DELAY_MS = 500;
+
+function sleep(ms) {
+  return new Promise((resolve) =>
+    setTimeout(resolve, Math.max(0, Number(ms) || 0))
+  );
+}
 
 function toNotificationRow(row) {
   if (!row) return null;
@@ -143,9 +151,51 @@ function getFirebaseMessaging() {
 function isDeadTokenError(code) {
   return (
     code === "messaging/registration-token-not-registered" ||
-    code === "messaging/invalid-registration-token" ||
-    code === "messaging/invalid-argument"
+    code === "messaging/invalid-registration-token"
   );
+}
+
+function isRetryablePushError(code) {
+  return (
+    code === "messaging/internal-error" ||
+    code === "messaging/server-unavailable" ||
+    code === "messaging/unknown-error" ||
+    code === "app/network-error" ||
+    code === "messaging/quota-exceeded" ||
+    code === "messaging/device-message-rate-exceeded" ||
+    code === "messaging/topics-message-rate-exceeded"
+  );
+}
+
+function buildMulticastMessage(notification, tokens, orderId) {
+  return {
+    tokens,
+    notification: {
+      title: String(notification.title || "BestOffer"),
+      body: String(notification.body || "لديك إشعار جديد"),
+    },
+    data: {
+      notificationId: String(notification.id || ""),
+      type: String(notification.type || ""),
+      orderId: orderId == null ? "" : String(orderId),
+    },
+    android: {
+      priority: "high",
+      notification: {
+        channelId: "bestoffer_live_updates",
+        sound: "default",
+        clickAction: "FLUTTER_NOTIFICATION_CLICK",
+      },
+    },
+    apns: {
+      headers: { "apns-priority": "10" },
+      payload: {
+        aps: {
+          sound: "default",
+        },
+      },
+    },
+  };
 }
 
 async function deactivatePushTokensByValue(tokens = []) {
@@ -175,50 +225,57 @@ async function dispatchPushNotification(notification) {
     notification.payload?.orderId ??
     null;
 
-  const message = {
-    tokens,
-    notification: {
-      title: String(notification.title || "BestOffer"),
-      body: String(notification.body || "لديك إشعار جديد"),
-    },
-    data: {
-      notificationId: String(notification.id || ""),
-      type: String(notification.type || ""),
-      orderId: orderId == null ? "" : String(orderId),
-    },
-    android: {
-      priority: "high",
-      notification: {
-        channelId: "bestoffer_live_updates",
-        sound: "default",
-        clickAction: "FLUTTER_NOTIFICATION_CLICK",
-      },
-    },
-    apns: {
-      headers: { "apns-priority": "10" },
-      payload: {
-        aps: {
-          sound: "default",
-        },
-      },
-    },
-  };
+  let pendingTokens = [...tokens];
+  const staleTokens = new Set();
 
-  const response = await messaging.sendEachForMulticast(message);
-  if (response.failureCount <= 0) return;
+  for (
+    let attempt = 1;
+    attempt <= PUSH_MAX_RETRIES && pendingTokens.length > 0;
+    attempt += 1
+  ) {
+    let response;
+    try {
+      response = await messaging.sendEachForMulticast(
+        buildMulticastMessage(notification, pendingTokens, orderId)
+      );
+    } catch (error) {
+      const code = error?.code;
+      if (attempt >= PUSH_MAX_RETRIES || !isRetryablePushError(code)) {
+        throw error;
+      }
+      await sleep(PUSH_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
+      continue;
+    }
 
-  const staleTokens = [];
-  for (let i = 0; i < response.responses.length; i += 1) {
-    const result = response.responses[i];
-    if (result.success) continue;
-    const code = result.error?.code;
-    if (isDeadTokenError(code)) {
-      staleTokens.push(tokens[i]);
+    if (response.failureCount <= 0) break;
+
+    const retryTokens = [];
+    for (let i = 0; i < response.responses.length; i += 1) {
+      const result = response.responses[i];
+      if (result.success) continue;
+
+      const code = result.error?.code;
+      const token = pendingTokens[i];
+      if (!token) continue;
+
+      if (isDeadTokenError(code)) {
+        staleTokens.add(token);
+        continue;
+      }
+
+      if (attempt < PUSH_MAX_RETRIES && isRetryablePushError(code)) {
+        retryTokens.push(token);
+      }
+    }
+
+    pendingTokens = retryTokens;
+    if (pendingTokens.length && attempt < PUSH_MAX_RETRIES) {
+      await sleep(PUSH_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
     }
   }
 
-  if (staleTokens.length) {
-    await deactivatePushTokensByValue(staleTokens);
+  if (staleTokens.size > 0) {
+    await deactivatePushTokensByValue([...staleTokens]);
   }
 }
 
@@ -410,3 +467,4 @@ export async function listActivePushTokens(userId) {
     .map((row) => String(row.push_token || "").trim())
     .filter(Boolean);
 }
+
