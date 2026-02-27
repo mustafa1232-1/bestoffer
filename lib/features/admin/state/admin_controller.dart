@@ -5,6 +5,7 @@ import '../../../core/files/local_image_file.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/admin_api.dart';
 import '../models/managed_merchant_model.dart';
+import '../models/pending_delivery_account_model.dart';
 import '../models/pending_merchant_model.dart';
 import '../models/pending_settlement_model.dart';
 import '../models/period_metrics_model.dart';
@@ -27,6 +28,7 @@ class AdminState {
   final PeriodMetricsModel month;
   final PeriodMetricsModel year;
   final List<PendingMerchantModel> pendingMerchants;
+  final List<PendingDeliveryAccountModel> pendingDeliveryAccounts;
   final List<PendingSettlementModel> pendingSettlements;
   final List<ManagedMerchantModel> managedMerchants;
   final List<Map<String, dynamic>> customerInsights;
@@ -70,6 +72,7 @@ class AdminState {
       avgMerchantRating: 0,
     ),
     this.pendingMerchants = const [],
+    this.pendingDeliveryAccounts = const [],
     this.pendingSettlements = const [],
     this.managedMerchants = const [],
     this.customerInsights = const [],
@@ -87,6 +90,7 @@ class AdminState {
     PeriodMetricsModel? month,
     PeriodMetricsModel? year,
     List<PendingMerchantModel>? pendingMerchants,
+    List<PendingDeliveryAccountModel>? pendingDeliveryAccounts,
     List<PendingSettlementModel>? pendingSettlements,
     List<ManagedMerchantModel>? managedMerchants,
     List<Map<String, dynamic>>? customerInsights,
@@ -103,11 +107,15 @@ class AdminState {
       month: month ?? this.month,
       year: year ?? this.year,
       pendingMerchants: pendingMerchants ?? this.pendingMerchants,
+      pendingDeliveryAccounts:
+          pendingDeliveryAccounts ?? this.pendingDeliveryAccounts,
       pendingSettlements: pendingSettlements ?? this.pendingSettlements,
       managedMerchants: managedMerchants ?? this.managedMerchants,
       customerInsights: customerInsights ?? this.customerInsights,
-      customerInsightsTotal: customerInsightsTotal ?? this.customerInsightsTotal,
-      customerInsightsQuery: customerInsightsQuery ?? this.customerInsightsQuery,
+      customerInsightsTotal:
+          customerInsightsTotal ?? this.customerInsightsTotal,
+      customerInsightsQuery:
+          customerInsightsQuery ?? this.customerInsightsQuery,
       error: error,
       success: success,
     );
@@ -127,13 +135,18 @@ class AdminController extends StateNotifier<AdminState> {
       final pendingMerchantsRaw = await ref
           .read(adminApiProvider)
           .pendingMerchants();
+      final pendingDeliveryRaw = await ref
+          .read(adminApiProvider)
+          .pendingDeliveryAccounts();
       final pendingSettlementsRaw = await ref
           .read(adminApiProvider)
           .pendingSettlements();
       final merchantsRaw = await ref.read(adminApiProvider).merchants();
       Map<String, dynamic>? insightsRaw;
       if (isSuperAdmin) {
-        insightsRaw = await ref.read(adminApiProvider).customerInsights(limit: 40);
+        insightsRaw = await ref
+            .read(adminApiProvider)
+            .customerInsights(limit: 40);
       }
 
       state = state.copyWith(
@@ -151,6 +164,13 @@ class AdminController extends StateNotifier<AdminState> {
         pendingMerchants: pendingMerchantsRaw
             .map(
               (e) => PendingMerchantModel.fromJson(
+                Map<String, dynamic>.from(e as Map),
+              ),
+            )
+            .toList(),
+        pendingDeliveryAccounts: pendingDeliveryRaw
+            .map(
+              (e) => PendingDeliveryAccountModel.fromJson(
                 Map<String, dynamic>.from(e as Map),
               ),
             )
@@ -219,7 +239,10 @@ class AdminController extends StateNotifier<AdminState> {
     try {
       await ref
           .read(adminApiProvider)
-          .toggleMerchantDisabled(merchantId: merchantId, isDisabled: isDisabled);
+          .toggleMerchantDisabled(
+            merchantId: merchantId,
+            isDisabled: isDisabled,
+          );
       await bootstrap();
       state = state.copyWith(
         saving: false,
@@ -250,6 +273,25 @@ class AdminController extends StateNotifier<AdminState> {
     }
   }
 
+  Future<void> approveDeliveryAccount(int deliveryUserId) async {
+    state = state.copyWith(saving: true, error: null, success: null);
+    try {
+      await ref.read(adminApiProvider).approveDeliveryAccount(deliveryUserId);
+      await bootstrap();
+      state = state.copyWith(
+        saving: false,
+        success: 'تمت الموافقة على حساب كابتن التكسي',
+      );
+    } on DioException catch (e) {
+      state = state.copyWith(saving: false, error: _mapError(e));
+    } catch (_) {
+      state = state.copyWith(
+        saving: false,
+        error: 'فشل الموافقة على حساب كابتن التكسي',
+      );
+    }
+  }
+
   Future<void> searchCustomerInsights(String query) async {
     final isSuperAdmin = ref.read(authControllerProvider).isSuperAdmin;
     if (!isSuperAdmin) return;
@@ -262,7 +304,9 @@ class AdminController extends StateNotifier<AdminState> {
     );
 
     try {
-      final raw = await ref.read(adminApiProvider).customerInsights(
+      final raw = await ref
+          .read(adminApiProvider)
+          .customerInsights(
             search: query.trim().isEmpty ? null : query.trim(),
             limit: 80,
           );
@@ -326,4 +370,3 @@ class AdminController extends StateNotifier<AdminState> {
     return 0;
   }
 }
-

@@ -55,7 +55,7 @@ class AuthApi {
       },
     );
     final response = await dio.post(
-      '/api/delivery/register',
+      '/api/taxi/captain/register',
       data: requestData,
     );
     return Map<String, dynamic>.from(response.data as Map);

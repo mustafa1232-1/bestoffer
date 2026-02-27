@@ -340,7 +340,7 @@ class _DeliveryRegisterScreenState
                                         }
 
                                         FocusScope.of(context).unfocus();
-                                        await ref
+                                        final created = await ref
                                             .read(
                                               authControllerProvider.notifier,
                                             )
@@ -370,10 +370,27 @@ class _DeliveryRegisterScreenState
                                               carImageFile: carImageFile,
                                             );
 
-                                        if (mounted &&
-                                            ref
-                                                .read(authControllerProvider)
-                                                .isAuthed) {
+                                        if (!mounted || !created) return;
+
+                                        await showDialog<void>(
+                                          context: context,
+                                          builder: (_) => AlertDialog(
+                                            title: const Text(
+                                              'تم إنشاء الطلب بنجاح',
+                                            ),
+                                            content: const Text(
+                                              'تم إرسال حساب كابتن التكسي للمراجعة. سيتم تفعيل الحساب بعد موافقة الأدمن.',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.of(context).pop(),
+                                                child: const Text('حسناً'),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        if (mounted) {
                                           Navigator.of(context).pop();
                                         }
                                       },

@@ -198,7 +198,7 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> registerDelivery(
+  Future<bool> registerDelivery(
     Map<String, dynamic> dto, {
     LocalImageFile? profileImageFile,
     LocalImageFile? carImageFile,
@@ -206,7 +206,7 @@ class AuthController extends StateNotifier<AuthState> {
     state = state.copyWith(loading: true, error: null);
 
     try {
-      final user = await ref
+      await ref
           .read(authRepoProvider)
           .registerDelivery(
             fullName: dto['fullName']!.trim(),
@@ -228,15 +228,25 @@ class AuthController extends StateNotifier<AuthState> {
             carImageFile: carImageFile,
           );
 
-      final token = await ref.read(secureStoreProvider).readToken();
-      state = state.copyWith(loading: false, user: user, token: token);
+      state = state.copyWith(
+        loading: false,
+        user: null,
+        token: null,
+        error: null,
+      );
+      return true;
     } on DioException catch (e) {
       state = state.copyWith(
         loading: false,
         error: _mapDeliveryRegisterError(e),
       );
+      return false;
     } catch (_) {
-      state = state.copyWith(loading: false, error: 'فشل إنشاء حساب الدلفري');
+      state = state.copyWith(
+        loading: false,
+        error: 'فشل إنشاء حساب كابتن التكسي',
+      );
+      return false;
     }
   }
 
@@ -277,12 +287,18 @@ class AuthController extends StateNotifier<AuthState> {
       final map = Map<String, dynamic>.from(data);
       final message = map['message'];
       if (message == 'INVALID_CREDENTIALS') return 'رقم الهاتف أو PIN غير صحيح';
+      if (message == 'DELIVERY_ACCOUNT_PENDING_APPROVAL') {
+        return 'حساب كابتن التكسي قيد المراجعة من الإدارة';
+      }
       if (message == 'VALIDATION_ERROR') return 'تحقق من صيغة رقم الهاتف وPIN';
       if (message is String && message.isNotEmpty) return message;
     }
     if (data is String) {
       if (data.contains('INVALID_CREDENTIALS')) {
         return 'رقم الهاتف أو PIN غير صحيح';
+      }
+      if (data.contains('DELIVERY_ACCOUNT_PENDING_APPROVAL')) {
+        return 'حساب كابتن التكسي قيد المراجعة من الإدارة';
       }
       if (data.contains('VALIDATION_ERROR')) {
         return 'تحقق من صيغة رقم الهاتف وPIN';
@@ -367,7 +383,7 @@ class AuthController extends StateNotifier<AuthState> {
         return 'تحقق من صيغة رقم الهاتف وPIN';
       }
     }
-    return 'فشل إنشاء حساب الدلفري';
+    return 'فشل إنشاء حساب كابتن التكسي';
   }
 
   String _mapUpdateAccountError(DioException e) {

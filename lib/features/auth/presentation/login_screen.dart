@@ -9,6 +9,7 @@ import '../../../core/i18n/app_strings.dart';
 import '../../../core/settings/app_settings_controller.dart';
 import '../../settings/ui/settings_screen.dart';
 import '../state/auth_controller.dart';
+import 'delivery_register_screen.dart';
 import 'owner_register_screen.dart';
 import 'register_screen.dart';
 
@@ -225,6 +226,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             child: Text(
                               strings.t('createOwnerAccount'),
                               style: const TextStyle(color: Colors.white),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      const DeliveryRegisterScreen(),
+                                ),
+                              );
+                            },
+                            child: const Text(
+                              'إنشاء حساب كابتن تكسي',
+                              style: TextStyle(color: Colors.white),
                             ),
                           ),
                         ],

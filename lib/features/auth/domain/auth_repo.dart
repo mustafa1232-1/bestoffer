@@ -32,7 +32,7 @@ abstract class AuthRepo {
     LocalImageFile? merchantImageFile,
   });
 
-  Future<UserModel> registerDelivery({
+  Future<void> registerDelivery({
     required String fullName,
     required String phone,
     required String pin,

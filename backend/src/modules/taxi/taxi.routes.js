@@ -3,11 +3,21 @@
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireCustomer } from "../../shared/middleware/customer.middleware.js";
 import { requireDelivery } from "../../shared/middleware/delivery.middleware.js";
+import { imageUpload } from "../../shared/utils/upload.js";
+import * as deliveryController from "../delivery/delivery.controller.js";
 import * as c from "./taxi.controller.js";
 
 export const taxiRouter = Router();
 
 taxiRouter.get("/public/track/:token", c.publicTrack);
+taxiRouter.post(
+  "/captain/register",
+  imageUpload.fields([
+    { name: "profileImageFile", maxCount: 1 },
+    { name: "carImageFile", maxCount: 1 },
+  ]),
+  deliveryController.register
+);
 
 taxiRouter.use(requireAuth);
 

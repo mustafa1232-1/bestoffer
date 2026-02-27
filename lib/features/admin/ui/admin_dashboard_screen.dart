@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:math' as math;
 
@@ -12,11 +12,13 @@ import '../../../core/widgets/image_picker_field.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../auth/ui/add_merchant_screen.dart';
 import '../../notifications/ui/notifications_bell.dart';
+import '../models/pending_delivery_account_model.dart';
 import '../models/pending_merchant_model.dart';
 import '../models/pending_settlement_model.dart';
 import '../models/period_metrics_model.dart';
 import '../models/managed_merchant_model.dart';
 import '../state/admin_controller.dart';
+import 'customer_insight_profile_screen.dart';
 
 class AdminDashboardScreen extends ConsumerStatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -118,14 +120,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
-                          'ØªØ¹Ø°Ø± ÙØªØ­ ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ø·Ø¨Ø§Ø¹Ø© Ø¹Ù„Ù‰ Ù‡Ø°Ø§ Ø§Ù„Ø¬Ù‡Ø§Ø². ØªÙ… ÙØªØ­ ØªÙ‚Ø±ÙŠØ± Ø¨Ø¯ÙŠÙ„. ($e)',
+                          'تعذر فتح واجهة الطباعة على هذا الجهاز. تم فتح تقرير بديل. ($e)',
                         ),
                       ),
                     );
                   }
                 },
                 icon: const Icon(Icons.print_outlined),
-                label: const Text('Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„ÙˆØµÙ„'),
+                label: const Text('طباعة الوصل'),
               ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
@@ -145,12 +147,12 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   } catch (e) {
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('ÙØ´Ù„ ØªØµØ¯ÙŠØ± Excel. ($e)')),
+                      SnackBar(content: Text('فشل تصدير Excel. ($e)')),
                     );
                   }
                 },
                 icon: const Icon(Icons.table_chart_outlined),
-                label: const Text('ØªØµØ¯ÙŠØ± Excel Ù…ÙØµÙ„'),
+                label: const Text('تصدير Excel مفصل'),
               ),
             ],
           ),
@@ -186,86 +188,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         .read(adminControllerProvider.notifier)
         .fetchCustomerInsightDetails(customerUserId);
     if (!mounted || details == null) return;
-
-    final customer = details['customer'] is Map
-        ? Map<String, dynamic>.from(details['customer'] as Map)
-        : <String, dynamic>{};
-    final orderProfile = details['orderProfile'] is Map
-        ? Map<String, dynamic>.from(details['orderProfile'] as Map)
-        : <String, dynamic>{};
-    final behaviorProfile = details['behaviorProfile'] is Map
-        ? Map<String, dynamic>.from(details['behaviorProfile'] as Map)
-        : <String, dynamic>{};
-
-    final topActions = (behaviorProfile['topActions'] as List?)
-            ?.whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList() ??
-        const <Map<String, dynamic>>[];
-
-    final topCategories = (behaviorProfile['topCategories'] as List?)
-            ?.whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList() ??
-        const <Map<String, dynamic>>[];
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          child: Directionality(
-            textDirection: TextDirection.rtl,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Ù…Ù„Ù Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø§Ù„Ø°ÙƒÙŠ - ${customer['fullName'] ?? '-'}',
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                  ),
-                  const SizedBox(height: 10),
-                  Text('Ø§Ù„Ù‡Ø§ØªÙ: ${customer['phone'] ?? '-'}'),
-                  Text(
-                    'Ø§Ù„Ø¹Ù†ÙˆØ§Ù†: Ø¨Ù„ÙˆÙƒ ${customer['block'] ?? '-'} - Ø¹Ù…Ø§Ø±Ø© ${customer['buildingNumber'] ?? '-'} - Ø´Ù‚Ø© ${customer['apartment'] ?? '-'}',
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø·Ù„Ø¨Ø§Øª: ${orderProfile['ordersCount'] ?? 0}'),
-                  Text('Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„ØµØ±Ù: ${orderProfile['totalSpent'] ?? 0} IQD'),
-                  Text('Ù…ØªÙˆØ³Ø· Ø§Ù„Ø³Ù„Ø©: ${orderProfile['avgBasket'] ?? 0} IQD'),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Ø§Ù„ÙØ¦Ø§Øª Ø§Ù„Ø£ÙƒØ«Ø± Ø§Ø³ØªØ®Ø¯Ø§Ù…Ù‹Ø§',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 6),
-                  if (topCategories.isEmpty)
-                    const Text('Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª ÙƒØ§ÙÙŠØ©')
-                  else
-                    ...topCategories.take(8).map(
-                      (row) => Text(
-                        '- ${row['category'] ?? 'general'} (${row['events_count'] ?? 0})',
-                      ),
-                    ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Ø£Ù‡Ù… Ø§Ù„Ø³Ù„ÙˆÙƒÙŠØ§Øª',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 6),
-                  if (topActions.isEmpty)
-                    const Text('Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª ÙƒØ§ÙÙŠØ©')
-                  else
-                    ...topActions.take(10).map(
-                      (row) => Text(
-                        '- ${row['event_name'] ?? '-'} (${row['events_count'] ?? 0})',
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CustomerInsightProfileScreen(
+          details: Map<String, dynamic>.from(details),
         ),
       ),
     );
@@ -313,7 +239,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       if (isSuperAdmin)
         AppUserDrawerItem(
           icon: Icons.manage_search_rounded,
-          label: 'Ù…Ù„ÙØ§Øª Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ø§Ù„Ø°ÙƒÙŠØ©',
+          label: 'ملفات العملاء الذكية',
           onTap: (_) => _scrollToSection(_customerInsightsSectionKey),
         ),
       if (isAdmin)
@@ -406,6 +332,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  _PendingDeliveryAccountsSection(
+                    saving: state.saving,
+                    canApprove: isAdmin,
+                    accounts: state.pendingDeliveryAccounts,
+                    onApprove: (deliveryUserId) async {
+                      await ref
+                          .read(adminControllerProvider.notifier)
+                          .approveDeliveryAccount(deliveryUserId);
+                    },
+                  ),
+                  const SizedBox(height: 12),
                   _MerchantsStatusSection(
                     saving: state.saving,
                     canManage: isAdmin,
@@ -467,14 +404,14 @@ class _AnalyticsSection extends StatelessWidget {
   }) {
     return [
       '$label:',
-      'Ø¹Ø¯Ø¯ Ø§Ù„Ø·Ù„Ø¨Ø§Øª: ${metric.ordersCount}',
-      'Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ù…ÙƒØªÙ…Ù„Ø©: ${metric.deliveredOrdersCount}',
-      'Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ù…Ù„ØºÙŠØ©: ${metric.cancelledOrdersCount}',
-      'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª: ${formatIqd(metric.totalAmount)}',
-      'Ø±Ø³ÙˆÙ… Ø§Ù„ØªÙˆØµÙŠÙ„: ${formatIqd(metric.deliveryFees)}',
-      'Ø¹Ù…ÙˆÙ„Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚: ${formatIqd(metric.appFees)}',
-      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¯Ù„ÙØ±ÙŠ: ${metric.avgDeliveryRating.toStringAsFixed(1)}',
-      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…ØªØ¬Ø±: ${metric.avgMerchantRating.toStringAsFixed(1)}',
+      'عدد الطلبات: ${metric.ordersCount}',
+      'الطلبات المكتملة: ${metric.deliveredOrdersCount}',
+      'الطلبات الملغية: ${metric.cancelledOrdersCount}',
+      'إجمالي المبيعات: ${formatIqd(metric.totalAmount)}',
+      'رسوم التوصيل: ${formatIqd(metric.deliveryFees)}',
+      'عمولة التطبيق: ${formatIqd(metric.appFees)}',
+      'تقييم الدلفري: ${metric.avgDeliveryRating.toStringAsFixed(1)}',
+      'تقييم المتجر: ${metric.avgMerchantRating.toStringAsFixed(1)}',
     ];
   }
 
@@ -512,7 +449,7 @@ class _AnalyticsSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Ù†Ø¨Ø¶ Ù„ÙˆØ­Ø© Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
+                  'نبض لوحة المتابعة',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
                 ),
                 const SizedBox(height: 10),
@@ -520,19 +457,19 @@ class _AnalyticsSection extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _KpiStatCard(
-                        title: 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø·Ù„Ø¨Ø§Øª',
+                        title: 'إجمالي الطلبات',
                         value: '${year.ordersCount}',
                         icon: Icons.receipt_long_rounded,
                         tint: const Color(0xFF6EE7FF),
                         onTap: () {
                           onOpenDetails(
-                            title: 'ØªÙØ§ØµÙŠÙ„ Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø·Ù„Ø¨Ø§Øª',
+                            title: 'تفاصيل إجمالي الطلبات',
                             lines: [
-                              ..._periodLines(label: 'Ø§Ù„ÙŠÙˆÙ…', metric: day),
+                              ..._periodLines(label: 'اليوم', metric: day),
                               '',
-                              ..._periodLines(label: 'Ø§Ù„Ø´Ù‡Ø±', metric: month),
+                              ..._periodLines(label: 'الشهر', metric: month),
                               '',
-                              ..._periodLines(label: 'Ø§Ù„Ø³Ù†Ø©', metric: year),
+                              ..._periodLines(label: 'السنة', metric: year),
                             ],
                             reportPeriod: 'year',
                           );
@@ -542,18 +479,18 @@ class _AnalyticsSection extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: _KpiStatCard(
-                        title: 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª',
+                        title: 'إجمالي الإيرادات',
                         value: formatIqd(year.totalAmount),
                         icon: Icons.payments_rounded,
                         tint: const Color(0xFF8BFFC8),
                         onTap: () {
                           onOpenDetails(
-                            title: 'ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª',
+                            title: 'تفاصيل الإيرادات',
                             lines: [
-                              'Ø§Ù„ÙŠÙˆÙ…: ${formatIqd(day.totalAmount)}',
-                              'Ø§Ù„Ø´Ù‡Ø±: ${formatIqd(month.totalAmount)}',
-                              'Ø§Ù„Ø³Ù†Ø©: ${formatIqd(year.totalAmount)}',
-                              'Ø¹Ù…ÙˆÙ„Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ (Ø§Ù„Ø³Ù†Ø©): ${formatIqd(year.appFees)}',
+                              'اليوم: ${formatIqd(day.totalAmount)}',
+                              'الشهر: ${formatIqd(month.totalAmount)}',
+                              'السنة: ${formatIqd(year.totalAmount)}',
+                              'عمولة التطبيق (السنة): ${formatIqd(year.appFees)}',
                             ],
                             reportPeriod: 'year',
                           );
@@ -571,14 +508,14 @@ class _AnalyticsSection extends StatelessWidget {
           children: [
             Expanded(
               child: _KpiStatCard(
-                title: 'Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙŠÙˆÙ…',
+                title: 'طلبات اليوم',
                 value: '${day.ordersCount}',
                 icon: Icons.today_rounded,
                 tint: const Color(0xFF9BD7FF),
                 onTap: () {
                   onOpenDetails(
-                    title: 'ØªÙØ§ØµÙŠÙ„ Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙŠÙˆÙ…',
-                    lines: _periodLines(label: 'Ø§Ù„ÙŠÙˆÙ…', metric: day),
+                    title: 'تفاصيل طلبات اليوم',
+                    lines: _periodLines(label: 'اليوم', metric: day),
                     reportPeriod: 'day',
                   );
                 },
@@ -587,17 +524,17 @@ class _AnalyticsSection extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: _KpiStatCard(
-                title: 'Ø£Ø¬ÙˆØ± ØªÙˆØµÙŠÙ„ Ø§Ù„ÙŠÙˆÙ…',
+                title: 'أجور توصيل اليوم',
                 value: formatIqd(day.deliveryFees),
                 icon: Icons.local_shipping_rounded,
                 tint: const Color(0xFFFFD28F),
                 onTap: () {
                   onOpenDetails(
-                    title: 'ØªÙØ§ØµÙŠÙ„ Ø£Ø¬ÙˆØ± Ø§Ù„ØªÙˆØµÙŠÙ„',
+                    title: 'تفاصيل أجور التوصيل',
                     lines: [
-                      'Ø§Ù„ÙŠÙˆÙ…: ${formatIqd(day.deliveryFees)}',
-                      'Ø§Ù„Ø´Ù‡Ø±: ${formatIqd(month.deliveryFees)}',
-                      'Ø§Ù„Ø³Ù†Ø©: ${formatIqd(year.deliveryFees)}',
+                      'اليوم: ${formatIqd(day.deliveryFees)}',
+                      'الشهر: ${formatIqd(month.deliveryFees)}',
+                      'السنة: ${formatIqd(year.deliveryFees)}',
                     ],
                     reportPeriod: 'day',
                   );
@@ -611,17 +548,17 @@ class _AnalyticsSection extends StatelessWidget {
           children: [
             Expanded(
               child: _KpiStatCard(
-                title: 'Ø¹Ù…ÙˆÙ„Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„ÙŠÙˆÙ…',
+                title: 'عمولة التطبيق اليوم',
                 value: formatIqd(day.appFees),
                 icon: Icons.account_balance_wallet_rounded,
                 tint: const Color(0xFF9EFBA5),
                 onTap: () {
                   onOpenDetails(
-                    title: 'ØªÙØ§ØµÙŠÙ„ Ø¹Ù…ÙˆÙ„Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚',
+                    title: 'تفاصيل عمولة التطبيق',
                     lines: [
-                      'Ø§Ù„ÙŠÙˆÙ…: ${formatIqd(day.appFees)}',
-                      'Ø§Ù„Ø´Ù‡Ø±: ${formatIqd(month.appFees)}',
-                      'Ø§Ù„Ø³Ù†Ø©: ${formatIqd(year.appFees)}',
+                      'اليوم: ${formatIqd(day.appFees)}',
+                      'الشهر: ${formatIqd(month.appFees)}',
+                      'السنة: ${formatIqd(year.appFees)}',
                     ],
                     reportPeriod: 'day',
                   );
@@ -631,22 +568,22 @@ class _AnalyticsSection extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: _KpiStatCard(
-                title: 'Ù…ØªÙˆØ³Ø· Ø§Ù„ØªÙ‚ÙŠÙŠÙ…',
+                title: 'متوسط التقييم',
                 value:
                     '${year.avgDeliveryRating.toStringAsFixed(1)} / ${year.avgMerchantRating.toStringAsFixed(1)}',
                 icon: Icons.star_rounded,
                 tint: const Color(0xFFFFE48D),
                 onTap: () {
                   onOpenDetails(
-                    title: 'ØªÙØ§ØµÙŠÙ„ Ø§Ù„ØªÙ‚ÙŠÙŠÙ…',
+                    title: 'تفاصيل التقييم',
                     lines: [
-                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¯Ù„ÙØ±ÙŠ - Ø§Ù„ÙŠÙˆÙ…: ${day.avgDeliveryRating.toStringAsFixed(1)}',
-                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¯Ù„ÙØ±ÙŠ - Ø§Ù„Ø´Ù‡Ø±: ${month.avgDeliveryRating.toStringAsFixed(1)}',
-                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¯Ù„ÙØ±ÙŠ - Ø§Ù„Ø³Ù†Ø©: ${year.avgDeliveryRating.toStringAsFixed(1)}',
+                      'تقييم الدلفري - اليوم: ${day.avgDeliveryRating.toStringAsFixed(1)}',
+                      'تقييم الدلفري - الشهر: ${month.avgDeliveryRating.toStringAsFixed(1)}',
+                      'تقييم الدلفري - السنة: ${year.avgDeliveryRating.toStringAsFixed(1)}',
                       '',
-                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…ØªØ¬Ø± - Ø§Ù„ÙŠÙˆÙ…: ${day.avgMerchantRating.toStringAsFixed(1)}',
-                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…ØªØ¬Ø± - Ø§Ù„Ø´Ù‡Ø±: ${month.avgMerchantRating.toStringAsFixed(1)}',
-                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…ØªØ¬Ø± - Ø§Ù„Ø³Ù†Ø©: ${year.avgMerchantRating.toStringAsFixed(1)}',
+                      'تقييم المتجر - اليوم: ${day.avgMerchantRating.toStringAsFixed(1)}',
+                      'تقييم المتجر - الشهر: ${month.avgMerchantRating.toStringAsFixed(1)}',
+                      'تقييم المتجر - السنة: ${year.avgMerchantRating.toStringAsFixed(1)}',
                     ],
                     reportPeriod: 'year',
                   );
@@ -663,7 +600,7 @@ class _AnalyticsSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Ù…Ø¤Ø´Ø±Ø§Øª Ø§Ù„Ø£Ø¯Ø§Ø¡',
+                  'مؤشرات الأداء',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                 ),
                 const SizedBox(height: 12),
@@ -671,21 +608,21 @@ class _AnalyticsSection extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _RingIndicator(
-                        label: 'Ù…ÙƒØªÙ…Ù„',
+                        label: 'مكتمل',
                         percent: deliveredRate,
                         color: const Color(0xFF63E9B4),
                       ),
                     ),
                     Expanded(
                       child: _RingIndicator(
-                        label: 'Ù…Ù„ØºÙŠ',
+                        label: 'ملغي',
                         percent: cancelledRate,
                         color: const Color(0xFFFF8AA5),
                       ),
                     ),
                     Expanded(
                       child: _RingIndicator(
-                        label: 'Ù‡Ø§Ù…Ø´ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚',
+                        label: 'هامش التطبيق',
                         percent: appMargin,
                         color: const Color(0xFF7ED7FF),
                       ),
@@ -694,13 +631,13 @@ class _AnalyticsSection extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 _RatingRow(
-                  title: 'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¯Ù„ÙØ±ÙŠ',
+                  title: 'تقييم الدلفري',
                   value: year.avgDeliveryRating / 5,
                   color: const Color(0xFF8DDCFF),
                 ),
                 const SizedBox(height: 8),
                 _RatingRow(
-                  title: 'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…ØªØ¬Ø±',
+                  title: 'تقييم المتجر',
                   value: year.avgMerchantRating / 5,
                   color: const Color(0xFF9FF1B5),
                 ),
@@ -716,7 +653,7 @@ class _AnalyticsSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Ø§ØªØ¬Ø§Ù‡ Ø§Ù„Ø·Ù„Ø¨Ø§Øª (ÙŠÙˆÙ… / Ø´Ù‡Ø± / Ø³Ù†Ø©)',
+                  'اتجاه الطلبات (يوم / شهر / سنة)',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                 ),
                 const SizedBox(height: 10),
@@ -745,7 +682,7 @@ class _AnalyticsSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Ù…Ø®Ø·Ø· Ø§Ù„Ø±Ø³ÙˆÙ… (Ø§Ù„ØªÙˆØµÙŠÙ„ Ù…Ù‚Ø§Ø¨Ù„ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚)',
+                  'مخطط الرسوم (التوصيل مقابل التطبيق)',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                 ),
                 const SizedBox(height: 10),
@@ -765,9 +702,9 @@ class _AnalyticsSection extends StatelessWidget {
                 const SizedBox(height: 8),
                 const Row(
                   children: [
-                    _LegendDot(label: 'Ø±Ø³ÙˆÙ… Ø§Ù„ØªÙˆØµÙŠÙ„', color: Color(0xFF78C9FF)),
+                    _LegendDot(label: 'رسوم التوصيل', color: Color(0xFF78C9FF)),
                     SizedBox(width: 10),
-                    _LegendDot(label: 'Ø±Ø³ÙˆÙ… Ø§Ù„ØªØ·Ø¨ÙŠÙ‚', color: Color(0xFF8BF9B9)),
+                    _LegendDot(label: 'رسوم التطبيق', color: Color(0xFF8BF9B9)),
                   ],
                 ),
               ],
@@ -1003,7 +940,7 @@ class _OrdersTrendPainter extends CustomPainter {
       );
     }
 
-    const labels = ['ÙŠÙˆÙ…', 'Ø´Ù‡Ø±', 'Ø³Ù†Ø©'];
+    const labels = ['يوم', 'شهر', 'سنة'];
     for (var i = 0; i < labels.length; i++) {
       final x =
           chartRect.left +
@@ -1075,7 +1012,7 @@ class _FeesBarsPainter extends CustomPainter {
 
     final slotWidth = chartRect.width / groups;
     const barWidth = 12.0;
-    const labels = ['ÙŠ', 'Ø´', 'Ø³'];
+    const labels = ['ي', 'ش', 'س'];
 
     for (var i = 0; i < groups; i++) {
       final xCenter = chartRect.left + (slotWidth * i) + (slotWidth / 2);
@@ -1232,14 +1169,14 @@ class _PendingMerchantsSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Ø§Ù„Ù…ØªØ§Ø¬Ø± Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø©',
+              'المتاجر بانتظار الموافقة',
               textAlign: TextAlign.right,
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
             ),
             const SizedBox(height: 8),
             if (merchants.isEmpty)
               const Text(
-                'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…ØªØ§Ø¬Ø± Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø©',
+                'لا توجد متاجر بانتظار الموافقة',
                 textAlign: TextAlign.right,
               )
             else
@@ -1250,14 +1187,14 @@ class _PendingMerchantsSection extends StatelessWidget {
                     textDirection: TextDirection.rtl,
                   ),
                   subtitle: Text(
-                    'Ø§Ù„Ù…Ø§Ù„Ùƒ: ${merchant.ownerName ?? '-'} - ${merchant.ownerPhone ?? ''}',
+                    'المالك: ${merchant.ownerName ?? '-'} - ${merchant.ownerPhone ?? ''}',
                     textDirection: TextDirection.rtl,
                   ),
                   trailing: ElevatedButton(
                     onPressed: saving || !canApprove
                         ? null
                         : () => onApprove(merchant.id),
-                    child: const Text('Ù…ÙˆØ§ÙÙ‚Ø©'),
+                    child: const Text('موافقة'),
                   ),
                 );
               }),
@@ -1290,14 +1227,14 @@ class _PendingSettlementsSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Ø·Ù„Ø¨Ø§Øª ØªØ³Ø¯ÙŠØ¯ Ø§Ù„Ù…Ø³ØªØ­Ù‚Ø§Øª',
+              'طلبات تسديد المستحقات',
               textAlign: TextAlign.right,
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
             ),
             const SizedBox(height: 8),
             if (settlements.isEmpty)
               const Text(
-                'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª ØªØ³Ø¯ÙŠØ¯ Ø­Ø§Ù„ÙŠØ§Ù‹',
+                'لا توجد طلبات تسديد حالياً',
                 textAlign: TextAlign.right,
               )
             else
@@ -1308,14 +1245,77 @@ class _PendingSettlementsSection extends StatelessWidget {
                     textDirection: TextDirection.rtl,
                   ),
                   subtitle: Text(
-                    'ØµØ§Ø­Ø¨ Ø§Ù„Ù…ØªØ¬Ø±: ${s.ownerName} - ${s.ownerPhone}',
+                    'صاحب المتجر: ${s.ownerName} - ${s.ownerPhone}',
                     textDirection: TextDirection.rtl,
                   ),
                   trailing: ElevatedButton(
                     onPressed: saving || !canApprove
                         ? null
                         : () => onApprove(s.id),
-                    child: const Text('Ù…ØµØ§Ø¯Ù‚Ø©'),
+                    child: const Text('مصادقة'),
+                  ),
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingDeliveryAccountsSection extends StatelessWidget {
+  final bool saving;
+  final bool canApprove;
+  final List<PendingDeliveryAccountModel> accounts;
+  final Future<void> Function(int deliveryUserId) onApprove;
+
+  const _PendingDeliveryAccountsSection({
+    required this.saving,
+    required this.canApprove,
+    required this.accounts,
+    required this.onApprove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'طلبات اعتماد حسابات كباتن التكسي',
+              textAlign: TextAlign.right,
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            if (accounts.isEmpty)
+              const Text(
+                'لا توجد طلبات اعتماد كباتن تكسي حالياً',
+                textAlign: TextAlign.right,
+              )
+            else
+              ...accounts.map((account) {
+                final location =
+                    'بسماية - بلوك ${account.block} - عمارة ${account.buildingNumber} - شقة ${account.apartment}';
+                final car =
+                    '${account.carMake} ${account.carModel} ${account.carYear} - ${account.plateNumber}';
+                return ListTile(
+                  title: Text(
+                    account.fullName,
+                    textDirection: TextDirection.rtl,
+                  ),
+                  subtitle: Text(
+                    '${account.phone}\n$location\n$car',
+                    textDirection: TextDirection.rtl,
+                  ),
+                  isThreeLine: true,
+                  trailing: ElevatedButton(
+                    onPressed: saving || !canApprove
+                        ? null
+                        : () => onApprove(account.id),
+                    child: const Text('اعتماد'),
                   ),
                 );
               }),
@@ -1349,23 +1349,23 @@ class _MerchantsStatusSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Ø¥Ø¯Ø§Ø±Ø© Ø­Ø§Ù„Ø© Ø§Ù„Ù…ØªØ§Ø¬Ø±',
+              'إدارة حالة المتاجر',
               textAlign: TextAlign.right,
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
             ),
             const SizedBox(height: 8),
             if (merchants.isEmpty)
-              const Text('Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…ØªØ§Ø¬Ø±', textAlign: TextAlign.right)
+              const Text('لا توجد متاجر', textAlign: TextAlign.right)
             else
               ...merchants.take(12).map((merchant) {
-                final statusLabel = merchant.isDisabled ? 'Ù…Ø¹Ø·Ù„' : 'Ù†Ø´Ø·';
+                final statusLabel = merchant.isDisabled ? 'معطل' : 'نشط';
                 return ListTile(
                   title: Text(
                     '${merchant.name} (${merchant.type})',
                     textDirection: TextDirection.rtl,
                   ),
                   subtitle: Text(
-                    'Ø§Ù„Ù…Ø§Ù„Ùƒ: ${merchant.ownerFullName ?? '-'} - Ø§Ù„ÙŠÙˆÙ…: ${merchant.todayOrdersCount} Ø·Ù„Ø¨ - Ø§Ù„Ø­Ø§Ù„Ø©: $statusLabel',
+                    'المالك: ${merchant.ownerFullName ?? '-'} - اليوم: ${merchant.todayOrdersCount} طلب - الحالة: $statusLabel',
                     textDirection: TextDirection.rtl,
                   ),
                   trailing: Switch(
@@ -1380,7 +1380,7 @@ class _MerchantsStatusSection extends StatelessWidget {
               Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  '... +${merchants.length - 12} Ù…ØªØ¬Ø±',
+                  '... +${merchants.length - 12} متجر',
                   textDirection: TextDirection.rtl,
                 ),
               ),
@@ -1411,7 +1411,8 @@ class _SuperAdminInsightsSection extends StatefulWidget {
       _SuperAdminInsightsSectionState();
 }
 
-class _SuperAdminInsightsSectionState extends State<_SuperAdminInsightsSection> {
+class _SuperAdminInsightsSectionState
+    extends State<_SuperAdminInsightsSection> {
   final TextEditingController _searchCtrl = TextEditingController();
 
   @override
@@ -1431,13 +1432,13 @@ class _SuperAdminInsightsSectionState extends State<_SuperAdminInsightsSection> 
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Ù…Ù„ÙØ§Øª Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ø§Ù„Ø°ÙƒÙŠØ©',
+                'ملفات العملاء الذكية',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
                 textAlign: TextAlign.right,
               ),
               const SizedBox(height: 4),
               Text(
-                'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡: ${widget.total}',
+                'إجمالي العملاء: ${widget.total}',
                 textAlign: TextAlign.right,
               ),
               const SizedBox(height: 8),
@@ -1448,7 +1449,7 @@ class _SuperAdminInsightsSectionState extends State<_SuperAdminInsightsSection> 
                       controller: _searchCtrl,
                       textDirection: TextDirection.rtl,
                       decoration: const InputDecoration(
-                        hintText: 'Ø§Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù… Ø£Ùˆ Ø§Ù„Ù‡Ø§ØªÙ Ø£Ùˆ Ø§Ù„Ø¨Ù„ÙˆÙƒ',
+                        hintText: 'ابحث بالاسم أو الهاتف أو البلوك',
                         prefixIcon: Icon(Icons.search),
                       ),
                       onSubmitted: (value) => widget.onSearch(value),
@@ -1457,7 +1458,7 @@ class _SuperAdminInsightsSectionState extends State<_SuperAdminInsightsSection> 
                   const SizedBox(width: 8),
                   FilledButton(
                     onPressed: () => widget.onSearch(_searchCtrl.text),
-                    child: const Text('Ø¨Ø­Ø«'),
+                    child: const Text('بحث'),
                   ),
                 ],
               ),
@@ -1471,7 +1472,7 @@ class _SuperAdminInsightsSectionState extends State<_SuperAdminInsightsSection> 
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 14),
                   child: Text(
-                    'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ù„ÙØ§Øª Ù„Ø¹Ø±Ø¶Ù‡Ø§',
+                    'لا توجد ملفات لعرضها',
                     textAlign: TextAlign.right,
                   ),
                 )
@@ -1486,14 +1487,14 @@ class _SuperAdminInsightsSectionState extends State<_SuperAdminInsightsSection> 
                       textDirection: TextDirection.rtl,
                     ),
                     subtitle: Text(
-                      'Ù‡Ø§ØªÙ: ${item['phone'] ?? '-'} â€¢ Ø·Ù„Ø¨Ø§Øª: ${item['orders_count'] ?? 0} â€¢ ØµØ±Ù: ${item['total_spent'] ?? 0} IQD',
+                      'هاتف: ${item['phone'] ?? '-'} • طلبات: ${item['orders_count'] ?? 0} • صرف: ${item['total_spent'] ?? 0} IQD',
                       textDirection: TextDirection.rtl,
                     ),
                     trailing: TextButton(
                       onPressed: userId > 0
                           ? () => widget.onOpenDetails(userId)
                           : null,
-                      child: const Text('Ø¹Ø±Ø¶'),
+                      child: const Text('عرض'),
                     ),
                   );
                 }),

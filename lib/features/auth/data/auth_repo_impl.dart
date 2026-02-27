@@ -88,7 +88,7 @@ class AuthRepoImpl implements AuthRepo {
   }
 
   @override
-  Future<UserModel> registerDelivery({
+  Future<void> registerDelivery({
     required String fullName,
     required String phone,
     required String pin,
@@ -109,7 +109,7 @@ class AuthRepoImpl implements AuthRepo {
     final normalizedPhone = _normalizeInput(phone);
     final normalizedPin = _normalizeInput(pin);
 
-    final data = await api.registerDelivery(
+    await api.registerDelivery(
       {
         'fullName': fullName.trim(),
         'phone': normalizedPhone,
@@ -129,9 +129,6 @@ class AuthRepoImpl implements AuthRepo {
       profileImageFile: profileImageFile,
       carImageFile: carImageFile,
     );
-
-    await store.saveToken(_readToken(data));
-    return _readUser(data);
   }
 
   @override

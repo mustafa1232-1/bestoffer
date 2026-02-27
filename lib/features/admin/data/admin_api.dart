@@ -49,6 +49,15 @@ class AdminApi {
     return List<dynamic>.from(response.data as List);
   }
 
+  Future<List<dynamic>> pendingDeliveryAccounts() async {
+    final response = await dio.get('/api/admin/taxi-captains/pending');
+    return List<dynamic>.from(response.data as List);
+  }
+
+  Future<void> approveDeliveryAccount(int deliveryUserId) async {
+    await dio.patch('/api/admin/taxi-captains/$deliveryUserId/approve');
+  }
+
   Future<void> approveSettlement(int settlementId, {String? adminNote}) async {
     await dio.patch(
       '/api/admin/settlements/$settlementId/approve',
@@ -91,8 +100,12 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> customerInsightDetails(int customerUserId) async {
-    final response = await dio.get('/api/admin/customers/$customerUserId/insights');
+  Future<Map<String, dynamic>> customerInsightDetails(
+    int customerUserId,
+  ) async {
+    final response = await dio.get(
+      '/api/admin/customers/$customerUserId/insights',
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 }

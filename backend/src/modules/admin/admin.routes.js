@@ -21,6 +21,7 @@ adminRouter.get("/orders/print-report", c.printOrdersReport);
 adminRouter.get("/merchants", c.merchants);
 adminRouter.get("/merchants/pending", c.pendingMerchants);
 adminRouter.get("/delivery/pending", c.pendingDeliveryAccounts);
+adminRouter.get("/taxi-captains/pending", c.pendingDeliveryAccounts);
 adminRouter.get("/settlements/pending", c.pendingSettlements);
 adminRouter.get("/owners/available", c.availableOwners);
 
@@ -28,6 +29,11 @@ adminRouter.post("/users", requireAdmin, imageUpload.single("imageFile"), c.crea
 adminRouter.patch("/merchants/:merchantId/approve", requireAdmin, c.approveMerchant);
 adminRouter.patch(
   "/delivery/:deliveryUserId/approve",
+  requireAdmin,
+  c.approveDeliveryAccount
+);
+adminRouter.patch(
+  "/taxi-captains/:deliveryUserId/approve",
   requireAdmin,
   c.approveDeliveryAccount
 );
