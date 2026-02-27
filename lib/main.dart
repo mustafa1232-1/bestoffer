@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,12 +15,14 @@ import 'features/admin/ui/admin_dashboard_screen.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/state/auth_controller.dart';
 import 'features/customer/ui/customer_discovery_screen.dart';
-import 'features/delivery/ui/delivery_dashboard_screen.dart';
 import 'features/notifications/ui/notifications_screen.dart';
 import 'features/owner/ui/owner_dashboard_screen.dart';
 import 'features/orders/ui/customer_orders_screen.dart';
+import 'features/taxi/ui/taxi_captain_dashboard_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   runApp(const ProviderScope(child: BestOfferApp()));
 }
 
@@ -149,7 +152,7 @@ class _BestOfferAppState extends ConsumerState<BestOfferApp> {
                 : auth.isOwner
                 ? const OwnerDashboardScreen()
                 : auth.isDelivery
-                ? const DeliveryDashboardScreen()
+                ? const TaxiCaptainDashboardScreen()
                 : const CustomerDiscoveryScreen())
           : const LoginScreen(),
     );

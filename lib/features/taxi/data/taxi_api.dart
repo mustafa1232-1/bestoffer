@@ -24,6 +24,16 @@ class TaxiApi {
     return null;
   }
 
+  Future<Map<String, dynamic>?> getCurrentRideForCaptain() async {
+    final response = await dio.get('/api/taxi/captain/current-ride');
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final ride = map['ride'];
+    if (ride is Map) {
+      return Map<String, dynamic>.from(ride);
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> createRide({
     required double pickupLatitude,
     required double pickupLongitude,
@@ -47,6 +57,101 @@ class TaxiApi {
         'proposedFareIqd': proposedFareIqd,
         'searchRadiusM': searchRadiusM,
         'note': note,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> upsertCaptainPresence({
+    required bool isOnline,
+    required double latitude,
+    required double longitude,
+    double? headingDeg,
+    double? speedKmh,
+    double? accuracyM,
+    int radiusM = 4000,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/captain/presence',
+      data: {
+        'isOnline': isOnline,
+        'latitude': latitude,
+        'longitude': longitude,
+        'headingDeg': headingDeg,
+        'speedKmh': speedKmh,
+        'accuracyM': accuracyM,
+        'radiusM': radiusM,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> listNearbyRequests({
+    int radiusM = 4000,
+    int limit = 30,
+  }) async {
+    final response = await dio.get(
+      '/api/taxi/captain/nearby-requests',
+      queryParameters: {'radiusM': radiusM, 'limit': limit},
+    );
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final raw = map['items'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> createBid({
+    required int rideId,
+    required int offeredFareIqd,
+    int? etaMinutes,
+    String? note,
+  }) async {
+    final body = <String, dynamic>{'offeredFareIqd': offeredFareIqd};
+    if (etaMinutes != null) {
+      body['etaMinutes'] = etaMinutes;
+    }
+    if (note?.trim().isNotEmpty ?? false) {
+      body['note'] = note!.trim();
+    }
+
+    final response = await dio.post('/api/taxi/rides/$rideId/bids', data: body);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> markArrived(int rideId) async {
+    final response = await dio.post('/api/taxi/rides/$rideId/arrive');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> startRide(int rideId) async {
+    final response = await dio.post('/api/taxi/rides/$rideId/start');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> completeRide(int rideId) async {
+    final response = await dio.post('/api/taxi/rides/$rideId/complete');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> updateRideLocation({
+    required int rideId,
+    required double latitude,
+    required double longitude,
+    double? headingDeg,
+    double? speedKmh,
+    double? accuracyM,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/location',
+      data: {
+        'latitude': latitude,
+        'longitude': longitude,
+        'headingDeg': headingDeg,
+        'speedKmh': speedKmh,
+        'accuracyM': accuracyM,
       },
     );
     return Map<String, dynamic>.from(response.data as Map);
