@@ -506,6 +506,9 @@ class _TaxiCaptainDashboardScreenState
           children: [
             TileLayer(
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              fallbackUrl:
+                  'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+              userAgentPackageName: 'app.bestoffer.bismayah',
             ),
             MarkerLayer(markers: _markers()),
           ],

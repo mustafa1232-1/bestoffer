@@ -32,6 +32,9 @@ class _MapPageState extends ConsumerState<MapPage> {
     text: 'موقعي الحالي',
   );
   final TextEditingController _dropoffLabelController = TextEditingController();
+  final TextEditingController _pickupSearchController = TextEditingController();
+  final TextEditingController _dropoffSearchController =
+      TextEditingController();
   final TextEditingController _fareController = TextEditingController(
     text: '10000',
   );
@@ -39,6 +42,8 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   StreamSubscription<TaxiLiveEvent>? _streamSub;
   Timer? _reconnectTimer;
+  Timer? _pickupSearchDebounce;
+  Timer? _dropoffSearchDebounce;
 
   _PointSelectionMode _selectionMode = _PointSelectionMode.pickup;
   LatLng? _pickupPoint;
@@ -50,9 +55,15 @@ class _MapPageState extends ConsumerState<MapPage> {
   bool _loading = true;
   bool _submitting = false;
   bool _isLocating = false;
+  bool _isSearchingPickup = false;
+  bool _isSearchingDropoff = false;
+  bool _pickupConfirmed = false;
   bool _streamConnected = false;
+  bool _canUseTaxiApi = true;
   DateTime? _lastRealtimeAt;
   String? _error;
+  List<_PlaceSuggestion> _pickupSuggestions = const [];
+  List<_PlaceSuggestion> _dropoffSuggestions = const [];
 
   TaxiApi get _taxiApi => ref.read(taxiApiProvider);
 
@@ -68,19 +79,41 @@ class _MapPageState extends ConsumerState<MapPage> {
   void dispose() {
     _streamSub?.cancel();
     _reconnectTimer?.cancel();
+    _pickupSearchDebounce?.cancel();
+    _dropoffSearchDebounce?.cancel();
     _pickupLabelController.dispose();
     _dropoffLabelController.dispose();
+    _pickupSearchController.dispose();
+    _dropoffSearchController.dispose();
     _fareController.dispose();
     _noteController.dispose();
     super.dispose();
   }
 
   Future<void> _bootstrap() async {
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isAuthed) {
+      setState(() {
+        _loading = false;
+        _canUseTaxiApi = false;
+        _error = 'يرجى تسجيل الدخول أولًا لاستخدام خدمة التكسي';
+      });
+      return;
+    }
+    if (auth.isBackoffice || auth.isOwner || auth.isDelivery) {
+      setState(() {
+        _loading = false;
+        _canUseTaxiApi = false;
+        _error = 'خدمة التكسي متاحة لحسابات الزبائن فقط';
+      });
+      return;
+    }
+
     await Future.wait([
       _goToMyLocation(setAsPickupIfEmpty: true),
       _loadCurrentRide(),
     ]);
-    _connectRealtimeStream();
+    if (_canUseTaxiApi) _connectRealtimeStream();
   }
 
   Future<void> _loadCurrentRide({bool silent = false}) async {
@@ -103,6 +136,10 @@ class _MapPageState extends ConsumerState<MapPage> {
       });
     } on DioException catch (e) {
       if (!mounted) return;
+      if (_isUnauthorizedStatus(e.response?.statusCode)) {
+        _canUseTaxiApi = false;
+        _streamSub?.cancel();
+      }
       setState(() {
         _loading = false;
         _error = _extractApiError(e);
@@ -152,6 +189,7 @@ class _MapPageState extends ConsumerState<MapPage> {
   }
 
   void _connectRealtimeStream() {
+    if (!_canUseTaxiApi) return;
     _streamSub?.cancel();
     _streamSub = _taxiApi.streamEvents().listen(
       (event) {
@@ -172,9 +210,20 @@ class _MapPageState extends ConsumerState<MapPage> {
           _loadCurrentRide(silent: true);
         }
       },
-      onError: (_) {
+      onError: (error) {
         if (!mounted) return;
-        setState(() => _streamConnected = false);
+        final unauthorized = _isUnauthorizedDioError(error);
+        setState(() {
+          _streamConnected = false;
+          if (unauthorized) {
+            _error = 'انتهت الجلسة، يرجى تسجيل الدخول مرة أخرى';
+          }
+        });
+        if (unauthorized) {
+          _canUseTaxiApi = false;
+          _streamSub?.cancel();
+          return;
+        }
         _scheduleReconnect();
       },
       onDone: () {
@@ -187,11 +236,21 @@ class _MapPageState extends ConsumerState<MapPage> {
   }
 
   void _scheduleReconnect() {
+    if (!_canUseTaxiApi) return;
     if (_reconnectTimer?.isActive == true) return;
     _reconnectTimer = Timer(const Duration(seconds: 3), () {
       if (!mounted) return;
       _connectRealtimeStream();
     });
+  }
+
+  bool _isUnauthorizedStatus(int? statusCode) {
+    return statusCode == 401 || statusCode == 403;
+  }
+
+  bool _isUnauthorizedDioError(Object error) {
+    if (error is! DioException) return false;
+    return _isUnauthorizedStatus(error.response?.statusCode);
   }
 
   Future<void> _goToMyLocation({bool setAsPickupIfEmpty = false}) async {
@@ -240,11 +299,173 @@ class _MapPageState extends ConsumerState<MapPage> {
     }
   }
 
+  void _onPickupSearchChanged(String query) {
+    _pickupSearchDebounce?.cancel();
+    _pickupSearchDebounce = Timer(const Duration(milliseconds: 380), () {
+      _searchPlaces(query, forPickup: true);
+    });
+  }
+
+  void _onDropoffSearchChanged(String query) {
+    _dropoffSearchDebounce?.cancel();
+    _dropoffSearchDebounce = Timer(const Duration(milliseconds: 380), () {
+      _searchPlaces(query, forPickup: false);
+    });
+  }
+
+  Future<void> _searchPlaces(String rawQuery, {required bool forPickup}) async {
+    final query = rawQuery.trim();
+    if (query.length < 2) {
+      if (!mounted) return;
+      setState(() {
+        if (forPickup) {
+          _pickupSuggestions = const [];
+          _isSearchingPickup = false;
+        } else {
+          _dropoffSuggestions = const [];
+          _isSearchingDropoff = false;
+        }
+      });
+      return;
+    }
+
+    setState(() {
+      if (forPickup) {
+        _isSearchingPickup = true;
+      } else {
+        _isSearchingDropoff = true;
+      }
+    });
+
+    try {
+      final response =
+          await Dio(
+            BaseOptions(
+              connectTimeout: const Duration(seconds: 8),
+              receiveTimeout: const Duration(seconds: 8),
+              headers: const {
+                'User-Agent': 'BestOfferTaxi/1.0 (support@bestoffer.app)',
+                'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
+              },
+            ),
+          ).get(
+            'https://nominatim.openstreetmap.org/search',
+            queryParameters: {
+              'format': 'jsonv2',
+              'addressdetails': 1,
+              'countrycodes': 'iq',
+              'bounded': 1,
+              'viewbox': '44.62,33.48,44.15,33.10',
+              'limit': 8,
+              'q': query,
+            },
+          );
+
+      final list = response.data is List ? response.data as List : const [];
+      final items = list
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .map((item) {
+            final lat = double.tryParse('${item['lat'] ?? ''}');
+            final lon = double.tryParse('${item['lon'] ?? ''}');
+            final label = '${item['display_name'] ?? ''}'.trim();
+            if (lat == null || lon == null || label.isEmpty) return null;
+            return _PlaceSuggestion(
+              latitude: lat,
+              longitude: lon,
+              title: _shortPlaceLabel(label),
+              fullAddress: label,
+            );
+          })
+          .whereType<_PlaceSuggestion>()
+          .toList();
+
+      if (!mounted) return;
+      final stillSameQuery =
+          (forPickup
+                  ? _pickupSearchController.text
+                  : _dropoffSearchController.text)
+              .trim();
+      if (stillSameQuery != query) return;
+
+      setState(() {
+        if (forPickup) {
+          _pickupSuggestions = items;
+          _isSearchingPickup = false;
+        } else {
+          _dropoffSuggestions = items;
+          _isSearchingDropoff = false;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        if (forPickup) {
+          _isSearchingPickup = false;
+          _pickupSuggestions = const [];
+        } else {
+          _isSearchingDropoff = false;
+          _dropoffSuggestions = const [];
+        }
+      });
+    }
+  }
+
+  String _shortPlaceLabel(String input) {
+    final parts = input
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return input;
+    if (parts.length == 1) return parts.first;
+    return '${parts[0]} - ${parts[1]}';
+  }
+
+  void _selectPlaceSuggestion(
+    _PlaceSuggestion place, {
+    required bool forPickup,
+  }) {
+    setState(() {
+      if (forPickup) {
+        _pickupPoint = LatLng(place.latitude, place.longitude);
+        _pickupLabelController.text = place.title;
+        _pickupSearchController.text = place.title;
+        _pickupSuggestions = const [];
+        _pickupConfirmed = false;
+        _selectionMode = _PointSelectionMode.pickup;
+      } else {
+        _dropoffPoint = LatLng(place.latitude, place.longitude);
+        _dropoffLabelController.text = place.title;
+        _dropoffSearchController.text = place.title;
+        _dropoffSuggestions = const [];
+      }
+    });
+    _mapController.move(LatLng(place.latitude, place.longitude), 16.4);
+  }
+
+  void _confirmPickup() {
+    if (_pickupPoint == null) {
+      _showMessage('??? ???? ???????? ?????');
+      return;
+    }
+    setState(() {
+      _pickupConfirmed = true;
+      _selectionMode = _PointSelectionMode.dropoff;
+    });
+    _showMessage('?? ????? ???? ????????? ???? ???? ???? ??????');
+  }
+
   Future<void> _createRide() async {
     if (_submitting) return;
 
     if (_pickupPoint == null || _dropoffPoint == null) {
-      _showMessage('حدد نقطة الانطلاق ونقطة الوصول أولاً');
+      _showMessage('??? ???? ???????? ????? ?????? ?????');
+      return;
+    }
+
+    if (!_pickupConfirmed) {
+      _showMessage('??? ???? ???????? ????? ??? ????? ?????');
       return;
     }
 
@@ -384,6 +605,7 @@ class _MapPageState extends ConsumerState<MapPage> {
     setState(() {
       if (_selectionMode == _PointSelectionMode.pickup) {
         _pickupPoint = point;
+        _pickupConfirmed = false;
         if (_pickupLabelController.text.trim().isEmpty) {
           _pickupLabelController.text = 'نقطة الانطلاق';
         }
@@ -562,7 +784,9 @@ class _MapPageState extends ConsumerState<MapPage> {
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.bestoffer',
+                fallbackUrl:
+                    'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+                userAgentPackageName: 'app.bestoffer.bismayah',
               ),
               MarkerLayer(markers: _buildMarkers()),
             ],
@@ -974,103 +1198,215 @@ class _MapPageState extends ConsumerState<MapPage> {
                 ),
               ],
             )
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'إنشاء طلب تكسي',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                ),
-                const SizedBox(height: 8),
-                SegmentedButton<_PointSelectionMode>(
-                  segments: const [
-                    ButtonSegment(
-                      value: _PointSelectionMode.pickup,
-                      icon: Icon(Icons.trip_origin_rounded),
-                      label: Text('نقطة الانطلاق'),
-                    ),
-                    ButtonSegment(
-                      value: _PointSelectionMode.dropoff,
-                      icon: Icon(Icons.location_on_rounded),
-                      label: Text('نقطة الوصول'),
-                    ),
-                  ],
-                  selected: {_selectionMode},
-                  onSelectionChanged: (values) {
-                    setState(() {
-                      _selectionMode = values.first;
-                    });
-                  },
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _pickupLabelController,
-                  decoration: const InputDecoration(
-                    labelText: 'وصف نقطة الانطلاق',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _dropoffLabelController,
-                  decoration: const InputDecoration(
-                    labelText: 'وصف نقطة الوصول',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _fareController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'الأجرة المقترحة (د.ع)',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _noteController,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'ملاحظة للكابتن (اختياري)',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _selectionMode == _PointSelectionMode.pickup
-                      ? 'الآن اضغط على الخريطة لتحديد نقطة الانطلاق'
-                      : 'الآن اضغط على الخريطة لتحديد نقطة الوصول',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 10),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(
-                        color: Colors.red,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                FilledButton.icon(
-                  onPressed: _submitting ? null : _createRide,
-                  icon: _submitting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.local_taxi_rounded),
-                  label: Text(
-                    _submitting ? 'جاري الإرسال...' : 'إرسال طلب التكسي',
-                  ),
-                ),
-              ],
-            ),
+          : _buildRideComposer(context),
     );
   }
+
+  Widget _buildRideComposer(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'إنشاء طلب تكسي',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+        ),
+        const SizedBox(height: 8),
+        SegmentedButton<_PointSelectionMode>(
+          segments: const [
+            ButtonSegment(
+              value: _PointSelectionMode.pickup,
+              icon: Icon(Icons.trip_origin_rounded),
+              label: Text('نقطة الانطلاق'),
+            ),
+            ButtonSegment(
+              value: _PointSelectionMode.dropoff,
+              icon: Icon(Icons.location_on_rounded),
+              label: Text('نقطة الوصول'),
+            ),
+          ],
+          selected: {_selectionMode},
+          onSelectionChanged: (values) {
+            setState(() {
+              _selectionMode = values.first;
+            });
+          },
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _pickupSearchController,
+          onChanged: _onPickupSearchChanged,
+          decoration: InputDecoration(
+            labelText: 'ابحث عن موقع الانطلاق',
+            hintText: 'اكتب اسم منطقة أو شارع',
+            border: const OutlineInputBorder(),
+            suffixIcon: _isSearchingPickup
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : const Icon(Icons.search),
+          ),
+        ),
+        if (_pickupSuggestions.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          _buildSuggestionList(_pickupSuggestions, forPickup: true),
+        ],
+        const SizedBox(height: 8),
+        FilledButton.icon(
+          onPressed: _pickupPoint == null ? null : _confirmPickup,
+          icon: Icon(
+            _pickupConfirmed ? Icons.verified_rounded : Icons.check_circle,
+          ),
+          label: Text(
+            _pickupConfirmed ? 'تم تأكيد نقطة الانطلاق' : 'تأكيد نقطة الانطلاق',
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _dropoffSearchController,
+          onChanged: _onDropoffSearchChanged,
+          decoration: InputDecoration(
+            labelText: 'ابحث عن نقطة الوصول',
+            hintText: 'مطعم، مستشفى، شارع، أو أي موقع',
+            border: const OutlineInputBorder(),
+            suffixIcon: _isSearchingDropoff
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : const Icon(Icons.search),
+          ),
+        ),
+        if (_dropoffSuggestions.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          _buildSuggestionList(_dropoffSuggestions, forPickup: false),
+        ],
+        const SizedBox(height: 8),
+        TextField(
+          controller: _pickupLabelController,
+          decoration: const InputDecoration(
+            labelText: 'وصف نقطة الانطلاق',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _dropoffLabelController,
+          decoration: const InputDecoration(
+            labelText: 'وصف نقطة الوصول',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _fareController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'الأجرة المقترحة (د.ع)',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _noteController,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            labelText: 'ملاحظة للكابتن (اختياري)',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          _selectionMode == _PointSelectionMode.pickup
+              ? 'اضغط على الخريطة لتحديد نقطة الانطلاق'
+              : 'اضغط على الخريطة لتحديد نقطة الوصول',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 10),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              _error!,
+              style: const TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        FilledButton.icon(
+          onPressed: _submitting ? null : _createRide,
+          icon: _submitting
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.local_taxi_rounded),
+          label: Text(_submitting ? 'جاري الإرسال...' : 'إرسال طلب التكسي'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSuggestionList(
+    List<_PlaceSuggestion> items, {
+    required bool forPickup,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 170),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.black.withValues(alpha: 0.08),
+      ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        itemCount: items.length,
+        separatorBuilder: (_, _) =>
+            Divider(height: 1, color: Colors.white.withValues(alpha: 0.12)),
+        itemBuilder: (context, index) {
+          final place = items[index];
+          return ListTile(
+            dense: true,
+            leading: const Icon(Icons.place_rounded),
+            title: Text(
+              place.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text(
+              place.fullAddress,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => _selectPlaceSuggestion(place, forPickup: forPickup),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PlaceSuggestion {
+  final double latitude;
+  final double longitude;
+  final String title;
+  final String fullAddress;
+
+  const _PlaceSuggestion({
+    required this.latitude,
+    required this.longitude,
+    required this.title,
+    required this.fullAddress,
+  });
 }
