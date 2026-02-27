@@ -11,7 +11,10 @@ deliveryRouter.post(
   "/register",
   requireAuth,
   requireAdminOrOwner,
-  imageUpload.single("imageFile"),
+  imageUpload.fields([
+    { name: "profileImageFile", maxCount: 1 },
+    { name: "carImageFile", maxCount: 1 },
+  ]),
   c.register
 );
 

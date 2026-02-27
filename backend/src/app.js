@@ -15,6 +15,7 @@ import { merchantsRouter } from "./modules/merchants/merchants.routes.js";
 import { notificationsRouter } from "./modules/notifications/notifications.routes.js";
 import { ordersRouter } from "./modules/orders/orders.routes.js";
 import { ownerRouter } from "./modules/owner/owner.routes.js";
+import { taxiRouter } from "./modules/taxi/taxi.routes.js";
 import { requireAuth } from "./shared/middleware/auth.middleware.js";
 import {
   errorHandler,
@@ -144,6 +145,7 @@ app.use("/api/notifications", notificationsRouter);
 app.use("/api/assistant", assistantRouter);
 app.use("/api/cars", carsRouter);
 app.use("/api/behavior", behaviorRouter);
+app.use("/api/taxi", taxiRouter);
 
 app.get("/api/me", requireAuth, async (req, res, next) => {
   try {

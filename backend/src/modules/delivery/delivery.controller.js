@@ -7,9 +7,21 @@ import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 
 export async function register(req, res, next) {
   try {
+    const files = req.files || {};
+    const profileImageFile = Array.isArray(files.profileImageFile)
+      ? files.profileImageFile[0]
+      : null;
+    const carImageFile = Array.isArray(files.carImageFile)
+      ? files.carImageFile[0]
+      : null;
+
     const body = {
       ...req.body,
-      imageUrl: buildUploadedFileUrl(req, req.file) || req.body?.imageUrl,
+      profileImageUrl:
+        buildUploadedFileUrl(req, profileImageFile) ||
+        req.body?.profileImageUrl ||
+        req.body?.imageUrl,
+      carImageUrl: buildUploadedFileUrl(req, carImageFile) || req.body?.carImageUrl,
     };
 
     const v = validateDeliveryRegister(body);

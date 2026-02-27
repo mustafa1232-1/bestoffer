@@ -22,9 +22,20 @@ export function validateDeliveryRegister(body) {
   if (!isNonEmptyString(body.block, 20)) errors.push("block");
   if (!isNonEmptyString(body.buildingNumber, 20)) errors.push("buildingNumber");
   if (!isNonEmptyString(body.apartment, 20)) errors.push("apartment");
-  if (!isOptionalString(body.imageUrl, 1000)) errors.push("imageUrl");
+  if (!isOptionalString(body.profileImageUrl, 1000)) errors.push("profileImageUrl");
+  if (!isOptionalString(body.carImageUrl, 1000)) errors.push("carImageUrl");
+  if (!isNonEmptyString(body.carMake, 80)) errors.push("carMake");
+  if (!isNonEmptyString(body.carModel, 80)) errors.push("carModel");
+  if (!isNonEmptyString(body.vehicleType, 60)) errors.push("vehicleType");
+  if (!isOptionalString(body.carColor, 40)) errors.push("carColor");
+  if (!isNonEmptyString(body.plateNumber, 40)) errors.push("plateNumber");
   if (!isExplicitTrue(body.analyticsConsentAccepted)) errors.push("analyticsConsentAccepted");
   if (!isOptionalString(body.analyticsConsentVersion, 32)) errors.push("analyticsConsentVersion");
+
+  const carYear = Number(body.carYear);
+  if (!Number.isInteger(carYear) || carYear < 1980 || carYear > 2035) {
+    errors.push("carYear");
+  }
 
   const pinStr = String(body.pin || "");
   if (!/^\d{4,8}$/.test(pinStr)) errors.push("pin_format");

@@ -39,9 +39,16 @@ abstract class AuthRepo {
     required String block,
     required String buildingNumber,
     required String apartment,
+    required String vehicleType,
+    required String carMake,
+    required String carModel,
+    required int carYear,
+    required String plateNumber,
+    String? carColor,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
-    LocalImageFile? imageFile,
+    LocalImageFile? profileImageFile,
+    LocalImageFile? carImageFile,
   });
 
   Future<UserModel> login({required String phone, required String pin});

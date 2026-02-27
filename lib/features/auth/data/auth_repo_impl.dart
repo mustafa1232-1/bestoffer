@@ -95,23 +95,40 @@ class AuthRepoImpl implements AuthRepo {
     required String block,
     required String buildingNumber,
     required String apartment,
+    required String vehicleType,
+    required String carMake,
+    required String carModel,
+    required int carYear,
+    required String plateNumber,
+    String? carColor,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
-    LocalImageFile? imageFile,
+    LocalImageFile? profileImageFile,
+    LocalImageFile? carImageFile,
   }) async {
     final normalizedPhone = _normalizeInput(phone);
     final normalizedPin = _normalizeInput(pin);
 
-    final data = await api.registerDelivery({
-      'fullName': fullName.trim(),
-      'phone': normalizedPhone,
-      'pin': normalizedPin,
-      'block': block.trim(),
-      'buildingNumber': buildingNumber.trim(),
-      'apartment': apartment.trim(),
-      'analyticsConsentAccepted': analyticsConsentAccepted,
-      'analyticsConsentVersion': analyticsConsentVersion,
-    }, imageFile: imageFile);
+    final data = await api.registerDelivery(
+      {
+        'fullName': fullName.trim(),
+        'phone': normalizedPhone,
+        'pin': normalizedPin,
+        'block': block.trim(),
+        'buildingNumber': buildingNumber.trim(),
+        'apartment': apartment.trim(),
+        'vehicleType': vehicleType.trim(),
+        'carMake': carMake.trim(),
+        'carModel': carModel.trim(),
+        'carYear': carYear,
+        'plateNumber': plateNumber.trim(),
+        'carColor': carColor?.trim(),
+        'analyticsConsentAccepted': analyticsConsentAccepted,
+        'analyticsConsentVersion': analyticsConsentVersion,
+      },
+      profileImageFile: profileImageFile,
+      carImageFile: carImageFile,
+    );
 
     await store.saveToken(_readToken(data));
     return _readUser(data);

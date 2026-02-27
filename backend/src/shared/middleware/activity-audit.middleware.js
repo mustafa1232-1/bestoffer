@@ -4,6 +4,7 @@ const skipAuditPrefixes = [
   "/health",
   "/ready",
   "/api/notifications/stream",
+  "/api/taxi/stream",
 ];
 
 function shouldSkip(req) {

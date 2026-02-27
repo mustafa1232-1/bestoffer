@@ -200,7 +200,8 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> registerDelivery(
     Map<String, dynamic> dto, {
-    LocalImageFile? imageFile,
+    LocalImageFile? profileImageFile,
+    LocalImageFile? carImageFile,
   }) async {
     state = state.copyWith(loading: true, error: null);
 
@@ -214,10 +215,17 @@ class AuthController extends StateNotifier<AuthState> {
             block: dto['block']!.trim(),
             buildingNumber: dto['buildingNumber']!.trim(),
             apartment: dto['apartment']!.trim(),
+            vehicleType: dto['vehicleType']!.trim(),
+            carMake: dto['carMake']!.trim(),
+            carModel: dto['carModel']!.trim(),
+            carYear: int.parse('${dto['carYear']}'),
+            plateNumber: dto['plateNumber']!.trim(),
+            carColor: dto['carColor']?.toString(),
             analyticsConsentAccepted: dto['analyticsConsentAccepted'] == true,
             analyticsConsentVersion:
                 '${dto['analyticsConsentVersion'] ?? 'analytics_v1'}',
-            imageFile: imageFile,
+            profileImageFile: profileImageFile,
+            carImageFile: carImageFile,
           );
 
       final token = await ref.read(secureStoreProvider).readToken();

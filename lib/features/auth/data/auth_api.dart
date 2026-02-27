@@ -44,11 +44,15 @@ class AuthApi {
 
   Future<Map<String, dynamic>> registerDelivery(
     Map<String, dynamic> body, {
-    LocalImageFile? imageFile,
+    LocalImageFile? profileImageFile,
+    LocalImageFile? carImageFile,
   }) async {
     final requestData = await _withOptionalFiles(
       body,
-      files: {'imageFile': imageFile},
+      files: {
+        'profileImageFile': profileImageFile,
+        'carImageFile': carImageFile,
+      },
     );
     final response = await dio.post(
       '/api/delivery/register',

@@ -1,10 +1,13 @@
-// ignore_for_file: use_build_context_synchronously
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
 
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/files/image_picker_service.dart';
+import '../../../core/files/local_image_file.dart';
+import '../../../core/widgets/image_picker_field.dart';
 import '../state/auth_controller.dart';
 
 class DeliveryRegisterScreen extends ConsumerStatefulWidget {
@@ -15,13 +18,24 @@ class DeliveryRegisterScreen extends ConsumerStatefulWidget {
       _DeliveryRegisterScreenState();
 }
 
-class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen> {
+class _DeliveryRegisterScreenState
+    extends ConsumerState<DeliveryRegisterScreen> {
   final fullNameCtrl = TextEditingController();
   final phoneCtrl = TextEditingController();
   final pinCtrl = TextEditingController();
   final blockCtrl = TextEditingController();
   final buildingCtrl = TextEditingController();
   final aptCtrl = TextEditingController();
+
+  final carMakeCtrl = TextEditingController();
+  final carModelCtrl = TextEditingController();
+  final carYearCtrl = TextEditingController();
+  final carColorCtrl = TextEditingController();
+  final plateNumberCtrl = TextEditingController();
+
+  String vehicleType = 'sedan';
+  LocalImageFile? profileImageFile;
+  LocalImageFile? carImageFile;
   bool analyticsConsentAccepted = false;
 
   @override
@@ -32,6 +46,11 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
     blockCtrl.dispose();
     buildingCtrl.dispose();
     aptCtrl.dispose();
+    carMakeCtrl.dispose();
+    carModelCtrl.dispose();
+    carYearCtrl.dispose();
+    carColorCtrl.dispose();
+    plateNumberCtrl.dispose();
     super.dispose();
   }
 
@@ -45,15 +64,15 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
           const _MeshBackground(),
           Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
+              constraints: const BoxConstraints(maxWidth: 620),
               child: Padding(
-                padding: const EdgeInsets.all(18),
+                padding: const EdgeInsets.all(16),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(24),
                   child: BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                     child: Container(
-                      padding: const EdgeInsets.all(18),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(
@@ -70,7 +89,8 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
                               Row(
                                 children: [
                                   IconButton(
-                                    onPressed: () => Navigator.of(context).pop(),
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(),
                                     icon: const Icon(
                                       Icons.arrow_back,
                                       color: Colors.white,
@@ -79,7 +99,7 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
                                   const SizedBox(width: 6),
                                   const Expanded(
                                     child: Text(
-                                      'إنشاء حساب دلفري',
+                                      'إنشاء حساب كابتن',
                                       style: TextStyle(
                                         color: Colors.white,
                                         fontSize: 20,
@@ -89,11 +109,19 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'بيانات الكابتن',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
                               _Field(
                                 controller: fullNameCtrl,
                                 label: 'الاسم الكامل',
-                                hint: 'مثال: سيف أحمد',
+                                hint: 'مثال: مصطفى علي',
                               ),
                               const SizedBox(height: 10),
                               _Field(
@@ -106,7 +134,7 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
                               _Field(
                                 controller: pinCtrl,
                                 label: 'الرمز السري PIN',
-                                hint: '4-8 أرقام',
+                                hint: '4 - 8 أرقام',
                                 keyboardType: TextInputType.number,
                                 obscure: true,
                               ),
@@ -117,15 +145,15 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
                                     child: _Field(
                                       controller: blockCtrl,
                                       label: 'البلوك',
-                                      hint: 'B',
+                                      hint: 'A',
                                     ),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: _Field(
                                       controller: buildingCtrl,
-                                      label: 'رقم العمارة',
-                                      hint: '12',
+                                      label: 'العمارة',
+                                      hint: '711',
                                       keyboardType: TextInputType.number,
                                     ),
                                   ),
@@ -134,17 +162,138 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
                                     child: _Field(
                                       controller: aptCtrl,
                                       label: 'الشقة',
-                                      hint: '3',
+                                      hint: '507',
                                       keyboardType: TextInputType.number,
                                     ),
                                   ),
                                 ],
                               ),
+                              const SizedBox(height: 12),
+                              const Text(
+                                'بيانات السيارة',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              DropdownButtonFormField<String>(
+                                initialValue: vehicleType,
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: 'sedan',
+                                    child: Text('سيدان'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'suv',
+                                    child: Text('SUV'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'hatchback',
+                                    child: Text('هاتشباك'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'pickup',
+                                    child: Text('بيك أب'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'van',
+                                    child: Text('فان'),
+                                  ),
+                                ],
+                                onChanged: (value) {
+                                  setState(
+                                    () => vehicleType = value ?? 'sedan',
+                                  );
+                                },
+                                decoration: const InputDecoration(
+                                  labelText: 'نوع السيارة',
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _Field(
+                                      controller: carMakeCtrl,
+                                      label: 'الشركة',
+                                      hint: 'Toyota',
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _Field(
+                                      controller: carModelCtrl,
+                                      label: 'الموديل',
+                                      hint: 'Corolla',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _Field(
+                                      controller: carYearCtrl,
+                                      label: 'سنة الصنع',
+                                      hint: '2020',
+                                      keyboardType: TextInputType.number,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _Field(
+                                      controller: carColorCtrl,
+                                      label: 'اللون (اختياري)',
+                                      hint: 'أبيض',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              _Field(
+                                controller: plateNumberCtrl,
+                                label: 'رقم اللوحة',
+                                hint: 'بغداد 12345',
+                              ),
+                              const SizedBox(height: 10),
+                              ImagePickerField(
+                                title: 'صورة الكابتن (اختياري)',
+                                selectedFile: profileImageFile,
+                                existingImageUrl: null,
+                                onPick: () async {
+                                  final picked = await pickImageFromDevice();
+                                  if (!mounted || picked == null) return;
+                                  setState(() => profileImageFile = picked);
+                                },
+                                onClear: profileImageFile == null
+                                    ? null
+                                    : () => setState(
+                                        () => profileImageFile = null,
+                                      ),
+                              ),
+                              const SizedBox(height: 10),
+                              ImagePickerField(
+                                title: 'صورة السيارة (اختياري)',
+                                selectedFile: carImageFile,
+                                existingImageUrl: null,
+                                onPick: () async {
+                                  final picked = await pickImageFromDevice();
+                                  if (!mounted || picked == null) return;
+                                  setState(() => carImageFile = picked);
+                                },
+                                onClear: carImageFile == null
+                                    ? null
+                                    : () => setState(() => carImageFile = null),
+                              ),
                               const SizedBox(height: 10),
                               _ConsentCard(
                                 accepted: analyticsConsentAccepted,
                                 onChanged: (value) {
-                                  setState(() => analyticsConsentAccepted = value);
+                                  setState(
+                                    () => analyticsConsentAccepted = value,
+                                  );
                                 },
                                 onDetailsTap: () => _showConsentInfo(context),
                               ),
@@ -162,7 +311,9 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
                                     ? null
                                     : () async {
                                         if (!analyticsConsentAccepted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
                                             const SnackBar(
                                               content: Text(
                                                 'يرجى الموافقة على سياسة تحسين التجربة أولاً',
@@ -172,21 +323,52 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
                                           return;
                                         }
 
+                                        final carYear = int.tryParse(
+                                          carYearCtrl.text.trim(),
+                                        );
+                                        if (carYear == null) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'سنة الصنع غير صحيحة',
+                                              ),
+                                            ),
+                                          );
+                                          return;
+                                        }
+
                                         FocusScope.of(context).unfocus();
                                         await ref
-                                            .read(authControllerProvider.notifier)
-                                            .registerDelivery({
-                                              'fullName': fullNameCtrl.text,
-                                              'phone': phoneCtrl.text,
-                                              'pin': pinCtrl.text,
-                                              'block': blockCtrl.text,
-                                              'buildingNumber':
-                                                  buildingCtrl.text,
-                                              'apartment': aptCtrl.text,
-                                              'analyticsConsentAccepted': true,
-                                              'analyticsConsentVersion':
-                                                  'analytics_v1',
-                                            });
+                                            .read(
+                                              authControllerProvider.notifier,
+                                            )
+                                            .registerDelivery(
+                                              {
+                                                'fullName': fullNameCtrl.text,
+                                                'phone': phoneCtrl.text,
+                                                'pin': pinCtrl.text,
+                                                'block': blockCtrl.text,
+                                                'buildingNumber':
+                                                    buildingCtrl.text,
+                                                'apartment': aptCtrl.text,
+                                                'vehicleType': vehicleType,
+                                                'carMake': carMakeCtrl.text,
+                                                'carModel': carModelCtrl.text,
+                                                'carYear': carYear,
+                                                'carColor': carColorCtrl.text,
+                                                'plateNumber':
+                                                    plateNumberCtrl.text,
+                                                'analyticsConsentAccepted':
+                                                    true,
+                                                'analyticsConsentVersion':
+                                                    'analytics_v1',
+                                              },
+                                              profileImageFile:
+                                                  profileImageFile,
+                                              carImageFile: carImageFile,
+                                            );
 
                                         if (mounted &&
                                             ref
@@ -203,7 +385,7 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
                                           strokeWidth: 2,
                                         ),
                                       )
-                                    : const Text('إنشاء حساب الدلفري'),
+                                    : const Text('إنشاء حساب الكابتن'),
                               ),
                             ],
                           ),
@@ -238,7 +420,7 @@ class _DeliveryRegisterScreenState extends ConsumerState<DeliveryRegisterScreen>
                 ),
                 SizedBox(height: 10),
                 Text(
-                  'نقوم بجمع بيانات الاستخدام داخل التطبيق لتحسين التوصيات وسير العمل، دون أي تجاوز للخصوصية.',
+                  'نستخدم بيانات الاستخدام داخل التطبيق لتحسين جودة الطلبات وسرعة التوجيه فقط، دون مشاركة بيانات حساسة مع أي جهة خارجية.',
                 ),
               ],
             ),
@@ -282,7 +464,7 @@ class _ConsentCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'نستخدم نشاطك داخل التطبيق لتحسين الاقتراحات وجودة الخدمة.',
+                  'أوافق على جمع بيانات الاستخدام لتحسين تجربة التطبيق',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.9),
                     fontSize: 12.5,
@@ -304,7 +486,7 @@ class _ConsentCard extends StatelessWidget {
             checkColor: Colors.black,
             onChanged: (value) => onChanged(value == true),
             title: const Text(
-              'أوافق على جمع بيانات الاستخدام لتحسين تجربتي',
+              'أوافق',
               style: TextStyle(color: Colors.white, fontSize: 13),
             ),
           ),
@@ -336,7 +518,12 @@ class _Field extends StatelessWidget {
       keyboardType: keyboardType,
       obscureText: obscure,
       style: const TextStyle(color: Colors.white),
-      decoration: InputDecoration(labelText: label, hintText: hint),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        hintStyle: TextStyle(color: Colors.white.withOpacity(0.55)),
+        labelStyle: TextStyle(color: Colors.white.withOpacity(0.85)),
+      ),
     );
   }
 }
@@ -349,4 +536,3 @@ class _MeshBackground extends StatelessWidget {
     return const SizedBox.expand();
   }
 }
-

@@ -1,5 +1,6 @@
 import { hashPin } from "../../shared/utils/hash.js";
 import { signAccessToken } from "../../shared/utils/jwt.js";
+import { q } from "../../config/db.js";
 import * as analyticsRepo from "../analytics/analytics.repo.js";
 import { createUser, findUserByPhone } from "../auth/auth.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
@@ -57,12 +58,53 @@ export async function registerDelivery(dto) {
     block: dto.block.trim(),
     buildingNumber: dto.buildingNumber.trim(),
     apartment: dto.apartment.trim(),
-    imageUrl: dto.imageUrl || null,
+    imageUrl: dto.profileImageUrl || dto.imageUrl || null,
     role: "delivery",
     analyticsConsentGranted: true,
     analyticsConsentVersion,
     analyticsConsentGrantedAt: new Date(),
   });
+
+  await q(
+    `INSERT INTO taxi_captain_profile
+      (
+        user_id,
+        profile_image_url,
+        car_image_url,
+        vehicle_type,
+        car_make,
+        car_model,
+        car_year,
+        car_color,
+        plate_number,
+        is_active,
+        updated_at
+      )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,NOW())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       profile_image_url = EXCLUDED.profile_image_url,
+       car_image_url = EXCLUDED.car_image_url,
+       vehicle_type = EXCLUDED.vehicle_type,
+       car_make = EXCLUDED.car_make,
+       car_model = EXCLUDED.car_model,
+       car_year = EXCLUDED.car_year,
+       car_color = EXCLUDED.car_color,
+       plate_number = EXCLUDED.plate_number,
+       is_active = TRUE,
+       updated_at = NOW()`,
+    [
+      Number(user.id),
+      dto.profileImageUrl || null,
+      dto.carImageUrl || null,
+      String(dto.vehicleType || "").trim().toLowerCase(),
+      String(dto.carMake || "").trim(),
+      String(dto.carModel || "").trim(),
+      Number(dto.carYear),
+      dto.carColor ? String(dto.carColor).trim() : null,
+      String(dto.plateNumber || "").trim().toUpperCase(),
+    ]
+  );
 
   const token = signAccessToken({
     id: user.id,
