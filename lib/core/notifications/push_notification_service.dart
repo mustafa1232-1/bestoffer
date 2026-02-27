@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/notifications/data/notifications_api.dart';
+import '../storage/secure_storage.dart';
 import 'firebase_runtime_options.dart';
 import 'local_notification_service.dart';
 
@@ -15,6 +16,7 @@ final pushNotificationsProvider = Provider<PushNotificationService>((ref) {
   final service = PushNotificationService(
     api: NotificationsApi(ref.read(dioClientProvider).dio),
     local: ref.read(localNotificationsProvider),
+    store: ref.read(secureStoreProvider),
   );
   ref.onDispose(service.dispose);
   return service;
@@ -23,8 +25,13 @@ final pushNotificationsProvider = Provider<PushNotificationService>((ref) {
 class PushNotificationService {
   final NotificationsApi api;
   final LocalNotificationService local;
+  final SecureStore store;
 
-  PushNotificationService({required this.api, required this.local});
+  PushNotificationService({
+    required this.api,
+    required this.local,
+    required this.store,
+  });
 
   final StreamController<NotificationTapPayload> _tapController =
       StreamController<NotificationTapPayload>.broadcast();
@@ -112,6 +119,12 @@ class PushNotificationService {
     final clean = token.trim();
     if (clean.isEmpty) return;
     if (_lastSyncedToken == clean) return;
+
+    // Avoid unauthenticated push-token registration requests.
+    final accessToken = await store.readToken();
+    if (accessToken == null || accessToken.isEmpty) {
+      return;
+    }
 
     await api.registerPushToken(
       token: clean,
