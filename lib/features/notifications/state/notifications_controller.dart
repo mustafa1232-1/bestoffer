@@ -65,6 +65,10 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     try {
       final count = await ref.read(notificationsApiProvider).unreadCount();
       state = state.copyWith(unreadCount: count);
+    } on DioException catch (e) {
+      if (_isUnauthorized(e)) {
+        _handleUnauthorized();
+      }
     } catch (_) {
       // ignore silently
     }
@@ -181,7 +185,13 @@ class NotificationsController extends StateNotifier<NotificationsState> {
         .streamEvents()
         .listen(
           _onLiveEvent,
-          onError: (_) => _scheduleReconnect(),
+          onError: (error) {
+            if (_isUnauthorized(error)) {
+              _handleUnauthorized();
+              return;
+            }
+            _scheduleReconnect();
+          },
           onDone: _scheduleReconnect,
           cancelOnError: true,
         );
@@ -267,6 +277,20 @@ class NotificationsController extends StateNotifier<NotificationsState> {
       }
     }
     return 'حدث خطأ في الاتصال بالخادم';
+  }
+
+  bool _isUnauthorized(Object error) {
+    if (error is DioException) {
+      return error.response?.statusCode == 401;
+    }
+    return false;
+  }
+
+  void _handleUnauthorized() {
+    stopRealtime();
+    state = state.copyWith(
+      error: 'انتهت جلسة تسجيل الدخول، يرجى تسجيل الدخول من جديد',
+    );
   }
 
   @override
