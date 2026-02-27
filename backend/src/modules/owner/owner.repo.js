@@ -19,9 +19,21 @@ export async function createOwnerWithMerchant(data) {
 
     const userResult = await client.query(
       `INSERT INTO app_user
-        (full_name, phone, pin_hash, block, building_number, apartment, image_url, role)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING id, full_name, phone, role, block, building_number, apartment, image_url`,
+        (
+          full_name,
+          phone,
+          pin_hash,
+          block,
+          building_number,
+          apartment,
+          image_url,
+          role,
+          analytics_consent_granted,
+          analytics_consent_version,
+          analytics_consent_granted_at
+        )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING id, full_name, phone, role, is_super_admin, block, building_number, apartment, image_url`,
       [
         data.fullName,
         data.phone,
@@ -31,6 +43,9 @@ export async function createOwnerWithMerchant(data) {
         data.apartment,
         data.ownerImageUrl || null,
         "owner",
+        data.analyticsConsentGranted === true,
+        data.analyticsConsentVersion || null,
+        data.analyticsConsentGrantedAt || null,
       ]
     );
 

@@ -29,12 +29,20 @@ function normalizePin(value) {
   return normalizeDigits(value).replace(/[^\d]/g, "");
 }
 
+function normalizeConsentAccepted(value) {
+  if (value === true) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
 function mapUser(u) {
   return {
     id: u.id,
     fullName: u.full_name,
     phone: u.phone,
     role: u.role,
+    isSuperAdmin: u.is_super_admin === true,
     block: u.block,
     buildingNumber: u.building_number,
     apartment: u.apartment,
@@ -45,11 +53,25 @@ function mapUser(u) {
 export async function register(dto) {
   const phone = normalizePhone(dto.phone);
   const pin = normalizePin(dto.pin);
+  const analyticsConsentAccepted = normalizeConsentAccepted(
+    dto.analyticsConsentAccepted
+  );
+  const analyticsConsentVersion =
+    typeof dto.analyticsConsentVersion === "string" &&
+    dto.analyticsConsentVersion.trim().length > 0
+      ? dto.analyticsConsentVersion.trim().slice(0, 32)
+      : "analytics_v1";
 
   const exists = await findUserByPhone(phone);
   if (exists) {
     const err = new Error("PHONE_EXISTS");
     err.status = 409;
+    throw err;
+  }
+
+  if (!analyticsConsentAccepted) {
+    const err = new Error("ANALYTICS_CONSENT_REQUIRED");
+    err.status = 400;
     throw err;
   }
 
@@ -63,11 +85,15 @@ export async function register(dto) {
     buildingNumber: dto.buildingNumber.trim(),
     apartment: dto.apartment.trim(),
     imageUrl: dto.imageUrl || null,
+    analyticsConsentGranted: true,
+    analyticsConsentVersion,
+    analyticsConsentGrantedAt: new Date(),
   });
 
   const token = signAccessToken({
     id: created.id,
     role: created.role || "user",
+    isSuperAdmin: created.is_super_admin === true,
   });
 
   return { token, user: mapUser(created) };
@@ -94,6 +120,7 @@ export async function login({ phone, pin }) {
   const token = signAccessToken({
     id: user.id,
     role: user.role || "user",
+    isSuperAdmin: user.is_super_admin === true,
   });
 
   return {
@@ -103,6 +130,7 @@ export async function login({ phone, pin }) {
       fullName: user.full_name,
       phone: user.phone,
       role: user.role,
+      isSuperAdmin: user.is_super_admin === true,
       block: user.block,
       buildingNumber: user.building_number,
       apartment: user.apartment,

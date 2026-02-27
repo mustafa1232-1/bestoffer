@@ -1,6 +1,4 @@
-export function requireAdmin(req, res, next) {
-  if (req.userRole !== "admin") {
-    return res.status(403).json({ message: "FORBIDDEN_ADMIN_ONLY" });
-  }
-  next();
-}
+import { requireRoles } from './role.middleware.js';
+
+export const requireAdmin = requireRoles('admin', 'FORBIDDEN_ADMIN_ONLY');
+

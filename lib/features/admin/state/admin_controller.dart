@@ -22,18 +22,23 @@ final adminControllerProvider =
 class AdminState {
   final bool loading;
   final bool saving;
+  final bool insightsLoading;
   final PeriodMetricsModel day;
   final PeriodMetricsModel month;
   final PeriodMetricsModel year;
   final List<PendingMerchantModel> pendingMerchants;
   final List<PendingSettlementModel> pendingSettlements;
   final List<ManagedMerchantModel> managedMerchants;
+  final List<Map<String, dynamic>> customerInsights;
+  final int customerInsightsTotal;
+  final String customerInsightsQuery;
   final String? error;
   final String? success;
 
   const AdminState({
     this.loading = false,
     this.saving = false,
+    this.insightsLoading = false,
     this.day = const PeriodMetricsModel(
       ordersCount: 0,
       deliveredOrdersCount: 0,
@@ -67,6 +72,9 @@ class AdminState {
     this.pendingMerchants = const [],
     this.pendingSettlements = const [],
     this.managedMerchants = const [],
+    this.customerInsights = const [],
+    this.customerInsightsTotal = 0,
+    this.customerInsightsQuery = '',
     this.error,
     this.success,
   });
@@ -74,24 +82,32 @@ class AdminState {
   AdminState copyWith({
     bool? loading,
     bool? saving,
+    bool? insightsLoading,
     PeriodMetricsModel? day,
     PeriodMetricsModel? month,
     PeriodMetricsModel? year,
     List<PendingMerchantModel>? pendingMerchants,
     List<PendingSettlementModel>? pendingSettlements,
     List<ManagedMerchantModel>? managedMerchants,
+    List<Map<String, dynamic>>? customerInsights,
+    int? customerInsightsTotal,
+    String? customerInsightsQuery,
     String? error,
     String? success,
   }) {
     return AdminState(
       loading: loading ?? this.loading,
       saving: saving ?? this.saving,
+      insightsLoading: insightsLoading ?? this.insightsLoading,
       day: day ?? this.day,
       month: month ?? this.month,
       year: year ?? this.year,
       pendingMerchants: pendingMerchants ?? this.pendingMerchants,
       pendingSettlements: pendingSettlements ?? this.pendingSettlements,
       managedMerchants: managedMerchants ?? this.managedMerchants,
+      customerInsights: customerInsights ?? this.customerInsights,
+      customerInsightsTotal: customerInsightsTotal ?? this.customerInsightsTotal,
+      customerInsightsQuery: customerInsightsQuery ?? this.customerInsightsQuery,
       error: error,
       success: success,
     );
@@ -106,6 +122,7 @@ class AdminController extends StateNotifier<AdminState> {
   Future<void> bootstrap() async {
     state = state.copyWith(loading: true, error: null, success: null);
     try {
+      final isSuperAdmin = ref.read(authControllerProvider).isSuperAdmin;
       final analytics = await ref.read(adminApiProvider).analytics();
       final pendingMerchantsRaw = await ref
           .read(adminApiProvider)
@@ -114,9 +131,14 @@ class AdminController extends StateNotifier<AdminState> {
           .read(adminApiProvider)
           .pendingSettlements();
       final merchantsRaw = await ref.read(adminApiProvider).merchants();
+      Map<String, dynamic>? insightsRaw;
+      if (isSuperAdmin) {
+        insightsRaw = await ref.read(adminApiProvider).customerInsights(limit: 40);
+      }
 
       state = state.copyWith(
         loading: false,
+        insightsLoading: false,
         day: PeriodMetricsModel.fromJson(
           Map<String, dynamic>.from(analytics['day'] as Map),
         ),
@@ -147,6 +169,8 @@ class AdminController extends StateNotifier<AdminState> {
               ),
             )
             .toList(),
+        customerInsights: _toMapList(insightsRaw?['items']),
+        customerInsightsTotal: _readInsightTotal(insightsRaw),
       );
     } on DioException catch (e) {
       state = state.copyWith(loading: false, error: _mapError(e));
@@ -204,10 +228,7 @@ class AdminController extends StateNotifier<AdminState> {
     } on DioException catch (e) {
       state = state.copyWith(saving: false, error: _mapError(e));
     } catch (_) {
-      state = state.copyWith(
-        saving: false,
-        error: 'فشل تحديث حالة المتجر',
-      );
+      state = state.copyWith(saving: false, error: 'فشل تحديث حالة المتجر');
     }
   }
 
@@ -229,14 +250,80 @@ class AdminController extends StateNotifier<AdminState> {
     }
   }
 
+  Future<void> searchCustomerInsights(String query) async {
+    final isSuperAdmin = ref.read(authControllerProvider).isSuperAdmin;
+    if (!isSuperAdmin) return;
+
+    state = state.copyWith(
+      insightsLoading: true,
+      customerInsightsQuery: query.trim(),
+      error: null,
+      success: null,
+    );
+
+    try {
+      final raw = await ref.read(adminApiProvider).customerInsights(
+            search: query.trim().isEmpty ? null : query.trim(),
+            limit: 80,
+          );
+      state = state.copyWith(
+        insightsLoading: false,
+        customerInsights: _toMapList(raw['items']),
+        customerInsightsTotal: _readInsightTotal(raw),
+      );
+    } on DioException catch (e) {
+      state = state.copyWith(insightsLoading: false, error: _mapError(e));
+    } catch (_) {
+      state = state.copyWith(
+        insightsLoading: false,
+        error: 'تعذر تحميل ملفات العملاء',
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>?> fetchCustomerInsightDetails(
+    int customerUserId,
+  ) async {
+    final isSuperAdmin = ref.read(authControllerProvider).isSuperAdmin;
+    if (!isSuperAdmin) return null;
+
+    try {
+      return await ref
+          .read(adminApiProvider)
+          .customerInsightDetails(customerUserId);
+    } on DioException catch (e) {
+      state = state.copyWith(error: _mapError(e));
+      return null;
+    } catch (_) {
+      state = state.copyWith(error: 'تعذر تحميل تفاصيل العميل');
+      return null;
+    }
+  }
+
   String _mapError(DioException e) {
     final data = e.response?.data;
     if (data is Map<String, dynamic>) {
       final message = data['message'];
-      if (message is String && message.isNotEmpty) {
-        return message;
-      }
+      if (message is String && message.isNotEmpty) return message;
     }
     return 'حدث خطأ في الاتصال بالخادم';
   }
+
+  List<Map<String, dynamic>> _toMapList(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: false);
+  }
+
+  int _readInsightTotal(Map<String, dynamic>? raw) {
+    if (raw == null) return 0;
+    final value = raw['total'];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
+  }
 }
+

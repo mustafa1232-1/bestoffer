@@ -209,5 +209,6 @@ const _interestOptions = <_KeyLabel>[
   _KeyLabel('kids', 'أطفال'),
   _KeyLabel('sports', 'رياضة'),
   _KeyLabel('coffee', 'قهوة ومشروبات'),
+  _KeyLabel('cars', 'سوق السيارات'),
   _KeyLabel('gifts', 'هدايا'),
 ];

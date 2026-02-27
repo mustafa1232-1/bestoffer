@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:math' as math;
 
@@ -31,6 +31,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   final GlobalKey _analyticsSectionKey = GlobalKey();
   final GlobalKey _settlementsSectionKey = GlobalKey();
   final GlobalKey _approvalsSectionKey = GlobalKey();
+  final GlobalKey _customerInsightsSectionKey = GlobalKey();
 
   @override
   void initState() {
@@ -117,14 +118,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
-                          'تعذر فتح واجهة الطباعة على هذا الجهاز. تم فتح تقرير بديل. ($e)',
+                          'ØªØ¹Ø°Ø± ÙØªØ­ ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ø·Ø¨Ø§Ø¹Ø© Ø¹Ù„Ù‰ Ù‡Ø°Ø§ Ø§Ù„Ø¬Ù‡Ø§Ø². ØªÙ… ÙØªØ­ ØªÙ‚Ø±ÙŠØ± Ø¨Ø¯ÙŠÙ„. ($e)',
                         ),
                       ),
                     );
                   }
                 },
                 icon: const Icon(Icons.print_outlined),
-                label: const Text('طباعة الوصل'),
+                label: const Text('Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„ÙˆØµÙ„'),
               ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
@@ -144,12 +145,12 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   } catch (e) {
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('فشل تصدير Excel. ($e)')),
+                      SnackBar(content: Text('ÙØ´Ù„ ØªØµØ¯ÙŠØ± Excel. ($e)')),
                     );
                   }
                 },
                 icon: const Icon(Icons.table_chart_outlined),
-                label: const Text('تصدير Excel مفصل'),
+                label: const Text('ØªØµØ¯ÙŠØ± Excel Ù…ÙØµÙ„'),
               ),
             ],
           ),
@@ -180,11 +181,102 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     });
   }
 
+  Future<void> _openCustomerInsightDetails(int customerUserId) async {
+    final details = await ref
+        .read(adminControllerProvider.notifier)
+        .fetchCustomerInsightDetails(customerUserId);
+    if (!mounted || details == null) return;
+
+    final customer = details['customer'] is Map
+        ? Map<String, dynamic>.from(details['customer'] as Map)
+        : <String, dynamic>{};
+    final orderProfile = details['orderProfile'] is Map
+        ? Map<String, dynamic>.from(details['orderProfile'] as Map)
+        : <String, dynamic>{};
+    final behaviorProfile = details['behaviorProfile'] is Map
+        ? Map<String, dynamic>.from(details['behaviorProfile'] as Map)
+        : <String, dynamic>{};
+
+    final topActions = (behaviorProfile['topActions'] as List?)
+            ?.whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList() ??
+        const <Map<String, dynamic>>[];
+
+    final topCategories = (behaviorProfile['topCategories'] as List?)
+            ?.whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList() ??
+        const <Map<String, dynamic>>[];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Ù…Ù„Ù Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø§Ù„Ø°ÙƒÙŠ - ${customer['fullName'] ?? '-'}',
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                  ),
+                  const SizedBox(height: 10),
+                  Text('Ø§Ù„Ù‡Ø§ØªÙ: ${customer['phone'] ?? '-'}'),
+                  Text(
+                    'Ø§Ù„Ø¹Ù†ÙˆØ§Ù†: Ø¨Ù„ÙˆÙƒ ${customer['block'] ?? '-'} - Ø¹Ù…Ø§Ø±Ø© ${customer['buildingNumber'] ?? '-'} - Ø´Ù‚Ø© ${customer['apartment'] ?? '-'}',
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø·Ù„Ø¨Ø§Øª: ${orderProfile['ordersCount'] ?? 0}'),
+                  Text('Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„ØµØ±Ù: ${orderProfile['totalSpent'] ?? 0} IQD'),
+                  Text('Ù…ØªÙˆØ³Ø· Ø§Ù„Ø³Ù„Ø©: ${orderProfile['avgBasket'] ?? 0} IQD'),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Ø§Ù„ÙØ¦Ø§Øª Ø§Ù„Ø£ÙƒØ«Ø± Ø§Ø³ØªØ®Ø¯Ø§Ù…Ù‹Ø§',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  if (topCategories.isEmpty)
+                    const Text('Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª ÙƒØ§ÙÙŠØ©')
+                  else
+                    ...topCategories.take(8).map(
+                      (row) => Text(
+                        '- ${row['category'] ?? 'general'} (${row['events_count'] ?? 0})',
+                      ),
+                    ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Ø£Ù‡Ù… Ø§Ù„Ø³Ù„ÙˆÙƒÙŠØ§Øª',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  if (topActions.isEmpty)
+                    const Text('Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª ÙƒØ§ÙÙŠØ©')
+                  else
+                    ...topActions.take(10).map(
+                      (row) => Text(
+                        '- ${row['event_name'] ?? '-'} (${row['events_count'] ?? 0})',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(adminControllerProvider);
     final auth = ref.watch(authControllerProvider);
     final isAdmin = auth.isAdmin;
+    final isSuperAdmin = auth.isSuperAdmin;
     final strings = ref.watch(appStringsProvider);
 
     ref.listen<AdminState>(adminControllerProvider, (prev, next) {
@@ -218,6 +310,12 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         label: strings.t('drawerRefresh'),
         onTap: (_) => ref.read(adminControllerProvider.notifier).bootstrap(),
       ),
+      if (isSuperAdmin)
+        AppUserDrawerItem(
+          icon: Icons.manage_search_rounded,
+          label: 'Ù…Ù„ÙØ§Øª Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ø§Ù„Ø°ÙƒÙŠØ©',
+          onTap: (_) => _scrollToSection(_customerInsightsSectionKey),
+        ),
       if (isAdmin)
         AppUserDrawerItem(
           icon: Icons.person_add_alt_1_outlined,
@@ -321,6 +419,22 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                           );
                     },
                   ),
+                  if (isSuperAdmin) const SizedBox(height: 12),
+                  if (isSuperAdmin)
+                    KeyedSubtree(
+                      key: _customerInsightsSectionKey,
+                      child: _SuperAdminInsightsSection(
+                        loading: state.insightsLoading,
+                        items: state.customerInsights,
+                        total: state.customerInsightsTotal,
+                        onSearch: (query) async {
+                          await ref
+                              .read(adminControllerProvider.notifier)
+                              .searchCustomerInsights(query);
+                        },
+                        onOpenDetails: _openCustomerInsightDetails,
+                      ),
+                    ),
                   const SizedBox(height: 80),
                 ],
               ),
@@ -353,14 +467,14 @@ class _AnalyticsSection extends StatelessWidget {
   }) {
     return [
       '$label:',
-      'عدد الطلبات: ${metric.ordersCount}',
-      'الطلبات المكتملة: ${metric.deliveredOrdersCount}',
-      'الطلبات الملغية: ${metric.cancelledOrdersCount}',
-      'إجمالي المبيعات: ${formatIqd(metric.totalAmount)}',
-      'رسوم التوصيل: ${formatIqd(metric.deliveryFees)}',
-      'عمولة التطبيق: ${formatIqd(metric.appFees)}',
-      'تقييم الدلفري: ${metric.avgDeliveryRating.toStringAsFixed(1)}',
-      'تقييم المتجر: ${metric.avgMerchantRating.toStringAsFixed(1)}',
+      'Ø¹Ø¯Ø¯ Ø§Ù„Ø·Ù„Ø¨Ø§Øª: ${metric.ordersCount}',
+      'Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ù…ÙƒØªÙ…Ù„Ø©: ${metric.deliveredOrdersCount}',
+      'Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ù…Ù„ØºÙŠØ©: ${metric.cancelledOrdersCount}',
+      'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª: ${formatIqd(metric.totalAmount)}',
+      'Ø±Ø³ÙˆÙ… Ø§Ù„ØªÙˆØµÙŠÙ„: ${formatIqd(metric.deliveryFees)}',
+      'Ø¹Ù…ÙˆÙ„Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚: ${formatIqd(metric.appFees)}',
+      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¯Ù„ÙØ±ÙŠ: ${metric.avgDeliveryRating.toStringAsFixed(1)}',
+      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…ØªØ¬Ø±: ${metric.avgMerchantRating.toStringAsFixed(1)}',
     ];
   }
 
@@ -398,7 +512,7 @@ class _AnalyticsSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'نبض لوحة المتابعة',
+                  'Ù†Ø¨Ø¶ Ù„ÙˆØ­Ø© Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
                 ),
                 const SizedBox(height: 10),
@@ -406,19 +520,19 @@ class _AnalyticsSection extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _KpiStatCard(
-                        title: 'إجمالي الطلبات',
+                        title: 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø·Ù„Ø¨Ø§Øª',
                         value: '${year.ordersCount}',
                         icon: Icons.receipt_long_rounded,
                         tint: const Color(0xFF6EE7FF),
                         onTap: () {
                           onOpenDetails(
-                            title: 'تفاصيل إجمالي الطلبات',
+                            title: 'ØªÙØ§ØµÙŠÙ„ Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø·Ù„Ø¨Ø§Øª',
                             lines: [
-                              ..._periodLines(label: 'اليوم', metric: day),
+                              ..._periodLines(label: 'Ø§Ù„ÙŠÙˆÙ…', metric: day),
                               '',
-                              ..._periodLines(label: 'الشهر', metric: month),
+                              ..._periodLines(label: 'Ø§Ù„Ø´Ù‡Ø±', metric: month),
                               '',
-                              ..._periodLines(label: 'السنة', metric: year),
+                              ..._periodLines(label: 'Ø§Ù„Ø³Ù†Ø©', metric: year),
                             ],
                             reportPeriod: 'year',
                           );
@@ -428,18 +542,18 @@ class _AnalyticsSection extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: _KpiStatCard(
-                        title: 'إجمالي الإيرادات',
+                        title: 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª',
                         value: formatIqd(year.totalAmount),
                         icon: Icons.payments_rounded,
                         tint: const Color(0xFF8BFFC8),
                         onTap: () {
                           onOpenDetails(
-                            title: 'تفاصيل الإيرادات',
+                            title: 'ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª',
                             lines: [
-                              'اليوم: ${formatIqd(day.totalAmount)}',
-                              'الشهر: ${formatIqd(month.totalAmount)}',
-                              'السنة: ${formatIqd(year.totalAmount)}',
-                              'عمولة التطبيق (السنة): ${formatIqd(year.appFees)}',
+                              'Ø§Ù„ÙŠÙˆÙ…: ${formatIqd(day.totalAmount)}',
+                              'Ø§Ù„Ø´Ù‡Ø±: ${formatIqd(month.totalAmount)}',
+                              'Ø§Ù„Ø³Ù†Ø©: ${formatIqd(year.totalAmount)}',
+                              'Ø¹Ù…ÙˆÙ„Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ (Ø§Ù„Ø³Ù†Ø©): ${formatIqd(year.appFees)}',
                             ],
                             reportPeriod: 'year',
                           );
@@ -457,14 +571,14 @@ class _AnalyticsSection extends StatelessWidget {
           children: [
             Expanded(
               child: _KpiStatCard(
-                title: 'طلبات اليوم',
+                title: 'Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙŠÙˆÙ…',
                 value: '${day.ordersCount}',
                 icon: Icons.today_rounded,
                 tint: const Color(0xFF9BD7FF),
                 onTap: () {
                   onOpenDetails(
-                    title: 'تفاصيل طلبات اليوم',
-                    lines: _periodLines(label: 'اليوم', metric: day),
+                    title: 'ØªÙØ§ØµÙŠÙ„ Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙŠÙˆÙ…',
+                    lines: _periodLines(label: 'Ø§Ù„ÙŠÙˆÙ…', metric: day),
                     reportPeriod: 'day',
                   );
                 },
@@ -473,17 +587,17 @@ class _AnalyticsSection extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: _KpiStatCard(
-                title: 'أجور توصيل اليوم',
+                title: 'Ø£Ø¬ÙˆØ± ØªÙˆØµÙŠÙ„ Ø§Ù„ÙŠÙˆÙ…',
                 value: formatIqd(day.deliveryFees),
                 icon: Icons.local_shipping_rounded,
                 tint: const Color(0xFFFFD28F),
                 onTap: () {
                   onOpenDetails(
-                    title: 'تفاصيل أجور التوصيل',
+                    title: 'ØªÙØ§ØµÙŠÙ„ Ø£Ø¬ÙˆØ± Ø§Ù„ØªÙˆØµÙŠÙ„',
                     lines: [
-                      'اليوم: ${formatIqd(day.deliveryFees)}',
-                      'الشهر: ${formatIqd(month.deliveryFees)}',
-                      'السنة: ${formatIqd(year.deliveryFees)}',
+                      'Ø§Ù„ÙŠÙˆÙ…: ${formatIqd(day.deliveryFees)}',
+                      'Ø§Ù„Ø´Ù‡Ø±: ${formatIqd(month.deliveryFees)}',
+                      'Ø§Ù„Ø³Ù†Ø©: ${formatIqd(year.deliveryFees)}',
                     ],
                     reportPeriod: 'day',
                   );
@@ -497,17 +611,17 @@ class _AnalyticsSection extends StatelessWidget {
           children: [
             Expanded(
               child: _KpiStatCard(
-                title: 'عمولة التطبيق اليوم',
+                title: 'Ø¹Ù…ÙˆÙ„Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„ÙŠÙˆÙ…',
                 value: formatIqd(day.appFees),
                 icon: Icons.account_balance_wallet_rounded,
                 tint: const Color(0xFF9EFBA5),
                 onTap: () {
                   onOpenDetails(
-                    title: 'تفاصيل عمولة التطبيق',
+                    title: 'ØªÙØ§ØµÙŠÙ„ Ø¹Ù…ÙˆÙ„Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚',
                     lines: [
-                      'اليوم: ${formatIqd(day.appFees)}',
-                      'الشهر: ${formatIqd(month.appFees)}',
-                      'السنة: ${formatIqd(year.appFees)}',
+                      'Ø§Ù„ÙŠÙˆÙ…: ${formatIqd(day.appFees)}',
+                      'Ø§Ù„Ø´Ù‡Ø±: ${formatIqd(month.appFees)}',
+                      'Ø§Ù„Ø³Ù†Ø©: ${formatIqd(year.appFees)}',
                     ],
                     reportPeriod: 'day',
                   );
@@ -517,22 +631,22 @@ class _AnalyticsSection extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: _KpiStatCard(
-                title: 'متوسط التقييم',
+                title: 'Ù…ØªÙˆØ³Ø· Ø§Ù„ØªÙ‚ÙŠÙŠÙ…',
                 value:
                     '${year.avgDeliveryRating.toStringAsFixed(1)} / ${year.avgMerchantRating.toStringAsFixed(1)}',
                 icon: Icons.star_rounded,
                 tint: const Color(0xFFFFE48D),
                 onTap: () {
                   onOpenDetails(
-                    title: 'تفاصيل التقييم',
+                    title: 'ØªÙØ§ØµÙŠÙ„ Ø§Ù„ØªÙ‚ÙŠÙŠÙ…',
                     lines: [
-                      'تقييم الدلفري - اليوم: ${day.avgDeliveryRating.toStringAsFixed(1)}',
-                      'تقييم الدلفري - الشهر: ${month.avgDeliveryRating.toStringAsFixed(1)}',
-                      'تقييم الدلفري - السنة: ${year.avgDeliveryRating.toStringAsFixed(1)}',
+                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¯Ù„ÙØ±ÙŠ - Ø§Ù„ÙŠÙˆÙ…: ${day.avgDeliveryRating.toStringAsFixed(1)}',
+                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¯Ù„ÙØ±ÙŠ - Ø§Ù„Ø´Ù‡Ø±: ${month.avgDeliveryRating.toStringAsFixed(1)}',
+                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¯Ù„ÙØ±ÙŠ - Ø§Ù„Ø³Ù†Ø©: ${year.avgDeliveryRating.toStringAsFixed(1)}',
                       '',
-                      'تقييم المتجر - اليوم: ${day.avgMerchantRating.toStringAsFixed(1)}',
-                      'تقييم المتجر - الشهر: ${month.avgMerchantRating.toStringAsFixed(1)}',
-                      'تقييم المتجر - السنة: ${year.avgMerchantRating.toStringAsFixed(1)}',
+                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…ØªØ¬Ø± - Ø§Ù„ÙŠÙˆÙ…: ${day.avgMerchantRating.toStringAsFixed(1)}',
+                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…ØªØ¬Ø± - Ø§Ù„Ø´Ù‡Ø±: ${month.avgMerchantRating.toStringAsFixed(1)}',
+                      'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…ØªØ¬Ø± - Ø§Ù„Ø³Ù†Ø©: ${year.avgMerchantRating.toStringAsFixed(1)}',
                     ],
                     reportPeriod: 'year',
                   );
@@ -549,7 +663,7 @@ class _AnalyticsSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'مؤشرات الأداء',
+                  'Ù…Ø¤Ø´Ø±Ø§Øª Ø§Ù„Ø£Ø¯Ø§Ø¡',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                 ),
                 const SizedBox(height: 12),
@@ -557,21 +671,21 @@ class _AnalyticsSection extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _RingIndicator(
-                        label: 'مكتمل',
+                        label: 'Ù…ÙƒØªÙ…Ù„',
                         percent: deliveredRate,
                         color: const Color(0xFF63E9B4),
                       ),
                     ),
                     Expanded(
                       child: _RingIndicator(
-                        label: 'ملغي',
+                        label: 'Ù…Ù„ØºÙŠ',
                         percent: cancelledRate,
                         color: const Color(0xFFFF8AA5),
                       ),
                     ),
                     Expanded(
                       child: _RingIndicator(
-                        label: 'هامش التطبيق',
+                        label: 'Ù‡Ø§Ù…Ø´ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚',
                         percent: appMargin,
                         color: const Color(0xFF7ED7FF),
                       ),
@@ -580,13 +694,13 @@ class _AnalyticsSection extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 _RatingRow(
-                  title: 'تقييم الدلفري',
+                  title: 'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¯Ù„ÙØ±ÙŠ',
                   value: year.avgDeliveryRating / 5,
                   color: const Color(0xFF8DDCFF),
                 ),
                 const SizedBox(height: 8),
                 _RatingRow(
-                  title: 'تقييم المتجر',
+                  title: 'ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…ØªØ¬Ø±',
                   value: year.avgMerchantRating / 5,
                   color: const Color(0xFF9FF1B5),
                 ),
@@ -602,7 +716,7 @@ class _AnalyticsSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'اتجاه الطلبات (يوم / شهر / سنة)',
+                  'Ø§ØªØ¬Ø§Ù‡ Ø§Ù„Ø·Ù„Ø¨Ø§Øª (ÙŠÙˆÙ… / Ø´Ù‡Ø± / Ø³Ù†Ø©)',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                 ),
                 const SizedBox(height: 10),
@@ -631,7 +745,7 @@ class _AnalyticsSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'مخطط الرسوم (التوصيل مقابل التطبيق)',
+                  'Ù…Ø®Ø·Ø· Ø§Ù„Ø±Ø³ÙˆÙ… (Ø§Ù„ØªÙˆØµÙŠÙ„ Ù…Ù‚Ø§Ø¨Ù„ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚)',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                 ),
                 const SizedBox(height: 10),
@@ -651,9 +765,9 @@ class _AnalyticsSection extends StatelessWidget {
                 const SizedBox(height: 8),
                 const Row(
                   children: [
-                    _LegendDot(label: 'رسوم التوصيل', color: Color(0xFF78C9FF)),
+                    _LegendDot(label: 'Ø±Ø³ÙˆÙ… Ø§Ù„ØªÙˆØµÙŠÙ„', color: Color(0xFF78C9FF)),
                     SizedBox(width: 10),
-                    _LegendDot(label: 'رسوم التطبيق', color: Color(0xFF8BF9B9)),
+                    _LegendDot(label: 'Ø±Ø³ÙˆÙ… Ø§Ù„ØªØ·Ø¨ÙŠÙ‚', color: Color(0xFF8BF9B9)),
                   ],
                 ),
               ],
@@ -889,7 +1003,7 @@ class _OrdersTrendPainter extends CustomPainter {
       );
     }
 
-    const labels = ['يوم', 'شهر', 'سنة'];
+    const labels = ['ÙŠÙˆÙ…', 'Ø´Ù‡Ø±', 'Ø³Ù†Ø©'];
     for (var i = 0; i < labels.length; i++) {
       final x =
           chartRect.left +
@@ -961,7 +1075,7 @@ class _FeesBarsPainter extends CustomPainter {
 
     final slotWidth = chartRect.width / groups;
     const barWidth = 12.0;
-    const labels = ['ي', 'ش', 'س'];
+    const labels = ['ÙŠ', 'Ø´', 'Ø³'];
 
     for (var i = 0; i < groups; i++) {
       final xCenter = chartRect.left + (slotWidth * i) + (slotWidth / 2);
@@ -1118,14 +1232,14 @@ class _PendingMerchantsSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'المتاجر بانتظار الموافقة',
+              'Ø§Ù„Ù…ØªØ§Ø¬Ø± Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø©',
               textAlign: TextAlign.right,
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
             ),
             const SizedBox(height: 8),
             if (merchants.isEmpty)
               const Text(
-                'لا توجد متاجر بانتظار الموافقة',
+                'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…ØªØ§Ø¬Ø± Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø©',
                 textAlign: TextAlign.right,
               )
             else
@@ -1136,14 +1250,14 @@ class _PendingMerchantsSection extends StatelessWidget {
                     textDirection: TextDirection.rtl,
                   ),
                   subtitle: Text(
-                    'المالك: ${merchant.ownerName ?? '-'} - ${merchant.ownerPhone ?? ''}',
+                    'Ø§Ù„Ù…Ø§Ù„Ùƒ: ${merchant.ownerName ?? '-'} - ${merchant.ownerPhone ?? ''}',
                     textDirection: TextDirection.rtl,
                   ),
                   trailing: ElevatedButton(
                     onPressed: saving || !canApprove
                         ? null
                         : () => onApprove(merchant.id),
-                    child: const Text('موافقة'),
+                    child: const Text('Ù…ÙˆØ§ÙÙ‚Ø©'),
                   ),
                 );
               }),
@@ -1176,14 +1290,14 @@ class _PendingSettlementsSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'طلبات تسديد المستحقات',
+              'Ø·Ù„Ø¨Ø§Øª ØªØ³Ø¯ÙŠØ¯ Ø§Ù„Ù…Ø³ØªØ­Ù‚Ø§Øª',
               textAlign: TextAlign.right,
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
             ),
             const SizedBox(height: 8),
             if (settlements.isEmpty)
               const Text(
-                'لا توجد طلبات تسديد حالياً',
+                'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª ØªØ³Ø¯ÙŠØ¯ Ø­Ø§Ù„ÙŠØ§Ù‹',
                 textAlign: TextAlign.right,
               )
             else
@@ -1194,14 +1308,14 @@ class _PendingSettlementsSection extends StatelessWidget {
                     textDirection: TextDirection.rtl,
                   ),
                   subtitle: Text(
-                    'صاحب المتجر: ${s.ownerName} - ${s.ownerPhone}',
+                    'ØµØ§Ø­Ø¨ Ø§Ù„Ù…ØªØ¬Ø±: ${s.ownerName} - ${s.ownerPhone}',
                     textDirection: TextDirection.rtl,
                   ),
                   trailing: ElevatedButton(
                     onPressed: saving || !canApprove
                         ? null
                         : () => onApprove(s.id),
-                    child: const Text('مصادقة'),
+                    child: const Text('Ù…ØµØ§Ø¯Ù‚Ø©'),
                   ),
                 );
               }),
@@ -1235,23 +1349,23 @@ class _MerchantsStatusSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'إدارة حالة المتاجر',
+              'Ø¥Ø¯Ø§Ø±Ø© Ø­Ø§Ù„Ø© Ø§Ù„Ù…ØªØ§Ø¬Ø±',
               textAlign: TextAlign.right,
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
             ),
             const SizedBox(height: 8),
             if (merchants.isEmpty)
-              const Text('لا توجد متاجر', textAlign: TextAlign.right)
+              const Text('Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…ØªØ§Ø¬Ø±', textAlign: TextAlign.right)
             else
               ...merchants.take(12).map((merchant) {
-                final statusLabel = merchant.isDisabled ? 'معطل' : 'نشط';
+                final statusLabel = merchant.isDisabled ? 'Ù…Ø¹Ø·Ù„' : 'Ù†Ø´Ø·';
                 return ListTile(
                   title: Text(
                     '${merchant.name} (${merchant.type})',
                     textDirection: TextDirection.rtl,
                   ),
                   subtitle: Text(
-                    'المالك: ${merchant.ownerFullName ?? '-'} - اليوم: ${merchant.todayOrdersCount} طلب - الحالة: $statusLabel',
+                    'Ø§Ù„Ù…Ø§Ù„Ùƒ: ${merchant.ownerFullName ?? '-'} - Ø§Ù„ÙŠÙˆÙ…: ${merchant.todayOrdersCount} Ø·Ù„Ø¨ - Ø§Ù„Ø­Ø§Ù„Ø©: $statusLabel',
                     textDirection: TextDirection.rtl,
                   ),
                   trailing: Switch(
@@ -1266,11 +1380,125 @@ class _MerchantsStatusSection extends StatelessWidget {
               Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  '... +${merchants.length - 12} متجر',
+                  '... +${merchants.length - 12} Ù…ØªØ¬Ø±',
                   textDirection: TextDirection.rtl,
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SuperAdminInsightsSection extends StatefulWidget {
+  final bool loading;
+  final int total;
+  final List<Map<String, dynamic>> items;
+  final Future<void> Function(String query) onSearch;
+  final Future<void> Function(int customerUserId) onOpenDetails;
+
+  const _SuperAdminInsightsSection({
+    required this.loading,
+    required this.total,
+    required this.items,
+    required this.onSearch,
+    required this.onOpenDetails,
+  });
+
+  @override
+  State<_SuperAdminInsightsSection> createState() =>
+      _SuperAdminInsightsSectionState();
+}
+
+class _SuperAdminInsightsSectionState extends State<_SuperAdminInsightsSection> {
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Ù…Ù„ÙØ§Øª Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ø§Ù„Ø°ÙƒÙŠØ©',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                textAlign: TextAlign.right,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡: ${widget.total}',
+                textAlign: TextAlign.right,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchCtrl,
+                      textDirection: TextDirection.rtl,
+                      decoration: const InputDecoration(
+                        hintText: 'Ø§Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù… Ø£Ùˆ Ø§Ù„Ù‡Ø§ØªÙ Ø£Ùˆ Ø§Ù„Ø¨Ù„ÙˆÙƒ',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                      onSubmitted: (value) => widget.onSearch(value),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () => widget.onSearch(_searchCtrl.text),
+                    child: const Text('Ø¨Ø­Ø«'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (widget.loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 14),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (widget.items.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 14),
+                  child: Text(
+                    'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ù„ÙØ§Øª Ù„Ø¹Ø±Ø¶Ù‡Ø§',
+                    textAlign: TextAlign.right,
+                  ),
+                )
+              else
+                ...widget.items.take(20).map((item) {
+                  final userId = (item['id'] is int)
+                      ? item['id'] as int
+                      : int.tryParse('${item['id'] ?? ''}') ?? 0;
+                  return ListTile(
+                    title: Text(
+                      '${item['full_name'] ?? '-'}',
+                      textDirection: TextDirection.rtl,
+                    ),
+                    subtitle: Text(
+                      'Ù‡Ø§ØªÙ: ${item['phone'] ?? '-'} â€¢ Ø·Ù„Ø¨Ø§Øª: ${item['orders_count'] ?? 0} â€¢ ØµØ±Ù: ${item['total_spent'] ?? 0} IQD',
+                      textDirection: TextDirection.rtl,
+                    ),
+                    trailing: TextButton(
+                      onPressed: userId > 0
+                          ? () => widget.onOpenDetails(userId)
+                          : null,
+                      child: const Text('Ø¹Ø±Ø¶'),
+                    ),
+                  );
+                }),
+            ],
+          ),
         ),
       ),
     );
@@ -1308,7 +1536,23 @@ class _CreateUserSheetState extends ConsumerState<_CreateUserSheet> {
   @override
   Widget build(BuildContext context) {
     final saving = ref.watch(adminControllerProvider).saving;
-    final isAdmin = ref.watch(authControllerProvider).isAdmin;
+    final auth = ref.watch(authControllerProvider);
+    final isAdmin = auth.isAdmin;
+    final isSuperAdmin = auth.isSuperAdmin;
+
+    final roleItems = <DropdownMenuItem<String>>[
+      const DropdownMenuItem(value: 'user', child: Text('مستخدم عادي')),
+      const DropdownMenuItem(value: 'owner', child: Text('صاحب متجر')),
+      const DropdownMenuItem(value: 'delivery', child: Text('دلفري')),
+      const DropdownMenuItem(value: 'deputy_admin', child: Text('نائب أدمن')),
+      const DropdownMenuItem(value: 'call_center', child: Text('كول سنتر')),
+      if (isSuperAdmin)
+        const DropdownMenuItem(value: 'admin', child: Text('أدمن')),
+    ];
+
+    if (!isSuperAdmin && selectedRole == 'admin') {
+      selectedRole = 'user';
+    }
 
     return Padding(
       padding: EdgeInsets.only(
@@ -1348,20 +1592,7 @@ class _CreateUserSheetState extends ConsumerState<_CreateUserSheet> {
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 initialValue: selectedRole,
-                items: const [
-                  DropdownMenuItem(value: 'user', child: Text('مستخدم عادي')),
-                  DropdownMenuItem(value: 'owner', child: Text('صاحب متجر')),
-                  DropdownMenuItem(value: 'delivery', child: Text('دلفري')),
-                  DropdownMenuItem(
-                    value: 'deputy_admin',
-                    child: Text('نائب أدمن'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'call_center',
-                    child: Text('كول سنتر'),
-                  ),
-                  DropdownMenuItem(value: 'admin', child: Text('أدمن')),
-                ],
+                items: roleItems,
                 onChanged: (v) => setState(() => selectedRole = v ?? 'user'),
                 decoration: const InputDecoration(labelText: 'الدور'),
               ),

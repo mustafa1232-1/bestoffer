@@ -1,9 +1,12 @@
 import pg from "pg";
+import { env } from "./env.js";
 
 export const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 10,
+  connectionString: env.databaseUrl,
+  max: 20,
   idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
+  ssl: env.isProduction ? { rejectUnauthorized: false } : false,
 });
 
 export async function q(text, params) {
@@ -72,6 +75,32 @@ export async function ensureSchema() {
     await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS image_url TEXT;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+
+    await q(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_app_user_single_super_admin
+      ON app_user ((is_super_admin))
+      WHERE is_super_admin = TRUE;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS analytics_consent_granted BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS analytics_consent_version VARCHAR(32);
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS analytics_consent_granted_at TIMESTAMPTZ;
     `);
 
     await q(`
@@ -594,6 +623,42 @@ export async function ensureSchema() {
       BEFORE UPDATE ON ai_order_draft
       FOR EACH ROW
       EXECUTE FUNCTION set_ai_order_draft_updated_at();
+    `);
+
+    await q(`
+      CREATE TABLE IF NOT EXISTS user_activity_event (
+        id            BIGSERIAL PRIMARY KEY,
+        user_id       BIGINT REFERENCES app_user(id) ON DELETE CASCADE,
+        user_role     TEXT,
+        event_name    VARCHAR(120) NOT NULL,
+        category      VARCHAR(80),
+        action        VARCHAR(80),
+        source        VARCHAR(80),
+        path          TEXT,
+        method        VARCHAR(12),
+        entity_type   VARCHAR(80),
+        entity_id     BIGINT,
+        status_code   INTEGER,
+        metadata      JSONB,
+        ip_address    INET,
+        user_agent    TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_user_activity_event_user_created
+      ON user_activity_event (user_id, created_at DESC);
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_user_activity_event_event_created
+      ON user_activity_event (event_name, created_at DESC);
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_user_activity_event_category_created
+      ON user_activity_event (category, created_at DESC);
     `);
   })();
 

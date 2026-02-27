@@ -18,7 +18,11 @@ export async function createUser(req, res, next) {
       return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
-    const user = await service.createManagedUser(body);
+    const user = await service.createManagedUser(body, {
+      id: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin === true,
+    });
     res.status(201).json({ user });
   } catch (e) {
     next(e);
@@ -37,6 +41,24 @@ export async function availableOwners(req, res, next) {
 export async function analytics(req, res, next) {
   try {
     const out = await service.getAnalytics();
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function customerInsightsList(req, res, next) {
+  try {
+    const out = await service.listCustomerInsights(req.query || {});
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function customerInsightDetails(req, res, next) {
+  try {
+    const out = await service.getCustomerInsightDetails(req.params.customerUserId);
     res.json(out);
   } catch (e) {
     next(e);

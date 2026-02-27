@@ -74,4 +74,25 @@ class AdminApi {
     final response = await dio.get('/api/admin/owners/available');
     return List<dynamic>.from(response.data as List);
   }
+
+  Future<Map<String, dynamic>> customerInsights({
+    String? search,
+    int limit = 30,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/customers/insights',
+      queryParameters: {
+        if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+        'limit': limit,
+        'offset': offset,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> customerInsightDetails(int customerUserId) async {
+    final response = await dio.get('/api/admin/customers/$customerUserId/insights');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
 }

@@ -19,6 +19,8 @@ class AuthRepoImpl implements AuthRepo {
     required String block,
     required String buildingNumber,
     required String apartment,
+    required bool analyticsConsentAccepted,
+    String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? imageFile,
   }) async {
     final normalizedPhone = _normalizeInput(phone);
@@ -31,6 +33,8 @@ class AuthRepoImpl implements AuthRepo {
       'block': block,
       'buildingNumber': buildingNumber,
       'apartment': apartment,
+      'analyticsConsentAccepted': analyticsConsentAccepted,
+      'analyticsConsentVersion': analyticsConsentVersion,
     }, imageFile: imageFile);
 
     await store.saveToken(_readToken(data));
@@ -50,6 +54,8 @@ class AuthRepoImpl implements AuthRepo {
     required String merchantDescription,
     required String merchantPhone,
     required String merchantImageUrl,
+    required bool analyticsConsentAccepted,
+    String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? ownerImageFile,
     LocalImageFile? merchantImageFile,
   }) async {
@@ -70,6 +76,8 @@ class AuthRepoImpl implements AuthRepo {
         'merchantDescription': merchantDescription.trim(),
         'merchantPhone': normalizedMerchantPhone,
         'merchantImageUrl': merchantImageUrl.trim(),
+        'analyticsConsentAccepted': analyticsConsentAccepted,
+        'analyticsConsentVersion': analyticsConsentVersion,
       },
       ownerImageFile: ownerImageFile,
       merchantImageFile: merchantImageFile,
@@ -87,6 +95,8 @@ class AuthRepoImpl implements AuthRepo {
     required String block,
     required String buildingNumber,
     required String apartment,
+    required bool analyticsConsentAccepted,
+    String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? imageFile,
   }) async {
     final normalizedPhone = _normalizeInput(phone);
@@ -99,6 +109,8 @@ class AuthRepoImpl implements AuthRepo {
       'block': block.trim(),
       'buildingNumber': buildingNumber.trim(),
       'apartment': apartment.trim(),
+      'analyticsConsentAccepted': analyticsConsentAccepted,
+      'analyticsConsentVersion': analyticsConsentVersion,
     }, imageFile: imageFile);
 
     await store.saveToken(_readToken(data));

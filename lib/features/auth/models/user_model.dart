@@ -9,6 +9,7 @@ class UserModel {
   final String buildingNumber;
   final String apartment;
   final String? imageUrl;
+  final bool isSuperAdmin;
 
   UserModel({
     required this.id,
@@ -19,6 +20,7 @@ class UserModel {
     required this.buildingNumber,
     required this.apartment,
     required this.imageUrl,
+    required this.isSuperAdmin,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> j) => UserModel(
@@ -30,5 +32,9 @@ class UserModel {
     buildingNumber: parseString(j['building_number'] ?? j['buildingNumber']),
     apartment: parseString(j['apartment']),
     imageUrl: parseNullableString(j['image_url'] ?? j['imageUrl']),
+    isSuperAdmin: parseBool(
+      j['is_super_admin'] ?? j['isSuperAdmin'] ?? j['sa'],
+      fallback: false,
+    ),
   );
 }

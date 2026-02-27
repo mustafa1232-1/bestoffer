@@ -1,6 +1,7 @@
 import { hashPin } from "../../shared/utils/hash.js";
 import { createUser, findUserByPhone } from "../auth/auth.repo.js";
 import * as analyticsRepo from "../analytics/analytics.repo.js";
+import * as behaviorService from "../behavior/behavior.service.js";
 import * as ordersRepo from "../orders/orders.repo.js";
 import * as adminRepo from "./admin.repo.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
@@ -11,6 +12,7 @@ function mapUser(u) {
     fullName: u.full_name,
     phone: u.phone,
     role: u.role,
+    isSuperAdmin: u.is_super_admin === true,
     block: u.block,
     buildingNumber: u.building_number,
     apartment: u.apartment,
@@ -18,7 +20,17 @@ function mapUser(u) {
   };
 }
 
-export async function createManagedUser(dto) {
+export async function createManagedUser(dto, actor = {}) {
+  const requesterId = Number(actor.id || 0);
+  const requesterIsSuperAdmin =
+    actor.isSuperAdmin === true ||
+    (requesterId > 0 && (await adminRepo.isUserSuperAdmin(requesterId)));
+  if (dto.role === "admin" && !requesterIsSuperAdmin) {
+    const err = new Error("FORBIDDEN_SUPER_ADMIN_ONLY");
+    err.status = 403;
+    throw err;
+  }
+
   const exists = await findUserByPhone(dto.phone.trim());
   if (exists) {
     const err = new Error("PHONE_EXISTS");
@@ -36,6 +48,9 @@ export async function createManagedUser(dto) {
     apartment: dto.apartment.trim(),
     imageUrl: dto.imageUrl || null,
     role: dto.role,
+    analyticsConsentGranted: true,
+    analyticsConsentVersion: "admin_created_v1",
+    analyticsConsentGrantedAt: new Date(),
   });
 
   return mapUser(user);
@@ -150,4 +165,12 @@ export async function toggleMerchantDisabled(merchantId, isDisabled, adminUserId
 export async function printOrdersReport(period) {
   const normalizedPeriod = String(period || "day").toLowerCase();
   return ordersRepo.listAdminOrdersForReport(normalizedPeriod);
+}
+
+export async function listCustomerInsights(query) {
+  return behaviorService.listCustomersInsight(query || {});
+}
+
+export async function getCustomerInsightDetails(customerUserId) {
+  return behaviorService.getCustomerFullInsight(Number(customerUserId));
 }

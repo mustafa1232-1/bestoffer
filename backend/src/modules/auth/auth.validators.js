@@ -12,6 +12,13 @@ function normalizeDigits(value) {
     .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
 }
 
+function isExplicitTrue(value) {
+  if (value === true) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
 export function validateRegister(body) {
   const errors = [];
 
@@ -22,6 +29,12 @@ export function validateRegister(body) {
   if (!isNonEmptyString(body.buildingNumber, 20)) errors.push("buildingNumber");
   if (!isNonEmptyString(body.apartment, 20)) errors.push("apartment");
   if (!isOptionalString(body.imageUrl, 1000)) errors.push("imageUrl");
+  if (!isExplicitTrue(body.analyticsConsentAccepted)) {
+    errors.push("analyticsConsentAccepted");
+  }
+  if (!isOptionalString(body.analyticsConsentVersion, 32)) {
+    errors.push("analyticsConsentVersion");
+  }
 
   // PIN: نخليه 4-8 أرقام (تقدر تغير)
   const pinStr = normalizeDigits(body.pin).replace(/[^\d]/g, "");

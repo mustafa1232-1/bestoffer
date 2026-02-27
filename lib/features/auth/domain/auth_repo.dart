@@ -9,6 +9,8 @@ abstract class AuthRepo {
     required String block,
     required String buildingNumber,
     required String apartment,
+    required bool analyticsConsentAccepted,
+    String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? imageFile,
   });
 
@@ -24,6 +26,8 @@ abstract class AuthRepo {
     required String merchantDescription,
     required String merchantPhone,
     required String merchantImageUrl,
+    required bool analyticsConsentAccepted,
+    String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? ownerImageFile,
     LocalImageFile? merchantImageFile,
   });
@@ -35,6 +39,8 @@ abstract class AuthRepo {
     required String block,
     required String buildingNumber,
     required String apartment,
+    required bool analyticsConsentAccepted,
+    String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? imageFile,
   });
 

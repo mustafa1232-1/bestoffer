@@ -2,7 +2,7 @@ import { pool, q } from "../../config/db.js";
 
 export async function findUserByPhone(phone) {
   const r = await q(
-    `SELECT id, full_name, phone, pin_hash, role, block, building_number, apartment, image_url
+    `SELECT id, full_name, phone, pin_hash, role, block, building_number, apartment, image_url, is_super_admin
      FROM app_user
      WHERE regexp_replace(
        translate(
@@ -23,7 +23,7 @@ export async function findUserByPhone(phone) {
 
 export async function findUserByIdWithAuthFields(id) {
   const r = await q(
-    `SELECT id, full_name, phone, pin_hash, role, block, building_number, apartment, image_url
+    `SELECT id, full_name, phone, pin_hash, role, block, building_number, apartment, image_url, is_super_admin
      FROM app_user
      WHERE id = $1
      LIMIT 1`,
@@ -42,13 +42,40 @@ export async function createUser({
   apartment,
   imageUrl = null,
   role = "user",
+  analyticsConsentGranted = false,
+  analyticsConsentVersion = null,
+  analyticsConsentGrantedAt = null,
 }) {
   const r = await q(
     `INSERT INTO app_user
-      (full_name, phone, pin_hash, block, building_number, apartment, image_url, role)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-     RETURNING id, full_name, phone, role, block, building_number, apartment, image_url`,
-    [fullName, phone, pinHash, block, buildingNumber, apartment, imageUrl, role]
+      (
+        full_name,
+        phone,
+        pin_hash,
+        block,
+        building_number,
+        apartment,
+        image_url,
+        role,
+        analytics_consent_granted,
+        analytics_consent_version,
+        analytics_consent_granted_at
+      )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     RETURNING id, full_name, phone, role, block, building_number, apartment, image_url, is_super_admin`,
+    [
+      fullName,
+      phone,
+      pinHash,
+      block,
+      buildingNumber,
+      apartment,
+      imageUrl,
+      role,
+      analyticsConsentGranted === true,
+      analyticsConsentVersion,
+      analyticsConsentGrantedAt,
+    ]
   );
 
   return r.rows[0];
@@ -56,7 +83,7 @@ export async function createUser({
 
 export async function getUserPublicById(id) {
   const r = await q(
-    `SELECT id, full_name, phone, role, block, building_number, apartment, image_url
+    `SELECT id, full_name, phone, role, block, building_number, apartment, image_url, is_super_admin
      FROM app_user
      WHERE id=$1`,
     [id]
@@ -87,7 +114,7 @@ export async function updateUserAccount({ id, phone, pinHash }) {
     `UPDATE app_user
      SET ${fields.join(", ")}
      WHERE id = $${idx}
-     RETURNING id, full_name, phone, role, block, building_number, apartment, image_url`,
+     RETURNING id, full_name, phone, role, block, building_number, apartment, image_url, is_super_admin`,
     values
   );
 

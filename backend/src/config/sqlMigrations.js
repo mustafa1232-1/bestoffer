@@ -1,17 +1,11 @@
 import fs from "fs/promises";
 import path from "path";
 
+import { env } from "./env.js";
 import { pool, q } from "./db.js";
 
 const migrationsDir = path.resolve(process.cwd(), "sql");
 const migrationTable = "schema_migration";
-
-function isEnabledFromEnv() {
-  const value = String(process.env.RUN_SQL_MIGRATIONS || "")
-    .trim()
-    .toLowerCase();
-  return value === "1" || value === "true" || value === "yes";
-}
 
 async function ensureMigrationTable() {
   await q(`
@@ -24,7 +18,7 @@ async function ensureMigrationTable() {
 }
 
 export async function runSqlMigrations({ force = false } = {}) {
-  if (!force && !isEnabledFromEnv()) return;
+  if (!force && !env.runSqlMigrations) return;
 
   await ensureMigrationTable();
 

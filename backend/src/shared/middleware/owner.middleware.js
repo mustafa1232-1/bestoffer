@@ -1,6 +1,4 @@
-export function requireOwner(req, res, next) {
-  if (req.userRole !== "owner") {
-    return res.status(403).json({ message: "FORBIDDEN_OWNER_ONLY" });
-  }
-  next();
-}
+import { requireRoles } from './role.middleware.js';
+
+export const requireOwner = requireRoles('owner', 'FORBIDDEN_OWNER_ONLY');
+

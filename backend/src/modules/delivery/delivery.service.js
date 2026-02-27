@@ -10,6 +10,7 @@ function mapUser(u) {
     fullName: u.full_name,
     phone: u.phone,
     role: u.role,
+    isSuperAdmin: u.is_super_admin === true,
     block: u.block,
     buildingNumber: u.building_number,
     apartment: u.apartment,
@@ -17,7 +18,29 @@ function mapUser(u) {
   };
 }
 
+function normalizeConsentAccepted(value) {
+  if (value === true) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
 export async function registerDelivery(dto) {
+  const analyticsConsentAccepted = normalizeConsentAccepted(
+    dto.analyticsConsentAccepted
+  );
+  const analyticsConsentVersion =
+    typeof dto.analyticsConsentVersion === "string" &&
+    dto.analyticsConsentVersion.trim().length > 0
+      ? dto.analyticsConsentVersion.trim().slice(0, 32)
+      : "analytics_v1";
+
+  if (!analyticsConsentAccepted) {
+    const err = new Error("ANALYTICS_CONSENT_REQUIRED");
+    err.status = 400;
+    throw err;
+  }
+
   const exists = await findUserByPhone(dto.phone.trim());
   if (exists) {
     const err = new Error("PHONE_EXISTS");
@@ -36,11 +59,15 @@ export async function registerDelivery(dto) {
     apartment: dto.apartment.trim(),
     imageUrl: dto.imageUrl || null,
     role: "delivery",
+    analyticsConsentGranted: true,
+    analyticsConsentVersion,
+    analyticsConsentGrantedAt: new Date(),
   });
 
   const token = signAccessToken({
     id: user.id,
     role: user.role || "delivery",
+    isSuperAdmin: user.is_super_admin === true,
   });
 
   return {

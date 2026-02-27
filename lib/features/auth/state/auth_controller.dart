@@ -42,6 +42,19 @@ class AuthState {
 
   bool get isBackoffice => isAdmin || isDeputyAdmin;
 
+  bool get isSuperAdmin {
+    if (user?.isSuperAdmin == true) return true;
+
+    final currentToken = token;
+    if (currentToken == null || currentToken.isEmpty) return false;
+    try {
+      final claims = JwtDecoder.decode(currentToken);
+      return claims['sa'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   String _resolveRole() {
     final roleFromUser = user?.role.toLowerCase();
     if (roleFromUser != null && roleFromUser.isNotEmpty) return roleFromUser;
@@ -114,7 +127,7 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> register(
-    Map<String, String> dto, {
+    Map<String, dynamic> dto, {
     LocalImageFile? imageFile,
   }) async {
     state = state.copyWith(loading: true, error: null);
@@ -129,6 +142,9 @@ class AuthController extends StateNotifier<AuthState> {
             block: dto['block']!.trim(),
             buildingNumber: dto['buildingNumber']!.trim(),
             apartment: dto['apartment']!.trim(),
+            analyticsConsentAccepted: dto['analyticsConsentAccepted'] == true,
+            analyticsConsentVersion:
+                '${dto['analyticsConsentVersion'] ?? 'analytics_v1'}',
             imageFile: imageFile,
           );
 
@@ -142,7 +158,7 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> registerOwner(
-    Map<String, String> dto, {
+    Map<String, dynamic> dto, {
     LocalImageFile? ownerImageFile,
     LocalImageFile? merchantImageFile,
   }) async {
@@ -163,6 +179,9 @@ class AuthController extends StateNotifier<AuthState> {
             merchantDescription: dto['merchantDescription']!.trim(),
             merchantPhone: dto['merchantPhone']!.trim(),
             merchantImageUrl: dto['merchantImageUrl']!.trim(),
+            analyticsConsentAccepted: dto['analyticsConsentAccepted'] == true,
+            analyticsConsentVersion:
+                '${dto['analyticsConsentVersion'] ?? 'analytics_v1'}',
             ownerImageFile: ownerImageFile,
             merchantImageFile: merchantImageFile,
           );
@@ -180,7 +199,7 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> registerDelivery(
-    Map<String, String> dto, {
+    Map<String, dynamic> dto, {
     LocalImageFile? imageFile,
   }) async {
     state = state.copyWith(loading: true, error: null);
@@ -195,6 +214,9 @@ class AuthController extends StateNotifier<AuthState> {
             block: dto['block']!.trim(),
             buildingNumber: dto['buildingNumber']!.trim(),
             apartment: dto['apartment']!.trim(),
+            analyticsConsentAccepted: dto['analyticsConsentAccepted'] == true,
+            analyticsConsentVersion:
+                '${dto['analyticsConsentVersion'] ?? 'analytics_v1'}',
             imageFile: imageFile,
           );
 
@@ -277,6 +299,9 @@ class AuthController extends StateNotifier<AuthState> {
       final map = Map<String, dynamic>.from(data);
       final message = map['message'];
       if (message == 'PHONE_EXISTS') return 'رقم الهاتف مسجل مسبقًا';
+      if (message == 'ANALYTICS_CONSENT_REQUIRED') {
+        return 'يجب الموافقة على سياسة تحسين التجربة قبل إنشاء الحساب';
+      }
       if (message == 'VALIDATION_ERROR') return 'تحقق من صيغة رقم الهاتف وPIN';
       if (message is String && message.isNotEmpty) return message;
     }
@@ -297,6 +322,9 @@ class AuthController extends StateNotifier<AuthState> {
       final map = Map<String, dynamic>.from(data);
       final message = map['message'];
       if (message == 'PHONE_EXISTS') return 'رقم الهاتف مسجل مسبقًا';
+      if (message == 'ANALYTICS_CONSENT_REQUIRED') {
+        return 'يجب الموافقة على سياسة تحسين التجربة قبل إنشاء الحساب';
+      }
       if (message == 'VALIDATION_ERROR') return 'تحقق من صيغة رقم الهاتف وPIN';
       if (message is String && message.isNotEmpty) return message;
     }
@@ -317,6 +345,9 @@ class AuthController extends StateNotifier<AuthState> {
       final map = Map<String, dynamic>.from(data);
       final message = map['message'];
       if (message == 'PHONE_EXISTS') return 'رقم الهاتف مسجل مسبقًا';
+      if (message == 'ANALYTICS_CONSENT_REQUIRED') {
+        return 'يجب الموافقة على سياسة تحسين التجربة قبل إنشاء الحساب';
+      }
       if (message == 'VALIDATION_ERROR') return 'تحقق من صيغة رقم الهاتف وPIN';
       if (message is String && message.isNotEmpty) return message;
     }

@@ -2,12 +2,88 @@ import "dotenv/config";
 import os from "os";
 
 import { app } from "./app.js";
-import { ensureSchema, q } from "./config/db.js";
+import { ensureSchema, pool, q } from "./config/db.js";
+import { env, validateRuntimeEnv } from "./config/env.js";
 import { runSqlMigrations } from "./config/sqlMigrations.js";
 import { hashPin } from "./shared/utils/hash.js";
 
-const port = process.env.PORT || 3000;
-const host = process.env.HOST || "0.0.0.0";
+const port = env.port;
+const host = env.host;
+
+async function ensureSuperAdminAccount() {
+  const superPhone = String(env.superAdminPhone || "").trim();
+  const superPin = String(env.superAdminPin || "").trim();
+  const superName = String(env.superAdminName || "Super Admin").trim();
+
+  if (!/^\d{8,20}$/.test(superPhone) || !/^\d{4,8}$/.test(superPin)) {
+    console.warn("[seed] skipped super admin seeding due to invalid phone/pin.");
+    return;
+  }
+
+  const pinHash = await hashPin(superPin);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `UPDATE app_user
+       SET is_super_admin = FALSE
+       WHERE is_super_admin = TRUE`
+    );
+
+    await client.query(
+      `INSERT INTO app_user
+        (
+          full_name,
+          phone,
+          pin_hash,
+          block,
+          building_number,
+          apartment,
+          role,
+          is_super_admin,
+          analytics_consent_granted,
+          analytics_consent_version,
+          analytics_consent_granted_at
+        )
+       VALUES ($1,$2,$3,'A','1','1','admin',TRUE,TRUE,'system_seed_v1',NOW())
+       ON CONFLICT (phone)
+       DO UPDATE SET
+         full_name = EXCLUDED.full_name,
+         pin_hash = EXCLUDED.pin_hash,
+         role = 'admin',
+         is_super_admin = TRUE,
+         analytics_consent_granted = TRUE,
+         analytics_consent_version = 'system_seed_v1',
+         analytics_consent_granted_at = COALESCE(
+           app_user.analytics_consent_granted_at,
+           NOW()
+         )`,
+      [superName, superPhone, pinHash]
+    );
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  const seeded = await q(
+    `SELECT id
+     FROM app_user
+     WHERE phone = $1
+     LIMIT 1`,
+    [superPhone]
+  );
+
+  const superAdminUserId = seeded.rows[0]?.id;
+  if (superAdminUserId) {
+    console.log(
+      `[seed] Super admin ready -> phone: ${superPhone}, userId: ${superAdminUserId}`
+    );
+  }
+}
 
 async function ensureDevAdmin() {
   if (process.env.NODE_ENV === "production") return;
@@ -42,11 +118,13 @@ async function ensureDevAdmin() {
 }
 
 async function start() {
+  validateRuntimeEnv();
   await runSqlMigrations();
   await ensureSchema();
+  await ensureSuperAdminAccount();
   await ensureDevAdmin();
 
-  app.listen(port, host, () => {
+  const server = app.listen(port, host, () => {
     console.log(`Server running on http://${host}:${port}`);
 
     const ifaces = os.networkInterfaces();
@@ -62,6 +140,9 @@ async function start() {
       console.log(`[net] LAN IPv4: ${ipv4.join(", ")}`);
     }
   });
+
+  server.requestTimeout = env.requestTimeoutMs;
+  server.headersTimeout = env.requestTimeoutMs + 1000;
 }
 
 start().catch((err) => {

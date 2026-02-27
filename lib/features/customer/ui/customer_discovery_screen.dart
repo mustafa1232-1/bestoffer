@@ -10,6 +10,11 @@ import '../../auth/state/auth_controller.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 import '../models/customer_home_prefs.dart';
 import '../state/customer_home_prefs_controller.dart';
+import 'customer_cars_hub_screen.dart';
+import 'customer_electronics_hub_screen.dart';
+import 'customer_food_hub_screen.dart';
+import 'customer_home_shopping_hub_screen.dart';
+import 'customer_main_market_screen.dart';
 import 'customer_personalization_dialog.dart';
 import 'customer_style_hub_screen.dart';
 import '../../merchants/state/merchants_controller.dart';
@@ -99,10 +104,43 @@ class _CustomerDiscoveryScreenState
     ).push(MaterialPageRoute(builder: (_) => const AssistantChatScreen()));
   }
 
-  Future<void> _openStyleHub() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const CustomerStyleHubScreen()));
+  Future<void> _openDiscoveryHub(_DiscoveryHub hub) async {
+    switch (hub.id) {
+      case 'style':
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const CustomerStyleHubScreen()),
+        );
+        return;
+      case 'food':
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const CustomerFoodHubScreen()),
+        );
+        return;
+      case 'home':
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const CustomerHomeShoppingHubScreen(),
+          ),
+        );
+        return;
+      case 'electronics':
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const CustomerElectronicsHubScreen(),
+          ),
+        );
+        return;
+      case 'cars':
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const CustomerCarsHubScreen()),
+        );
+        return;
+      case 'main_market':
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const CustomerMainMarketScreen()),
+        );
+        return;
+    }
   }
 
   Future<void> _bootstrapPersonalizationIfNeeded() async {
@@ -186,11 +224,22 @@ class _CustomerDiscoveryScreenState
   void _onSubmitSearch() {
     final text = _searchQuery.trim();
     if (text.isEmpty) return;
+    final query = text.toLowerCase();
+
+    for (final hub in _discoveryHubs) {
+      final bucket = '${hub.title} ${hub.subtitle} ${hub.tags.join(' ')}'
+          .toLowerCase();
+      if (bucket.contains(query)) {
+        _openDiscoveryHub(hub);
+        return;
+      }
+    }
 
     for (final category in _categories) {
-      if (category.title.contains(text) ||
-          category.seedQuery.contains(text) ||
-          category.tags.any((tag) => tag.contains(text))) {
+      final bucket =
+          '${category.title} ${category.seedQuery} ${category.tags.join(' ')}'
+              .toLowerCase();
+      if (bucket.contains(query)) {
         _openCategory(category);
         return;
       }
@@ -199,102 +248,121 @@ class _CustomerDiscoveryScreenState
     _openSearchResult(query: text, title: 'نتائج "$text"');
   }
 
-  void _applyQuickNeed(_QuickNeed need) {
-    _openSearchResult(type: need.type, query: need.query, title: need.title);
+  List<_DiscoveryHub> _orderedDiscoveryHubs(CustomerHomePrefs prefs) {
+    final regularHubs = _discoveryHubs
+        .where((hub) => hub.id != 'main_market')
+        .toList(growable: false);
+    final mainMarket = _discoveryHubs.firstWhere(
+      (hub) => hub.id == 'main_market',
+    );
+
+    if (!prefs.completed) {
+      return [...regularHubs, mainMarket];
+    }
+
+    final scored = regularHubs
+        .map(
+          (hub) => MapEntry<String, int>(
+            hub.id,
+            _hubScore(
+              hubId: hub.id,
+              audience: prefs.audience,
+              priority: prefs.priority,
+              interests: prefs.interests,
+            ),
+          ),
+        )
+        .toList();
+
+    final preferredIds = scored.where((entry) => entry.value > 0).toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    final visible = preferredIds
+        .map((entry) => regularHubs.firstWhere((hub) => hub.id == entry.key))
+        .toList();
+
+    if (visible.isEmpty) {
+      visible.addAll(regularHubs);
+    }
+
+    final carsHub = regularHubs.firstWhere((hub) => hub.id == 'cars');
+    if (!visible.any((hub) => hub.id == 'cars')) {
+      visible.add(carsHub);
+    }
+
+    return [...visible, mainMarket];
   }
 
-  List<_DiscoveryCategory> _orderedCategories(CustomerHomePrefs prefs) {
-    final sorted = [..._categories];
-    if (!prefs.completed || prefs.interests.isEmpty) {
-      return sorted;
+  int _hubScore({
+    required String hubId,
+    required String audience,
+    required String priority,
+    required List<String> interests,
+  }) {
+    final interestSet = interests.toSet();
+    var score = 0;
+
+    bool hasAny(Iterable<String> keys) =>
+        keys.any((key) => interestSet.contains(key));
+
+    if (hubId == 'style' &&
+        hasAny(const [
+          'women_fashion',
+          'men_fashion',
+          'shoes',
+          'bags',
+          'beauty',
+        ])) {
+      score += 180;
+    }
+    if (hubId == 'food' && hasAny(const ['restaurants', 'sweets', 'coffee'])) {
+      score += 180;
+    }
+    if (hubId == 'home' &&
+        hasAny(const ['markets', 'home', 'kids', 'gifts', 'sports'])) {
+      score += 180;
+    }
+    if (hubId == 'electronics' && interestSet.contains('electronics')) {
+      score += 180;
+    }
+    if (hubId == 'cars' && interestSet.contains('cars')) {
+      score += 180;
     }
 
-    int scoreOf(_DiscoveryCategory category) {
-      final text =
-          '${category.title} ${category.subtitle} ${category.seedQuery} ${category.tags.join(' ')}'
-              .toLowerCase();
-      var score = 0;
-
-      bool containsAny(Iterable<String> terms) =>
-          terms.any((term) => text.contains(term));
-
-      if (prefs.audience == 'women' &&
-          containsAny(const ['نسائي', 'فساتين', 'عبايات'])) {
-        score += 130;
-      }
-      if (prefs.audience == 'men' &&
-          containsAny(const ['رجالي', 'رجال', 'دشاديش'])) {
-        score += 130;
-      }
-      if (prefs.audience == 'family' &&
-          containsAny(const ['أسواق', 'منزل', 'أطفال', 'مطاعم'])) {
-        score += 110;
-      }
-
-      if (prefs.interests.contains('restaurants') &&
-          category.type == 'restaurant') {
-        score += 80;
-      }
-      if (prefs.interests.contains('markets') && category.type == 'market') {
-        score += 80;
-      }
-      if (prefs.interests.contains('sweets') &&
-          containsAny(const ['حلويات', 'كيك', 'معجنات'])) {
-        score += 95;
-      }
-      if (prefs.interests.contains('women_fashion') &&
-          containsAny(const ['نسائي', 'فساتين', 'عبايات', 'اكسسوار'])) {
-        score += 140;
-      }
-      if (prefs.interests.contains('men_fashion') &&
-          containsAny(const ['رجالي', 'رجال', 'دشاديش'])) {
-        score += 140;
-      }
-      if (prefs.interests.contains('shoes') &&
-          containsAny(const ['أحذية', 'حذاء'])) {
-        score += 110;
-      }
-      if (prefs.interests.contains('bags') &&
-          containsAny(const ['شنط', 'حقائب', 'اكسسوار'])) {
-        score += 110;
-      }
-      if (prefs.interests.contains('beauty') &&
-          containsAny(const ['عناية', 'تجميل', 'عطور'])) {
-        score += 100;
-      }
-      if (prefs.interests.contains('electronics') &&
-          containsAny(const ['كهربائيات', 'أجهزة', 'الكترون'])) {
-        score += 100;
-      }
-      if (prefs.interests.contains('home') &&
-          containsAny(const ['منزل', 'مطبخ', 'تنظيف'])) {
-        score += 95;
-      }
-      if (prefs.interests.contains('kids') &&
-          containsAny(const ['أطفال', 'طفل', 'رضع'])) {
-        score += 100;
-      }
-      if (prefs.interests.contains('sports') &&
-          containsAny(const ['رياضة', 'رياضي'])) {
-        score += 90;
-      }
-      if (prefs.interests.contains('coffee') &&
-          containsAny(const ['قهوة', 'مشروبات'])) {
-        score += 90;
-      }
-      if (prefs.interests.contains('gifts') &&
-          containsAny(const ['هدايا', 'ورد'])) {
-        score += 90;
-      }
-      return score;
+    switch (audience) {
+      case 'women':
+      case 'men':
+        if (hubId == 'style') score += 85;
+        break;
+      case 'family':
+        if (hubId == 'food') score += 55;
+        if (hubId == 'home') score += 75;
+        break;
+      default:
+        break;
     }
 
-    sorted.sort((a, b) {
-      final scoreDiff = scoreOf(b).compareTo(scoreOf(a));
-      if (scoreDiff != 0) return scoreDiff;
-      return a.title.compareTo(b.title);
-    });
-    return sorted;
+    switch (priority) {
+      case 'speed':
+        if (hubId == 'food') score += 35;
+        if (hubId == 'home') score += 20;
+        break;
+      case 'price':
+      case 'offers':
+        if (hubId == 'home') score += 35;
+        if (hubId == 'style') score += 20;
+        break;
+      case 'rating':
+        if (hubId == 'food') score += 30;
+        if (hubId == 'style') score += 20;
+        if (hubId == 'electronics') score += 20;
+        if (hubId == 'cars') score += 30;
+        break;
+      default:
+        break;
+    }
+
+    return score;
   }
 
   String _firstName(String? fullName) {
@@ -315,30 +383,30 @@ class _CustomerDiscoveryScreenState
     if (hour >= 5 && hour < 11) {
       return const _TimeGreeting(
         title: 'صباح الخير',
-        tagline: 'شنو تحتاج اليوم؟ اختار بسهولة',
+        tagline: 'يومك بدأ، والسوق بانتظارك لكل احتياجاتك.',
       );
     }
     if (hour >= 11 && hour < 14) {
       return const _TimeGreeting(
         title: 'ظهر الخير',
-        tagline: 'وقت الغدا وصل، اختار وجبتك وكمّل يومك بطعم أحلى',
+        tagline: 'وقت مناسب ترتب مشترياتك وتختار الأفضل بسهولة.',
       );
     }
     if (hour >= 14 && hour < 17) {
       return const _TimeGreeting(
         title: 'عصر الخير',
-        tagline: 'وقت سناك وقهوة، وخلي المزاج أخف وألذ',
+        tagline: 'جدد يومك بعروض متنوعة من المطاعم والأسواق والخدمات.',
       );
     }
     if (hour >= 17 && hour < 19) {
       return const _TimeGreeting(
         title: 'مغرب الخير',
-        tagline: 'للعشا واللِمّة، اختار طلبك وخليه يوصل بسرعة',
+        tagline: 'اختياراتك كلها هنا، من البيت للسيارة وبكل سرعة.',
       );
     }
     return const _TimeGreeting(
       title: 'مساء الخير',
-      tagline: 'مسّيت بالخير، اطلب وارتاح وخلي يومك ينتهي بنكهة حلوة',
+      tagline: 'اختم يومك واطلب اللي تحتاجه من سوق متكامل بلمسة واحدة.',
     );
   }
 
@@ -357,7 +425,7 @@ class _CustomerDiscoveryScreenState
     final homePrefs =
         ref.watch(customerHomePrefsProvider).valueOrNull ??
         CustomerHomePrefs.empty;
-    final personalizedCategories = _orderedCategories(homePrefs);
+    final personalizedHubs = _orderedDiscoveryHubs(homePrefs);
 
     final drawerItems = <AppUserDrawerItem>[
       AppUserDrawerItem(
@@ -486,19 +554,12 @@ class _CustomerDiscoveryScreenState
                   marketsCount: marketsCount,
                 ),
                 const SizedBox(height: 10),
-                _QuickNeedsRail(onTap: _applyQuickNeed),
-                const SizedBox(height: 10),
                 _AdsCarousel(controller: _adController, page: _adPage),
                 const SizedBox(height: 12),
                 _SearchPanel(
                   controller: _searchCtrl,
                   focusNode: _searchFocus,
                   onSubmit: _onSubmitSearch,
-                ),
-                const SizedBox(height: 10),
-                _StyleHubEntryCard(
-                  onTap: _openStyleHub,
-                  audience: homePrefs.audience,
                 ),
                 const SizedBox(height: 14),
                 Text(
@@ -509,24 +570,19 @@ class _CustomerDiscoveryScreenState
                   ),
                 ),
                 const SizedBox(height: 10),
-                GridView.builder(
-                  itemCount: personalizedCategories.length,
+                ListView.separated(
+                  itemCount: personalizedHubs.length,
                   physics: const NeverScrollableScrollPhysics(),
                   shrinkWrap: true,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: 1.06,
-                  ),
                   itemBuilder: (context, index) {
-                    final category = personalizedCategories[index];
-                    return _CategoryCard(
-                      category: category,
+                    final hub = personalizedHubs[index];
+                    return _DiscoveryHubCard(
+                      hub: hub,
                       index: index,
-                      onTap: () => _openCategory(category),
+                      onTap: () => _openDiscoveryHub(hub),
                     );
                   },
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
                 ),
               ],
             ),
@@ -779,110 +835,6 @@ class _FuturePulseItem extends StatelessWidget {
   }
 }
 
-class _QuickNeedsRail extends StatelessWidget {
-  final ValueChanged<_QuickNeed> onTap;
-
-  const _QuickNeedsRail({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          'جاهز بخيارات سريعة',
-          textDirection: TextDirection.rtl,
-          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 44,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemBuilder: (context, index) {
-              final need = _quickNeeds[index];
-              return _QuickNeedChip(need: need, onTap: () => onTap(need));
-            },
-            separatorBuilder: (_, _) => const SizedBox(width: 8),
-            itemCount: _quickNeeds.length,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _QuickNeedChip extends StatefulWidget {
-  final _QuickNeed need;
-  final VoidCallback onTap;
-
-  const _QuickNeedChip({required this.need, required this.onTap});
-
-  @override
-  State<_QuickNeedChip> createState() => _QuickNeedChipState();
-}
-
-class _QuickNeedChipState extends State<_QuickNeedChip>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1150),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final pulse = 0.82 + (_controller.value * 0.18);
-        return InkWell(
-          borderRadius: BorderRadius.circular(999),
-          onTap: widget.onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(999),
-              gradient: LinearGradient(
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-                colors: [
-                  widget.need.color.withValues(alpha: 0.30 + (pulse * 0.18)),
-                  widget.need.color.withValues(alpha: 0.14 + (pulse * 0.10)),
-                ],
-              ),
-              border: Border.all(
-                color: widget.need.color.withValues(alpha: 0.58),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              textDirection: TextDirection.rtl,
-              children: [
-                Icon(widget.need.icon, size: 16),
-                const SizedBox(width: 6),
-                Text(
-                  widget.need.title,
-                  textDirection: TextDirection.rtl,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12.3,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
 class _AdsCarousel extends StatelessWidget {
   final PageController controller;
   final int page;
@@ -1012,77 +964,134 @@ class _SearchPanel extends StatelessWidget {
   }
 }
 
-class _StyleHubEntryCard extends StatelessWidget {
+class _DiscoveryHubCard extends StatefulWidget {
+  final _DiscoveryHub hub;
+  final int index;
   final VoidCallback onTap;
-  final String audience;
 
-  const _StyleHubEntryCard({required this.onTap, required this.audience});
+  const _DiscoveryHubCard({
+    required this.hub,
+    required this.index,
+    required this.onTap,
+  });
+
+  @override
+  State<_DiscoveryHubCard> createState() => _DiscoveryHubCardState();
+}
+
+class _DiscoveryHubCardState extends State<_DiscoveryHubCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: Duration(milliseconds: 1800 + (widget.index * 120)),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final audienceLabel = switch (audience) {
-      'women' => 'مخصص أكثر لاهتمامات النساء',
-      'men' => 'مخصص أكثر لاهتمامات الرجال',
-      'family' => 'مخصص أكثر لاحتياجات العائلة',
-      'mixed' => 'مزيج نسائي ورجالي',
-      _ => 'نسائي + رجالي + تصنيفات فرعية',
-    };
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Ink(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: const LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [Color(0xFF2C5FA0), Color(0xFF223B6E)],
-          ),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            textDirection: TextDirection.rtl,
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.14),
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final t = _controller.value;
+        final lift = math.sin(t * math.pi * 2) * 2.0;
+        final glow = 0.14 + (math.sin(t * math.pi * 2).abs() * 0.20);
+        return Transform.translate(
+          offset: Offset(0, -lift),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: widget.onTap,
+            child: Ink(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                gradient: LinearGradient(
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                  colors: [widget.hub.colorA, widget.hub.colorB],
                 ),
-                child: const Icon(Icons.style_rounded),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                boxShadow: [
+                  BoxShadow(
+                    color: widget.hub.colorA.withValues(alpha: 0.34),
+                    blurRadius: 18,
+                    spreadRadius: 0.8,
+                  ),
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: glow * 0.28),
+                    blurRadius: 20,
+                    spreadRadius: -6,
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    const Text(
-                      'سوق الأزياء',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
+              child: SizedBox(
+                height: 112,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    textDirection: TextDirection.rtl,
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: Colors.white.withValues(alpha: 0.12),
+                        ),
+                        child: Icon(widget.hub.icon, size: 28),
                       ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      audienceLabel,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.86),
-                        fontSize: 12.5,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              widget.hub.title,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 17,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              widget.hub.subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textDirection: TextDirection.rtl,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.90),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 82,
+                        height: 82,
+                        child: _CategoryShowcaseGlyph(
+                          motion: widget.hub.motion,
+                          progress: t,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios_rounded, size: 16),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -1275,6 +1284,11 @@ class _CategoryShowcaseGlyph extends StatelessWidget {
           offset: Offset(0, -2 * math.sin(progress * math.pi * 2)),
           child: const Icon(Icons.local_cafe_rounded, size: 50),
         );
+      case _CategoryMotion.car:
+        return Transform.translate(
+          offset: Offset(math.sin(progress * math.pi * 2) * 6, 0),
+          child: const Icon(Icons.directions_car_rounded, size: 52),
+        );
     }
   }
 }
@@ -1455,6 +1469,28 @@ class _ErrorView extends StatelessWidget {
   }
 }
 
+class _DiscoveryHub {
+  final String id;
+  final String title;
+  final String subtitle;
+  final List<String> tags;
+  final IconData icon;
+  final Color colorA;
+  final Color colorB;
+  final _CategoryMotion motion;
+
+  const _DiscoveryHub({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.tags,
+    required this.icon,
+    required this.colorA,
+    required this.colorB,
+    required this.motion,
+  });
+}
+
 class _DiscoveryCategory {
   final String title;
   final String subtitle;
@@ -1495,23 +1531,17 @@ class _AdBanner {
   });
 }
 
-class _QuickNeed {
-  final String title;
-  final String query;
-  final String? type;
-  final IconData icon;
-  final Color color;
-
-  const _QuickNeed({
-    required this.title,
-    required this.query,
-    required this.type,
-    required this.icon,
-    required this.color,
-  });
+enum _CategoryMotion {
+  forkKnife,
+  meat,
+  cake,
+  bag,
+  bolt,
+  leaf,
+  gift,
+  coffee,
+  car,
 }
-
-enum _CategoryMotion { forkKnife, meat, cake, bag, bolt, leaf, gift, coffee }
 
 const _adBanners = <_AdBanner>[
   _AdBanner(
@@ -1537,48 +1567,77 @@ const _adBanners = <_AdBanner>[
   ),
 ];
 
-const _quickNeeds = <_QuickNeed>[
-  _QuickNeed(
-    title: 'فطور سريع',
-    query: 'فطور',
-    type: 'restaurant',
-    icon: Icons.free_breakfast_rounded,
-    color: Color(0xFF5CC8FF),
+const _discoveryHubs = <_DiscoveryHub>[
+  _DiscoveryHub(
+    id: 'style',
+    title: 'سوق الأزياء',
+    subtitle: 'نسائي ورجالي وأحذية وشنط',
+    tags: ['أزياء', 'نسائي', 'رجالي', 'شنط', 'أحذية', 'عناية'],
+    icon: Icons.style_rounded,
+    colorA: Color(0xFF7A3F8B),
+    colorB: Color(0xFF4A2B64),
+    motion: _CategoryMotion.gift,
   ),
-  _QuickNeed(
-    title: 'غداء عائلي',
-    query: 'غداء',
-    type: 'restaurant',
-    icon: Icons.family_restroom_rounded,
-    color: Color(0xFF7ADBA5),
+  _DiscoveryHub(
+    id: 'food',
+    title: 'الطعام والمشروبات',
+    subtitle: 'مطاعم وحلويات ومعجنات وقهوة',
+    tags: ['مطاعم', 'حلويات', 'معجنات', 'قهوة', 'مشروبات'],
+    icon: Icons.restaurant_menu_rounded,
+    colorA: Color(0xFF234E8A),
+    colorB: Color(0xFF163A66),
+    motion: _CategoryMotion.forkKnife,
   ),
-  _QuickNeed(
-    title: 'مشتريات بيت',
-    query: 'مواد منزلية',
-    type: 'market',
-    icon: Icons.shopping_cart_checkout_rounded,
-    color: Color(0xFFF7B267),
+  _DiscoveryHub(
+    id: 'home',
+    title: 'التسوق المنزلي',
+    subtitle: 'أسواق ولحوم وخضار وتنظيف ومكتبات وهدايا',
+    tags: [
+      'أسواق',
+      'تنظيف',
+      'لحوم',
+      'دواجن',
+      'خضار',
+      'فواكه',
+      'مكتبة',
+      'هدايا',
+      'ورد',
+      'منزل',
+    ],
+    icon: Icons.home_work_rounded,
+    colorA: Color(0xFF2B5C7E),
+    colorB: Color(0xFF1D4160),
+    motion: _CategoryMotion.bag,
   ),
-  _QuickNeed(
-    title: 'حلويات',
-    query: 'حلويات',
-    type: 'restaurant',
-    icon: Icons.cake_rounded,
-    color: Color(0xFFD9A3FF),
+  _DiscoveryHub(
+    id: 'electronics',
+    title: 'التجهيزات الكهربائية',
+    subtitle: 'أجهزة وملحقات وكهربائيات منزلية',
+    tags: ['كهربائيات', 'أجهزة', 'ملحقات', 'هواتف'],
+    icon: Icons.electrical_services_rounded,
+    colorA: Color(0xFF31508C),
+    colorB: Color(0xFF1D2F57),
+    motion: _CategoryMotion.bolt,
   ),
-  _QuickNeed(
-    title: 'خصومات',
-    query: 'خصم',
-    type: null,
-    icon: Icons.discount_rounded,
-    color: Color(0xFFFF8C8C),
+  _DiscoveryHub(
+    id: 'cars',
+    title: 'سوق السيارات',
+    subtitle: 'جديد ومستعمل حسب الشركة والموديل والسنة',
+    tags: ['سيارات', 'مركبات', 'جديد', 'مستعمل', 'موديل', 'سنة الصنع'],
+    icon: Icons.directions_car_rounded,
+    colorA: Color(0xFF2E5D86),
+    colorB: Color(0xFF1D3E5D),
+    motion: _CategoryMotion.car,
   ),
-  _QuickNeed(
-    title: 'قهوة',
-    query: 'قهوة',
-    type: 'restaurant',
-    icon: Icons.local_cafe_rounded,
-    color: Color(0xFFB6A07D),
+  _DiscoveryHub(
+    id: 'main_market',
+    title: 'السوق الرئيسي',
+    subtitle: 'كل الأقسام في مكان واحد',
+    tags: ['السوق', 'كل الأقسام', 'الكل'],
+    icon: Icons.storefront_rounded,
+    colorA: Color(0xFF275A84),
+    colorB: Color(0xFF1A3E5F),
+    motion: _CategoryMotion.coffee,
   ),
 ];
 

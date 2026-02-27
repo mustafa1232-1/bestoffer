@@ -1,4 +1,4 @@
-// ignore_for_file: deprecated_member_use, use_build_context_synchronously
+// ignore_for_file: use_build_context_synchronously
 
 import 'dart:ui';
 
@@ -25,6 +25,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final buildingCtrl = TextEditingController();
   final aptCtrl = TextEditingController();
   LocalImageFile? customerImageFile;
+  bool analyticsConsentAccepted = false;
 
   @override
   void dispose() {
@@ -72,8 +73,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                               Row(
                                 children: [
                                   IconButton(
-                                    onPressed: () =>
-                                        Navigator.of(context).pop(),
+                                    onPressed: () => Navigator.of(context).pop(),
                                     icon: const Icon(
                                       Icons.arrow_back,
                                       color: Colors.white,
@@ -155,9 +155,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 },
                                 onClear: customerImageFile == null
                                     ? null
-                                    : () => setState(
-                                        () => customerImageFile = null,
-                                      ),
+                                    : () => setState(() => customerImageFile = null),
+                              ),
+                              const SizedBox(height: 10),
+                              _ConsentCard(
+                                accepted: analyticsConsentAccepted,
+                                onChanged: (value) {
+                                  setState(() => analyticsConsentAccepted = value);
+                                },
+                                onDetailsTap: () => _showConsentInfo(context),
                               ),
                               const SizedBox(height: 14),
                               if (auth.error != null)
@@ -172,11 +178,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 onPressed: auth.loading
                                     ? null
                                     : () async {
+                                        if (!analyticsConsentAccepted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'يرجى الموافقة على سياسة تحسين التجربة أولاً',
+                                              ),
+                                            ),
+                                          );
+                                          return;
+                                        }
+
                                         FocusScope.of(context).unfocus();
                                         await ref
-                                            .read(
-                                              authControllerProvider.notifier,
-                                            )
+                                            .read(authControllerProvider.notifier)
                                             .register({
                                               'fullName': fullNameCtrl.text,
                                               'phone': phoneCtrl.text,
@@ -185,6 +200,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                               'buildingNumber':
                                                   buildingCtrl.text,
                                               'apartment': aptCtrl.text,
+                                              'analyticsConsentAccepted': true,
+                                              'analyticsConsentVersion':
+                                                  'analytics_v1',
                                             }, imageFile: customerImageFile);
 
                                         if (mounted &&
@@ -212,6 +230,107 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   ),
                 ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showConsentInfo(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: const [
+                Text(
+                  'سياسة تحسين التجربة',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  'نقوم بجمع بيانات استخدامك داخل التطبيق فقط مثل البحث والطلبات والتفضيلات بهدف تحسين الاقتراحات وتجربة الاستخدام.',
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'لا نطلب معلومات حساسة خارج نطاق التطبيق، ولا يتم استخدام البيانات بأي شكل يخرق الخصوصية.',
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'ملف التحليلات الداخلي مخصص لإدارة التطبيق المخولة فقط.',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConsentCard extends StatelessWidget {
+  final bool accepted;
+  final ValueChanged<bool> onChanged;
+  final VoidCallback onDetailsTap;
+
+  const _ConsentCard({
+    required this.accepted,
+    required this.onChanged,
+    required this.onDetailsTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: Colors.white.withOpacity(0.06),
+        border: Border.all(color: Colors.white.withOpacity(0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.privacy_tip_outlined,
+                color: Colors.white70,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'نستخدم نشاطك داخل التطبيق لتحسين الاقتراحات وتجربة الطلب.',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: onDetailsTap,
+                child: const Text('التفاصيل'),
+              ),
+            ],
+          ),
+          CheckboxListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            value: accepted,
+            activeColor: Colors.cyanAccent.shade400,
+            checkColor: Colors.black,
+            onChanged: (value) => onChanged(value == true),
+            title: const Text(
+              'أوافق على جمع بيانات الاستخدام لتحسين تجربتي',
+              style: TextStyle(color: Colors.white, fontSize: 13),
             ),
           ),
         ],
@@ -255,3 +374,4 @@ class _MeshBackground extends StatelessWidget {
     return const SizedBox.expand();
   }
 }
+

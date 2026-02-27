@@ -17,6 +17,13 @@ function isPositiveInt(v) {
   return Number.isInteger(n) && n > 0;
 }
 
+function isExplicitTrue(value) {
+  if (value === true) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
 export function validateOwnerRegister(body) {
   const errors = [];
 
@@ -33,6 +40,8 @@ export function validateOwnerRegister(body) {
   if (!isOptionalString(body.merchantPhone, 20)) errors.push("merchantPhone");
   if (!isOptionalString(body.ownerImageUrl, 1000)) errors.push("ownerImageUrl");
   if (!isOptionalString(body.merchantImageUrl, 1000)) errors.push("merchantImageUrl");
+  if (!isExplicitTrue(body.analyticsConsentAccepted)) errors.push("analyticsConsentAccepted");
+  if (!isOptionalString(body.analyticsConsentVersion, 32)) errors.push("analyticsConsentVersion");
 
   const pinStr = String(body.pin || "");
   if (!/^\d{4,8}$/.test(pinStr)) errors.push("pin_format");

@@ -12,6 +12,8 @@ class RegisterUseCase {
     required String block,
     required String buildingNumber,
     required String apartment,
+    required bool analyticsConsentAccepted,
+    String analyticsConsentVersion = 'analytics_v1',
   }) {
     return repo.register(
       fullName: fullName,
@@ -20,6 +22,8 @@ class RegisterUseCase {
       block: block,
       buildingNumber: buildingNumber,
       apartment: apartment,
+      analyticsConsentAccepted: analyticsConsentAccepted,
+      analyticsConsentVersion: analyticsConsentVersion,
     );
   }
 }

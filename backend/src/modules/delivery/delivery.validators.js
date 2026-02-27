@@ -6,6 +6,13 @@ function isOptionalString(v, max = 1000) {
   return v === undefined || v === null || (typeof v === "string" && v.trim().length <= max);
 }
 
+function isExplicitTrue(value) {
+  if (value === true) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
 export function validateDeliveryRegister(body) {
   const errors = [];
 
@@ -16,6 +23,8 @@ export function validateDeliveryRegister(body) {
   if (!isNonEmptyString(body.buildingNumber, 20)) errors.push("buildingNumber");
   if (!isNonEmptyString(body.apartment, 20)) errors.push("apartment");
   if (!isOptionalString(body.imageUrl, 1000)) errors.push("imageUrl");
+  if (!isExplicitTrue(body.analyticsConsentAccepted)) errors.push("analyticsConsentAccepted");
+  if (!isOptionalString(body.analyticsConsentVersion, 32)) errors.push("analyticsConsentVersion");
 
   const pinStr = String(body.pin || "");
   if (!/^\d{4,8}$/.test(pinStr)) errors.push("pin_format");

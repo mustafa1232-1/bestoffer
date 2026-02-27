@@ -63,3 +63,18 @@ export async function setMerchantDisabled(merchantId, isDisabled) {
   );
   return r.rows[0] || null;
 }
+
+export async function isUserSuperAdmin(userId) {
+  const id = Number(userId);
+  if (!Number.isFinite(id) || id <= 0) return false;
+
+  const r = await q(
+    `SELECT is_super_admin
+     FROM app_user
+     WHERE id = $1
+     LIMIT 1`,
+    [id]
+  );
+
+  return r.rows[0]?.is_super_admin === true;
+}
