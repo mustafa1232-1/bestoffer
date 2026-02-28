@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:bestoffer/features/taxi/data/taxi_route_service.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -13,6 +14,10 @@ import '../data/taxi_api.dart';
 final taxiCaptainApiProvider = Provider<TaxiApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
   return TaxiApi(dio);
+});
+
+final taxiCaptainRouteServiceProvider = Provider<TaxiRouteService>((ref) {
+  return TaxiRouteService();
 });
 
 class TaxiCaptainDashboardScreen extends ConsumerStatefulWidget {
@@ -36,14 +41,19 @@ class _TaxiCaptainDashboardScreenState
   bool _online = true;
   bool _streamConnected = false;
   bool _followMe = true;
+  bool _routeLoading = false;
   int _tab = 0;
   int _tickCounter = 0;
   String _period = 'day';
 
   String? _error;
   DateTime? _lastSync;
+  DateTime? _lastRouteAt;
 
   LatLng? _captainPoint;
+  LatLng? _lastRouteFrom;
+  LatLng? _lastRouteTo;
+  List<LatLng> _routePoints = const [];
   Map<String, dynamic>? _currentRideEnvelope;
   List<Map<String, dynamic>> _nearby = const [];
   Map<String, dynamic>? _dashboard;
@@ -51,6 +61,8 @@ class _TaxiCaptainDashboardScreenState
   Map<String, dynamic>? _subscription;
 
   TaxiApi get _api => ref.read(taxiCaptainApiProvider);
+  TaxiRouteService get _routeService =>
+      ref.read(taxiCaptainRouteServiceProvider);
 
   @override
   void initState() {
@@ -103,7 +115,10 @@ class _TaxiCaptainDashboardScreenState
   Future<void> _tick({bool full = false}) async {
     if (!mounted) return;
     if (_locked && !full) {
-      setState(() => _loading = false);
+      setState(() {
+        _loading = false;
+        _routePoints = const [];
+      });
       return;
     }
 
@@ -141,6 +156,8 @@ class _TaxiCaptainDashboardScreenState
         _mapController.move(_captainPoint!, 16.0);
       }
 
+      await _refreshRoutePolyline();
+
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -159,6 +176,94 @@ class _TaxiCaptainDashboardScreenState
         _loading = false;
         _error = 'تعذر تحديث بيانات الرحلات';
       });
+    }
+  }
+
+  Future<void> _refreshRoutePolyline({bool force = false}) async {
+    final target = _resolveCaptainRouteTarget();
+    if (target == null) {
+      if (_routePoints.isNotEmpty && mounted) {
+        setState(() => _routePoints = const []);
+      }
+      return;
+    }
+
+    final from = target.$1;
+    final to = target.$2;
+    final now = DateTime.now();
+
+    if (!force &&
+        _lastRouteFrom != null &&
+        _lastRouteTo != null &&
+        _lastRouteAt != null) {
+      final movedFrom = _routeService.distanceMeters(_lastRouteFrom!, from);
+      final movedTo = _routeService.distanceMeters(_lastRouteTo!, to);
+      final age = now.difference(_lastRouteAt!);
+      if (movedFrom < 45 && movedTo < 30 && age < const Duration(seconds: 16)) {
+        return;
+      }
+    }
+
+    if (!force && _routeLoading) return;
+
+    if (mounted) {
+      setState(() => _routeLoading = true);
+    } else {
+      _routeLoading = true;
+    }
+
+    try {
+      final points = await _routeService.fetchDrivingRoute(from: from, to: to);
+      if (!mounted) return;
+      setState(() {
+        _routePoints = points;
+        _lastRouteFrom = from;
+        _lastRouteTo = to;
+        _lastRouteAt = now;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _routePoints = [from, to];
+        _lastRouteFrom = from;
+        _lastRouteTo = to;
+        _lastRouteAt = now;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _routeLoading = false);
+      } else {
+        _routeLoading = false;
+      }
+    }
+  }
+
+  (LatLng, LatLng)? _resolveCaptainRouteTarget() {
+    final ride = _ride;
+    if (ride == null || _captainPoint == null) return null;
+
+    final status = _str(ride['status']);
+    final pickup = _latLng(ride['pickup']);
+    final dropoff = _latLng(ride['dropoff']);
+
+    if ((status == 'captain_assigned' || status == 'captain_arriving') &&
+        pickup != null) {
+      return (_captainPoint!, pickup);
+    }
+    if (status == 'ride_started' && dropoff != null) {
+      return (_captainPoint!, dropoff);
+    }
+    return null;
+  }
+
+  Future<void> _openInWaze({
+    required LatLng destination,
+    required String targetLabel,
+  }) async {
+    try {
+      await _routeService.openWazeNavigation(destination);
+    } catch (_) {
+      _snack('تعذر فتح تطبيق الخرائط لـ $targetLabel');
     }
   }
 
@@ -205,6 +310,7 @@ class _TaxiCaptainDashboardScreenState
     setState(() => _online = value);
     if (!value) {
       final p = _captainPoint ?? _center;
+      setState(() => _routePoints = const []);
       await _api.upsertCaptainPresence(
         isOnline: false,
         latitude: p.latitude,
@@ -265,44 +371,58 @@ class _TaxiCaptainDashboardScreenState
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('إرسال عرض'),
-        content: Directionality(
-          textDirection: TextDirection.rtl,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: fareCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'السعر المقترح'),
-              ),
-              TextField(
-                controller: etaCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'وقت الوصول التقديري (دقيقة)',
-                ),
-              ),
-              TextField(
-                controller: noteCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'ملاحظة (اختياري)',
-                ),
-              ),
-            ],
-          ),
+      builder: (dialogContext) => AnimatedPadding(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(dialogContext).bottom,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
+        child: AlertDialog(
+          title: const Text('إرسال عرض'),
+          content: Directionality(
+            textDirection: TextDirection.rtl,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: fareCtrl,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'السعر المقترح',
+                    ),
+                  ),
+                  TextField(
+                    controller: etaCtrl,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'وقت الوصول التقديري (دقيقة)',
+                    ),
+                  ),
+                  TextField(
+                    controller: noteCtrl,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'ملاحظة (اختياري)',
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('إرسال'),
-          ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('إرسال'),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -343,50 +463,66 @@ class _TaxiCaptainDashboardScreenState
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('طلب تعديل البيانات'),
-        content: Directionality(
-          textDirection: TextDirection.rtl,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(labelText: 'الاسم'),
-                ),
-                TextField(
-                  controller: phoneCtrl,
-                  decoration: const InputDecoration(labelText: 'الهاتف'),
-                ),
-                TextField(
-                  controller: carMakeCtrl,
-                  decoration: const InputDecoration(labelText: 'شركة السيارة'),
-                ),
-                TextField(
-                  controller: carModelCtrl,
-                  decoration: const InputDecoration(labelText: 'موديل السيارة'),
-                ),
-                TextField(
-                  controller: noteCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'ملاحظة (اختياري)',
+      builder: (dialogContext) => AnimatedPadding(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(dialogContext).bottom,
+        ),
+        child: AlertDialog(
+          title: const Text('طلب تعديل البيانات'),
+          content: Directionality(
+            textDirection: TextDirection.rtl,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(labelText: 'الاسم'),
                   ),
-                ),
-              ],
+                  TextField(
+                    controller: phoneCtrl,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(labelText: 'الهاتف'),
+                  ),
+                  TextField(
+                    controller: carMakeCtrl,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'شركة السيارة',
+                    ),
+                  ),
+                  TextField(
+                    controller: carModelCtrl,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'موديل السيارة',
+                    ),
+                  ),
+                  TextField(
+                    controller: noteCtrl,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'ملاحظة (اختياري)',
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('إرسال'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('إرسال'),
-          ),
-        ],
       ),
     );
 
@@ -452,6 +588,7 @@ class _TaxiCaptainDashboardScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('واجهة كابتن التكسي'),
         actions: [
@@ -510,6 +647,21 @@ class _TaxiCaptainDashboardScreenState
                   'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
               userAgentPackageName: 'app.bestoffer.bismayah',
             ),
+            if (_routePoints.length >= 2)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _routePoints,
+                    strokeWidth: 7,
+                    color: Colors.black.withValues(alpha: 0.2),
+                  ),
+                  Polyline(
+                    points: _routePoints,
+                    strokeWidth: 4.4,
+                    color: Colors.amberAccent.withValues(alpha: 0.95),
+                  ),
+                ],
+              ),
             MarkerLayer(markers: _markers()),
           ],
         ),
@@ -518,7 +670,7 @@ class _TaxiCaptainDashboardScreenState
           left: 12,
           right: 12,
           bottom: 12,
-          child: _bottomPanel(status),
+          child: SafeArea(child: _bottomPanel(status)),
         ),
       ],
     );
@@ -548,6 +700,15 @@ class _TaxiCaptainDashboardScreenState
                 _streamConnected ? 'تحديث مباشر' : 'إعادة اتصال',
                 style: const TextStyle(color: Colors.white),
               ),
+              if (_routeLoading)
+                const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
               const Spacer(),
               Text(
                 'آخر مزامنة: $last',
@@ -579,18 +740,28 @@ class _TaxiCaptainDashboardScreenState
   }
 
   Widget _bottomPanel(String? status) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.34,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(12),
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final panelHeight = (screenHeight * 0.44).clamp(250.0, 430.0).toDouble();
+    return ConstrainedBox(
+      constraints: BoxConstraints(minHeight: 220, maxHeight: panelHeight),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _locked
+            ? SingleChildScrollView(child: _subscriptionCard(compact: false))
+            : (_ride == null
+                  ? _nearbyPanel()
+                  : SingleChildScrollView(
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      child: _activeRidePanel(status),
+                    )),
       ),
-      child: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _locked
-          ? _subscriptionCard(compact: false)
-          : (_ride == null ? _nearbyPanel() : _activeRidePanel(status)),
     );
   }
 
@@ -625,7 +796,42 @@ class _TaxiCaptainDashboardScreenState
           'الأجرة: ${_money(fare)}',
           style: const TextStyle(color: Colors.greenAccent),
         ),
-        const Spacer(),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: _sending
+                  ? null
+                  : () {
+                      final pickup = _latLng(ride['pickup']);
+                      if (pickup == null) return;
+                      _openInWaze(
+                        destination: pickup,
+                        targetLabel: 'موقع الزبون',
+                      );
+                    },
+              icon: const Icon(Icons.person_pin_circle_rounded),
+              label: const Text('فتح موقع الزبون'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: _sending
+                  ? null
+                  : () {
+                      final dropoff = _latLng(ride['dropoff']);
+                      if (dropoff == null) return;
+                      _openInWaze(
+                        destination: dropoff,
+                        targetLabel: 'نقطة الوصول',
+                      );
+                    },
+              icon: const Icon(Icons.flag_rounded),
+              label: const Text('فتح نقطة الوصول'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
         if (status == 'captain_assigned')
           FilledButton(
             onPressed: _sending ? null : () => _advance('arrive'),

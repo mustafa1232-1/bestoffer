@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bestoffer/features/auth/state/auth_controller.dart';
 import 'package:bestoffer/features/taxi/data/taxi_api.dart';
+import 'package:bestoffer/features/taxi/data/taxi_route_service.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -14,6 +15,10 @@ enum _PointSelectionMode { pickup, dropoff }
 final taxiApiProvider = Provider<TaxiApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
   return TaxiApi(dio);
+});
+
+final taxiRouteServiceProvider = Provider<TaxiRouteService>((ref) {
+  return TaxiRouteService();
 });
 
 class MapPage extends ConsumerStatefulWidget {
@@ -60,12 +65,18 @@ class _MapPageState extends ConsumerState<MapPage> {
   bool _pickupConfirmed = false;
   bool _streamConnected = false;
   bool _canUseTaxiApi = true;
+  bool _routeLoading = false;
   DateTime? _lastRealtimeAt;
+  DateTime? _lastRouteAt;
   String? _error;
   List<_PlaceSuggestion> _pickupSuggestions = const [];
   List<_PlaceSuggestion> _dropoffSuggestions = const [];
+  List<LatLng> _routePoints = const [];
+  LatLng? _lastRouteFrom;
+  LatLng? _lastRouteTo;
 
   TaxiApi get _taxiApi => ref.read(taxiApiProvider);
+  TaxiRouteService get _routeService => ref.read(taxiRouteServiceProvider);
 
   @override
   void initState() {
@@ -157,6 +168,10 @@ class _MapPageState extends ConsumerState<MapPage> {
     final ride = _ride;
     if (ride == null) {
       _captainPoint = null;
+      _routePoints = const [];
+      _lastRouteFrom = null;
+      _lastRouteTo = null;
+      _lastRouteAt = null;
       return;
     }
 
@@ -186,6 +201,8 @@ class _MapPageState extends ConsumerState<MapPage> {
     if (target != null) {
       _mapController.move(target, 15.8);
     }
+
+    _refreshRoutePolyline();
   }
 
   void _connectRealtimeStream() {
@@ -244,6 +261,143 @@ class _MapPageState extends ConsumerState<MapPage> {
     });
   }
 
+  Future<void> _refreshRoutePolyline({bool force = false}) async {
+    final routeTarget = _resolveRouteTarget();
+    if (routeTarget == null) {
+      if (_routePoints.isNotEmpty && mounted) {
+        setState(() => _routePoints = const []);
+      }
+      return;
+    }
+
+    final from = routeTarget.$1;
+    final to = routeTarget.$2;
+    final now = DateTime.now();
+
+    if (!force &&
+        _lastRouteFrom != null &&
+        _lastRouteTo != null &&
+        _lastRouteAt != null) {
+      final movedFrom = _routeService.distanceMeters(_lastRouteFrom!, from);
+      final movedTo = _routeService.distanceMeters(_lastRouteTo!, to);
+      final age = now.difference(_lastRouteAt!);
+      if (movedFrom < 45 && movedTo < 30 && age < const Duration(seconds: 18)) {
+        return;
+      }
+    }
+
+    if (!force && _routeLoading) return;
+
+    if (mounted) {
+      setState(() => _routeLoading = true);
+    } else {
+      _routeLoading = true;
+    }
+
+    try {
+      final points = await _routeService.fetchDrivingRoute(from: from, to: to);
+      if (!mounted) return;
+      setState(() {
+        _routePoints = points;
+        _lastRouteFrom = from;
+        _lastRouteTo = to;
+        _lastRouteAt = now;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _routePoints = [from, to];
+        _lastRouteFrom = from;
+        _lastRouteTo = to;
+        _lastRouteAt = now;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _routeLoading = false);
+      } else {
+        _routeLoading = false;
+      }
+    }
+  }
+
+  (LatLng, LatLng)? _resolveRouteTarget() {
+    final ride = _ride;
+    final status = _string(ride?['status']);
+    final pickup = _pickupPoint;
+    final dropoff = _dropoffPoint;
+    final captain = _captainPoint;
+
+    if (ride != null) {
+      if ((status == 'captain_assigned' || status == 'captain_arriving') &&
+          captain != null &&
+          pickup != null) {
+        return (captain, pickup);
+      }
+      if (status == 'ride_started' && captain != null && dropoff != null) {
+        return (captain, dropoff);
+      }
+      if (pickup != null && dropoff != null) {
+        return (pickup, dropoff);
+      }
+      return null;
+    }
+
+    if (pickup != null && dropoff != null) {
+      return (pickup, dropoff);
+    }
+    return null;
+  }
+
+  Future<void> _reverseGeocodeAndFill({
+    required LatLng point,
+    required bool forPickup,
+  }) async {
+    try {
+      final response =
+          await Dio(
+            BaseOptions(
+              connectTimeout: const Duration(seconds: 8),
+              receiveTimeout: const Duration(seconds: 8),
+              headers: const {
+                'User-Agent': 'BestOfferTaxi/1.0 (support@bestoffer.app)',
+                'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
+              },
+            ),
+          ).get(
+            'https://nominatim.openstreetmap.org/reverse',
+            queryParameters: {
+              'format': 'jsonv2',
+              'lat': point.latitude,
+              'lon': point.longitude,
+              'zoom': 18,
+              'addressdetails': 1,
+            },
+          );
+
+      final data = response.data;
+      if (data is! Map || !mounted) return;
+      final displayName = _string(data['display_name']);
+      if (displayName == null || displayName.isEmpty) return;
+      final short = _shortPlaceLabel(displayName);
+
+      setState(() {
+        if (forPickup) {
+          _pickupLabelController.text = short;
+          if (_pickupSearchController.text.trim().isEmpty) {
+            _pickupSearchController.text = short;
+          }
+        } else {
+          _dropoffLabelController.text = short;
+          if (_dropoffSearchController.text.trim().isEmpty) {
+            _dropoffSearchController.text = short;
+          }
+        }
+      });
+    } catch (_) {
+      // Keep manual labels if reverse geocoding is unavailable.
+    }
+  }
+
   bool _isUnauthorizedStatus(int? statusCode) {
     return statusCode == 401 || statusCode == 403;
   }
@@ -276,7 +430,8 @@ class _MapPageState extends ConsumerState<MapPage> {
       }
 
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.best,
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 12),
       );
 
       final point = LatLng(position.latitude, position.longitude);
@@ -288,10 +443,15 @@ class _MapPageState extends ConsumerState<MapPage> {
             _pickupPoint == null &&
             _activeRideEnvelope == null) {
           _pickupPoint = point;
+          _pickupConfirmed = false;
         }
       });
 
       _mapController.move(point, 16.5);
+      if (setAsPickupIfEmpty && _activeRideEnvelope == null) {
+        unawaited(_reverseGeocodeAndFill(point: point, forPickup: true));
+      }
+      unawaited(_refreshRoutePolyline());
     } catch (_) {
       _showMessage('تعذر تحديد موقعك الحالي');
     } finally {
@@ -353,10 +513,12 @@ class _MapPageState extends ConsumerState<MapPage> {
             queryParameters: {
               'format': 'jsonv2',
               'addressdetails': 1,
+              'dedupe': 1,
+              'polygon_geojson': 0,
               'countrycodes': 'iq',
               'bounded': 1,
               'viewbox': '44.62,33.48,44.15,33.10',
-              'limit': 8,
+              'limit': 10,
               'q': query,
             },
           );
@@ -426,46 +588,48 @@ class _MapPageState extends ConsumerState<MapPage> {
     _PlaceSuggestion place, {
     required bool forPickup,
   }) {
+    final selectedPoint = LatLng(place.latitude, place.longitude);
     setState(() {
       if (forPickup) {
-        _pickupPoint = LatLng(place.latitude, place.longitude);
+        _pickupPoint = selectedPoint;
         _pickupLabelController.text = place.title;
         _pickupSearchController.text = place.title;
         _pickupSuggestions = const [];
         _pickupConfirmed = false;
         _selectionMode = _PointSelectionMode.pickup;
       } else {
-        _dropoffPoint = LatLng(place.latitude, place.longitude);
+        _dropoffPoint = selectedPoint;
         _dropoffLabelController.text = place.title;
         _dropoffSearchController.text = place.title;
         _dropoffSuggestions = const [];
       }
     });
-    _mapController.move(LatLng(place.latitude, place.longitude), 16.4);
+    _mapController.move(selectedPoint, 16.4);
+    unawaited(_refreshRoutePolyline());
   }
 
   void _confirmPickup() {
     if (_pickupPoint == null) {
-      _showMessage('??? ???? ???????? ?????');
+      _showMessage('حدد نقطة الانطلاق أولاً');
       return;
     }
     setState(() {
       _pickupConfirmed = true;
       _selectionMode = _PointSelectionMode.dropoff;
     });
-    _showMessage('?? ????? ???? ????????? ???? ???? ???? ??????');
+    _showMessage('تم تأكيد الانطلاق. الآن حدد نقطة الوصول');
   }
 
   Future<void> _createRide() async {
     if (_submitting) return;
 
     if (_pickupPoint == null || _dropoffPoint == null) {
-      _showMessage('??? ???? ???????? ????? ?????? ?????');
+      _showMessage('حدد نقطة الانطلاق ونقطة الوصول');
       return;
     }
 
     if (!_pickupConfirmed) {
-      _showMessage('??? ???? ???????? ????? ??? ????? ?????');
+      _showMessage('يجب تأكيد نقطة الانطلاق قبل الإرسال');
       return;
     }
 
@@ -530,6 +694,10 @@ class _MapPageState extends ConsumerState<MapPage> {
       await _taxiApi.cancelRide(rideId);
       await _loadCurrentRide(silent: true);
       _captainPoint = null;
+      _routePoints = const [];
+      _lastRouteFrom = null;
+      _lastRouteTo = null;
+      _lastRouteAt = null;
       _showMessage('تم إلغاء الرحلة');
     } on DioException catch (e) {
       setState(() {
@@ -598,12 +766,13 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   void _onMapTap(LatLng point) {
     if (_activeRideEnvelope != null) {
-      _showMessage('لديك رحلة نشطة، لا يمكن تعديل النقاط الآن');
+      _showMessage('لديك رحلة نشطة حالياً، لا يمكن تعديل النقاط الآن');
       return;
     }
 
+    final forPickup = _selectionMode == _PointSelectionMode.pickup;
     setState(() {
-      if (_selectionMode == _PointSelectionMode.pickup) {
+      if (forPickup) {
         _pickupPoint = point;
         _pickupConfirmed = false;
         if (_pickupLabelController.text.trim().isEmpty) {
@@ -616,6 +785,9 @@ class _MapPageState extends ConsumerState<MapPage> {
         }
       }
     });
+
+    unawaited(_reverseGeocodeAndFill(point: point, forPickup: forPickup));
+    unawaited(_refreshRoutePolyline());
   }
 
   Map<String, dynamic>? get _ride {
@@ -759,6 +931,7 @@ class _MapPageState extends ConsumerState<MapPage> {
         rideStatus == 'ride_started';
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('خريطة التكسي الذكية'),
         actions: [
@@ -788,6 +961,21 @@ class _MapPageState extends ConsumerState<MapPage> {
                     'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
                 userAgentPackageName: 'app.bestoffer.bismayah',
               ),
+              if (_routePoints.length >= 2)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _routePoints,
+                      strokeWidth: 7,
+                      color: Colors.black.withValues(alpha: 0.22),
+                    ),
+                    Polyline(
+                      points: _routePoints,
+                      strokeWidth: 4.5,
+                      color: Colors.cyanAccent.withValues(alpha: 0.95),
+                    ),
+                  ],
+                ),
               MarkerLayer(markers: _buildMarkers()),
             ],
           ),
@@ -801,12 +989,21 @@ class _MapPageState extends ConsumerState<MapPage> {
             left: 12,
             right: 12,
             bottom: 12,
-            child: _buildBottomCard(
-              context,
-              ride,
-              rideStatus,
-              rideFare,
-              canCancel,
+            child: SafeArea(
+              child: AnimatedPadding(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: _buildBottomCard(
+                  context,
+                  ride,
+                  rideStatus,
+                  rideFare,
+                  canCancel,
+                ),
+              ),
             ),
           ),
         ],
@@ -942,14 +1139,23 @@ class _MapPageState extends ConsumerState<MapPage> {
           Expanded(
             child: Text(
               _streamConnected
-                  ? 'اتصال لحظي مباشر نشط'
-                  : 'إعادة الاتصال بالبث المباشر...',
+                  ? 'التحديث اللحظي نشط'
+                  : 'جاري إعادة الاتصال بالتحديث المباشر...',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),
             ),
           ),
+          if (_routeLoading)
+            const Padding(
+              padding: EdgeInsets.only(left: 8),
+              child: SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
           if (_lastRealtimeAt != null)
             Text(
               '${_lastRealtimeAt!.hour.toString().padLeft(2, '0')}:${_lastRealtimeAt!.minute.toString().padLeft(2, '0')}',
@@ -972,233 +1178,276 @@ class _MapPageState extends ConsumerState<MapPage> {
         ? Map<String, dynamic>.from(ride['captain'] as Map)
         : null;
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 12,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: _loading
-          ? const SizedBox(
-              height: 130,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          : ride != null
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'رحلة نشطة #${ride['id']}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _rideStatusColor(
-                          rideStatus,
-                          context,
-                        ).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        _rideStatusLabel(rideStatus),
-                        style: TextStyle(
-                          color: _rideStatusColor(rideStatus, context),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'السعر: ${rideFare ?? 0} د.ع',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 4),
-                Text('الانطلاق: ${_string(ride['pickup']?['label']) ?? '-'}'),
-                Text('الوصول: ${_string(ride['dropoff']?['label']) ?? '-'}'),
-                if (captain != null) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.teal.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 20,
-                          backgroundImage:
-                              _string(captain['profileImageUrl']) != null
-                              ? NetworkImage(
-                                  _string(captain['profileImageUrl'])!,
-                                )
-                              : null,
-                          child: _string(captain['profileImageUrl']) == null
-                              ? const Icon(Icons.person_rounded)
-                              : null,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final keyboardOpened = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final maxCardHeight = keyboardOpened
+        ? screenHeight * 0.80
+        : screenHeight * 0.56;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(minHeight: 132, maxHeight: maxCardHeight),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 12,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: _loading
+            ? const SizedBox(
+                height: 130,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            : SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                child: ride != null
+                    ? Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
                             children: [
-                              Text(
-                                _string(captain['fullName']) ?? 'الكابتن',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 13,
+                              Expanded(
+                                child: Text(
+                                  'رحلة نشطة #${ride['id']}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
                                 ),
                               ),
-                              Text(
-                                _string(captain['phone']) ?? '-',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              Text(
-                                '${_string(captain['carMake']) ?? ''} ${_string(captain['carModel']) ?? ''} ${_readInt(captain['carYear']) ?? ''}',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              if (_string(captain['plateNumber']) != null)
-                                Text(
-                                  'اللوحة: ${_string(captain['plateNumber'])}',
-                                  style: const TextStyle(fontSize: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
                                 ),
+                                decoration: BoxDecoration(
+                                  color: _rideStatusColor(
+                                    rideStatus,
+                                    context,
+                                  ).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  _rideStatusLabel(rideStatus),
+                                  style: TextStyle(
+                                    color: _rideStatusColor(
+                                      rideStatus,
+                                      context,
+                                    ),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
-                        ),
-                        if (_string(captain['carImageUrl']) != null)
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.network(
-                              _string(captain['carImageUrl'])!,
-                              width: 56,
-                              height: 56,
-                              fit: BoxFit.cover,
-                            ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'السعر: ${rideFare ?? 0} د.ع',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
-                      ],
-                    ),
-                  ),
-                ],
-                if (rideStatus == 'searching' && bids.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    'عروض الكباتن',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 6),
-                  ...bids.take(3).map((bid) {
-                    final bidId = _readInt(bid['id']);
-                    final bidCaptain = bid['captain'] is Map
-                        ? Map<String, dynamic>.from(bid['captain'] as Map)
-                        : null;
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.blueGrey.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _string(bidCaptain?['fullName']) ?? 'كابتن',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
+                          const SizedBox(height: 4),
+                          Text(
+                            'الانطلاق: ${_string(ride['pickup']?['label']) ?? '-'}',
+                          ),
+                          Text(
+                            'الوصول: ${_string(ride['dropoff']?['label']) ?? '-'}',
+                          ),
+                          if (captain != null) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.teal.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 20,
+                                    backgroundImage:
+                                        _string(captain['profileImageUrl']) !=
+                                            null
+                                        ? NetworkImage(
+                                            _string(
+                                              captain['profileImageUrl'],
+                                            )!,
+                                          )
+                                        : null,
+                                    child:
+                                        _string(captain['profileImageUrl']) ==
+                                            null
+                                        ? const Icon(Icons.person_rounded)
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _string(captain['fullName']) ??
+                                              'الكابتن',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        Text(
+                                          _string(captain['phone']) ?? '-',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                        Text(
+                                          '${_string(captain['carMake']) ?? ''} ${_string(captain['carModel']) ?? ''} ${_readInt(captain['carYear']) ?? ''}',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                        if (_string(captain['plateNumber']) !=
+                                            null)
+                                          Text(
+                                            'اللوحة: ${_string(captain['plateNumber'])}',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (_string(captain['carImageUrl']) != null)
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.network(
+                                        _string(captain['carImageUrl'])!,
+                                        width: 56,
+                                        height: 56,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (rideStatus == 'searching' && bids.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            const Text(
+                              'عروض الكباتن',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 6),
+                            ...bids.take(3).map((bid) {
+                              final bidId = _readInt(bid['id']);
+                              final bidCaptain = bid['captain'] is Map
+                                  ? Map<String, dynamic>.from(
+                                      bid['captain'] as Map,
+                                    )
+                                  : null;
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 6),
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.blueGrey.withValues(
+                                    alpha: 0.08,
+                                  ),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _string(bidCaptain?['fullName']) ??
+                                                'كابتن',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          Text(
+                                            'العرض: ${_readInt(bid['offeredFareIqd']) ?? 0} د.ع',
+                                          ),
+                                          if (_readInt(bid['etaMinutes']) !=
+                                              null)
+                                            Text(
+                                              'وقت الوصول المتوقع: ${_readInt(bid['etaMinutes'])} دقيقة',
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    FilledButton.tonal(
+                                      onPressed: (_submitting || bidId == null)
+                                          ? null
+                                          : () => _acceptBid(bidId),
+                                      child: const Text('قبول العرض'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+                          if (_captainPoint != null) ...[
+                            const SizedBox(height: 6),
+                            const Text(
+                              'يتم تتبع حركة الكابتن مباشرة على الخريطة',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: Colors.teal,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          if (_error != null)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                _error!,
+                                style: const TextStyle(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _submitting
+                                      ? null
+                                      : _createShareToken,
+                                  icon: const Icon(
+                                    Icons.share_location_rounded,
+                                  ),
+                                  label: const Text('مشاركة التتبع'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: _submitting || !canCancel
+                                      ? null
+                                      : _cancelRide,
+                                  icon: const Icon(Icons.cancel_rounded),
+                                  label: Text(
+                                    _submitting ? 'جاري...' : 'إلغاء الرحلة',
                                   ),
                                 ),
-                                Text(
-                                  'عرض: ${_readInt(bid['offeredFareIqd']) ?? 0} د.ع',
-                                ),
-                                if (_readInt(bid['etaMinutes']) != null)
-                                  Text(
-                                    'الوصول المتوقع: ${_readInt(bid['etaMinutes'])} دقيقة',
-                                  ),
-                              ],
-                            ),
-                          ),
-                          FilledButton.tonal(
-                            onPressed: (_submitting || bidId == null)
-                                ? null
-                                : () => _acceptBid(bidId),
-                            child: const Text('قبول العرض'),
+                              ),
+                            ],
                           ),
                         ],
-                      ),
-                    );
-                  }),
-                ],
-                if (_captainPoint != null) ...[
-                  const SizedBox(height: 6),
-                  const Text(
-                    'يتم تتبع حركة الكابتن مباشرة على الخريطة',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.teal,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(
-                        color: Colors.red,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _submitting ? null : _createShareToken,
-                        icon: const Icon(Icons.share_location_rounded),
-                        label: const Text('مشاركة التتبع'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: _submitting || !canCancel
-                            ? null
-                            : _cancelRide,
-                        icon: const Icon(Icons.cancel_rounded),
-                        label: Text(_submitting ? 'جاري...' : 'إلغاء الرحلة'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            )
-          : _buildRideComposer(context),
+                      )
+                    : _buildRideComposer(context),
+              ),
+      ),
     );
   }
 
@@ -1235,6 +1484,7 @@ class _MapPageState extends ConsumerState<MapPage> {
         const SizedBox(height: 10),
         TextField(
           controller: _pickupSearchController,
+          textInputAction: TextInputAction.next,
           onChanged: _onPickupSearchChanged,
           decoration: InputDecoration(
             labelText: 'ابحث عن موقع الانطلاق',
@@ -1269,6 +1519,7 @@ class _MapPageState extends ConsumerState<MapPage> {
         const SizedBox(height: 8),
         TextField(
           controller: _dropoffSearchController,
+          textInputAction: TextInputAction.next,
           onChanged: _onDropoffSearchChanged,
           decoration: InputDecoration(
             labelText: 'ابحث عن نقطة الوصول',
@@ -1293,6 +1544,7 @@ class _MapPageState extends ConsumerState<MapPage> {
         const SizedBox(height: 8),
         TextField(
           controller: _pickupLabelController,
+          textInputAction: TextInputAction.next,
           decoration: const InputDecoration(
             labelText: 'وصف نقطة الانطلاق',
             border: OutlineInputBorder(),
@@ -1301,6 +1553,7 @@ class _MapPageState extends ConsumerState<MapPage> {
         const SizedBox(height: 8),
         TextField(
           controller: _dropoffLabelController,
+          textInputAction: TextInputAction.next,
           decoration: const InputDecoration(
             labelText: 'وصف نقطة الوصول',
             border: OutlineInputBorder(),
@@ -1310,6 +1563,7 @@ class _MapPageState extends ConsumerState<MapPage> {
         TextField(
           controller: _fareController,
           keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
           decoration: const InputDecoration(
             labelText: 'الأجرة المقترحة (د.ع)',
             border: OutlineInputBorder(),
@@ -1319,6 +1573,7 @@ class _MapPageState extends ConsumerState<MapPage> {
         TextField(
           controller: _noteController,
           maxLines: 2,
+          textInputAction: TextInputAction.done,
           decoration: const InputDecoration(
             labelText: 'ملاحظة للكابتن (اختياري)',
             border: OutlineInputBorder(),
