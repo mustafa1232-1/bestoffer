@@ -32,7 +32,23 @@ taxiRouter.post(
   requireCustomer,
   c.acceptBid
 );
+taxiRouter.post(
+  "/rides/:rideId/bids/current/reject",
+  requireCustomer,
+  c.rejectCurrentBid
+);
+taxiRouter.post(
+  "/rides/:rideId/bids/current/counter",
+  requireCustomer,
+  c.counterOfferCurrentBid
+);
 taxiRouter.post("/rides/:rideId/share-token", requireCustomer, c.createShareToken);
+taxiRouter.get("/rides/:rideId/chat", c.listRideChat);
+taxiRouter.post("/rides/:rideId/chat", c.sendRideChat);
+taxiRouter.get("/rides/:rideId/call", c.getRideCallState);
+taxiRouter.post("/rides/:rideId/call/start", c.startRideCall);
+taxiRouter.post("/rides/:rideId/call/signal", c.sendRideCallSignal);
+taxiRouter.post("/rides/:rideId/call/end", c.endRideCall);
 
 taxiRouter.post("/captain/presence", requireDelivery, c.upsertPresence);
 taxiRouter.get(

@@ -8,6 +8,7 @@ import '../../../core/widgets/app_user_drawer.dart';
 import '../../assistant/ui/assistant_chat_screen.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../auth/ui/merchants_list_screen.dart';
+import '../../behavior/data/behavior_api.dart';
 import '../models/customer_home_prefs.dart';
 import '../state/customer_home_prefs_controller.dart';
 import 'customer_cars_hub_screen.dart';
@@ -23,6 +24,7 @@ import '../../orders/state/cart_controller.dart';
 import '../../orders/ui/cart_screen.dart';
 import '../../orders/ui/customer_orders_screen.dart';
 import '../../orders/ui/delivery_addresses_screen.dart';
+import '../../../pages/map_page.dart';
 
 class CustomerDiscoveryScreen extends ConsumerStatefulWidget {
   const CustomerDiscoveryScreen({super.key});
@@ -42,6 +44,22 @@ class _CustomerDiscoveryScreenState
   String _searchQuery = '';
   int _adPage = 0;
   bool _didCheckPersonalization = false;
+
+  Future<void> _trackBehaviorEvent({
+    required String eventName,
+    String? category,
+    String? action,
+    Map<String, dynamic>? metadata,
+  }) async {
+    await ref
+        .read(behaviorApiProvider)
+        .trackEvent(
+          eventName: eventName,
+          category: category,
+          action: action,
+          metadata: metadata,
+        );
+  }
 
   @override
   void initState() {
@@ -104,7 +122,21 @@ class _CustomerDiscoveryScreenState
     ).push(MaterialPageRoute(builder: (_) => const AssistantChatScreen()));
   }
 
+  Future<void> _openMapPage() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const MapPage()));
+  }
+
   Future<void> _openDiscoveryHub(_DiscoveryHub hub) async {
+    await _trackBehaviorEvent(
+      eventName: 'discovery.hub_open',
+      category: 'discovery',
+      action: 'open_hub',
+      metadata: {'hubId': hub.id, 'hubTitle': hub.title},
+    );
+    if (!mounted) return;
+
     switch (hub.id) {
       case 'style':
         await Navigator.of(context).push(
@@ -195,6 +227,18 @@ class _CustomerDiscoveryScreenState
   }
 
   void _openCategory(_DiscoveryCategory category) {
+    unawaited(
+      _trackBehaviorEvent(
+        eventName: 'discovery.category_open',
+        category: 'discovery',
+        action: 'open_category',
+        metadata: {
+          'categoryTitle': category.title,
+          'merchantType': category.type,
+          'seedQuery': category.seedQuery,
+        },
+      ),
+    );
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
@@ -209,6 +253,18 @@ class _CustomerDiscoveryScreenState
 
   void _openSearchResult({String? type, required String query, String? title}) {
     final cleanQuery = query.trim();
+    unawaited(
+      _trackBehaviorEvent(
+        eventName: 'discovery.search_open_result',
+        category: 'discovery',
+        action: 'search',
+        metadata: {
+          'searchQuery': cleanQuery,
+          'merchantType': type,
+          'title': title,
+        },
+      ),
+    );
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
@@ -224,6 +280,14 @@ class _CustomerDiscoveryScreenState
   void _onSubmitSearch() {
     final text = _searchQuery.trim();
     if (text.isEmpty) return;
+    unawaited(
+      _trackBehaviorEvent(
+        eventName: 'discovery.search_submit',
+        category: 'discovery',
+        action: 'search_submit',
+        metadata: {'searchQuery': text},
+      ),
+    );
     final query = text.toLowerCase();
 
     for (final hub in _discoveryHubs) {
@@ -449,6 +513,11 @@ class _CustomerDiscoveryScreenState
         onTap: (_) => _openAssistant(),
       ),
       AppUserDrawerItem(
+        icon: Icons.map_outlined,
+        label: 'الخريطة',
+        onTap: (_) => _openMapPage(),
+      ),
+      AppUserDrawerItem(
         icon: Icons.refresh_rounded,
         label: 'تحديث البيانات',
         onTap: (_) => ref.read(merchantsControllerProvider.notifier).load(),
@@ -546,6 +615,8 @@ class _CustomerDiscoveryScreenState
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
               children: [
                 _HeroWelcomeCard(greeting: timeGreeting),
+                const SizedBox(height: 10),
+                _TaxiServiceSpotlightCard(onTap: _openMapPage),
                 const SizedBox(height: 10),
                 _FuturePulsePanel(
                   openCount: openCount,
@@ -772,6 +843,125 @@ class _FuturePulsePanel extends StatelessWidget {
                 value: '$marketsCount',
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TaxiServiceSpotlightCard extends StatefulWidget {
+  final VoidCallback onTap;
+
+  const _TaxiServiceSpotlightCard({required this.onTap});
+
+  @override
+  State<_TaxiServiceSpotlightCard> createState() =>
+      _TaxiServiceSpotlightCardState();
+}
+
+class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1300),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: const LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [Color(0xFF1D4F82), Color(0xFF144066)],
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        textDirection: TextDirection.rtl,
+        children: [
+          AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              final pulse = 1 + (0.08 * _controller.value);
+              return Transform.scale(
+                scale: pulse,
+                child: Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF3CC6FF).withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.local_taxi_rounded,
+                    color: Color(0xFF5CD7FF),
+                    size: 30,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'تكسي BestOffer',
+                  textDirection: TextDirection.rtl,
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'حدد نقطة الانطلاق والوصول، واختر سعرك، والكباتن القريبين يرسلون عروضهم فورًا.',
+                  textDirection: TextDirection.rtl,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: widget.onTap,
+                  icon: const Icon(Icons.navigation_rounded),
+                  label: const Text('اطلب تكسي الآن'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF59CEFF),
+                    foregroundColor: const Color(0xFF06263A),
+                    textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

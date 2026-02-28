@@ -7,8 +7,14 @@ import {
   validateCaptainProfileEditRequest,
   validateBidId,
   validateCaptainPresence,
+  validateCounterOffer,
   validateCreateBid,
   validateCreateRide,
+  validateRideChatMessage,
+  validateRideChatQuery,
+  validateRideCallEnd,
+  validateRideCallSignal,
+  validateRideCallStateQuery,
   validateHistoryQuery,
   validateLocationUpdate,
   validateNearbyQuery,
@@ -108,6 +114,42 @@ export async function acceptBid(req, res, next) {
       customerUserId: req.userId,
       rideId,
       bidId: bid.value,
+    });
+
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function rejectCurrentBid(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const out = await service.rejectCurrentBid({
+      customerUserId: req.userId,
+      rideId,
+    });
+
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function counterOfferCurrentBid(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateCounterOffer(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.counterOfferCurrentBid({
+      customerUserId: req.userId,
+      rideId,
+      dto: v.value,
     });
 
     return res.json(out);
@@ -238,6 +280,128 @@ export async function createShareToken(req, res, next) {
       rideId,
     });
 
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listRideChat(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateRideChatQuery(req.query || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.listRideChatMessages({
+      rideId,
+      userId: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin,
+      limit: v.value.limit,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function sendRideChat(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateRideChatMessage(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.sendRideChatMessage({
+      rideId,
+      userId: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin,
+      dto: v.value,
+    });
+    return res.status(201).json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getRideCallState(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateRideCallStateQuery(req.query || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.getRideCallState({
+      rideId,
+      userId: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin,
+      signalLimit: v.value.signalLimit,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function startRideCall(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const out = await service.startRideCall({
+      rideId,
+      userId: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin,
+    });
+    return res.status(201).json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function sendRideCallSignal(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateRideCallSignal(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.sendRideCallSignal({
+      rideId,
+      userId: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin,
+      dto: v.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function endRideCall(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateRideCallEnd(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.endRideCall({
+      rideId,
+      userId: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin,
+      dto: v.value,
+    });
     return res.json(out);
   } catch (error) {
     return next(error);

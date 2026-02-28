@@ -5,6 +5,7 @@ import { app } from "./app.js";
 import { ensureSchema, pool, q } from "./config/db.js";
 import { env, validateRuntimeEnv } from "./config/env.js";
 import { runSqlMigrations } from "./config/sqlMigrations.js";
+import { startTaxiLifecycleWorker } from "./modules/taxi/taxi.service.js";
 import { hashPin } from "./shared/utils/hash.js";
 
 const port = env.port;
@@ -123,6 +124,7 @@ async function start() {
   await ensureSchema();
   await ensureSuperAdminAccount();
   await ensureDevAdmin();
+  startTaxiLifecycleWorker();
 
   const server = app.listen(port, host, () => {
     console.log(`Server running on http://${host}:${port}`);

@@ -1,4 +1,4 @@
-import { createNotification } from "../notifications/notifications.repo.js";
+﻿import { createNotification } from "../notifications/notifications.repo.js";
 import { emitToUser } from "../../shared/realtime/live-events.js";
 import { AppError } from "../../shared/utils/errors.js";
 import * as repo from "./taxi.repo.js";
@@ -120,19 +120,129 @@ function ensureRideAccess({ ride, userId, role, isSuperAdmin }) {
   throw new AppError("TAXI_RIDE_FORBIDDEN", { status: 403 });
 }
 
+async function ensureRideChatAccess({ ride, userId, role, isSuperAdmin }) {
+  if (!ride) {
+    throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+  }
+
+  if (isSuperAdmin === true || role === "admin" || role === "deputy_admin") {
+    return { senderRole: "system" };
+  }
+
+  if (role === "user" && ride.customerUserId === Number(userId)) {
+    return { senderRole: "customer" };
+  }
+
+  if (isCaptainRole(role)) {
+    if (ride.assignedCaptainUserId === Number(userId)) {
+      return { senderRole: "captain" };
+    }
+    const isCurrentBidCaptain = await repo.isCaptainCurrentBidOwner({
+      rideId: ride.id,
+      captainUserId: userId,
+    });
+    if (isCurrentBidCaptain) {
+      return { senderRole: "captain" };
+    }
+  }
+
+  throw new AppError("TAXI_RIDE_FORBIDDEN", { status: 403 });
+}
+
 function buildCompactRidePayload(ride) {
   return {
     id: ride.id,
     status: ride.status,
     proposedFareIqd: ride.proposedFareIqd,
     agreedFareIqd: ride.agreedFareIqd,
+    currentBidId: ride.currentBidId,
     pickup: ride.pickup,
     dropoff: ride.dropoff,
     customerUserId: ride.customerUserId,
     assignedCaptainUserId: ride.assignedCaptainUserId,
+    searchPhase: ride.searchPhase,
+    searchRadiusM: ride.searchRadiusM,
     createdAt: ride.createdAt,
     updatedAt: ride.updatedAt,
   };
+}
+
+function sortBidQueueByCreatedAt(bids) {
+  return [...bids].sort((a, b) => {
+    const ta = new Date(a.createdAt || 0).getTime();
+    const tb = new Date(b.createdAt || 0).getTime();
+    if (ta !== tb) return ta - tb;
+    return Number(a.id || 0) - Number(b.id || 0);
+  });
+}
+
+function buildBidQueueMeta({ bids, currentBidId }) {
+  const activeQueue = sortBidQueueByCreatedAt(
+    bids.filter((b) => b.status === "active")
+  );
+  return {
+    currentBidId: currentBidId || null,
+    queueSize: activeQueue.length,
+    queue: activeQueue.map((b, index) => ({
+      bidId: b.id,
+      captainUserId: b.captainUserId,
+      offeredFareIqd: b.offeredFareIqd,
+      etaMinutes: b.etaMinutes ?? null,
+      queuePosition: index + 1,
+      isCurrent: Number(currentBidId) === Number(b.id),
+      counterOfferCount: Number(b.counterOfferCount || 0),
+      lastOfferIqd: b.lastOfferIqd ?? b.offeredFareIqd,
+      lastOfferBy: b.lastOfferBy || "captain",
+    })),
+  };
+}
+
+async function resolveNegotiationCaptainUserId(ride) {
+  if (!ride) return null;
+  if (ride.assignedCaptainUserId) return Number(ride.assignedCaptainUserId);
+  if (!ride.currentBidId) return null;
+  const currentBid = await repo.getRideCurrentBid(ride.id);
+  if (!currentBid) return null;
+  return Number(currentBid.captainUserId);
+}
+
+function buildCallSessionPayload(session) {
+  if (!session) return null;
+  return {
+    id: session.id,
+    rideRequestId: session.rideRequestId,
+    initiatorUserId: session.initiatorUserId,
+    receiverUserId: session.receiverUserId,
+    status: session.status,
+    startedAt: session.startedAt,
+    answeredAt: session.answeredAt,
+    endedAt: session.endedAt,
+    endedByUserId: session.endedByUserId,
+    endReason: session.endReason,
+  };
+}
+
+async function ensureRideCallParticipant({ ride, userId, role, isSuperAdmin }) {
+  const access = await ensureRideChatAccess({ ride, userId, role, isSuperAdmin });
+  if (!["customer", "captain"].includes(access.senderRole)) {
+    throw new AppError("TAXI_CALL_FORBIDDEN", { status: 403 });
+  }
+  return access.senderRole;
+}
+
+async function resolveRideCallPeerUserId({ ride, senderUserId, senderRole }) {
+  if (senderRole === "customer") {
+    const captainId =
+      ride.assignedCaptainUserId || (await resolveNegotiationCaptainUserId(ride));
+    if (!captainId) return null;
+    if (Number(captainId) === Number(senderUserId)) return null;
+    return Number(captainId);
+  }
+  if (senderRole === "captain") {
+    if (Number(ride.customerUserId) === Number(senderUserId)) return null;
+    return Number(ride.customerUserId);
+  }
+  return null;
 }
 
 function queueNotification(payload) {
@@ -493,17 +603,34 @@ export async function getCurrentRideForCustomer(customerUserId) {
   const ride = await repo.getCustomerCurrentRide(customerUserId);
   if (!ride) return null;
 
-  const [bids, latestLocation, events] = await Promise.all([
+  if (ride.status === "searching") {
+    const ensured = await repo.ensureRideCurrentBid(ride.id);
+    if (ensured && Number(ride.currentBidId || 0) !== Number(ensured.id)) {
+      ride.currentBidId = ensured.id;
+    }
+  }
+
+  const [bids, latestLocation, events, chatMessages, callState] = await Promise.all([
     repo.listRideBids(ride.id),
     repo.getLatestRideLocation(ride.id),
     repo.listRideEvents(ride.id, { limit: 60 }),
+    repo.listRideChatMessages(ride.id, { limit: 80 }),
+    repo.getRideCallState(ride.id, { signalLimit: 120 }),
   ]);
+
+  const bidQueue = buildBidQueueMeta({
+    bids,
+    currentBidId: ride.currentBidId,
+  });
 
   return {
     ride,
     bids,
+    bidQueue,
     latestLocation,
     events: [...events].reverse(),
+    chatMessages: [...chatMessages].reverse(),
+    currentCallSession: callState.session,
   };
 }
 
@@ -514,17 +641,27 @@ export async function getCurrentRideForCaptain(captainUserId) {
   const ride = await repo.getCaptainCurrentRide(captainUserId);
   if (!ride) return null;
 
-  const [bids, latestLocation, events] = await Promise.all([
+  const [bids, latestLocation, events, chatMessages, callState] = await Promise.all([
     repo.listRideBids(ride.id),
     repo.getLatestRideLocation(ride.id),
     repo.listRideEvents(ride.id, { limit: 60 }),
+    repo.listRideChatMessages(ride.id, { limit: 80 }),
+    repo.getRideCallState(ride.id, { signalLimit: 120 }),
   ]);
+
+  const bidQueue = buildBidQueueMeta({
+    bids,
+    currentBidId: ride.currentBidId,
+  });
 
   return {
     ride,
     bids,
+    bidQueue,
     latestLocation,
     events: [...events].reverse(),
+    chatMessages: [...chatMessages].reverse(),
+    currentCallSession: callState.session,
   };
 }
 
@@ -534,17 +671,388 @@ export async function getRideDetails({ rideId, userId, role, isSuperAdmin }) {
   const ride = await repo.getRideById(rideId);
   ensureRideAccess({ ride, userId, role, isSuperAdmin });
 
-  const [bids, latestLocation, events] = await Promise.all([
+  const [bids, latestLocation, events, chatMessages, callState] = await Promise.all([
     repo.listRideBids(ride.id),
     repo.getLatestRideLocation(ride.id),
     repo.listRideEvents(ride.id, { limit: 120 }),
+    repo.listRideChatMessages(ride.id, { limit: 120 }),
+    repo.getRideCallState(ride.id, { signalLimit: 200 }),
   ]);
+
+  const bidQueue = buildBidQueueMeta({
+    bids,
+    currentBidId: ride.currentBidId,
+  });
 
   return {
     ride,
     bids,
+    bidQueue,
     latestLocation,
     events: [...events].reverse(),
+    chatMessages: [...chatMessages].reverse(),
+    currentCallSession: callState.session,
+  };
+}
+
+export async function listRideChatMessages({
+  rideId,
+  userId,
+  role,
+  isSuperAdmin,
+  limit = 120,
+}) {
+  const ride = await repo.getRideById(rideId);
+  await ensureRideChatAccess({ ride, userId, role, isSuperAdmin });
+
+  const messages = await repo.listRideChatMessages(ride.id, { limit });
+  return {
+    ride,
+    messages: [...messages].reverse(),
+  };
+}
+
+export async function sendRideChatMessage({
+  rideId,
+  userId,
+  role,
+  isSuperAdmin,
+  dto,
+}) {
+  const ride = await repo.getRideById(rideId);
+  const access = await ensureRideChatAccess({ ride, userId, role, isSuperAdmin });
+  const senderRole = access.senderRole;
+
+  const text = String(dto.messageText || "").trim();
+  if (!text) {
+    throw new AppError("TAXI_CHAT_EMPTY_MESSAGE", { status: 400 });
+  }
+
+  const message = await repo.insertRideChatMessage({
+    rideRequestId: ride.id,
+    senderUserId: userId,
+    senderRole,
+    messageType: "text",
+    messageText: text,
+  });
+
+  await repo.createRideEvent({
+    rideRequestId: ride.id,
+    actorUserId: userId,
+    eventType: "chat_message_sent",
+    message: "تم إرسال رسالة ضمن محادثة الرحلة.",
+    payload: {
+      messageId: message?.id || null,
+      senderRole,
+    },
+  });
+
+  const targetUsers = new Set([Number(ride.customerUserId)]);
+  if (ride.assignedCaptainUserId) {
+    targetUsers.add(Number(ride.assignedCaptainUserId));
+  } else {
+    const currentCaptainUserId = await resolveNegotiationCaptainUserId(ride);
+    if (currentCaptainUserId) targetUsers.add(Number(currentCaptainUserId));
+  }
+
+  for (const targetUserId of targetUsers) {
+    emitToUser(targetUserId, "taxi_chat_update", {
+      eventType: "chat_message",
+      rideId: ride.id,
+      message,
+    });
+  }
+
+  for (const targetUserId of targetUsers) {
+    if (Number(targetUserId) === Number(userId)) continue;
+    queueNotification({
+      userId: Number(targetUserId),
+      type: "taxi.chat.message",
+      title: "رسالة جديدة في رحلة التكسي",
+      body: text.length > 70 ? `${text.slice(0, 70)}...` : text,
+      payload: {
+        rideId: ride.id,
+        messageId: message?.id || null,
+      },
+    });
+  }
+
+  return {
+    rideId: ride.id,
+    message,
+  };
+}
+
+export async function getRideCallState({
+  rideId,
+  userId,
+  role,
+  isSuperAdmin,
+  signalLimit = 160,
+}) {
+  const ride = await repo.getRideById(rideId);
+  await ensureRideCallParticipant({ ride, userId, role, isSuperAdmin });
+
+  const state = await repo.getRideCallState(ride.id, { signalLimit });
+  return {
+    rideId: ride.id,
+    session: state.session,
+    signals: [...(state.signals || [])].reverse(),
+    selfUserId: Number(userId),
+  };
+}
+
+export async function startRideCall({
+  rideId,
+  userId,
+  role,
+  isSuperAdmin,
+}) {
+  const ride = await repo.getRideById(rideId);
+  const senderRole = await ensureRideCallParticipant({
+    ride,
+    userId,
+    role,
+    isSuperAdmin,
+  });
+  const peerUserId = await resolveRideCallPeerUserId({
+    ride,
+    senderUserId: userId,
+    senderRole,
+  });
+  if (!peerUserId) {
+    throw new AppError("TAXI_CALL_PEER_NOT_AVAILABLE", { status: 409 });
+  }
+
+  const active = await repo.getActiveRideCallSession(ride.id);
+  if (
+    active &&
+    [active.initiatorUserId, active.receiverUserId].includes(Number(userId))
+  ) {
+    return {
+      rideId: ride.id,
+      session: buildCallSessionPayload(active),
+      reused: true,
+    };
+  }
+
+  if (active) {
+    await repo.endActiveRideCallByRide({
+      rideId: ride.id,
+      endedByUserId: userId,
+      endReason: "replaced",
+      status: "ended",
+    });
+  }
+
+  const session = await repo.createRideCallSession({
+    rideRequestId: ride.id,
+    initiatorUserId: userId,
+    receiverUserId: peerUserId,
+  });
+
+  const signal = await repo.insertRideCallSignal({
+    callSessionId: session.id,
+    rideRequestId: ride.id,
+    senderUserId: userId,
+    signalType: "ringing",
+    signalPayload: { senderRole },
+  });
+
+  await repo.createRideEvent({
+    rideRequestId: ride.id,
+    actorUserId: userId,
+    eventType: "call_started",
+    message: "بدأ اتصال بين الزبون والكابتن.",
+    payload: {
+      callSessionId: session.id,
+      initiatorUserId: session.initiatorUserId,
+      receiverUserId: session.receiverUserId,
+    },
+  });
+
+  const payload = {
+    eventType: "incoming_call",
+    rideId: ride.id,
+    session: buildCallSessionPayload(session),
+    signal,
+  };
+  emitToUser(peerUserId, "taxi_call_update", payload);
+  emitToUser(userId, "taxi_call_update", {
+    eventType: "outgoing_call",
+    rideId: ride.id,
+    session: buildCallSessionPayload(session),
+    signal,
+  });
+
+  queueNotification({
+    userId: peerUserId,
+    type: "taxi.call.incoming",
+    title: "مكالمة تكسي واردة",
+    body: "لديك مكالمة جديدة داخل التطبيق.",
+    payload: {
+      rideId: ride.id,
+      callSessionId: session.id,
+    },
+  });
+
+  return {
+    rideId: ride.id,
+    session: buildCallSessionPayload(session),
+    reused: false,
+  };
+}
+
+export async function sendRideCallSignal({
+  rideId,
+  userId,
+  role,
+  isSuperAdmin,
+  dto,
+}) {
+  const ride = await repo.getRideById(rideId);
+  await ensureRideCallParticipant({ ride, userId, role, isSuperAdmin });
+
+  let session = dto.sessionId
+    ? await repo.getRideCallSessionById(dto.sessionId)
+    : await repo.getActiveRideCallSession(ride.id);
+  if (!session || Number(session.rideRequestId) !== Number(ride.id)) {
+    throw new AppError("TAXI_CALL_SESSION_NOT_FOUND", { status: 404 });
+  }
+
+  if (
+    ![session.initiatorUserId, session.receiverUserId].includes(Number(userId))
+  ) {
+    throw new AppError("TAXI_CALL_FORBIDDEN", { status: 403 });
+  }
+
+  const signal = await repo.insertRideCallSignal({
+    callSessionId: session.id,
+    rideRequestId: ride.id,
+    senderUserId: userId,
+    signalType: dto.signalType,
+    signalPayload: dto.signalPayload || null,
+  });
+
+  if (dto.signalType === "accept" || dto.signalType === "answer") {
+    const answered = await repo.markRideCallAnswered({
+      sessionId: session.id,
+      answeredByUserId: userId,
+    });
+    if (answered) session = answered;
+  } else if (dto.signalType === "hangup") {
+    const ended = await repo.endRideCallSession({
+      sessionId: session.id,
+      endedByUserId: userId,
+      endReason: "hangup",
+      status: "ended",
+    });
+    if (ended) session = ended;
+  } else if (dto.signalType === "decline") {
+    const ended = await repo.endRideCallSession({
+      sessionId: session.id,
+      endedByUserId: userId,
+      endReason: "decline",
+      status: "declined",
+    });
+    if (ended) session = ended;
+  }
+
+  const peerUserId =
+    Number(session.initiatorUserId) === Number(userId)
+      ? Number(session.receiverUserId)
+      : Number(session.initiatorUserId);
+
+  const updatePayload = {
+    eventType: "call_signal",
+    rideId: ride.id,
+    session: buildCallSessionPayload(session),
+    signal,
+  };
+
+  emitToUser(peerUserId, "taxi_call_update", updatePayload);
+  emitToUser(userId, "taxi_call_update", updatePayload);
+
+  if (dto.signalType === "decline" || dto.signalType === "hangup") {
+    queueNotification({
+      userId: peerUserId,
+      type: "taxi.call.ended",
+      title: dto.signalType === "decline" ? "تم رفض المكالمة" : "انتهت المكالمة",
+      body: dto.signalType === "decline" ? "الطرف الآخر رفض المكالمة." : "تم إنهاء المكالمة.",
+      payload: {
+        rideId: ride.id,
+        callSessionId: session.id,
+      },
+    });
+  }
+
+  return {
+    rideId: ride.id,
+    session: buildCallSessionPayload(session),
+    signal,
+  };
+}
+
+export async function endRideCall({
+  rideId,
+  userId,
+  role,
+  isSuperAdmin,
+  dto,
+}) {
+  const ride = await repo.getRideById(rideId);
+  await ensureRideCallParticipant({ ride, userId, role, isSuperAdmin });
+
+  const active = await repo.getActiveRideCallSession(ride.id);
+  if (!active) {
+    return { rideId: ride.id, session: null, ended: false };
+  }
+
+  if (
+    ![active.initiatorUserId, active.receiverUserId].includes(Number(userId))
+  ) {
+    throw new AppError("TAXI_CALL_FORBIDDEN", { status: 403 });
+  }
+
+  const ended = await repo.endRideCallSession({
+    sessionId: active.id,
+    endedByUserId: userId,
+    endReason: dto?.reason || "hangup",
+    status: dto?.status || "ended",
+  });
+
+  const signalType =
+    (dto?.status || "").toLowerCase() === "declined" ? "decline" : "hangup";
+  const signal = await repo.insertRideCallSignal({
+    callSessionId: active.id,
+    rideRequestId: ride.id,
+    senderUserId: userId,
+    signalType,
+    signalPayload: {
+      reason: dto?.reason || null,
+      status: dto?.status || "ended",
+    },
+  });
+
+  const peerUserId =
+    Number(active.initiatorUserId) === Number(userId)
+      ? Number(active.receiverUserId)
+      : Number(active.initiatorUserId);
+
+  const payload = {
+    eventType: "call_ended",
+    rideId: ride.id,
+    session: buildCallSessionPayload(ended || active),
+    signal,
+  };
+  emitToUser(peerUserId, "taxi_call_update", payload);
+  emitToUser(userId, "taxi_call_update", payload);
+
+  return {
+    rideId: ride.id,
+    session: buildCallSessionPayload(ended || active),
+    signal,
+    ended: true,
   };
 }
 
@@ -624,43 +1132,89 @@ export async function submitBid({ captainUserId, rideId, dto }) {
     note: dto.note,
   });
 
+  const refreshedRide = await repo.getRideById(ride.id);
+  const bids = await repo.listRideBids(ride.id);
+  const bidQueue = buildBidQueueMeta({
+    bids,
+    currentBidId: refreshedRide?.currentBidId,
+  });
+  const myQueueItem = bidQueue.queue.find(
+    (entry) => Number(entry.bidId) === Number(bid.id)
+  );
+  const isCurrentBid = myQueueItem?.isCurrent === true;
+
   await repo.createRideEvent({
     rideRequestId: ride.id,
     actorUserId: captainUserId,
-    eventType: "bid_submitted",
-    message: "تم إرسال عرض من كابتن.",
+    eventType: isCurrentBid ? "bid_submitted_current" : "bid_submitted_waiting",
+    message: isCurrentBid
+      ? "وصل عرض كابتن وبدأت المفاوضة."
+      : "وصل عرض كابتن وأضيف إلى قائمة الانتظار.",
     payload: {
       bidId: bid.id,
       offeredFareIqd: bid.offeredFareIqd,
       etaMinutes: bid.etaMinutes,
+      queuePosition: myQueueItem?.queuePosition ?? null,
+      queueSize: bidQueue.queueSize,
+      isCurrentBid,
     },
   });
 
   emitToUser(ride.customerUserId, "taxi_bid_update", {
-    eventType: "bid_submitted",
+    eventType: isCurrentBid ? "bid_submitted_current" : "bid_submitted_waiting",
     rideId: ride.id,
     bid,
+    bidQueue,
+    isCurrentBid,
   });
 
   queueNotification({
     userId: ride.customerUserId,
     type: "taxi.bid.submitted",
-    title: "وصل عرض جديد على طلبك",
+    title: isCurrentBid
+      ? "وصل عرض جديد وجاهز للتفاوض"
+      : "وصل عرض جديد ضمن قائمة الانتظار",
     body: `عرض ${bid.offeredFareIqd} د.ع`,
     payload: {
       rideId: ride.id,
       bidId: bid.id,
       offeredFareIqd: bid.offeredFareIqd,
       etaMinutes: bid.etaMinutes,
+      queuePosition: myQueueItem?.queuePosition ?? null,
+      queueSize: bidQueue.queueSize,
+      isCurrentBid,
     },
   });
+
+  if (!isCurrentBid) {
+    queueNotification({
+      userId: captainUserId,
+      type: "taxi.bid.waiting_queue",
+      title: "تم إرسال عرضك",
+      body: `أنت في قائمة الانتظار (${myQueueItem?.queuePosition ?? "-"} من ${bidQueue.queueSize})`,
+      payload: {
+        rideId: ride.id,
+        bidId: bid.id,
+        queuePosition: myQueueItem?.queuePosition ?? null,
+        queueSize: bidQueue.queueSize,
+      },
+    });
+  } else {
+    emitToUser(captainUserId, "taxi_bid_update", {
+      eventType: "you_are_current_bid",
+      rideId: ride.id,
+      bid,
+      bidQueue,
+    });
+  }
 
   return {
     rideId: ride.id,
     bid,
+    bidQueue,
+    isCurrentBid,
   };
 }
-
 export async function acceptBid({ customerUserId, rideId, bidId }) {
   const result = await repo.acceptRideBid({
     rideId,
@@ -730,9 +1284,248 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
   }
   queueNotifications(rejectionPayloads);
 
+  const bids = await repo.listRideBids(ride.id);
   return {
     ride,
-    bids: await repo.listRideBids(ride.id),
+    bids,
+    bidQueue: buildBidQueueMeta({
+      bids,
+      currentBidId: ride.currentBidId,
+    }),
+  };
+}
+
+export async function rejectCurrentBid({ customerUserId, rideId }) {
+  const result = await repo.rejectCurrentRideBidByCustomer({
+    rideId,
+    customerUserId,
+  });
+
+  if (result.code === "RIDE_NOT_FOUND") {
+    throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+  }
+  if (result.code === "RIDE_NOT_ACCEPTING_BIDS") {
+    throw new AppError("TAXI_RIDE_NOT_ACCEPTING_BIDS", { status: 409 });
+  }
+  if (result.code === "NO_ACTIVE_BID") {
+    throw new AppError("TAXI_NO_ACTIVE_BID", { status: 409 });
+  }
+
+  const ride = result.ride;
+  const bids = await repo.listRideBids(ride.id);
+  const bidQueue = buildBidQueueMeta({
+    bids,
+    currentBidId: ride.currentBidId,
+  });
+
+  await repo.createRideEvent({
+    rideRequestId: ride.id,
+    actorUserId: customerUserId,
+    eventType: "bid_rejected_by_customer",
+    message: "رفض الزبون العرض الحالي وانتقل العرض التالي.",
+    payload: {
+      rejectedBidId: result.rejectedBid?.id || null,
+      nextBidId: result.nextBid?.id || null,
+      currentBidId: ride.currentBidId || null,
+    },
+  });
+
+  if (result.rejectedBid?.captainUserId) {
+    emitToUser(result.rejectedBid.captainUserId, "taxi_bid_update", {
+      eventType: "bid_rejected_by_customer",
+      rideId: ride.id,
+      bidId: result.rejectedBid.id,
+    });
+    queueNotification({
+      userId: result.rejectedBid.captainUserId,
+      type: "taxi.bid.rejected_by_customer",
+      title: "الزبون رفض عرضك",
+      body: "تم تحويل الطلب إلى كابتن آخر في قائمة الانتظار.",
+      payload: {
+        rideId: ride.id,
+        bidId: result.rejectedBid.id,
+      },
+    });
+  }
+
+  if (result.nextBid?.captainUserId) {
+    emitToUser(result.nextBid.captainUserId, "taxi_bid_update", {
+      eventType: "you_are_current_bid",
+      rideId: ride.id,
+      bidId: result.nextBid.id,
+      bidQueue,
+    });
+    queueNotification({
+      userId: result.nextBid.captainUserId,
+      type: "taxi.bid.turn_started",
+      title: "دورك الآن للتفاوض",
+      body: "أنت الآن الكابتن النشط لهذا الطلب.",
+      payload: {
+        rideId: ride.id,
+        bidId: result.nextBid.id,
+      },
+    });
+  } else {
+    queueNotification({
+      userId: ride.customerUserId,
+      type: "taxi.bid.none_after_reject",
+      title: "لا توجد عروض حالية بعد الرفض",
+      body: "سنستمر بإرسال الطلب للكباتن القريبين تلقائياً.",
+      payload: { rideId: ride.id },
+    });
+  }
+
+  emitToUser(ride.customerUserId, "taxi_bid_update", {
+    eventType: "bid_rejected_by_customer",
+    rideId: ride.id,
+    bidQueue,
+  });
+
+  return {
+    ride,
+    bids,
+    bidQueue,
+    switchedToNext: !!result.nextBid,
+  };
+}
+
+export async function counterOfferCurrentBid({
+  customerUserId,
+  rideId,
+  dto,
+}) {
+  const result = await repo.counterOfferCurrentRideBidByCustomer({
+    rideId,
+    customerUserId,
+    offeredFareIqd: dto.offeredFareIqd,
+    note: dto.note,
+  });
+
+  if (result.code === "RIDE_NOT_FOUND") {
+    throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+  }
+  if (result.code === "RIDE_NOT_ACCEPTING_BIDS") {
+    throw new AppError("TAXI_RIDE_NOT_ACCEPTING_BIDS", { status: 409 });
+  }
+  if (result.code === "NO_ACTIVE_BID") {
+    throw new AppError("TAXI_NO_ACTIVE_BID", { status: 409 });
+  }
+
+  const ride = result.ride;
+  const bids = await repo.listRideBids(ride.id);
+  const bidQueue = buildBidQueueMeta({
+    bids,
+    currentBidId: ride.currentBidId,
+  });
+  const previousCaptainUserId = Number(
+    result.updatedBid?.captainUserId || result.previousBid?.captainUserId || 0
+  ) || null;
+  const currentCaptainUserId = await resolveNegotiationCaptainUserId(ride);
+
+  if (result.updatedBid) {
+    await repo.insertRideChatMessage({
+      rideRequestId: ride.id,
+      senderUserId: customerUserId,
+      senderRole: "customer",
+      messageType: "offer",
+      messageText:
+        dto.note?.trim() ||
+        `عرض مضاد من الزبون: ${result.updatedBid.offeredFareIqd} د.ع`,
+      offeredFareIqd: result.updatedBid.offeredFareIqd,
+    });
+  }
+
+  await repo.createRideEvent({
+    rideRequestId: ride.id,
+    actorUserId: customerUserId,
+    eventType:
+      result.code === "COUNTER_LIMIT_REACHED"
+        ? "counter_offer_limit_reached"
+        : "counter_offer_submitted",
+    message:
+      result.code === "COUNTER_LIMIT_REACHED"
+        ? "انتهت جولات التفاوض لهذا الكابتن وتم التحويل للعرض التالي."
+        : "تم إرسال عرض مضاد إلى الكابتن.",
+    payload: {
+      offeredFareIqd: dto.offeredFareIqd,
+      bidId: result.updatedBid?.id || result.previousBid?.id || null,
+      switchedToNext: !!result.switchedToNext,
+      nextBidId: result.nextBid?.id || null,
+    },
+  });
+
+  if (previousCaptainUserId) {
+    emitToUser(previousCaptainUserId, "taxi_bid_update", {
+      eventType:
+        result.code === "COUNTER_LIMIT_REACHED"
+          ? "counter_offer_limit_reached"
+          : "counter_offer_submitted",
+      rideId: ride.id,
+      offeredFareIqd: dto.offeredFareIqd,
+      bidQueue,
+    });
+
+    queueNotification({
+      userId: previousCaptainUserId,
+      type: "taxi.bid.counter_offer",
+      title:
+        result.code === "COUNTER_LIMIT_REACHED"
+          ? "انتهت جولات التفاوض"
+          : "وصلك عرض مضاد من الزبون",
+      body:
+        result.code === "COUNTER_LIMIT_REACHED"
+          ? "تم التحويل لكابتن آخر تلقائياً."
+          : `السعر الجديد: ${dto.offeredFareIqd} د.ع`,
+      payload: {
+        rideId: ride.id,
+        offeredFareIqd: dto.offeredFareIqd,
+      },
+    });
+  }
+
+  if (result.nextBid?.captainUserId && Number(result.nextBid.captainUserId) !== Number(previousCaptainUserId || 0)) {
+    emitToUser(result.nextBid.captainUserId, "taxi_bid_update", {
+      eventType: "you_are_current_bid",
+      rideId: ride.id,
+      bidId: result.nextBid.id,
+      bidQueue,
+    });
+    queueNotification({
+      userId: result.nextBid.captainUserId,
+      type: "taxi.bid.turn_started",
+      title: "دورك الآن للتفاوض",
+      body: "أنت الآن الكابتن النشط لهذا الطلب.",
+      payload: {
+        rideId: ride.id,
+        bidId: result.nextBid.id,
+      },
+    });
+  } else if (
+    currentCaptainUserId &&
+    Number(currentCaptainUserId) !== Number(previousCaptainUserId || 0)
+  ) {
+    emitToUser(currentCaptainUserId, "taxi_bid_update", {
+      eventType: "you_are_current_bid",
+      rideId: ride.id,
+      bidQueue,
+    });
+  }
+
+  emitToUser(ride.customerUserId, "taxi_bid_update", {
+    eventType:
+      result.code === "COUNTER_LIMIT_REACHED"
+        ? "counter_offer_limit_reached"
+        : "counter_offer_submitted",
+    rideId: ride.id,
+    bidQueue,
+  });
+
+  return {
+    ride,
+    bids,
+    bidQueue,
+    switchedToNext: !!result.switchedToNext,
+    negotiationClosed: result.code === "COUNTER_LIMIT_REACHED",
   };
 }
 
@@ -933,7 +1726,17 @@ export async function createShareToken({ customerUserId, rideId }) {
     throw new AppError("TAXI_SHARE_NOT_AVAILABLE", { status: 409 });
   }
 
-  return out;
+  const latest = await repo.getLatestRideLocation(ride.id);
+  const target = latest || ride.pickup;
+  const wazeLink = target
+    ? `https://waze.com/ul?ll=${target.latitude},${target.longitude}&navigate=yes`
+    : null;
+
+  return {
+    ...out,
+    publicPath: `/api/taxi/public/track/${out.token}`,
+    wazeLink,
+  };
 }
 
 export async function getPublicTrack(token) {
@@ -1179,3 +1982,4 @@ export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
     };
   });
 }
+

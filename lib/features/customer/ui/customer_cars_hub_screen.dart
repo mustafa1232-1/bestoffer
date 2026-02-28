@@ -1,21 +1,25 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:simple_icons/simple_icons.dart';
 
 import '../../auth/ui/merchants_list_screen.dart';
+import '../../behavior/data/behavior_api.dart';
 import '../data/car_catalog.dart';
 import '../data/car_smart_recommendation.dart';
 
-class CustomerCarsHubScreen extends StatefulWidget {
+class CustomerCarsHubScreen extends ConsumerStatefulWidget {
   const CustomerCarsHubScreen({super.key});
 
   @override
-  State<CustomerCarsHubScreen> createState() => _CustomerCarsHubScreenState();
+  ConsumerState<CustomerCarsHubScreen> createState() =>
+      _CustomerCarsHubScreenState();
 }
 
-class _CustomerCarsHubScreenState extends State<CustomerCarsHubScreen> {
+class _CustomerCarsHubScreenState extends ConsumerState<CustomerCarsHubScreen> {
   String? _selectedBrand;
   String? _selectedModel;
   RangeValues? _selectedYearRange;
@@ -23,6 +27,21 @@ class _CustomerCarsHubScreenState extends State<CustomerCarsHubScreen> {
   SmartCarCriteria? _smartCriteria;
   List<SmartCarRecommendation> _smartRecommendations = const [];
   bool _smartUsedRelaxedFilter = false;
+
+  Future<void> _trackEvent({
+    required String eventName,
+    String? action,
+    Map<String, dynamic>? metadata,
+  }) async {
+    await ref
+        .read(behaviorApiProvider)
+        .trackEvent(
+          eventName: eventName,
+          category: 'cars',
+          action: action,
+          metadata: metadata,
+        );
+  }
 
   List<String> get _brands => carBrandNames();
   List<String> get _models =>
@@ -37,6 +56,13 @@ class _CustomerCarsHubScreenState extends State<CustomerCarsHubScreen> {
   }
 
   void _openSearch({required String title, required String query}) {
+    unawaited(
+      _trackEvent(
+        eventName: 'cars.open_market_search',
+        action: 'open_search',
+        metadata: {'title': title, 'searchQuery': query},
+      ),
+    );
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
@@ -204,7 +230,7 @@ class _CustomerCarsHubScreenState extends State<CustomerCarsHubScreen> {
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    '${range.start.round()}  ←  ${range.end.round()}',
+                    '${range.start.round()}  \u2190  ${range.end.round()}',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontWeight: FontWeight.w900,
@@ -370,8 +396,22 @@ class _CustomerCarsHubScreenState extends State<CustomerCarsHubScreen> {
     }
     if (_condition == 'new') parts.add('جديدة');
     if (_condition == 'used') parts.add('مستعملة');
-
-    _openSearch(title: 'نتائج بحث السيارات', query: parts.join(' '));
+    final query = parts.join(' ');
+    unawaited(
+      _trackEvent(
+        eventName: 'cars.filtered_search_submit',
+        action: 'filtered_search',
+        metadata: {
+          'brand': _selectedBrand,
+          'model': _selectedModel,
+          'condition': _condition,
+          'yearFrom': _selectedYearRange?.start.round(),
+          'yearTo': _selectedYearRange?.end.round(),
+          'searchQuery': query,
+        },
+      ),
+    );
+    _openSearch(title: 'نتائج بحث السيارات', query: query);
   }
 
   void _resetManualFilters() {
@@ -412,6 +452,27 @@ class _CustomerCarsHubScreenState extends State<CustomerCarsHubScreen> {
       _smartRecommendations = results;
       _smartUsedRelaxedFilter = usedRelaxed;
     });
+
+    unawaited(
+      _trackEvent(
+        eventName: 'cars.smart_search_ui',
+        action: 'smart_search',
+        metadata: {
+          'budgetMinM': criteria.budgetM.start,
+          'budgetMaxM': criteria.budgetM.end,
+          'usage': criteria.usage.name,
+          'bodyType': criteria.bodyType.name,
+          'condition': criteria.condition.name,
+          'fuelPreference': criteria.fuelPreference.name,
+          'transmissionPref': criteria.transmissionPref.name,
+          'priority': criteria.priorityGoal.name,
+          'minSeats': criteria.minSeats,
+          'resultCount': results.length,
+          'usedRelaxedFilter': usedRelaxed,
+          'freeText': criteria.freeText,
+        },
+      ),
+    );
 
     final messenger = ScaffoldMessenger.of(context);
     if (results.isEmpty) {

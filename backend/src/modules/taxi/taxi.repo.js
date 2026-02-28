@@ -48,6 +48,7 @@ function normalizeRide(row) {
     id: Number(row.id),
     customerUserId: Number(row.customer_user_id),
     assignedCaptainUserId: toIntOrNull(row.assigned_captain_user_id),
+    currentBidId: toIntOrNull(row.current_bid_id),
     pickup: {
       latitude: Number(row.pickup_latitude),
       longitude: Number(row.pickup_longitude),
@@ -83,6 +84,9 @@ function normalizeRide(row) {
           offeredFareIqd: Number(row.my_offered_fare_iqd),
           etaMinutes: toIntOrNull(row.my_eta_minutes),
           status: row.my_bid_status,
+          counterOfferCount: toIntOrNull(row.my_counter_offer_count) || 0,
+          lastOfferIqd: toIntOrNull(row.my_last_offer_iqd),
+          lastOfferBy: row.my_last_offer_by || null,
         }
       : null,
     customer: row.customer_full_name
@@ -122,6 +126,9 @@ function normalizeBid(row) {
     etaMinutes: toIntOrNull(row.eta_minutes),
     note: row.note || null,
     status: row.status,
+    counterOfferCount: toIntOrNull(row.counter_offer_count) || 0,
+    lastOfferIqd: toIntOrNull(row.last_offer_iqd),
+    lastOfferBy: row.last_offer_by || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     captain: row.captain_full_name
@@ -141,6 +148,59 @@ function normalizeBid(row) {
           ridesCount: toIntOrNull(row.captain_rides_count) || 0,
         }
       : null,
+  };
+}
+
+function normalizeChatMessage(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    rideRequestId: Number(row.ride_request_id),
+    senderUserId: Number(row.sender_user_id),
+    senderRole: row.sender_role,
+    messageType: row.message_type,
+    messageText: row.message_text || null,
+    offeredFareIqd: toIntOrNull(row.offered_fare_iqd),
+    createdAt: row.created_at,
+    sender: row.sender_full_name
+      ? {
+          id: Number(row.sender_user_id),
+          fullName: row.sender_full_name,
+          phone: row.sender_phone || null,
+          imageUrl: row.sender_image_url || null,
+        }
+      : null,
+  };
+}
+
+function normalizeCallSession(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    rideRequestId: Number(row.ride_request_id),
+    initiatorUserId: Number(row.initiator_user_id),
+    receiverUserId: Number(row.receiver_user_id),
+    status: row.status,
+    startedAt: row.started_at,
+    answeredAt: row.answered_at || null,
+    endedAt: row.ended_at || null,
+    endedByUserId: toIntOrNull(row.ended_by_user_id),
+    endReason: row.end_reason || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function normalizeCallSignal(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    callSessionId: Number(row.call_session_id),
+    rideRequestId: Number(row.ride_request_id),
+    senderUserId: Number(row.sender_user_id),
+    signalType: row.signal_type,
+    signalPayload: row.signal_payload || null,
+    createdAt: row.created_at,
   };
 }
 
@@ -459,6 +519,147 @@ export async function listRideBids(rideId) {
   return r.rows.map(normalizeBid);
 }
 
+async function lockRideForNegotiation(client, rideId, customerUserId) {
+  const r = await client.query(
+    `SELECT id, customer_user_id, status, current_bid_id
+     FROM taxi_ride_request
+     WHERE id = $1
+       AND customer_user_id = $2
+     FOR UPDATE`,
+    [Number(rideId), Number(customerUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+async function findEarliestActiveBid(client, rideId) {
+  const r = await client.query(
+    `SELECT id, captain_user_id, offered_fare_iqd, eta_minutes, note, status,
+            counter_offer_count, last_offer_iqd, last_offer_by, created_at, updated_at
+     FROM taxi_ride_bid
+     WHERE ride_request_id = $1
+       AND status = 'active'
+     ORDER BY created_at ASC, id ASC
+     LIMIT 1
+     FOR UPDATE`,
+    [Number(rideId)]
+  );
+  return normalizeBid(r.rows[0]);
+}
+
+async function promoteNextActiveBid(client, rideId) {
+  const next = await findEarliestActiveBid(client, rideId);
+  await client.query(
+    `UPDATE taxi_ride_request
+     SET current_bid_id = $2,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [Number(rideId), next ? Number(next.id) : null]
+  );
+  return next;
+}
+
+async function lockCurrentActiveBid(client, rideId, currentBidId) {
+  if (!currentBidId) return null;
+  const r = await client.query(
+    `SELECT id, ride_request_id, captain_user_id, offered_fare_iqd, eta_minutes, note, status,
+            counter_offer_count, last_offer_iqd, last_offer_by, created_at, updated_at
+     FROM taxi_ride_bid
+     WHERE id = $1
+       AND ride_request_id = $2
+     FOR UPDATE`,
+    [Number(currentBidId), Number(rideId)]
+  );
+  const bid = normalizeBid(r.rows[0]);
+  if (!bid || bid.status !== "active") return null;
+  return bid;
+}
+
+export async function ensureRideCurrentBid(rideId) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const rideLock = await client.query(
+      `SELECT id, status, current_bid_id
+       FROM taxi_ride_request
+       WHERE id = $1
+       FOR UPDATE`,
+      [Number(rideId)]
+    );
+    const ride = rideLock.rows[0];
+    if (!ride || ride.status !== "searching") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    const currentBid = await lockCurrentActiveBid(
+      client,
+      ride.id,
+      ride.current_bid_id
+    );
+    if (currentBid) {
+      await client.query("COMMIT");
+      return currentBid;
+    }
+
+    const next = await promoteNextActiveBid(client, ride.id);
+    await client.query("COMMIT");
+    return next;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getRideCurrentBid(rideId) {
+  const r = await q(
+    `SELECT
+       b.*,
+       u.full_name AS captain_full_name,
+       u.phone AS captain_phone,
+       cp.profile_image_url AS captain_profile_image_url,
+       cp.car_image_url AS captain_car_image_url,
+       cp.vehicle_type AS captain_vehicle_type,
+       cp.car_make AS captain_car_make,
+       cp.car_model AS captain_car_model,
+       cp.car_year AS captain_car_year,
+       cp.car_color AS captain_car_color,
+       cp.plate_number AS captain_plate_number,
+       cp.rating_avg AS captain_rating_avg,
+       cp.rides_count AS captain_rides_count
+     FROM taxi_ride_request r
+     JOIN taxi_ride_bid b
+       ON b.id = r.current_bid_id
+     JOIN app_user u
+       ON u.id = b.captain_user_id
+     LEFT JOIN taxi_captain_profile cp
+       ON cp.user_id = b.captain_user_id
+     WHERE r.id = $1
+       AND r.status = 'searching'
+       AND b.status = 'active'
+     LIMIT 1`,
+    [Number(rideId)]
+  );
+  return normalizeBid(r.rows[0]);
+}
+
+export async function isCaptainCurrentBidOwner({ rideId, captainUserId }) {
+  const r = await q(
+    `SELECT 1
+     FROM taxi_ride_request r
+     JOIN taxi_ride_bid b
+       ON b.id = r.current_bid_id
+      AND b.status = 'active'
+     WHERE r.id = $1
+       AND r.status = 'searching'
+       AND b.captain_user_id = $2
+     LIMIT 1`,
+    [Number(rideId), Number(captainUserId)]
+  );
+  return Boolean(r.rows[0]);
+}
+
 export async function upsertRideBid({
   rideRequestId,
   captainUserId,
@@ -475,15 +676,20 @@ export async function upsertRideBid({
         eta_minutes,
         note,
         status,
+        counter_offer_count,
+        last_offer_iqd,
+        last_offer_by,
         updated_at
       )
-     VALUES ($1,$2,$3,$4,$5,'active',NOW())
+     VALUES ($1,$2,$3,$4,$5,'active',0,$3,'captain',NOW())
      ON CONFLICT (ride_request_id, captain_user_id)
      DO UPDATE SET
        offered_fare_iqd = EXCLUDED.offered_fare_iqd,
        eta_minutes = EXCLUDED.eta_minutes,
        note = EXCLUDED.note,
        status = 'active',
+       last_offer_iqd = EXCLUDED.offered_fare_iqd,
+       last_offer_by = 'captain',
        updated_at = NOW()
      RETURNING *`,
     [
@@ -497,6 +703,17 @@ export async function upsertRideBid({
 
   const bid = normalizeBid(r.rows[0]);
   if (!bid) return null;
+
+  await q(
+    `UPDATE taxi_ride_request
+     SET current_bid_id = COALESCE(current_bid_id, $2),
+         updated_at = NOW()
+     WHERE id = $1
+       AND status = 'searching'`,
+    [Number(rideRequestId), Number(bid.id)]
+  );
+
+  await ensureRideCurrentBid(rideRequestId);
 
   const full = await q(
     `SELECT
@@ -573,6 +790,7 @@ export async function acceptRideBid({ rideId, bidId, customerUserId }) {
       `UPDATE taxi_ride_request
        SET assigned_captain_user_id = $1,
            accepted_bid_id = $2,
+           current_bid_id = NULL,
            agreed_fare_iqd = $3,
            status = 'captain_assigned',
            accepted_at = NOW(),
@@ -623,6 +841,201 @@ export async function acceptRideBid({ rideId, bidId, customerUserId }) {
   }
 }
 
+export async function rejectCurrentRideBidByCustomer({
+  rideId,
+  customerUserId,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const ride = await lockRideForNegotiation(client, rideId, customerUserId);
+    if (!ride) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_FOUND" };
+    }
+    if (ride.status !== "searching") {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_ACCEPTING_BIDS" };
+    }
+
+    let currentBid = await lockCurrentActiveBid(
+      client,
+      ride.id,
+      ride.current_bid_id
+    );
+    if (!currentBid) {
+      currentBid = await promoteNextActiveBid(client, ride.id);
+    }
+    if (!currentBid) {
+      await client.query("COMMIT");
+      return { code: "NO_ACTIVE_BID", ride: await getRideById(ride.id) };
+    }
+
+    await client.query(
+      `UPDATE taxi_ride_bid
+       SET status = 'rejected',
+           updated_at = NOW()
+       WHERE id = $1`,
+      [Number(currentBid.id)]
+    );
+
+    const nextBid = await promoteNextActiveBid(client, ride.id);
+    const fullRide = await queryRideById(client, ride.id);
+    const bidsResult = await client.query(
+      `SELECT id, captain_user_id, status
+       FROM taxi_ride_bid
+       WHERE ride_request_id = $1`,
+      [Number(ride.id)]
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      code: "OK",
+      ride: fullRide,
+      rejectedBid: currentBid,
+      nextBid,
+      bids: bidsResult.rows.map((row) => ({
+        id: Number(row.id),
+        captainUserId: Number(row.captain_user_id),
+        status: row.status,
+      })),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function counterOfferCurrentRideBidByCustomer({
+  rideId,
+  customerUserId,
+  offeredFareIqd,
+  note,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const ride = await lockRideForNegotiation(client, rideId, customerUserId);
+    if (!ride) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_FOUND" };
+    }
+    if (ride.status !== "searching") {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_ACCEPTING_BIDS" };
+    }
+
+    let currentBid = await lockCurrentActiveBid(
+      client,
+      ride.id,
+      ride.current_bid_id
+    );
+    if (!currentBid) {
+      currentBid = await promoteNextActiveBid(client, ride.id);
+    }
+    if (!currentBid) {
+      await client.query("COMMIT");
+      return { code: "NO_ACTIVE_BID", ride: await getRideById(ride.id) };
+    }
+
+    const nextCounterCount = (currentBid.counterOfferCount || 0) + 1;
+    if (nextCounterCount > 6) {
+      await client.query(
+        `UPDATE taxi_ride_bid
+         SET status = 'rejected',
+             updated_at = NOW()
+         WHERE id = $1`,
+        [Number(currentBid.id)]
+      );
+      const nextBid = await promoteNextActiveBid(client, ride.id);
+      const fullRide = await queryRideById(client, ride.id);
+      await client.query("COMMIT");
+      return {
+        code: "COUNTER_LIMIT_REACHED",
+        ride: fullRide,
+        previousBid: currentBid,
+        nextBid,
+      };
+    }
+
+    const updateBid = await client.query(
+      `UPDATE taxi_ride_bid
+       SET offered_fare_iqd = $2,
+           note = COALESCE(NULLIF($3, ''), note),
+           counter_offer_count = $4,
+           last_offer_iqd = $2,
+           last_offer_by = 'customer',
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, ride_request_id, captain_user_id, offered_fare_iqd, eta_minutes, note, status,
+                 counter_offer_count, last_offer_iqd, last_offer_by, created_at, updated_at`,
+      [
+        Number(currentBid.id),
+        Number(offeredFareIqd),
+        note || "",
+        Number(nextCounterCount),
+      ]
+    );
+
+    const updatedBid = normalizeBid(updateBid.rows[0]);
+    let switchedToNext = false;
+    let nextBid = null;
+
+    if ((updatedBid?.counterOfferCount || 0) >= 6) {
+      await client.query(
+        `UPDATE taxi_ride_bid
+         SET status = 'rejected',
+             updated_at = NOW()
+         WHERE id = $1`,
+        [Number(updatedBid.id)]
+      );
+      switchedToNext = true;
+      nextBid = await promoteNextActiveBid(client, ride.id);
+    } else {
+      await client.query(
+        `UPDATE taxi_ride_request
+         SET current_bid_id = $2,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [Number(ride.id), Number(updatedBid.id)]
+      );
+    }
+
+    const fullRide = await queryRideById(client, ride.id);
+    const bidsResult = await client.query(
+      `SELECT id, captain_user_id, status
+       FROM taxi_ride_bid
+       WHERE ride_request_id = $1`,
+      [Number(ride.id)]
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      code: switchedToNext ? "COUNTER_LIMIT_REACHED" : "OK",
+      ride: fullRide,
+      updatedBid,
+      switchedToNext,
+      nextBid,
+      bids: bidsResult.rows.map((row) => ({
+        id: Number(row.id),
+        captainUserId: Number(row.captain_user_id),
+        status: row.status,
+      })),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function cancelRide({ rideId, customerUserId }) {
   const client = await pool.connect();
   try {
@@ -651,6 +1064,7 @@ export async function cancelRide({ rideId, customerUserId }) {
     await client.query(
       `UPDATE taxi_ride_request
        SET status = 'cancelled',
+           current_bid_id = NULL,
            cancelled_at = NOW(),
            updated_at = NOW()
        WHERE id = $1`,
@@ -907,6 +1321,266 @@ export async function createRideEvent({
   return normalizeEvent(r.rows[0]);
 }
 
+export async function listRideChatMessages(rideId, { limit = 80 } = {}) {
+  const r = await q(
+    `SELECT
+       m.*,
+       u.full_name AS sender_full_name,
+       u.phone AS sender_phone,
+       u.image_url AS sender_image_url
+     FROM taxi_ride_chat_message m
+     JOIN app_user u
+       ON u.id = m.sender_user_id
+     WHERE m.ride_request_id = $1
+     ORDER BY m.id DESC
+     LIMIT $2`,
+    [Number(rideId), Math.max(1, Math.min(400, Number(limit) || 80))]
+  );
+
+  return r.rows.map(normalizeChatMessage);
+}
+
+export async function insertRideChatMessage({
+  rideRequestId,
+  senderUserId,
+  senderRole,
+  messageType = "text",
+  messageText,
+  offeredFareIqd = null,
+}) {
+  const r = await q(
+    `INSERT INTO taxi_ride_chat_message
+      (
+        ride_request_id,
+        sender_user_id,
+        sender_role,
+        message_type,
+        message_text,
+        offered_fare_iqd
+      )
+     VALUES ($1,$2,$3,$4,$5,$6)
+     RETURNING id, ride_request_id, sender_user_id, sender_role, message_type,
+               message_text, offered_fare_iqd, created_at`,
+    [
+      Number(rideRequestId),
+      Number(senderUserId),
+      String(senderRole || "system"),
+      String(messageType || "text"),
+      messageText || null,
+      offeredFareIqd == null ? null : Number(offeredFareIqd),
+    ]
+  );
+
+  const msg = normalizeChatMessage(r.rows[0]);
+  if (!msg) return null;
+
+  const sender = await q(
+    `SELECT full_name AS sender_full_name, phone AS sender_phone, image_url AS sender_image_url
+     FROM app_user
+     WHERE id = $1
+     LIMIT 1`,
+    [Number(senderUserId)]
+  );
+
+  return normalizeChatMessage({
+    ...r.rows[0],
+    sender_full_name: sender.rows[0]?.sender_full_name || null,
+    sender_phone: sender.rows[0]?.sender_phone || null,
+    sender_image_url: sender.rows[0]?.sender_image_url || null,
+  });
+}
+
+export async function getActiveRideCallSession(rideId) {
+  const r = await q(
+    `SELECT *
+     FROM taxi_ride_call_session
+     WHERE ride_request_id = $1
+       AND status IN ('ringing', 'active')
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    [Number(rideId)]
+  );
+  return normalizeCallSession(r.rows[0]);
+}
+
+export async function getRideCallSessionById(sessionId) {
+  const r = await q(
+    `SELECT *
+     FROM taxi_ride_call_session
+     WHERE id = $1
+     LIMIT 1`,
+    [Number(sessionId)]
+  );
+  return normalizeCallSession(r.rows[0]);
+}
+
+export async function createRideCallSession({
+  rideRequestId,
+  initiatorUserId,
+  receiverUserId,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE taxi_ride_call_session
+       SET status = 'ended',
+           ended_at = NOW(),
+           ended_by_user_id = $2,
+           end_reason = COALESCE(end_reason, 'replaced'),
+           updated_at = NOW()
+       WHERE ride_request_id = $1
+         AND status IN ('ringing', 'active')`,
+      [Number(rideRequestId), Number(initiatorUserId)]
+    );
+
+    const created = await client.query(
+      `INSERT INTO taxi_ride_call_session
+        (
+          ride_request_id,
+          initiator_user_id,
+          receiver_user_id,
+          status,
+          started_at,
+          created_at,
+          updated_at
+        )
+       VALUES ($1,$2,$3,'ringing',NOW(),NOW(),NOW())
+       RETURNING *`,
+      [Number(rideRequestId), Number(initiatorUserId), Number(receiverUserId)]
+    );
+
+    await client.query("COMMIT");
+    return normalizeCallSession(created.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function markRideCallAnswered({ sessionId, answeredByUserId }) {
+  const r = await q(
+    `UPDATE taxi_ride_call_session
+     SET status = 'active',
+         answered_at = COALESCE(answered_at, NOW()),
+         updated_at = NOW()
+     WHERE id = $1
+       AND status IN ('ringing', 'active')
+     RETURNING *`,
+    [Number(sessionId)]
+  );
+  return normalizeCallSession(r.rows[0]);
+}
+
+export async function endRideCallSession({
+  sessionId,
+  endedByUserId,
+  endReason = "hangup",
+  status = "ended",
+}) {
+  const normalizedStatus = ["ended", "declined", "missed"].includes(
+    String(status || "").toLowerCase()
+  )
+    ? String(status || "").toLowerCase()
+    : "ended";
+
+  const r = await q(
+    `UPDATE taxi_ride_call_session
+     SET status = $2,
+         ended_at = COALESCE(ended_at, NOW()),
+         ended_by_user_id = $3,
+         end_reason = $4,
+         updated_at = NOW()
+     WHERE id = $1
+       AND status IN ('ringing', 'active')
+     RETURNING *`,
+    [
+      Number(sessionId),
+      normalizedStatus,
+      endedByUserId == null ? null : Number(endedByUserId),
+      endReason || null,
+    ]
+  );
+  return normalizeCallSession(r.rows[0]);
+}
+
+export async function endActiveRideCallByRide({
+  rideId,
+  endedByUserId,
+  endReason = "hangup",
+  status = "ended",
+}) {
+  const normalizedStatus = ["ended", "declined", "missed"].includes(
+    String(status || "").toLowerCase()
+  )
+    ? String(status || "").toLowerCase()
+    : "ended";
+
+  const r = await q(
+    `UPDATE taxi_ride_call_session
+     SET status = $2,
+         ended_at = COALESCE(ended_at, NOW()),
+         ended_by_user_id = $3,
+         end_reason = $4,
+         updated_at = NOW()
+     WHERE ride_request_id = $1
+       AND status IN ('ringing', 'active')
+     RETURNING *`,
+    [
+      Number(rideId),
+      normalizedStatus,
+      endedByUserId == null ? null : Number(endedByUserId),
+      endReason || null,
+    ]
+  );
+  return r.rows.map(normalizeCallSession);
+}
+
+export async function insertRideCallSignal({
+  callSessionId,
+  rideRequestId,
+  senderUserId,
+  signalType,
+  signalPayload = null,
+}) {
+  const r = await q(
+    `INSERT INTO taxi_ride_call_signal
+      (call_session_id, ride_request_id, sender_user_id, signal_type, signal_payload)
+     VALUES ($1,$2,$3,$4,$5::jsonb)
+     RETURNING *`,
+    [
+      Number(callSessionId),
+      Number(rideRequestId),
+      Number(senderUserId),
+      String(signalType || "ice"),
+      signalPayload == null ? null : JSON.stringify(signalPayload),
+    ]
+  );
+  return normalizeCallSignal(r.rows[0]);
+}
+
+export async function listRideCallSignals(callSessionId, { limit = 160 } = {}) {
+  const r = await q(
+    `SELECT *
+     FROM taxi_ride_call_signal
+     WHERE call_session_id = $1
+     ORDER BY id DESC
+     LIMIT $2`,
+    [Number(callSessionId), Math.max(1, Math.min(800, Number(limit) || 160))]
+  );
+  return r.rows.map(normalizeCallSignal);
+}
+
+export async function getRideCallState(rideId, { signalLimit = 160 } = {}) {
+  const session = await getActiveRideCallSession(rideId);
+  if (!session) return { session: null, signals: [] };
+  const signals = await listRideCallSignals(session.id, { limit: signalLimit });
+  return { session, signals };
+}
+
 export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 3000, limit = 40 } = {}) {
   const presence = await getCaptainPresence(captainUserId);
   if (!presence || !presence.isOnline || presence.latitude == null || presence.longitude == null) {
@@ -941,7 +1615,10 @@ export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 3
        mb.id AS my_bid_id,
        mb.offered_fare_iqd AS my_offered_fare_iqd,
        mb.eta_minutes AS my_eta_minutes,
-       mb.status AS my_bid_status
+       mb.status AS my_bid_status,
+       mb.counter_offer_count AS my_counter_offer_count,
+       mb.last_offer_iqd AS my_last_offer_iqd,
+       mb.last_offer_by AS my_last_offer_by
      FROM taxi_ride_request r
      LEFT JOIN app_user cu ON cu.id = r.customer_user_id
      LEFT JOIN app_user ca ON ca.id = r.assigned_captain_user_id

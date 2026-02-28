@@ -319,3 +319,150 @@ export function validateShareToken(token) {
   }
   return { ok: true, errors: [], value };
 }
+
+export function validateCounterOffer(body) {
+  const errors = [];
+  const offeredFareIqd = toInt(body?.offeredFareIqd);
+
+  if (offeredFareIqd == null || offeredFareIqd < 0 || offeredFareIqd > 5000000) {
+    errors.push("offeredFareIqd");
+  }
+  if (!optionalText(body?.note, 500)) {
+    errors.push("note");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      offeredFareIqd,
+      note: body?.note == null ? null : String(body.note).trim(),
+    },
+  };
+}
+
+export function validateRideChatMessage(body) {
+  const errors = [];
+  const messageText = typeof body?.messageText === "string" ? body.messageText.trim() : "";
+
+  if (!messageText || messageText.length > 1200) {
+    errors.push("messageText");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: { messageText },
+  };
+}
+
+export function validateRideChatQuery(query) {
+  const errors = [];
+  const limit = toInt(query?.limit ?? 120);
+  if (limit == null || limit < 1 || limit > 400) {
+    errors.push("limit");
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      limit: limit ?? 120,
+    },
+  };
+}
+
+export function validateRideCallSignal(body) {
+  const errors = [];
+  const sessionId =
+    body?.sessionId == null ? null : toInt(body?.sessionId);
+  const signalType = String(body?.signalType || "").trim().toLowerCase();
+  const signalPayload =
+    body?.signalPayload && typeof body.signalPayload === "object"
+      ? body.signalPayload
+      : null;
+
+  const allowedTypes = new Set([
+    "offer",
+    "answer",
+    "ice",
+    "ringing",
+    "accept",
+    "hangup",
+    "decline",
+  ]);
+
+  if (!allowedTypes.has(signalType)) {
+    errors.push("signalType");
+  }
+
+  if (sessionId != null && sessionId <= 0) {
+    errors.push("sessionId");
+  }
+
+  if (["offer", "answer"].includes(signalType)) {
+    const sdp = String(signalPayload?.sdp || "").trim();
+    const sdpType = String(signalPayload?.type || "").trim().toLowerCase();
+    if (!sdp || sdp.length < 10) errors.push("signalPayload.sdp");
+    if (!["offer", "answer"].includes(sdpType)) errors.push("signalPayload.type");
+  }
+
+  if (signalType === "ice") {
+    const candidate = String(signalPayload?.candidate || "").trim();
+    if (!candidate) errors.push("signalPayload.candidate");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      sessionId,
+      signalType,
+      signalPayload,
+    },
+  };
+}
+
+export function validateRideCallEnd(body) {
+  const errors = [];
+  const reasonRaw = body?.reason;
+  const statusRaw = String(body?.status || "ended").trim().toLowerCase();
+  const status = ["ended", "declined", "missed"].includes(statusRaw)
+    ? statusRaw
+    : "ended";
+
+  if (
+    reasonRaw !== undefined &&
+    reasonRaw !== null &&
+    (typeof reasonRaw !== "string" || reasonRaw.trim().length > 200)
+  ) {
+    errors.push("reason");
+  }
+
+  if (!["ended", "declined", "missed"].includes(status)) {
+    errors.push("status");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      reason: typeof reasonRaw === "string" ? reasonRaw.trim() : null,
+      status,
+    },
+  };
+}
+
+export function validateRideCallStateQuery(query) {
+  const errors = [];
+  const signalLimit = toInt(query?.signalLimit ?? 160);
+  if (signalLimit == null || signalLimit < 1 || signalLimit > 800) {
+    errors.push("signalLimit");
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      signalLimit: signalLimit ?? 160,
+    },
+  };
+}

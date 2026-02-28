@@ -827,6 +827,11 @@ export async function ensureSchema() {
     `);
 
     await q(`
+      ALTER TABLE taxi_ride_request
+      ADD COLUMN IF NOT EXISTS current_bid_id BIGINT;
+    `);
+
+    await q(`
       UPDATE taxi_ride_request
       SET next_escalation_at = COALESCE(
         next_escalation_at,
@@ -881,6 +886,132 @@ export async function ensureSchema() {
         END IF;
       END
       $$;
+    `);
+
+    await q(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'taxi_ride_request_current_bid_fkey'
+        ) THEN
+          ALTER TABLE taxi_ride_request
+            ADD CONSTRAINT taxi_ride_request_current_bid_fkey
+            FOREIGN KEY (current_bid_id)
+            REFERENCES taxi_ride_bid(id)
+            ON DELETE SET NULL;
+        END IF;
+      END
+      $$;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_bid
+      ADD COLUMN IF NOT EXISTS counter_offer_count SMALLINT NOT NULL DEFAULT 0;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_bid
+      ADD COLUMN IF NOT EXISTS last_offer_iqd INTEGER;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_bid
+      ADD COLUMN IF NOT EXISTS last_offer_by VARCHAR(16);
+    `);
+
+    await q(`
+      UPDATE taxi_ride_bid
+      SET
+        last_offer_iqd = COALESCE(last_offer_iqd, offered_fare_iqd),
+        last_offer_by = COALESCE(last_offer_by, 'captain')
+      WHERE last_offer_iqd IS NULL
+         OR last_offer_by IS NULL;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_bid
+      DROP CONSTRAINT IF EXISTS chk_taxi_ride_bid_counter_offer_count;
+    `);
+    await q(`
+      ALTER TABLE taxi_ride_bid
+      ADD CONSTRAINT chk_taxi_ride_bid_counter_offer_count
+      CHECK (counter_offer_count BETWEEN 0 AND 6);
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_bid
+      DROP CONSTRAINT IF EXISTS chk_taxi_ride_bid_last_offer_by;
+    `);
+    await q(`
+      ALTER TABLE taxi_ride_bid
+      ADD CONSTRAINT chk_taxi_ride_bid_last_offer_by
+      CHECK (last_offer_by IN ('captain', 'customer'));
+    `);
+
+    await q(`
+      CREATE TABLE IF NOT EXISTS taxi_ride_chat_message (
+        id               BIGSERIAL PRIMARY KEY,
+        ride_request_id  BIGINT NOT NULL REFERENCES taxi_ride_request(id) ON DELETE CASCADE,
+        sender_user_id   BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+        sender_role      VARCHAR(16) NOT NULL CHECK (sender_role IN ('customer', 'captain', 'system')),
+        message_type     VARCHAR(16) NOT NULL DEFAULT 'text' CHECK (message_type IN ('text', 'offer', 'system')),
+        message_text     TEXT,
+        offered_fare_iqd INTEGER CHECK (offered_fare_iqd IS NULL OR offered_fare_iqd >= 0),
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_taxi_ride_chat_message_ride_time
+      ON taxi_ride_chat_message (ride_request_id, id DESC);
+    `);
+
+    await q(`
+      CREATE TABLE IF NOT EXISTS taxi_ride_call_session (
+        id                 BIGSERIAL PRIMARY KEY,
+        ride_request_id    BIGINT NOT NULL REFERENCES taxi_ride_request(id) ON DELETE CASCADE,
+        initiator_user_id  BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+        receiver_user_id   BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+        status             VARCHAR(16) NOT NULL DEFAULT 'ringing',
+        started_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        answered_at        TIMESTAMPTZ,
+        ended_at           TIMESTAMPTZ,
+        ended_by_user_id   BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+        end_reason         VARCHAR(40),
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (status IN ('ringing', 'active', 'ended', 'declined', 'missed'))
+      );
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_taxi_call_session_ride_status
+      ON taxi_ride_call_session (ride_request_id, status, created_at DESC);
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_taxi_call_session_users_status
+      ON taxi_ride_call_session (initiator_user_id, receiver_user_id, status, created_at DESC);
+    `);
+
+    await q(`
+      CREATE TABLE IF NOT EXISTS taxi_ride_call_signal (
+        id               BIGSERIAL PRIMARY KEY,
+        call_session_id  BIGINT NOT NULL REFERENCES taxi_ride_call_session(id) ON DELETE CASCADE,
+        ride_request_id  BIGINT NOT NULL REFERENCES taxi_ride_request(id) ON DELETE CASCADE,
+        sender_user_id   BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+        signal_type      VARCHAR(16) NOT NULL,
+        signal_payload   JSONB,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (signal_type IN ('offer', 'answer', 'ice', 'ringing', 'hangup', 'decline', 'accept'))
+      );
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_taxi_call_signal_session_time
+      ON taxi_ride_call_signal (call_session_id, id DESC);
     `);
 
     await q(`

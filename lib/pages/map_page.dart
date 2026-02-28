@@ -1,14 +1,18 @@
 import 'dart:async';
 
+import 'package:bestoffer/core/constants/api.dart';
 import 'package:bestoffer/features/auth/state/auth_controller.dart';
 import 'package:bestoffer/features/taxi/data/taxi_api.dart';
 import 'package:bestoffer/features/taxi/data/taxi_route_service.dart';
+import 'package:bestoffer/features/taxi/ui/taxi_call_screen.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 enum _PointSelectionMode { pickup, dropoff }
 
@@ -66,8 +70,11 @@ class _MapPageState extends ConsumerState<MapPage> {
   bool _streamConnected = false;
   bool _canUseTaxiApi = true;
   bool _routeLoading = false;
+  bool _callScreenOpen = false;
   DateTime? _lastRealtimeAt;
   DateTime? _lastRouteAt;
+  int? _lastCallSignalId;
+  int? _lastIncomingSessionId;
   String? _error;
   List<_PlaceSuggestion> _pickupSuggestions = const [];
   List<_PlaceSuggestion> _dropoffSuggestions = const [];
@@ -217,6 +224,9 @@ class _MapPageState extends ConsumerState<MapPage> {
             _lastRealtimeAt = DateTime.now();
           });
           return;
+        }
+        if (event.event == 'taxi_call_update') {
+          unawaited(_handleCallRealtimeEvent(event.data));
         }
 
         final rideId = _eventRideId(event.data);
@@ -738,6 +748,426 @@ class _MapPageState extends ConsumerState<MapPage> {
     }
   }
 
+  Future<void> _rejectCurrentBid() async {
+    final rideId = _readInt(_ride?['id']);
+    if (rideId == null || _submitting) return;
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    try {
+      await _taxiApi.rejectCurrentBid(rideId: rideId);
+      await _loadCurrentRide(silent: true);
+      _showMessage('تم رفض العرض الحالي والانتقال للعرض التالي');
+    } on DioException catch (e) {
+      setState(() {
+        _error = _extractApiError(e);
+      });
+    } catch (_) {
+      setState(() {
+        _error = 'تعذر رفض العرض الحالي';
+      });
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _counterOfferCurrentBid({
+    required int offeredFareIqd,
+    String? note,
+  }) async {
+    final rideId = _readInt(_ride?['id']);
+    if (rideId == null || _submitting) return;
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    try {
+      await _taxiApi.counterOfferCurrentBid(
+        rideId: rideId,
+        offeredFareIqd: offeredFareIqd,
+        note: note,
+      );
+      await _loadCurrentRide(silent: true);
+      _showMessage('تم إرسال العرض المضاد');
+    } on DioException catch (e) {
+      setState(() {
+        _error = _extractApiError(e);
+      });
+    } catch (_) {
+      setState(() {
+        _error = 'تعذر إرسال العرض المضاد';
+      });
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _openCounterOfferDialog({int? initialFare}) async {
+    final ctrl = TextEditingController(text: '${initialFare ?? 0}');
+    final noteCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(dialogContext).bottom,
+        ),
+        child: AlertDialog(
+          title: const Text('إرسال عرض مضاد'),
+          content: Directionality(
+            textDirection: TextDirection.rtl,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: ctrl,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'السعر المقترح (د.ع)',
+                    ),
+                  ),
+                  TextField(
+                    controller: noteCtrl,
+                    maxLines: 2,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'ملاحظة (اختياري)',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('إرسال'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (ok != true) return;
+    final offeredFare = int.tryParse(ctrl.text.trim());
+    if (offeredFare == null || offeredFare < 0) {
+      _showMessage('السعر غير صحيح');
+      return;
+    }
+
+    await _counterOfferCurrentBid(
+      offeredFareIqd: offeredFare,
+      note: noteCtrl.text.trim(),
+    );
+  }
+
+  Future<void> _openRideChatBottomSheet() async {
+    final rideId = _readInt(_ride?['id']);
+    if (rideId == null) return;
+
+    final textCtrl = TextEditingController();
+    List<Map<String, dynamic>> messages = const [];
+    bool sending = false;
+    String? localError;
+
+    Future<void> refreshMessages(StateSetter setModalState) async {
+      try {
+        final items = await _taxiApi.listRideChat(rideId: rideId, limit: 120);
+        setModalState(() {
+          messages = items;
+          localError = null;
+        });
+      } on DioException catch (e) {
+        setModalState(() => localError = _extractApiError(e));
+      } catch (_) {
+        setModalState(() => localError = 'تعذر تحميل المحادثة');
+      }
+    }
+
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            if (messages.isEmpty && localError == null) {
+              unawaited(refreshMessages(setModalState));
+            }
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 12,
+                right: 12,
+                bottom: MediaQuery.viewInsetsOf(context).bottom + 12,
+                top: 6,
+              ),
+              child: Directionality(
+                textDirection: TextDirection.rtl,
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.72,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'محادثة الرحلة',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: localError != null
+                            ? Center(
+                                child: Text(
+                                  localError!,
+                                  style: const TextStyle(color: Colors.red),
+                                ),
+                              )
+                            : messages.isEmpty
+                            ? const Center(child: Text('لا توجد رسائل بعد'))
+                            : ListView.builder(
+                                itemCount: messages.length,
+                                itemBuilder: (_, i) {
+                                  final msg = messages[i];
+                                  final senderRole =
+                                      _string(msg['senderRole']) ?? 'system';
+                                  final senderName =
+                                      _string(msg['sender']?['fullName']) ??
+                                      (senderRole == 'customer'
+                                          ? 'الزبون'
+                                          : senderRole == 'captain'
+                                          ? 'الكابتن'
+                                          : 'النظام');
+                                  final text =
+                                      _string(msg['messageText']) ?? '-';
+                                  final mine = senderRole == 'customer';
+                                  return Align(
+                                    alignment: mine
+                                        ? Alignment.centerRight
+                                        : Alignment.centerLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 6),
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: mine
+                                            ? Colors.blue.withValues(
+                                                alpha: 0.14,
+                                              )
+                                            : Colors.black.withValues(
+                                                alpha: 0.08,
+                                              ),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            senderName,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(text),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: textCtrl,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (_) async {
+                                final text = textCtrl.text.trim();
+                                if (text.isEmpty || sending) return;
+                                setModalState(() => sending = true);
+                                try {
+                                  await _taxiApi.sendRideChatMessage(
+                                    rideId: rideId,
+                                    messageText: text,
+                                  );
+                                  textCtrl.clear();
+                                  await refreshMessages(setModalState);
+                                } finally {
+                                  setModalState(() => sending = false);
+                                }
+                              },
+                              decoration: const InputDecoration(
+                                hintText: 'اكتب رسالتك...',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: sending
+                                ? null
+                                : () async {
+                                    final text = textCtrl.text.trim();
+                                    if (text.isEmpty) return;
+                                    setModalState(() => sending = true);
+                                    try {
+                                      await _taxiApi.sendRideChatMessage(
+                                        rideId: rideId,
+                                        messageText: text,
+                                      );
+                                      textCtrl.clear();
+                                      await refreshMessages(setModalState);
+                                    } catch (_) {
+                                      setModalState(() {
+                                        localError = 'تعذر إرسال الرسالة';
+                                      });
+                                    } finally {
+                                      setModalState(() => sending = false);
+                                    }
+                                  },
+                            child: const Text('إرسال'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _callCaptain() async {
+    final rideId = _readInt(_ride?['id']);
+    final captainName =
+        _string(_ride?['captain']?['fullName']) ??
+        _string(_currentBid?['captain']?['fullName']);
+    if (rideId != null) {
+      await _openInAppCall(
+        rideId: rideId,
+        isCaller: true,
+        remoteDisplayName: captainName,
+      );
+      return;
+    }
+
+    final phone =
+        _string(_ride?['captain']?['phone']) ??
+        _string(_currentBid?['captain']?['phone']);
+    if (phone == null || phone.isEmpty) {
+      _showMessage('Captain number is not available right now');
+      return;
+    }
+    final uri = Uri.parse('tel:$phone');
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok) {
+      _showMessage('Could not open phone call');
+    }
+  }
+
+  Future<void> _handleCallRealtimeEvent(Map<String, dynamic> data) async {
+    final activeRideId = _readInt(_ride?['id']);
+    final eventRideId = _eventRideId(data);
+    if (activeRideId == null ||
+        eventRideId == null ||
+        activeRideId != eventRideId) {
+      return;
+    }
+
+    final signal = data['signal'] is Map
+        ? Map<String, dynamic>.from(data['signal'] as Map)
+        : null;
+    final signalId = _readInt(signal?['id']);
+    if (signalId != null) {
+      if (_lastCallSignalId == signalId) return;
+      _lastCallSignalId = signalId;
+    }
+
+    final session = data['session'] is Map
+        ? Map<String, dynamic>.from(data['session'] as Map)
+        : null;
+    final sessionId = _readInt(session?['id']);
+    final eventType = _string(data['eventType']) ?? '';
+    final captainName =
+        _string(_ride?['captain']?['fullName']) ??
+        _string(_currentBid?['captain']?['fullName']);
+
+    if (eventType == 'incoming_call') {
+      if (_callScreenOpen || sessionId == null) return;
+      if (_lastIncomingSessionId == sessionId) return;
+      _lastIncomingSessionId = sessionId;
+      await _openInAppCall(
+        rideId: activeRideId,
+        isCaller: false,
+        initialSessionId: sessionId,
+        remoteDisplayName: captainName,
+      );
+      return;
+    }
+
+    if (eventType == 'outgoing_call' && !_callScreenOpen && sessionId != null) {
+      await _openInAppCall(
+        rideId: activeRideId,
+        isCaller: true,
+        initialSessionId: sessionId,
+        remoteDisplayName: captainName,
+      );
+      return;
+    }
+
+    if (eventType == 'call_ended') {
+      _showMessage('Call ended');
+    }
+  }
+
+  Future<void> _openInAppCall({
+    required int rideId,
+    required bool isCaller,
+    int? initialSessionId,
+    String? remoteDisplayName,
+  }) async {
+    if (_callScreenOpen || !mounted) return;
+    _callScreenOpen = true;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => TaxiCallScreen(
+            rideId: rideId,
+            isCaller: isCaller,
+            initialSessionId: initialSessionId,
+            remoteDisplayName: remoteDisplayName,
+          ),
+        ),
+      );
+    } finally {
+      _callScreenOpen = false;
+      if (mounted) {
+        unawaited(_loadCurrentRide(silent: true));
+      }
+    }
+  }
+
   Future<void> _createShareToken() async {
     final rideId = _readInt(_ride?['id']);
     if (rideId == null) return;
@@ -745,16 +1175,21 @@ class _MapPageState extends ConsumerState<MapPage> {
     try {
       final out = await _taxiApi.createShareToken(rideId);
       final token = _string(out['token']) ?? '';
+      final publicPath = _string(out['publicPath']) ?? '';
+      final baseUrl = Api.baseUrl.replaceAll(RegExp(r'/$'), '');
+      final shareUrl = publicPath.isNotEmpty
+          ? '$baseUrl$publicPath'
+          : '$baseUrl/api/taxi/public/track/$token';
+      final wazeLink = _string(out['wazeLink']);
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            token.isEmpty
-                ? 'تم إنشاء رابط مشاركة التتبع'
-                : 'رمز التتبع: $token',
-          ),
-          duration: const Duration(seconds: 6),
+      await SharePlus.instance.share(
+        ShareParams(
+          title: 'مشاركة تتبع الرحلة',
+          subject: 'مشاركة تتبع رحلة التكسي',
+          text: wazeLink == null
+              ? 'رابط تتبع الرحلة:\n$shareUrl'
+              : 'رابط تتبع الرحلة:\n$shareUrl\n\nموقع مباشر على Waze:\n$wazeLink',
         ),
       );
     } on DioException catch (e) {
@@ -809,6 +1244,38 @@ class _MapPageState extends ConsumerState<MapPage> {
     return raw
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  Map<String, dynamic>? get _bidQueue {
+    final envelope = _activeRideEnvelope;
+    if (envelope == null) return null;
+    final raw = envelope['bidQueue'];
+    return raw is Map ? Map<String, dynamic>.from(raw) : null;
+  }
+
+  Map<String, dynamic>? get _currentBid {
+    final ride = _ride;
+    final currentBidId =
+        _readInt(_bidQueue?['currentBidId']) ?? _readInt(ride?['currentBidId']);
+    if (currentBidId == null) return null;
+    for (final bid in _bids) {
+      if (_readInt(bid['id']) == currentBidId &&
+          _string(bid['status']) == 'active') {
+        return bid;
+      }
+    }
+    return null;
+  }
+
+  List<Map<String, dynamic>> get _waitingBids {
+    final currentId = _readInt(_currentBid?['id']);
+    return _bids
+        .where(
+          (b) =>
+              _string(b['status']) == 'active' &&
+              _readInt(b['id']) != currentId,
+        )
         .toList();
   }
 
@@ -905,6 +1372,10 @@ class _MapPageState extends ConsumerState<MapPage> {
             return 'الطلب لم يعد يستقبل عروضاً';
           case 'TAXI_RIDE_OUT_OF_RANGE':
             return 'الكابتن خارج نطاق الطلب';
+          case 'TAXI_NO_ACTIVE_BID':
+            return 'لا يوجد عرض نشط حالياً، انتظر العرض التالي';
+          case 'TAXI_CHAT_EMPTY_MESSAGE':
+            return 'لا يمكن إرسال رسالة فارغة';
           default:
             return message;
         }
@@ -1174,6 +1645,9 @@ class _MapPageState extends ConsumerState<MapPage> {
     bool canCancel,
   ) {
     final bids = _bids;
+    final bidQueue = _bidQueue;
+    final currentBid = _currentBid;
+    final waitingBids = _waitingBids;
     final captain = ride != null && ride['captain'] is Map
         ? Map<String, dynamic>.from(ride['captain'] as Map)
         : null;
@@ -1337,62 +1811,193 @@ class _MapPageState extends ConsumerState<MapPage> {
                           ],
                           if (rideStatus == 'searching' && bids.isNotEmpty) ...[
                             const SizedBox(height: 8),
-                            const Text(
-                              'عروض الكباتن',
-                              style: TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 6),
-                            ...bids.take(3).map((bid) {
-                              final bidId = _readInt(bid['id']);
-                              final bidCaptain = bid['captain'] is Map
-                                  ? Map<String, dynamic>.from(
-                                      bid['captain'] as Map,
-                                    )
-                                  : null;
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 6),
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.blueGrey.withValues(
-                                    alpha: 0.08,
+                            Row(
+                              children: [
+                                const Expanded(
+                                  child: Text(
+                                    'مفاوضة السعر مع الكابتن',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
-                                  borderRadius: BorderRadius.circular(10),
                                 ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            _string(bidCaptain?['fullName']) ??
-                                                'كابتن',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                          Text(
-                                            'العرض: ${_readInt(bid['offeredFareIqd']) ?? 0} د.ع',
-                                          ),
-                                          if (_readInt(bid['etaMinutes']) !=
-                                              null)
-                                            Text(
-                                              'وقت الوصول المتوقع: ${_readInt(bid['etaMinutes'])} دقيقة',
-                                            ),
-                                        ],
+                                if (bidQueue != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.indigo.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      'الانتظار: ${_readInt(bidQueue['queueSize']) ?? waitingBids.length}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
-                                    FilledButton.tonal(
-                                      onPressed: (_submitting || bidId == null)
-                                          ? null
-                                          : () => _acceptBid(bidId),
-                                      child: const Text('قبول العرض'),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            if (currentBid != null)
+                              Builder(
+                                builder: (_) {
+                                  final bidId = _readInt(currentBid['id']);
+                                  final bidCaptain =
+                                      currentBid['captain'] is Map
+                                      ? Map<String, dynamic>.from(
+                                          currentBid['captain'] as Map,
+                                        )
+                                      : null;
+                                  final bidFare =
+                                      _readInt(currentBid['offeredFareIqd']) ??
+                                      0;
+                                  final counterCount =
+                                      _readInt(
+                                        currentBid['counterOfferCount'],
+                                      ) ??
+                                      0;
+                                  final roundsLeft = (6 - counterCount).clamp(
+                                    0,
+                                    6,
+                                  );
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.lightBlue.withValues(
+                                        alpha: 0.08,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: Colors.lightBlue.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                      ),
                                     ),
-                                  ],
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _string(bidCaptain?['fullName']) ??
+                                              'الكابتن',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text('العرض الحالي: $bidFare د.ع'),
+                                        if (_readInt(
+                                              currentBid['etaMinutes'],
+                                            ) !=
+                                            null)
+                                          Text(
+                                            'وقت الوصول المتوقع: ${_readInt(currentBid['etaMinutes'])} دقيقة',
+                                          ),
+                                        Text(
+                                          'جولات العرض المضاد المتبقية: $roundsLeft من 6',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            FilledButton.tonalIcon(
+                                              onPressed:
+                                                  (_submitting || bidId == null)
+                                                  ? null
+                                                  : () => _acceptBid(bidId),
+                                              icon: const Icon(
+                                                Icons.check_circle,
+                                              ),
+                                              label: const Text('قبول'),
+                                            ),
+                                            FilledButton.tonalIcon(
+                                              onPressed: _submitting
+                                                  ? null
+                                                  : _rejectCurrentBid,
+                                              icon: const Icon(
+                                                Icons.skip_next_rounded,
+                                              ),
+                                              label: const Text(
+                                                'رفض والبحث عن كابتن',
+                                              ),
+                                            ),
+                                            FilledButton.icon(
+                                              onPressed: _submitting
+                                                  ? null
+                                                  : () =>
+                                                        _openCounterOfferDialog(
+                                                          initialFare: bidFare,
+                                                        ),
+                                              icon: const Icon(
+                                                Icons.price_change,
+                                              ),
+                                              label: const Text('عرض مضاد'),
+                                            ),
+                                            OutlinedButton.icon(
+                                              onPressed:
+                                                  _openRideChatBottomSheet,
+                                              icon: const Icon(
+                                                Icons.chat_rounded,
+                                              ),
+                                              label: const Text('دردشة'),
+                                            ),
+                                            OutlinedButton.icon(
+                                              onPressed: _callCaptain,
+                                              icon: const Icon(
+                                                Icons.call_rounded,
+                                              ),
+                                              label: const Text('اتصال'),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              )
+                            else
+                              ...bids.take(1).map((bid) {
+                                final bidCaptain = bid['captain'] is Map
+                                    ? Map<String, dynamic>.from(
+                                        bid['captain'] as Map,
+                                      )
+                                    : null;
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blueGrey.withValues(
+                                      alpha: 0.08,
+                                    ),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    'أول عرض متاح: ${_string(bidCaptain?['fullName']) ?? 'كابتن'} - ${_readInt(bid['offeredFareIqd']) ?? 0} د.ع',
+                                  ),
+                                );
+                              }),
+                            if (waitingBids.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'يوجد ${waitingBids.length} كابتن بانتظار دور التفاوض.',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
                                 ),
-                              );
-                            }),
+                              ),
+                            ],
                           ],
                           if (_captainPoint != null) ...[
                             const SizedBox(height: 6),
@@ -1416,6 +2021,25 @@ class _MapPageState extends ConsumerState<MapPage> {
                                 ),
                               ),
                             ),
+                          if (captain != null) ...[
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: _openRideChatBottomSheet,
+                                  icon: const Icon(Icons.chat_rounded),
+                                  label: const Text('دردشة مع الكابتن'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: _callCaptain,
+                                  icon: const Icon(Icons.call_rounded),
+                                  label: const Text('اتصال'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                          ],
                           Row(
                             children: [
                               Expanded(

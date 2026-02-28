@@ -232,6 +232,104 @@ class TaxiApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> rejectCurrentBid({required int rideId}) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/bids/current/reject',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> counterOfferCurrentBid({
+    required int rideId,
+    required int offeredFareIqd,
+    String? note,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/bids/current/counter',
+      data: {
+        'offeredFareIqd': offeredFareIqd,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> listRideChat({
+    required int rideId,
+    int limit = 120,
+  }) async {
+    final response = await dio.get(
+      '/api/taxi/rides/$rideId/chat',
+      queryParameters: {'limit': limit},
+    );
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final raw = map['messages'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> sendRideChatMessage({
+    required int rideId,
+    required String messageText,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/chat',
+      data: {'messageText': messageText.trim()},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getRideCallState({
+    required int rideId,
+    int signalLimit = 160,
+  }) async {
+    final response = await dio.get(
+      '/api/taxi/rides/$rideId/call',
+      queryParameters: {'signalLimit': signalLimit},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> startRideCall({required int rideId}) async {
+    final response = await dio.post('/api/taxi/rides/$rideId/call/start');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> sendRideCallSignal({
+    required int rideId,
+    int? sessionId,
+    required String signalType,
+    Map<String, dynamic>? signalPayload,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/call/signal',
+      data: {
+        if (sessionId != null) 'sessionId': sessionId,
+        'signalType': signalType,
+        if (signalPayload != null) 'signalPayload': signalPayload,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> endRideCall({
+    required int rideId,
+    String status = 'ended',
+    String? reason,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/call/end',
+      data: {
+        'status': status,
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Stream<TaxiLiveEvent> streamEvents() async* {
     final response = await dio.get<ResponseBody>(
       '/api/taxi/stream',

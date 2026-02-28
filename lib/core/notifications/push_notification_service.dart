@@ -12,6 +12,44 @@ import '../storage/secure_storage.dart';
 import 'firebase_runtime_options.dart';
 import 'local_notification_service.dart';
 
+const _tokenHeartbeatInterval = Duration(minutes: 15);
+
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  try {
+    if (Firebase.apps.isEmpty) {
+      final runtimeOptions = FirebaseRuntimeOptions.currentPlatform();
+      if (runtimeOptions != null) {
+        await Firebase.initializeApp(options: runtimeOptions);
+      } else {
+        await Firebase.initializeApp();
+      }
+    }
+
+    // For data-only pushes, render a local notification while app is backgrounded.
+    if (message.notification == null && message.data.isNotEmpty) {
+      final local = LocalNotificationService();
+      await local.initialize();
+      final orderId = int.tryParse(
+        '${message.data['orderId'] ?? message.data['order_id'] ?? ''}',
+      );
+      final type =
+          message.data['type']?.toString() ??
+          message.data['notificationType']?.toString();
+      final title = message.data['title']?.toString().trim();
+      final body = message.data['body']?.toString().trim();
+      await local.showRaw(
+        title: (title == null || title.isEmpty) ? 'BestOffer' : title,
+        body: (body == null || body.isEmpty) ? 'You have a new update' : body,
+        orderId: orderId,
+        type: type,
+      );
+    }
+  } catch (e) {
+    debugPrint('Background push handler failed: $e');
+  }
+}
+
 final pushNotificationsProvider = Provider<PushNotificationService>((ref) {
   final service = PushNotificationService(
     api: NotificationsApi(ref.read(dioClientProvider).dio),
@@ -39,10 +77,12 @@ class PushNotificationService {
   StreamSubscription<String>? _tokenRefreshSub;
   StreamSubscription<RemoteMessage>? _foregroundSub;
   StreamSubscription<RemoteMessage>? _openedAppSub;
+  Timer? _tokenHeartbeatTimer;
 
   bool _initialized = false;
   bool _firebaseReady = false;
   String? _lastSyncedToken;
+  bool _tokenSyncInFlight = false;
 
   Stream<NotificationTapPayload> get tapStream => _tapController.stream;
 
@@ -52,6 +92,8 @@ class PushNotificationService {
 
     _firebaseReady = await _ensureFirebaseInitialized();
     if (!_firebaseReady) return;
+
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
     final messaging = FirebaseMessaging.instance;
     await messaging.setAutoInitEnabled(true);
@@ -90,16 +132,26 @@ class PushNotificationService {
     });
 
     _tokenRefreshSub = messaging.onTokenRefresh.listen((token) {
-      unawaited(_registerToken(token));
+      unawaited(_registerTokenSafe(token));
+    });
+
+    _tokenHeartbeatTimer = Timer.periodic(_tokenHeartbeatInterval, (_) {
+      unawaited(syncToken());
     });
   }
 
   Future<void> syncToken() async {
     await initialize();
     if (!_firebaseReady) return;
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token == null || token.isEmpty) return;
-    await _registerToken(token);
+    if (_tokenSyncInFlight) return;
+    _tokenSyncInFlight = true;
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token == null || token.isEmpty) return;
+      await _registerToken(token);
+    } finally {
+      _tokenSyncInFlight = false;
+    }
   }
 
   Future<void> unregisterCurrentToken() async {
@@ -132,6 +184,14 @@ class PushNotificationService {
       deviceModel: _deviceModel(),
     );
     _lastSyncedToken = clean;
+  }
+
+  Future<void> _registerTokenSafe(String token) async {
+    try {
+      await _registerToken(token);
+    } catch (e) {
+      debugPrint('Push token register failed: $e');
+    }
   }
 
   NotificationTapPayload _parseTapPayload(RemoteMessage message) {
@@ -188,6 +248,7 @@ class PushNotificationService {
   }
 
   void dispose() {
+    _tokenHeartbeatTimer?.cancel();
     _tokenRefreshSub?.cancel();
     _foregroundSub?.cancel();
     _openedAppSub?.cancel();

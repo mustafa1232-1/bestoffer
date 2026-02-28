@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:bestoffer/features/taxi/data/taxi_route_service.dart';
+import 'package:bestoffer/features/taxi/ui/taxi_call_screen.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../auth/state/auth_controller.dart';
 import '../data/taxi_api.dart';
@@ -42,6 +44,7 @@ class _TaxiCaptainDashboardScreenState
   bool _streamConnected = false;
   bool _followMe = true;
   bool _routeLoading = false;
+  bool _callScreenOpen = false;
   int _tab = 0;
   int _tickCounter = 0;
   String _period = 'day';
@@ -49,6 +52,8 @@ class _TaxiCaptainDashboardScreenState
   String? _error;
   DateTime? _lastSync;
   DateTime? _lastRouteAt;
+  int? _lastCallSignalId;
+  int? _lastIncomingSessionId;
 
   LatLng? _captainPoint;
   LatLng? _lastRouteFrom;
@@ -279,6 +284,9 @@ class _TaxiCaptainDashboardScreenState
           });
           return;
         }
+        if (event.event == 'taxi_call_update') {
+          unawaited(_handleCallRealtimeEvent(event.data));
+        }
         _tick(full: true);
         _refreshMeta();
       },
@@ -363,49 +371,76 @@ class _TaxiCaptainDashboardScreenState
     final rideId = _asInt(ride['id']);
     if (rideId == null) return;
 
-    final fareCtrl = TextEditingController(
-      text: '${_asInt(ride['proposedFareIqd']) ?? 0}',
-    );
+    final baseFare = _asInt(ride['proposedFareIqd']) ?? 0;
+    final fareCtrl = TextEditingController(text: '$baseFare');
     final etaCtrl = TextEditingController(text: '8');
     final noteCtrl = TextEditingController();
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AnimatedPadding(
-        duration: const Duration(milliseconds: 160),
+        duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,
         padding: EdgeInsets.only(
           bottom: MediaQuery.viewInsetsOf(dialogContext).bottom,
         ),
         child: AlertDialog(
-          title: const Text('إرسال عرض'),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.local_offer_rounded),
+              SizedBox(width: 8),
+              Text('إرسال عرض للكابتن'),
+            ],
+          ),
           content: Directionality(
             textDirection: TextDirection.rtl,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'سعر الزبون الحالي: ${_money(baseFare)}',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   TextField(
                     controller: fareCtrl,
                     keyboardType: TextInputType.number,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
-                      labelText: 'السعر المقترح',
+                      labelText: 'سعر عرضك (د.ع)',
+                      prefixIcon: Icon(Icons.price_change_rounded),
                     ),
                   ),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: etaCtrl,
                     keyboardType: TextInputType.number,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
-                      labelText: 'وقت الوصول التقديري (دقيقة)',
+                      labelText: 'زمن الوصول المتوقع (دقيقة)',
+                      prefixIcon: Icon(Icons.timer_outlined),
                     ),
                   ),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: noteCtrl,
                     textInputAction: TextInputAction.done,
+                    maxLines: 2,
                     decoration: const InputDecoration(
-                      labelText: 'ملاحظة (اختياري)',
+                      labelText: 'رسالة للزبون (اختياري)',
+                      prefixIcon: Icon(Icons.chat_bubble_outline_rounded),
                     ),
                   ),
                 ],
@@ -414,12 +449,13 @@ class _TaxiCaptainDashboardScreenState
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('إلغاء'),
             ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('إرسال'),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.send_rounded),
+              label: const Text('إرسال العرض'),
             ),
           ],
         ),
@@ -448,6 +484,294 @@ class _TaxiCaptainDashboardScreenState
       _snack(_err(e));
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _openRideChatBottomSheet(int rideId) async {
+    final textCtrl = TextEditingController();
+    List<Map<String, dynamic>> messages = const [];
+    bool sending = false;
+    String? localError;
+
+    Future<void> refresh(StateSetter setModalState) async {
+      try {
+        final items = await _api.listRideChat(rideId: rideId, limit: 120);
+        setModalState(() {
+          messages = items;
+          localError = null;
+        });
+      } on DioException catch (e) {
+        setModalState(() => localError = _err(e));
+      } catch (_) {
+        setModalState(() => localError = 'تعذر تحميل المحادثة');
+      }
+    }
+
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            if (messages.isEmpty && localError == null) {
+              unawaited(refresh(setModalState));
+            }
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 12,
+                right: 12,
+                bottom: MediaQuery.viewInsetsOf(context).bottom + 12,
+                top: 6,
+              ),
+              child: Directionality(
+                textDirection: TextDirection.rtl,
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.68,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'محادثة الرحلة',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: localError != null
+                            ? Center(
+                                child: Text(
+                                  localError!,
+                                  style: const TextStyle(color: Colors.red),
+                                ),
+                              )
+                            : messages.isEmpty
+                            ? const Center(child: Text('لا توجد رسائل بعد'))
+                            : ListView.builder(
+                                itemCount: messages.length,
+                                itemBuilder: (_, i) {
+                                  final msg = messages[i];
+                                  final role =
+                                      _str(msg['senderRole']) ?? 'system';
+                                  final senderName =
+                                      _str(msg['sender']?['fullName']) ??
+                                      (role == 'captain'
+                                          ? 'أنت'
+                                          : role == 'customer'
+                                          ? 'الزبون'
+                                          : 'النظام');
+                                  final text = _str(msg['messageText']) ?? '-';
+                                  final mine = role == 'captain';
+                                  return Align(
+                                    alignment: mine
+                                        ? Alignment.centerRight
+                                        : Alignment.centerLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 6),
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: mine
+                                            ? Colors.green.withValues(
+                                                alpha: 0.14,
+                                              )
+                                            : Colors.black.withValues(
+                                                alpha: 0.08,
+                                              ),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            senderName,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(text),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: textCtrl,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (_) async {
+                                final text = textCtrl.text.trim();
+                                if (text.isEmpty || sending) return;
+                                setModalState(() => sending = true);
+                                try {
+                                  await _api.sendRideChatMessage(
+                                    rideId: rideId,
+                                    messageText: text,
+                                  );
+                                  textCtrl.clear();
+                                  await refresh(setModalState);
+                                } finally {
+                                  setModalState(() => sending = false);
+                                }
+                              },
+                              decoration: const InputDecoration(
+                                hintText: 'اكتب رسالة للزبون...',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: sending
+                                ? null
+                                : () async {
+                                    final text = textCtrl.text.trim();
+                                    if (text.isEmpty) return;
+                                    setModalState(() => sending = true);
+                                    try {
+                                      await _api.sendRideChatMessage(
+                                        rideId: rideId,
+                                        messageText: text,
+                                      );
+                                      textCtrl.clear();
+                                      await refresh(setModalState);
+                                    } catch (_) {
+                                      setModalState(() {
+                                        localError = 'تعذر إرسال الرسالة';
+                                      });
+                                    } finally {
+                                      setModalState(() => sending = false);
+                                    }
+                                  },
+                            child: const Text('إرسال'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _callUser({
+    required int rideId,
+    String? phone,
+    String? remoteDisplayName,
+  }) async {
+    if (rideId > 0) {
+      await _openInAppCall(
+        rideId: rideId,
+        isCaller: true,
+        remoteDisplayName: remoteDisplayName,
+      );
+      return;
+    }
+
+    final value = (phone ?? '').trim();
+    if (value.isEmpty) {
+      _snack('Phone number is not available');
+      return;
+    }
+    final uri = Uri.parse('tel:$value');
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened) {
+      _snack('Could not open phone call');
+    }
+  }
+
+  Future<void> _handleCallRealtimeEvent(Map<String, dynamic> data) async {
+    final activeRideId = _asInt(_ride?['id']);
+    final eventRideId = data['ride'] is Map
+        ? _asInt((data['ride'] as Map)['id'])
+        : _asInt(data['rideId']);
+    if (activeRideId == null ||
+        eventRideId == null ||
+        activeRideId != eventRideId) {
+      return;
+    }
+
+    final signal = data['signal'] is Map
+        ? Map<String, dynamic>.from(data['signal'] as Map)
+        : null;
+    final signalId = _asInt(signal?['id']);
+    if (signalId != null) {
+      if (_lastCallSignalId == signalId) return;
+      _lastCallSignalId = signalId;
+    }
+
+    final session = data['session'] is Map
+        ? Map<String, dynamic>.from(data['session'] as Map)
+        : null;
+    final sessionId = _asInt(session?['id']);
+    final eventType = _str(data['eventType']) ?? '';
+    final customerName = _str(_ride?['customer']?['fullName']);
+
+    if (eventType == 'incoming_call') {
+      if (_callScreenOpen || sessionId == null) return;
+      if (_lastIncomingSessionId == sessionId) return;
+      _lastIncomingSessionId = sessionId;
+      await _openInAppCall(
+        rideId: activeRideId,
+        isCaller: false,
+        initialSessionId: sessionId,
+        remoteDisplayName: customerName,
+      );
+      return;
+    }
+
+    if (eventType == 'outgoing_call' && !_callScreenOpen && sessionId != null) {
+      await _openInAppCall(
+        rideId: activeRideId,
+        isCaller: true,
+        initialSessionId: sessionId,
+        remoteDisplayName: customerName,
+      );
+      return;
+    }
+
+    if (eventType == 'call_ended') {
+      _snack('Call ended');
+    }
+  }
+
+  Future<void> _openInAppCall({
+    required int rideId,
+    required bool isCaller,
+    int? initialSessionId,
+    String? remoteDisplayName,
+  }) async {
+    if (_callScreenOpen || !mounted) return;
+    _callScreenOpen = true;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => TaxiCallScreen(
+            rideId: rideId,
+            isCaller: isCaller,
+            initialSessionId: initialSessionId,
+            remoteDisplayName: remoteDisplayName,
+          ),
+        ),
+      );
+    } finally {
+      _callScreenOpen = false;
+      if (mounted) {
+        unawaited(_tick(full: true));
+      }
     }
   }
 
@@ -831,6 +1155,31 @@ class _TaxiCaptainDashboardScreenState
             ),
           ],
         ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _sending || (_asInt(ride['id']) ?? 0) <= 0
+                  ? null
+                  : () => _openRideChatBottomSheet(_asInt(ride['id'])!),
+              icon: const Icon(Icons.chat_rounded),
+              label: const Text('دردشة'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _sending
+                  ? null
+                  : () => _callUser(
+                      rideId: _asInt(ride['id']) ?? 0,
+                      phone: _str(ride['customer']?['phone']),
+                      remoteDisplayName: _str(ride['customer']?['fullName']),
+                    ),
+              icon: const Icon(Icons.call_rounded),
+              label: const Text('اتصال بالزبون'),
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
         if (status == 'captain_assigned')
           FilledButton(
@@ -866,46 +1215,120 @@ class _TaxiCaptainDashboardScreenState
       itemBuilder: (_, i) {
         final r = _nearby[i];
         final fare = _asInt(r['proposedFareIqd']) ?? 0;
+        final myBid = r['myBid'] is Map
+            ? Map<String, dynamic>.from(r['myBid'] as Map)
+            : null;
+        final myBidId = _asInt(myBid?['id']);
+        final currentBidId = _asInt(r['currentBidId']);
+        final isCurrentNegotiationBid =
+            myBidId != null && currentBidId != null && myBidId == currentBidId;
+        final queueTag = myBid == null
+            ? 'جديد'
+            : isCurrentNegotiationBid
+            ? 'دورك الآن'
+            : 'بانتظار الدور';
+        final queueColor = myBid == null
+            ? Colors.lightGreenAccent
+            : isCurrentNegotiationBid
+            ? Colors.orangeAccent
+            : Colors.white70;
+        final rideId = _asInt(r['id']) ?? 0;
         return Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: Colors.black26,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
                       'طلب #${r['id']}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    Text(
-                      'من: ${_str(r['pickup']?['label']) ?? '-'}',
-                      style: const TextStyle(color: Colors.white70),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
                     ),
-                    Text(
-                      'إلى: ${_str(r['dropoff']?['label']) ?? '-'}',
-                      style: const TextStyle(color: Colors.white70),
+                    decoration: BoxDecoration(
+                      color: queueColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(999),
                     ),
-                  ],
-                ),
+                    child: Text(
+                      queueTag,
+                      style: TextStyle(
+                        color: queueColor,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              Column(
+              const SizedBox(height: 4),
+              Text(
+                'من: ${_str(r['pickup']?['label']) ?? '-'}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              Text(
+                'إلى: ${_str(r['dropoff']?['label']) ?? '-'}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 6),
+              Row(
                 children: [
                   Text(
-                    _money(fare),
+                    'سعر الزبون: ${_money(fare)}',
                     style: const TextStyle(color: Colors.greenAccent),
                   ),
+                  const Spacer(),
+                  if (myBid != null)
+                    Text(
+                      'عرضك: ${_money(_asInt(myBid['offeredFareIqd']) ?? 0)}',
+                      style: const TextStyle(color: Colors.lightBlueAccent),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
                   FilledButton.tonal(
                     onPressed: _sending ? null : () => _submitBid(r),
-                    child: const Text('إرسال عرض'),
+                    child: Text(myBid == null ? 'إرسال عرض' : 'تعديل عرضي'),
                   ),
+                  if (isCurrentNegotiationBid)
+                    OutlinedButton.icon(
+                      onPressed: _sending || rideId <= 0
+                          ? null
+                          : () => _openRideChatBottomSheet(rideId),
+                      icon: const Icon(Icons.chat_rounded),
+                      label: const Text('دردشة'),
+                    ),
+                  if (isCurrentNegotiationBid)
+                    OutlinedButton.icon(
+                      onPressed: _sending
+                          ? null
+                          : () => _callUser(
+                              rideId: rideId,
+                              phone: _str(r['customer']?['phone']),
+                              remoteDisplayName: _str(
+                                r['customer']?['fullName'],
+                              ),
+                            ),
+                      icon: const Icon(Icons.call_rounded),
+                      label: const Text('اتصال'),
+                    ),
                 ],
               ),
             ],
