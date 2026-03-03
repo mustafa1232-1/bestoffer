@@ -1,13 +1,16 @@
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 import * as service from "./feed.service.js";
 import {
+  validateCreateStory,
   validateCreateComment,
   validateCreatePost,
   validateCreateThread,
+  validateListStories,
   validateListMessages,
   validateListPosts,
   validateMerchantSearch,
   validatePostId,
+  validateStoryId,
   validateSendMessage,
   validateThreadId,
 } from "./feed.validators.js";
@@ -25,6 +28,18 @@ export async function listPosts(req, res, next) {
     if (!v.ok) return badRequest(res, v.errors);
 
     const out = await service.listPosts(req.userId, v.value);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listStories(req, res, next) {
+  try {
+    const v = validateListStories(req.query || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.listStories(req.userId, v.value);
     return res.json(out);
   } catch (error) {
     return next(error);
@@ -60,6 +75,40 @@ export async function createPost(req, res, next) {
       : null;
     const post = await service.createPost(req.userId, v.value, media);
     return res.status(201).json({ post });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function createStory(req, res, next) {
+  try {
+    const v = validateCreateStory(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const media = req.file
+      ? {
+          url: buildUploadedFileUrl(req, req.file),
+          mimetype: req.file.mimetype,
+        }
+      : null;
+
+    const story = await service.createStory(req.userId, v.value, media);
+    return res.status(201).json({ story });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function markStoryViewed(req, res, next) {
+  try {
+    const v = validateStoryId(req.params.storyId);
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.markStoryViewed({
+      storyId: v.value,
+      userId: req.userId,
+    });
+    return res.json(out);
   } catch (error) {
     return next(error);
   }

@@ -122,6 +122,28 @@ function mapCommentRow(row) {
   };
 }
 
+function mapStoryRow(row, viewerUserId) {
+  return {
+    id: Number(row.id),
+    userId: Number(row.user_id),
+    caption: row.caption || "",
+    mediaUrl: row.media_url || null,
+    mediaKind: row.media_kind || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    expiresAt: row.expires_at,
+    isViewed: row.is_viewed === true,
+    isMine: Number(row.user_id) === Number(viewerUserId),
+    author: {
+      id: Number(row.user_id),
+      fullName: row.user_full_name || "",
+      imageUrl: row.user_image_url || null,
+      role: row.user_role || "user",
+      phone: row.user_phone || "",
+    },
+  };
+}
+
 function mapThreadRow(row, viewerUserId) {
   const peerId = Number(row.peer_user_id);
   return {
@@ -186,6 +208,33 @@ function compactMessagePreview(value) {
   return `${text.slice(0, 80)}...`;
 }
 
+function dispatchStoryNotifications({ audienceUserIds, actor, story }) {
+  if (!Array.isArray(audienceUserIds) || audienceUserIds.length <= 0) return;
+  setImmediate(async () => {
+    try {
+      const safeTitle = "ستوري جديدة في شديصير بسماية";
+      const safeBody = `${actor?.full_name || "مستخدم"} نشر ستوري جديدة`;
+      await Promise.allSettled(
+        audienceUserIds.map((userId) =>
+          createNotification({
+            userId: Number(userId),
+            type: "social.story.new",
+            title: safeTitle,
+            body: safeBody,
+            payload: {
+              storyId: Number(story.id),
+              actorUserId: Number(actor?.id || story.userId),
+              target: "social_feed",
+            },
+          })
+        )
+      );
+    } catch (error) {
+      console.error("Failed to dispatch story notifications", error);
+    }
+  });
+}
+
 export async function listPosts(viewerUserId, query) {
   const rows = await repo.listFeedPosts({
     viewerUserId,
@@ -196,6 +245,62 @@ export async function listPosts(viewerUserId, query) {
   return {
     posts: rows.map(mapPostRow),
     nextCursor: rows.length > 0 ? Number(rows[rows.length - 1].id) : null,
+  };
+}
+
+export async function listStories(viewerUserId, query) {
+  const safeLimitUsers = Math.max(1, Math.min(80, Number(query.limitUsers) || 30));
+  const safeMaxPerUser = Math.max(1, Math.min(20, Number(query.maxPerUser) || 8));
+  const rows = await repo.listActiveStoriesRaw({
+    viewerUserId,
+    limitRows: Math.max(80, safeLimitUsers * safeMaxPerUser * 2),
+  });
+
+  const grouped = new Map();
+  for (const row of rows) {
+    const userId = Number(row.user_id);
+    if (!Number.isFinite(userId) || userId <= 0) continue;
+
+    let group = grouped.get(userId);
+    if (!group) {
+      group = {
+        userId,
+        author: {
+          id: userId,
+          fullName: row.user_full_name || "",
+          imageUrl: row.user_image_url || null,
+          role: row.user_role || "user",
+          phone: row.user_phone || "",
+        },
+        latestAt: row.created_at,
+        hasUnviewed: false,
+        stories: [],
+      };
+      grouped.set(userId, group);
+    }
+
+    if (group.stories.length >= safeMaxPerUser) continue;
+    const story = mapStoryRow(row, viewerUserId);
+    group.stories.push(story);
+    if (!story.isViewed && !story.isMine) {
+      group.hasUnviewed = true;
+    }
+    if (!group.latestAt || new Date(story.createdAt) > new Date(group.latestAt)) {
+      group.latestAt = story.createdAt;
+    }
+  }
+
+  const stories = [...grouped.values()]
+    .map((group) => ({
+      ...group,
+      stories: [...group.stories].reverse(),
+    }))
+    .sort((a, b) => new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime())
+    .slice(0, safeLimitUsers);
+
+  return {
+    stories,
+    generatedAt: new Date().toISOString(),
   };
 }
 
@@ -259,6 +364,65 @@ export async function createPost(userId, dto, media) {
   });
   emitToUser(Number(userId), "social_post_created", { post: mapped });
   return mapped;
+}
+
+export async function createStory(userId, dto, media) {
+  assertContentAllowed(dto.caption || "");
+
+  const mediaKind = resolveMediaKindFromMime(media?.mimetype);
+  const mediaUrl = media?.url || null;
+  if (!dto.caption && !mediaUrl) {
+    throw new AppError("EMPTY_STORY", {
+      status: 400,
+      details: { fields: ["caption", "media"] },
+    });
+  }
+
+  const inserted = await repo.insertStory({
+    userId,
+    caption: dto.caption,
+    mediaUrl,
+    mediaKind,
+  });
+  if (!inserted?.id) {
+    throw new AppError("STORY_CREATE_FAILED", { status: 500 });
+  }
+  const created = await repo.findStoryById({
+    viewerUserId: userId,
+    storyId: inserted.id,
+  });
+  if (!created) throw new AppError("STORY_CREATE_FAILED", { status: 500 });
+  const mapped = mapStoryRow(created, userId);
+
+  emitToUser(Number(userId), "social_story_created", { story: mapped });
+
+  const [audienceUserIds, actor] = await Promise.all([
+    repo.listStoryAudienceUserIds({
+      excludeUserId: userId,
+      limit: 1500,
+    }),
+    repo.findUserPublicProfile(userId),
+  ]);
+
+  dispatchStoryNotifications({
+    audienceUserIds,
+    actor,
+    story: mapped,
+  });
+
+  return mapped;
+}
+
+export async function markStoryViewed({ storyId, userId }) {
+  const story = await repo.findStoryById({
+    viewerUserId: userId,
+    storyId,
+  });
+  if (!story) {
+    throw new AppError("STORY_NOT_FOUND", { status: 404 });
+  }
+  await repo.markStoryViewed({ storyId, userId });
+  return { ok: true };
 }
 
 export async function toggleLike({ postId, userId }) {

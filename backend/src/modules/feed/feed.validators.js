@@ -32,6 +32,34 @@ export function validateListPosts(query = {}) {
   };
 }
 
+export function validateListStories(query = {}) {
+  const limitUsers = Number(query.limitUsers ?? 30);
+  const maxPerUser = Number(query.maxPerUser ?? 8);
+  const errors = [];
+
+  if (!Number.isInteger(limitUsers) || limitUsers < 1 || limitUsers > 80) {
+    errors.push("limitUsers");
+  }
+  if (!Number.isInteger(maxPerUser) || maxPerUser < 1 || maxPerUser > 20) {
+    errors.push("maxPerUser");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      limitUsers: Math.min(
+        80,
+        Math.max(1, Number.isInteger(limitUsers) ? limitUsers : 30)
+      ),
+      maxPerUser: Math.min(
+        20,
+        Math.max(1, Number.isInteger(maxPerUser) ? maxPerUser : 8)
+      ),
+    },
+  };
+}
+
 export function validateCreatePost(body = {}) {
   const errors = [];
   const caption = asTrimmed(body.caption);
@@ -74,11 +102,35 @@ export function validateCreatePost(body = {}) {
   };
 }
 
+export function validateCreateStory(body = {}) {
+  const errors = [];
+  const caption = asTrimmed(body.caption);
+
+  if (caption.length > 500) errors.push("caption");
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      caption,
+    },
+  };
+}
+
 export function validatePostId(postId) {
   const value = asPositiveInt(postId);
   return {
     ok: value != null,
     errors: value == null ? ["postId"] : [],
+    value,
+  };
+}
+
+export function validateStoryId(storyId) {
+  const value = asPositiveInt(storyId);
+  return {
+    ok: value != null,
+    errors: value == null ? ["storyId"] : [],
     value,
   };
 }

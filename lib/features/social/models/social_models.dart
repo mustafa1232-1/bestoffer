@@ -154,6 +154,70 @@ class SocialMerchantOption {
       );
 }
 
+class SocialStory {
+  final int id;
+  final int userId;
+  final String caption;
+  final String? mediaUrl;
+  final String? mediaKind;
+  final bool isViewed;
+  final bool isMine;
+  final DateTime? createdAt;
+  final DateTime? expiresAt;
+
+  const SocialStory({
+    required this.id,
+    required this.userId,
+    required this.caption,
+    required this.mediaUrl,
+    required this.mediaKind,
+    required this.isViewed,
+    required this.isMine,
+    required this.createdAt,
+    required this.expiresAt,
+  });
+
+  factory SocialStory.fromJson(Map<String, dynamic> j) => SocialStory(
+    id: parseInt(j['id']),
+    userId: parseInt(j['userId'] ?? j['user_id']),
+    caption: parseString(j['caption']),
+    mediaUrl: parseNullableString(j['mediaUrl'] ?? j['media_url']),
+    mediaKind: parseNullableString(j['mediaKind'] ?? j['media_kind']),
+    isViewed: parseBool(j['isViewed'] ?? j['is_viewed']),
+    isMine: parseBool(j['isMine'] ?? j['is_mine']),
+    createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
+    expiresAt: parseNullableDateTime(j['expiresAt'] ?? j['expires_at']),
+  );
+}
+
+class SocialStoryGroup {
+  final int userId;
+  final SocialAuthor author;
+  final DateTime? latestAt;
+  final bool hasUnviewed;
+  final List<SocialStory> stories;
+
+  const SocialStoryGroup({
+    required this.userId,
+    required this.author,
+    required this.latestAt,
+    required this.hasUnviewed,
+    required this.stories,
+  });
+
+  factory SocialStoryGroup.fromJson(Map<String, dynamic> j) => SocialStoryGroup(
+    userId: parseInt(j['userId'] ?? j['user_id']),
+    author: SocialAuthor.fromJson(
+      Map<String, dynamic>.from(j['author'] as Map? ?? const {}),
+    ),
+    latestAt: parseNullableDateTime(j['latestAt'] ?? j['latest_at']),
+    hasUnviewed: parseBool(j['hasUnviewed'] ?? j['has_unviewed']),
+    stories: List<dynamic>.from(j['stories'] as List? ?? const [])
+        .map((e) => SocialStory.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList(growable: false),
+  );
+}
+
 class SocialChatMessage {
   final int id;
   final int threadId;

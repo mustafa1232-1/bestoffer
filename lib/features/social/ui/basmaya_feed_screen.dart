@@ -33,6 +33,7 @@ class BasmayaFeedScreen extends ConsumerStatefulWidget {
 class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
   final ScrollController _scrollController = ScrollController();
   final intl.DateFormat _timeFmt = intl.DateFormat('d/M hh:mm a', 'ar');
+  Timer? _feedRefreshTimer;
   bool _bootstrapped = false;
 
   @override
@@ -40,6 +41,10 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
     super.initState();
     _scrollController.addListener(_onScroll);
     Future.microtask(_bootstrap);
+    _feedRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!mounted) return;
+      ref.read(socialControllerProvider.notifier).refreshFeedTick();
+    });
   }
 
   Future<void> _bootstrap() async {
@@ -117,9 +122,19 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
       builder: (_) => const _CreatePostSheet(),
     );
     if (posted == true) {
-      await ref
-          .read(socialControllerProvider.notifier)
-          .loadPosts(refresh: true);
+      await _refreshAll();
+    }
+  }
+
+  Future<void> _openCreateStory() async {
+    final posted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const _CreateStorySheet(),
+    );
+    if (posted == true) {
+      await _refreshAll();
     }
   }
 
@@ -145,12 +160,6 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
     await SharePlus.instance.share(ShareParams(text: text));
   }
 
-  Future<void> _callAuthor(SocialAuthor author) async {
-    final phone = (author.phone ?? '').trim();
-    if (phone.isEmpty) return;
-    await launchUrl(Uri.parse('tel:$phone'));
-  }
-
   Future<void> _messageAuthor(SocialAuthor author) async {
     final me = ref.read(authControllerProvider).user?.id;
     if (me != null && me == author.id) return;
@@ -171,9 +180,19 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
 
   @override
   void dispose() {
+    _feedRefreshTimer?.cancel();
+    _feedRefreshTimer = null;
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshAll() async {
+    await Future.wait([
+      ref.read(socialControllerProvider.notifier).loadStories(),
+      ref.read(socialControllerProvider.notifier).loadPosts(refresh: true),
+      ref.read(socialControllerProvider.notifier).loadThreads(),
+    ]);
   }
 
   @override
@@ -194,6 +213,11 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
         title: const Text('شديصير بسماية'),
         actions: [
           IconButton(
+            tooltip: 'تحديث',
+            onPressed: _refreshAll,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
             tooltip: 'المحادثات',
             onPressed: _openThreads,
             icon: const Icon(Icons.chat_bubble_outline_rounded),
@@ -212,12 +236,7 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          await Future.wait([
-            ref
-                .read(socialControllerProvider.notifier)
-                .loadPosts(refresh: true),
-            ref.read(socialControllerProvider.notifier).loadThreads(),
-          ]);
+          await _refreshAll();
         },
         child: ListView(
           controller: _scrollController,
@@ -241,6 +260,25 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+            ),
+            const SizedBox(height: 10),
+            _StoriesStrip(
+              loading: state.loadingStories,
+              stories: state.stories,
+              onCreateStory: _openCreateStory,
+              onOpenStoryGroup: (group) async {
+                await showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  showDragHandle: true,
+                  builder: (_) => _StoryViewerSheet(
+                    group: group,
+                    onStoryViewed: (storyId) => ref
+                        .read(socialControllerProvider.notifier)
+                        .markStoryViewed(storyId),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 10),
             SizedBox(
@@ -427,11 +465,6 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
                               label: 'مشاركة',
                               icon: Icons.ios_share_rounded,
                               onTap: () => _sharePost(post),
-                            ),
-                            _ChipAction(
-                              label: 'اتصال',
-                              icon: Icons.call_outlined,
-                              onTap: () => _callAuthor(post.author),
                             ),
                             _ChipAction(
                               label: 'مراسلة',
@@ -786,6 +819,442 @@ class _ModeChip extends StatelessWidget {
       label: Row(
         mainAxisSize: MainAxisSize.min,
         children: [Text(label), const SizedBox(width: 6), Icon(icon, size: 16)],
+      ),
+    );
+  }
+}
+
+class _StoriesStrip extends StatelessWidget {
+  final bool loading;
+  final List<SocialStoryGroup> stories;
+  final VoidCallback onCreateStory;
+  final ValueChanged<SocialStoryGroup> onOpenStoryGroup;
+
+  const _StoriesStrip({
+    required this.loading,
+    required this.stories,
+    required this.onCreateStory,
+    required this.onOpenStoryGroup,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 104,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        reverse: true,
+        children: [
+          _StoryCircleAdd(onTap: onCreateStory),
+          const SizedBox(width: 8),
+          if (loading && stories.isEmpty)
+            const SizedBox(
+              width: 68,
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else if (stories.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 36),
+              child: Text(
+                'لا توجد ستوري حالياً',
+                textDirection: TextDirection.rtl,
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            )
+          else
+            ...stories.map(
+              (group) => Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: _StoryCircle(
+                  group: group,
+                  onTap: () => onOpenStoryGroup(group),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StoryCircleAdd extends StatelessWidget {
+  final VoidCallback onTap;
+  const _StoryCircleAdd({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: SizedBox(
+        width: 84,
+        child: Column(
+          children: [
+            Container(
+              width: 68,
+              height: 68,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFF4CC9F0), width: 2),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+              ),
+              child: const Icon(
+                Icons.add_rounded,
+                color: Colors.white,
+                size: 34,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'إضافة ستوري',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textDirection: TextDirection.rtl,
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StoryCircle extends StatelessWidget {
+  final SocialStoryGroup group;
+  final VoidCallback onTap;
+
+  const _StoryCircle({required this.group, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = (group.author.imageUrl ?? '').trim().isNotEmpty;
+    final ringColor = group.hasUnviewed
+        ? const Color(0xFF22D3EE)
+        : Colors.white.withValues(alpha: 0.38);
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: SizedBox(
+        width: 84,
+        child: Column(
+          children: [
+            Container(
+              width: 68,
+              height: 68,
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: ringColor, width: 2),
+              ),
+              child: CircleAvatar(
+                backgroundImage: hasImage
+                    ? NetworkImage(group.author.imageUrl!)
+                    : null,
+                child: hasImage
+                    ? null
+                    : const Icon(Icons.person_outline_rounded, size: 24),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              group.author.fullName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textDirection: TextDirection.rtl,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateStorySheet extends ConsumerStatefulWidget {
+  const _CreateStorySheet();
+
+  @override
+  ConsumerState<_CreateStorySheet> createState() => _CreateStorySheetState();
+}
+
+class _CreateStorySheetState extends ConsumerState<_CreateStorySheet> {
+  final TextEditingController _captionCtrl = TextEditingController();
+  LocalMediaFile? _media;
+  bool _publishing = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _captionCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickMedia() async {
+    final file = await pickPostMediaFromDevice();
+    if (file == null || !mounted) return;
+    setState(() => _media = file);
+  }
+
+  Future<void> _publish() async {
+    if (_publishing) return;
+    final caption = _captionCtrl.text.trim();
+    if (caption.isEmpty && _media == null) {
+      setState(() => _error = 'أضف نصاً أو وسائط قبل النشر.');
+      return;
+    }
+    setState(() {
+      _publishing = true;
+      _error = null;
+    });
+
+    await ref
+        .read(socialControllerProvider.notifier)
+        .createStory(caption: caption, mediaFile: _media);
+
+    if (!mounted) return;
+    final err = ref.read(socialControllerProvider).error;
+    if (err != null && err.trim().isNotEmpty) {
+      setState(() {
+        _publishing = false;
+        _error = err;
+      });
+      return;
+    }
+    Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final keyboard = MediaQuery.of(context).viewInsets.bottom;
+    return SafeArea(
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        padding: EdgeInsets.only(bottom: keyboard),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const Text(
+                'ستوري جديدة',
+                textDirection: TextDirection.rtl,
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _captionCtrl,
+                textDirection: TextDirection.rtl,
+                minLines: 2,
+                maxLines: 5,
+                decoration: InputDecoration(
+                  labelText: 'اكتب شي بسيط عن يومك...',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  if (_media != null) Expanded(child: Text(_media!.name)),
+                  OutlinedButton.icon(
+                    onPressed: _pickMedia,
+                    icon: const Icon(Icons.photo_camera_back_rounded),
+                    label: Text(
+                      _media == null ? 'اختيار وسائط' : 'تبديل الوسائط',
+                    ),
+                  ),
+                ],
+              ),
+              if (_error != null)
+                Text(
+                  _error!,
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _publishing ? null : _publish,
+                  icon: _publishing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.auto_awesome_rounded),
+                  label: const Text('نشر الستوري'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StoryViewerSheet extends StatefulWidget {
+  final SocialStoryGroup group;
+  final ValueChanged<int> onStoryViewed;
+
+  const _StoryViewerSheet({required this.group, required this.onStoryViewed});
+
+  @override
+  State<_StoryViewerSheet> createState() => _StoryViewerSheetState();
+}
+
+class _StoryViewerSheetState extends State<_StoryViewerSheet> {
+  late final PageController _pageController;
+  late int _currentIndex;
+  final Set<int> _viewedIds = <int>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    _currentIndex = 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _markCurrentViewed());
+  }
+
+  void _markCurrentViewed() {
+    if (_currentIndex < 0 || _currentIndex >= widget.group.stories.length) {
+      return;
+    }
+    final story = widget.group.stories[_currentIndex];
+    if (_viewedIds.contains(story.id)) return;
+    _viewedIds.add(story.id);
+    widget.onStoryViewed(story.id);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stories = widget.group.stories;
+    final height = MediaQuery.of(context).size.height * 0.84;
+    if (stories.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return SafeArea(
+      child: SizedBox(
+        height: height,
+        child: Column(
+          children: [
+            ListTile(
+              title: Text(
+                widget.group.author.fullName,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.end,
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: Text(
+                'ستوري خلال 24 ساعة',
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.end,
+              ),
+              leading: IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ),
+            Expanded(
+              child: PageView.builder(
+                controller: _pageController,
+                itemCount: stories.length,
+                reverse: true,
+                onPageChanged: (index) {
+                  setState(() => _currentIndex = index);
+                  _markCurrentViewed();
+                },
+                itemBuilder: (context, index) {
+                  final story = stories[index];
+                  final isImage =
+                      (story.mediaKind == 'image') &&
+                      (story.mediaUrl ?? '').trim().isNotEmpty;
+                  final isVideo =
+                      (story.mediaKind == 'video') &&
+                      (story.mediaUrl ?? '').trim().isNotEmpty;
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
+                    child: Card(
+                      clipBehavior: Clip.antiAlias,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (isImage)
+                            Image.network(story.mediaUrl!, fit: BoxFit.cover)
+                          else
+                            Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Color(0xFF0F172A),
+                                    Color(0xFF1E3A8A),
+                                  ],
+                                  begin: Alignment.topRight,
+                                  end: Alignment.bottomLeft,
+                                ),
+                              ),
+                            ),
+                          if (isVideo)
+                            Center(
+                              child: FilledButton.icon(
+                                onPressed: () async {
+                                  final uri = Uri.tryParse(story.mediaUrl!);
+                                  if (uri == null) return;
+                                  await launchUrl(
+                                    uri,
+                                    mode: LaunchMode.externalApplication,
+                                  );
+                                },
+                                icon: const Icon(Icons.play_arrow_rounded),
+                                label: const Text('تشغيل الفيديو'),
+                              ),
+                            ),
+                          Positioned(
+                            right: 12,
+                            left: 12,
+                            bottom: 14,
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.38),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                story.caption.trim().isEmpty
+                                    ? '—'
+                                    : story.caption.trim(),
+                                textDirection: TextDirection.rtl,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

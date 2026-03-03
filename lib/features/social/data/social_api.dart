@@ -27,6 +27,17 @@ class SocialApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> listStories({
+    int limitUsers = 30,
+    int maxPerUser = 8,
+  }) async {
+    final response = await dio.get(
+      '/api/feed/stories',
+      queryParameters: {'limitUsers': limitUsers, 'maxPerUser': maxPerUser},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> getPostById(int postId) async {
     final response = await dio.get('/api/feed/posts/$postId');
     return Map<String, dynamic>.from(response.data as Map);
@@ -57,6 +68,29 @@ class SocialApi {
           );
 
     return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> createStory({
+    required String caption,
+    LocalMediaFile? mediaFile,
+  }) async {
+    final payload = <String, dynamic>{'caption': caption};
+
+    final response = mediaFile == null
+        ? await dio.post('/api/feed/stories', data: payload)
+        : await dio.post(
+            '/api/feed/stories',
+            data: FormData.fromMap({
+              ...payload,
+              'mediaFile': await mediaFile.toMultipartFile(),
+            }),
+          );
+
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<void> markStoryViewed(int storyId) async {
+    await dio.post('/api/feed/stories/$storyId/view');
   }
 
   Future<Map<String, dynamic>> toggleLike(int postId) async {

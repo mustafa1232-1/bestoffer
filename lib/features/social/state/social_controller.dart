@@ -21,9 +21,14 @@ const Map<String, String> _socialApiMessages = {
   'POST_NOT_FOUND': 'المنشور غير موجود أو تمت إزالته.',
   'THREAD_NOT_FOUND': 'المحادثة غير متاحة.',
   'THREAD_SELF_NOT_ALLOWED': 'لا يمكنك إنشاء محادثة مع نفسك.',
+  'EMPTY_STORY': 'أضف نصًا أو صورة/فيديو قبل نشر الستوري.',
+  'STORY_NOT_FOUND': 'الستوري غير متاحة حالياً.',
 };
 
 class SocialState {
+  final bool loadingStories;
+  final bool creatingStory;
+  final List<SocialStoryGroup> stories;
   final bool loadingPosts;
   final bool loadingMorePosts;
   final bool creatingPost;
@@ -35,6 +40,9 @@ class SocialState {
   final String? error;
 
   const SocialState({
+    this.loadingStories = false,
+    this.creatingStory = false,
+    this.stories = const [],
     this.loadingPosts = false,
     this.loadingMorePosts = false,
     this.creatingPost = false,
@@ -47,6 +55,9 @@ class SocialState {
   });
 
   SocialState copyWith({
+    bool? loadingStories,
+    bool? creatingStory,
+    List<SocialStoryGroup>? stories,
     bool? loadingPosts,
     bool? loadingMorePosts,
     bool? creatingPost,
@@ -60,6 +71,9 @@ class SocialState {
     String? error,
   }) {
     return SocialState(
+      loadingStories: loadingStories ?? this.loadingStories,
+      creatingStory: creatingStory ?? this.creatingStory,
+      stories: stories ?? this.stories,
       loadingPosts: loadingPosts ?? this.loadingPosts,
       loadingMorePosts: loadingMorePosts ?? this.loadingMorePosts,
       creatingPost: creatingPost ?? this.creatingPost,
@@ -92,7 +106,7 @@ class SocialController extends StateNotifier<SocialState> {
   }
 
   Future<void> bootstrap() async {
-    await Future.wait([loadPosts(refresh: true), loadThreads()]);
+    await Future.wait([loadStories(), loadPosts(refresh: true), loadThreads()]);
   }
 
   Future<void> setActiveKind(String? kind) async {
@@ -109,16 +123,22 @@ class SocialController extends StateNotifier<SocialState> {
     await loadPosts(refresh: true, kind: normalized);
   }
 
-  Future<void> loadPosts({bool refresh = false, String? kind}) async {
+  Future<void> loadPosts({
+    bool refresh = false,
+    String? kind,
+    bool silent = false,
+  }) async {
     final effectiveKind = kind ?? state.activeKind;
     final loadingMore = !refresh && state.posts.isNotEmpty;
-    _safeSetState(
-      state.copyWith(
-        loadingPosts: refresh,
-        loadingMorePosts: loadingMore,
-        error: null,
-      ),
-    );
+    if (!silent) {
+      _safeSetState(
+        state.copyWith(
+          loadingPosts: refresh,
+          loadingMorePosts: loadingMore,
+          error: null,
+        ),
+      );
+    }
 
     try {
       final response = await ref
@@ -138,8 +158,8 @@ class SocialController extends StateNotifier<SocialState> {
       final merged = loadingMore ? [...state.posts, ...parsed] : parsed;
       _safeSetState(
         state.copyWith(
-          loadingPosts: false,
-          loadingMorePosts: false,
+          loadingPosts: silent ? state.loadingPosts : false,
+          loadingMorePosts: silent ? state.loadingMorePosts : false,
           posts: merged,
           activeKind: effectiveKind,
           activeKindTouched: true,
@@ -148,6 +168,7 @@ class SocialController extends StateNotifier<SocialState> {
         ),
       );
     } on DioException catch (e) {
+      if (silent) return;
       _safeSetState(
         state.copyWith(
           loadingPosts: false,
@@ -161,6 +182,7 @@ class SocialController extends StateNotifier<SocialState> {
         ),
       );
     } catch (e) {
+      if (silent) return;
       _safeSetState(
         state.copyWith(
           loadingPosts: false,
@@ -174,7 +196,148 @@ class SocialController extends StateNotifier<SocialState> {
   Future<void> loadMorePosts() async {
     if (state.loadingPosts || state.loadingMorePosts) return;
     if (state.nextPostsCursor == null) return;
-    await loadPosts(refresh: false);
+    await loadPosts(refresh: false, silent: false);
+  }
+
+  Future<void> loadStories({bool silent = false}) async {
+    if (!silent) {
+      _safeSetState(state.copyWith(loadingStories: true, error: null));
+    }
+    try {
+      final out = await ref
+          .read(socialApiProvider)
+          .listStories(limitUsers: 32, maxPerUser: 10);
+      final raw = List<dynamic>.from(out['stories'] as List? ?? const []);
+      final stories = raw
+          .map(
+            (e) =>
+                SocialStoryGroup.fromJson(Map<String, dynamic>.from(e as Map)),
+          )
+          .toList(growable: false);
+      _safeSetState(
+        state.copyWith(
+          loadingStories: silent ? state.loadingStories : false,
+          stories: stories,
+        ),
+      );
+    } on DioException catch (e) {
+      if (silent) return;
+      _safeSetState(
+        state.copyWith(
+          loadingStories: false,
+          error: mapDioError(
+            e,
+            fallback: 'تعذر تحميل الستوري.',
+            customMessages: _socialApiMessages,
+            appendRequestId: true,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (silent) return;
+      _safeSetState(
+        state.copyWith(
+          loadingStories: false,
+          error: mapAnyError(e, fallback: 'تعذر تحميل الستوري.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> createStory({
+    required String caption,
+    LocalMediaFile? mediaFile,
+  }) async {
+    _safeSetState(state.copyWith(creatingStory: true, error: null));
+    try {
+      await ref
+          .read(socialApiProvider)
+          .createStory(caption: caption, mediaFile: mediaFile);
+      _safeSetState(state.copyWith(creatingStory: false));
+      await loadStories();
+    } on DioException catch (e) {
+      _safeSetState(
+        state.copyWith(
+          creatingStory: false,
+          error: mapDioError(
+            e,
+            fallback: 'تعذر نشر الستوري.',
+            customMessages: _socialApiMessages,
+            appendRequestId: true,
+          ),
+        ),
+      );
+    } catch (e) {
+      _safeSetState(
+        state.copyWith(
+          creatingStory: false,
+          error: mapAnyError(e, fallback: 'تعذر نشر الستوري.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> markStoryViewed(int storyId) async {
+    SocialStoryGroup? targetGroup;
+    SocialStory? targetStory;
+    for (final group in state.stories) {
+      for (final story in group.stories) {
+        if (story.id == storyId) {
+          targetGroup = group;
+          targetStory = story;
+          break;
+        }
+      }
+      if (targetStory != null) break;
+    }
+    if (targetStory == null || targetStory.isViewed || targetStory.isMine) {
+      return;
+    }
+
+    try {
+      await ref.read(socialApiProvider).markStoryViewed(storyId);
+      final updatedStories = state.stories
+          .map((group) {
+            if (group.userId != targetGroup!.userId) return group;
+            final nextGroupStories = group.stories
+                .map((story) {
+                  if (story.id != storyId) return story;
+                  return SocialStory(
+                    id: story.id,
+                    userId: story.userId,
+                    caption: story.caption,
+                    mediaUrl: story.mediaUrl,
+                    mediaKind: story.mediaKind,
+                    isViewed: true,
+                    isMine: story.isMine,
+                    createdAt: story.createdAt,
+                    expiresAt: story.expiresAt,
+                  );
+                })
+                .toList(growable: false);
+            final hasUnviewed = nextGroupStories.any(
+              (s) => !s.isViewed && !s.isMine,
+            );
+            return SocialStoryGroup(
+              userId: group.userId,
+              author: group.author,
+              latestAt: group.latestAt,
+              hasUnviewed: hasUnviewed,
+              stories: nextGroupStories,
+            );
+          })
+          .toList(growable: false);
+      _safeSetState(state.copyWith(stories: updatedStories));
+    } catch (_) {
+      // Keep UI alive; next refresh will sync.
+    }
+  }
+
+  Future<void> refreshFeedTick() async {
+    await Future.wait([
+      loadStories(silent: true),
+      loadPosts(refresh: true, silent: true),
+    ]);
   }
 
   Future<SocialPost?> ensurePostVisible(int postId) async {

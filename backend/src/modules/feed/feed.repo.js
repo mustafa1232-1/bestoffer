@@ -111,6 +111,117 @@ export async function findFeedPostById({ viewerUserId, postId }) {
   return r.rows[0] || null;
 }
 
+export async function listActiveStoriesRaw({
+  viewerUserId,
+  limitRows = 500,
+}) {
+  const r = await q(
+    `SELECT
+       s.id,
+       s.user_id,
+       s.caption,
+       s.media_url,
+       s.media_kind,
+       s.created_at,
+       s.updated_at,
+       s.expires_at,
+       u.full_name AS user_full_name,
+       u.phone AS user_phone,
+       u.image_url AS user_image_url,
+       u.role AS user_role,
+       COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
+     FROM social_story s
+     JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_story_view v
+       ON v.story_id = s.id
+      AND v.user_id = $1
+     WHERE s.is_deleted = FALSE
+       AND s.moderation_status = 'approved'
+       AND s.expires_at > NOW()
+     ORDER BY s.created_at DESC, s.id DESC
+     LIMIT $2`,
+    [Number(viewerUserId), Number(limitRows)]
+  );
+  return r.rows;
+}
+
+export async function insertStory({
+  userId,
+  caption,
+  mediaUrl = null,
+  mediaKind = null,
+}) {
+  const r = await q(
+    `INSERT INTO social_story
+      (user_id, caption, media_url, media_kind, moderation_status)
+     VALUES ($1, $2, $3, $4, 'approved')
+     RETURNING *`,
+    [
+      Number(userId),
+      caption || null,
+      mediaUrl,
+      mediaKind,
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function findStoryById({ viewerUserId, storyId }) {
+  const r = await q(
+    `SELECT
+       s.id,
+       s.user_id,
+       s.caption,
+       s.media_url,
+       s.media_kind,
+       s.created_at,
+       s.updated_at,
+       s.expires_at,
+       u.full_name AS user_full_name,
+       u.phone AS user_phone,
+       u.image_url AS user_image_url,
+       u.role AS user_role,
+       COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
+     FROM social_story s
+     JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_story_view v
+       ON v.story_id = s.id
+      AND v.user_id = $1
+     WHERE s.id = $2
+       AND s.is_deleted = FALSE
+       AND s.moderation_status = 'approved'
+       AND s.expires_at > NOW()
+     LIMIT 1`,
+    [Number(viewerUserId), Number(storyId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function markStoryViewed({ storyId, userId }) {
+  await q(
+    `INSERT INTO social_story_view (story_id, user_id, viewed_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (story_id, user_id)
+     DO UPDATE SET viewed_at = EXCLUDED.viewed_at`,
+    [Number(storyId), Number(userId)]
+  );
+}
+
+export async function listStoryAudienceUserIds({
+  excludeUserId,
+  limit = 1500,
+}) {
+  const r = await q(
+    `SELECT id
+     FROM app_user
+     WHERE id <> $1
+     ORDER BY id DESC
+     LIMIT $2`,
+    [Number(excludeUserId), Number(limit)]
+  );
+  return r.rows.map((row) => Number(row.id)).filter((id) => id > 0);
+}
+
 export async function insertPost({
   userId,
   postKind,
