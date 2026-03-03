@@ -48,6 +48,7 @@ app.*.map.json
 /backend/node_modules/
 /backend/.env
 /backend/uploads/
+/tmp_r2_test/
 
 # Firebase secrets (do not commit)
 /android/app/google-services.json
