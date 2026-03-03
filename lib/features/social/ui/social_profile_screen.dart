@@ -141,9 +141,9 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen>
           .toList(growable: false);
 
       if (!mounted) return;
-      final merged = refresh
+      final List<SocialPost> merged = refresh
           ? posts
-          : [...(_postsByKey[key] ?? const []), ...posts];
+          : [...(_postsByKey[key] ?? const <SocialPost>[]), ...posts];
       setState(() {
         _postsByKey[key] = merged;
         _nextCursorByKey[key] = int.tryParse('${out['nextCursor']}');
