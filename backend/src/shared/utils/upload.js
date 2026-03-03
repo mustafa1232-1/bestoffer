@@ -79,8 +79,8 @@ const r2Storage = {
     });
 
     out.on("finish", async () => {
-      try {
-        if (useR2Storage && size >= r2MinFileSizeBytes) {
+      if (useR2Storage && size >= r2MinFileSizeBytes) {
+        try {
           const readStream = fs.createReadStream(localPath);
           const uploaded = await uploadStreamToR2({
             inputStream: readStream,
@@ -101,19 +101,23 @@ const r2Storage = {
             storageProvider: "r2",
           });
           return;
+        } catch (error) {
+          console.warn(
+            `[upload] R2 upload failed, falling back to local storage: ${
+              error?.message || "unknown error"
+            }`
+          );
         }
-
-        done(null, {
-          destination: uploadsDir,
-          filename,
-          path: localPath,
-          size,
-          mimetype: file.mimetype,
-          storageProvider: "local",
-        });
-      } catch (error) {
-        done(error);
       }
+
+      done(null, {
+        destination: uploadsDir,
+        filename,
+        path: localPath,
+        size,
+        mimetype: file.mimetype,
+        storageProvider: "local",
+      });
     });
 
     file.stream.pipe(out);
