@@ -5,6 +5,8 @@ import {
   validateCreateComment,
   validateCreatePost,
   validateCreateThread,
+  validateHighlightId,
+  validateHighlightStory,
   validateListStories,
   validateListStoryArchive,
   validateListMessages,
@@ -12,6 +14,7 @@ import {
   validateMerchantSearch,
   validatePostId,
   validateStoryId,
+  validateUpdateSocialProfile,
   validateUserId,
   validateSendMessage,
   validateThreadId,
@@ -97,6 +100,17 @@ export async function listUserPosts(req, res, next) {
   }
 }
 
+export async function listUserHighlights(req, res, next) {
+  try {
+    const user = validateUserId(req.params.userId);
+    if (!user.ok) return badRequest(res, user.errors);
+    const out = await service.listUserHighlights(req.userId, user.value);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function createPost(req, res, next) {
   try {
     const body = {
@@ -133,6 +147,54 @@ export async function createStory(req, res, next) {
 
     const story = await service.createStory(req.userId, v.value, media);
     return res.status(201).json({ story });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function updateMyProfile(req, res, next) {
+  try {
+    const body = {
+      ...(req.body || {}),
+      imageUrl: buildUploadedFileUrl(req, req.file) || req.body?.imageUrl,
+    };
+    const v = validateUpdateSocialProfile(body, {
+      hasImageUpload: !!req.file,
+    });
+    if (!v.ok) return badRequest(res, v.errors);
+    const out = await service.updateMyProfile(req.userId, v.value);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function highlightStory(req, res, next) {
+  try {
+    const story = validateStoryId(req.params.storyId);
+    if (!story.ok) return badRequest(res, story.errors);
+    const payload = validateHighlightStory(req.body || {});
+    if (!payload.ok) return badRequest(res, payload.errors);
+    const out = await service.highlightStory({
+      userId: req.userId,
+      storyId: story.value,
+      title: payload.value.title,
+    });
+    return res.status(201).json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function removeHighlight(req, res, next) {
+  try {
+    const id = validateHighlightId(req.params.highlightId);
+    if (!id.ok) return badRequest(res, id.errors);
+    await service.removeHighlight({
+      userId: req.userId,
+      highlightId: id.value,
+    });
+    return res.status(204).send();
   } catch (error) {
     return next(error);
   }
@@ -175,7 +237,11 @@ export async function listPostComments(req, res, next) {
     const query = validateListMessages(req.query || {});
     if (!query.ok) return badRequest(res, query.errors);
 
-    const out = await service.listComments(post.value, query.value);
+    const out = await service.listComments({
+      postId: post.value,
+      userId: req.userId,
+      query: query.value,
+    });
     return res.json(out);
   } catch (error) {
     return next(error);

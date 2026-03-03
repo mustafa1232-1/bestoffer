@@ -50,6 +50,7 @@ export async function listFeedPosts({
      ) v ON TRUE
      WHERE p.is_deleted = FALSE
        AND p.moderation_status = 'approved'
+       AND (u.social_posts_public = TRUE OR p.user_id = $1)
        AND ($2::bigint IS NULL OR p.id < $2::bigint)
        AND ($3::text IS NULL OR p.post_kind = $3::text)
      ORDER BY p.id DESC
@@ -166,6 +167,7 @@ export async function findFeedPostById({ viewerUserId, postId }) {
      WHERE p.id = $2
        AND p.is_deleted = FALSE
        AND p.moderation_status = 'approved'
+       AND (u.social_posts_public = TRUE OR p.user_id = $1)
      LIMIT 1`,
     [Number(viewerUserId), Number(postId)]
   );
@@ -200,6 +202,7 @@ export async function listActiveStoriesRaw({
      WHERE s.is_deleted = FALSE
        AND s.moderation_status = 'approved'
        AND s.expires_at > NOW()
+       AND (u.social_stories_public = TRUE OR s.user_id = $1)
      ORDER BY s.created_at DESC, s.id DESC
      LIMIT $2`,
     [Number(viewerUserId), Number(limitRows)]
@@ -249,6 +252,113 @@ export async function listArchivedStoriesRaw({
     ]
   );
   return r.rows;
+}
+
+export async function listUserHighlightsRaw({
+  viewerUserId,
+  ownerUserId,
+  limit = 40,
+}) {
+  const r = await q(
+    `SELECT
+       h.id AS highlight_id,
+       h.owner_user_id,
+       h.title AS highlight_title,
+       h.created_at AS highlight_created_at,
+       s.id,
+       s.user_id,
+       s.caption,
+       s.media_url,
+       s.media_kind,
+       s.story_style,
+       s.created_at,
+       s.updated_at,
+       s.expires_at,
+       u.full_name AS user_full_name,
+       u.phone AS user_phone,
+       u.image_url AS user_image_url,
+       u.role AS user_role,
+       COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
+     FROM social_story_highlight h
+     JOIN social_story s ON s.id = h.story_id
+     JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_story_view v
+       ON v.story_id = s.id
+      AND v.user_id = $1
+     WHERE h.owner_user_id = $2
+       AND s.is_deleted = FALSE
+       AND s.moderation_status = 'approved'
+     ORDER BY h.id DESC
+     LIMIT $3`,
+    [Number(viewerUserId), Number(ownerUserId), Number(limit)]
+  );
+  return r.rows;
+}
+
+export async function upsertStoryHighlight({
+  ownerUserId,
+  storyId,
+  title = null,
+}) {
+  const r = await q(
+    `INSERT INTO social_story_highlight
+      (owner_user_id, story_id, title)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (owner_user_id, story_id)
+     DO UPDATE SET
+       title = COALESCE(NULLIF(EXCLUDED.title, ''), social_story_highlight.title),
+       updated_at = NOW()
+     RETURNING *`,
+    [Number(ownerUserId), Number(storyId), title || null]
+  );
+  return r.rows[0] || null;
+}
+
+export async function findHighlightById({ viewerUserId, highlightId }) {
+  const r = await q(
+    `SELECT
+       h.id AS highlight_id,
+       h.owner_user_id,
+       h.title AS highlight_title,
+       h.created_at AS highlight_created_at,
+       s.id,
+       s.user_id,
+       s.caption,
+       s.media_url,
+       s.media_kind,
+       s.story_style,
+       s.created_at,
+       s.updated_at,
+       s.expires_at,
+       u.full_name AS user_full_name,
+       u.phone AS user_phone,
+       u.image_url AS user_image_url,
+       u.role AS user_role,
+       COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
+     FROM social_story_highlight h
+     JOIN social_story s ON s.id = h.story_id
+     JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_story_view v
+       ON v.story_id = s.id
+      AND v.user_id = $1
+     WHERE h.id = $2
+       AND s.is_deleted = FALSE
+       AND s.moderation_status = 'approved'
+     LIMIT 1`,
+    [Number(viewerUserId), Number(highlightId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function deleteStoryHighlight({ ownerUserId, highlightId }) {
+  const r = await q(
+    `DELETE FROM social_story_highlight
+     WHERE id = $1
+       AND owner_user_id = $2
+     RETURNING id`,
+    [Number(highlightId), Number(ownerUserId)]
+  );
+  return r.rows[0] || null;
 }
 
 export async function insertStory({
@@ -302,6 +412,34 @@ export async function findStoryById({ viewerUserId, storyId }) {
        AND s.expires_at > NOW()
      LIMIT 1`,
     [Number(viewerUserId), Number(storyId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function findStoryForHighlight({ ownerUserId, storyId }) {
+  const r = await q(
+    `SELECT
+       s.id,
+       s.user_id,
+       s.caption,
+       s.media_url,
+       s.media_kind,
+       s.story_style,
+       s.created_at,
+       s.updated_at,
+       s.expires_at,
+       u.full_name AS user_full_name,
+       u.phone AS user_phone,
+       u.image_url AS user_image_url,
+       u.role AS user_role
+     FROM social_story s
+     JOIN app_user u ON u.id = s.user_id
+     WHERE s.id = $1
+       AND s.user_id = $2
+       AND s.is_deleted = FALSE
+       AND s.moderation_status = 'approved'
+     LIMIT 1`,
+    [Number(storyId), Number(ownerUserId)]
   );
   return r.rows[0] || null;
 }
@@ -365,7 +503,8 @@ export async function findPostById(postId) {
      u.full_name AS user_full_name,
      u.phone AS user_phone,
      u.role AS user_role,
-     u.image_url AS user_image_url
+     u.image_url AS user_image_url,
+     u.social_posts_public AS user_posts_public
      FROM social_post p
      JOIN app_user u ON u.id = p.user_id
      WHERE p.id = $1
@@ -493,7 +632,15 @@ export async function listMerchantOptions({ search = "", limit = 120 }) {
 
 export async function findUserPublicProfile(userId) {
   const r = await q(
-    `SELECT id, full_name, phone, role, image_url
+    `SELECT
+       id,
+       full_name,
+       phone,
+       role,
+       image_url,
+       social_show_phone,
+       social_posts_public,
+       social_stories_public
      FROM app_user
      WHERE id = $1
      LIMIT 1`,
@@ -510,11 +657,77 @@ export async function findUserSocialProfile(userId) {
        phone,
        role,
        image_url,
+       social_bio,
+       social_show_phone,
+       social_posts_public,
+       social_stories_public,
        created_at
      FROM app_user
      WHERE id = $1
      LIMIT 1`,
     [Number(userId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function updateUserSocialProfile({
+  userId,
+  fullName,
+  bio,
+  imageUrl,
+  showPhone,
+  postsPublic,
+  storiesPublic,
+}) {
+  const sets = [];
+  const params = [];
+
+  if (fullName !== undefined) {
+    params.push(String(fullName).trim());
+    sets.push(`full_name = $${params.length}`);
+  }
+  if (bio !== undefined) {
+    params.push(String(bio || "").trim());
+    sets.push(`social_bio = $${params.length}`);
+  }
+  if (imageUrl !== undefined) {
+    params.push(String(imageUrl || "").trim() || null);
+    sets.push(`image_url = $${params.length}`);
+  }
+  if (showPhone !== undefined) {
+    params.push(showPhone === true);
+    sets.push(`social_show_phone = $${params.length}`);
+  }
+  if (postsPublic !== undefined) {
+    params.push(postsPublic === true);
+    sets.push(`social_posts_public = $${params.length}`);
+  }
+  if (storiesPublic !== undefined) {
+    params.push(storiesPublic === true);
+    sets.push(`social_stories_public = $${params.length}`);
+  }
+
+  if (sets.length <= 0) {
+    return findUserSocialProfile(userId);
+  }
+
+  params.push(Number(userId));
+  const r = await q(
+    `UPDATE app_user
+     SET ${sets.join(", ")}
+     WHERE id = $${params.length}
+     RETURNING
+       id,
+       full_name,
+       phone,
+       role,
+       image_url,
+       social_bio,
+       social_show_phone,
+       social_posts_public,
+       social_stories_public,
+       created_at`,
+    params
   );
   return r.rows[0] || null;
 }
@@ -525,7 +738,41 @@ export async function getUserSocialStats(userId) {
        COUNT(*)::int AS total_posts,
        COUNT(*) FILTER (WHERE post_kind = 'image')::int AS image_posts,
        COUNT(*) FILTER (WHERE post_kind = 'video')::int AS video_posts,
-       COUNT(*) FILTER (WHERE post_kind = 'merchant_review')::int AS review_posts
+       COUNT(*) FILTER (WHERE post_kind = 'merchant_review')::int AS review_posts,
+       COALESCE((
+         SELECT COUNT(*)::int
+         FROM social_post_like l
+         JOIN social_post p2 ON p2.id = l.post_id
+         WHERE p2.user_id = $1
+           AND p2.is_deleted = FALSE
+           AND p2.moderation_status = 'approved'
+       ), 0)::int AS likes_received,
+       COALESCE((
+         SELECT COUNT(*)::int
+         FROM social_post_comment c
+         JOIN social_post p3 ON p3.id = c.post_id
+         WHERE p3.user_id = $1
+           AND c.is_deleted = FALSE
+           AND c.moderation_status = 'approved'
+           AND p3.is_deleted = FALSE
+           AND p3.moderation_status = 'approved'
+       ), 0)::int AS comments_received,
+       COALESCE((
+         SELECT COUNT(*)::int
+         FROM social_story s
+         WHERE s.user_id = $1
+           AND s.is_deleted = FALSE
+           AND s.moderation_status = 'approved'
+           AND s.expires_at > NOW()
+       ), 0)::int AS active_stories,
+       COALESCE((
+         SELECT COUNT(*)::int
+         FROM social_story_highlight h
+         JOIN social_story s2 ON s2.id = h.story_id
+         WHERE h.owner_user_id = $1
+           AND s2.is_deleted = FALSE
+           AND s2.moderation_status = 'approved'
+       ), 0)::int AS highlights_count
      FROM social_post
      WHERE user_id = $1
        AND is_deleted = FALSE
@@ -537,6 +784,10 @@ export async function getUserSocialStats(userId) {
     image_posts: 0,
     video_posts: 0,
     review_posts: 0,
+    likes_received: 0,
+    comments_received: 0,
+    active_stories: 0,
+    highlights_count: 0,
   };
 }
 

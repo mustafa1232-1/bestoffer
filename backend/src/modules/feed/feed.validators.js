@@ -9,6 +9,33 @@ function asPositiveInt(value) {
   return n;
 }
 
+function isNonEmptyString(value, maxLen) {
+  if (value == null) return false;
+  const text = String(value).trim();
+  if (!text) return false;
+  return text.length <= Number(maxLen || 0);
+}
+
+function isOptionalString(value, maxLen) {
+  if (value == null) return true;
+  const text = String(value).trim();
+  return text.length <= Number(maxLen || 0);
+}
+
+function asBooleanOrNull(value) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return null;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return null;
+}
+
 export function validateListPosts(query = {}) {
   const errors = [];
   const limit = Number(query.limit ?? 20);
@@ -308,5 +335,89 @@ export function validateSendMessage(body = {}) {
     ok: errors.length === 0,
     errors,
     value: { body: text },
+  };
+}
+
+export function validateUpdateSocialProfile(body = {}, opts = {}) {
+  const errors = [];
+  const hasImageUpload = opts?.hasImageUpload === true;
+  const hasFullName =
+    body.fullName !== undefined && body.fullName !== null && String(body.fullName).trim().length > 0;
+  const hasBio = body.bio !== undefined && body.bio !== null;
+  const hasImageUrl =
+    body.imageUrl !== undefined && body.imageUrl !== null && String(body.imageUrl).trim().length > 0;
+  const hasShowPhone = body.showPhone !== undefined;
+  const hasPostsPublic = body.postsPublic !== undefined;
+  const hasStoriesPublic = body.storiesPublic !== undefined;
+  const showPhone = asBooleanOrNull(body.showPhone);
+  const postsPublic = asBooleanOrNull(body.postsPublic);
+  const storiesPublic = asBooleanOrNull(body.storiesPublic);
+
+  if (
+    !hasFullName &&
+    !hasBio &&
+    !hasImageUrl &&
+    !hasImageUpload &&
+    !hasShowPhone &&
+    !hasPostsPublic &&
+    !hasStoriesPublic
+  ) {
+    errors.push("changes_required");
+  }
+
+  if (hasFullName && !isNonEmptyString(body.fullName, 120)) {
+    errors.push("fullName");
+  }
+
+  if (hasBio && !isOptionalString(body.bio, 280)) {
+    errors.push("bio");
+  }
+
+  if (hasImageUrl && !isOptionalString(body.imageUrl, 1000)) {
+    errors.push("imageUrl");
+  }
+  if (hasShowPhone && showPhone == null) {
+    errors.push("showPhone");
+  }
+  if (hasPostsPublic && postsPublic == null) {
+    errors.push("postsPublic");
+  }
+  if (hasStoriesPublic && storiesPublic == null) {
+    errors.push("storiesPublic");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      fullName: hasFullName ? String(body.fullName).trim() : undefined,
+      bio: hasBio ? String(body.bio || "").trim() : undefined,
+      imageUrl: hasImageUrl ? String(body.imageUrl).trim() : undefined,
+      showPhone: hasShowPhone ? showPhone : undefined,
+      postsPublic: hasPostsPublic ? postsPublic : undefined,
+      storiesPublic: hasStoriesPublic ? storiesPublic : undefined,
+    },
+  };
+}
+
+export function validateHighlightStory(body = {}) {
+  const title = asTrimmed(body.title);
+  const errors = [];
+  if (title.length > 60) errors.push("title");
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      title: title || null,
+    },
+  };
+}
+
+export function validateHighlightId(highlightId) {
+  const value = asPositiveInt(highlightId);
+  return {
+    ok: value != null,
+    errors: value == null ? ["highlightId"] : [],
+    value,
   };
 }

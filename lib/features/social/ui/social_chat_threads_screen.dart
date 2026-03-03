@@ -3,8 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:url_launcher/url_launcher.dart';
 
+import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'social_chat_thread_screen.dart';
+import 'social_profile_screen.dart';
+import 'social_story_quick_viewer.dart';
 
 class SocialChatThreadsScreen extends ConsumerWidget {
   const SocialChatThreadsScreen({super.key});
@@ -16,6 +19,45 @@ class SocialChatThreadsScreen extends ConsumerWidget {
 
     Future<void> refresh() async {
       await ref.read(socialControllerProvider.notifier).loadThreads();
+    }
+
+    Future<void> openProfile(SocialAuthor author) async {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SocialProfileScreen(
+            userId: author.id,
+            initialName: author.fullName,
+          ),
+        ),
+      );
+    }
+
+    Future<void> openAvatar(SocialAuthor author) async {
+      var stories = ref.read(socialControllerProvider).stories;
+      if (stories.isEmpty) {
+        await ref
+            .read(socialControllerProvider.notifier)
+            .loadStories(silent: true);
+        stories = ref.read(socialControllerProvider).stories;
+      }
+      SocialStoryGroup? group;
+      for (final item in stories) {
+        if (item.userId == author.id && item.stories.isNotEmpty) {
+          group = item;
+          break;
+        }
+      }
+      if (group != null) {
+        await showSocialStoryQuickViewer(
+          context: context,
+          group: group,
+          onStoryViewed: (storyId) => ref
+              .read(socialControllerProvider.notifier)
+              .markStoryViewed(storyId),
+        );
+        return;
+      }
+      await openProfile(author);
     }
 
     return Scaffold(
@@ -35,7 +77,7 @@ class SocialChatThreadsScreen extends ConsumerWidget {
                 padding: EdgeInsets.only(top: 80),
                 child: Center(
                   child: Text(
-                    'لا توجد محادثات حاليًا. ابدأ محادثة من أي منشور.',
+                    'لا توجد محادثات حالياً. ابدأ محادثة من أي منشور.',
                     textDirection: TextDirection.rtl,
                   ),
                 ),
@@ -48,19 +90,27 @@ class SocialChatThreadsScreen extends ConsumerWidget {
                   margin: const EdgeInsets.only(bottom: 10),
                   child: ListTile(
                     contentPadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-                    leading: CircleAvatar(
-                      backgroundImage:
-                          (thread.peer.imageUrl ?? '').trim().isNotEmpty
-                          ? NetworkImage(thread.peer.imageUrl!)
-                          : null,
-                      child: (thread.peer.imageUrl ?? '').trim().isEmpty
-                          ? const Icon(Icons.person_outline)
-                          : null,
+                    leading: InkWell(
+                      onTap: () => openAvatar(thread.peer),
+                      borderRadius: BorderRadius.circular(999),
+                      child: CircleAvatar(
+                        backgroundImage:
+                            (thread.peer.imageUrl ?? '').trim().isNotEmpty
+                            ? NetworkImage(thread.peer.imageUrl!)
+                            : null,
+                        child: (thread.peer.imageUrl ?? '').trim().isEmpty
+                            ? const Icon(Icons.person_outline)
+                            : null,
+                      ),
                     ),
-                    title: Text(
-                      thread.peer.fullName,
-                      textDirection: TextDirection.rtl,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    title: InkWell(
+                      onTap: () => openProfile(thread.peer),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Text(
+                        thread.peer.fullName,
+                        textDirection: TextDirection.rtl,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
                     ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
@@ -121,6 +171,8 @@ class SocialChatThreadsScreen extends ConsumerWidget {
                             threadId: thread.id,
                             peerName: thread.peer.fullName,
                             peerPhone: thread.peerPhone,
+                            peerUserId: thread.peer.id,
+                            peerImageUrl: thread.peer.imageUrl,
                           ),
                         ),
                       );

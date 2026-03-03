@@ -1,7 +1,7 @@
 import { Router } from "express";
 
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
-import { mediaUpload } from "../../shared/utils/upload.js";
+import { imageUpload, mediaUpload } from "../../shared/utils/upload.js";
 import * as c from "./feed.controller.js";
 
 export const feedRouter = Router();
@@ -12,6 +12,8 @@ feedRouter.get("/posts", c.listPosts);
 feedRouter.get("/posts/:postId", c.getPostById);
 feedRouter.get("/users/:userId/profile", c.getUserProfile);
 feedRouter.get("/users/:userId/posts", c.listUserPosts);
+feedRouter.get("/users/:userId/highlights", c.listUserHighlights);
+feedRouter.patch("/profile/me", imageUpload.single("imageFile"), c.updateMyProfile);
 feedRouter.post("/posts", mediaUpload.single("mediaFile"), c.createPost);
 feedRouter.post("/posts/:postId/like", c.toggleLike);
 feedRouter.get("/posts/:postId/comments", c.listPostComments);
@@ -20,6 +22,8 @@ feedRouter.get("/stories", c.listStories);
 feedRouter.get("/stories/archive/me", c.listMyStoryArchive);
 feedRouter.post("/stories", mediaUpload.single("mediaFile"), c.createStory);
 feedRouter.post("/stories/:storyId/view", c.markStoryViewed);
+feedRouter.post("/stories/:storyId/highlight", c.highlightStory);
+feedRouter.delete("/highlights/:highlightId", c.removeHighlight);
 feedRouter.get("/merchants", c.listMerchants);
 
 feedRouter.get("/chats/threads", c.listThreads);

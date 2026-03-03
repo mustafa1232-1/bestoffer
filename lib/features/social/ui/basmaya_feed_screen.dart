@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
@@ -108,6 +109,8 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
           threadId: resolvedThread.id,
           peerName: resolvedThread.peer.fullName,
           peerPhone: resolvedThread.peerPhone,
+          peerUserId: resolvedThread.peer.id,
+          peerImageUrl: resolvedThread.peer.imageUrl,
         ),
       ),
     );
@@ -220,6 +223,8 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
           threadId: thread.id,
           peerName: thread.peer.fullName,
           peerPhone: thread.peerPhone,
+          peerUserId: thread.peer.id,
+          peerImageUrl: thread.peer.imageUrl,
         ),
       ),
     );
@@ -234,6 +239,23 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _openAuthorAvatar(SocialAuthor author) async {
+    final stories = ref.read(socialControllerProvider).stories;
+    SocialStoryGroup? targetGroup;
+    for (final group in stories) {
+      if (group.userId == author.id && group.stories.isNotEmpty) {
+        targetGroup = group;
+        break;
+      }
+    }
+
+    if (targetGroup != null) {
+      await _openStoryGroup(targetGroup);
+      return;
+    }
+    await _openAuthorProfile(author);
   }
 
   @override
@@ -253,9 +275,46 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
     ]);
   }
 
+  bool _isImagePost(SocialPost post) {
+    final hasUrl = (post.mediaUrl ?? '').trim().isNotEmpty;
+    if (!hasUrl) return false;
+    return post.mediaKind == 'image' || post.postKind == 'image';
+  }
+
+  bool _isVideoPost(SocialPost post) {
+    final hasUrl = (post.mediaUrl ?? '').trim().isNotEmpty;
+    if (!hasUrl) return false;
+    return post.mediaKind == 'video' || post.postKind == 'video';
+  }
+
+  Future<void> _openPostMedia(SocialPost post) async {
+    final mediaUrl = (post.mediaUrl ?? '').trim();
+    if (mediaUrl.isEmpty) return;
+    final isVideo = _isVideoPost(post);
+    final isImage = _isImagePost(post);
+    if (!isVideo && !isImage) return;
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _PostMediaViewerPage(
+          mediaUrl: mediaUrl,
+          isVideo: isVideo,
+          heroTag: 'post-media-${post.id}',
+          title: post.author.fullName,
+          subtitle: post.createdAt == null
+              ? _kindLabel(post.postKind)
+              : '${_kindLabel(post.postKind)} • ${_timeFmt.format(post.createdAt!.toLocal())}',
+          caption: post.caption.trim().isEmpty ? null : post.caption.trim(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(socialControllerProvider);
+    final hasPosts = state.posts.isNotEmpty;
+    final scheme = Theme.of(context).colorScheme;
     ref.listen<String?>(socialControllerProvider.select((s) => s.error), (
       prev,
       next,
@@ -293,272 +352,201 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
         label: const Text('إضافة منشور'),
       ),
       body: RefreshIndicator(
-        onRefresh: () async {
-          await _refreshAll();
-        },
-        child: ListView(
+        onRefresh: _refreshAll,
+        child: CustomScrollView(
           controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                gradient: const LinearGradient(
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                  colors: [Color(0xFF1B4F8A), Color(0xFF153C66)],
-                ),
-              ),
-              child: const Text(
-                'آخر أخبار وحياة بسماية: صور، ريلز، وتجارب حقيقية للمطاعم والمتاجر.',
-                textDirection: TextDirection.rtl,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            _StoriesStrip(
-              loading: state.loadingStories,
-              stories: state.stories,
-              onCreateStory: _openCreateStory,
-              onOpenStoryGroup: (group) => _openStoryGroup(group),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 44,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                reverse: true,
-                children: _filters
-                    .map((f) {
-                      final selected = state.activeKind == f.kind;
-                      return Padding(
-                        padding: const EdgeInsets.only(left: 8),
-                        child: ChoiceChip(
-                          selected: selected,
-                          onSelected: (_) => ref
-                              .read(socialControllerProvider.notifier)
-                              .setActiveKind(f.kind),
-                          label: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(f.label),
-                              const SizedBox(width: 6),
-                              Icon(f.icon, size: 16),
-                            ],
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              sliver: SliverToBoxAdapter(
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.96, end: 1),
+                  duration: const Duration(milliseconds: 420),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, scale, child) =>
+                      Transform.scale(scale: scale, child: child),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
+                        colors: [Color(0xFF1B4F8A), Color(0xFF153C66)],
+                      ),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          left: -10,
+                          top: -12,
+                          child: Icon(
+                            Icons.bubble_chart_rounded,
+                            size: 58,
+                            color: Colors.white.withValues(alpha: 0.11),
                           ),
                         ),
-                      );
-                    })
-                    .toList(growable: false),
-              ),
-            ),
-            const SizedBox(height: 10),
-            if (state.loadingPosts && state.posts.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 80),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (state.posts.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 80),
-                child: Center(
-                  child: Text(
-                    'لا يوجد محتوى بعد. ابدأ أول منشور الآن.',
-                    textDirection: TextDirection.rtl,
-                  ),
-                ),
-              )
-            else
-              ...state.posts.map((post) {
-                final isImage =
-                    (post.mediaKind == 'image' || post.postKind == 'image') &&
-                    (post.mediaUrl ?? '').trim().isNotEmpty;
-                final isVideo =
-                    (post.mediaKind == 'video' || post.postKind == 'video') &&
-                    (post.mediaUrl ?? '').trim().isNotEmpty;
-
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Row(
-                          textDirection: TextDirection.rtl,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            CircleAvatar(
-                              backgroundImage:
-                                  (post.author.imageUrl ?? '').trim().isNotEmpty
-                                  ? NetworkImage(post.author.imageUrl!)
-                                  : null,
-                              child: (post.author.imageUrl ?? '').trim().isEmpty
-                                  ? const Icon(Icons.person_outline)
-                                  : null,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: InkWell(
-                                onTap: () => _openAuthorProfile(post.author),
-                                borderRadius: BorderRadius.circular(10),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      post.author.fullName,
-                                      textDirection: TextDirection.rtl,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                    Text(
-                                      post.createdAt == null
-                                          ? _kindLabel(post.postKind)
-                                          : '${_kindLabel(post.postKind)} • ${_timeFmt.format(post.createdAt!.toLocal())}',
-                                      textDirection: TextDirection.rtl,
-                                      style: const TextStyle(fontSize: 11),
-                                    ),
-                                  ],
-                                ),
+                            const Text(
+                              'شديصير بسماية',
+                              textDirection: TextDirection.rtl,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 20,
                               ),
                             ),
-                          ],
-                        ),
-                        if (post.caption.trim().isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            post.caption,
-                            textDirection: TextDirection.rtl,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              height: 1.4,
+                            const SizedBox(height: 4),
+                            const Text(
+                              'أخبار الناس، صورهم، ريلزهم، وتجاربهم اليومية داخل المدينة',
+                              textDirection: TextDirection.rtl,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
                             ),
-                          ),
-                        ],
-                        if (post.postKind == 'merchant_review') ...[
-                          const SizedBox(height: 8),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainerHighest,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
+                            const SizedBox(height: 10),
+                            Wrap(
+                              alignment: WrapAlignment.end,
+                              spacing: 8,
+                              runSpacing: 8,
                               children: [
-                                Text(
-                                  'تقييم متجر: ${post.merchantName ?? 'غير معروف'}',
-                                  textDirection: TextDirection.rtl,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                  ),
+                                _StatBadge(
+                                  icon: Icons.auto_stories_rounded,
+                                  label: 'ستوري ${state.stories.length}',
                                 ),
-                                const SizedBox(height: 4),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: List.generate(
-                                    5,
-                                    (i) => Icon(
-                                      i < (post.reviewRating ?? 0)
-                                          ? Icons.star_rounded
-                                          : Icons.star_border_rounded,
-                                      color: Colors.amber,
-                                      size: 18,
-                                    ),
-                                  ),
+                                _StatBadge(
+                                  icon: Icons.newspaper_rounded,
+                                  label: 'منشورات ${state.posts.length}',
+                                ),
+                                const _StatBadge(
+                                  icon: Icons.update_rounded,
+                                  label: 'تحديث حي',
                                 ),
                               ],
-                            ),
-                          ),
-                        ],
-                        if (isImage) ...[
-                          const SizedBox(height: 10),
-                          InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () {
-                              if (post.isLiked) return;
-                              ref
-                                  .read(socialControllerProvider.notifier)
-                                  .toggleLike(post);
-                            },
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.network(
-                                post.mediaUrl!,
-                                width: double.infinity,
-                                height: 210,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) =>
-                                    _MediaLoadFailed(
-                                      message: 'تعذر تحميل الصورة',
-                                    ),
-                              ),
-                            ),
-                          ),
-                        ],
-                        if (isVideo) ...[
-                          const SizedBox(height: 10),
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              final uri = Uri.tryParse(post.mediaUrl!);
-                              if (uri == null) return;
-                              await launchUrl(
-                                uri,
-                                mode: LaunchMode.externalApplication,
-                              );
-                            },
-                            icon: const Icon(Icons.play_circle_fill_rounded),
-                            label: const Text('تشغيل الريل'),
-                          ),
-                        ],
-                        const SizedBox(height: 10),
-                        Wrap(
-                          alignment: WrapAlignment.end,
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _ChipAction(
-                              label: 'مشاركة',
-                              icon: Icons.ios_share_rounded,
-                              onTap: () => _sharePost(post),
-                            ),
-                            _ChipAction(
-                              label: 'مراسلة',
-                              icon: Icons.chat_bubble_outline_rounded,
-                              onTap: () => _messageAuthor(post.author),
-                            ),
-                            _ChipAction(
-                              label: 'تعليقات ${post.commentsCount}',
-                              icon: Icons.mode_comment_outlined,
-                              onTap: () => _openComments(post),
-                            ),
-                            _ChipAction(
-                              label: 'إعجاب ${post.likesCount}',
-                              icon: post.isLiked
-                                  ? Icons.favorite_rounded
-                                  : Icons.favorite_border_rounded,
-                              onTap: () => ref
-                                  .read(socialControllerProvider.notifier)
-                                  .toggleLike(post),
                             ),
                           ],
                         ),
                       ],
                     ),
                   ),
-                );
-              }),
-            if (state.loadingMorePosts)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              sliver: SliverToBoxAdapter(
+                child: _StoriesStrip(
+                  loading: state.loadingStories,
+                  stories: state.stories,
+                  onCreateStory: _openCreateStory,
+                  onOpenStoryGroup: (group) => _openStoryGroup(group),
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              sliver: SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 44,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    reverse: true,
+                    children: _filters
+                        .map((f) {
+                          final selected = state.activeKind == f.kind;
+                          return Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: ChoiceChip(
+                              selected: selected,
+                              showCheckmark: false,
+                              onSelected: (_) => ref
+                                  .read(socialControllerProvider.notifier)
+                                  .setActiveKind(f.kind),
+                              side: BorderSide(
+                                color: selected
+                                    ? scheme.primary
+                                    : scheme.outlineVariant,
+                              ),
+                              labelStyle: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: selected
+                                    ? scheme.onPrimaryContainer
+                                    : scheme.onSurface,
+                              ),
+                              avatar: Icon(
+                                f.icon,
+                                size: 16,
+                                color: selected
+                                    ? scheme.onPrimaryContainer
+                                    : scheme.primary,
+                              ),
+                              label: Text(f.label),
+                            ),
+                          );
+                        })
+                        .toList(growable: false),
+                  ),
+                ),
+              ),
+            ),
+            if (state.loadingPosts && !hasPosts)
+              const SliverFillRemaining(
+                hasScrollBody: false,
                 child: Center(child: CircularProgressIndicator()),
+              )
+            else if (!hasPosts)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
+                  child: Text(
+                    'لا يوجد محتوى بعد، كن أول من ينشر في بسماية.',
+                    textDirection: TextDirection.rtl,
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 90),
+                sliver: SliverList.separated(
+                  itemCount: state.posts.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final post = state.posts[index];
+                    return _FeedPostCard(
+                      post: post,
+                      timeFmt: _timeFmt,
+                      onOpenAuthorAvatar: () => _openAuthorAvatar(post.author),
+                      onOpenAuthorProfile: () =>
+                          _openAuthorProfile(post.author),
+                      onOpenComments: () => _openComments(post),
+                      onLike: () => ref
+                          .read(socialControllerProvider.notifier)
+                          .toggleLike(post),
+                      onShare: () => _sharePost(post),
+                      onMessageAuthor: () => _messageAuthor(post.author),
+                      onOpenMedia: () => _openPostMedia(post),
+                      isImage: _isImagePost(post),
+                      isVideo: _isVideoPost(post),
+                    );
+                  },
+                ),
+              ),
+            if (state.loadingMorePosts)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: 100, top: 8),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
               ),
           ],
         ),
@@ -1807,6 +1795,52 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
     }
   }
 
+  Future<void> _openAuthorProfile(SocialAuthor author) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialProfileScreen(
+          userId: author.id,
+          initialName: author.fullName,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openAuthorAvatar(SocialAuthor author) async {
+    var stories = ref.read(socialControllerProvider).stories;
+    if (stories.isEmpty) {
+      await ref
+          .read(socialControllerProvider.notifier)
+          .loadStories(silent: true);
+      stories = ref.read(socialControllerProvider).stories;
+    }
+
+    SocialStoryGroup? group;
+    for (final item in stories) {
+      if (item.userId == author.id && item.stories.isNotEmpty) {
+        group = item;
+        break;
+      }
+    }
+
+    if (group != null) {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (_) => _StoryViewerSheet(
+          group: group!,
+          onStoryViewed: (storyId) => ref
+              .read(socialControllerProvider.notifier)
+              .markStoryViewed(storyId),
+        ),
+      );
+      return;
+    }
+
+    await _openAuthorProfile(author);
+  }
+
   @override
   void dispose() {
     _ctrl.dispose();
@@ -1840,9 +1874,29 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
                           .map(
                             (c) => Card(
                               child: ListTile(
-                                title: Text(
-                                  c.author.fullName,
-                                  textDirection: TextDirection.rtl,
+                                leading: InkWell(
+                                  onTap: () => _openAuthorAvatar(c.author),
+                                  borderRadius: BorderRadius.circular(999),
+                                  child: CircleAvatar(
+                                    backgroundImage:
+                                        (c.author.imageUrl ?? '')
+                                            .trim()
+                                            .isNotEmpty
+                                        ? NetworkImage(c.author.imageUrl!)
+                                        : null,
+                                    child:
+                                        (c.author.imageUrl ?? '').trim().isEmpty
+                                        ? const Icon(Icons.person_outline)
+                                        : null,
+                                  ),
+                                ),
+                                title: InkWell(
+                                  onTap: () => _openAuthorProfile(c.author),
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Text(
+                                    c.author.fullName,
+                                    textDirection: TextDirection.rtl,
+                                  ),
                                 ),
                                 subtitle: Text(
                                   c.body,
@@ -2076,6 +2130,489 @@ String _toHex(Color color) {
   final value = color.toARGB32();
   final hex = value.toRadixString(16).padLeft(8, '0').toUpperCase();
   return '#$hex';
+}
+
+class _StatBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _StatBadge({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(icon, size: 16, color: Colors.white),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedPostCard extends StatelessWidget {
+  final SocialPost post;
+  final intl.DateFormat timeFmt;
+  final bool isImage;
+  final bool isVideo;
+  final VoidCallback onOpenAuthorAvatar;
+  final VoidCallback onOpenAuthorProfile;
+  final VoidCallback onOpenComments;
+  final VoidCallback onLike;
+  final VoidCallback onShare;
+  final VoidCallback onMessageAuthor;
+  final VoidCallback onOpenMedia;
+
+  const _FeedPostCard({
+    required this.post,
+    required this.timeFmt,
+    required this.isImage,
+    required this.isVideo,
+    required this.onOpenAuthorAvatar,
+    required this.onOpenAuthorProfile,
+    required this.onOpenComments,
+    required this.onLike,
+    required this.onShare,
+    required this.onMessageAuthor,
+    required this.onOpenMedia,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final subtitle = post.createdAt == null
+        ? _kindLabel(post.postKind)
+        : '${_kindLabel(post.postKind)} • ${timeFmt.format(post.createdAt!.toLocal())}';
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: scheme.surface.withValues(alpha: 0.92),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.22)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 10,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Row(
+              textDirection: TextDirection.rtl,
+              children: [
+                InkWell(
+                  onTap: onOpenAuthorAvatar,
+                  borderRadius: BorderRadius.circular(999),
+                  child: CircleAvatar(
+                    backgroundImage:
+                        (post.author.imageUrl ?? '').trim().isNotEmpty
+                        ? NetworkImage(post.author.imageUrl!)
+                        : null,
+                    child: (post.author.imageUrl ?? '').trim().isEmpty
+                        ? const Icon(Icons.person_outline)
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: InkWell(
+                    onTap: onOpenAuthorProfile,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          post.author.fullName,
+                          textDirection: TextDirection.rtl,
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                        Text(
+                          subtitle,
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (post.caption.trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                post.caption,
+                textDirection: TextDirection.rtl,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  height: 1.4,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+            if (post.postKind == 'merchant_review') ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'تقييم: ${post.merchantName ?? 'غير معروف'}',
+                      textDirection: TextDirection.rtl,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: List.generate(
+                        5,
+                        (i) => Icon(
+                          i < (post.reviewRating ?? 0)
+                              ? Icons.star_rounded
+                              : Icons.star_border_rounded,
+                          color: Colors.amber,
+                          size: 18,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (isImage || isVideo) ...[
+              const SizedBox(height: 10),
+              _PostMediaPreview(
+                mediaUrl: post.mediaUrl!,
+                isImage: isImage,
+                isVideo: isVideo,
+                heroTag: 'post-media-${post.id}',
+                onOpenMedia: onOpenMedia,
+              ),
+            ],
+            const SizedBox(height: 10),
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _ChipAction(
+                  label: 'مشاركة',
+                  icon: Icons.ios_share_rounded,
+                  onTap: onShare,
+                ),
+                _ChipAction(
+                  label: 'مراسلة',
+                  icon: Icons.chat_bubble_outline_rounded,
+                  onTap: onMessageAuthor,
+                ),
+                _ChipAction(
+                  label: 'تعليقات ${post.commentsCount}',
+                  icon: Icons.mode_comment_outlined,
+                  onTap: onOpenComments,
+                ),
+                _ChipAction(
+                  label: 'إعجاب ${post.likesCount}',
+                  icon: post.isLiked
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
+                  onTap: onLike,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PostMediaPreview extends StatelessWidget {
+  final String mediaUrl;
+  final bool isImage;
+  final bool isVideo;
+  final String heroTag;
+  final VoidCallback onOpenMedia;
+
+  const _PostMediaPreview({
+    required this.mediaUrl,
+    required this.isImage,
+    required this.isVideo,
+    required this.heroTag,
+    required this.onOpenMedia,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isImage) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onOpenMedia,
+        child: Hero(
+          tag: heroTag,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Image.network(
+              mediaUrl,
+              width: double.infinity,
+              height: 250,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => const SizedBox(
+                height: 250,
+                child: _MediaLoadFailed(message: 'تعذر تحميل الصورة'),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onOpenMedia,
+      child: Container(
+        height: 220,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: const LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [Color(0xFF0B2B55), Color(0xFF17427A)],
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(
+                Icons.play_circle_fill_rounded,
+                size: 60,
+                color: Colors.white,
+              ),
+              SizedBox(height: 8),
+              Text(
+                'اضغط لتشغيل الفيديو',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PostMediaViewerPage extends StatefulWidget {
+  final String mediaUrl;
+  final bool isVideo;
+  final String heroTag;
+  final String title;
+  final String subtitle;
+  final String? caption;
+
+  const _PostMediaViewerPage({
+    required this.mediaUrl,
+    required this.isVideo,
+    required this.heroTag,
+    required this.title,
+    required this.subtitle,
+    this.caption,
+  });
+
+  @override
+  State<_PostMediaViewerPage> createState() => _PostMediaViewerPageState();
+}
+
+class _PostMediaViewerPageState extends State<_PostMediaViewerPage> {
+  VideoPlayerController? _video;
+  bool _videoReady = false;
+  String? _videoError;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isVideo) {
+      _initVideo();
+    }
+  }
+
+  Future<void> _initVideo() async {
+    try {
+      final uri = Uri.tryParse(widget.mediaUrl);
+      if (uri == null) {
+        setState(() => _videoError = 'رابط الفيديو غير صالح');
+        return;
+      }
+      final controller = VideoPlayerController.networkUrl(uri);
+      await controller.initialize();
+      await controller.setLooping(true);
+      await controller.play();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _video = controller;
+        _videoReady = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _videoError = 'تعذر تشغيل الفيديو';
+      });
+    }
+  }
+
+  Future<void> _togglePlayPause() async {
+    final video = _video;
+    if (video == null || !video.value.isInitialized) return;
+    if (video.value.isPlaying) {
+      await video.pause();
+    } else {
+      await video.play();
+    }
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    final video = _video;
+    if (video != null) {
+      video.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              widget.title,
+              textDirection: TextDirection.rtl,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+            ),
+            Text(
+              widget.subtitle,
+              textDirection: TextDirection.rtl,
+              style: const TextStyle(fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (!widget.isVideo)
+            Hero(
+              tag: widget.heroTag,
+              child: InteractiveViewer(
+                minScale: 0.7,
+                maxScale: 4,
+                child: Center(
+                  child: Image.network(
+                    widget.mediaUrl,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const _MediaLoadFailed(message: 'تعذر تحميل الصورة'),
+                  ),
+                ),
+              ),
+            )
+          else if (_videoError != null)
+            Center(child: _MediaLoadFailed(message: _videoError!))
+          else if (!_videoReady)
+            const Center(child: CircularProgressIndicator())
+          else
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _togglePlayPause,
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: _video!.value.aspectRatio,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      VideoPlayer(_video!),
+                      AnimatedOpacity(
+                        opacity: _video!.value.isPlaying ? 0 : 1,
+                        duration: const Duration(milliseconds: 180),
+                        child: const Icon(
+                          Icons.play_circle_fill_rounded,
+                          size: 72,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if ((widget.caption ?? '').trim().isNotEmpty)
+            Positioned(
+              right: 12,
+              left: 12,
+              bottom: 16,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.52),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Text(
+                  widget.caption!.trim(),
+                  textDirection: TextDirection.rtl,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _FeedFilter {

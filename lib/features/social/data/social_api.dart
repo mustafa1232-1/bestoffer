@@ -62,6 +62,59 @@ class SocialApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> updateMyProfile({
+    String? fullName,
+    String? bio,
+    String? imageUrl,
+    bool? showPhone,
+    bool? postsPublic,
+    bool? storiesPublic,
+    LocalMediaFile? imageFile,
+  }) async {
+    final payload = <String, dynamic>{
+      'fullName': fullName,
+      'bio': bio,
+      'imageUrl': imageUrl,
+      'showPhone': showPhone,
+      'postsPublic': postsPublic,
+      'storiesPublic': storiesPublic,
+    }..removeWhere((_, value) => value == null);
+
+    final response = imageFile == null
+        ? await dio.patch('/api/feed/profile/me', data: payload)
+        : await dio.patch(
+            '/api/feed/profile/me',
+            data: FormData.fromMap({
+              ...payload,
+              'imageFile': await imageFile.toMultipartFile(),
+            }),
+          );
+
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> listUserHighlights(int userId) async {
+    final response = await dio.get('/api/feed/users/$userId/highlights');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> addStoryHighlight(
+    int storyId, {
+    String? title,
+  }) async {
+    final payload = <String, dynamic>{'title': title}
+      ..removeWhere((_, value) => value == null);
+    final response = await dio.post(
+      '/api/feed/stories/$storyId/highlight',
+      data: payload,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<void> removeStoryHighlight(int highlightId) async {
+    await dio.delete('/api/feed/highlights/$highlightId');
+  }
+
   Future<Map<String, dynamic>> listUserPosts({
     required int userId,
     int limit = 20,

@@ -96,7 +96,7 @@ function mapPostRow(row) {
       fullName: row.user_full_name || "",
       imageUrl: row.user_image_url || null,
       role: row.user_role || "user",
-      phone: row.user_phone || "",
+      phone: "",
     },
     likesCount: Number(row.likes_count || 0),
     commentsCount: Number(row.comments_count || 0),
@@ -116,7 +116,7 @@ function mapCommentRow(row) {
       id: Number(row.user_id),
       fullName: row.user_full_name || "",
       imageUrl: row.user_image_url || null,
-      phone: row.user_phone || "",
+      phone: "",
       role: row.user_role || "user",
     },
   };
@@ -144,8 +144,39 @@ function mapStoryRow(row, viewerUserId) {
       fullName: row.user_full_name || "",
       imageUrl: row.user_image_url || null,
       role: row.user_role || "user",
-      phone: row.user_phone || "",
+      phone: "",
     },
+  };
+}
+
+function canViewPosts({ viewerUserId, owner }) {
+  return (
+    Number(owner?.id || 0) === Number(viewerUserId) ||
+    owner?.social_posts_public === true
+  );
+}
+
+function canViewStories({ viewerUserId, owner }) {
+  return (
+    Number(owner?.id || 0) === Number(viewerUserId) ||
+    owner?.social_stories_public === true
+  );
+}
+
+function canViewPhone({ viewerUserId, owner }) {
+  return (
+    Number(owner?.id || 0) === Number(viewerUserId) ||
+    owner?.social_show_phone === true
+  );
+}
+
+function mapStoryHighlightRow(row, viewerUserId) {
+  return {
+    id: Number(row.highlight_id),
+    ownerUserId: Number(row.owner_user_id),
+    title: row.highlight_title || "",
+    createdAt: row.highlight_created_at,
+    story: mapStoryRow(row, viewerUserId),
   };
 }
 
@@ -258,22 +289,31 @@ export async function listUserPosts(viewerUserId, userId, query) {
   if (!owner) {
     throw new AppError("USER_NOT_FOUND", { status: 404 });
   }
+  const privateForViewer = !canViewPosts({ viewerUserId, owner });
 
-  const rows = await repo.listUserFeedPosts({
-    viewerUserId,
-    userId,
-    limit: query.limit,
-    beforeId: query.beforeId,
-    postKind: query.kind,
-  });
+  const rows = privateForViewer
+    ? []
+    : await repo.listUserFeedPosts({
+        viewerUserId,
+        userId,
+        limit: query.limit,
+        beforeId: query.beforeId,
+        postKind: query.kind,
+      });
   return {
     user: {
       id: Number(owner.id),
       fullName: owner.full_name || "",
       imageUrl: owner.image_url || null,
       role: owner.role || "user",
-      phone: owner.phone || "",
+      phone: canViewPhone({ viewerUserId, owner }) ? owner.phone || "" : "",
+      privacy: {
+        showPhone: owner.social_show_phone === true,
+        postsPublic: owner.social_posts_public === true,
+        storiesPublic: owner.social_stories_public === true,
+      },
     },
+    postsPrivate: privateForViewer,
     posts: rows.map(mapPostRow),
     nextCursor: rows.length > 0 ? Number(rows[rows.length - 1].id) : null,
   };
@@ -284,23 +324,117 @@ export async function getUserProfile(viewerUserId, userId) {
   if (!profile) {
     throw new AppError("USER_NOT_FOUND", { status: 404 });
   }
+  const isMe = Number(profile.id) === Number(viewerUserId);
+  const phoneVisible = canViewPhone({ viewerUserId, owner: profile });
   const stats = await repo.getUserSocialStats(userId);
   return {
     profile: {
       id: Number(profile.id),
       fullName: profile.full_name || "",
       imageUrl: profile.image_url || null,
-      phone: profile.phone || "",
+      bio: profile.social_bio || "",
+      phone: phoneVisible ? profile.phone || "" : "",
       role: profile.role || "user",
       joinedAt: profile.created_at || null,
-      isMe: Number(profile.id) === Number(viewerUserId),
+      isMe,
+      privacy: {
+        showPhone: profile.social_show_phone === true,
+        postsPublic: profile.social_posts_public === true,
+        storiesPublic: profile.social_stories_public === true,
+      },
       stats: {
         totalPosts: Number(stats.total_posts || 0),
         imagePosts: Number(stats.image_posts || 0),
         videoPosts: Number(stats.video_posts || 0),
         reviewPosts: Number(stats.review_posts || 0),
+        likesReceived: Number(stats.likes_received || 0),
+        commentsReceived: Number(stats.comments_received || 0),
+        activeStories: Number(stats.active_stories || 0),
+        highlightsCount: Number(stats.highlights_count || 0),
       },
     },
+  };
+}
+
+export async function updateMyProfile(userId, dto) {
+  if (
+    dto.fullName === undefined &&
+    dto.bio === undefined &&
+    dto.imageUrl === undefined &&
+    dto.showPhone === undefined &&
+    dto.postsPublic === undefined &&
+    dto.storiesPublic === undefined
+  ) {
+    throw new AppError("NO_CHANGES", { status: 400 });
+  }
+
+  if (dto.fullName) {
+    assertContentAllowed(dto.fullName);
+  }
+  if (dto.bio) {
+    assertContentAllowed(dto.bio);
+  }
+
+  const updated = await repo.updateUserSocialProfile({
+    userId,
+    fullName: dto.fullName,
+    bio: dto.bio,
+    imageUrl: dto.imageUrl,
+    showPhone: dto.showPhone,
+    postsPublic: dto.postsPublic,
+    storiesPublic: dto.storiesPublic,
+  });
+  if (!updated) {
+    throw new AppError("USER_NOT_FOUND", { status: 404 });
+  }
+  const stats = await repo.getUserSocialStats(userId);
+
+  return {
+    profile: {
+      id: Number(updated.id),
+      fullName: updated.full_name || "",
+      imageUrl: updated.image_url || null,
+      bio: updated.social_bio || "",
+      phone: updated.phone || "",
+      role: updated.role || "user",
+      joinedAt: updated.created_at || null,
+      isMe: true,
+      privacy: {
+        showPhone: updated.social_show_phone === true,
+        postsPublic: updated.social_posts_public === true,
+        storiesPublic: updated.social_stories_public === true,
+      },
+      stats: {
+        totalPosts: Number(stats.total_posts || 0),
+        imagePosts: Number(stats.image_posts || 0),
+        videoPosts: Number(stats.video_posts || 0),
+        reviewPosts: Number(stats.review_posts || 0),
+        likesReceived: Number(stats.likes_received || 0),
+        commentsReceived: Number(stats.comments_received || 0),
+        activeStories: Number(stats.active_stories || 0),
+        highlightsCount: Number(stats.highlights_count || 0),
+      },
+    },
+  };
+}
+
+export async function listUserHighlights(viewerUserId, userId) {
+  const profile = await repo.findUserSocialProfile(userId);
+  if (!profile) {
+    throw new AppError("USER_NOT_FOUND", { status: 404 });
+  }
+  const privateForViewer = !canViewStories({ viewerUserId, owner: profile });
+
+  const rows = privateForViewer
+    ? []
+    : await repo.listUserHighlightsRaw({
+        viewerUserId,
+        ownerUserId: userId,
+        limit: 80,
+      });
+  return {
+    storiesPrivate: privateForViewer,
+    highlights: rows.map((row) => mapStoryHighlightRow(row, viewerUserId)),
   };
 }
 
@@ -474,21 +608,60 @@ export async function createStory(userId, dto, media) {
 
   emitToUser(Number(userId), "social_story_created", { story: mapped });
 
-  const [audienceUserIds, actor] = await Promise.all([
-    repo.listStoryAudienceUserIds({
+  const actor = await repo.findUserPublicProfile(userId);
+  if (actor?.social_stories_public === true) {
+    const audienceUserIds = await repo.listStoryAudienceUserIds({
       excludeUserId: userId,
       limit: 1500,
-    }),
-    repo.findUserPublicProfile(userId),
-  ]);
-
-  dispatchStoryNotifications({
-    audienceUserIds,
-    actor,
-    story: mapped,
-  });
+    });
+    dispatchStoryNotifications({
+      audienceUserIds,
+      actor,
+      story: mapped,
+    });
+  }
 
   return mapped;
+}
+
+export async function highlightStory({ userId, storyId, title }) {
+  const story = await repo.findStoryForHighlight({
+    ownerUserId: userId,
+    storyId,
+  });
+  if (!story) {
+    throw new AppError("STORY_NOT_FOUND", { status: 404 });
+  }
+
+  const inserted = await repo.upsertStoryHighlight({
+    ownerUserId: userId,
+    storyId,
+    title,
+  });
+  if (!inserted?.id) {
+    throw new AppError("HIGHLIGHT_CREATE_FAILED", { status: 500 });
+  }
+
+  const row = await repo.findHighlightById({
+    viewerUserId: userId,
+    highlightId: inserted.id,
+  });
+  if (!row) {
+    throw new AppError("HIGHLIGHT_CREATE_FAILED", { status: 500 });
+  }
+
+  return { highlight: mapStoryHighlightRow(row, userId) };
+}
+
+export async function removeHighlight({ userId, highlightId }) {
+  const deleted = await repo.deleteStoryHighlight({
+    ownerUserId: userId,
+    highlightId,
+  });
+  if (!deleted) {
+    throw new AppError("HIGHLIGHT_NOT_FOUND", { status: 404 });
+  }
+  return { ok: true };
 }
 
 export async function markStoryViewed({ storyId, userId }) {
@@ -507,6 +680,10 @@ export async function toggleLike({ postId, userId }) {
   const post = await repo.findPostById(postId);
   if (!post || post.is_deleted === true || post.moderation_status !== "approved") {
     throw new AppError("POST_NOT_FOUND", { status: 404 });
+  }
+  const owner = await repo.findUserSocialProfile(post.user_id);
+  if (owner && !canViewPosts({ viewerUserId: userId, owner })) {
+    throw new AppError("PROFILE_POSTS_PRIVATE", { status: 403 });
   }
 
   const existed = await repo.hasLike(postId, userId);
@@ -534,10 +711,14 @@ export async function toggleLike({ postId, userId }) {
   return { liked, likesCount };
 }
 
-export async function listComments(postId, query) {
+export async function listComments({ postId, userId, query }) {
   const post = await repo.findPostById(postId);
   if (!post || post.is_deleted === true || post.moderation_status !== "approved") {
     throw new AppError("POST_NOT_FOUND", { status: 404 });
+  }
+  const owner = await repo.findUserSocialProfile(post.user_id);
+  if (owner && !canViewPosts({ viewerUserId: userId, owner })) {
+    throw new AppError("PROFILE_POSTS_PRIVATE", { status: 403 });
   }
 
   const rows = await repo.listPostComments({
@@ -555,6 +736,10 @@ export async function addComment({ postId, userId, body }) {
   const post = await repo.findPostById(postId);
   if (!post || post.is_deleted === true || post.moderation_status !== "approved") {
     throw new AppError("POST_NOT_FOUND", { status: 404 });
+  }
+  const owner = await repo.findUserSocialProfile(post.user_id);
+  if (owner && !canViewPosts({ viewerUserId: userId, owner })) {
+    throw new AppError("PROFILE_POSTS_PRIVATE", { status: 403 });
   }
 
   assertContentAllowed(body);

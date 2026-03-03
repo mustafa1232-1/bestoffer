@@ -11,6 +11,8 @@ import '../../notifications/data/notifications_api.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
+import 'social_profile_screen.dart';
+import 'social_story_quick_viewer.dart';
 
 final _liveNotificationsApiProvider = Provider<NotificationsApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
@@ -21,12 +23,16 @@ class SocialChatThreadScreen extends ConsumerStatefulWidget {
   final int threadId;
   final String peerName;
   final String? peerPhone;
+  final int? peerUserId;
+  final String? peerImageUrl;
 
   const SocialChatThreadScreen({
     super.key,
     required this.threadId,
     required this.peerName,
     this.peerPhone,
+    this.peerUserId,
+    this.peerImageUrl,
   });
 
   @override
@@ -234,6 +240,52 @@ class _SocialChatThreadScreenState
     }
   }
 
+  Future<void> _openUserProfile({
+    required int userId,
+    required String fullName,
+  }) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            SocialProfileScreen(userId: userId, initialName: fullName),
+      ),
+    );
+  }
+
+  Future<void> _openUserAvatar({
+    required int userId,
+    required String fullName,
+  }) async {
+    var stories = ref.read(socialControllerProvider).stories;
+    if (stories.isEmpty) {
+      await ref
+          .read(socialControllerProvider.notifier)
+          .loadStories(silent: true);
+      stories = ref.read(socialControllerProvider).stories;
+    }
+
+    SocialStoryGroup? group;
+    for (final item in stories) {
+      if (item.userId == userId && item.stories.isNotEmpty) {
+        group = item;
+        break;
+      }
+    }
+
+    if (group != null) {
+      await showSocialStoryQuickViewer(
+        context: context,
+        group: group,
+        onStoryViewed: (storyId) => ref
+            .read(socialControllerProvider.notifier)
+            .markStoryViewed(storyId),
+      );
+      return;
+    }
+
+    await _openUserProfile(userId: userId, fullName: fullName);
+  }
+
   void _scrollToBottom({bool animated = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
@@ -266,7 +318,43 @@ class _SocialChatThreadScreenState
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.peerName),
+        title: InkWell(
+          onTap: widget.peerUserId == null
+              ? null
+              : () => _openUserProfile(
+                  userId: widget.peerUserId!,
+                  fullName: widget.peerName,
+                ),
+          borderRadius: BorderRadius.circular(10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            textDirection: TextDirection.rtl,
+            children: [
+              InkWell(
+                onTap: widget.peerUserId == null
+                    ? null
+                    : () => _openUserAvatar(
+                        userId: widget.peerUserId!,
+                        fullName: widget.peerName,
+                      ),
+                borderRadius: BorderRadius.circular(999),
+                child: CircleAvatar(
+                  radius: 16,
+                  backgroundImage: (widget.peerImageUrl ?? '').trim().isNotEmpty
+                      ? NetworkImage(widget.peerImageUrl!)
+                      : null,
+                  child: (widget.peerImageUrl ?? '').trim().isEmpty
+                      ? const Icon(Icons.person_outline, size: 16)
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(widget.peerName, overflow: TextOverflow.ellipsis),
+              ),
+            ],
+          ),
+        ),
         actions: [
           IconButton(
             tooltip: 'اتصال',
@@ -341,6 +429,14 @@ class _SocialChatThreadScreenState
                                 : _timeFormat.format(
                                     message.createdAt!.toLocal(),
                                   ),
+                            onOpenAuthorAvatar: () => _openUserAvatar(
+                              userId: message.sender.id,
+                              fullName: message.sender.fullName,
+                            ),
+                            onOpenAuthorProfile: () => _openUserProfile(
+                              userId: message.sender.id,
+                              fullName: message.sender.fullName,
+                            ),
                           ),
                       ],
                     ),
@@ -410,8 +506,15 @@ class _SocialChatThreadScreenState
 class _ChatBubble extends StatelessWidget {
   final SocialChatMessage message;
   final String timeText;
+  final VoidCallback onOpenAuthorAvatar;
+  final VoidCallback onOpenAuthorProfile;
 
-  const _ChatBubble({required this.message, required this.timeText});
+  const _ChatBubble({
+    required this.message,
+    required this.timeText,
+    required this.onOpenAuthorAvatar,
+    required this.onOpenAuthorProfile,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -440,16 +543,41 @@ class _ChatBubble extends StatelessWidget {
                 : CrossAxisAlignment.end,
             children: [
               if (!mine)
-                Text(
-                  message.sender.fullName,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
                   textDirection: TextDirection.rtl,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: textColor.withValues(alpha: 0.78),
-                    fontSize: 12,
-                  ),
+                  children: [
+                    InkWell(
+                      onTap: onOpenAuthorAvatar,
+                      borderRadius: BorderRadius.circular(999),
+                      child: CircleAvatar(
+                        radius: 11,
+                        backgroundImage:
+                            (message.sender.imageUrl ?? '').trim().isNotEmpty
+                            ? NetworkImage(message.sender.imageUrl!)
+                            : null,
+                        child: (message.sender.imageUrl ?? '').trim().isEmpty
+                            ? const Icon(Icons.person_outline, size: 11)
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    InkWell(
+                      onTap: onOpenAuthorProfile,
+                      borderRadius: BorderRadius.circular(6),
+                      child: Text(
+                        message.sender.fullName,
+                        textDirection: TextDirection.rtl,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: textColor.withValues(alpha: 0.78),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              if (!mine) const SizedBox(height: 3),
+              if (!mine) const SizedBox(height: 4),
               Text(
                 message.body,
                 textDirection: TextDirection.rtl,

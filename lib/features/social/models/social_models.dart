@@ -282,29 +282,46 @@ class SocialUserPostStats {
   final int imagePosts;
   final int videoPosts;
   final int reviewPosts;
+  final int likesReceived;
+  final int commentsReceived;
+  final int activeStories;
+  final int highlightsCount;
 
   const SocialUserPostStats({
     required this.totalPosts,
     required this.imagePosts,
     required this.videoPosts,
     required this.reviewPosts,
+    required this.likesReceived,
+    required this.commentsReceived,
+    required this.activeStories,
+    required this.highlightsCount,
   });
 
-  factory SocialUserPostStats.fromJson(Map<String, dynamic> j) =>
-      SocialUserPostStats(
-        totalPosts: parseInt(j['totalPosts'] ?? j['total_posts']),
-        imagePosts: parseInt(j['imagePosts'] ?? j['image_posts']),
-        videoPosts: parseInt(j['videoPosts'] ?? j['video_posts']),
-        reviewPosts: parseInt(j['reviewPosts'] ?? j['review_posts']),
-      );
+  factory SocialUserPostStats.fromJson(
+    Map<String, dynamic> j,
+  ) => SocialUserPostStats(
+    totalPosts: parseInt(j['totalPosts'] ?? j['total_posts']),
+    imagePosts: parseInt(j['imagePosts'] ?? j['image_posts']),
+    videoPosts: parseInt(j['videoPosts'] ?? j['video_posts']),
+    reviewPosts: parseInt(j['reviewPosts'] ?? j['review_posts']),
+    likesReceived: parseInt(j['likesReceived'] ?? j['likes_received']),
+    commentsReceived: parseInt(j['commentsReceived'] ?? j['comments_received']),
+    activeStories: parseInt(j['activeStories'] ?? j['active_stories']),
+    highlightsCount: parseInt(j['highlightsCount'] ?? j['highlights_count']),
+  );
 }
 
 class SocialUserProfile {
   final int id;
   final String fullName;
   final String role;
+  final String bio;
   final String? imageUrl;
   final String? phone;
+  final bool showPhone;
+  final bool postsPublic;
+  final bool storiesPublic;
   final DateTime? joinedAt;
   final bool isMe;
   final SocialUserPostStats stats;
@@ -313,24 +330,73 @@ class SocialUserProfile {
     required this.id,
     required this.fullName,
     required this.role,
+    required this.bio,
     required this.imageUrl,
     required this.phone,
+    required this.showPhone,
+    required this.postsPublic,
+    required this.storiesPublic,
     required this.joinedAt,
     required this.isMe,
     required this.stats,
   });
 
-  factory SocialUserProfile.fromJson(Map<String, dynamic> j) =>
-      SocialUserProfile(
+  factory SocialUserProfile.fromJson(Map<String, dynamic> j) {
+    final privacy = Map<String, dynamic>.from(
+      j['privacy'] as Map? ?? const <String, dynamic>{},
+    );
+    return SocialUserProfile(
+      id: parseInt(j['id']),
+      fullName: parseString(j['fullName'] ?? j['full_name']),
+      role: parseString(j['role'], fallback: 'user'),
+      bio: parseString(j['bio'], fallback: ''),
+      imageUrl: parseNullableString(j['imageUrl'] ?? j['image_url']),
+      phone: parseNullableString(j['phone']),
+      showPhone: parseBool(
+        privacy['showPhone'] ?? privacy['show_phone'] ?? j['showPhone'],
+      ),
+      postsPublic: parseBool(
+        privacy['postsPublic'] ?? privacy['posts_public'] ?? j['postsPublic'],
+        fallback: true,
+      ),
+      storiesPublic: parseBool(
+        privacy['storiesPublic'] ??
+            privacy['stories_public'] ??
+            j['storiesPublic'],
+        fallback: true,
+      ),
+      joinedAt: parseNullableDateTime(j['joinedAt'] ?? j['joined_at']),
+      isMe: parseBool(j['isMe'] ?? j['is_me']),
+      stats: SocialUserPostStats.fromJson(
+        Map<String, dynamic>.from(j['stats'] as Map? ?? const {}),
+      ),
+    );
+  }
+}
+
+class SocialStoryHighlight {
+  final int id;
+  final int ownerUserId;
+  final String title;
+  final DateTime? createdAt;
+  final SocialStory story;
+
+  const SocialStoryHighlight({
+    required this.id,
+    required this.ownerUserId,
+    required this.title,
+    required this.createdAt,
+    required this.story,
+  });
+
+  factory SocialStoryHighlight.fromJson(Map<String, dynamic> j) =>
+      SocialStoryHighlight(
         id: parseInt(j['id']),
-        fullName: parseString(j['fullName'] ?? j['full_name']),
-        role: parseString(j['role'], fallback: 'user'),
-        imageUrl: parseNullableString(j['imageUrl'] ?? j['image_url']),
-        phone: parseNullableString(j['phone']),
-        joinedAt: parseNullableDateTime(j['joinedAt'] ?? j['joined_at']),
-        isMe: parseBool(j['isMe'] ?? j['is_me']),
-        stats: SocialUserPostStats.fromJson(
-          Map<String, dynamic>.from(j['stats'] as Map? ?? const {}),
+        ownerUserId: parseInt(j['ownerUserId'] ?? j['owner_user_id']),
+        title: parseString(j['title'], fallback: ''),
+        createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
+        story: SocialStory.fromJson(
+          Map<String, dynamic>.from(j['story'] as Map? ?? const {}),
         ),
       );
 }
