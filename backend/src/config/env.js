@@ -45,6 +45,17 @@ export const env = {
   corsOrigins: readCsv("CORS_ORIGINS", "*"),
   jsonBodyLimit: readString("JSON_BODY_LIMIT", "10mb"),
   uploadsDir: readString("UPLOADS_DIR", "uploads"),
+  cfAccountId: readString("CF_ACCOUNT_ID", ""),
+  cfR2Bucket: readString("CF_R2_BUCKET", ""),
+  cfR2Endpoint: readString("CF_R2_ENDPOINT", ""),
+  cfR2AccessKeyId: readString("CF_R2_ACCESS_KEY_ID", ""),
+  cfR2SecretAccessKey: readString("CF_R2_SECRET_ACCESS_KEY", ""),
+  cfR2PublicBaseUrl: readString("CF_R2_PUBLIC_BASE_URL", ""),
+  cfR2UploadPrefix: readString("CF_R2_UPLOAD_PREFIX", "uploads"),
+  cfR2MinFileSizeBytes: readNumber("CF_R2_MIN_FILE_SIZE_BYTES", 524288, {
+    min: 0,
+    max: 104857600,
+  }),
   runSqlMigrations: readBoolean("RUN_SQL_MIGRATIONS", false),
   logHttpRequests: readBoolean("LOG_HTTP_REQUESTS", true),
   requestTimeoutMs: readNumber("REQUEST_TIMEOUT_MS", 30000, {
