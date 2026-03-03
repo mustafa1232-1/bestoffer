@@ -1,28 +1,26 @@
-import { verifyAccessToken } from "../utils/jwt.js";
 import { AppError } from "../utils/errors.js";
+import { resolveAccessAuth } from "./access-auth.js";
 
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   if (req.authUserId) {
     req.userId = req.authUserId;
     req.userRole = req.authUserRole;
     req.userIsSuperAdmin = req.authUserIsSuperAdmin === true;
+    req.authSessionId = req.authSessionId || null;
+    req.authDeviceContext = req.authDeviceContext || null;
     return next();
-  }
-
-  const h = req.headers.authorization || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
-
-  if (!token) {
-    return next(new AppError("NO_TOKEN", { status: 401 }));
   }
 
   try {
-    const payload = verifyAccessToken(token);
-    req.userId = payload.sub;
-    req.userRole = payload.role;
-    req.userIsSuperAdmin = payload.sa === true;
+    const auth = await resolveAccessAuth(req, { strict: true });
+    req.userId = auth.userId;
+    req.userRole = auth.role;
+    req.userIsSuperAdmin = auth.isSuperAdmin === true;
+    req.authSessionId = auth.sessionId;
+    req.authDeviceContext = auth.deviceContext || null;
     return next();
   } catch (error) {
+    if (error instanceof AppError) return next(error);
     return next(new AppError("INVALID_TOKEN", { status: 401 }));
   }
 }

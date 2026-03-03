@@ -1,4 +1,5 @@
 import {
+  createUserSession,
   createUser,
   createCustomerAddress,
   deactivateCustomerAddress,
@@ -7,12 +8,20 @@ import {
   getCustomerDefaultAddress,
   getCustomerAddressById,
   listCustomerAddresses,
+  listUserActiveSessions,
+  pruneUserSessions,
+  registerFailedLoginAttempt,
+  resetLoginProtection,
+  revokeAllUserSessions,
+  revokeUserSession,
   setCustomerDefaultAddress,
   updateCustomerAddress,
   updateUserAccount,
 } from "./auth.repo.js";
 import { hashPin, verifyPin } from "../../shared/utils/hash.js";
 import { signAccessToken } from "../../shared/utils/jwt.js";
+import { env } from "../../config/env.js";
+import crypto from "crypto";
 
 function normalizeDigits(value) {
   return String(value || "")
@@ -50,7 +59,77 @@ function mapUser(u) {
   };
 }
 
-export async function register(dto) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function applyCredentialFailureDelay() {
+  const jitter = 120 + Math.floor(Math.random() * 180);
+  await sleep(jitter);
+}
+
+function isLockedNow(user) {
+  if (!user?.locked_until) return false;
+  return new Date(user.locked_until).getTime() > Date.now();
+}
+
+function lockRetrySeconds(user) {
+  if (!user?.locked_until) return 0;
+  const ms = new Date(user.locked_until).getTime() - Date.now();
+  return ms > 0 ? Math.ceil(ms / 1000) : 0;
+}
+
+function buildSessionTimestamps() {
+  const now = new Date();
+  const expiresAt = new Date(
+    now.getTime() + Math.max(1, Number(env.authSessionTtlDays || 30)) * 24 * 60 * 60 * 1000
+  );
+  return {
+    createdAt: now,
+    expiresAt,
+  };
+}
+
+async function issueSessionToken(user, deviceContext = {}) {
+  const tokenJti = crypto.randomBytes(18).toString("base64url");
+  const refreshToken = crypto.randomBytes(24).toString("base64url");
+  const { expiresAt } = buildSessionTimestamps();
+
+  const session = await createUserSession({
+    userId: user.id,
+    refreshToken,
+    tokenJti,
+    deviceFingerprint: deviceContext.deviceFingerprint || null,
+    userAgent: deviceContext.userAgent || null,
+    ipAddress: deviceContext.ipAddress || null,
+    expiresAt,
+    accessExpiresAt: null,
+  });
+
+  const token = signAccessToken(
+    {
+      id: user.id,
+      role: user.role || "user",
+      isSuperAdmin: user.is_super_admin === true,
+    },
+    {
+      sessionId: session?.id || null,
+      tokenJti,
+      deviceFingerprint: deviceContext.deviceFingerprint || null,
+    }
+  );
+
+  await pruneUserSessions(user.id, {
+    maxActive: env.authMaxActiveSessionsPerUser,
+  });
+
+  return {
+    token,
+    sessionId: session?.id || null,
+  };
+}
+
+export async function register(dto, deviceContext = {}) {
   const phone = normalizePhone(dto.phone);
   const pin = normalizePin(dto.pin);
   const analyticsConsentAccepted = normalizeConsentAccepted(
@@ -90,28 +169,37 @@ export async function register(dto) {
     analyticsConsentGrantedAt: new Date(),
   });
 
-  const token = signAccessToken({
-    id: created.id,
-    role: created.role || "user",
-    isSuperAdmin: created.is_super_admin === true,
-  });
+  const session = await issueSessionToken(created, deviceContext);
 
-  return { token, user: mapUser(created) };
+  return { token: session.token, sessionId: session.sessionId, user: mapUser(created) };
 }
 
-export async function login({ phone, pin }) {
+export async function login({ phone, pin }, deviceContext = {}) {
   const normalizedPhone = normalizePhone(phone);
   const normalizedPin = normalizePin(pin);
 
   const user = await findUserByPhone(normalizedPhone);
   if (!user) {
+    await applyCredentialFailureDelay();
     const err = new Error("INVALID_CREDENTIALS");
     err.status = 401;
     throw err;
   }
 
+  if (isLockedNow(user)) {
+    const err = new Error("ACCOUNT_LOCKED");
+    err.status = 423;
+    err.details = { retryAfterSeconds: lockRetrySeconds(user) };
+    throw err;
+  }
+
   const ok = await verifyPin(normalizedPin, user.pin_hash);
   if (!ok) {
+    await registerFailedLoginAttempt(user.id, {
+      maxAttempts: env.authMaxFailedAttempts,
+      lockMinutes: env.authLockMinutes,
+    });
+    await applyCredentialFailureDelay();
     const err = new Error("INVALID_CREDENTIALS");
     err.status = 401;
     throw err;
@@ -126,14 +214,12 @@ export async function login({ phone, pin }) {
     throw err;
   }
 
-  const token = signAccessToken({
-    id: user.id,
-    role: user.role || "user",
-    isSuperAdmin: user.is_super_admin === true,
-  });
+  await resetLoginProtection(user.id);
+  const session = await issueSessionToken(user, deviceContext);
 
   return {
-    token,
+    token: session.token,
+    sessionId: session.sessionId,
     user: {
       id: user.id,
       fullName: user.full_name,
@@ -148,7 +234,7 @@ export async function login({ phone, pin }) {
   };
 }
 
-export async function updateAccount(userId, dto) {
+export async function updateAccount(userId, dto, { currentSessionId = null } = {}) {
   const user = await findUserByIdWithAuthFields(userId);
   if (!user) {
     const err = new Error("USER_NOT_FOUND");
@@ -203,7 +289,48 @@ export async function updateAccount(userId, dto) {
     pinHash,
   });
 
+  if (nextPin) {
+    await revokeAllUserSessions({
+      userId: user.id,
+      exceptSessionId: currentSessionId,
+      reason: "pin_changed",
+    });
+  }
+
   return { user: mapUser(updated || user) };
+}
+
+export async function logout(userId, sessionId) {
+  if (!sessionId) return { revoked: false };
+  const revoked = await revokeUserSession({
+    userId,
+    sessionId,
+    reason: "logout",
+  });
+  return { revoked: !!revoked };
+}
+
+export async function logoutAll(userId, currentSessionId = null) {
+  const revokedCount = await revokeAllUserSessions({
+    userId,
+    exceptSessionId: currentSessionId,
+    reason: "logout_all",
+  });
+  return { revokedCount };
+}
+
+export async function listSessions(userId) {
+  const rows = await listUserActiveSessions(userId);
+  return rows.map((row) => ({
+    id: Number(row.id),
+    userAgent: row.user_agent || null,
+    ipAddress: row.ip || null,
+    deviceFingerprint: row.device_fingerprint || null,
+    createdAt: row.created_at,
+    lastSeenAt: row.last_seen_at,
+    expiresAt: row.expires_at,
+    accessExpiresAt: row.access_expires_at,
+  }));
 }
 
 function mapAddress(a) {

@@ -1,9 +1,12 @@
 import { hashPin } from "../../shared/utils/hash.js";
 import { signAccessToken } from "../../shared/utils/jwt.js";
 import { findUserByPhone } from "../auth/auth.repo.js";
+import { createUserSession, pruneUserSessions } from "../auth/auth.repo.js";
 import * as analyticsRepo from "../analytics/analytics.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
 import * as repo from "./owner.repo.js";
+import { env } from "../../config/env.js";
+import crypto from "crypto";
 
 function mapUser(u) {
   return {
@@ -74,7 +77,48 @@ function mapCategory(c) {
   };
 }
 
-export async function registerOwner(dto) {
+async function issueOwnerSession(user, deviceContext = {}) {
+  const tokenJti = crypto.randomBytes(18).toString("base64url");
+  const refreshToken = crypto.randomBytes(24).toString("base64url");
+  const expiresAt = new Date(
+    Date.now() + Math.max(1, Number(env.authSessionTtlDays || 30)) * 24 * 60 * 60 * 1000
+  );
+
+  const session = await createUserSession({
+    userId: user.id,
+    refreshToken,
+    tokenJti,
+    deviceFingerprint: deviceContext.deviceFingerprint || null,
+    userAgent: deviceContext.userAgent || null,
+    ipAddress: deviceContext.ipAddress || null,
+    expiresAt,
+    accessExpiresAt: null,
+  });
+
+  const token = signAccessToken(
+    {
+      id: user.id,
+      role: user.role || "owner",
+      isSuperAdmin: user.is_super_admin === true,
+    },
+    {
+      sessionId: session?.id || null,
+      tokenJti,
+      deviceFingerprint: deviceContext.deviceFingerprint || null,
+    }
+  );
+
+  await pruneUserSessions(user.id, {
+    maxActive: env.authMaxActiveSessionsPerUser,
+  });
+
+  return {
+    token,
+    sessionId: session?.id || null,
+  };
+}
+
+export async function registerOwner(dto, deviceContext = {}) {
   const analyticsConsentAccepted = normalizeConsentAccepted(
     dto.analyticsConsentAccepted
   );
@@ -117,14 +161,11 @@ export async function registerOwner(dto) {
     analyticsConsentGrantedAt: new Date(),
   });
 
-  const token = signAccessToken({
-    id: out.user.id,
-    role: out.user.role || "owner",
-    isSuperAdmin: out.user.is_super_admin === true,
-  });
+  const session = await issueOwnerSession(out.user, deviceContext);
 
   return {
-    token,
+    token: session.token,
+    sessionId: session.sessionId,
     user: mapUser(out.user),
     merchant: mapMerchant(out.merchant),
   };

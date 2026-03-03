@@ -38,6 +38,10 @@ export const env = {
   databaseUrl: readString("DATABASE_URL"),
   databasePublicUrl: readString("DATABASE_PUBLIC_URL"),
   jwtSecret: readString("JWT_SECRET"),
+  jwtSecretPrevious: readString("JWT_SECRET_PREVIOUS"),
+  jwtIssuer: readString("JWT_ISSUER", ""),
+  jwtAudience: readString("JWT_AUDIENCE", ""),
+  jwtAccessTtl: readString("JWT_ACCESS_TTL", "7d"),
   corsOrigins: readCsv("CORS_ORIGINS", "*"),
   jsonBodyLimit: readString("JSON_BODY_LIMIT", "10mb"),
   uploadsDir: readString("UPLOADS_DIR", "uploads"),
@@ -59,6 +63,28 @@ export const env = {
     min: 5,
     max: 300,
   }),
+  authMaxFailedAttempts: readNumber("AUTH_MAX_FAILED_ATTEMPTS", 8, {
+    min: 3,
+    max: 20,
+  }),
+  authLockMinutes: readNumber("AUTH_LOCK_MINUTES", 15, {
+    min: 1,
+    max: 240,
+  }),
+  authSessionTtlDays: readNumber("AUTH_SESSION_TTL_DAYS", 30, {
+    min: 1,
+    max: 120,
+  }),
+  authMaxActiveSessionsPerUser: readNumber("AUTH_MAX_ACTIVE_SESSIONS_PER_USER", 5, {
+    min: 1,
+    max: 30,
+  }),
+  authDeviceBindingRequired: readBoolean("AUTH_DEVICE_BINDING_REQUIRED", true),
+  authAllowLegacyTokens: readBoolean("AUTH_ALLOW_LEGACY_TOKENS", true),
+  authSessionTouchIntervalSec: readNumber("AUTH_SESSION_TOUCH_INTERVAL_SEC", 60, {
+    min: 10,
+    max: 600,
+  }),
   superAdminPhone: readString("SUPER_ADMIN_PHONE", "07746515247"),
   superAdminPin: readString("SUPER_ADMIN_PIN", "1998"),
   superAdminName: readString("SUPER_ADMIN_NAME", "Super Admin"),
@@ -75,6 +101,12 @@ export function validateRuntimeEnv() {
   if (!env.jwtSecret) errors.push("JWT_SECRET is required");
   if (env.jwtSecret && env.jwtSecret.length < 16) {
     errors.push("JWT_SECRET must be at least 16 characters");
+  }
+  if (env.jwtSecretPrevious && env.jwtSecretPrevious.length < 16) {
+    errors.push("JWT_SECRET_PREVIOUS must be at least 16 characters");
+  }
+  if (!env.jwtAccessTtl) {
+    errors.push("JWT_ACCESS_TTL must not be empty");
   }
 
   if (errors.length) {

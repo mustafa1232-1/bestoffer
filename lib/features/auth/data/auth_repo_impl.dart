@@ -171,7 +171,14 @@ class AuthRepoImpl implements AuthRepo {
   }
 
   @override
-  Future<void> logout() => store.clear();
+  Future<void> logout() async {
+    try {
+      await api.logout();
+    } catch (_) {
+      // If network fails, clear local auth anyway.
+    }
+    await store.clear();
+  }
 }
 
 String _readToken(Map<String, dynamic> payload) {

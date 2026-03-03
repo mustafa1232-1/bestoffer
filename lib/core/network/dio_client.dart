@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:bestoffer/core/storage/secure_storage.dart';
 import 'package:dio/dio.dart';
 
@@ -7,6 +9,7 @@ import '../utils/parsers.dart';
 class DioClient {
   final Dio dio;
   final SecureStore store;
+  static const _deviceIdKey = 'device_id';
 
   DioClient(this.store)
     : dio = Dio(
@@ -25,6 +28,9 @@ class DioClient {
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
+          final deviceId = await _ensureDeviceId(store);
+          options.headers['X-Device-Id'] = deviceId;
+          options.headers['X-Client-Platform'] = 'flutter';
           return handler.next(options);
         },
         onResponse: (response, handler) {
@@ -77,6 +83,18 @@ class DioClient {
       ),
     );
   }
+}
+
+Future<String> _ensureDeviceId(SecureStore store) async {
+  final existing = await store.readString(DioClient._deviceIdKey);
+  if (existing != null && existing.trim().isNotEmpty) {
+    return existing.trim();
+  }
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  final value = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  await store.writeString(DioClient._deviceIdKey, value);
+  return value;
 }
 
 bool _isRetryableConnectionError(DioException error) {

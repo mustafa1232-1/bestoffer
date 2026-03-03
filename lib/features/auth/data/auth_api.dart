@@ -70,6 +70,10 @@ class AuthApi {
     final response = await dio.patch('/api/auth/account', data: body);
     return Map<String, dynamic>.from(response.data as Map);
   }
+
+  Future<void> logout() async {
+    await dio.post('/api/auth/logout');
+  }
 }
 
 Future<Object> _withOptionalFiles(

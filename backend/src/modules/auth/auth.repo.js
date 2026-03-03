@@ -13,7 +13,11 @@ export async function findUserByPhone(phone) {
        apartment,
        image_url,
        is_super_admin,
-       delivery_account_approved
+       delivery_account_approved,
+       failed_login_attempts,
+       locked_until,
+       last_failed_login_at,
+       last_login_at
      FROM app_user
      WHERE regexp_replace(
        translate(
@@ -45,7 +49,11 @@ export async function findUserByIdWithAuthFields(id) {
        apartment,
        image_url,
        is_super_admin,
-       delivery_account_approved
+       delivery_account_approved,
+       failed_login_attempts,
+       locked_until,
+       last_failed_login_at,
+       last_login_at
      FROM app_user
      WHERE id = $1
      LIMIT 1`,
@@ -141,6 +149,211 @@ export async function updateUserAccount({ id, phone, pinHash }) {
   );
 
   return r.rows[0] || null;
+}
+
+export async function registerFailedLoginAttempt(userId, { maxAttempts, lockMinutes }) {
+  const max = Math.max(1, Number(maxAttempts) || 1);
+  const lock = Math.max(1, Number(lockMinutes) || 1);
+  const r = await q(
+    `UPDATE app_user
+     SET
+       failed_login_attempts = COALESCE(failed_login_attempts, 0) + 1,
+       last_failed_login_at = NOW(),
+       locked_until = CASE
+         WHEN COALESCE(locked_until, NOW() - INTERVAL '1 second') > NOW() THEN locked_until
+         WHEN COALESCE(failed_login_attempts, 0) + 1 >= $2
+           THEN NOW() + ($3::text || ' minutes')::interval
+         ELSE NULL
+       END
+     WHERE id = $1
+     RETURNING failed_login_attempts, locked_until`,
+    [Number(userId), max, lock]
+  );
+  return r.rows[0] || null;
+}
+
+export async function resetLoginProtection(userId) {
+  await q(
+    `UPDATE app_user
+     SET failed_login_attempts = 0,
+         locked_until = NULL,
+         last_login_at = NOW()
+     WHERE id = $1`,
+    [Number(userId)]
+  );
+}
+
+export async function createUserSession({
+  userId,
+  refreshToken,
+  tokenJti,
+  deviceFingerprint,
+  userAgent,
+  ipAddress,
+  expiresAt,
+  accessExpiresAt,
+}) {
+  const r = await q(
+    `INSERT INTO user_session
+      (
+        user_id,
+        refresh_token,
+        token_jti,
+        device_fingerprint,
+        user_agent,
+        ip,
+        created_at,
+        updated_at,
+        last_seen_at,
+        expires_at,
+        access_expires_at,
+        is_revoked
+      )
+     VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW(),NOW(),$7,$8,FALSE)
+     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at`,
+    [
+      Number(userId),
+      String(refreshToken || ""),
+      tokenJti || null,
+      deviceFingerprint || null,
+      userAgent || null,
+      ipAddress || null,
+      expiresAt,
+      accessExpiresAt || null,
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function pruneUserSessions(userId, { maxActive }) {
+  const cap = Math.max(1, Number(maxActive) || 1);
+  const rows = await q(
+    `SELECT id
+     FROM user_session
+     WHERE user_id = $1
+       AND is_revoked = FALSE
+       AND expires_at > NOW()
+     ORDER BY last_seen_at DESC NULLS LAST, id DESC`,
+    [Number(userId)]
+  );
+
+  if (rows.rowCount <= cap) return 0;
+  const staleIds = rows.rows.slice(cap).map((row) => Number(row.id));
+  if (staleIds.length === 0) return 0;
+
+  const out = await q(
+    `UPDATE user_session
+     SET is_revoked = TRUE,
+         revoked_at = NOW(),
+         revoked_reason = 'session_pruned',
+         updated_at = NOW()
+     WHERE id = ANY($1::bigint[])`,
+    [staleIds]
+  );
+  return out.rowCount || 0;
+}
+
+export async function getActiveSessionByAccess({
+  sessionId,
+  userId,
+  tokenJti,
+}) {
+  const r = await q(
+    `SELECT
+       id,
+       user_id,
+       token_jti,
+       device_fingerprint,
+       expires_at,
+       access_expires_at,
+       is_revoked,
+       revoked_at
+     FROM user_session
+     WHERE id = $1
+       AND user_id = $2
+       AND is_revoked = FALSE
+       AND expires_at > NOW()
+       AND (token_jti IS NULL OR token_jti = $3)
+     LIMIT 1`,
+    [Number(sessionId), Number(userId), tokenJti || null]
+  );
+  return r.rows[0] || null;
+}
+
+export async function touchUserSession(sessionId, { ipAddress, userAgent } = {}) {
+  await q(
+    `UPDATE user_session
+     SET last_seen_at = NOW(),
+         ip = COALESCE($2, ip),
+         user_agent = COALESCE($3, user_agent),
+         updated_at = NOW()
+     WHERE id = $1
+       AND is_revoked = FALSE`,
+    [Number(sessionId), ipAddress || null, userAgent || null]
+  );
+}
+
+export async function revokeUserSession({
+  userId,
+  sessionId,
+  reason = "logout",
+}) {
+  const r = await q(
+    `UPDATE user_session
+     SET is_revoked = TRUE,
+         revoked_at = NOW(),
+         revoked_reason = $3,
+         updated_at = NOW()
+     WHERE id = $2
+       AND user_id = $1
+       AND is_revoked = FALSE
+     RETURNING id`,
+    [Number(userId), Number(sessionId), String(reason || "logout").slice(0, 80)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function revokeAllUserSessions({
+  userId,
+  exceptSessionId = null,
+  reason = "logout_all",
+}) {
+  const params = [Number(userId), String(reason || "logout_all").slice(0, 80)];
+  let sql = `UPDATE user_session
+    SET is_revoked = TRUE,
+        revoked_at = NOW(),
+        revoked_reason = $2,
+        updated_at = NOW()
+    WHERE user_id = $1
+      AND is_revoked = FALSE`;
+  if (exceptSessionId != null) {
+    params.push(Number(exceptSessionId));
+    sql += ` AND id <> $3`;
+  }
+  const r = await q(sql, params);
+  return r.rowCount || 0;
+}
+
+export async function listUserActiveSessions(userId) {
+  const r = await q(
+    `SELECT
+       id,
+       user_id,
+       user_agent,
+       ip,
+       device_fingerprint,
+       created_at,
+       last_seen_at,
+       expires_at,
+       access_expires_at
+     FROM user_session
+     WHERE user_id = $1
+       AND is_revoked = FALSE
+       AND expires_at > NOW()
+     ORDER BY last_seen_at DESC NULLS LAST, id DESC`,
+    [Number(userId)]
+  );
+  return r.rows;
 }
 
 export async function listCustomerAddresses(customerUserId) {

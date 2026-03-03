@@ -1,20 +1,19 @@
-import { verifyAccessToken } from "../utils/jwt.js";
+import { resolveAccessAuth } from "./access-auth.js";
 
-export function attachOptionalAuth(req, res, next) {
-  const h = req.headers.authorization || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
-
-  if (!token) return next();
-
+export async function attachOptionalAuth(req, res, next) {
   try {
-    const payload = verifyAccessToken(token);
-    req.authUserId = payload?.sub || null;
-    req.authUserRole = payload?.role || null;
-    req.authUserIsSuperAdmin = payload?.sa === true;
+    const auth = await resolveAccessAuth(req, { strict: false });
+    req.authUserId = auth?.userId || null;
+    req.authUserRole = auth?.role || null;
+    req.authUserIsSuperAdmin = auth?.isSuperAdmin === true;
+    req.authSessionId = auth?.sessionId || null;
+    req.authDeviceContext = auth?.deviceContext || null;
   } catch (_) {
     req.authUserId = null;
     req.authUserRole = null;
     req.authUserIsSuperAdmin = false;
+    req.authSessionId = null;
+    req.authDeviceContext = null;
   }
 
   return next();

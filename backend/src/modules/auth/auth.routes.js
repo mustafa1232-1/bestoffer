@@ -7,6 +7,9 @@ export const authRouter = Router();
 
 authRouter.post("/register", imageUpload.single("imageFile"), c.register);
 authRouter.post("/login", c.login);
+authRouter.post("/logout", requireAuth, c.logout);
+authRouter.post("/logout-all", requireAuth, c.logoutAll);
+authRouter.get("/sessions", requireAuth, c.listSessions);
 authRouter.patch("/account", requireAuth, c.updateAccount);
 authRouter.get("/account/addresses", requireAuth, c.listAddresses);
 authRouter.post("/account/addresses", requireAuth, c.createAddress);

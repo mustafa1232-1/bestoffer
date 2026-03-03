@@ -9,7 +9,8 @@
     "start": "node src/server.js",
     "migrate:sql": "node src/scripts/migrate.js",
     "seed:admin": "node src/scripts/seedAdmin.js",
-    "firebase:env": "node deploy/firebase-env-from-json.mjs"
+    "firebase:env": "node deploy/firebase-env-from-json.mjs",
+    "security:check": "node src/scripts/securitySelfCheck.js"
   },
   "keywords": [],
   "author": "Your Name",

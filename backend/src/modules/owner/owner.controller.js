@@ -10,6 +10,7 @@ import {
   validateOwnerRegister,
 } from "./owner.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
+import { extractDeviceContext } from "../../shared/utils/device-fingerprint.js";
 
 function parseBooleanInput(value) {
   if (typeof value === "boolean") return value;
@@ -37,7 +38,7 @@ export async function register(req, res, next) {
       return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
-    const out = await service.registerOwner(body);
+    const out = await service.registerOwner(body, extractDeviceContext(req));
     res.status(201).json(out);
   } catch (e) {
     next(e);

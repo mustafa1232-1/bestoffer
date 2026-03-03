@@ -61,7 +61,16 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Request-Id",
+      "X-Device-Id",
+      "X-Installation-Id",
+      "X-Client-Platform",
+      "X-App-Version",
+      "X-Device-Model",
+    ],
   })
 );
 app.use(

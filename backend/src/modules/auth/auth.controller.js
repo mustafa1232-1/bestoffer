@@ -7,6 +7,7 @@ import {
   validateUpdateAccount,
 } from "./auth.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
+import { extractDeviceContext } from "../../shared/utils/device-fingerprint.js";
 
 export async function register(req, res, next) {
   try {
@@ -18,7 +19,7 @@ export async function register(req, res, next) {
     const v = validateRegister(body);
     if (!v.ok) return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
 
-    const out = await service.register(body);
+    const out = await service.register(body, extractDeviceContext(req));
     res.status(201).json(out);
   } catch (e) {
     next(e);
@@ -30,7 +31,7 @@ export async function login(req, res, next) {
     const v = validateLogin(req.body);
     if (!v.ok) return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
 
-    const out = await service.login(req.body);
+    const out = await service.login(req.body, extractDeviceContext(req));
     res.json(out);
   } catch (e) {
     next(e);
@@ -46,8 +47,37 @@ export async function updateAccount(req, res, next) {
         .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
-    const out = await service.updateAccount(req.userId, req.body || {});
+    const out = await service.updateAccount(req.userId, req.body || {}, {
+      currentSessionId: req.authSessionId || null,
+    });
     res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function logout(req, res, next) {
+  try {
+    const out = await service.logout(req.userId, req.authSessionId || null);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function logoutAll(req, res, next) {
+  try {
+    const out = await service.logoutAll(req.userId, req.authSessionId || null);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function listSessions(req, res, next) {
+  try {
+    const out = await service.listSessions(req.userId);
+    res.json({ sessions: out, currentSessionId: req.authSessionId || null });
   } catch (e) {
     next(e);
   }
