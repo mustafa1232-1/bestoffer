@@ -13,6 +13,8 @@ import { ensureUploadsDir, uploadsDir } from "./uploads.js";
 const useR2Storage = isR2UploadsEnabled();
 const r2MinFileSizeBytes = Number(env.cfR2MinFileSizeBytes || 524288);
 ensureUploadsDir();
+let lastR2UploadError = null;
+let lastR2UploadAt = null;
 
 const allowedMimeTypes = new Set([
   "image/jpeg",
@@ -100,8 +102,12 @@ const r2Storage = {
             mimetype: file.mimetype,
             storageProvider: "r2",
           });
+          lastR2UploadError = null;
+          lastR2UploadAt = new Date().toISOString();
           return;
         } catch (error) {
+          lastR2UploadError = String(error?.message || "R2_UPLOAD_FAILED");
+          lastR2UploadAt = new Date().toISOString();
           console.warn(
             `[upload] R2 upload failed, falling back to local storage: ${
               error?.message || "unknown error"
@@ -180,4 +186,13 @@ export function buildUploadedFileUrl(req, file) {
     return file.location.trim();
   }
   return `${req.protocol}://${req.get("host")}/uploads/${file.filename}`;
+}
+
+export function getUploadRuntimeStatus() {
+  return {
+    r2Enabled: useR2Storage,
+    r2MinFileSizeBytes,
+    lastR2UploadError,
+    lastR2UploadAt,
+  };
 }

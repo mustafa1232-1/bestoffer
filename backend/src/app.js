@@ -32,6 +32,7 @@ import { sanitizeInputMiddleware } from "./shared/middleware/input-sanitize.midd
 import { attachOptionalAuth } from "./shared/middleware/optional-auth.middleware.js";
 import { securityHeaders } from "./shared/middleware/security.middleware.js";
 import { activityAuditMiddleware } from "./shared/middleware/activity-audit.middleware.js";
+import { getUploadRuntimeStatus } from "./shared/utils/upload.js";
 import {
   missingImagePng,
   resolveUploadFilePath,
@@ -132,6 +133,7 @@ app.get("/health", async (req, res, next) => {
       service: "shakaky-api",
       uptimeSec: Math.round(process.uptime()),
       db: "ok",
+      uploads: getUploadRuntimeStatus(),
       responseMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     });
