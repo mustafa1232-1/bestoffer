@@ -117,7 +117,7 @@ app.get("/health", async (req, res, next) => {
     await q("SELECT 1");
     res.json({
       status: "ok",
-      service: "bestoffer-api",
+      service: "shakaky-api",
       uptimeSec: Math.round(process.uptime()),
       db: "ok",
       responseMs: Date.now() - startedAt,

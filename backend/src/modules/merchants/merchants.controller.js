@@ -78,6 +78,15 @@ export async function discovery(req, res, next) {
   }
 }
 
+export async function adBoard(req, res, next) {
+  try {
+    const data = await service.listPublicAdBoard(req.query.type);
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function listProducts(req, res, next) {
   try {
     const data = await service.listMerchantProducts(Number(req.params.merchantId));

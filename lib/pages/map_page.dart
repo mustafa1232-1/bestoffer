@@ -51,6 +51,7 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   StreamSubscription<TaxiLiveEvent>? _streamSub;
   Timer? _reconnectTimer;
+  Timer? _uiTickTimer;
   Timer? _pickupSearchDebounce;
   Timer? _dropoffSearchDebounce;
 
@@ -73,8 +74,11 @@ class _MapPageState extends ConsumerState<MapPage> {
   bool _callScreenOpen = false;
   DateTime? _lastRealtimeAt;
   DateTime? _lastRouteAt;
+  DateTime? _lastSilentRefreshAt;
   int? _lastCallSignalId;
   int? _lastIncomingSessionId;
+  int? _lastEventId;
+  int _reconnectAttempt = 0;
   String? _error;
   List<_PlaceSuggestion> _pickupSuggestions = const [];
   List<_PlaceSuggestion> _dropoffSuggestions = const [];
@@ -88,6 +92,13 @@ class _MapPageState extends ConsumerState<MapPage> {
   @override
   void initState() {
     super.initState();
+    _uiTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final rideStatus = _string(_ride?['status']);
+      if (rideStatus == 'searching' && _currentBid != null) {
+        setState(() {});
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _bootstrap();
     });
@@ -97,6 +108,7 @@ class _MapPageState extends ConsumerState<MapPage> {
   void dispose() {
     _streamSub?.cancel();
     _reconnectTimer?.cancel();
+    _uiTickTimer?.cancel();
     _pickupSearchDebounce?.cancel();
     _dropoffSearchDebounce?.cancel();
     _pickupLabelController.dispose();
@@ -215,57 +227,135 @@ class _MapPageState extends ConsumerState<MapPage> {
   void _connectRealtimeStream() {
     if (!_canUseTaxiApi) return;
     _streamSub?.cancel();
-    _streamSub = _taxiApi.streamEvents().listen(
-      (event) {
-        if (event.event == 'heartbeat' || event.event == 'connected') {
-          if (!mounted) return;
-          setState(() {
-            _streamConnected = true;
-            _lastRealtimeAt = DateTime.now();
-          });
-          return;
-        }
-        if (event.event == 'taxi_call_update') {
-          unawaited(_handleCallRealtimeEvent(event.data));
-        }
+    _streamSub = _taxiApi
+        .streamEvents(lastEventId: _lastEventId)
+        .listen(
+          (event) {
+            if (event.eventId != null && event.eventId! > 0) {
+              _lastEventId = event.eventId;
+            }
 
-        final rideId = _eventRideId(event.data);
-        final activeRideId = _readInt(_ride?['id']);
+            if (event.event == 'heartbeat') {
+              if (!mounted) return;
+              setState(() {
+                _streamConnected = true;
+                _lastRealtimeAt = DateTime.now();
+              });
+              return;
+            }
 
-        if (activeRideId == null || rideId == null || activeRideId == rideId) {
-          _lastRealtimeAt = DateTime.now();
-          _loadCurrentRide(silent: true);
-        }
-      },
-      onError: (error) {
-        if (!mounted) return;
-        final unauthorized = _isUnauthorizedDioError(error);
-        setState(() {
-          _streamConnected = false;
-          if (unauthorized) {
-            _error = 'انتهت الجلسة، يرجى تسجيل الدخول مرة أخرى';
-          }
-        });
-        if (unauthorized) {
-          _canUseTaxiApi = false;
-          _streamSub?.cancel();
-          return;
-        }
-        _scheduleReconnect();
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() => _streamConnected = false);
-        _scheduleReconnect();
-      },
-      cancelOnError: true,
-    );
+            if (event.event == 'connected' || event.event == 'replayed') {
+              _reconnectAttempt = 0;
+              if (!mounted) return;
+              setState(() {
+                _streamConnected = true;
+                _lastRealtimeAt = DateTime.now();
+              });
+              _refreshRideFromRealtime(force: true);
+              return;
+            }
+
+            if (event.event == 'taxi_location_update') {
+              _applyLocationRealtimeEvent(event.data);
+              return;
+            }
+
+            if (event.event == 'taxi_call_update') {
+              unawaited(_handleCallRealtimeEvent(event.data));
+            }
+
+            if (event.event == 'taxi_bid_update' ||
+                event.event == 'taxi_ride_update' ||
+                event.event == 'taxi_call_update' ||
+                event.event == 'taxi_new_request') {
+              _refreshRideFromRealtime();
+              return;
+            }
+
+            // Fallback for unknown events from taxi stream.
+            _refreshRideFromRealtime();
+          },
+          onError: (error) {
+            if (!mounted) return;
+            final unauthorized = _isUnauthorizedDioError(error);
+            setState(() {
+              _streamConnected = false;
+              if (unauthorized) {
+                _error = 'انتهت الجلسة، يرجى تسجيل الدخول مرة أخرى';
+              }
+            });
+            if (unauthorized) {
+              _canUseTaxiApi = false;
+              _streamSub?.cancel();
+              return;
+            }
+            _scheduleReconnect();
+          },
+          onDone: () {
+            if (!mounted) return;
+            setState(() => _streamConnected = false);
+            _scheduleReconnect();
+          },
+          cancelOnError: true,
+        );
+  }
+
+  void _refreshRideFromRealtime({bool force = false}) {
+    final now = DateTime.now();
+    if (!force && _lastSilentRefreshAt != null) {
+      final elapsed = now.difference(_lastSilentRefreshAt!);
+      if (elapsed < const Duration(milliseconds: 900)) {
+        return;
+      }
+    }
+    _lastSilentRefreshAt = now;
+    _lastRealtimeAt = now;
+    unawaited(_loadCurrentRide(silent: true));
+  }
+
+  void _applyLocationRealtimeEvent(Map<String, dynamic> data) {
+    final activeRideId = _readInt(_ride?['id']);
+    final eventRideId = _eventRideId(data);
+    if (activeRideId != null &&
+        eventRideId != null &&
+        activeRideId != eventRideId) {
+      return;
+    }
+
+    final location = data['location'] is Map
+        ? Map<String, dynamic>.from(data['location'] as Map)
+        : null;
+    final point = _latLngFromMap(location);
+    if (point == null || !mounted) return;
+
+    setState(() {
+      _streamConnected = true;
+      _lastRealtimeAt = DateTime.now();
+      _captainPoint = point;
+      if (_activeRideEnvelope != null && location != null) {
+        _activeRideEnvelope = {
+          ..._activeRideEnvelope!,
+          'latestLocation': location,
+        };
+      }
+    });
+    unawaited(_refreshRoutePolyline());
   }
 
   void _scheduleReconnect() {
     if (!_canUseTaxiApi) return;
     if (_reconnectTimer?.isActive == true) return;
-    _reconnectTimer = Timer(const Duration(seconds: 3), () {
+    _reconnectAttempt = (_reconnectAttempt + 1).clamp(1, 6);
+    final delaySeconds = switch (_reconnectAttempt) {
+      1 => 2,
+      2 => 4,
+      3 => 8,
+      4 => 12,
+      5 => 20,
+      _ => 30,
+    };
+
+    _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
       if (!mounted) return;
       _connectRealtimeStream();
     });
@@ -368,8 +458,8 @@ class _MapPageState extends ConsumerState<MapPage> {
             BaseOptions(
               connectTimeout: const Duration(seconds: 8),
               receiveTimeout: const Duration(seconds: 8),
-              headers: const {
-                'User-Agent': 'BestOfferTaxi/1.0 (support@bestoffer.app)',
+              headers: {
+                'User-Agent': 'ShakakyTaxi/1.0 (support@shakaky.app)',
                 'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
               },
             ),
@@ -513,8 +603,8 @@ class _MapPageState extends ConsumerState<MapPage> {
             BaseOptions(
               connectTimeout: const Duration(seconds: 8),
               receiveTimeout: const Duration(seconds: 8),
-              headers: const {
-                'User-Agent': 'BestOfferTaxi/1.0 (support@bestoffer.app)',
+              headers: {
+                'User-Agent': 'ShakakyTaxi/1.0 (support@shakaky.app)',
                 'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
               },
             ),
@@ -719,6 +809,100 @@ class _MapPageState extends ConsumerState<MapPage> {
       });
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _openRideRatingDialog() async {
+    final rideId = _readInt(_ride?['id']);
+    if (rideId == null || _submitting) return;
+
+    var selectedRating = 5;
+    final reviewCtrl = TextEditingController();
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              title: const Text('تقييم الرحلة'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'قيّم أداء الكابتن بعد هذه الرحلة',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (index) {
+                      final star = index + 1;
+                      final active = star <= selectedRating;
+                      return IconButton(
+                        onPressed: () =>
+                            setModalState(() => selectedRating = star),
+                        icon: Icon(
+                          active ? Icons.star_rounded : Icons.star_border,
+                          color: active ? Colors.amber : Colors.grey,
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: reviewCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'ملاحظة (اختياري)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('لاحقًا'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('إرسال التقييم'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    try {
+      await _taxiApi.rateRide(
+        rideId: rideId,
+        rating: selectedRating,
+        review: reviewCtrl.text.trim(),
+      );
+      await _loadCurrentRide(silent: true);
+      _showMessage('تم إرسال تقييم الرحلة');
+    } on DioException catch (e) {
+      setState(() {
+        _error = _extractApiError(e);
+      });
+    } catch (_) {
+      setState(() {
+        _error = 'تعذر إرسال تقييم الرحلة';
+      });
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+      reviewCtrl.dispose();
     }
   }
 
@@ -1076,13 +1260,13 @@ class _MapPageState extends ConsumerState<MapPage> {
         _string(_ride?['captain']?['phone']) ??
         _string(_currentBid?['captain']?['phone']);
     if (phone == null || phone.isEmpty) {
-      _showMessage('Captain number is not available right now');
+      _showMessage('رقم الكابتن غير متوفر حاليًا');
       return;
     }
     final uri = Uri.parse('tel:$phone');
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok) {
-      _showMessage('Could not open phone call');
+      _showMessage('تعذر فتح تطبيق الاتصال');
     }
   }
 
@@ -1137,7 +1321,12 @@ class _MapPageState extends ConsumerState<MapPage> {
     }
 
     if (eventType == 'call_ended') {
-      _showMessage('Call ended');
+      _showMessage('انتهت المكالمة');
+      return;
+    }
+
+    if (eventType == 'call_missed') {
+      _showMessage('لم يتم الرد على المكالمة');
     }
   }
 
@@ -1279,6 +1468,66 @@ class _MapPageState extends ConsumerState<MapPage> {
         .toList();
   }
 
+  Map<String, dynamic>? get _currentBidQueueItem {
+    final queueRaw = _bidQueue?['queue'];
+    if (queueRaw is! List) return null;
+    final currentBidId =
+        _readInt(_currentBid?['id']) ?? _readInt(_bidQueue?['currentBidId']);
+    if (currentBidId == null) return null;
+
+    for (final item in queueRaw) {
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(item);
+      if (_readInt(map['bidId']) == currentBidId) {
+        return map;
+      }
+    }
+    return null;
+  }
+
+  int _negotiationTimeoutSeconds(Map<String, dynamic>? bid) {
+    final item = _currentBidQueueItem;
+    final negotiation = item?['negotiation'] is Map
+        ? Map<String, dynamic>.from(item!['negotiation'] as Map)
+        : null;
+    return _readInt(negotiation?['timeoutSeconds']) ??
+        _readInt(_bidQueue?['negotiationTimeoutSeconds']) ??
+        90;
+  }
+
+  int? _negotiationRemainingSeconds(Map<String, dynamic>? bid) {
+    if (bid == null) return null;
+    final item = _currentBidQueueItem;
+    final negotiation = item?['negotiation'] is Map
+        ? Map<String, dynamic>.from(item!['negotiation'] as Map)
+        : null;
+    final fromPayload = _readInt(negotiation?['remainingSeconds']);
+    if (fromPayload != null) return fromPayload.clamp(0, 9999);
+
+    final timeoutSeconds = _negotiationTimeoutSeconds(bid);
+    final anchor =
+        _parseIsoDate(bid['updatedAt']) ??
+        _parseIsoDate(bid['createdAt']) ??
+        DateTime.now();
+    final expiresAt = anchor.add(Duration(seconds: timeoutSeconds));
+    final seconds = expiresAt.difference(DateTime.now()).inSeconds;
+    if (seconds <= 0) return 0;
+    return seconds;
+  }
+
+  DateTime? _parseIsoDate(dynamic value) {
+    final text = _string(value);
+    if (text == null || text.isEmpty) return null;
+    return DateTime.tryParse(text);
+  }
+
+  String _formatCountdown(int totalSeconds) {
+    final clamped = totalSeconds < 0 ? 0 : totalSeconds;
+    final mm = (clamped ~/ 60).toString().padLeft(2, '0');
+    final ss = (clamped % 60).toString().padLeft(2, '0');
+    return '$mm:$ss';
+  }
+
   String _rideStatusLabel(String? status) {
     switch (status) {
       case 'searching':
@@ -1376,6 +1625,10 @@ class _MapPageState extends ConsumerState<MapPage> {
             return 'لا يوجد عرض نشط حالياً، انتظر العرض التالي';
           case 'TAXI_CHAT_EMPTY_MESSAGE':
             return 'لا يمكن إرسال رسالة فارغة';
+          case 'TAXI_RIDE_NOT_COMPLETED':
+            return 'لا يمكن تقييم الرحلة قبل اكتمالها';
+          case 'TAXI_RIDE_CAPTAIN_NOT_FOUND':
+            return 'لم يتم العثور على كابتن مرتبط بهذه الرحلة';
           default:
             return message;
         }
@@ -1427,10 +1680,18 @@ class _MapPageState extends ConsumerState<MapPage> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                fallbackUrl:
-                    'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-                userAgentPackageName: 'app.bestoffer.bismayah',
+                urlTemplate:
+                    'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                retinaMode:
+                    (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) >
+                    1.0,
+                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'app.shakaky.bismayah',
+                tileProvider: NetworkTileProvider(
+                  headers: {
+                    'User-Agent': 'ShakakyTaxi/1.0 (+https://shakaky.app)',
+                  },
+                ),
               ),
               if (_routePoints.length >= 2)
                 PolylineLayer(
@@ -1594,8 +1855,20 @@ class _MapPageState extends ConsumerState<MapPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.45),
+        gradient: const LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [Color(0xC01A4B7D), Color(0xAA112C47)],
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
         borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF56D7FF).withValues(alpha: 0.16),
+            blurRadius: 18,
+            spreadRadius: 0.4,
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -1663,7 +1936,15 @@ class _MapPageState extends ConsumerState<MapPage> {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.96),
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [
+              Theme.of(context).colorScheme.surface.withValues(alpha: 0.97),
+              const Color(0xFF15365D).withValues(alpha: 0.95),
+            ],
+          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
           borderRadius: BorderRadius.circular(16),
           boxShadow: const [
             BoxShadow(
@@ -1809,6 +2090,17 @@ class _MapPageState extends ConsumerState<MapPage> {
                               ),
                             ),
                           ],
+                          if (rideStatus == 'completed' &&
+                              _readInt(ride['captainRating']) == null) ...[
+                            const SizedBox(height: 10),
+                            FilledButton.icon(
+                              onPressed: _submitting
+                                  ? null
+                                  : _openRideRatingDialog,
+                              icon: const Icon(Icons.star_rate_rounded),
+                              label: const Text('قيّم رحلة التكسي'),
+                            ),
+                          ],
                           if (rideStatus == 'searching' && bids.isNotEmpty) ...[
                             const SizedBox(height: 8),
                             Row(
@@ -1866,6 +2158,17 @@ class _MapPageState extends ConsumerState<MapPage> {
                                     0,
                                     6,
                                   );
+                                  final remainingSeconds =
+                                      _negotiationRemainingSeconds(currentBid);
+                                  final timeoutSeconds =
+                                      _negotiationTimeoutSeconds(currentBid);
+                                  final negotiationProgress =
+                                      remainingSeconds == null ||
+                                          timeoutSeconds <= 0
+                                      ? null
+                                      : (remainingSeconds / timeoutSeconds)
+                                            .clamp(0.0, 1.0)
+                                            .toDouble();
                                   return Container(
                                     margin: const EdgeInsets.only(bottom: 8),
                                     padding: const EdgeInsets.all(10),
@@ -1901,6 +2204,47 @@ class _MapPageState extends ConsumerState<MapPage> {
                                           Text(
                                             'وقت الوصول المتوقع: ${_readInt(currentBid['etaMinutes'])} دقيقة',
                                           ),
+                                        if (remainingSeconds != null) ...[
+                                          const SizedBox(height: 6),
+                                          Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.timer_outlined,
+                                                size: 16,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              const Expanded(
+                                                child: Text(
+                                                  'الوقت المتبقي للتفاوض',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                              Text(
+                                                _formatCountdown(
+                                                  remainingSeconds,
+                                                ),
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  color: remainingSeconds <= 15
+                                                      ? Colors.redAccent
+                                                      : Colors.teal,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          LinearProgressIndicator(
+                                            value: negotiationProgress,
+                                            minHeight: 6,
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                            backgroundColor: Colors.black12,
+                                          ),
+                                        ],
+
                                         Text(
                                           'جولات العرض المضاد المتبقية: $roundsLeft من 6',
                                           style: const TextStyle(

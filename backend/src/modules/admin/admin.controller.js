@@ -1,5 +1,7 @@
 import * as service from "./admin.service.js";
 import {
+  validateAdBoardCreate,
+  validateAdBoardUpdate,
   validateAdminCreateUser,
   validateApproveSettlement,
   validateTaxiCaptainCashPaymentApprove,
@@ -208,6 +210,56 @@ export async function setTaxiCaptainDiscount(req, res, next) {
       discountPercent: v.value.discountPercent,
       adminUserId: req.userId,
     });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function adBoardItems(req, res, next) {
+  try {
+    const out = await service.listAdBoardItems();
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function createAdBoardItem(req, res, next) {
+  try {
+    const v = validateAdBoardCreate(req.body || {});
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const out = await service.createAdBoardItem(v.value, req.userId);
+    res.status(201).json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function updateAdBoardItem(req, res, next) {
+  try {
+    const v = validateAdBoardUpdate(req.body || {});
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const out = await service.updateAdBoardItem(
+      req.params.itemId,
+      v.value,
+      req.userId
+    );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function deleteAdBoardItem(req, res, next) {
+  try {
+    const out = await service.deleteAdBoardItem(req.params.itemId);
     res.json(out);
   } catch (e) {
     next(e);

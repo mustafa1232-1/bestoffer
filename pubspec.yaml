@@ -1,5 +1,5 @@
 name: bestoffer
-description: "BestOffer - Bismayah Store (Restaurants & Markets)"
+description: "Shakaky - Basmaya super-app for shopping, food, and taxi"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -51,6 +51,14 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/branding/app_icon.png
+  adaptive_icon_background: "#10264D"
+  adaptive_icon_foreground: assets/branding/app_icon.png

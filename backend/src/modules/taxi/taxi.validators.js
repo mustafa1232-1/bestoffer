@@ -341,6 +341,33 @@ export function validateCounterOffer(body) {
   };
 }
 
+export function validateRideRating(body) {
+  const errors = [];
+  const rating = toInt(body?.rating);
+  const review = body?.review;
+
+  if (rating == null || rating < 1 || rating > 5) {
+    errors.push("rating");
+  }
+
+  if (
+    review !== undefined &&
+    review !== null &&
+    (typeof review !== "string" || review.trim().length > 1000)
+  ) {
+    errors.push("review");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      rating,
+      review: typeof review === "string" ? review.trim() : null,
+    },
+  };
+}
+
 export function validateRideChatMessage(body) {
   const errors = [];
   const messageText = typeof body?.messageText === "string" ? body.messageText.trim() : "";

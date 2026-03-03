@@ -75,6 +75,9 @@ function normalizeRide(row) {
     startedAt: row.started_at,
     completedAt: row.completed_at,
     cancelledAt: row.cancelled_at,
+    captainRating: toIntOrNull(row.captain_rating),
+    captainReview: row.captain_review || null,
+    captainRatedAt: row.captain_rated_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     distanceM: toNumberOrNull(row.distance_m),
@@ -87,6 +90,8 @@ function normalizeRide(row) {
           counterOfferCount: toIntOrNull(row.my_counter_offer_count) || 0,
           lastOfferIqd: toIntOrNull(row.my_last_offer_iqd),
           lastOfferBy: row.my_last_offer_by || null,
+          createdAt: row.my_bid_created_at || null,
+          updatedAt: row.my_bid_updated_at || null,
         }
       : null,
     customer: row.customer_full_name
@@ -1092,6 +1097,110 @@ export async function cancelRide({ rideId, customerUserId }) {
   }
 }
 
+export async function rateCompletedRideByCustomer({
+  rideId,
+  customerUserId,
+  rating,
+  review,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const lock = await client.query(
+      `SELECT id, status, customer_user_id, assigned_captain_user_id
+       FROM taxi_ride_request
+       WHERE id = $1
+         AND customer_user_id = $2
+       FOR UPDATE`,
+      [Number(rideId), Number(customerUserId)]
+    );
+    const ride = lock.rows[0];
+    if (!ride) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_FOUND" };
+    }
+
+    if (ride.status !== "completed") {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_COMPLETED", currentStatus: ride.status };
+    }
+
+    if (!ride.assigned_captain_user_id) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_CAPTAIN_NOT_FOUND" };
+    }
+
+    const updated = await client.query(
+      `UPDATE taxi_ride_request
+       SET captain_rating = $3,
+           captain_review = NULLIF($4, ''),
+           captain_rated_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $1
+         AND customer_user_id = $2
+       RETURNING id, assigned_captain_user_id, captain_rating, captain_review, captain_rated_at`,
+      [
+        Number(rideId),
+        Number(customerUserId),
+        Number(rating),
+        review || "",
+      ]
+    );
+    const rated = updated.rows[0];
+    if (!rated) {
+      await client.query("ROLLBACK");
+      return { code: "RATING_UPDATE_FAILED" };
+    }
+
+    const captainUserId = Number(rated.assigned_captain_user_id);
+
+    const agg = await client.query(
+      `SELECT
+         COALESCE(AVG(captain_rating), 0)::numeric(3,2) AS avg_rating,
+         COUNT(*) FILTER (WHERE captain_rating IS NOT NULL)::int AS rated_count,
+         COUNT(*)::int AS total_completed_count
+       FROM taxi_ride_request
+       WHERE assigned_captain_user_id = $1
+         AND status = 'completed'`,
+      [captainUserId]
+    );
+    const aggRow = agg.rows[0] || {};
+
+    await client.query(
+      `UPDATE taxi_captain_profile
+       SET rating_avg = $2,
+           rides_count = $3,
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      [
+        captainUserId,
+        Number(aggRow.avg_rating || 0),
+        Number(aggRow.total_completed_count || 0),
+      ]
+    );
+
+    const fullRide = await queryRideById(client, rideId);
+
+    await client.query("COMMIT");
+    return {
+      code: "OK",
+      ride: fullRide,
+      captainUserId,
+      rating: Number(rated.captain_rating),
+      review: rated.captain_review || null,
+      ratedAt: rated.captain_rated_at || null,
+      captainRatingAvg: Number(aggRow.avg_rating || 0),
+      captainRatedCount: Number(aggRow.rated_count || 0),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function transitionRideStatus({ rideId, captainUserId, nextStatus }) {
   const client = await pool.connect();
   try {
@@ -1618,7 +1727,9 @@ export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 3
        mb.status AS my_bid_status,
        mb.counter_offer_count AS my_counter_offer_count,
        mb.last_offer_iqd AS my_last_offer_iqd,
-       mb.last_offer_by AS my_last_offer_by
+       mb.last_offer_by AS my_last_offer_by,
+       mb.created_at AS my_bid_created_at,
+       mb.updated_at AS my_bid_updated_at
      FROM taxi_ride_request r
      LEFT JOIN app_user cu ON cu.id = r.customer_user_id
      LEFT JOIN app_user ca ON ca.id = r.assigned_captain_user_id
@@ -1720,6 +1831,134 @@ export async function postponeRideEscalation({ rideId, minutes = 10 }) {
   );
 }
 
+export async function listRidesWithStaleCurrentBid({
+  timeoutSeconds = 90,
+  limit = 120,
+} = {}) {
+  const safeTimeout = Math.max(15, Math.min(600, Number(timeoutSeconds) || 90));
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 120));
+
+  const r = await q(
+    `SELECT
+       r.id AS ride_id,
+       r.customer_user_id,
+       r.current_bid_id,
+       b.captain_user_id,
+       b.updated_at AS bid_updated_at
+     FROM taxi_ride_request r
+     JOIN taxi_ride_bid b
+       ON b.id = r.current_bid_id
+      AND b.status = 'active'
+     WHERE r.status = 'searching'
+       AND r.current_bid_id IS NOT NULL
+       AND b.updated_at <= NOW() - ($1::text || ' seconds')::interval
+     ORDER BY b.updated_at ASC
+     LIMIT $2`,
+    [String(safeTimeout), safeLimit]
+  );
+
+  return r.rows.map((row) => ({
+    rideId: Number(row.ride_id),
+    customerUserId: Number(row.customer_user_id),
+    currentBidId: Number(row.current_bid_id),
+    captainUserId: Number(row.captain_user_id),
+    bidUpdatedAt: row.bid_updated_at,
+  }));
+}
+
+export async function timeoutCurrentRideBidAndPromote({
+  rideId,
+  expectedBidId = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const rideLock = await client.query(
+      `SELECT id, customer_user_id, status, current_bid_id
+       FROM taxi_ride_request
+       WHERE id = $1
+       FOR UPDATE`,
+      [Number(rideId)]
+    );
+    const ride = rideLock.rows[0];
+    if (!ride) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_FOUND" };
+    }
+    if (ride.status !== "searching") {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_SEARCHING", currentStatus: ride.status };
+    }
+
+    let currentBid = await lockCurrentActiveBid(
+      client,
+      ride.id,
+      ride.current_bid_id
+    );
+    if (!currentBid) {
+      const nextBid = await promoteNextActiveBid(client, ride.id);
+      const fullRide = await queryRideById(client, ride.id);
+      await client.query("COMMIT");
+      return {
+        code: "NO_ACTIVE_CURRENT_BID",
+        ride: fullRide,
+        nextBid,
+      };
+    }
+
+    if (expectedBidId != null && Number(currentBid.id) !== Number(expectedBidId)) {
+      await client.query("ROLLBACK");
+      return {
+        code: "BID_CHANGED",
+        currentBid,
+      };
+    }
+
+    const timedOut = await client.query(
+      `UPDATE taxi_ride_bid
+       SET status = 'rejected',
+           updated_at = NOW()
+       WHERE id = $1
+         AND status = 'active'
+       RETURNING id`,
+      [Number(currentBid.id)]
+    );
+    if (!timedOut.rows[0]) {
+      await client.query("ROLLBACK");
+      return { code: "BID_ALREADY_CLOSED" };
+    }
+
+    const nextBid = await promoteNextActiveBid(client, ride.id);
+    const fullRide = await queryRideById(client, ride.id);
+    const bidsResult = await client.query(
+      `SELECT id, captain_user_id, status
+       FROM taxi_ride_bid
+       WHERE ride_request_id = $1`,
+      [Number(ride.id)]
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      code: "OK",
+      ride: fullRide,
+      timedOutBid: currentBid,
+      nextBid,
+      bids: bidsResult.rows.map((row) => ({
+        id: Number(row.id),
+        captainUserId: Number(row.captain_user_id),
+        status: row.status,
+      })),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function listBidCaptainUserIds(rideId) {
   const r = await q(
     `SELECT DISTINCT captain_user_id
@@ -1728,6 +1967,26 @@ export async function listBidCaptainUserIds(rideId) {
     [Number(rideId)]
   );
   return r.rows.map((row) => Number(row.captain_user_id));
+}
+
+export async function listStaleRingingCallSessions({
+  timeoutSeconds = 35,
+  limit = 120,
+} = {}) {
+  const safeTimeout = Math.max(10, Math.min(300, Number(timeoutSeconds) || 35));
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 120));
+
+  const r = await q(
+    `SELECT *
+     FROM taxi_ride_call_session
+     WHERE status = 'ringing'
+       AND started_at <= NOW() - ($1::text || ' seconds')::interval
+     ORDER BY started_at ASC, id ASC
+     LIMIT $2`,
+    [String(safeTimeout), safeLimit]
+  );
+
+  return r.rows.map(normalizeCallSession);
 }
 
 export async function listCaptainRideHistory(captainUserId, { limit = 20 } = {}) {

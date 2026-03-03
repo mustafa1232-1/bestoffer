@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/network/api_error_mapper.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../orders/state/orders_controller.dart';
 import '../data/notifications_api.dart';
@@ -56,6 +57,8 @@ class NotificationsController extends StateNotifier<NotificationsState> {
   Timer? _reconnectTimer;
   StreamSubscription<NotificationLiveEvent>? _liveSub;
   bool _realtimeStarted = false;
+  int? _lastEventId;
+  int _reconnectAttempt = 0;
 
   NotificationsController(this.ref) : super(const NotificationsState()) {
     startRealtime();
@@ -70,7 +73,7 @@ class NotificationsController extends StateNotifier<NotificationsState> {
         _handleUnauthorized();
       }
     } catch (_) {
-      // ignore silently
+      // Keep silent for background refresh.
     }
   }
 
@@ -104,10 +107,10 @@ class NotificationsController extends StateNotifier<NotificationsState> {
         loading: silent ? state.loading : false,
         error: _mapError(e),
       );
-    } catch (_) {
+    } catch (e) {
       state = state.copyWith(
         loading: silent ? state.loading : false,
-        error: 'فشل تحميل الإشعارات',
+        error: mapAnyError(e, fallback: 'تعذر تحميل الإشعارات.'),
       );
     }
   }
@@ -130,8 +133,10 @@ class NotificationsController extends StateNotifier<NotificationsState> {
       await ref.read(notificationsApiProvider).markRead(notificationId);
     } on DioException catch (e) {
       state = state.copyWith(error: _mapError(e));
-    } catch (_) {
-      state = state.copyWith(error: 'فشل تحديث الإشعار');
+    } catch (e) {
+      state = state.copyWith(
+        error: mapAnyError(e, fallback: 'تعذر تحديث الإشعار.'),
+      );
     }
   }
 
@@ -148,8 +153,11 @@ class NotificationsController extends StateNotifier<NotificationsState> {
       );
     } on DioException catch (e) {
       state = state.copyWith(marking: false, error: _mapError(e));
-    } catch (_) {
-      state = state.copyWith(marking: false, error: 'فشل تعليم الكل كمقروء');
+    } catch (e) {
+      state = state.copyWith(
+        marking: false,
+        error: mapAnyError(e, fallback: 'تعذر تعليم جميع الإشعارات كمقروءة.'),
+      );
     }
   }
 
@@ -158,11 +166,10 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     _realtimeStarted = true;
 
     unawaited(refreshUnreadCount());
+    unawaited(loadNotifications(silent: true));
     _fallbackPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       unawaited(refreshUnreadCount());
-      if (state.notifications.isNotEmpty) {
-        unawaited(loadNotifications(silent: true));
-      }
+      unawaited(loadNotifications(silent: true));
     });
 
     _connectLiveStream();
@@ -176,13 +183,14 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     _reconnectTimer = null;
     _liveSub?.cancel();
     _liveSub = null;
+    _reconnectAttempt = 0;
   }
 
   void _connectLiveStream() {
     _liveSub?.cancel();
     _liveSub = ref
         .read(notificationsApiProvider)
-        .streamEvents()
+        .streamEvents(lastEventId: _lastEventId)
         .listen(
           _onLiveEvent,
           onError: (error) {
@@ -200,11 +208,41 @@ class NotificationsController extends StateNotifier<NotificationsState> {
   void _scheduleReconnect() {
     if (!_realtimeStarted) return;
     if (_reconnectTimer?.isActive == true) return;
-    _reconnectTimer = Timer(const Duration(seconds: 3), _connectLiveStream);
+
+    _reconnectAttempt = (_reconnectAttempt + 1).clamp(1, 6);
+    final delaySeconds = switch (_reconnectAttempt) {
+      1 => 2,
+      2 => 4,
+      3 => 8,
+      4 => 12,
+      5 => 20,
+      _ => 30,
+    };
+
+    _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
+      if (!_realtimeStarted) return;
+      _connectLiveStream();
+    });
   }
 
   void _onLiveEvent(NotificationLiveEvent event) {
-    if (event.event == 'heartbeat' || event.event == 'connected') return;
+    if (event.eventId != null && event.eventId! > 0) {
+      _lastEventId = event.eventId;
+    }
+
+    if (event.event == 'connected') {
+      _reconnectAttempt = 0;
+      unawaited(loadNotifications(silent: true));
+      return;
+    }
+
+    if (event.event == 'replayed') {
+      _reconnectAttempt = 0;
+      unawaited(loadNotifications(silent: true));
+      return;
+    }
+
+    if (event.event == 'heartbeat') return;
 
     if (event.event == 'notification') {
       final rawNotification = event.data['notification'];
@@ -269,14 +307,11 @@ class NotificationsController extends StateNotifier<NotificationsState> {
   }
 
   String _mapError(DioException e) {
-    final data = e.response?.data;
-    if (data is Map<String, dynamic>) {
-      final message = data['message'];
-      if (message is String && message.isNotEmpty) {
-        return message;
-      }
-    }
-    return 'حدث خطأ في الاتصال بالخادم';
+    return mapDioError(
+      e,
+      fallback: 'تعذر الاتصال بالخادم أثناء تحميل الإشعارات.',
+      appendRequestId: true,
+    );
   }
 
   bool _isUnauthorized(Object error) {
@@ -288,9 +323,7 @@ class NotificationsController extends StateNotifier<NotificationsState> {
 
   void _handleUnauthorized() {
     stopRealtime();
-    state = state.copyWith(
-      error: 'انتهت جلسة تسجيل الدخول، يرجى تسجيل الدخول من جديد',
-    );
+    state = state.copyWith(error: 'انتهت الجلسة. يرجى تسجيل الدخول مجددًا.');
   }
 
   @override

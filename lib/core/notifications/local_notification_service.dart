@@ -14,16 +14,25 @@ final localNotificationsProvider = Provider<LocalNotificationService>((ref) {
 
 class NotificationTapPayload {
   final int? orderId;
+  final int? rideId;
+  final int? notificationId;
   final String? type;
+  final String? target;
 
-  const NotificationTapPayload({this.orderId, this.type});
+  const NotificationTapPayload({
+    this.orderId,
+    this.rideId,
+    this.notificationId,
+    this.type,
+    this.target,
+  });
 }
 
 class LocalNotificationService {
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
-    'bestoffer_live_updates',
-    'BestOffer Live Updates',
-    description: 'Live order and notification updates',
+    'shakaky_live_updates',
+    'Shakaky Live Updates',
+    description: 'Shakaky live order, taxi, and alert updates',
     importance: Importance.max,
     playSound: true,
     enableVibration: true,
@@ -76,13 +85,17 @@ class LocalNotificationService {
     final orderId =
         notification.orderId ??
         int.tryParse('${notification.payload?['orderId'] ?? ''}');
+    final rideId = int.tryParse('${notification.payload?['rideId'] ?? ''}');
+    final target = notification.payload?['target']?.toString();
     final id = notification.id > 0 ? notification.id : ++_fallbackId;
 
     await showRaw(
       title: notification.title,
       body: notification.body ?? 'يوجد تحديث جديد',
       orderId: orderId,
+      rideId: rideId,
       type: notification.type,
+      target: target,
       notificationId: id,
     );
   }
@@ -91,15 +104,24 @@ class LocalNotificationService {
     required String title,
     required String body,
     int? orderId,
-    String? type,
+    int? rideId,
     int? notificationId,
+    String? type,
+    String? target,
   }) async {
     await initialize();
 
-    final payload = jsonEncode({'orderId': orderId, 'type': type});
     final id = (notificationId != null && notificationId > 0)
         ? notificationId
         : ++_fallbackId;
+
+    final payload = jsonEncode({
+      'orderId': orderId,
+      'rideId': rideId,
+      'notificationId': id,
+      'type': type,
+      'target': target,
+    });
 
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
@@ -110,7 +132,7 @@ class LocalNotificationService {
         priority: Priority.high,
         playSound: true,
         enableVibration: true,
-        ticker: 'bestoffer_update',
+        ticker: 'shakaky_update',
       ),
     );
 
@@ -131,9 +153,13 @@ class LocalNotificationService {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return null;
       final map = Map<String, dynamic>.from(decoded);
-      final orderId = int.tryParse('${map['orderId'] ?? ''}');
-      final type = map['type']?.toString();
-      return NotificationTapPayload(orderId: orderId, type: type);
+      return NotificationTapPayload(
+        orderId: int.tryParse('${map['orderId'] ?? ''}'),
+        rideId: int.tryParse('${map['rideId'] ?? ''}'),
+        notificationId: int.tryParse('${map['notificationId'] ?? ''}'),
+        type: map['type']?.toString(),
+        target: map['target']?.toString(),
+      );
     } catch (_) {
       return null;
     }

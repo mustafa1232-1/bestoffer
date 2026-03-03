@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -19,21 +20,45 @@ import 'features/notifications/ui/notifications_screen.dart';
 import 'features/owner/ui/owner_dashboard_screen.dart';
 import 'features/orders/ui/customer_orders_screen.dart';
 import 'features/taxi/ui/taxi_captain_dashboard_screen.dart';
+import 'features/taxi/ui/taxi_call_screen.dart';
+import 'pages/map_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    final stack = details.stack ?? StackTrace.current;
+    Zone.current.handleUncaughtError(details.exception, stack);
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    _reportFatalError('platform', error, stack);
+    return true;
+  };
+
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  runApp(const ProviderScope(child: BestOfferApp()));
+
+  runZonedGuarded(
+    () => runApp(const ProviderScope(child: ShakakyApp())),
+    (error, stack) => _reportFatalError('zone', error, stack),
+  );
 }
 
-class BestOfferApp extends ConsumerStatefulWidget {
-  const BestOfferApp({super.key});
+void _reportFatalError(String source, Object error, StackTrace stack) {
+  // Keep this lightweight: survives both debug and release.
+  debugPrint('[fatal][$source] $error');
+  debugPrintStack(stackTrace: stack, label: '[fatal][$source] stack');
+}
+
+class ShakakyApp extends ConsumerStatefulWidget {
+  const ShakakyApp({super.key});
 
   @override
-  ConsumerState<BestOfferApp> createState() => _BestOfferAppState();
+  ConsumerState<ShakakyApp> createState() => _ShakakyAppState();
 }
 
-class _BestOfferAppState extends ConsumerState<BestOfferApp> {
+class _ShakakyAppState extends ConsumerState<ShakakyApp> {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   StreamSubscription<NotificationTapPayload>? _notificationTapSub;
   StreamSubscription<NotificationTapPayload>? _pushTapSub;
@@ -78,12 +103,55 @@ class _BestOfferAppState extends ConsumerState<BestOfferApp> {
     if (nav == null) return;
 
     final auth = ref.read(authControllerProvider);
+    final target = (payload.target ?? '').trim().toLowerCase();
+
     if (!auth.isBackoffice && !auth.isOwner && !auth.isDelivery) {
+      if (target == 'taxi_call' && (payload.rideId ?? 0) > 0) {
+        nav.push(
+          MaterialPageRoute(
+            builder: (_) =>
+                TaxiCallScreen(rideId: payload.rideId!, isCaller: false),
+          ),
+        );
+        return;
+      }
+
+      if (target == 'taxi_live') {
+        nav.push(MaterialPageRoute(builder: (_) => const MapPage()));
+        return;
+      }
+
       nav.push(
         MaterialPageRoute(
           builder: (_) => CustomerOrdersScreen(initialOrderId: payload.orderId),
         ),
       );
+      return;
+    }
+
+    if (auth.isDelivery || target == 'taxi_live') {
+      if (target == 'taxi_call' && (payload.rideId ?? 0) > 0) {
+        nav.push(
+          MaterialPageRoute(
+            builder: (_) =>
+                TaxiCallScreen(rideId: payload.rideId!, isCaller: false),
+          ),
+        );
+        return;
+      }
+      nav.push(
+        MaterialPageRoute(builder: (_) => const TaxiCaptainDashboardScreen()),
+      );
+      return;
+    }
+
+    if (auth.isOwner) {
+      nav.push(MaterialPageRoute(builder: (_) => const OwnerDashboardScreen()));
+      return;
+    }
+
+    if (auth.isBackoffice) {
+      nav.push(MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
       return;
     }
 

@@ -264,3 +264,74 @@ export async function setTaxiCaptainDiscount({
     adminUserId: Number(adminUserId),
   });
 }
+
+function mapAdBoardItem(row) {
+  return {
+    id: Number(row.id),
+    title: row.title,
+    subtitle: row.subtitle,
+    imageUrl: row.image_url,
+    badgeLabel: row.badge_label,
+    ctaLabel: row.cta_label,
+    ctaTargetType: row.cta_target_type,
+    ctaTargetValue: row.cta_target_value,
+    merchantId: row.merchant_id ? Number(row.merchant_id) : null,
+    merchantName: row.merchant_name || null,
+    merchantType: row.merchant_type || null,
+    merchantIsApproved: row.merchant_is_approved === true,
+    merchantIsDisabled: row.merchant_is_disabled === true,
+    priority: Number(row.priority || 0),
+    isActive: row.is_active === true,
+    startsAt: row.starts_at ? new Date(row.starts_at).toISOString() : null,
+    endsAt: row.ends_at ? new Date(row.ends_at).toISOString() : null,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+  };
+}
+
+async function assertMerchantExists(merchantId) {
+  if (!merchantId) return;
+  const merchant = await adminRepo.getMerchantById(merchantId);
+  if (!merchant) {
+    const err = new Error("MERCHANT_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+}
+
+export async function listAdBoardItems() {
+  const rows = await adminRepo.listAdBoardItems();
+  return rows.map(mapAdBoardItem);
+}
+
+export async function createAdBoardItem(dto, adminUserId) {
+  await assertMerchantExists(dto.merchantId);
+  const created = await adminRepo.createAdBoardItem({
+    ...dto,
+    actorUserId: Number(adminUserId),
+  });
+  return mapAdBoardItem(created);
+}
+
+export async function updateAdBoardItem(itemId, dto, adminUserId) {
+  if (Object.prototype.hasOwnProperty.call(dto, "merchantId")) {
+    await assertMerchantExists(dto.merchantId);
+  }
+  const updated = await adminRepo.updateAdBoardItem(itemId, dto, adminUserId);
+  if (!updated) {
+    const err = new Error("AD_BOARD_ITEM_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+  return mapAdBoardItem(updated);
+}
+
+export async function deleteAdBoardItem(itemId) {
+  const deleted = await adminRepo.deleteAdBoardItem(itemId);
+  if (!deleted) {
+    const err = new Error("AD_BOARD_ITEM_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+  return { id: Number(deleted.id) };
+}

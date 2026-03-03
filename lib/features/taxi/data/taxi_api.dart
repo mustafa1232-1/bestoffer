@@ -5,8 +5,9 @@ import 'package:dio/dio.dart';
 class TaxiLiveEvent {
   final String event;
   final Map<String, dynamic> data;
+  final int? eventId;
 
-  const TaxiLiveEvent({required this.event, required this.data});
+  const TaxiLiveEvent({required this.event, required this.data, this.eventId});
 }
 
 class TaxiApi {
@@ -217,6 +218,21 @@ class TaxiApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> rateRide({
+    required int rideId,
+    required int rating,
+    String? review,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/rate',
+      data: {
+        'rating': rating,
+        if (review != null && review.trim().isNotEmpty) 'review': review.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> createShareToken(int rideId) async {
     final response = await dio.post('/api/taxi/rides/$rideId/share-token');
     return Map<String, dynamic>.from(response.data as Map);
@@ -307,9 +323,9 @@ class TaxiApi {
     final response = await dio.post(
       '/api/taxi/rides/$rideId/call/signal',
       data: {
-        if (sessionId != null) 'sessionId': sessionId,
+        ...?(sessionId == null ? null : {'sessionId': sessionId}),
         'signalType': signalType,
-        if (signalPayload != null) 'signalPayload': signalPayload,
+        ...?(signalPayload == null ? null : {'signalPayload': signalPayload}),
       },
     );
     return Map<String, dynamic>.from(response.data as Map);
@@ -330,14 +346,21 @@ class TaxiApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Stream<TaxiLiveEvent> streamEvents() async* {
+  Stream<TaxiLiveEvent> streamEvents({int? lastEventId}) async* {
     final response = await dio.get<ResponseBody>(
       '/api/taxi/stream',
+      queryParameters: {
+        if (lastEventId != null && lastEventId > 0) 'lastEventId': lastEventId,
+      },
       options: Options(
         responseType: ResponseType.stream,
         sendTimeout: const Duration(seconds: 30),
         receiveTimeout: const Duration(hours: 1),
-        headers: const {'Accept': 'text/event-stream'},
+        headers: {
+          'Accept': 'text/event-stream',
+          if (lastEventId != null && lastEventId > 0)
+            'Last-Event-ID': '$lastEventId',
+        },
       ),
     );
 
@@ -351,8 +374,14 @@ class TaxiApi {
 
     var eventName = 'message';
     var dataBuffer = '';
+    int? parsedEventId;
 
     await for (final line in lines) {
+      if (line.startsWith('id:')) {
+        parsedEventId = int.tryParse(line.substring(3).trim());
+        continue;
+      }
+
       if (line.startsWith('event:')) {
         eventName = line.substring(6).trim();
         continue;
@@ -371,10 +400,15 @@ class TaxiApi {
       }
 
       final payload = _parseSsePayload(dataBuffer);
-      yield TaxiLiveEvent(event: eventName, data: payload);
+      yield TaxiLiveEvent(
+        event: eventName,
+        data: payload,
+        eventId: parsedEventId,
+      );
 
       eventName = 'message';
       dataBuffer = '';
+      parsedEventId = null;
     }
   }
 

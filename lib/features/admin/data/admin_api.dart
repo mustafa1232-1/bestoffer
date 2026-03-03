@@ -108,4 +108,31 @@ class AdminApi {
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
+
+  Future<List<dynamic>> adBoardItems() async {
+    final response = await dio.get('/api/admin/ad-board/items');
+    return List<dynamic>.from(response.data as List);
+  }
+
+  Future<Map<String, dynamic>> createAdBoardItem(
+    Map<String, dynamic> body,
+  ) async {
+    final response = await dio.post('/api/admin/ad-board/items', data: body);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> updateAdBoardItem(
+    int itemId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await dio.patch(
+      '/api/admin/ad-board/items/$itemId',
+      data: body,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<void> deleteAdBoardItem(int itemId) async {
+    await dio.delete('/api/admin/ad-board/items/$itemId');
+  }
 }

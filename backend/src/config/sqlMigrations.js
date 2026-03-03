@@ -7,9 +7,19 @@ import { pool, q } from "./db.js";
 const migrationsDir = path.resolve(process.cwd(), "sql");
 const migrationTable = "schema_migration";
 
+function asSqlIdentifier(identifier) {
+  const normalized = String(identifier || "").trim();
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(normalized)) {
+    throw new Error(`INVALID_SQL_IDENTIFIER: ${normalized}`);
+  }
+  return `"${normalized.replace(/"/g, "\"\"")}"`;
+}
+
+const migrationTableId = asSqlIdentifier(migrationTable);
+
 async function ensureMigrationTable() {
   await q(`
-    CREATE TABLE IF NOT EXISTS ${migrationTable} (
+    CREATE TABLE IF NOT EXISTS ${migrationTableId} (
       id BIGSERIAL PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -42,7 +52,7 @@ export async function runSqlMigrations({ force = false } = {}) {
 
   for (const fileName of files) {
     const alreadyApplied = await q(
-      `SELECT 1 FROM ${migrationTable} WHERE name = $1`,
+      `SELECT 1 FROM ${migrationTableId} WHERE name = $1`,
       [fileName]
     );
     if (alreadyApplied.rowCount > 0) continue;
@@ -51,7 +61,7 @@ export async function runSqlMigrations({ force = false } = {}) {
     const sql = (await fs.readFile(fullPath, "utf8")).trim();
 
     if (!sql) {
-      await q(`INSERT INTO ${migrationTable} (name) VALUES ($1)`, [fileName]);
+      await q(`INSERT INTO ${migrationTableId} (name) VALUES ($1)`, [fileName]);
       console.log(`[migrate] skipped empty file ${fileName}`);
       continue;
     }
@@ -59,7 +69,7 @@ export async function runSqlMigrations({ force = false } = {}) {
     const client = await pool.connect();
     try {
       await client.query(sql);
-      await client.query(`INSERT INTO ${migrationTable} (name) VALUES ($1)`, [
+      await client.query(`INSERT INTO ${migrationTableId} (name) VALUES ($1)`, [
         fileName,
       ]);
       console.log(`[migrate] applied ${fileName}`);

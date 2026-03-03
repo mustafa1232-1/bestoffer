@@ -86,7 +86,7 @@ class _SettingsHeader extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                phone == null || phone!.isEmpty ? 'BestOffer' : phone!,
+                phone == null || phone!.isEmpty ? 'Shakaky' : phone!,
                 textAlign: TextAlign.start,
                 style: const TextStyle(
                   fontWeight: FontWeight.w600,

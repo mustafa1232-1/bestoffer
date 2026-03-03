@@ -12,6 +12,7 @@ adminRouter.use(requireAuth, requireBackoffice);
 
 adminRouter.get("/analytics", c.analytics);
 adminRouter.get("/customers/insights", requireSuperAdmin, c.customerInsightsList);
+adminRouter.get("/ad-board/items", requireAdmin, c.adBoardItems);
 adminRouter.get(
   "/customers/:customerUserId/insights",
   requireSuperAdmin,
@@ -31,7 +32,9 @@ adminRouter.get(
 );
 
 adminRouter.post("/users", requireAdmin, imageUpload.single("imageFile"), c.createUser);
+adminRouter.post("/ad-board/items", requireAdmin, c.createAdBoardItem);
 adminRouter.patch("/merchants/:merchantId/approve", requireAdmin, c.approveMerchant);
+adminRouter.patch("/ad-board/items/:itemId", requireAdmin, c.updateAdBoardItem);
 adminRouter.patch(
   "/delivery/:deliveryUserId/approve",
   requireAdmin,
@@ -62,3 +65,4 @@ adminRouter.patch(
   requireAdmin,
   c.approveSettlement
 );
+adminRouter.delete("/ad-board/items/:itemId", requireAdmin, c.deleteAdBoardItem);

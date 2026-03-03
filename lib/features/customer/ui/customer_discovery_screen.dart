@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/widgets/app_user_drawer.dart';
 import '../../assistant/ui/assistant_chat_screen.dart';
@@ -10,6 +11,8 @@ import '../../auth/state/auth_controller.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 import '../../behavior/data/behavior_api.dart';
 import '../models/customer_home_prefs.dart';
+import '../models/customer_ad_board_item.dart';
+import '../state/customer_ad_board_controller.dart';
 import '../state/customer_home_prefs_controller.dart';
 import 'customer_cars_hub_screen.dart';
 import 'customer_electronics_hub_screen.dart';
@@ -43,6 +46,7 @@ class _CustomerDiscoveryScreenState
 
   String _searchQuery = '';
   int _adPage = 0;
+  int _adItemsCount = _defaultAdBanners.length;
   bool _didCheckPersonalization = false;
 
   Future<void> _trackBehaviorEvent({
@@ -72,12 +76,14 @@ class _CustomerDiscoveryScreenState
 
     Future.microtask(() async {
       await ref.read(merchantsControllerProvider.notifier).load();
+      await ref.read(customerAdBoardControllerProvider.notifier).load();
       await _bootstrapPersonalizationIfNeeded();
     });
 
     _adTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted || !_adController.hasClients) return;
-      _adPage = (_adPage + 1) % _adBanners.length;
+      if (_adItemsCount <= 1) return;
+      _adPage = (_adPage + 1) % _adItemsCount;
       _adController.animateToPage(
         _adPage,
         duration: const Duration(milliseconds: 420),
@@ -312,6 +318,135 @@ class _CustomerDiscoveryScreenState
     _openSearchResult(query: text, title: 'نتائج "$text"');
   }
 
+  Future<void> _openAdBanner(_DisplayAdBanner banner) async {
+    unawaited(
+      _trackBehaviorEvent(
+        eventName: 'discovery.ad_click',
+        category: 'ads',
+        action: 'click',
+        metadata: {
+          'adTitle': banner.title,
+          'ctaType': banner.ctaTargetType,
+          'merchantId': banner.merchantId,
+          'merchantName': banner.merchantName,
+          'ctaValue': banner.ctaTargetValue,
+        },
+      ),
+    );
+
+    switch (banner.ctaTargetType) {
+      case 'merchant':
+        final query = (banner.merchantName ?? banner.ctaTargetValue ?? '')
+            .trim();
+        if (query.isNotEmpty) {
+          _openSearchResult(
+            type: banner.merchantType,
+            query: query,
+            title: banner.merchantName ?? banner.title,
+          );
+        }
+        return;
+      case 'category':
+        final value = (banner.ctaTargetValue ?? '').trim();
+        if (value.isNotEmpty) {
+          _openSearchResult(type: value, query: '', title: banner.title);
+        }
+        return;
+      case 'taxi':
+        await _openMapPage();
+        return;
+      case 'url':
+        final raw = (banner.ctaTargetValue ?? '').trim();
+        final uri = Uri.tryParse(raw);
+        if (uri != null && await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+          return;
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('تعذر فتح الرابط')));
+        return;
+      default:
+        if ((banner.merchantName ?? '').trim().isNotEmpty) {
+          _openSearchResult(
+            type: banner.merchantType,
+            query: banner.merchantName!,
+            title: banner.title,
+          );
+        }
+        return;
+    }
+  }
+
+  List<_DisplayAdBanner> _buildDisplayAdBanners(
+    List<CustomerAdBoardItem>? items,
+  ) {
+    if (items == null || items.isEmpty) {
+      return _defaultAdBanners
+          .map(
+            (b) => _DisplayAdBanner(
+              title: b.title,
+              subtitle: b.subtitle,
+              icon: b.icon,
+              colorA: b.colorA,
+              colorB: b.colorB,
+            ),
+          )
+          .toList(growable: false);
+    }
+
+    return items
+        .map((item) {
+          final icon = _iconForAdTarget(item.ctaTargetType, item.merchantType);
+          final colors = _colorsForAd(item.priority, item.merchantType);
+          return _DisplayAdBanner(
+            title: item.title,
+            subtitle: item.subtitle,
+            badgeLabel: item.badgeLabel,
+            ctaLabel: item.ctaLabel,
+            ctaTargetType: item.ctaTargetType,
+            ctaTargetValue: item.ctaTargetValue,
+            merchantId: item.merchantId,
+            merchantName: item.merchantName,
+            merchantType: item.merchantType,
+            icon: icon,
+            colorA: colors.$1,
+            colorB: colors.$2,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  IconData _iconForAdTarget(String ctaType, String? merchantType) {
+    switch (ctaType) {
+      case 'taxi':
+        return Icons.local_taxi_rounded;
+      case 'url':
+        return Icons.open_in_new_rounded;
+      case 'category':
+        return Icons.category_rounded;
+      case 'merchant':
+        if (merchantType == 'restaurant') return Icons.restaurant_rounded;
+        return Icons.storefront_rounded;
+      default:
+        return Icons.campaign_rounded;
+    }
+  }
+
+  (Color, Color) _colorsForAd(int priority, String? merchantType) {
+    if (merchantType == 'restaurant') {
+      return (const Color(0xFFB15E17), const Color(0xFF6C350E));
+    }
+    if (merchantType == 'market') {
+      return (const Color(0xFF24649A), const Color(0xFF153B62));
+    }
+    if (priority < 20) {
+      return (const Color(0xFF7A1B52), const Color(0xFF4D1234));
+    }
+    return (const Color(0xFF1E5A8F), const Color(0xFF14375D));
+  }
+
   List<_DiscoveryHub> _orderedDiscoveryHubs(CustomerHomePrefs prefs) {
     final regularHubs = _discoveryHubs
         .where((hub) => hub.id != 'main_market')
@@ -438,8 +573,8 @@ class _CustomerDiscoveryScreenState
 
   String _appBarGreeting(String? fullName) {
     final first = _firstName(fullName);
-    if (first.isEmpty) return 'مرحبًا';
-    return 'مرحبًا ($first)';
+    if (first.isEmpty) return 'هلا بيك';
+    return 'هلا $first';
   }
 
   _TimeGreeting _timeGreeting() {
@@ -447,30 +582,30 @@ class _CustomerDiscoveryScreenState
     if (hour >= 5 && hour < 11) {
       return const _TimeGreeting(
         title: 'صباح الخير',
-        tagline: 'يومك بدأ، والسوق بانتظارك لكل احتياجاتك.',
+        tagline: 'شكاكي وياك من الصبح، وكل حاجة بوقتها تنلگاها تربح.',
       );
     }
     if (hour >= 11 && hour < 14) {
       return const _TimeGreeting(
         title: 'ظهر الخير',
-        tagline: 'وقت مناسب ترتب مشترياتك وتختار الأفضل بسهولة.',
+        tagline: 'غداك وترتيب بيتك على كيفك، وشكاكي يسهّلها عليك بدقيقك.',
       );
     }
     if (hour >= 14 && hour < 17) {
       return const _TimeGreeting(
         title: 'عصر الخير',
-        tagline: 'جدد يومك بعروض متنوعة من المطاعم والأسواق والخدمات.',
+        tagline: 'عصرك أحلى ويه عرض يفتح النفس، من مطعم لسوق والخطوة سلس.',
       );
     }
     if (hour >= 17 && hour < 19) {
       return const _TimeGreeting(
         title: 'مغرب الخير',
-        tagline: 'اختياراتك كلها هنا، من البيت للسيارة وبكل سرعة.',
+        tagline: 'من المغيب لليلك، شكاكي يرتب طلبك ويوصلّه لدربك.',
       );
     }
     return const _TimeGreeting(
       title: 'مساء الخير',
-      tagline: 'اختم يومك واطلب اللي تحتاجه من سوق متكامل بلمسة واحدة.',
+      tagline: 'مسّاك هدوء وطلبات مضبوطة، شكاكي يجيبها بسرعة ومضبوطة.',
     );
   }
 
@@ -479,6 +614,7 @@ class _CustomerDiscoveryScreenState
     final auth = ref.watch(authControllerProvider);
     final userId = auth.user?.id;
     final merchantsState = ref.watch(merchantsControllerProvider);
+    final adBoardState = ref.watch(customerAdBoardControllerProvider);
     final userFullName = ref.watch(
       authControllerProvider.select((state) => state.user?.fullName),
     );
@@ -520,7 +656,10 @@ class _CustomerDiscoveryScreenState
       AppUserDrawerItem(
         icon: Icons.refresh_rounded,
         label: 'تحديث البيانات',
-        onTap: (_) => ref.read(merchantsControllerProvider.notifier).load(),
+        onTap: (_) async {
+          await ref.read(merchantsControllerProvider.notifier).load();
+          await ref.read(customerAdBoardControllerProvider.notifier).load();
+        },
       ),
       if (userId != null)
         AppUserDrawerItem(
@@ -539,8 +678,8 @@ class _CustomerDiscoveryScreenState
 
     return Scaffold(
       drawer: AppUserDrawer(
-        title: 'BestOffer | بسماية',
-        subtitle: 'تجربة تسوق حديثة داخل مدينة بسماية',
+        title: 'Shakaky | شكاكي',
+        subtitle: 'من بسماية لكل احتياجك اليومي: سوق، مطاعم، وتكسي',
         items: drawerItems,
       ),
       appBar: AppBar(
@@ -597,6 +736,16 @@ class _CustomerDiscoveryScreenState
           onRetry: () => ref.read(merchantsControllerProvider.notifier).load(),
         ),
         data: (merchants) {
+          final displayAds = _buildDisplayAdBanners(adBoardState.valueOrNull);
+          if (_adItemsCount != displayAds.length) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              setState(() {
+                _adItemsCount = displayAds.isEmpty ? 1 : displayAds.length;
+                if (_adPage >= _adItemsCount) _adPage = 0;
+              });
+            });
+          }
           final openCount = merchants.where((m) => m.isOpen).length;
           final offersCount = merchants
               .where((m) => m.hasDiscountOffer || m.hasFreeDeliveryOffer)
@@ -609,8 +758,10 @@ class _CustomerDiscoveryScreenState
               .length;
 
           return RefreshIndicator(
-            onRefresh: () =>
-                ref.read(merchantsControllerProvider.notifier).load(),
+            onRefresh: () async {
+              await ref.read(merchantsControllerProvider.notifier).load();
+              await ref.read(customerAdBoardControllerProvider.notifier).load();
+            },
             child: ListView(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
               children: [
@@ -623,14 +774,38 @@ class _CustomerDiscoveryScreenState
                   offersCount: offersCount,
                   restaurantsCount: restaurantsCount,
                   marketsCount: marketsCount,
+                  totalCount: merchants.length,
                 ),
                 const SizedBox(height: 10),
-                _AdsCarousel(controller: _adController, page: _adPage),
+                _AdsCarousel(
+                  controller: _adController,
+                  page: _adPage,
+                  banners: displayAds,
+                  onTapBanner: _openAdBanner,
+                ),
                 const SizedBox(height: 12),
                 _SearchPanel(
                   controller: _searchCtrl,
                   focusNode: _searchFocus,
                   onSubmit: _onSubmitSearch,
+                  onQuickSearch: (value) {
+                    _searchCtrl.text = value;
+                    _searchCtrl.selection = TextSelection.collapsed(
+                      offset: _searchCtrl.text.length,
+                    );
+                    _onSubmitSearch();
+                  },
+                ),
+                const SizedBox(height: 12),
+                _IntentLauncherStrip(
+                  onTaxi: _openMapPage,
+                  onOffers: () =>
+                      _openSearchResult(query: 'عروض', title: 'عروض اليوم'),
+                  onTopRated: () => _openSearchResult(
+                    query: 'الأعلى تقييمًا',
+                    title: 'الأعلى تقييمًا',
+                  ),
+                  onReorder: _openOrders,
                 ),
                 const SizedBox(height: 14),
                 Text(
@@ -695,89 +870,139 @@ class _HeroWelcomeCardState extends State<_HeroWelcomeCard>
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, _) {
-            final pulse = 0.90 + (_controller.value * 0.10);
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '${widget.greeting.title} 👋',
-                  textDirection: TextDirection.rtl,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white70,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.greeting.tagline,
-                  textDirection: TextDirection.rtl,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  alignment: WrapAlignment.end,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(
-                      'مع ',
-                      textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.92),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Transform.scale(
-                      scale: pulse,
-                      child: ShaderMask(
-                        shaderCallback: (bounds) {
-                          return const LinearGradient(
-                            colors: [Color(0xFFFFD166), Color(0xFFFF7F50)],
-                          ).createShader(bounds);
-                        },
-                        child: const Text(
-                          'BestOffer',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 17,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'كل عرض يفيدك، وطلبك بسرعة يجيك',
-                      textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.92),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Transform.scale(
-                      scale: pulse,
-                      child: const Icon(
-                        Icons.local_fire_department_rounded,
-                        color: Color(0xFFFF8C42),
-                        size: 19,
-                      ),
-                    ),
-                  ],
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final pulse = 0.90 + (_controller.value * 0.10);
+        final halo = 0.12 + (_controller.value * 0.12);
+        return Card(
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: const LinearGradient(
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+                colors: [Color(0xFF1A4B7C), Color(0xFF102C4A)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF59D2FF).withValues(alpha: halo),
+                  blurRadius: 24,
+                  spreadRadius: 1.2,
                 ),
               ],
-            );
-          },
-        ),
-      ),
+            ),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: -22,
+                  left: -12,
+                  child: Container(
+                    width: 96,
+                    height: 96,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.06),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: -18,
+                  right: -8,
+                  child: Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.05),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '${widget.greeting.title} 👋',
+                        textDirection: TextDirection.rtl,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white70,
+                            ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.greeting.tagline,
+                        textDirection: TextDirection.rtl,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            'مع ',
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Transform.scale(
+                            scale: pulse,
+                            child: ShaderMask(
+                              shaderCallback: (bounds) {
+                                return const LinearGradient(
+                                  colors: [
+                                    Color(0xFFFFD166),
+                                    Color(0xFFFF7F50),
+                                  ],
+                                ).createShader(bounds);
+                              },
+                              child: const Text(
+                                'Shakaky',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 17,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'لا مثيل إله: كلشي يلكاك، وطلبك بسرعة يوصل لبابك',
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Transform.scale(
+                            scale: pulse,
+                            child: const Icon(
+                              Icons.local_fire_department_rounded,
+                              color: Color(0xFFFF8C42),
+                              size: 19,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -787,16 +1012,21 @@ class _FuturePulsePanel extends StatelessWidget {
   final int offersCount;
   final int restaurantsCount;
   final int marketsCount;
+  final int totalCount;
 
   const _FuturePulsePanel({
     required this.openCount,
     required this.offersCount,
     required this.restaurantsCount,
     required this.marketsCount,
+    required this.totalCount,
   });
 
   @override
   Widget build(BuildContext context) {
+    final openRatio = totalCount <= 0
+        ? 0.0
+        : (openCount / totalCount).clamp(0.0, 1.0);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -811,12 +1041,52 @@ class _FuturePulsePanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            'نبض السوق الآن',
+          Row(
             textDirection: TextDirection.rtl,
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
+            children: [
+              const Icon(Icons.radar_rounded, size: 20),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'نبض السوق المباشر',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(999),
+                  color: Colors.white.withValues(alpha: 0.14),
+                ),
+                child: Text(
+                  '$openCount/$totalCount',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              minHeight: 8,
+              value: openRatio,
+              backgroundColor: Colors.white.withValues(alpha: 0.13),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                Color.lerp(
+                      const Color(0xFF4FD2FF),
+                      const Color(0xFF68FFB7),
+                      openRatio,
+                    ) ??
+                    const Color(0xFF4FD2FF),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
           Wrap(
             alignment: WrapAlignment.end,
             spacing: 8,
@@ -876,6 +1146,7 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final wave = Curves.easeInOut.transform(_controller.value);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -897,27 +1168,52 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
       child: Row(
         textDirection: TextDirection.rtl,
         children: [
-          AnimatedBuilder(
-            animation: _controller,
-            builder: (context, child) {
-              final pulse = 1 + (0.08 * _controller.value);
-              return Transform.scale(
-                scale: pulse,
-                child: Container(
-                  width: 54,
-                  height: 54,
+          SizedBox(
+            width: 74,
+            height: 74,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 68,
+                  height: 68,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF3CC6FF).withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(
-                    Icons.local_taxi_rounded,
-                    color: Color(0xFF5CD7FF),
-                    size: 30,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.18),
+                    ),
                   ),
                 ),
-              );
-            },
+                Transform.scale(
+                  scale: 0.92 + (0.12 * wave),
+                  child: Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3CC6FF).withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(
+                      Icons.local_taxi_rounded,
+                      color: Color(0xFF5CD7FF),
+                      size: 30,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 8 + (34 * wave),
+                  right: 4,
+                  child: Container(
+                    width: 9,
+                    height: 9,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFFCC66),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -925,7 +1221,7 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  'تكسي BestOffer',
+                  'تكسي شكاكي',
                   textDirection: TextDirection.rtl,
                   style: textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
@@ -1028,66 +1324,134 @@ class _FuturePulseItem extends StatelessWidget {
 class _AdsCarousel extends StatelessWidget {
   final PageController controller;
   final int page;
+  final List<_DisplayAdBanner> banners;
+  final Future<void> Function(_DisplayAdBanner banner) onTapBanner;
 
-  const _AdsCarousel({required this.controller, required this.page});
+  const _AdsCarousel({
+    required this.controller,
+    required this.page,
+    required this.banners,
+    required this.onTapBanner,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (banners.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       children: [
         SizedBox(
           height: 112,
           child: PageView.builder(
             controller: controller,
-            itemCount: _adBanners.length,
+            itemCount: banners.length,
             itemBuilder: (context, index) {
-              final banner = _adBanners[index];
+              final banner = banners[index];
+              final activeDistance = controller.hasClients
+                  ? ((controller.page ?? page.toDouble()) - index).abs()
+                  : (page - index).abs().toDouble();
+              final clamped = activeDistance.clamp(0.0, 1.0);
+              final scale = 1 - (clamped * 0.08);
+              final opacity = 1 - (clamped * 0.32);
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: LinearGradient(
-                      begin: Alignment.topRight,
-                      end: Alignment.bottomLeft,
-                      colors: [banner.colorA, banner.colorB],
-                    ),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.16),
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Icon(banner.icon, size: 26),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                child: Transform.scale(
+                  scale: scale,
+                  child: Opacity(
+                    opacity: opacity,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => onTapBanner(banner),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          gradient: LinearGradient(
+                            begin: Alignment.topRight,
+                            end: Alignment.bottomLeft,
+                            colors: [banner.colorA, banner.colorB],
+                          ),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.16),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: banner.colorA.withValues(alpha: 0.30),
+                              blurRadius: 18,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
                             children: [
-                              Text(
-                                banner.title,
-                                textDirection: TextDirection.rtl,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 15,
+                              Icon(banner.icon, size: 26),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    if ((banner.badgeLabel ?? '')
+                                        .trim()
+                                        .isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 4,
+                                        ),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                            color: Colors.black.withValues(
+                                              alpha: 0.22,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            banner.badgeLabel!,
+                                            textDirection: TextDirection.rtl,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    Text(
+                                      banner.title,
+                                      textDirection: TextDirection.rtl,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      banner.subtitle,
+                                      textDirection: TextDirection.rtl,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.86,
+                                        ),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                banner.subtitle,
-                                textDirection: TextDirection.rtl,
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.86),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.arrow_back_rounded, size: 22),
                             ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -1098,7 +1462,7 @@ class _AdsCarousel extends StatelessWidget {
         const SizedBox(height: 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(_adBanners.length, (index) {
+          children: List.generate(banners.length, (index) {
             final active = index == page;
             return AnimatedContainer(
               duration: const Duration(milliseconds: 220),
@@ -1123,11 +1487,13 @@ class _SearchPanel extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final VoidCallback onSubmit;
+  final ValueChanged<String> onQuickSearch;
 
   const _SearchPanel({
     required this.controller,
     required this.focusNode,
     required this.onSubmit,
+    required this.onQuickSearch,
   });
 
   @override
@@ -1135,18 +1501,202 @@ class _SearchPanel extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: TextField(
-          controller: controller,
-          focusNode: focusNode,
-          textDirection: TextDirection.rtl,
-          onSubmitted: (_) => onSubmit(),
-          decoration: InputDecoration(
-            hintText: 'ابحث عن مطعم، سوق، أو منتج',
-            prefixIcon: const Icon(Icons.search_rounded),
-            suffixIcon: IconButton(
-              onPressed: onSubmit,
-              icon: const Icon(Icons.arrow_forward_rounded),
+        child: Column(
+          children: [
+            TextField(
+              controller: controller,
+              focusNode: focusNode,
+              textDirection: TextDirection.rtl,
+              onSubmitted: (_) => onSubmit(),
+              decoration: InputDecoration(
+                hintText: 'ابحث عن مطعم، سوق، أو منتج',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: IconButton(
+                  onPressed: onSubmit,
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                ),
+              ),
             ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 34,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                reverse: true,
+                children: [
+                  _quickChip(
+                    icon: Icons.local_offer_rounded,
+                    label: 'عروض اليوم',
+                    onTap: () => onQuickSearch('عروض اليوم'),
+                  ),
+                  _quickChip(
+                    icon: Icons.flash_on_rounded,
+                    label: 'الأسرع توصيلًا',
+                    onTap: () => onQuickSearch('الأسرع توصيلاً'),
+                  ),
+                  _quickChip(
+                    icon: Icons.star_rounded,
+                    label: 'الأعلى تقييمًا',
+                    onTap: () => onQuickSearch('الأعلى تقييمًا'),
+                  ),
+                  _quickChip(
+                    icon: Icons.currency_exchange_rounded,
+                    label: 'أفضل سعر',
+                    onTap: () => onQuickSearch('أفضل سعر'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _quickChip({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            color: Colors.white.withValues(alpha: 0.10),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 16),
+              const SizedBox(width: 6),
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IntentLauncherStrip extends StatefulWidget {
+  final VoidCallback onTaxi;
+  final VoidCallback onOffers;
+  final VoidCallback onTopRated;
+  final VoidCallback onReorder;
+
+  const _IntentLauncherStrip({
+    required this.onTaxi,
+    required this.onOffers,
+    required this.onTopRated,
+    required this.onReorder,
+  });
+
+  @override
+  State<_IntentLauncherStrip> createState() => _IntentLauncherStripState();
+}
+
+class _IntentLauncherStripState extends State<_IntentLauncherStrip>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2200),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 58,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          final glow = 0.12 + (0.16 * _controller.value);
+          return ListView(
+            scrollDirection: Axis.horizontal,
+            reverse: true,
+            children: [
+              _intentButton(
+                icon: Icons.local_taxi_rounded,
+                label: 'طلب تكسي',
+                color: const Color(0xFF56D7FF),
+                glow: glow,
+                onTap: widget.onTaxi,
+              ),
+              _intentButton(
+                icon: Icons.local_offer_rounded,
+                label: 'عروض اليوم',
+                color: const Color(0xFFFFBA68),
+                glow: glow,
+                onTap: widget.onOffers,
+              ),
+              _intentButton(
+                icon: Icons.verified_rounded,
+                label: 'الأعلى تقييمًا',
+                color: const Color(0xFF7BFFCE),
+                glow: glow,
+                onTap: widget.onTopRated,
+              ),
+              _intentButton(
+                icon: Icons.history_toggle_off_rounded,
+                label: 'إعادة طلب',
+                color: const Color(0xFFCEB6FF),
+                glow: glow,
+                onTap: widget.onReorder,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _intentButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required double glow,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            gradient: LinearGradient(
+              colors: [
+                color.withValues(alpha: 0.30),
+                color.withValues(alpha: 0.10),
+              ],
+            ),
+            border: Border.all(color: color.withValues(alpha: 0.65)),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: glow),
+                blurRadius: 14,
+                spreadRadius: 0.2,
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 6),
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+            ],
           ),
         ),
       ),
@@ -1705,19 +2255,49 @@ class _DiscoveryCategory {
   });
 }
 
-class _AdBanner {
+class _StaticAdBanner {
   final String title;
   final String subtitle;
   final IconData icon;
   final Color colorA;
   final Color colorB;
 
-  const _AdBanner({
+  const _StaticAdBanner({
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.colorA,
     required this.colorB,
+  });
+}
+
+class _DisplayAdBanner {
+  final String title;
+  final String subtitle;
+  final String? badgeLabel;
+  final String? ctaLabel;
+  final String ctaTargetType;
+  final String? ctaTargetValue;
+  final int? merchantId;
+  final String? merchantName;
+  final String? merchantType;
+  final IconData icon;
+  final Color colorA;
+  final Color colorB;
+
+  const _DisplayAdBanner({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.colorA,
+    required this.colorB,
+    this.badgeLabel,
+    this.ctaLabel,
+    this.ctaTargetType = 'none',
+    this.ctaTargetValue,
+    this.merchantId,
+    this.merchantName,
+    this.merchantType,
   });
 }
 
@@ -1733,25 +2313,25 @@ enum _CategoryMotion {
   car,
 }
 
-const _adBanners = <_AdBanner>[
-  _AdBanner(
-    title: 'عروض اليوم في بسماية',
-    subtitle: 'خصومات حقيقية وتوصيل أسرع لنفس الحي',
+const _defaultAdBanners = <_StaticAdBanner>[
+  _StaticAdBanner(
+    title: 'شكاكي وياك.. العرض يلگاگ',
+    subtitle: 'خصومات يومية حقيقية من متاجر ومطاعم بسماية',
     icon: Icons.local_offer_rounded,
     colorA: Color(0xFF1C4B88),
     colorB: Color(0xFF143766),
   ),
-  _AdBanner(
-    title: 'متاجر موثوقة ومجربة',
-    subtitle: 'تقييمات واضحة وخدمة يومية ثابتة',
+  _StaticAdBanner(
+    title: 'سوق متكامل بلمسة واحدة',
+    subtitle: 'مطاعم، تسوق منزلي، سيارات، وتكسي داخل تطبيق واحد',
     icon: Icons.verified_user_rounded,
     colorA: Color(0xFF2B5A8B),
     colorB: Color(0xFF1F3E67),
   ),
-  _AdBanner(
-    title: 'طلبك يوصل للباب',
-    subtitle: 'تتبع حي من لحظة التأكيد وحتى الاستلام',
-    icon: Icons.delivery_dining_rounded,
+  _StaticAdBanner(
+    title: 'تكسي شكاكي على مدار اليوم',
+    subtitle: 'حدّد سعر الرحلة والكابتن يرسل عرضه فورًا',
+    icon: Icons.local_taxi_rounded,
     colorA: Color(0xFF235D7E),
     colorB: Color(0xFF1B4569),
   ),

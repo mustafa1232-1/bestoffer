@@ -1,6 +1,9 @@
 import { AppError } from "../utils/errors.js";
 
 const buckets = new Map();
+const CLEANUP_INTERVAL_MS = 30_000;
+const MAX_BUCKETS = 50_000;
+let lastCleanupAt = 0;
 
 function nowMs() {
   return Date.now();
@@ -15,7 +18,7 @@ function keyFromRequest(req, prefix = "global") {
   return `${prefix}:${ip}`;
 }
 
-function consumeBucket({ key, windowMs, limit }) {
+function consumeBucket({ key, windowMs }) {
   const now = nowMs();
   const resetAt = now + windowMs;
 
@@ -30,17 +33,41 @@ function consumeBucket({ key, windowMs, limit }) {
   return current;
 }
 
+function cleanupBuckets(now = nowMs()) {
+  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS && buckets.size < MAX_BUCKETS) {
+    return;
+  }
+  lastCleanupAt = now;
+
+  for (const [key, state] of buckets.entries()) {
+    if (!state || state.resetAt <= now) {
+      buckets.delete(key);
+    }
+  }
+
+  if (buckets.size <= MAX_BUCKETS) return;
+
+  const overflow = buckets.size - MAX_BUCKETS;
+  let removed = 0;
+  for (const key of buckets.keys()) {
+    buckets.delete(key);
+    removed += 1;
+    if (removed >= overflow) break;
+  }
+}
+
 export function createRateLimiter({
   windowMs = 60000,
   maxRequests = 120,
   keyPrefix = "global",
 } = {}) {
   return function rateLimit(req, res, next) {
+    cleanupBuckets();
+
     const key = keyFromRequest(req, keyPrefix);
     const state = consumeBucket({
       key,
       windowMs,
-      limit: maxRequests,
     });
 
     const remaining = Math.max(0, maxRequests - state.count);

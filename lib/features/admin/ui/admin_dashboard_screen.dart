@@ -18,6 +18,7 @@ import '../models/pending_settlement_model.dart';
 import '../models/period_metrics_model.dart';
 import '../models/managed_merchant_model.dart';
 import '../state/admin_controller.dart';
+import 'admin_ad_board_screen.dart';
 import 'customer_insight_profile_screen.dart';
 
 class AdminDashboardScreen extends ConsumerStatefulWidget {
@@ -253,6 +254,16 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           icon: Icons.store_mall_directory_outlined,
           label: strings.t('drawerCreateMerchant'),
           onTap: (_) => _openCreateMerchant(),
+        ),
+      if (isAdmin)
+        AppUserDrawerItem(
+          icon: Icons.campaign_outlined,
+          label: 'لوحة الإعلانات',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AdminAdBoardScreen()),
+            );
+          },
         ),
     ];
 

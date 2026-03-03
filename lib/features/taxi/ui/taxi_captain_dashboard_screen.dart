@@ -10,6 +10,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/network/api_error_mapper.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/taxi_api.dart';
 
@@ -37,6 +38,7 @@ class _TaxiCaptainDashboardScreenState
   final _mapController = MapController();
   Timer? _ticker;
   StreamSubscription<TaxiLiveEvent>? _streamSub;
+  Timer? _streamReconnectTimer;
 
   bool _loading = true;
   bool _sending = false;
@@ -47,11 +49,14 @@ class _TaxiCaptainDashboardScreenState
   bool _callScreenOpen = false;
   int _tab = 0;
   int _tickCounter = 0;
+  int _streamReconnectAttempt = 0;
+  int? _lastStreamEventId;
   String _period = 'day';
 
   String? _error;
   DateTime? _lastSync;
   DateTime? _lastRouteAt;
+  DateTime? _lastRealtimeRefreshAt;
   int? _lastCallSignalId;
   int? _lastIncomingSessionId;
 
@@ -79,6 +84,7 @@ class _TaxiCaptainDashboardScreenState
   void dispose() {
     _ticker?.cancel();
     _streamSub?.cancel();
+    _streamReconnectTimer?.cancel();
     super.dispose();
   }
 
@@ -274,29 +280,125 @@ class _TaxiCaptainDashboardScreenState
 
   void _connectStream() {
     _streamSub?.cancel();
-    _streamSub = _api.streamEvents().listen(
-      (event) {
-        if (!mounted) return;
-        if (event.event == 'connected' || event.event == 'heartbeat') {
-          setState(() {
-            _streamConnected = true;
-            _lastSync = DateTime.now();
-          });
-          return;
-        }
-        if (event.event == 'taxi_call_update') {
-          unawaited(_handleCallRealtimeEvent(event.data));
-        }
-        _tick(full: true);
-        _refreshMeta();
-      },
-      onError: (_) {
-        if (mounted) setState(() => _streamConnected = false);
-      },
-      onDone: () {
-        if (mounted) setState(() => _streamConnected = false);
-      },
-    );
+    _streamReconnectTimer?.cancel();
+    _streamSub = _api
+        .streamEvents(lastEventId: _lastStreamEventId)
+        .listen(
+          (event) {
+            if (!mounted) return;
+            if (event.eventId != null && event.eventId! > 0) {
+              _lastStreamEventId = event.eventId;
+            }
+
+            if (event.event == 'connected' || event.event == 'replayed') {
+              _streamReconnectAttempt = 0;
+              setState(() {
+                _streamConnected = true;
+                _lastSync = DateTime.now();
+              });
+              unawaited(_tick(full: true));
+              unawaited(_refreshMeta());
+              return;
+            }
+
+            if (event.event == 'heartbeat') {
+              setState(() {
+                _streamConnected = true;
+                _lastSync = DateTime.now();
+              });
+              return;
+            }
+
+            if (event.event == 'taxi_location_update') {
+              _applyRealtimeLocation(event.data);
+              return;
+            }
+
+            if (event.event == 'taxi_call_update') {
+              unawaited(_handleCallRealtimeEvent(event.data));
+            }
+
+            if (event.event == 'taxi_bid_update' ||
+                event.event == 'taxi_ride_update' ||
+                event.event == 'taxi_new_request' ||
+                event.event == 'taxi_call_update') {
+              _refreshFromRealtime();
+              return;
+            }
+
+            _refreshFromRealtime();
+          },
+          onError: (_) {
+            if (!mounted) return;
+            setState(() => _streamConnected = false);
+            _scheduleStreamReconnect();
+          },
+          onDone: () {
+            if (!mounted) return;
+            setState(() => _streamConnected = false);
+            _scheduleStreamReconnect();
+          },
+        );
+  }
+
+  void _refreshFromRealtime({bool force = false}) {
+    final now = DateTime.now();
+    if (!force && _lastRealtimeRefreshAt != null) {
+      final elapsed = now.difference(_lastRealtimeRefreshAt!);
+      if (elapsed < const Duration(milliseconds: 900)) {
+        return;
+      }
+    }
+    _lastRealtimeRefreshAt = now;
+    unawaited(_tick(full: true));
+    unawaited(_refreshMeta());
+  }
+
+  void _applyRealtimeLocation(Map<String, dynamic> data) {
+    final rideId = _asInt(data['rideId']);
+    final activeRideId = _asInt(_ride?['id']);
+    if (activeRideId != null && rideId != null && activeRideId != rideId) {
+      return;
+    }
+
+    final location = data['location'] is Map
+        ? Map<String, dynamic>.from(data['location'] as Map)
+        : null;
+    final point = _latLng(location);
+    if (point == null || !mounted) return;
+
+    setState(() {
+      _streamConnected = true;
+      _lastSync = DateTime.now();
+      _captainPoint = point;
+      if (_currentRideEnvelope != null && location != null) {
+        _currentRideEnvelope = {
+          ..._currentRideEnvelope!,
+          'latestLocation': location,
+        };
+      }
+    });
+    unawaited(_refreshRoutePolyline());
+  }
+
+  void _scheduleStreamReconnect() {
+    if (!mounted) return;
+    if (_streamReconnectTimer?.isActive == true) return;
+
+    _streamReconnectAttempt = (_streamReconnectAttempt + 1).clamp(1, 6);
+    final delaySeconds = switch (_streamReconnectAttempt) {
+      1 => 2,
+      2 => 4,
+      3 => 8,
+      4 => 12,
+      5 => 20,
+      _ => 30,
+    };
+
+    _streamReconnectTimer = Timer(Duration(seconds: delaySeconds), () {
+      if (!mounted) return;
+      _connectStream();
+    });
   }
 
   Future<Position?> _position() async {
@@ -683,13 +785,13 @@ class _TaxiCaptainDashboardScreenState
 
     final value = (phone ?? '').trim();
     if (value.isEmpty) {
-      _snack('Phone number is not available');
+      _snack('رقم الهاتف غير متوفر');
       return;
     }
     final uri = Uri.parse('tel:$value');
     final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!opened) {
-      _snack('Could not open phone call');
+      _snack('تعذر فتح تطبيق الاتصال');
     }
   }
 
@@ -744,7 +846,12 @@ class _TaxiCaptainDashboardScreenState
     }
 
     if (eventType == 'call_ended') {
-      _snack('Call ended');
+      _snack('انتهت المكالمة');
+      return;
+    }
+
+    if (eventType == 'call_missed') {
+      _snack('لم يتم الرد على المكالمة وانتهت المهلة');
     }
   }
 
@@ -966,10 +1073,17 @@ class _TaxiCaptainDashboardScreenState
           options: MapOptions(initialCenter: _center, initialZoom: 15.5),
           children: [
             TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              fallbackUrl:
-                  'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-              userAgentPackageName: 'app.bestoffer.bismayah',
+              urlTemplate:
+                  'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+              retinaMode:
+                  (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) > 1.0,
+              fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'app.shakaky.bismayah',
+              tileProvider: NetworkTileProvider(
+                headers: {
+                  'User-Agent': 'ShakakyTaxi/1.0 (+https://shakaky.app)',
+                },
+              ),
             ),
             if (_routePoints.length >= 2)
               PolylineLayer(
@@ -1008,8 +1122,20 @@ class _TaxiCaptainDashboardScreenState
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.black54,
+        gradient: const LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [Color(0xC01B4F84), Color(0xAA102841)],
+        ),
+        border: Border.all(color: Colors.white24),
         borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF66DFFF).withValues(alpha: 0.14),
+            blurRadius: 16,
+            spreadRadius: 0.4,
+          ),
+        ],
       ),
       child: Column(
         children: [
@@ -1071,7 +1197,12 @@ class _TaxiCaptainDashboardScreenState
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: Colors.black54,
+          gradient: const LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [Color(0xD0122D4C), Color(0xD0153D62)],
+          ),
+          border: Border.all(color: Colors.white24),
           borderRadius: BorderRadius.circular(12),
         ),
         child: _loading
@@ -1232,6 +1363,10 @@ class _TaxiCaptainDashboardScreenState
             : isCurrentNegotiationBid
             ? Colors.orangeAccent
             : Colors.white70;
+        final negotiationRemaining = _negotiationRemainingSeconds(r, myBid);
+        final negotiationProgress = negotiationRemaining == null
+            ? null
+            : (negotiationRemaining / 90).clamp(0.0, 1.0).toDouble();
         final rideId = _asInt(r['id']) ?? 0;
         return Container(
           padding: const EdgeInsets.all(10),
@@ -1298,6 +1433,44 @@ class _TaxiCaptainDashboardScreenState
                     ),
                 ],
               ),
+              if (negotiationRemaining != null) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.timer_outlined,
+                      size: 16,
+                      color: Colors.orangeAccent,
+                    ),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'الوقت المتبقي للتفاوض',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      _countdownText(negotiationRemaining),
+                      style: TextStyle(
+                        color: negotiationRemaining <= 15
+                            ? Colors.redAccent
+                            : Colors.orangeAccent,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                LinearProgressIndicator(
+                  value: negotiationProgress,
+                  minHeight: 6,
+                  borderRadius: BorderRadius.circular(999),
+                  backgroundColor: Colors.white12,
+                ),
+              ],
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -1619,6 +1792,36 @@ class _TaxiCaptainDashboardScreenState
   int? _asInt(dynamic v) => v is int ? v : int.tryParse('${v ?? ''}');
   double? _asDouble(dynamic v) =>
       v is num ? v.toDouble() : double.tryParse('${v ?? ''}');
+  DateTime? _asDate(dynamic v) {
+    final t = _str(v);
+    if (t == null || t.isEmpty) return null;
+    return DateTime.tryParse(t);
+  }
+
+  int? _negotiationRemainingSeconds(
+    Map<String, dynamic> ride,
+    Map<String, dynamic>? myBid,
+  ) {
+    if (myBid == null) return null;
+    final myBidId = _asInt(myBid['id']);
+    final currentBidId = _asInt(ride['currentBidId']);
+    if (myBidId == null || currentBidId == null || myBidId != currentBidId) {
+      return null;
+    }
+    final timeoutSeconds = 90;
+    final anchor = _asDate(myBid['updatedAt']) ?? _asDate(myBid['createdAt']);
+    if (anchor == null) return null;
+    final expiresAt = anchor.add(Duration(seconds: timeoutSeconds));
+    final seconds = expiresAt.difference(DateTime.now()).inSeconds;
+    return seconds < 0 ? 0 : seconds;
+  }
+
+  String _countdownText(int seconds) {
+    final mm = (seconds ~/ 60).toString().padLeft(2, '0');
+    final ss = (seconds % 60).toString().padLeft(2, '0');
+    return '$mm:$ss';
+  }
+
   String? _str(dynamic v) {
     final s = '${v ?? ''}'.trim();
     return s.isEmpty ? null : s;
@@ -1654,23 +1857,17 @@ class _TaxiCaptainDashboardScreenState
   }
 
   String _err(DioException e) {
-    final data = e.response?.data;
-    if (data is Map) {
-      final msg = data['message'];
-      if (msg is String && msg.isNotEmpty) {
-        switch (msg) {
-          case 'DELIVERY_SUBSCRIPTION_EXPIRED':
-            return 'انتهى الاشتراك. اطلب التسديد النقدي';
-          case 'DELIVERY_SUBSCRIPTION_PAYMENT_PENDING':
-            return 'تم طلب التسديد، بانتظار موافقة الأدمن';
-          case 'DELIVERY_ACCOUNT_PENDING_APPROVAL':
-            return 'الحساب بانتظار موافقة الإدارة';
-          default:
-            return msg;
-        }
-      }
-    }
-    return 'تعذر الاتصال بالخادم';
+    return mapDioError(
+      e,
+      fallback: 'تعذر الوصول إلى الخادم. حاول مرة أخرى.',
+      customMessages: const {
+        'DELIVERY_SUBSCRIPTION_EXPIRED': 'انتهى الاشتراك. يرجى طلب تسديد نقدي.',
+        'DELIVERY_SUBSCRIPTION_PAYMENT_PENDING':
+            'تم إرسال طلب التسديد. بانتظار موافقة الإدارة.',
+        'DELIVERY_ACCOUNT_PENDING_APPROVAL': 'الحساب بانتظار موافقة الإدارة.',
+      },
+      appendRequestId: true,
+    );
   }
 
   void _snack(String t) {

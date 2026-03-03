@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
-  static const Color _ink = Color(0xFF040A16);
-  static const Color _surface = Color(0xFF112244);
-  static const Color _surfaceSoft = Color(0xFF18305D);
-  static const Color _sky = Color(0xFF57D8FF);
-  static const Color _sun = Color(0xFFFFB25A);
-  static const Color _mint = Color(0xFF95FFD3);
+  static const Color _ink = Color(0xFF061225);
+  static const Color _surface = Color(0xFF10264D);
+  static const Color _surfaceSoft = Color(0xFF1A3A73);
+  static const Color _surfaceElevated = Color(0xFF224B86);
+  static const Color _sky = Color(0xFF68E5FF);
+  static const Color _sun = Color(0xFFFFB45E);
+  static const Color _mint = Color(0xFF9EF9CB);
 
   static ThemeData light() {
     final scheme =
@@ -25,7 +26,7 @@ class AppTheme {
           onSurface: const Color(0xFFF2F7FF),
           error: const Color(0xFFFF678E),
           onError: Colors.white,
-          primaryContainer: const Color(0xFF163463),
+          primaryContainer: const Color(0xFF1A3D73),
           onPrimaryContainer: const Color(0xFFE9F6FF),
         );
 
@@ -62,17 +63,17 @@ class AppTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: _surfaceSoft.withValues(alpha: 0.75),
+        color: _surfaceSoft.withValues(alpha: 0.76),
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: scheme.primary.withValues(alpha: 0.24)),
+          side: BorderSide(color: scheme.primary.withValues(alpha: 0.34)),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: _surface.withValues(alpha: 0.76),
+        fillColor: _surfaceElevated.withValues(alpha: 0.66),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
           vertical: 14,
@@ -83,11 +84,11 @@ class AppTheme {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.16)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: scheme.primary, width: 1.25),
+          borderSide: BorderSide(color: scheme.primary, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
@@ -152,8 +153,30 @@ class AppTheme {
         foregroundColor: _ink,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: _surface.withValues(alpha: 0.92),
+        indicatorColor: scheme.primary.withValues(alpha: 0.20),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: scheme.primary,
+            );
+          }
+          return textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: Colors.white.withValues(alpha: 0.72),
+          );
+        }),
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return IconThemeData(color: scheme.primary);
+          }
+          return IconThemeData(color: Colors.white.withValues(alpha: 0.72));
+        }),
+      ),
       chipTheme: base.chipTheme.copyWith(
-        backgroundColor: _surface.withValues(alpha: 0.66),
+        backgroundColor: _surfaceElevated.withValues(alpha: 0.58),
         selectedColor: scheme.primary.withValues(alpha: 0.28),
         side: BorderSide(color: Colors.white.withValues(alpha: 0.10)),
         labelStyle: textTheme.bodyMedium?.copyWith(

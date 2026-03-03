@@ -167,31 +167,72 @@ function isRetryablePushError(code) {
   );
 }
 
+
+function resolveNotificationTarget(notification, orderId) {
+  const type = String(notification?.type || "").trim().toLowerCase();
+  if (!type) {
+    return orderId == null ? "notifications" : "order_tracking";
+  }
+
+  if (type === "taxi.call.incoming") return "taxi_call";
+  if (type.startsWith("taxi.")) return "taxi_live";
+  if (type.includes("admin_pending_merchant")) return "admin_merchants_pending";
+  if (type.includes("settlement")) return "admin_settlements";
+  if (type.startsWith("owner_")) return "owner_orders";
+  if (type.startsWith("delivery_")) return "delivery_orders";
+  if (type.includes("order")) return "order_tracking";
+
+  return orderId == null ? "notifications" : "order_tracking";
+}
+
+function resolveRideId(notification) {
+  const payload = notification?.payload;
+  const rideId =
+    notification?.ride_id ??
+    notification?.rideId ??
+    payload?.rideId ??
+    payload?.ride_id ??
+    null;
+  if (rideId == null) return null;
+  const n = Number(rideId);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
+
 function buildMulticastMessage(notification, tokens, orderId) {
+  const target = resolveNotificationTarget(notification, orderId);
+  const rideId = resolveRideId(notification);
   return {
     tokens,
     notification: {
-      title: String(notification.title || "BestOffer"),
+      title: String(notification.title || "Shakaky"),
       body: String(notification.body || "لديك إشعار جديد"),
     },
     data: {
       notificationId: String(notification.id || ""),
       type: String(notification.type || ""),
       orderId: orderId == null ? "" : String(orderId),
+      target,
+      rideId: rideId == null ? "" : String(rideId),
     },
     android: {
       priority: "high",
+      ttl: 60 * 60 * 1000,
       notification: {
-        channelId: "bestoffer_live_updates",
+        channelId: "shakaky_live_updates",
         sound: "default",
         clickAction: "FLUTTER_NOTIFICATION_CLICK",
       },
     },
     apns: {
-      headers: { "apns-priority": "10" },
+      headers: {
+        "apns-priority": "10",
+        "apns-push-type": "alert",
+      },
       payload: {
         aps: {
           sound: "default",
+          contentAvailable: true,
         },
       },
     },
@@ -296,6 +337,26 @@ export async function createNotification({
 }) {
   if (!userId) return null;
 
+  const basePayload =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? { ...payload }
+      : {};
+  const derivedTarget = resolveNotificationTarget(
+    { type, payload: basePayload },
+    orderId
+  );
+  const derivedRideId = resolveRideId({ payload: basePayload });
+
+  if (basePayload.target == null || String(basePayload.target).trim() === "") {
+    basePayload.target = derivedTarget;
+  }
+  if (orderId != null && basePayload.orderId == null) {
+    basePayload.orderId = Number(orderId);
+  }
+  if (derivedRideId != null && basePayload.rideId == null) {
+    basePayload.rideId = derivedRideId;
+  }
+
   const r = await q(
     `INSERT INTO app_notification
       (user_id, order_id, merchant_id, type, title, body, payload)
@@ -308,7 +369,7 @@ export async function createNotification({
       type,
       title,
       body || null,
-      payload ? JSON.stringify(payload) : null,
+      Object.keys(basePayload).length > 0 ? JSON.stringify(basePayload) : null,
     ]
   );
 
@@ -467,4 +528,5 @@ export async function listActivePushTokens(userId) {
     .map((row) => String(row.push_token || "").trim())
     .filter(Boolean);
 }
+
 

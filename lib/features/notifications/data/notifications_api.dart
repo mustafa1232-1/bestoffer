@@ -5,8 +5,13 @@ import 'package:dio/dio.dart';
 class NotificationLiveEvent {
   final String event;
   final Map<String, dynamic> data;
+  final int? eventId;
 
-  const NotificationLiveEvent({required this.event, required this.data});
+  const NotificationLiveEvent({
+    required this.event,
+    required this.data,
+    this.eventId,
+  });
 }
 
 class NotificationsApi {
@@ -62,14 +67,21 @@ class NotificationsApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Stream<NotificationLiveEvent> streamEvents() async* {
+  Stream<NotificationLiveEvent> streamEvents({int? lastEventId}) async* {
     final response = await dio.get<ResponseBody>(
       '/api/notifications/stream',
+      queryParameters: {
+        if (lastEventId != null && lastEventId > 0) 'lastEventId': lastEventId,
+      },
       options: Options(
         responseType: ResponseType.stream,
         sendTimeout: const Duration(seconds: 30),
         receiveTimeout: const Duration(hours: 1),
-        headers: const {'Accept': 'text/event-stream'},
+        headers: {
+          'Accept': 'text/event-stream',
+          if (lastEventId != null && lastEventId > 0)
+            'Last-Event-ID': '$lastEventId',
+        },
       ),
     );
 
@@ -83,8 +95,14 @@ class NotificationsApi {
 
     String eventName = 'message';
     var dataBuffer = '';
+    int? parsedEventId;
 
     await for (final line in lines) {
+      if (line.startsWith('id:')) {
+        parsedEventId = int.tryParse(line.substring(3).trim());
+        continue;
+      }
+
       if (line.startsWith('event:')) {
         eventName = line.substring(6).trim();
         continue;
@@ -103,9 +121,14 @@ class NotificationsApi {
       }
 
       final data = _parseSsePayload(dataBuffer);
-      yield NotificationLiveEvent(event: eventName, data: data);
+      yield NotificationLiveEvent(
+        event: eventName,
+        data: data,
+        eventId: parsedEventId,
+      );
       eventName = 'message';
       dataBuffer = '';
+      parsedEventId = null;
     }
   }
 

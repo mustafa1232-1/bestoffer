@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../../../core/widgets/image_picker_field.dart';
 import '../../admin/models/owner_account_model.dart';
 import '../../admin/state/admin_controller.dart';
@@ -100,7 +101,10 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
       setState(() => ownersError = _mapApiError(e));
     } catch (_) {
       if (!mounted) return;
-      setState(() => ownersError = 'تعذر تحميل حسابات أصحاب المتاجر');
+      setState(
+        () => ownersError =
+            'تعذر تحميل حسابات أصحاب المتاجر',
+      );
     } finally {
       if (mounted) {
         setState(() => loadingOwners = false);
@@ -109,33 +113,33 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
   }
 
   String _mapApiError(DioException e) {
-    final data = e.response?.data;
-    if (data is Map<String, dynamic>) {
-      final message = data['message'];
-      if (message == 'VALIDATION_ERROR') return 'تحقق من البيانات المدخلة';
-      if (message == 'PHONE_EXISTS') return 'رقم الهاتف مستخدم مسبقًا';
-      if (message == 'OWNER_NOT_FOUND') return 'حساب صاحب المتجر غير موجود';
-      if (message == 'OWNER_ALREADY_HAS_MERCHANT') {
-        return 'هذا الحساب مرتبط بمتجر مسبقًا';
-      }
-      if (message is String && message.isNotEmpty) return message;
-    }
-    return 'حدث خطأ أثناء تنفيذ العملية';
+    return mapDioError(
+      e,
+      fallback: 'Action failed. Please try again.',
+      customMessages: const {
+        'OWNER_NOT_FOUND': 'Owner account not found.',
+        'OWNER_ALREADY_HAS_MERCHANT':
+            'This owner account is already linked to a merchant.',
+      },
+      appendRequestId: true,
+    );
   }
 
   Future<void> _submit() async {
     final merchantName = nameCtrl.text.trim();
     if (merchantName.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('أدخل اسم المتجر')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('أدخل اسم المتجر')),
+      );
       return;
     }
 
     if (ownerMode == _OwnerMode.existing && selectedOwnerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('اختر حساب صاحب متجر أو أنشئ حسابًا جديدًا'),
+          content: Text(
+            'اختر حساب صاحب متجر أو أنشئ حسابًا جديدًا',
+          ),
         ),
       );
       return;
@@ -148,14 +152,22 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
           ownerBuildingCtrl.text.trim().isEmpty ||
           ownerApartmentCtrl.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('أكمل بيانات حساب صاحب المتجر الجديد')),
+          const SnackBar(
+            content: Text(
+              'أكمل بيانات حساب صاحب المتجر الجديد',
+            ),
+          ),
         );
         return;
       }
 
       if (!_isValidPin(ownerPinCtrl.text)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('الـ PIN يجب أن يكون من 4 إلى 8 أرقام')),
+          const SnackBar(
+            content: Text(
+              'الـ PIN يجب أن يكون من 4 إلى 8 أرقام',
+            ),
+          ),
         );
         return;
       }
@@ -200,9 +212,9 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
       ).showSnackBar(SnackBar(content: Text(_mapApiError(e))));
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('فشل إنشاء المتجر')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('فشل إنشاء المتجر')),
+      );
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -285,7 +297,10 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(ownersError!, style: const TextStyle(color: Colors.red)),
+                    Text(
+                      ownersError!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
                       onPressed: _loadOwners,
@@ -298,13 +313,16 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text('لا يوجد صاحب متجر متاح حاليًا للربط'),
+                    const Text(
+                      'لا يوجد صاحب متجر متاح حاليًا للربط',
+                    ),
                     const SizedBox(height: 8),
                     OutlinedButton(
-                      onPressed: () => setState(
-                        () => ownerMode = _OwnerMode.createNew,
+                      onPressed: () =>
+                          setState(() => ownerMode = _OwnerMode.createNew),
+                      child: const Text(
+                        'إنشاء صاحب متجر جديد',
                       ),
-                      child: const Text('إنشاء صاحب متجر جديد'),
                     ),
                   ],
                 )
@@ -334,7 +352,9 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
             if (ownerMode == _OwnerMode.createNew) ...[
               TextField(
                 controller: ownerNameCtrl,
-                decoration: const InputDecoration(labelText: 'اسم صاحب المتجر'),
+                decoration: const InputDecoration(
+                  labelText: 'اسم صاحب المتجر',
+                ),
               ),
               const SizedBox(height: 8),
               TextField(
@@ -357,21 +377,27 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
                   Expanded(
                     child: TextField(
                       controller: ownerBlockCtrl,
-                      decoration: const InputDecoration(labelText: 'البلوك'),
+                      decoration: const InputDecoration(
+                        labelText: 'البلوك',
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: ownerBuildingCtrl,
-                      decoration: const InputDecoration(labelText: 'العمارة'),
+                      decoration: const InputDecoration(
+                        labelText: 'العمارة',
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: ownerApartmentCtrl,
-                      decoration: const InputDecoration(labelText: 'الشقة'),
+                      decoration: const InputDecoration(
+                        labelText: 'الشقة',
+                      ),
                     ),
                   ),
                 ],
@@ -411,7 +437,9 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
             const SizedBox(height: 10),
             TextField(
               controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'اسم المتجر'),
+              decoration: const InputDecoration(
+                labelText: 'اسم المتجر',
+              ),
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
@@ -420,7 +448,8 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
                 DropdownMenuItem(value: 'restaurant', child: Text('مطعم')),
                 DropdownMenuItem(value: 'market', child: Text('سوق')),
               ],
-              onChanged: (v) => setState(() => merchantType = v ?? 'restaurant'),
+              onChanged: (v) =>
+                  setState(() => merchantType = v ?? 'restaurant'),
               decoration: const InputDecoration(labelText: 'النوع'),
             ),
             const SizedBox(height: 10),
@@ -434,7 +463,8 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(
                 labelText: 'هاتف المتجر (اختياري)',
-                hintText: 'إذا تُرك فارغًا سيتم استخدام هاتف صاحب المتجر',
+                hintText:
+                    'إذا تُرك فارغًا سيتم استخدام هاتف صاحب المتجر',
               ),
             ),
             const SizedBox(height: 10),
@@ -457,4 +487,3 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
     );
   }
 }
-

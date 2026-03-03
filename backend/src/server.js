@@ -10,6 +10,8 @@ import { hashPin } from "./shared/utils/hash.js";
 
 const port = env.port;
 const host = env.host;
+let activeServer = null;
+let shutdownInProgress = false;
 
 async function ensureSuperAdminAccount() {
   const superPhone = String(env.superAdminPhone || "").trim();
@@ -145,7 +147,59 @@ async function start() {
 
   server.requestTimeout = env.requestTimeoutMs;
   server.headersTimeout = env.requestTimeoutMs + 1000;
+  activeServer = server;
+  return server;
 }
+
+async function shutdown(reason, exitCode = 0) {
+  if (shutdownInProgress) return;
+  shutdownInProgress = true;
+  console.warn(`[shutdown] reason=${reason}`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error("[shutdown] force exit after timeout");
+    process.exit(exitCode || 1);
+  }, 12_000);
+  forceExitTimer.unref();
+
+  try {
+    if (activeServer) {
+      await new Promise((resolve) => activeServer.close(resolve));
+    }
+  } catch (error) {
+    console.error("[shutdown] server close failed:", error);
+    exitCode = 1;
+  }
+
+  try {
+    await pool.end();
+  } catch (error) {
+    console.error("[shutdown] db pool close failed:", error);
+    exitCode = 1;
+  }
+
+  clearTimeout(forceExitTimer);
+  process.exit(exitCode);
+}
+
+function registerProcessHandlers() {
+  process.on("SIGINT", () => {
+    void shutdown("SIGINT", 0);
+  });
+  process.on("SIGTERM", () => {
+    void shutdown("SIGTERM", 0);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("[process] unhandledRejection:", reason);
+    void shutdown("unhandledRejection", 1);
+  });
+  process.on("uncaughtException", (error) => {
+    console.error("[process] uncaughtException:", error);
+    void shutdown("uncaughtException", 1);
+  });
+}
+
+registerProcessHandlers();
 
 start().catch((err) => {
   console.error("Failed to start server:", err);

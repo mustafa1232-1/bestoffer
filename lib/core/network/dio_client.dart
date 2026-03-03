@@ -15,7 +15,7 @@ class DioClient {
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 15),
           responseType: ResponseType.json,
-          headers: const {'Accept': 'application/json; charset=utf-8'},
+          headers: {'Accept': 'application/json; charset=utf-8'},
         ),
       ) {
     dio.interceptors.add(

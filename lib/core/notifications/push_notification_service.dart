@@ -30,19 +30,16 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     if (message.notification == null && message.data.isNotEmpty) {
       final local = LocalNotificationService();
       await local.initialize();
-      final orderId = int.tryParse(
-        '${message.data['orderId'] ?? message.data['order_id'] ?? ''}',
-      );
-      final type =
-          message.data['type']?.toString() ??
-          message.data['notificationType']?.toString();
-      final title = message.data['title']?.toString().trim();
-      final body = message.data['body']?.toString().trim();
+      final parsed = _parseRemoteMessagePayload(message);
+
       await local.showRaw(
-        title: (title == null || title.isEmpty) ? 'BestOffer' : title,
-        body: (body == null || body.isEmpty) ? 'You have a new update' : body,
-        orderId: orderId,
-        type: type,
+        title: parsed.$1,
+        body: parsed.$2,
+        orderId: parsed.$3.orderId,
+        rideId: parsed.$3.rideId,
+        notificationId: parsed.$3.notificationId,
+        type: parsed.$3.type,
+        target: parsed.$3.target,
       );
     }
   } catch (e) {
@@ -114,20 +111,15 @@ class PushNotificationService {
     });
 
     _foregroundSub = FirebaseMessaging.onMessage.listen((message) async {
-      final title =
-          message.notification?.title ??
-          _asString(message.data['title']) ??
-          'BestOffer';
-      final body =
-          message.notification?.body ??
-          _asString(message.data['body']) ??
-          'يوجد تحديث جديد';
-      final parsed = _parseTapPayload(message);
+      final parsed = _parseRemoteMessagePayload(message);
       await local.showRaw(
-        title: title,
-        body: body,
-        orderId: parsed.orderId,
-        type: parsed.type,
+        title: parsed.$1,
+        body: parsed.$2,
+        orderId: parsed.$3.orderId,
+        rideId: parsed.$3.rideId,
+        notificationId: parsed.$3.notificationId,
+        type: parsed.$3.type,
+        target: parsed.$3.target,
       );
     });
 
@@ -195,14 +187,8 @@ class PushNotificationService {
   }
 
   NotificationTapPayload _parseTapPayload(RemoteMessage message) {
-    final orderId = int.tryParse(
-      '${message.data['orderId'] ?? message.data['order_id'] ?? ''}',
-    );
-    final type =
-        _asString(message.data['type']) ??
-        _asString(message.data['notificationType']) ??
-        _asString(message.messageType);
-    return NotificationTapPayload(orderId: orderId, type: type);
+    final payload = _parseRemoteMessagePayload(message).$3;
+    return payload;
   }
 
   static Future<bool> _ensureFirebaseInitialized() async {
@@ -241,12 +227,6 @@ class PushNotificationService {
     return 'unknown';
   }
 
-  static String? _asString(dynamic value) {
-    if (value == null) return null;
-    final out = value.toString().trim();
-    return out.isEmpty ? null : out;
-  }
-
   void dispose() {
     _tokenHeartbeatTimer?.cancel();
     _tokenRefreshSub?.cancel();
@@ -254,4 +234,40 @@ class PushNotificationService {
     _openedAppSub?.cancel();
     _tapController.close();
   }
+}
+
+(String, String, NotificationTapPayload) _parseRemoteMessagePayload(
+  RemoteMessage message,
+) {
+  final title =
+      message.notification?.title ??
+      _asString(message.data['title']) ??
+      'Shakaky';
+  final body =
+      message.notification?.body ??
+      _asString(message.data['body']) ??
+      'يوجد تحديث جديد';
+
+  final payload = NotificationTapPayload(
+    orderId: int.tryParse(
+      '${message.data['orderId'] ?? message.data['order_id'] ?? ''}',
+    ),
+    rideId: int.tryParse(
+      '${message.data['rideId'] ?? message.data['ride_id'] ?? ''}',
+    ),
+    notificationId: int.tryParse('${message.data['notificationId'] ?? ''}'),
+    type:
+        _asString(message.data['type']) ??
+        _asString(message.data['notificationType']) ??
+        _asString(message.messageType),
+    target: _asString(message.data['target']),
+  );
+
+  return (title, body, payload);
+}
+
+String? _asString(dynamic value) {
+  if (value == null) return null;
+  final out = value.toString().trim();
+  return out.isEmpty ? null : out;
 }

@@ -306,7 +306,7 @@ class _AssistantHeroState extends State<_AssistantHero>
                     SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'AI BestOffer | بسماية',
+                        'AI Shakaky | شكاكي',
                         textDirection: TextDirection.rtl,
                         style: TextStyle(
                           fontWeight: FontWeight.w800,

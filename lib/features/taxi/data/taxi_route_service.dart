@@ -10,8 +10,8 @@ class TaxiRouteService {
             BaseOptions(
               connectTimeout: const Duration(seconds: 8),
               receiveTimeout: const Duration(seconds: 8),
-              headers: const {
-                'User-Agent': 'BestOfferTaxi/1.0 (support@bestoffer.app)',
+              headers: {
+                'User-Agent': 'ShakakyTaxi/1.0 (support@shakaky.app)',
               },
             ),
           );
@@ -30,7 +30,7 @@ class TaxiRouteService {
     final response = await _dio.get(
       'https://router.project-osrm.org/route/v1/driving/'
       '${from.longitude},${from.latitude};${to.longitude},${to.latitude}',
-      queryParameters: const {
+      queryParameters: {
         'overview': 'full',
         'geometries': 'geojson',
         'steps': false,

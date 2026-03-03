@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/network/api_error_mapper.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/assistant_api.dart';
 import '../models/assistant_chat_models.dart';
@@ -89,10 +90,10 @@ class AssistantController extends StateNotifier<AssistantState> {
       _applyPayload(json, loading: false);
     } on DioException catch (e) {
       state = state.copyWith(loading: false, error: _mapError(e));
-    } catch (_) {
+    } catch (e) {
       state = state.copyWith(
         loading: false,
-        error: 'Failed to load assistant session',
+        error: mapAnyError(e, fallback: 'Failed to load assistant session.'),
       );
     }
   }
@@ -112,10 +113,10 @@ class AssistantController extends StateNotifier<AssistantState> {
       _applyPayload(json, loading: false, sending: false);
     } on DioException catch (e) {
       state = state.copyWith(loading: false, error: _mapError(e));
-    } catch (_) {
+    } catch (e) {
       state = state.copyWith(
         loading: false,
-        error: 'Failed to start a new session',
+        error: mapAnyError(e, fallback: 'Failed to start a new session.'),
       );
     }
   }
@@ -155,10 +156,10 @@ class AssistantController extends StateNotifier<AssistantState> {
       _applyPayload(json, sending: false);
     } on DioException catch (e) {
       state = state.copyWith(sending: false, error: _mapError(e));
-    } catch (_) {
+    } catch (e) {
       state = state.copyWith(
         sending: false,
-        error: 'Failed to send message to assistant',
+        error: mapAnyError(e, fallback: 'Failed to send message.'),
       );
     }
   }
@@ -181,8 +182,11 @@ class AssistantController extends StateNotifier<AssistantState> {
       _applyPayload(json, sending: false);
     } on DioException catch (e) {
       state = state.copyWith(sending: false, error: _mapError(e));
-    } catch (_) {
-      state = state.copyWith(sending: false, error: 'Failed to confirm draft');
+    } catch (e) {
+      state = state.copyWith(
+        sending: false,
+        error: mapAnyError(e, fallback: 'Failed to confirm draft.'),
+      );
     }
   }
 
@@ -214,24 +218,16 @@ class AssistantController extends StateNotifier<AssistantState> {
   }
 
   String _mapError(DioException e) {
-    final data = e.response?.data;
-    if (data is Map<String, dynamic>) {
-      final message = data['message'];
-      if (message is String && message.isNotEmpty) {
-        switch (message) {
-          case 'DRAFT_NOT_FOUND':
-            return 'Draft not found or expired';
-          case 'DRAFT_EXPIRED':
-            return 'Draft expired. Please create a new one';
-          case 'ADDRESS_REQUIRED':
-            return 'Select delivery address before confirmation';
-          case 'MESSAGE_REQUIRED':
-            return 'Type a message first';
-          default:
-            return message;
-        }
-      }
-    }
-    return 'Network error while connecting to server';
+    return mapDioError(
+      e,
+      fallback: 'Network error while talking to assistant.',
+      customMessages: const {
+        'DRAFT_NOT_FOUND': 'Draft not found or expired.',
+        'DRAFT_EXPIRED': 'Draft expired. Please create a new one.',
+        'ADDRESS_REQUIRED': 'Select a delivery address before confirmation.',
+        'MESSAGE_REQUIRED': 'Type a message first.',
+      },
+      appendRequestId: true,
+    );
   }
 }

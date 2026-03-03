@@ -27,6 +27,7 @@ taxiRouter.get("/rides/current", requireCustomer, c.getCurrentRideForCustomer);
 taxiRouter.post("/rides", requireCustomer, c.createRide);
 taxiRouter.get("/rides/:rideId", c.getRideDetails);
 taxiRouter.post("/rides/:rideId/cancel", requireCustomer, c.cancelRide);
+taxiRouter.post("/rides/:rideId/rate", requireCustomer, c.rateRide);
 taxiRouter.post(
   "/rides/:rideId/bids/:bidId/accept",
   requireCustomer,

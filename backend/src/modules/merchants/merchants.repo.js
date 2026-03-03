@@ -218,6 +218,49 @@ export async function getPublicMerchantCategories(merchantId) {
   return r.rows;
 }
 
+export async function getPublicAdBoardItems({ type }) {
+  const r = await q(
+    `SELECT
+       a.id,
+       a.title,
+       a.subtitle,
+       a.image_url,
+       a.badge_label,
+       a.cta_label,
+       a.cta_target_type,
+       a.cta_target_value,
+       a.merchant_id,
+       a.priority,
+       a.starts_at,
+       a.ends_at,
+       m.name AS merchant_name,
+       m.type::text AS merchant_type,
+       m.image_url AS merchant_image_url,
+       m.is_open AS merchant_is_open
+     FROM app_ad_board_item a
+     LEFT JOIN merchant m ON m.id = a.merchant_id
+     WHERE a.is_active = TRUE
+       AND (a.starts_at IS NULL OR a.starts_at <= NOW())
+       AND (a.ends_at IS NULL OR a.ends_at >= NOW())
+       AND (
+         a.merchant_id IS NULL
+         OR (
+           m.is_approved = TRUE
+           AND COALESCE(m.is_disabled, FALSE) = FALSE
+         )
+       )
+       AND (
+         $1::text IS NULL
+         OR a.merchant_id IS NULL
+         OR m.type::text = $1::text
+       )
+     ORDER BY a.priority ASC, a.id DESC
+     LIMIT 12`,
+    [type || null]
+  );
+  return r.rows;
+}
+
 export async function getMerchantsDiscoveryBase({ type, customerUserId }) {
   const r = await q(
     `WITH order_stats AS (

@@ -1,6 +1,9 @@
 ﻿import {
   addUserStream,
+  getLatestUserEventId,
+  replayUserEvents,
   removeUserStream,
+  writeSseEvent,
 } from "../../shared/realtime/live-events.js";
 import * as service from "./taxi.service.js";
 import {
@@ -10,6 +13,7 @@ import {
   validateCounterOffer,
   validateCreateBid,
   validateCreateRide,
+  validateRideRating,
   validateRideChatMessage,
   validateRideChatQuery,
   validateRideCallEnd,
@@ -97,6 +101,26 @@ export async function cancelRide(req, res, next) {
     });
 
     return res.json({ ride: out });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function rateRide(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateRideRating(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.rateRideByCustomer({
+      customerUserId: req.userId,
+      rideId,
+      dto: v.value,
+    });
+
+    return res.json(out);
   } catch (error) {
     return next(error);
   }
@@ -495,17 +519,46 @@ export function stream(req, res, next) {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
-    const writeEvent = (event, data) => {
-      const payload = JSON.stringify(data || {});
-      res.write(`event: ${event}\n`);
-      res.write(`data: ${payload}\n\n`);
-    };
+    const rawLastId = req.get("last-event-id") || req.query?.lastEventId;
+    const lastEventId = Number(rawLastId || 0);
+    const safeLastEventId =
+      Number.isFinite(lastEventId) && lastEventId > 0
+        ? Math.floor(lastEventId)
+        : 0;
 
     addUserStream(req.userId, res);
-    writeEvent("connected", { at: new Date().toISOString(), module: "taxi" });
+    writeSseEvent(
+      res,
+      "connected",
+      {
+        at: new Date().toISOString(),
+        module: "taxi",
+        lastEventId: safeLastEventId || null,
+      },
+      { id: getLatestUserEventId(req.userId) }
+    );
+
+    if (safeLastEventId > 0) {
+      const replay = replayUserEvents(req.userId, res, {
+        afterEventId: safeLastEventId,
+        maxEvents: 1000,
+      });
+      if (replay.replayed > 0) {
+        writeSseEvent(res, "replayed", {
+          replayed: replay.replayed,
+          lastEventId: replay.lastEventId,
+          module: "taxi",
+        });
+      }
+    }
 
     const heartbeat = setInterval(() => {
-      writeEvent("heartbeat", { at: new Date().toISOString() });
+      writeSseEvent(
+        res,
+        "heartbeat",
+        { at: new Date().toISOString(), module: "taxi" },
+        { id: getLatestUserEventId(req.userId) }
+      );
     }, 20000);
 
     req.on("close", () => {
@@ -516,3 +569,5 @@ export function stream(req, res, next) {
     next(error);
   }
 }
+
+

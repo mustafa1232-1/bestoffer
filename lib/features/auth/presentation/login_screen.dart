@@ -99,7 +99,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                               const SizedBox(width: 12),
                               const Expanded(
                                 child: Text(
-                                  'BestOffer | Basmaya',
+                                  'Shakaky | شكاكي',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 21,

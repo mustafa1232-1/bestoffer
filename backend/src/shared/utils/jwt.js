@@ -4,10 +4,12 @@ export function signAccessToken(user) {
   return jwt.sign(
     { sub: user.id, role: user.role, sa: user.isSuperAdmin === true },
     process.env.JWT_SECRET,
-    { expiresIn: "7d" }
+    { expiresIn: "7d", algorithm: "HS256" }
   );
 }
 
 export function verifyAccessToken(token) {
-  return jwt.verify(token, process.env.JWT_SECRET);
+  return jwt.verify(token, process.env.JWT_SECRET, {
+    algorithms: ["HS256"],
+  });
 }

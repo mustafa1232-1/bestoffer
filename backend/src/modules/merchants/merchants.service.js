@@ -92,6 +92,28 @@ export async function listMerchantCategories(merchantId) {
   return repo.getPublicMerchantCategories(merchantId);
 }
 
+export async function listPublicAdBoard(type) {
+  const normalizedType = normalizeType(type);
+  const rows = await repo.getPublicAdBoardItems({ type: normalizedType });
+  return rows.map((row) => ({
+    id: Number(row.id),
+    title: row.title,
+    subtitle: row.subtitle,
+    imageUrl: row.image_url || row.merchant_image_url || null,
+    badgeLabel: row.badge_label || null,
+    ctaLabel: row.cta_label || null,
+    ctaTargetType: row.cta_target_type || "none",
+    ctaTargetValue: row.cta_target_value || null,
+    merchantId: row.merchant_id ? Number(row.merchant_id) : null,
+    merchantName: row.merchant_name || null,
+    merchantType: row.merchant_type || null,
+    merchantIsOpen: row.merchant_is_open === true,
+    priority: Number(row.priority || 0),
+    startsAt: row.starts_at ? new Date(row.starts_at).toISOString() : null,
+    endsAt: row.ends_at ? new Date(row.ends_at).toISOString() : null,
+  }));
+}
+
 const supportedMerchantTypes = new Set(["restaurant", "market"]);
 
 function toNumber(value, fallback = 0) {

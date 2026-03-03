@@ -1,7 +1,10 @@
 import * as service from "./notifications.service.js";
 import {
   addUserStream,
+  getLatestUserEventId,
+  replayUserEvents,
   removeUserStream,
+  writeSseEvent,
 } from "../../shared/realtime/live-events.js";
 
 export async function list(req, res, next) {
@@ -76,17 +79,45 @@ export function stream(req, res, next) {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
-    const writeEvent = (event, data) => {
-      const payload = JSON.stringify(data || {});
-      res.write(`event: ${event}\n`);
-      res.write(`data: ${payload}\n\n`);
-    };
+    const rawLastId = req.get("last-event-id") || req.query?.lastEventId;
+    const lastEventId = Number(rawLastId || 0);
+    const safeLastEventId =
+      Number.isFinite(lastEventId) && lastEventId > 0
+        ? Math.floor(lastEventId)
+        : 0;
 
     addUserStream(req.userId, res);
-    writeEvent("connected", { at: new Date().toISOString() });
+    writeSseEvent(
+      res,
+      "connected",
+      {
+        at: new Date().toISOString(),
+        lastEventId: safeLastEventId || null,
+      },
+      { id: getLatestUserEventId(req.userId) }
+    );
+
+    if (safeLastEventId > 0) {
+      const replay = replayUserEvents(req.userId, res, {
+        afterEventId: safeLastEventId,
+        maxEvents: 1000,
+      });
+
+      if (replay.replayed > 0) {
+        writeSseEvent(res, "replayed", {
+          replayed: replay.replayed,
+          lastEventId: replay.lastEventId,
+        });
+      }
+    }
 
     const heartbeat = setInterval(() => {
-      writeEvent("heartbeat", { at: new Date().toISOString() });
+      writeSseEvent(
+        res,
+        "heartbeat",
+        { at: new Date().toISOString() },
+        { id: getLatestUserEventId(req.userId) }
+      );
     }, 20000);
 
     req.on("close", () => {

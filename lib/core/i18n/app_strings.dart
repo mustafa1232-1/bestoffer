@@ -28,8 +28,8 @@ const Map<String, Map<String, String>> _translations = {
   'logout': {'ar': 'تسجيل الخروج', 'en': 'Logout'},
   'myOrders': {'ar': 'طلباتي', 'en': 'My Orders'},
   'customerHomeTitle': {
-    'ar': 'بسماية | اطلب الآن',
-    'en': 'Basmaya | Order Now',
+    'ar': 'شكاكي | سوقك اليومي',
+    'en': 'Shakaky | Your Daily Market',
   },
   'backofficeMerchantsTitle': {
     'ar': 'إدارة المتاجر',
@@ -176,7 +176,7 @@ const Map<String, Map<String, String>> _translations = {
   'phoneLabel': {'ar': 'رقم الهاتف', 'en': 'Phone Number'},
   'pinLabel': {'ar': 'الرمز السري (PIN)', 'en': 'PIN'},
   'loginTagline': {
-    'ar': 'من قلب مدينة بسماية • طلبك قريب من بيتك',
-    'en': 'From Basmaya to your door',
+    'ar': 'شكاكي وياك • كلشي يلگاك',
+    'en': 'Shakaky with you • everything you need in one place',
   },
 };

@@ -123,3 +123,120 @@ export async function approveDeliveryAccount(deliveryUserId, approvedByUserId) {
 
   return r.rows[0] || null;
 }
+
+export async function getMerchantById(merchantId) {
+  const r = await q(
+    `SELECT id, name, type, is_approved, is_disabled
+     FROM merchant
+     WHERE id = $1
+     LIMIT 1`,
+    [Number(merchantId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function listAdBoardItems() {
+  const r = await q(
+    `SELECT
+       a.*,
+       m.name AS merchant_name,
+       m.type::text AS merchant_type,
+       m.is_approved AS merchant_is_approved,
+       m.is_disabled AS merchant_is_disabled
+     FROM app_ad_board_item a
+     LEFT JOIN merchant m ON m.id = a.merchant_id
+     ORDER BY a.priority ASC, a.id DESC`
+  );
+  return r.rows;
+}
+
+export async function createAdBoardItem(item) {
+  const r = await q(
+    `INSERT INTO app_ad_board_item
+      (
+        title,
+        subtitle,
+        image_url,
+        badge_label,
+        cta_label,
+        cta_target_type,
+        cta_target_value,
+        merchant_id,
+        priority,
+        is_active,
+        starts_at,
+        ends_at,
+        created_by_user_id,
+        updated_by_user_id
+      )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
+     RETURNING *`,
+    [
+      item.title,
+      item.subtitle,
+      item.imageUrl || null,
+      item.badgeLabel || null,
+      item.ctaLabel || null,
+      item.ctaTargetType || "none",
+      item.ctaTargetValue || null,
+      item.merchantId || null,
+      Number(item.priority ?? 100),
+      item.isActive !== false,
+      item.startsAt || null,
+      item.endsAt || null,
+      Number(item.actorUserId) || null,
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function updateAdBoardItem(itemId, patch, actorUserId) {
+  const allowed = new Map([
+    ["title", "title"],
+    ["subtitle", "subtitle"],
+    ["imageUrl", "image_url"],
+    ["badgeLabel", "badge_label"],
+    ["ctaLabel", "cta_label"],
+    ["ctaTargetType", "cta_target_type"],
+    ["ctaTargetValue", "cta_target_value"],
+    ["merchantId", "merchant_id"],
+    ["priority", "priority"],
+    ["isActive", "is_active"],
+    ["startsAt", "starts_at"],
+    ["endsAt", "ends_at"],
+  ]);
+
+  const keys = Object.keys(patch || {}).filter((key) => allowed.has(key));
+  if (!keys.length) return null;
+
+  const params = [];
+  const assignments = keys.map((key, index) => {
+    params.push(patch[key]);
+    return `${allowed.get(key)} = $${index + 2}`;
+  });
+
+  params.unshift(Number(itemId));
+  params.push(Number(actorUserId) || null);
+
+  const updatedByPosition = params.length;
+
+  const sql = `
+    UPDATE app_ad_board_item
+    SET ${assignments.join(", ")},
+        updated_by_user_id = $${updatedByPosition}
+    WHERE id = $1
+    RETURNING *`;
+
+  const r = await q(sql, params);
+  return r.rows[0] || null;
+}
+
+export async function deleteAdBoardItem(itemId) {
+  const r = await q(
+    `DELETE FROM app_ad_board_item
+     WHERE id = $1
+     RETURNING id`,
+    [Number(itemId)]
+  );
+  return r.rows[0] || null;
+}

@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:bestoffer/features/auth/state/auth_controller.dart';
 import 'package:bestoffer/features/taxi/data/taxi_api.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -36,8 +39,12 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
   MediaStream? _localStream;
   StreamSubscription<TaxiLiveEvent>? _streamSub;
   Timer? _ticker;
+  Timer? _reconnectTimer;
+  Timer? _ringTimer;
+  Timer? _iceRecoverTimer;
 
   final Set<int> _handledSignalIds = <int>{};
+  final List<RTCIceCandidate> _queuedRemoteCandidates = <RTCIceCandidate>[];
 
   int? _sessionId;
   bool _busy = true;
@@ -47,6 +54,9 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
   bool _pendingIncomingAccept = false;
   bool _acceptedIncoming = false;
   bool _disposed = false;
+  bool _remoteDescriptionSet = false;
+  int _reconnectAttempt = 0;
+  int? _lastEventId;
   String _statusText = 'جاري تهيئة الاتصال...';
   DateTime? _connectedAt;
   Map<String, dynamic>? _pendingOfferPayload;
@@ -63,6 +73,9 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
     _disposed = true;
     _ticker?.cancel();
     _streamSub?.cancel();
+    _reconnectTimer?.cancel();
+    _ringTimer?.cancel();
+    _iceRecoverTimer?.cancel();
     unawaited(_disposeRtc());
     super.dispose();
   }
@@ -79,13 +92,17 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
         if (session is Map) {
           _sessionId = _asInt(session['id']);
         }
+        _startRinging(incoming: false);
         await _createAndSendOffer();
         _setStatus('جاري الاتصال بالطرف الآخر...');
       } else if (!widget.isCaller) {
+        _startRinging(incoming: true);
         _setStatus('مكالمة واردة...');
       }
 
       _startTicker();
+    } on DioException catch (e) {
+      _setStatus(_mapCallError(e));
     } catch (_) {
       _setStatus('تعذر بدء الاتصال داخل التطبيق');
     } finally {
@@ -96,45 +113,55 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
   }
 
   Future<void> _prepareRtc() async {
-    final config = <String, dynamic>{
-      'iceServers': [
-        {
-          'urls': [
-            'stun:stun.l.google.com:19302',
-            'stun:stun1.l.google.com:19302',
-          ],
-        },
-      ],
-      'sdpSemantics': 'unified-plan',
-    };
-
-    _pc = await createPeerConnection(config);
+    _pc = await createPeerConnection(_buildRtcConfig());
 
     _pc!.onConnectionState = (state) {
-      if (!mounted) return;
+      if (!mounted || _disposed) return;
+
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-        setState(() {
-          _inCall = true;
-          _connectedAt ??= DateTime.now();
-          _statusText = 'المكالمة متصلة';
-        });
+        _onConnected();
+        return;
+      }
+
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        _setStatus('انقطع الاتصال، جاري محاولة الاستعادة...');
+        _scheduleIceRecover();
+        return;
+      }
+
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        _setStatus('فشل الاتصال، جاري إعادة المحاولة...');
+        _scheduleIceRecover(force: true);
+        return;
+      }
+
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+        _stopRinging();
+        _setStatus('انتهت المكالمة');
+      }
+    };
+
+    _pc!.onIceConnectionState = (state) {
+      if (!mounted || _disposed) return;
+      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+        _onConnected();
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        _scheduleIceRecover(force: true);
       } else if (state ==
-          RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-        setState(() => _statusText = 'إعادة محاولة الاتصال...');
-      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        setState(() => _statusText = 'فشل الاتصال');
-      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
-        setState(() => _statusText = 'انتهت المكالمة');
+          RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+        _scheduleIceRecover();
       }
     };
 
     _pc!.onIceCandidate = (candidate) {
-      if (candidate.candidate == null || candidate.candidate!.isEmpty) return;
+      final text = candidate.candidate;
+      if (text == null || text.isEmpty) return;
       unawaited(
         _sendSignal(
           signalType: 'ice',
           signalPayload: {
-            'candidate': candidate.candidate,
+            'candidate': text,
             'sdpMid': candidate.sdpMid,
             'sdpMLineIndex': candidate.sdpMLineIndex,
           },
@@ -143,7 +170,15 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
     };
 
     _localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
+      'audio': {
+        'echoCancellation': true,
+        'noiseSuppression': true,
+        'autoGainControl': true,
+        'googEchoCancellation': true,
+        'googAutoGainControl': true,
+        'googNoiseSuppression': true,
+        'googHighpassFilter': true,
+      },
       'video': false,
     });
 
@@ -154,21 +189,124 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
     await Helper.setSpeakerphoneOn(true);
   }
 
+  Map<String, dynamic> _buildRtcConfig() {
+    final servers = <Map<String, dynamic>>[
+      {
+        'urls': <String>[
+          'stun:stun.l.google.com:19302',
+          'stun:stun1.l.google.com:19302',
+        ],
+      },
+    ];
+
+    const turnUrl = String.fromEnvironment('RTC_TURN_URL', defaultValue: '');
+    const turnUsername = String.fromEnvironment(
+      'RTC_TURN_USERNAME',
+      defaultValue: '',
+    );
+    const turnCredential = String.fromEnvironment(
+      'RTC_TURN_CREDENTIAL',
+      defaultValue: '',
+    );
+    if (turnUrl.trim().isNotEmpty) {
+      servers.add({
+        'urls': turnUrl.trim(),
+        if (turnUsername.trim().isNotEmpty) 'username': turnUsername.trim(),
+        if (turnCredential.trim().isNotEmpty) 'credential': turnCredential,
+      });
+    }
+
+    servers.addAll(_parseExtraIceServers());
+
+    return {
+      'iceServers': servers,
+      'iceTransportPolicy': 'all',
+      'bundlePolicy': 'max-bundle',
+      'rtcpMuxPolicy': 'require',
+      'sdpSemantics': 'unified-plan',
+    };
+  }
+
+  List<Map<String, dynamic>> _parseExtraIceServers() {
+    const raw = String.fromEnvironment(
+      'RTC_ICE_SERVERS_JSON',
+      defaultValue: '',
+    );
+    final text = raw.trim();
+    if (text.isEmpty) return const [];
+
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is! List) return const [];
+      final out = <Map<String, dynamic>>[];
+      for (final item in decoded) {
+        if (item is! Map) continue;
+        final map = Map<String, dynamic>.from(item);
+        final urls = map['urls'];
+        final hasUrls =
+            (urls is String && urls.trim().isNotEmpty) ||
+            (urls is List && urls.any((e) => '$e'.trim().isNotEmpty));
+        if (!hasUrls) continue;
+        out.add(map);
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<void> _connectSignalStream() async {
     _streamSub?.cancel();
-    _streamSub = _api.streamEvents().listen(
-      (event) {
-        if (event.event != 'taxi_call_update') return;
-        final rideId = _asInt(event.data['rideId']);
-        if (rideId != widget.rideId) return;
-        _handleCallUpdateEvent(event.data);
-      },
-      onError: (_) {
-        if (mounted) {
-          setState(() => _statusText = 'تقطّع في الاتصال، جاري الاستعادة...');
-        }
-      },
-    );
+    _reconnectTimer?.cancel();
+    _streamSub = _api
+        .streamEvents(lastEventId: _lastEventId)
+        .listen(
+          (event) {
+            if (event.eventId != null && event.eventId! > 0) {
+              _lastEventId = event.eventId;
+            }
+
+            if (event.event == 'connected' || event.event == 'replayed') {
+              _reconnectAttempt = 0;
+              return;
+            }
+
+            if (event.event != 'taxi_call_update') return;
+            final rideId = _asInt(event.data['rideId']);
+            if (rideId != widget.rideId) return;
+            unawaited(_handleCallUpdateEvent(event.data));
+          },
+          onError: (_) {
+            if (mounted) {
+              setState(
+                () => _statusText = 'تقطّع في الاتصال، جاري الاستعادة...',
+              );
+            }
+            _scheduleReconnect();
+          },
+          onDone: _scheduleReconnect,
+          cancelOnError: true,
+        );
+  }
+
+  void _scheduleReconnect() {
+    if (!mounted || _disposed) return;
+    if (_reconnectTimer?.isActive == true) return;
+
+    _reconnectAttempt = (_reconnectAttempt + 1).clamp(1, 6);
+    final delaySeconds = switch (_reconnectAttempt) {
+      1 => 2,
+      2 => 4,
+      3 => 8,
+      4 => 12,
+      5 => 20,
+      _ => 30,
+    };
+
+    _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
+      if (!mounted || _disposed) return;
+      unawaited(_connectSignalStream());
+    });
   }
 
   Future<void> _loadCallState() async {
@@ -178,11 +316,10 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
       _sessionId = _asInt(session['id']) ?? _sessionId;
       final status = _asString(session['status']);
       if (status == 'active') {
-        _inCall = true;
-        _connectedAt ??= DateTime.now();
-        _statusText = 'المكالمة متصلة';
+        _onConnected();
       } else if (status == 'ringing') {
-        _statusText = 'جاري الرنين...';
+        _startRinging(incoming: !widget.isCaller);
+        _setStatus(widget.isCaller ? 'جاري الرنين...' : 'مكالمة واردة...');
       }
     }
 
@@ -195,13 +332,20 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
     }
   }
 
-  Future<void> _createAndSendOffer() async {
+  Future<void> _createAndSendOffer({bool iceRestart = false}) async {
     if (_pc == null) return;
-    final offer = await _pc!.createOffer({'offerToReceiveAudio': true});
+    final offer = await _pc!.createOffer({
+      'offerToReceiveAudio': true,
+      if (iceRestart) 'iceRestart': true,
+    });
     await _pc!.setLocalDescription(offer);
     await _sendSignal(
       signalType: 'offer',
-      signalPayload: {'sdp': offer.sdp, 'type': offer.type},
+      signalPayload: {
+        'sdp': offer.sdp,
+        'type': offer.type,
+        if (iceRestart) 'iceRestart': true,
+      },
     );
   }
 
@@ -227,7 +371,20 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
       _sessionId = _asInt(session['id']) ?? _sessionId;
     }
 
-    final eventType = _asString(data['eventType']);
+    final eventType = _asString(data['eventType']) ?? '';
+    if (eventType == 'incoming_call') {
+      _startRinging(incoming: true);
+      _setStatus('مكالمة واردة...');
+    }
+    if (eventType == 'outgoing_call') {
+      _startRinging(incoming: false);
+      _setStatus('جاري الرنين...');
+    }
+    if (eventType == 'call_missed') {
+      _setStatus('لم يتم الرد وانتهت مهلة الاتصال');
+      await _remoteEndCall();
+      return;
+    }
     if (eventType == 'call_ended') {
       await _remoteEndCall();
       return;
@@ -249,10 +406,17 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
         ? Map<String, dynamic>.from(signal['signalPayload'] as Map)
         : <String, dynamic>{};
 
+    if (type == 'ringing') {
+      _startRinging(incoming: !widget.isCaller);
+      _setStatus(widget.isCaller ? 'جاري الرنين...' : 'مكالمة واردة...');
+      return;
+    }
+
     if (type == 'offer') {
       if (!widget.isCaller && !_acceptedIncoming) {
         _pendingOfferPayload = payload;
-        _pendingIncomingAccept = true;
+        _pendingIncomingAccept = false;
+        _startRinging(incoming: true);
         _setStatus('مكالمة واردة...');
         if (mounted) setState(() {});
         return;
@@ -272,7 +436,8 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
     }
 
     if (type == 'accept') {
-      _setStatus('تم قبول المكالمة');
+      _stopRinging();
+      _setStatus('تم الرد، جاري تثبيت الصوت...');
       return;
     }
 
@@ -289,6 +454,9 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
     if (sdp == null || sdp.isEmpty) return;
 
     await _pc!.setRemoteDescription(RTCSessionDescription(sdp, type));
+    _remoteDescriptionSet = true;
+    await _flushQueuedCandidates();
+
     final answer = await _pc!.createAnswer({'offerToReceiveAudio': true});
     await _pc!.setLocalDescription(answer);
     await _sendSignal(
@@ -296,13 +464,7 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
       signalPayload: {'sdp': answer.sdp, 'type': answer.type},
     );
 
-    if (mounted) {
-      setState(() {
-        _inCall = true;
-        _connectedAt ??= DateTime.now();
-      });
-    }
-    _setStatus('المكالمة متصلة');
+    _onConnected();
   }
 
   Future<void> _handleAnswer(Map<String, dynamic> payload) async {
@@ -312,13 +474,9 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
     if (sdp == null || sdp.isEmpty) return;
 
     await _pc!.setRemoteDescription(RTCSessionDescription(sdp, type));
-    if (mounted) {
-      setState(() {
-        _inCall = true;
-        _connectedAt ??= DateTime.now();
-      });
-    }
-    _setStatus('المكالمة متصلة');
+    _remoteDescriptionSet = true;
+    await _flushQueuedCandidates();
+    _onConnected();
   }
 
   Future<void> _handleIce(Map<String, dynamic> payload) async {
@@ -330,7 +488,45 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
       _asString(payload['sdpMid']),
       _asInt(payload['sdpMLineIndex']),
     );
+
+    if (!_remoteDescriptionSet) {
+      _queuedRemoteCandidates.add(candidate);
+      return;
+    }
     await _pc!.addCandidate(candidate);
+  }
+
+  Future<void> _flushQueuedCandidates() async {
+    if (_pc == null || !_remoteDescriptionSet) return;
+    if (_queuedRemoteCandidates.isEmpty) return;
+    final pending = List<RTCIceCandidate>.from(_queuedRemoteCandidates);
+    _queuedRemoteCandidates.clear();
+    for (final candidate in pending) {
+      try {
+        await _pc!.addCandidate(candidate);
+      } catch (_) {}
+    }
+  }
+
+  void _scheduleIceRecover({bool force = false}) {
+    if (_disposed || !mounted) return;
+    if (_iceRecoverTimer?.isActive == true && !force) return;
+    _iceRecoverTimer?.cancel();
+    _iceRecoverTimer = Timer(const Duration(seconds: 2), () {
+      if (_disposed || !mounted) return;
+      unawaited(_recoverIce());
+    });
+  }
+
+  Future<void> _recoverIce() async {
+    if (_pc == null) return;
+    if (!widget.isCaller) return;
+    try {
+      _setStatus('جاري إعادة تثبيت المكالمة...');
+      await _createAndSendOffer(iceRestart: true);
+    } catch (_) {
+      _setStatus('تعذر استعادة الاتصال حاليًا');
+    }
   }
 
   Future<void> _acceptIncoming() async {
@@ -339,6 +535,7 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
     try {
       await _sendSignal(signalType: 'accept');
       _acceptedIncoming = true;
+      _stopRinging();
       final pending = _pendingOfferPayload;
       _pendingOfferPayload = null;
       if (pending != null) {
@@ -354,6 +551,7 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
   }
 
   Future<void> _remoteEndCall() async {
+    _stopRinging();
     _setStatus('انتهت المكالمة');
     await _disposeRtc();
     if (mounted) {
@@ -365,6 +563,7 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
     String status = 'ended',
     String reason = 'user_hangup',
   }) async {
+    _stopRinging();
     try {
       await _api.endRideCall(
         rideId: widget.rideId,
@@ -372,7 +571,7 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
         reason: reason,
       );
     } catch (_) {
-      // ignore
+      // ignore network errors at call end.
     }
     await _disposeRtc();
     if (mounted) Navigator.of(context).pop();
@@ -381,6 +580,9 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
   Future<void> _disposeRtc() async {
     _ticker?.cancel();
     _ticker = null;
+    _stopRinging();
+    _iceRecoverTimer?.cancel();
+    _iceRecoverTimer = null;
     try {
       await _pc?.close();
     } catch (_) {}
@@ -389,6 +591,19 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
       await _localStream?.dispose();
     } catch (_) {}
     _localStream = null;
+    _remoteDescriptionSet = false;
+    _queuedRemoteCandidates.clear();
+  }
+
+  void _onConnected() {
+    _stopRinging();
+    if (mounted) {
+      setState(() {
+        _inCall = true;
+        _connectedAt ??= DateTime.now();
+        _statusText = 'المكالمة متصلة';
+      });
+    }
   }
 
   void _setStatus(String value) {
@@ -404,6 +619,27 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
         setState(() {});
       }
     });
+  }
+
+  void _startRinging({required bool incoming}) {
+    if (_inCall) return;
+    if (_ringTimer?.isActive == true) return;
+    final interval = incoming
+        ? const Duration(milliseconds: 1450)
+        : const Duration(milliseconds: 1900);
+    SystemSound.play(SystemSoundType.alert);
+    _ringTimer = Timer.periodic(interval, (_) {
+      if (_disposed || _inCall) return;
+      SystemSound.play(SystemSoundType.alert);
+      if (incoming) {
+        HapticFeedback.mediumImpact();
+      }
+    });
+  }
+
+  void _stopRinging() {
+    _ringTimer?.cancel();
+    _ringTimer = null;
   }
 
   Future<void> _toggleMute() async {
@@ -446,10 +682,39 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
     return t.isEmpty ? null : t;
   }
 
+  String _mapCallError(DioException e) {
+    final data = e.response?.data;
+    if (data is Map) {
+      final message = '${data['message'] ?? ''}'.trim();
+      switch (message) {
+        case 'TAXI_CALL_PEER_NOT_AVAILABLE':
+          return 'الطرف الآخر غير متاح حاليًا للاتصال';
+        case 'TAXI_CALL_SESSION_NOT_FOUND':
+          return 'جلسة الاتصال غير موجودة أو انتهت';
+        case 'TAXI_CALL_FORBIDDEN':
+          return 'لا تملك صلاحية الاتصال لهذه الرحلة';
+      }
+      if (message.isNotEmpty) return message;
+    }
+    return 'تعذر بدء المكالمة، تحقق من الشبكة ثم حاول مرة أخرى';
+  }
+
+  Color _statusColor() {
+    if (_inCall) return const Color(0xFF63F0B0);
+    if (_statusText.contains('الرنين') || _statusText.contains('واردة')) {
+      return const Color(0xFFFFC766);
+    }
+    if (_statusText.contains('فشل') || _statusText.contains('تعذر')) {
+      return const Color(0xFFFF7C8A);
+    }
+    return const Color(0xFF66D4FF);
+  }
+
   @override
   Widget build(BuildContext context) {
     final incomingAwaitingAccept =
         !widget.isCaller && _pendingOfferPayload != null && !_acceptedIncoming;
+    final statusColor = _statusColor();
 
     return Scaffold(
       appBar: AppBar(
@@ -461,91 +726,136 @@ class _TaxiCallScreenState extends ConsumerState<TaxiCallScreen> {
       ),
       body: Directionality(
         textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                const SizedBox(height: 20),
-                CircleAvatar(
-                  radius: 48,
-                  backgroundColor: Colors.blue.withValues(alpha: 0.16),
-                  child: const Icon(Icons.person_rounded, size: 52),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  widget.remoteDisplayName ?? 'الطرف الآخر',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF102E4D), Color(0xFF081528)],
+            ),
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  TweenAnimationBuilder<double>(
+                    duration: const Duration(milliseconds: 900),
+                    tween: Tween<double>(begin: 0.96, end: _inCall ? 1 : 0.98),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, scale, child) =>
+                        Transform.scale(scale: scale, child: child),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: statusColor.withValues(alpha: 0.22),
+                            blurRadius: 24,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: CircleAvatar(
+                        radius: 52,
+                        backgroundColor: Colors.white.withValues(alpha: 0.12),
+                        child: const Icon(Icons.person_rounded, size: 56),
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _busy ? 'جاري التحميل...' : _statusText,
-                  style: const TextStyle(fontSize: 14),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _inCall ? _durationText() : '00:00',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
+                  const SizedBox(height: 14),
+                  Text(
+                    widget.remoteDisplayName ?? 'الطرف الآخر',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-                const Spacer(),
-                if (incomingAwaitingAccept)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.tonalIcon(
-                          onPressed: _pendingIncomingAccept
-                              ? null
-                              : _declineIncoming,
-                          icon: const Icon(Icons.call_end_rounded),
-                          label: const Text('رفض'),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      color: statusColor.withValues(alpha: 0.16),
+                      border: Border.all(
+                        color: statusColor.withValues(alpha: 0.65),
+                      ),
+                    ),
+                    child: Text(
+                      _busy ? 'جاري التحميل...' : _statusText,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: statusColor,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _inCall ? _durationText() : '00:00',
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (incomingAwaitingAccept)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.tonalIcon(
+                            onPressed: _pendingIncomingAccept
+                                ? null
+                                : _declineIncoming,
+                            icon: const Icon(Icons.call_end_rounded),
+                            label: const Text('رفض'),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: _pendingIncomingAccept
-                              ? null
-                              : _acceptIncoming,
-                          icon: const Icon(Icons.call_rounded),
-                          label: const Text('رد'),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: _pendingIncomingAccept
+                                ? null
+                                : _acceptIncoming,
+                            icon: const Icon(Icons.call_rounded),
+                            label: const Text('رد'),
+                          ),
                         ),
-                      ),
-                    ],
-                  )
-                else
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _RoundActionButton(
-                        icon: _muted
-                            ? Icons.mic_off_rounded
-                            : Icons.mic_rounded,
-                        label: _muted ? 'إلغاء الكتم' : 'كتم',
-                        onTap: _toggleMute,
-                      ),
-                      _RoundActionButton(
-                        icon: _speakerOn
-                            ? Icons.volume_up_rounded
-                            : Icons.hearing_disabled_rounded,
-                        label: _speakerOn ? 'السماعة' : 'سماعة الأذن',
-                        onTap: _toggleSpeaker,
-                      ),
-                      _RoundActionButton(
-                        icon: Icons.call_end_rounded,
-                        label: 'إنهاء',
-                        color: Colors.redAccent,
-                        onTap: _endCall,
-                      ),
-                    ],
-                  ),
-                const SizedBox(height: 18),
-              ],
+                      ],
+                    )
+                  else
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _RoundActionButton(
+                          icon: _muted
+                              ? Icons.mic_off_rounded
+                              : Icons.mic_rounded,
+                          label: _muted ? 'إلغاء الكتم' : 'كتم',
+                          onTap: _toggleMute,
+                        ),
+                        _RoundActionButton(
+                          icon: _speakerOn
+                              ? Icons.volume_up_rounded
+                              : Icons.hearing_disabled_rounded,
+                          label: _speakerOn ? 'السماعة' : 'سماعة الأذن',
+                          onTap: _toggleSpeaker,
+                        ),
+                        _RoundActionButton(
+                          icon: Icons.call_end_rounded,
+                          label: 'إنهاء',
+                          color: Colors.redAccent,
+                          onTap: _endCall,
+                        ),
+                      ],
+                    ),
+                  const SizedBox(height: 18),
+                ],
+              ),
             ),
           ),
         ),

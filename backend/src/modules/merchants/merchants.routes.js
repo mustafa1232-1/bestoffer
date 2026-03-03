@@ -9,6 +9,7 @@ export const merchantsRouter = Router();
 
 merchantsRouter.get("/", c.list);
 merchantsRouter.get("/discovery", requireAuth, requireCustomer, c.discovery);
+merchantsRouter.get("/ad-board", requireAuth, requireCustomer, c.adBoard);
 merchantsRouter.get("/:merchantId/products", c.listProducts);
 merchantsRouter.get("/:merchantId/categories", c.listCategories);
 merchantsRouter.post(

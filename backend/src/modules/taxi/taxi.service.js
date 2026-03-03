@@ -6,6 +6,8 @@ import * as repo from "./taxi.repo.js";
 const FIRST_SEARCH_RADIUS_M = 2000;
 const EXPANDED_SEARCH_RADIUS_M = 4000;
 const SEARCH_STAGE_MINUTES = 5;
+const NEGOTIATION_TIMEOUT_SECONDS = 90;
+const CALL_RING_TIMEOUT_SECONDS = 35;
 const CAPTAIN_SUBSCRIPTION_MONTHLY_FEE_IQD = 10000;
 
 let lifecycleWorker = null;
@@ -162,6 +164,9 @@ function buildCompactRidePayload(ride) {
     assignedCaptainUserId: ride.assignedCaptainUserId,
     searchPhase: ride.searchPhase,
     searchRadiusM: ride.searchRadiusM,
+    captainRating: ride.captainRating ?? null,
+    captainReview: ride.captainReview ?? null,
+    captainRatedAt: ride.captainRatedAt ?? null,
     createdAt: ride.createdAt,
     updatedAt: ride.updatedAt,
   };
@@ -176,13 +181,41 @@ function sortBidQueueByCreatedAt(bids) {
   });
 }
 
+function buildNegotiationWindowMeta(bid, nowMs = Date.now()) {
+  const anchorAt = new Date(bid?.updatedAt || bid?.createdAt || Date.now());
+  const expiresAtMs =
+    anchorAt.getTime() + NEGOTIATION_TIMEOUT_SECONDS * 1000;
+  const remainingSeconds = Math.max(
+    0,
+    Math.ceil((expiresAtMs - nowMs) / 1000)
+  );
+
+  return {
+    startedAt: anchorAt.toISOString(),
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    remainingSeconds,
+    timeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
+    isExpired: remainingSeconds <= 0,
+  };
+}
+
 function buildBidQueueMeta({ bids, currentBidId }) {
+  const nowMs = Date.now();
   const activeQueue = sortBidQueueByCreatedAt(
     bids.filter((b) => b.status === "active")
   );
+  const currentBid = activeQueue.find(
+    (entry) => Number(entry.id) === Number(currentBidId)
+  );
+  const currentNegotiation = currentBid
+    ? buildNegotiationWindowMeta(currentBid, nowMs)
+    : null;
   return {
     currentBidId: currentBidId || null,
     queueSize: activeQueue.length,
+    generatedAt: new Date(nowMs).toISOString(),
+    negotiationTimeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
+    currentNegotiation,
     queue: activeQueue.map((b, index) => ({
       bidId: b.id,
       captainUserId: b.captainUserId,
@@ -193,6 +226,9 @@ function buildBidQueueMeta({ bids, currentBidId }) {
       counterOfferCount: Number(b.counterOfferCount || 0),
       lastOfferIqd: b.lastOfferIqd ?? b.offeredFareIqd,
       lastOfferBy: b.lastOfferBy || "captain",
+      createdAt: b.createdAt,
+      updatedAt: b.updatedAt,
+      negotiation: buildNegotiationWindowMeta(b, nowMs),
     })),
   };
 }
@@ -306,11 +342,160 @@ async function notifyCaptainsNearRide(ride) {
   return nearbyCaptains.length;
 }
 
+async function processNegotiationTimeoutsAndEmit() {
+  const staleCandidates = await repo.listRidesWithStaleCurrentBid({
+    timeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
+    limit: 140,
+  });
+
+  for (const stale of staleCandidates) {
+    const timedOut = await repo.timeoutCurrentRideBidAndPromote({
+      rideId: stale.rideId,
+      expectedBidId: stale.currentBidId,
+    });
+    if (!timedOut || timedOut.code !== "OK" || !timedOut.ride) continue;
+
+    const ride = timedOut.ride;
+    const bids = await repo.listRideBids(ride.id);
+    const bidQueue = buildBidQueueMeta({
+      bids,
+      currentBidId: ride.currentBidId,
+    });
+
+    await repo.createRideEvent({
+      rideRequestId: ride.id,
+      actorUserId: ride.customerUserId,
+      eventType: timedOut.nextBid
+        ? "bid_timeout_switched"
+        : "bid_timeout_no_next",
+      message: timedOut.nextBid
+        ? "انتهت مهلة التفاوض للكابتن الحالي وتم التحويل تلقائيًا للكابتن التالي."
+        : "انتهت مهلة التفاوض للكابتن الحالي ولا يوجد كابتن بديل الآن.",
+      payload: {
+        timedOutBidId: timedOut.timedOutBid?.id || null,
+        nextBidId: timedOut.nextBid?.id || null,
+        timeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
+      },
+    });
+
+    emitToUser(ride.customerUserId, "taxi_bid_update", {
+      eventType: "bid_timeout_switched",
+      rideId: ride.id,
+      bidQueue,
+      timedOutBidId: timedOut.timedOutBid?.id || null,
+      nextBidId: timedOut.nextBid?.id || null,
+    });
+
+    if (timedOut.timedOutBid?.captainUserId) {
+      emitToUser(timedOut.timedOutBid.captainUserId, "taxi_bid_update", {
+        eventType: "bid_timeout",
+        rideId: ride.id,
+        bidId: timedOut.timedOutBid.id,
+      });
+      queueNotification({
+        userId: timedOut.timedOutBid.captainUserId,
+        type: "taxi.bid.timeout",
+        title: "انتهت مهلة التفاوض",
+        body: "انتهت المهلة وانتقل الطلب تلقائيًا للكابتن التالي.",
+        payload: {
+          rideId: ride.id,
+          bidId: timedOut.timedOutBid.id,
+          timeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
+        },
+      });
+    }
+
+    if (timedOut.nextBid?.captainUserId) {
+      emitToUser(timedOut.nextBid.captainUserId, "taxi_bid_update", {
+        eventType: "you_are_current_bid",
+        rideId: ride.id,
+        bidId: timedOut.nextBid.id,
+        bidQueue,
+      });
+
+      queueNotification({
+        userId: timedOut.nextBid.captainUserId,
+        type: "taxi.bid.turn_started",
+        title: "دورك الآن للتفاوض",
+        body: `لديك ${NEGOTIATION_TIMEOUT_SECONDS} ثانية للرد قبل التحويل التلقائي.`,
+        payload: {
+          rideId: ride.id,
+          bidId: timedOut.nextBid.id,
+          timeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
+        },
+      });
+    } else {
+      queueNotification({
+        userId: ride.customerUserId,
+        type: "taxi.bid.none_after_timeout",
+        title: "لا يوجد عرض نشط الآن",
+        body: "سنستمر في البحث عن كابتن قريب تلقائيًا.",
+        payload: {
+          rideId: ride.id,
+          status: ride.status,
+        },
+      });
+    }
+  }
+}
+
+async function processRingingCallTimeoutsAndEmit() {
+  const staleCalls = await repo.listStaleRingingCallSessions({
+    timeoutSeconds: CALL_RING_TIMEOUT_SECONDS,
+    limit: 120,
+  });
+
+  for (const call of staleCalls) {
+    const ended = await repo.endRideCallSession({
+      sessionId: call.id,
+      endedByUserId: null,
+      endReason: "timeout",
+      status: "missed",
+    });
+    if (!ended) continue;
+
+    const signal = await repo.insertRideCallSignal({
+      callSessionId: ended.id,
+      rideRequestId: ended.rideRequestId,
+      senderUserId: ended.initiatorUserId,
+      signalType: "decline",
+      signalPayload: {
+        reason: "timeout",
+        status: "missed",
+      },
+    });
+
+    const payload = {
+      eventType: "call_missed",
+      rideId: ended.rideRequestId,
+      session: buildCallSessionPayload(ended),
+      signal,
+    };
+
+    emitToUser(ended.initiatorUserId, "taxi_call_update", payload);
+    emitToUser(ended.receiverUserId, "taxi_call_update", payload);
+
+    queueNotification({
+      userId: ended.initiatorUserId,
+      type: "taxi.call.missed",
+      title: "لم يتم الرد على المكالمة",
+      body: "انتهت مهلة الرنين. يمكنك إعادة المحاولة.",
+      payload: {
+        rideId: ended.rideRequestId,
+        callSessionId: ended.id,
+      },
+    });
+  }
+}
+
 async function processSearchingLifecycleAndEmit() {
   if (lifecycleRunning) return;
   lifecycleRunning = true;
 
   try {
+    await processRingingCallTimeoutsAndEmit();
+    await processNegotiationTimeoutsAndEmit();
+
     const due = await repo.listRidesReadyForSearchProgression({ limit: 120 });
     for (const ride of due) {
       if (!ride || ride.status !== "searching") continue;
@@ -404,7 +589,7 @@ async function processSearchingLifecycleAndEmit() {
   }
 }
 
-export function startTaxiLifecycleWorker({ intervalMs = 20000 } = {}) {
+export function startTaxiLifecycleWorker({ intervalMs = 5000 } = {}) {
   if (lifecycleWorker) return;
 
   lifecycleWorker = setInterval(() => {
@@ -1565,6 +1750,76 @@ export async function cancelRide({ customerUserId, rideId }) {
   }
 
   return result.ride;
+}
+
+export async function rateRideByCustomer({
+  customerUserId,
+  rideId,
+  dto,
+}) {
+  const result = await repo.rateCompletedRideByCustomer({
+    rideId,
+    customerUserId,
+    rating: dto.rating,
+    review: dto.review,
+  });
+
+  if (result.code !== "OK") {
+    if (result.code === "RIDE_NOT_FOUND") {
+      throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+    }
+    if (result.code === "RIDE_NOT_COMPLETED") {
+      throw new AppError("TAXI_RIDE_NOT_COMPLETED", {
+        status: 409,
+        details: { currentStatus: result.currentStatus },
+      });
+    }
+    if (result.code === "RIDE_CAPTAIN_NOT_FOUND") {
+      throw new AppError("TAXI_RIDE_CAPTAIN_NOT_FOUND", { status: 409 });
+    }
+    throw new AppError("TAXI_RIDE_RATING_FAILED", { status: 500 });
+  }
+
+  await repo.createRideEvent({
+    rideRequestId: result.ride.id,
+    actorUserId: customerUserId,
+    eventType: "ride_rated",
+    message: "تم تقييم الكابتن بعد الرحلة.",
+    payload: {
+      rating: result.rating,
+      review: result.review,
+      captainUserId: result.captainUserId,
+      captainRatingAvg: result.captainRatingAvg,
+      captainRatedCount: result.captainRatedCount,
+    },
+  });
+
+  await emitRideUpdate(result.ride, "ride_rated", {
+    rating: result.rating,
+    captainRatingAvg: result.captainRatingAvg,
+  });
+
+  if (result.captainUserId) {
+    queueNotification({
+      userId: Number(result.captainUserId),
+      type: "taxi.ride.rated",
+      title: "تقييم جديد من الزبون",
+      body: `حصلت على تقييم ${result.rating}/5 لهذه الرحلة.`,
+      payload: {
+        rideId: result.ride.id,
+        rating: result.rating,
+        captainRatingAvg: result.captainRatingAvg,
+      },
+    });
+  }
+
+  return {
+    ride: result.ride,
+    rating: result.rating,
+    review: result.review,
+    captainRatingAvg: result.captainRatingAvg,
+    captainRatedCount: result.captainRatedCount,
+  };
 }
 
 async function transitionRideStatus({ captainUserId, rideId, nextStatus, eventType, notificationBody }) {

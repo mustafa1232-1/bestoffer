@@ -25,6 +25,14 @@ class MerchantsApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<List<dynamic>> adBoard({String? type}) async {
+    final response = await dio.get(
+      '/api/merchants/ad-board',
+      queryParameters: type == null ? null : {'type': type},
+    );
+    return List<dynamic>.from(response.data as List);
+  }
+
   Future<Map<String, dynamic>> create(
     Map<String, dynamic> body, {
     LocalImageFile? merchantImageFile,
