@@ -1,0 +1,160 @@
+function asTrimmed(value) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function asPositiveInt(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  return n;
+}
+
+export function validateListPosts(query = {}) {
+  const errors = [];
+  const limit = Number(query.limit ?? 20);
+  const beforeId = query.beforeId == null ? null : asPositiveInt(query.beforeId);
+  const kind = asTrimmed(query.kind).toLowerCase();
+
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) errors.push("limit");
+  if (query.beforeId != null && beforeId == null) errors.push("beforeId");
+  if (kind && !["text", "image", "video", "merchant_review"].includes(kind)) {
+    errors.push("kind");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      limit: Math.min(50, Math.max(1, Number.isInteger(limit) ? limit : 20)),
+      beforeId,
+      kind: kind || null,
+    },
+  };
+}
+
+export function validateCreatePost(body = {}) {
+  const errors = [];
+  const caption = asTrimmed(body.caption);
+  const postKind = asTrimmed(body.postKind || body.post_kind).toLowerCase() || "text";
+  const merchantId =
+    body.merchantId == null || body.merchantId === ""
+      ? null
+      : asPositiveInt(body.merchantId);
+  const reviewRating =
+    body.reviewRating == null || body.reviewRating === ""
+      ? null
+      : Number(body.reviewRating);
+
+  if (caption.length > 1200) errors.push("caption");
+  if (!["text", "image", "video", "merchant_review"].includes(postKind)) {
+    errors.push("postKind");
+  }
+  if (body.merchantId != null && merchantId == null) errors.push("merchantId");
+  if (
+    body.reviewRating != null &&
+    (!Number.isInteger(reviewRating) || reviewRating < 1 || reviewRating > 5)
+  ) {
+    errors.push("reviewRating");
+  }
+
+  if (postKind === "merchant_review") {
+    if (merchantId == null) errors.push("merchantId_required");
+    if (reviewRating == null) errors.push("reviewRating_required");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      caption,
+      postKind,
+      merchantId,
+      reviewRating: reviewRating == null ? null : Math.trunc(reviewRating),
+    },
+  };
+}
+
+export function validatePostId(postId) {
+  const value = asPositiveInt(postId);
+  return {
+    ok: value != null,
+    errors: value == null ? ["postId"] : [],
+    value,
+  };
+}
+
+export function validateCreateComment(body = {}) {
+  const text = asTrimmed(body.body);
+  const errors = [];
+  if (!text) errors.push("body");
+  if (text.length > 600) errors.push("body_length");
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      body: text,
+    },
+  };
+}
+
+export function validateMerchantSearch(query = {}) {
+  const search = asTrimmed(query.search);
+  const limit = Number(query.limit ?? 120);
+  const errors = [];
+  if (search.length > 80) errors.push("search");
+  if (!Number.isInteger(limit) || limit < 1 || limit > 300) errors.push("limit");
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      search,
+      limit: Math.min(300, Math.max(1, Number.isInteger(limit) ? limit : 120)),
+    },
+  };
+}
+
+export function validateCreateThread(body = {}) {
+  const userId = asPositiveInt(body.userId);
+  return {
+    ok: userId != null,
+    errors: userId == null ? ["userId"] : [],
+    value: { userId },
+  };
+}
+
+export function validateThreadId(threadId) {
+  const value = asPositiveInt(threadId);
+  return {
+    ok: value != null,
+    errors: value == null ? ["threadId"] : [],
+    value,
+  };
+}
+
+export function validateListMessages(query = {}) {
+  const limit = Number(query.limit ?? 40);
+  const beforeId = query.beforeId == null ? null : asPositiveInt(query.beforeId);
+  const errors = [];
+  if (!Number.isInteger(limit) || limit < 1 || limit > 80) errors.push("limit");
+  if (query.beforeId != null && beforeId == null) errors.push("beforeId");
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      limit: Math.min(80, Math.max(1, Number.isInteger(limit) ? limit : 40)),
+      beforeId,
+    },
+  };
+}
+
+export function validateSendMessage(body = {}) {
+  const text = asTrimmed(body.body);
+  const errors = [];
+  if (!text) errors.push("body");
+  if (text.length > 1200) errors.push("body_length");
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: { body: text },
+  };
+}

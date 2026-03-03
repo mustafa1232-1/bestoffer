@@ -56,15 +56,23 @@ class OrdersController extends StateNotifier<OrdersState> {
   final Ref ref;
   Timer? _liveOrdersTimer;
   bool _liveFetchInFlight = false;
+  bool _disposed = false;
 
   OrdersController(this.ref) : super(const OrdersState());
 
+  void _setStateSafely(OrdersState nextState) {
+    if (_disposed) return;
+    state = nextState;
+  }
+
   Future<void> loadMyOrders({bool silent = false}) async {
+    if (_disposed) return;
     if (!silent) {
-      state = state.copyWith(loading: true, error: null);
+      _setStateSafely(state.copyWith(loading: true, error: null));
     }
     try {
       final response = await ref.read(ordersApiProvider).listMyOrders();
+      if (_disposed) return;
       final orders = <OrderModel>[];
       var skipped = 0;
       for (final entry in response) {
@@ -86,11 +94,13 @@ class OrdersController extends StateNotifier<OrdersState> {
             : null,
       );
     } on DioException catch (e) {
+      if (_disposed) return;
       state = state.copyWith(
         loading: silent ? state.loading : false,
         error: _mapError(e),
       );
     } catch (_) {
+      if (_disposed) return;
       state = state.copyWith(
         loading: silent ? state.loading : false,
         error: 'فشل تحميل الطلبات',
@@ -101,6 +111,7 @@ class OrdersController extends StateNotifier<OrdersState> {
   void startLiveOrders({Duration interval = const Duration(seconds: 4)}) {
     _liveOrdersTimer?.cancel();
     _liveOrdersTimer = Timer.periodic(interval, (_) async {
+      if (_disposed) return;
       if (_liveFetchInFlight) return;
       _liveFetchInFlight = true;
       try {
@@ -273,6 +284,7 @@ class OrdersController extends StateNotifier<OrdersState> {
 
   @override
   void dispose() {
+    _disposed = true;
     stopLiveOrders();
     super.dispose();
   }

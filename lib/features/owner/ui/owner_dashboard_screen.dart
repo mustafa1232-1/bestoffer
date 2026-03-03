@@ -22,10 +22,17 @@ import '../../settings/ui/pages/settings_support_screen.dart';
 import '../models/owner_merchant_model.dart';
 import '../state/owner_controller.dart';
 
+enum OwnerDashboardTab { dashboard, profile, store, orders, catalog }
+
 enum _OwnerTab { dashboard, profile, store, orders, catalog }
 
 class OwnerDashboardScreen extends ConsumerStatefulWidget {
-  const OwnerDashboardScreen({super.key});
+  final OwnerDashboardTab initialTab;
+
+  const OwnerDashboardScreen({
+    super.key,
+    this.initialTab = OwnerDashboardTab.dashboard,
+  });
 
   @override
   ConsumerState<OwnerDashboardScreen> createState() =>
@@ -49,6 +56,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    activeTab = _toPrivateTab(widget.initialTab);
     Future.microtask(
       () => ref.read(ownerControllerProvider.notifier).bootstrap(),
     );
@@ -155,6 +163,21 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
         ),
       ),
     );
+  }
+
+  _OwnerTab _toPrivateTab(OwnerDashboardTab tab) {
+    switch (tab) {
+      case OwnerDashboardTab.dashboard:
+        return _OwnerTab.dashboard;
+      case OwnerDashboardTab.profile:
+        return _OwnerTab.profile;
+      case OwnerDashboardTab.store:
+        return _OwnerTab.store;
+      case OwnerDashboardTab.orders:
+        return _OwnerTab.orders;
+      case OwnerDashboardTab.catalog:
+        return _OwnerTab.catalog;
+    }
   }
 
   void _bindMerchant(OwnerState state) {

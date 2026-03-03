@@ -15,6 +15,8 @@ final localNotificationsProvider = Provider<LocalNotificationService>((ref) {
 class NotificationTapPayload {
   final int? orderId;
   final int? rideId;
+  final int? postId;
+  final int? threadId;
   final int? notificationId;
   final String? type;
   final String? target;
@@ -22,6 +24,8 @@ class NotificationTapPayload {
   const NotificationTapPayload({
     this.orderId,
     this.rideId,
+    this.postId,
+    this.threadId,
     this.notificationId,
     this.type,
     this.target,
@@ -85,15 +89,22 @@ class LocalNotificationService {
     final orderId =
         notification.orderId ??
         int.tryParse('${notification.payload?['orderId'] ?? ''}');
-    final rideId = int.tryParse('${notification.payload?['rideId'] ?? ''}');
-    final target = notification.payload?['target']?.toString();
+    final rideId =
+        notification.rideId ??
+        int.tryParse('${notification.payload?['rideId'] ?? ''}');
+    final target =
+        notification.target ?? notification.payload?['target']?.toString();
     final id = notification.id > 0 ? notification.id : ++_fallbackId;
 
     await showRaw(
       title: notification.title,
-      body: notification.body ?? 'يوجد تحديث جديد',
+      body:
+          notification.body ??
+          '\u064A\u0648\u062C\u062F \u062A\u062D\u062F\u064A\u062B \u062C\u062F\u064A\u062F',
       orderId: orderId,
       rideId: rideId,
+      postId: int.tryParse('${notification.payload?['postId'] ?? ''}'),
+      threadId: int.tryParse('${notification.payload?['threadId'] ?? ''}'),
       type: notification.type,
       target: target,
       notificationId: id,
@@ -105,6 +116,8 @@ class LocalNotificationService {
     required String body,
     int? orderId,
     int? rideId,
+    int? postId,
+    int? threadId,
     int? notificationId,
     String? type,
     String? target,
@@ -118,6 +131,8 @@ class LocalNotificationService {
     final payload = jsonEncode({
       'orderId': orderId,
       'rideId': rideId,
+      'postId': postId,
+      'threadId': threadId,
       'notificationId': id,
       'type': type,
       'target': target,
@@ -156,6 +171,8 @@ class LocalNotificationService {
       return NotificationTapPayload(
         orderId: int.tryParse('${map['orderId'] ?? ''}'),
         rideId: int.tryParse('${map['rideId'] ?? ''}'),
+        postId: int.tryParse('${map['postId'] ?? ''}'),
+        threadId: int.tryParse('${map['threadId'] ?? ''}'),
         notificationId: int.tryParse('${map['notificationId'] ?? ''}'),
         type: map['type']?.toString(),
         target: map['target']?.toString(),

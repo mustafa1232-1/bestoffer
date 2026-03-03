@@ -48,6 +48,8 @@ class _MapPageState extends ConsumerState<MapPage> {
     text: '10000',
   );
   final TextEditingController _noteController = TextEditingController();
+  late final TaxiApi _taxiApi;
+  late final TaxiRouteService _routeService;
 
   StreamSubscription<TaxiLiveEvent>? _streamSub;
   Timer? _reconnectTimer;
@@ -86,12 +88,11 @@ class _MapPageState extends ConsumerState<MapPage> {
   LatLng? _lastRouteFrom;
   LatLng? _lastRouteTo;
 
-  TaxiApi get _taxiApi => ref.read(taxiApiProvider);
-  TaxiRouteService get _routeService => ref.read(taxiRouteServiceProvider);
-
   @override
   void initState() {
     super.initState();
+    _taxiApi = ref.read(taxiApiProvider);
+    _routeService = ref.read(taxiRouteServiceProvider);
     _uiTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       final rideStatus = _string(_ride?['status']);
@@ -121,8 +122,10 @@ class _MapPageState extends ConsumerState<MapPage> {
   }
 
   Future<void> _bootstrap() async {
+    if (!mounted) return;
     final auth = ref.read(authControllerProvider);
     if (!auth.isAuthed) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _canUseTaxiApi = false;
@@ -131,6 +134,7 @@ class _MapPageState extends ConsumerState<MapPage> {
       return;
     }
     if (auth.isBackoffice || auth.isOwner || auth.isDelivery) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _canUseTaxiApi = false;
@@ -143,6 +147,7 @@ class _MapPageState extends ConsumerState<MapPage> {
       _goToMyLocation(setAsPickupIfEmpty: true),
       _loadCurrentRide(),
     ]);
+    if (!mounted) return;
     if (_canUseTaxiApi) _connectRealtimeStream();
   }
 

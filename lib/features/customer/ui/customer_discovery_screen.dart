@@ -14,6 +14,7 @@ import '../models/customer_home_prefs.dart';
 import '../models/customer_ad_board_item.dart';
 import '../state/customer_ad_board_controller.dart';
 import '../state/customer_home_prefs_controller.dart';
+import '../../social/ui/basmaya_feed_screen.dart';
 import 'customer_cars_hub_screen.dart';
 import 'customer_electronics_hub_screen.dart';
 import 'customer_food_hub_screen.dart';
@@ -132,6 +133,12 @@ class _CustomerDiscoveryScreenState
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const MapPage()));
+  }
+
+  Future<void> _openBasmayaFeed() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const BasmayaFeedScreen()));
   }
 
   Future<void> _openDiscoveryHub(_DiscoveryHub hub) async {
@@ -652,6 +659,11 @@ class _CustomerDiscoveryScreenState
         icon: Icons.map_outlined,
         label: 'الخريطة',
         onTap: (_) => _openMapPage(),
+      ),
+      AppUserDrawerItem(
+        icon: Icons.newspaper_rounded,
+        label: 'شديصير بسماية',
+        onTap: (_) => _openBasmayaFeed(),
       ),
       AppUserDrawerItem(
         icon: Icons.refresh_rounded,

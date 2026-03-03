@@ -7,6 +7,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/notifications/local_notification_service.dart';
+import 'core/notifications/notification_navigation.dart';
 import 'core/notifications/push_notification_service.dart';
 import 'core/settings/app_settings_controller.dart';
 import 'core/theme/app_backdrop.dart';
@@ -16,33 +17,27 @@ import 'features/admin/ui/admin_dashboard_screen.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/state/auth_controller.dart';
 import 'features/customer/ui/customer_discovery_screen.dart';
-import 'features/notifications/ui/notifications_screen.dart';
 import 'features/owner/ui/owner_dashboard_screen.dart';
-import 'features/orders/ui/customer_orders_screen.dart';
 import 'features/taxi/ui/taxi_captain_dashboard_screen.dart';
-import 'features/taxi/ui/taxi_call_screen.dart';
-import 'pages/map_page.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  FlutterError.onError = (details) {
-    FlutterError.presentError(details);
-    final stack = details.stack ?? StackTrace.current;
-    Zone.current.handleUncaughtError(details.exception, stack);
-  };
+    FlutterError.onError = (details) {
+      FlutterError.presentError(details);
+      final stack = details.stack ?? StackTrace.current;
+      Zone.current.handleUncaughtError(details.exception, stack);
+    };
 
-  PlatformDispatcher.instance.onError = (error, stack) {
-    _reportFatalError('platform', error, stack);
-    return true;
-  };
+    PlatformDispatcher.instance.onError = (error, stack) {
+      _reportFatalError('platform', error, stack);
+      return true;
+    };
 
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-
-  runZonedGuarded(
-    () => runApp(const ProviderScope(child: ShakakyApp())),
-    (error, stack) => _reportFatalError('zone', error, stack),
-  );
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    runApp(const ProviderScope(child: ShakakyApp()));
+  }, (error, stack) => _reportFatalError('zone', error, stack));
 }
 
 void _reportFatalError(String source, Object error, StackTrace stack) {
@@ -70,13 +65,16 @@ class _ShakakyAppState extends ConsumerState<ShakakyApp> {
   void initState() {
     super.initState();
     Future.microtask(() async {
+      if (!mounted) return;
       final localNotifications = ref.read(localNotificationsProvider);
       await localNotifications.initialize();
+      if (!mounted) return;
       _notificationTapSub = localNotifications.tapStream.listen(
         _handleNotificationTap,
       );
       final push = ref.read(pushNotificationsProvider);
       await push.initialize();
+      if (!mounted) return;
       _pushTapSub = push.tapStream.listen(_handleNotificationTap);
       await ref.read(authControllerProvider.notifier).bootstrap();
     });
@@ -103,59 +101,7 @@ class _ShakakyAppState extends ConsumerState<ShakakyApp> {
     if (nav == null) return;
 
     final auth = ref.read(authControllerProvider);
-    final target = (payload.target ?? '').trim().toLowerCase();
-
-    if (!auth.isBackoffice && !auth.isOwner && !auth.isDelivery) {
-      if (target == 'taxi_call' && (payload.rideId ?? 0) > 0) {
-        nav.push(
-          MaterialPageRoute(
-            builder: (_) =>
-                TaxiCallScreen(rideId: payload.rideId!, isCaller: false),
-          ),
-        );
-        return;
-      }
-
-      if (target == 'taxi_live') {
-        nav.push(MaterialPageRoute(builder: (_) => const MapPage()));
-        return;
-      }
-
-      nav.push(
-        MaterialPageRoute(
-          builder: (_) => CustomerOrdersScreen(initialOrderId: payload.orderId),
-        ),
-      );
-      return;
-    }
-
-    if (auth.isDelivery || target == 'taxi_live') {
-      if (target == 'taxi_call' && (payload.rideId ?? 0) > 0) {
-        nav.push(
-          MaterialPageRoute(
-            builder: (_) =>
-                TaxiCallScreen(rideId: payload.rideId!, isCaller: false),
-          ),
-        );
-        return;
-      }
-      nav.push(
-        MaterialPageRoute(builder: (_) => const TaxiCaptainDashboardScreen()),
-      );
-      return;
-    }
-
-    if (auth.isOwner) {
-      nav.push(MaterialPageRoute(builder: (_) => const OwnerDashboardScreen()));
-      return;
-    }
-
-    if (auth.isBackoffice) {
-      nav.push(MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
-      return;
-    }
-
-    nav.push(MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+    NotificationNavigation.open(navigator: nav, auth: auth, payload: payload);
   }
 
   @override

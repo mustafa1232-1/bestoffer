@@ -36,6 +36,8 @@ class _TaxiCaptainDashboardScreenState
   static const _center = LatLng(33.3128, 44.3615);
 
   final _mapController = MapController();
+  late final TaxiApi _api;
+  late final TaxiRouteService _routeService;
   Timer? _ticker;
   StreamSubscription<TaxiLiveEvent>? _streamSub;
   Timer? _streamReconnectTimer;
@@ -70,13 +72,11 @@ class _TaxiCaptainDashboardScreenState
   Map<String, dynamic>? _profile;
   Map<String, dynamic>? _subscription;
 
-  TaxiApi get _api => ref.read(taxiCaptainApiProvider);
-  TaxiRouteService get _routeService =>
-      ref.read(taxiCaptainRouteServiceProvider);
-
   @override
   void initState() {
     super.initState();
+    _api = ref.read(taxiCaptainApiProvider);
+    _routeService = ref.read(taxiCaptainRouteServiceProvider);
     Future.microtask(_bootstrap);
   }
 
@@ -89,8 +89,11 @@ class _TaxiCaptainDashboardScreenState
   }
 
   Future<void> _bootstrap() async {
+    if (!mounted) return;
     await _refreshMeta();
+    if (!mounted) return;
     await _tick(full: true);
+    if (!mounted) return;
     _connectStream();
     _ticker = Timer.periodic(const Duration(seconds: 5), (_) async {
       await _tick();

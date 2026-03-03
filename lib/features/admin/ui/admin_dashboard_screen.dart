@@ -21,8 +21,20 @@ import '../state/admin_controller.dart';
 import 'admin_ad_board_screen.dart';
 import 'customer_insight_profile_screen.dart';
 
+enum AdminDashboardSection {
+  dashboard,
+  pendingApprovals,
+  pendingSettlements,
+  customerInsights,
+}
+
 class AdminDashboardScreen extends ConsumerStatefulWidget {
-  const AdminDashboardScreen({super.key});
+  final AdminDashboardSection initialSection;
+
+  const AdminDashboardScreen({
+    super.key,
+    this.initialSection = AdminDashboardSection.dashboard,
+  });
 
   @override
   ConsumerState<AdminDashboardScreen> createState() =>
@@ -35,6 +47,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   final GlobalKey _settlementsSectionKey = GlobalKey();
   final GlobalKey _approvalsSectionKey = GlobalKey();
   final GlobalKey _customerInsightsSectionKey = GlobalKey();
+  bool _didApplyInitialSection = false;
 
   @override
   void initState() {
@@ -184,6 +197,25 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     });
   }
 
+  void _applyInitialSection() {
+    if (_didApplyInitialSection) return;
+    _didApplyInitialSection = true;
+    switch (widget.initialSection) {
+      case AdminDashboardSection.dashboard:
+        _scrollToTop();
+        break;
+      case AdminDashboardSection.pendingApprovals:
+        _scrollToSection(_approvalsSectionKey);
+        break;
+      case AdminDashboardSection.pendingSettlements:
+        _scrollToSection(_settlementsSectionKey);
+        break;
+      case AdminDashboardSection.customerInsights:
+        _scrollToSection(_customerInsightsSectionKey);
+        break;
+    }
+  }
+
   Future<void> _openCustomerInsightDetails(int customerUserId) async {
     final details = await ref
         .read(adminControllerProvider.notifier)
@@ -215,6 +247,13 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         ).showSnackBar(SnackBar(content: Text(message)));
       }
     });
+
+    if (!state.loading && !_didApplyInitialSection) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _applyInitialSection();
+      });
+    }
 
     final drawerItems = <AppUserDrawerItem>[
       AppUserDrawerItem(

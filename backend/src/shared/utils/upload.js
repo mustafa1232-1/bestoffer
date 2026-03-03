@@ -14,6 +14,15 @@ const allowedMimeTypes = new Set([
   "image/heif",
 ]);
 
+const allowedMediaMimeTypes = new Set([
+  ...allowedMimeTypes,
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+  "video/x-matroska",
+  "video/3gpp",
+]);
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
@@ -43,6 +52,25 @@ export const imageUpload = multer({
   fileFilter: imageFilter,
   limits: {
     fileSize: 8 * 1024 * 1024,
+  },
+});
+
+function mediaFilter(req, file, cb) {
+  if (allowedMediaMimeTypes.has(file.mimetype)) {
+    cb(null, true);
+    return;
+  }
+
+  const err = new Error("INVALID_MEDIA_TYPE");
+  err.status = 400;
+  cb(err);
+}
+
+export const mediaUpload = multer({
+  storage,
+  fileFilter: mediaFilter,
+  limits: {
+    fileSize: 28 * 1024 * 1024,
   },
 });
 

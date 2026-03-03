@@ -11,6 +11,7 @@ import { behaviorRouter } from "./modules/behavior/behavior.routes.js";
 import { getUserPublicById } from "./modules/auth/auth.repo.js";
 import { carsRouter } from "./modules/cars/cars.routes.js";
 import { deliveryRouter } from "./modules/delivery/delivery.routes.js";
+import { feedRouter } from "./modules/feed/feed.routes.js";
 import { merchantsRouter } from "./modules/merchants/merchants.routes.js";
 import { notificationsRouter } from "./modules/notifications/notifications.routes.js";
 import { ordersRouter } from "./modules/orders/orders.routes.js";
@@ -27,6 +28,7 @@ import {
   requestLogger,
   withRequestContext,
 } from "./shared/middleware/request-context.middleware.js";
+import { sanitizeInputMiddleware } from "./shared/middleware/input-sanitize.middleware.js";
 import { attachOptionalAuth } from "./shared/middleware/optional-auth.middleware.js";
 import { securityHeaders } from "./shared/middleware/security.middleware.js";
 import { activityAuditMiddleware } from "./shared/middleware/activity-audit.middleware.js";
@@ -92,6 +94,7 @@ app.use(activityAuditMiddleware());
 app.use(express.json({ limit: env.jsonBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: env.jsonBodyLimit }));
 app.use(jsonSyntaxErrorHandler);
+app.use(sanitizeInputMiddleware);
 app.use((req, res, next) => {
   if (req.path.startsWith("/api/")) {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -155,6 +158,7 @@ app.use("/api/assistant", assistantRouter);
 app.use("/api/cars", carsRouter);
 app.use("/api/behavior", behaviorRouter);
 app.use("/api/taxi", taxiRouter);
+app.use("/api/feed", feedRouter);
 
 app.get("/api/me", requireAuth, async (req, res, next) => {
   try {

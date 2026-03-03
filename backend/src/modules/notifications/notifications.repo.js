@@ -176,6 +176,12 @@ function resolveNotificationTarget(notification, orderId) {
 
   if (type === "taxi.call.incoming") return "taxi_call";
   if (type.startsWith("taxi.")) return "taxi_live";
+  if (type.startsWith("social.chat.")) return "social_chat";
+  if (type.startsWith("social.")) return "social_feed";
+  if (type.includes("admin_delivery_pending")) return "admin_merchants_pending";
+  if (type.includes("pending_approval") && type.includes("admin")) {
+    return "admin_merchants_pending";
+  }
   if (type.includes("admin_pending_merchant")) return "admin_merchants_pending";
   if (type.includes("settlement")) return "admin_settlements";
   if (type.startsWith("owner_")) return "owner_orders";
@@ -202,6 +208,15 @@ function resolveRideId(notification) {
 function buildMulticastMessage(notification, tokens, orderId) {
   const target = resolveNotificationTarget(notification, orderId);
   const rideId = resolveRideId(notification);
+  const payload = notification?.payload || {};
+  const postId =
+    payload.postId == null ? null : Number.parseInt(String(payload.postId), 10);
+  const threadId =
+    payload.threadId == null ? null : Number.parseInt(String(payload.threadId), 10);
+  const senderUserId =
+    payload.senderUserId == null
+      ? null
+      : Number.parseInt(String(payload.senderUserId), 10);
   return {
     tokens,
     notification: {
@@ -214,6 +229,12 @@ function buildMulticastMessage(notification, tokens, orderId) {
       orderId: orderId == null ? "" : String(orderId),
       target,
       rideId: rideId == null ? "" : String(rideId),
+      postId: Number.isFinite(postId) && postId > 0 ? String(postId) : "",
+      threadId: Number.isFinite(threadId) && threadId > 0 ? String(threadId) : "",
+      senderUserId:
+        Number.isFinite(senderUserId) && senderUserId > 0
+          ? String(senderUserId)
+          : "",
     },
     android: {
       priority: "high",

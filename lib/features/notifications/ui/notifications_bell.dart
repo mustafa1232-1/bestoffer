@@ -31,7 +31,7 @@ class _NotificationsBellButtonState
     return Stack(
       children: [
         IconButton(
-          tooltip: 'الإشعارات',
+          tooltip: '\u0627\u0644\u0625\u0634\u0639\u0627\u0631\u0627\u062A',
           onPressed: () async {
             await Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const NotificationsScreen()),
