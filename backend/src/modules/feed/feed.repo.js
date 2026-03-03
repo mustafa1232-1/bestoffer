@@ -59,6 +59,67 @@ export async function listFeedPosts({
   return r.rows;
 }
 
+export async function listUserFeedPosts({
+  viewerUserId,
+  userId,
+  limit = 20,
+  beforeId = null,
+  postKind = null,
+}) {
+  const r = await q(
+    `SELECT
+       p.id,
+       p.user_id,
+       p.post_kind,
+       p.caption,
+       p.media_url,
+       p.media_kind,
+       p.merchant_id,
+       p.review_rating,
+       p.created_at,
+       p.updated_at,
+       u.full_name AS user_full_name,
+       u.phone AS user_phone,
+       u.image_url AS user_image_url,
+       u.role AS user_role,
+       m.name AS merchant_name,
+       COALESCE(l.likes_count, 0)::int AS likes_count,
+       COALESCE(c.comments_count, 0)::int AS comments_count,
+       COALESCE(v.is_liked, FALSE) AS is_liked
+     FROM social_post p
+     JOIN app_user u ON u.id = p.user_id
+     LEFT JOIN merchant m ON m.id = p.merchant_id
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*)::int AS likes_count
+       FROM social_post_like l
+       WHERE l.post_id = p.id
+     ) l ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*)::int AS comments_count
+       FROM social_post_comment c
+       WHERE c.post_id = p.id
+         AND c.is_deleted = FALSE
+         AND c.moderation_status = 'approved'
+     ) c ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT TRUE AS is_liked
+       FROM social_post_like lv
+       WHERE lv.post_id = p.id
+         AND lv.user_id = $1
+       LIMIT 1
+     ) v ON TRUE
+     WHERE p.user_id = $2
+       AND p.is_deleted = FALSE
+       AND p.moderation_status = 'approved'
+       AND ($3::bigint IS NULL OR p.id < $3::bigint)
+       AND ($4::text IS NULL OR p.post_kind = $4::text)
+     ORDER BY p.id DESC
+     LIMIT $5`,
+    [Number(viewerUserId), Number(userId), beforeId, postKind, Number(limit)]
+  );
+  return r.rows;
+}
+
 export async function findFeedPostById({ viewerUserId, postId }) {
   const r = await q(
     `SELECT
@@ -391,6 +452,44 @@ export async function findUserPublicProfile(userId) {
     [Number(userId)]
   );
   return r.rows[0] || null;
+}
+
+export async function findUserSocialProfile(userId) {
+  const r = await q(
+    `SELECT
+       id,
+       full_name,
+       phone,
+       role,
+       image_url,
+       created_at
+     FROM app_user
+     WHERE id = $1
+     LIMIT 1`,
+    [Number(userId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function getUserSocialStats(userId) {
+  const r = await q(
+    `SELECT
+       COUNT(*)::int AS total_posts,
+       COUNT(*) FILTER (WHERE post_kind = 'image')::int AS image_posts,
+       COUNT(*) FILTER (WHERE post_kind = 'video')::int AS video_posts,
+       COUNT(*) FILTER (WHERE post_kind = 'merchant_review')::int AS review_posts
+     FROM social_post
+     WHERE user_id = $1
+       AND is_deleted = FALSE
+       AND moderation_status = 'approved'`,
+    [Number(userId)]
+  );
+  return r.rows[0] || {
+    total_posts: 0,
+    image_posts: 0,
+    video_posts: 0,
+    review_posts: 0,
+  };
 }
 
 export async function createOrGetThread({ userAId, userBId }) {

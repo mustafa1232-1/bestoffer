@@ -126,6 +126,15 @@ export function validatePostId(postId) {
   };
 }
 
+export function validateUserId(userId) {
+  const value = asPositiveInt(userId);
+  return {
+    ok: value != null,
+    errors: value == null ? ["userId"] : [],
+    value,
+  };
+}
+
 export function validateStoryId(storyId) {
   const value = asPositiveInt(storyId);
   return {

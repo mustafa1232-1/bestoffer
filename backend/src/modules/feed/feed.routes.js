@@ -10,6 +10,8 @@ feedRouter.use(requireAuth);
 
 feedRouter.get("/posts", c.listPosts);
 feedRouter.get("/posts/:postId", c.getPostById);
+feedRouter.get("/users/:userId/profile", c.getUserProfile);
+feedRouter.get("/users/:userId/posts", c.listUserPosts);
 feedRouter.post("/posts", mediaUpload.single("mediaFile"), c.createPost);
 feedRouter.post("/posts/:postId/like", c.toggleLike);
 feedRouter.get("/posts/:postId/comments", c.listPostComments);

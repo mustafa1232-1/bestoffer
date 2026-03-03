@@ -15,15 +15,18 @@ import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'social_chat_thread_screen.dart';
 import 'social_chat_threads_screen.dart';
+import 'social_profile_screen.dart';
 
 class BasmayaFeedScreen extends ConsumerStatefulWidget {
   final int? initialThreadId;
   final int? initialPostId;
+  final int? initialStoryId;
 
   const BasmayaFeedScreen({
     super.key,
     this.initialThreadId,
     this.initialPostId,
+    this.initialStoryId,
   });
 
   @override
@@ -55,6 +58,10 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
     if (!mounted) return;
     if (widget.initialThreadId != null && widget.initialThreadId! > 0) {
       await _openThreadById(widget.initialThreadId!);
+      return;
+    }
+    if (widget.initialStoryId != null && widget.initialStoryId! > 0) {
+      await _openStoryById(widget.initialStoryId!);
       return;
     }
     if (widget.initialPostId != null && widget.initialPostId! > 0) {
@@ -151,6 +158,46 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
         .patchCommentsCount(postId: post.id, commentsCount: count);
   }
 
+  Future<void> _openStoryGroup(
+    SocialStoryGroup group, {
+    int? initialStoryId,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _StoryViewerSheet(
+        group: group,
+        initialStoryId: initialStoryId,
+        onStoryViewed: (storyId) => ref
+            .read(socialControllerProvider.notifier)
+            .markStoryViewed(storyId),
+      ),
+    );
+  }
+
+  Future<void> _openStoryById(int storyId) async {
+    SocialStoryGroup? storyGroup;
+    for (final group in ref.read(socialControllerProvider).stories) {
+      if (group.stories.any((story) => story.id == storyId)) {
+        storyGroup = group;
+        break;
+      }
+    }
+    if (storyGroup == null) {
+      await ref.read(socialControllerProvider.notifier).loadStories();
+      if (!mounted) return;
+      for (final group in ref.read(socialControllerProvider).stories) {
+        if (group.stories.any((story) => story.id == storyId)) {
+          storyGroup = group;
+          break;
+        }
+      }
+    }
+    if (storyGroup == null || !mounted) return;
+    await _openStoryGroup(storyGroup, initialStoryId: storyId);
+  }
+
   Future<void> _sharePost(SocialPost post) async {
     final text = [
       'شديصير بسماية',
@@ -173,6 +220,17 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
           threadId: thread.id,
           peerName: thread.peer.fullName,
           peerPhone: thread.peerPhone,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openAuthorProfile(SocialAuthor author) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialProfileScreen(
+          userId: author.id,
+          initialName: author.fullName,
         ),
       ),
     );
@@ -266,19 +324,7 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
               loading: state.loadingStories,
               stories: state.stories,
               onCreateStory: _openCreateStory,
-              onOpenStoryGroup: (group) async {
-                await showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  showDragHandle: true,
-                  builder: (_) => _StoryViewerSheet(
-                    group: group,
-                    onStoryViewed: (storyId) => ref
-                        .read(socialControllerProvider.notifier)
-                        .markStoryViewed(storyId),
-                  ),
-                );
-              },
+              onOpenStoryGroup: (group) => _openStoryGroup(group),
             ),
             const SizedBox(height: 10),
             SizedBox(
@@ -356,24 +402,28 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
                             ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    post.author.fullName,
-                                    textDirection: TextDirection.rtl,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
+                              child: InkWell(
+                                onTap: () => _openAuthorProfile(post.author),
+                                borderRadius: BorderRadius.circular(10),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      post.author.fullName,
+                                      textDirection: TextDirection.rtl,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
                                     ),
-                                  ),
-                                  Text(
-                                    post.createdAt == null
-                                        ? _kindLabel(post.postKind)
-                                        : '${_kindLabel(post.postKind)} • ${_timeFmt.format(post.createdAt!.toLocal())}',
-                                    textDirection: TextDirection.rtl,
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
-                                ],
+                                    Text(
+                                      post.createdAt == null
+                                          ? _kindLabel(post.postKind)
+                                          : '${_kindLabel(post.postKind)} • ${_timeFmt.format(post.createdAt!.toLocal())}',
+                                      textDirection: TextDirection.rtl,
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ],
@@ -1102,9 +1152,14 @@ class _CreateStorySheetState extends ConsumerState<_CreateStorySheet> {
 
 class _StoryViewerSheet extends StatefulWidget {
   final SocialStoryGroup group;
+  final int? initialStoryId;
   final ValueChanged<int> onStoryViewed;
 
-  const _StoryViewerSheet({required this.group, required this.onStoryViewed});
+  const _StoryViewerSheet({
+    required this.group,
+    this.initialStoryId,
+    required this.onStoryViewed,
+  });
 
   @override
   State<_StoryViewerSheet> createState() => _StoryViewerSheetState();
@@ -1118,8 +1173,16 @@ class _StoryViewerSheetState extends State<_StoryViewerSheet> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
     _currentIndex = 0;
+    if (widget.initialStoryId != null && widget.initialStoryId! > 0) {
+      final index = widget.group.stories.indexWhere(
+        (story) => story.id == widget.initialStoryId,
+      );
+      if (index >= 0) {
+        _currentIndex = index;
+      }
+    }
+    _pageController = PageController(initialPage: _currentIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) => _markCurrentViewed());
   }
 

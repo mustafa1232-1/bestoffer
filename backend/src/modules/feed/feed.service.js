@@ -248,6 +248,57 @@ export async function listPosts(viewerUserId, query) {
   };
 }
 
+export async function listUserPosts(viewerUserId, userId, query) {
+  const owner = await repo.findUserSocialProfile(userId);
+  if (!owner) {
+    throw new AppError("USER_NOT_FOUND", { status: 404 });
+  }
+
+  const rows = await repo.listUserFeedPosts({
+    viewerUserId,
+    userId,
+    limit: query.limit,
+    beforeId: query.beforeId,
+    postKind: query.kind,
+  });
+  return {
+    user: {
+      id: Number(owner.id),
+      fullName: owner.full_name || "",
+      imageUrl: owner.image_url || null,
+      role: owner.role || "user",
+      phone: owner.phone || "",
+    },
+    posts: rows.map(mapPostRow),
+    nextCursor: rows.length > 0 ? Number(rows[rows.length - 1].id) : null,
+  };
+}
+
+export async function getUserProfile(viewerUserId, userId) {
+  const profile = await repo.findUserSocialProfile(userId);
+  if (!profile) {
+    throw new AppError("USER_NOT_FOUND", { status: 404 });
+  }
+  const stats = await repo.getUserSocialStats(userId);
+  return {
+    profile: {
+      id: Number(profile.id),
+      fullName: profile.full_name || "",
+      imageUrl: profile.image_url || null,
+      phone: profile.phone || "",
+      role: profile.role || "user",
+      joinedAt: profile.created_at || null,
+      isMe: Number(profile.id) === Number(viewerUserId),
+      stats: {
+        totalPosts: Number(stats.total_posts || 0),
+        imagePosts: Number(stats.image_posts || 0),
+        videoPosts: Number(stats.video_posts || 0),
+        reviewPosts: Number(stats.review_posts || 0),
+      },
+    },
+  };
+}
+
 export async function listStories(viewerUserId, query) {
   const safeLimitUsers = Math.max(1, Math.min(80, Number(query.limitUsers) || 30));
   const safeMaxPerUser = Math.max(1, Math.min(20, Number(query.maxPerUser) || 8));

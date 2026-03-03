@@ -218,6 +218,64 @@ class SocialStoryGroup {
   );
 }
 
+class SocialUserPostStats {
+  final int totalPosts;
+  final int imagePosts;
+  final int videoPosts;
+  final int reviewPosts;
+
+  const SocialUserPostStats({
+    required this.totalPosts,
+    required this.imagePosts,
+    required this.videoPosts,
+    required this.reviewPosts,
+  });
+
+  factory SocialUserPostStats.fromJson(Map<String, dynamic> j) =>
+      SocialUserPostStats(
+        totalPosts: parseInt(j['totalPosts'] ?? j['total_posts']),
+        imagePosts: parseInt(j['imagePosts'] ?? j['image_posts']),
+        videoPosts: parseInt(j['videoPosts'] ?? j['video_posts']),
+        reviewPosts: parseInt(j['reviewPosts'] ?? j['review_posts']),
+      );
+}
+
+class SocialUserProfile {
+  final int id;
+  final String fullName;
+  final String role;
+  final String? imageUrl;
+  final String? phone;
+  final DateTime? joinedAt;
+  final bool isMe;
+  final SocialUserPostStats stats;
+
+  const SocialUserProfile({
+    required this.id,
+    required this.fullName,
+    required this.role,
+    required this.imageUrl,
+    required this.phone,
+    required this.joinedAt,
+    required this.isMe,
+    required this.stats,
+  });
+
+  factory SocialUserProfile.fromJson(Map<String, dynamic> j) =>
+      SocialUserProfile(
+        id: parseInt(j['id']),
+        fullName: parseString(j['fullName'] ?? j['full_name']),
+        role: parseString(j['role'], fallback: 'user'),
+        imageUrl: parseNullableString(j['imageUrl'] ?? j['image_url']),
+        phone: parseNullableString(j['phone']),
+        joinedAt: parseNullableDateTime(j['joinedAt'] ?? j['joined_at']),
+        isMe: parseBool(j['isMe'] ?? j['is_me']),
+        stats: SocialUserPostStats.fromJson(
+          Map<String, dynamic>.from(j['stats'] as Map? ?? const {}),
+        ),
+      );
+}
+
 class SocialChatMessage {
   final int id;
   final int threadId;

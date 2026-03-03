@@ -11,6 +11,7 @@ import {
   validateMerchantSearch,
   validatePostId,
   validateStoryId,
+  validateUserId,
   validateSendMessage,
   validateThreadId,
 } from "./feed.validators.js";
@@ -52,6 +53,31 @@ export async function getPostById(req, res, next) {
     if (!v.ok) return badRequest(res, v.errors);
 
     const out = await service.getPostById(req.userId, v.value);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getUserProfile(req, res, next) {
+  try {
+    const v = validateUserId(req.params.userId);
+    if (!v.ok) return badRequest(res, v.errors);
+    const out = await service.getUserProfile(req.userId, v.value);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listUserPosts(req, res, next) {
+  try {
+    const user = validateUserId(req.params.userId);
+    if (!user.ok) return badRequest(res, user.errors);
+    const query = validateListPosts(req.query || {});
+    if (!query.ok) return badRequest(res, query.errors);
+
+    const out = await service.listUserPosts(req.userId, user.value, query.value);
     return res.json(out);
   } catch (error) {
     return next(error);

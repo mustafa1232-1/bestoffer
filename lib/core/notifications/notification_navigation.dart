@@ -25,6 +25,10 @@ class NotificationNavigation {
           _parseInt(payload?['rideId']) ??
           _parseInt(payload?['ride_id']),
       postId: _parseInt(payload?['postId']) ?? _parseInt(payload?['post_id']),
+      storyId:
+          model.storyId ??
+          _parseInt(payload?['storyId']) ??
+          _parseInt(payload?['story_id']),
       threadId:
           _parseInt(payload?['threadId']) ?? _parseInt(payload?['thread_id']),
       notificationId: model.id,
@@ -86,6 +90,7 @@ class NotificationNavigation {
     final rideId = payload.rideId;
     final orderId = payload.orderId;
     final postId = payload.postId;
+    final storyId = payload.storyId;
     final threadId = payload.threadId;
     final isCustomer = !auth.isBackoffice && !auth.isOwner && !auth.isDelivery;
 
@@ -95,12 +100,14 @@ class NotificationNavigation {
           builder: (_) => BasmayaFeedScreen(
             initialThreadId: threadId,
             initialPostId: postId,
+            initialStoryId: storyId,
           ),
         );
       }
       if (target == 'social_feed') {
         return MaterialPageRoute(
-          builder: (_) => BasmayaFeedScreen(initialPostId: postId),
+          builder: (_) =>
+              BasmayaFeedScreen(initialPostId: postId, initialStoryId: storyId),
         );
       }
       if (target == 'taxi_call' && rideId != null && rideId > 0) {

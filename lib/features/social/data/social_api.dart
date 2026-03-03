@@ -43,6 +43,35 @@ class SocialApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> getUserProfile(int userId) async {
+    final response = await dio.get('/api/feed/users/$userId/profile');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> listUserPosts({
+    required int userId,
+    int limit = 20,
+    int? beforeId,
+    String? kind,
+  }) async {
+    final query =
+        <String, dynamic>{
+          'limit': limit,
+          'beforeId': beforeId,
+          'kind': kind?.trim(),
+        }..removeWhere((key, value) {
+          if (value == null) return true;
+          if (key == 'kind' && (value as String).isEmpty) return true;
+          return false;
+        });
+
+    final response = await dio.get(
+      '/api/feed/users/$userId/posts',
+      queryParameters: query,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> createPost({
     required String caption,
     required String postKind,

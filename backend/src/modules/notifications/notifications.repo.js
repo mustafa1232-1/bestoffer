@@ -211,6 +211,10 @@ function buildMulticastMessage(notification, tokens, orderId) {
   const payload = notification?.payload || {};
   const postId =
     payload.postId == null ? null : Number.parseInt(String(payload.postId), 10);
+  const storyId =
+    payload.storyId == null
+      ? null
+      : Number.parseInt(String(payload.storyId), 10);
   const threadId =
     payload.threadId == null ? null : Number.parseInt(String(payload.threadId), 10);
   const senderUserId =
@@ -230,6 +234,7 @@ function buildMulticastMessage(notification, tokens, orderId) {
       target,
       rideId: rideId == null ? "" : String(rideId),
       postId: Number.isFinite(postId) && postId > 0 ? String(postId) : "",
+      storyId: Number.isFinite(storyId) && storyId > 0 ? String(storyId) : "",
       threadId: Number.isFinite(threadId) && threadId > 0 ? String(threadId) : "",
       senderUserId:
         Number.isFinite(senderUserId) && senderUserId > 0
