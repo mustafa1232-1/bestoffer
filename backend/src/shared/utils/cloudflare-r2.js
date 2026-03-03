@@ -128,10 +128,6 @@ export async function uploadStreamToR2({
   });
 
   const pass = new PassThrough();
-  let size = 0;
-  pass.on("data", (chunk) => {
-    size += chunk.length;
-  });
   inputStream.pipe(pass);
 
   await client.send(
@@ -149,7 +145,10 @@ export async function uploadStreamToR2({
 
   return {
     key,
-    size,
+    size:
+      Number.isFinite(Number(contentLength)) && Number(contentLength) > 0
+        ? Number(contentLength)
+        : null,
     publicUrl: buildR2PublicUrl(key),
   };
 }
