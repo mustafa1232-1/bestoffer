@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/settings/ui/settings_screen.dart';
+import '../../features/social/ui/social_profile_screen.dart';
 import '../i18n/app_strings.dart';
 
 class AppUserDrawerItem {
@@ -36,9 +37,24 @@ class AppUserDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authControllerProvider);
+    final currentUserId = auth.user?.id;
     final strings = ref.watch(appStringsProvider);
     final userName = auth.user?.fullName.trim();
     final userPhone = auth.user?.phone.trim();
+
+    Future<void> openProfile() async {
+      final userId = currentUserId;
+      if (userId == null) return;
+      Navigator.of(context).pop();
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SocialProfileScreen(
+            userId: userId,
+            initialName: auth.user?.fullName,
+          ),
+        ),
+      );
+    }
 
     Future<void> openSettings() async {
       Navigator.of(context).pop();
@@ -74,10 +90,22 @@ class AppUserDrawer extends ConsumerWidget {
                     const SizedBox(height: 4),
                     Text(subtitle!),
                   ],
-                  if (userName?.isNotEmpty == true || userPhone?.isNotEmpty == true)
+                  if (userName?.isNotEmpty == true ||
+                      userPhone?.isNotEmpty == true)
                     const SizedBox(height: 8),
                   if (userName?.isNotEmpty == true) Text(userName!),
                   if (userPhone?.isNotEmpty == true) Text(userPhone!),
+                  if (currentUserId != null) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        onPressed: openProfile,
+                        icon: const Icon(Icons.person_outline_rounded),
+                        label: const Text('الملف الشخصي'),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -89,7 +117,9 @@ class AppUserDrawer extends ConsumerWidget {
                     ListTile(
                       leading: Icon(item.icon),
                       title: Text(item.label),
-                      subtitle: item.subtitle == null ? null : Text(item.subtitle!),
+                      subtitle: item.subtitle == null
+                          ? null
+                          : Text(item.subtitle!),
                       onTap: item.onTap == null ? null : () => runItem(item),
                     ),
                   if (showSettings)

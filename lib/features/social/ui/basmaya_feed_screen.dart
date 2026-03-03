@@ -315,6 +315,8 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
     final state = ref.watch(socialControllerProvider);
     final hasPosts = state.posts.isNotEmpty;
     final scheme = Theme.of(context).colorScheme;
+    const feedTop = Color(0xFF120F2D);
+    const feedBottom = Color(0xFF1E355A);
     ref.listen<String?>(socialControllerProvider.select((s) => s.error), (
       prev,
       next,
@@ -326,7 +328,10 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
     });
 
     return Scaffold(
+      backgroundColor: feedBottom,
       appBar: AppBar(
+        backgroundColor: const Color(0xFF111C36),
+        foregroundColor: Colors.white,
         title: const Text('شديصير بسماية'),
         actions: [
           IconButton(
@@ -349,206 +354,218 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openCreatePost,
         icon: const Icon(Icons.post_add_rounded),
+        backgroundColor: const Color(0xFF3E6DF5),
+        foregroundColor: Colors.white,
         label: const Text('إضافة منشور'),
       ),
-      body: RefreshIndicator(
-        onRefresh: _refreshAll,
-        child: CustomScrollView(
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-              sliver: SliverToBoxAdapter(
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0.96, end: 1),
-                  duration: const Duration(milliseconds: 420),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, scale, child) =>
-                      Transform.scale(scale: scale, child: child),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
-                      gradient: const LinearGradient(
-                        begin: Alignment.topRight,
-                        end: Alignment.bottomLeft,
-                        colors: [Color(0xFF1B4F8A), Color(0xFF153C66)],
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.2),
-                      ),
-                    ),
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          left: -10,
-                          top: -12,
-                          child: Icon(
-                            Icons.bubble_chart_rounded,
-                            size: 58,
-                            color: Colors.white.withValues(alpha: 0.11),
-                          ),
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            const Text(
-                              'شديصير بسماية',
-                              textDirection: TextDirection.rtl,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 20,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'أخبار الناس، صورهم، ريلزهم، وتجاربهم اليومية داخل المدينة',
-                              textDirection: TextDirection.rtl,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                height: 1.35,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Wrap(
-                              alignment: WrapAlignment.end,
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                _StatBadge(
-                                  icon: Icons.auto_stories_rounded,
-                                  label: 'ستوري ${state.stories.length}',
-                                ),
-                                _StatBadge(
-                                  icon: Icons.newspaper_rounded,
-                                  label: 'منشورات ${state.posts.length}',
-                                ),
-                                const _StatBadge(
-                                  icon: Icons.update_rounded,
-                                  label: 'تحديث حي',
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-              sliver: SliverToBoxAdapter(
-                child: _StoriesStrip(
-                  loading: state.loadingStories,
-                  stories: state.stories,
-                  onCreateStory: _openCreateStory,
-                  onOpenStoryGroup: (group) => _openStoryGroup(group),
-                ),
-              ),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-              sliver: SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 44,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    reverse: true,
-                    children: _filters
-                        .map((f) {
-                          final selected = state.activeKind == f.kind;
-                          return Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: ChoiceChip(
-                              selected: selected,
-                              showCheckmark: false,
-                              onSelected: (_) => ref
-                                  .read(socialControllerProvider.notifier)
-                                  .setActiveKind(f.kind),
-                              side: BorderSide(
-                                color: selected
-                                    ? scheme.primary
-                                    : scheme.outlineVariant,
-                              ),
-                              labelStyle: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: selected
-                                    ? scheme.onPrimaryContainer
-                                    : scheme.onSurface,
-                              ),
-                              avatar: Icon(
-                                f.icon,
-                                size: 16,
-                                color: selected
-                                    ? scheme.onPrimaryContainer
-                                    : scheme.primary,
-                              ),
-                              label: Text(f.label),
-                            ),
-                          );
-                        })
-                        .toList(growable: false),
-                  ),
-                ),
-              ),
-            ),
-            if (state.loadingPosts && !hasPosts)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (!hasPosts)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(
-                  child: Text(
-                    'لا يوجد محتوى بعد، كن أول من ينشر في بسماية.',
-                    textDirection: TextDirection.rtl,
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              )
-            else
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [feedTop, feedBottom],
+          ),
+        ),
+        child: RefreshIndicator(
+          onRefresh: _refreshAll,
+          child: CustomScrollView(
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 90),
-                sliver: SliverList.separated(
-                  itemCount: state.posts.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final post = state.posts[index];
-                    return _FeedPostCard(
-                      post: post,
-                      timeFmt: _timeFmt,
-                      onOpenAuthorAvatar: () => _openAuthorAvatar(post.author),
-                      onOpenAuthorProfile: () =>
-                          _openAuthorProfile(post.author),
-                      onOpenComments: () => _openComments(post),
-                      onLike: () => ref
-                          .read(socialControllerProvider.notifier)
-                          .toggleLike(post),
-                      onShare: () => _sharePost(post),
-                      onMessageAuthor: () => _messageAuthor(post.author),
-                      onOpenMedia: () => _openPostMedia(post),
-                      isImage: _isImagePost(post),
-                      isVideo: _isVideoPost(post),
-                    );
-                  },
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                sliver: SliverToBoxAdapter(
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0.96, end: 1),
+                    duration: const Duration(milliseconds: 420),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, scale, child) =>
+                        Transform.scale(scale: scale, child: child),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        gradient: const LinearGradient(
+                          begin: Alignment.topRight,
+                          end: Alignment.bottomLeft,
+                          colors: [Color(0xFF3A2F8F), Color(0xFF0F7D7A)],
+                        ),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            left: -10,
+                            top: -12,
+                            child: Icon(
+                              Icons.bubble_chart_rounded,
+                              size: 58,
+                              color: Colors.white.withValues(alpha: 0.11),
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              const Text(
+                                'شديصير بسماية',
+                                textDirection: TextDirection.rtl,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 20,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'أخبار الناس، صورهم، ريلزهم، وتجاربهم اليومية داخل المدينة',
+                                textDirection: TextDirection.rtl,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.35,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Wrap(
+                                alignment: WrapAlignment.end,
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _StatBadge(
+                                    icon: Icons.auto_stories_rounded,
+                                    label: 'ستوري ${state.stories.length}',
+                                  ),
+                                  _StatBadge(
+                                    icon: Icons.newspaper_rounded,
+                                    label: 'منشورات ${state.posts.length}',
+                                  ),
+                                  const _StatBadge(
+                                    icon: Icons.update_rounded,
+                                    label: 'تحديث حي',
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            if (state.loadingMorePosts)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: 100, top: 8),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                sliver: SliverToBoxAdapter(
+                  child: _StoriesStrip(
+                    loading: state.loadingStories,
+                    stories: state.stories,
+                    onCreateStory: _openCreateStory,
+                    onOpenStoryGroup: (group) => _openStoryGroup(group),
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                sliver: SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 44,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      reverse: true,
+                      children: _filters
+                          .map((f) {
+                            final selected = state.activeKind == f.kind;
+                            return Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: ChoiceChip(
+                                selected: selected,
+                                showCheckmark: false,
+                                onSelected: (_) => ref
+                                    .read(socialControllerProvider.notifier)
+                                    .setActiveKind(f.kind),
+                                side: BorderSide(
+                                  color: selected
+                                      ? scheme.primary
+                                      : scheme.outlineVariant,
+                                ),
+                                labelStyle: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: selected
+                                      ? scheme.onPrimaryContainer
+                                      : scheme.onSurface,
+                                ),
+                                avatar: Icon(
+                                  f.icon,
+                                  size: 16,
+                                  color: selected
+                                      ? scheme.onPrimaryContainer
+                                      : scheme.primary,
+                                ),
+                                label: Text(f.label),
+                              ),
+                            );
+                          })
+                          .toList(growable: false),
+                    ),
+                  ),
+                ),
+              ),
+              if (state.loadingPosts && !hasPosts)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
                   child: Center(child: CircularProgressIndicator()),
+                )
+              else if (!hasPosts)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Text(
+                      'لا يوجد محتوى بعد، كن أول من ينشر في بسماية.',
+                      textDirection: TextDirection.rtl,
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 90),
+                  sliver: SliverList.separated(
+                    itemCount: state.posts.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final post = state.posts[index];
+                      return _FeedPostCard(
+                        post: post,
+                        timeFmt: _timeFmt,
+                        onOpenAuthorAvatar: () =>
+                            _openAuthorAvatar(post.author),
+                        onOpenAuthorProfile: () =>
+                            _openAuthorProfile(post.author),
+                        onOpenComments: () => _openComments(post),
+                        onLike: () => ref
+                            .read(socialControllerProvider.notifier)
+                            .toggleLike(post),
+                        onShare: () => _sharePost(post),
+                        onMessageAuthor: () => _messageAuthor(post.author),
+                        onOpenMedia: () => _openPostMedia(post),
+                        isImage: _isImagePost(post),
+                        isVideo: _isVideoPost(post),
+                      );
+                    },
+                  ),
                 ),
-              ),
-          ],
+              if (state.loadingMorePosts)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: 100, top: 8),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -617,6 +634,28 @@ class _CreatePostSheetState extends ConsumerState<_CreatePostSheet> {
     setState(() => _postKind = kind);
     if (kind == 'merchant_review') {
       _loadMerchants(_merchantSearchCtrl.text);
+    }
+  }
+
+  String _merchantTypeLabel(String type) {
+    final normalized = type.trim().toLowerCase();
+    switch (normalized) {
+      case 'restaurant':
+        return 'مطعم';
+      case 'sweets':
+      case 'dessert':
+        return 'حلويات';
+      case 'cafe':
+      case 'coffee':
+        return 'قهوة ومشروبات';
+      case 'electronics':
+        return 'تجهيزات كهربائية';
+      case 'pharmacy':
+        return 'صيدلية';
+      case 'market':
+        return 'سوق';
+      default:
+        return 'متجر';
     }
   }
 
@@ -776,32 +815,74 @@ class _CreatePostSheetState extends ConsumerState<_CreatePostSheet> {
                     child: LinearProgressIndicator(minHeight: 2),
                   ),
                 const SizedBox(height: 8),
-                SizedBox(
-                  height: 170,
-                  child: ListView.builder(
-                    itemCount: _merchantOptions.length,
-                    itemBuilder: (context, index) {
-                      final merchant = _merchantOptions[index];
-                      final selected = _selectedMerchant?.id == merchant.id;
-                      return ListTile(
-                        dense: true,
-                        onTap: () =>
-                            setState(() => _selectedMerchant = merchant),
-                        title: Text(
-                          merchant.name,
-                          textDirection: TextDirection.rtl,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        subtitle: Text(
-                          merchant.type == 'restaurant' ? 'مطعم' : 'متجر',
-                          textDirection: TextDirection.rtl,
-                        ),
-                        trailing: selected
-                            ? const Icon(Icons.check_circle_rounded)
-                            : null,
-                      );
-                    },
+                Container(
+                  height: 186,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
                   ),
+                  child: _merchantOptions.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              _loadingMerchants
+                                  ? 'جاري تحميل المتاجر...'
+                                  : 'لا توجد متاجر مطابقة الآن. جرّب البحث باسم آخر.',
+                              textDirection: TextDirection.rtl,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: 0.75),
+                              ),
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: _merchantOptions.length,
+                          itemBuilder: (context, index) {
+                            final merchant = _merchantOptions[index];
+                            final selected =
+                                _selectedMerchant?.id == merchant.id;
+                            return ListTile(
+                              dense: true,
+                              onTap: () =>
+                                  setState(() => _selectedMerchant = merchant),
+                              leading: (merchant.imageUrl ?? '').trim().isEmpty
+                                  ? const CircleAvatar(
+                                      radius: 16,
+                                      child: Icon(
+                                        Icons.storefront_rounded,
+                                        size: 16,
+                                      ),
+                                    )
+                                  : CircleAvatar(
+                                      radius: 16,
+                                      backgroundImage: NetworkImage(
+                                        merchant.imageUrl!,
+                                      ),
+                                    ),
+                              title: Text(
+                                merchant.name,
+                                textDirection: TextDirection.rtl,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              subtitle: Text(
+                                _merchantTypeLabel(merchant.type),
+                                textDirection: TextDirection.rtl,
+                              ),
+                              trailing: selected
+                                  ? const Icon(Icons.check_circle_rounded)
+                                  : null,
+                            );
+                          },
+                        ),
                 ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,

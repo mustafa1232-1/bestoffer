@@ -439,6 +439,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
+        backgroundColor: const Color(0xFF0F2140),
         appBar: AppBar(
           title: Text(
             profile?.fullName ?? widget.initialName ?? 'الملف الشخصي',
@@ -459,85 +460,98 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
         ),
         body: _loadingProfile && profile == null
             ? const Center(child: CircularProgressIndicator())
-            : RefreshIndicator(
-                onRefresh: _refreshAll,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-                  children: [
-                    if (_error != null) _ErrorBanner(message: _error!),
-                    if (profile != null)
-                      _ProfileHeaderCard(
-                        profile: profile,
-                        roleLabel: _friendlyRole(profile.role),
-                        joinedAt: _formatDate(profile.joinedAt),
-                        favorites: favorites,
-                        onAvatarTap: _openAvatarStoryOrImage,
-                        onEditTap: profile.isMe ? _openEditProfileSheet : null,
-                      ),
-                    const SizedBox(height: 12),
-                    _HighlightsSection(
-                      loading: _loadingHighlights,
-                      albums: albums,
-                      isPrivateForViewer: _storiesPrivateForViewer,
-                      canManage: profile?.isMe == true,
-                      onAdd: _openAddHighlightSheet,
-                      onOpen: _openHighlightAlbum,
-                      onRemove: _removeHighlight,
-                    ),
-                    const SizedBox(height: 12),
-                    _FiltersSection(
-                      selectedKind: _selectedKind,
-                      onSelect: _onSelectFilter,
-                    ),
-                    const SizedBox(height: 10),
-                    if (loadingCurrentKind && currentPosts.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 30),
-                        child: Center(child: CircularProgressIndicator()),
-                      )
-                    else if (_postsPrivateForViewer)
-                      _PrivatePostsNotice(
-                        name:
-                            profile?.fullName ?? widget.initialName ?? 'الحساب',
-                      )
-                    else if (currentPosts.isEmpty)
-                      const _EmptyPostsNotice()
-                    else if (_isMediaFilter(_selectedKind))
-                      _ProfileMediaGrid(
-                        posts: currentPosts,
-                        onOpenMedia: _openMediaViewer,
-                      )
-                    else
-                      ...currentPosts.map(
-                        (post) => _ProfilePostCard(
-                          post: post,
-                          dateText: _formatDateTime(post.createdAt),
-                          onOpenMedia: () => _openMediaViewer(post),
+            : Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFF122A4F), Color(0xFF0A1832)],
+                  ),
+                ),
+                child: RefreshIndicator(
+                  onRefresh: _refreshAll,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+                    children: [
+                      if (_error != null) _ErrorBanner(message: _error!),
+                      if (profile != null)
+                        _ProfileHeaderCard(
+                          profile: profile,
+                          roleLabel: _friendlyRole(profile.role),
+                          joinedAt: _formatDate(profile.joinedAt),
+                          favorites: favorites,
+                          onAvatarTap: _openAvatarStoryOrImage,
+                          onEditTap: profile.isMe
+                              ? _openEditProfileSheet
+                              : null,
                         ),
+                      const SizedBox(height: 12),
+                      _HighlightsSection(
+                        loading: _loadingHighlights,
+                        albums: albums,
+                        isPrivateForViewer: _storiesPrivateForViewer,
+                        canManage: profile?.isMe == true,
+                        onAdd: _openAddHighlightSheet,
+                        onOpen: _openHighlightAlbum,
+                        onRemove: _removeHighlight,
                       ),
-                    if (currentNextCursor != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: OutlinedButton.icon(
-                          onPressed: loadingCurrentKind
-                              ? null
-                              : () => _loadPosts(
-                                  kind: _selectedKind,
-                                  refresh: false,
-                                ),
-                          icon: loadingCurrentKind
-                              ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
+                      const SizedBox(height: 12),
+                      _FiltersSection(
+                        selectedKind: _selectedKind,
+                        onSelect: _onSelectFilter,
+                      ),
+                      const SizedBox(height: 10),
+                      if (loadingCurrentKind && currentPosts.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 30),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else if (_postsPrivateForViewer)
+                        _PrivatePostsNotice(
+                          name:
+                              profile?.fullName ??
+                              widget.initialName ??
+                              'الحساب',
+                        )
+                      else if (currentPosts.isEmpty)
+                        const _EmptyPostsNotice()
+                      else if (_isMediaFilter(_selectedKind))
+                        _ProfileMediaGrid(
+                          posts: currentPosts,
+                          onOpenMedia: _openMediaViewer,
+                        )
+                      else
+                        ...currentPosts.map(
+                          (post) => _ProfilePostCard(
+                            post: post,
+                            dateText: _formatDateTime(post.createdAt),
+                            onOpenMedia: () => _openMediaViewer(post),
+                          ),
+                        ),
+                      if (currentNextCursor != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: OutlinedButton.icon(
+                            onPressed: loadingCurrentKind
+                                ? null
+                                : () => _loadPosts(
+                                    kind: _selectedKind,
+                                    refresh: false,
                                   ),
-                                )
-                              : const Icon(Icons.expand_more_rounded),
-                          label: const Text('عرض المزيد'),
+                            icon: loadingCurrentKind
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.expand_more_rounded),
+                            label: const Text('عرض المزيد'),
+                          ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
       ),
@@ -642,144 +656,193 @@ class _ProfileHeaderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final stats = profile.stats;
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        profile.fullName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 20,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '$roleLabel • عضو منذ $joinedAt',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.72),
-                        ),
-                      ),
-                      if (profile.phone != null &&
-                          profile.phone!.trim().isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            profile.phone!,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withValues(alpha: 0.72),
-                            ),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [
+              Theme.of(
+                context,
+              ).colorScheme.primaryContainer.withValues(alpha: 0.42),
+              Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.18),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          profile.fullName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20,
                           ),
                         ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          '$roleLabel • عضو منذ $joinedAt',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withValues(alpha: 0.72),
+                          ),
+                        ),
+                        if (profile.phone != null &&
+                            profile.phone!.trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              profile.phone!,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: 0.72),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                GestureDetector(
-                  onTap: onAvatarTap,
-                  child: CircleAvatar(
-                    radius: 36,
-                    backgroundImage: (profile.imageUrl ?? '').trim().isNotEmpty
-                        ? NetworkImage(profile.imageUrl!)
-                        : null,
-                    child: (profile.imageUrl ?? '').trim().isEmpty
-                        ? const Icon(Icons.person_outline, size: 28)
-                        : null,
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: onAvatarTap,
+                    child: CircleAvatar(
+                      radius: 36,
+                      backgroundImage:
+                          (profile.imageUrl ?? '').trim().isNotEmpty
+                          ? NetworkImage(profile.imageUrl!)
+                          : null,
+                      child: (profile.imageUrl ?? '').trim().isEmpty
+                          ? const Icon(Icons.person_outline, size: 28)
+                          : null,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            if (profile.bio.trim().isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                ),
-                child: Text(
-                  profile.bio.trim(),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    height: 1.4,
-                  ),
-                ),
+                ],
               ),
-            ],
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _StatChip(label: 'منشورات', value: stats.totalPosts.toString()),
-                _StatChip(label: 'صور', value: stats.imagePosts.toString()),
-                _StatChip(label: 'ريلز', value: stats.videoPosts.toString()),
-                _StatChip(
-                  label: 'تقييمات',
-                  value: stats.reviewPosts.toString(),
-                ),
-                _StatChip(
-                  label: 'إعجابات',
-                  value: stats.likesReceived.toString(),
-                ),
-                _StatChip(
-                  label: 'تعليقات',
-                  value: stats.commentsReceived.toString(),
-                ),
-                _StatChip(
-                  label: 'ستوري نشطة',
-                  value: stats.activeStories.toString(),
-                ),
-              ],
-            ),
-            if (favorites.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Text(
-                'المتاجر المفضلة',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-              const SizedBox(height: 6),
               Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: favorites
-                    .map(
-                      (name) => Chip(
-                        label: Text(name, textDirection: TextDirection.rtl),
-                      ),
-                    )
-                    .toList(growable: false),
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _PrivacyPill(
+                    icon: Icons.phone_enabled_outlined,
+                    label: profile.showPhone ? 'الهاتف ظاهر' : 'الهاتف مخفي',
+                    active: profile.showPhone,
+                  ),
+                  _PrivacyPill(
+                    icon: Icons.public_rounded,
+                    label: profile.postsPublic
+                        ? 'المنشورات عامة'
+                        : 'المنشورات خاصة',
+                    active: profile.postsPublic,
+                  ),
+                  _PrivacyPill(
+                    icon: Icons.auto_stories_rounded,
+                    label: profile.storiesPublic
+                        ? 'الستوريات عامة'
+                        : 'الستوريات خاصة',
+                    active: profile.storiesPublic,
+                  ),
+                ],
               ),
-            ],
-            if (onEditTap != null) ...[
-              const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton.icon(
-                  onPressed: onEditTap,
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('تعديل الملف الشخصي'),
+              if (profile.bio.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                  ),
+                  child: Text(
+                    profile.bio.trim(),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      height: 1.4,
+                    ),
+                  ),
                 ),
+              ],
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _StatChip(
+                    label: 'منشورات',
+                    value: stats.totalPosts.toString(),
+                  ),
+                  _StatChip(label: 'صور', value: stats.imagePosts.toString()),
+                  _StatChip(label: 'ريلز', value: stats.videoPosts.toString()),
+                  _StatChip(
+                    label: 'تقييمات',
+                    value: stats.reviewPosts.toString(),
+                  ),
+                  _StatChip(
+                    label: 'إعجابات',
+                    value: stats.likesReceived.toString(),
+                  ),
+                  _StatChip(
+                    label: 'تعليقات',
+                    value: stats.commentsReceived.toString(),
+                  ),
+                  _StatChip(
+                    label: 'ستوري نشطة',
+                    value: stats.activeStories.toString(),
+                  ),
+                ],
               ),
+              if (favorites.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'المتاجر المفضلة',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: favorites
+                      .map(
+                        (name) => Chip(
+                          label: Text(name, textDirection: TextDirection.rtl),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+              ],
+              if (onEditTap != null) ...[
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: onEditTap,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('تعديل الملف الشخصي'),
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -806,6 +869,50 @@ class _StatChip extends StatelessWidget {
           fontWeight: FontWeight.w800,
           color: Theme.of(context).colorScheme.onPrimaryContainer,
         ),
+      ),
+    );
+  }
+}
+
+class _PrivacyPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+
+  const _PrivacyPill({
+    required this.icon,
+    required this.label,
+    required this.active,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = active
+        ? Theme.of(context).colorScheme.secondaryContainer
+        : Theme.of(context).colorScheme.surfaceContainerHighest;
+    final fg = active
+        ? Theme.of(context).colorScheme.onSecondaryContainer
+        : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: bg,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }

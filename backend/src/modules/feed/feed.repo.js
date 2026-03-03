@@ -613,9 +613,9 @@ export async function listMerchantOptions({ search = "", limit = 120 }) {
        phone,
        image_url
      FROM merchant
-     WHERE is_disabled = FALSE
-       AND is_approved = TRUE
-       AND COALESCE(LOWER(type), '') NOT IN ('car', 'cars', 'automotive', 'vehicles')
+     WHERE COALESCE(is_disabled, FALSE) = FALSE
+       AND COALESCE(is_approved, TRUE) = TRUE
+       AND COALESCE(TRIM(LOWER(type)), '') NOT IN ('car', 'cars', 'automotive', 'vehicles')
        AND (
          $1::text = ''
          OR name ILIKE ('%' || $1 || '%')
