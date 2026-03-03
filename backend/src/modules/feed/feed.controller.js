@@ -11,9 +11,15 @@ import {
   validateListStoryArchive,
   validateListMessages,
   validateListPosts,
+  validateMessageId,
+  validateMessageReaction,
+  validateRelationListQuery,
   validateMerchantSearch,
   validatePostId,
   validateStoryId,
+  validateThreadCallEnd,
+  validateThreadCallSignal,
+  validateThreadCallStateQuery,
   validateUpdateSocialProfile,
   validateUserId,
   validateSendMessage,
@@ -331,6 +337,232 @@ export async function sendThreadMessage(req, res, next) {
       body: body.value.body,
     });
     return res.status(201).json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function toggleThreadMessageReaction(req, res, next) {
+  try {
+    const thread = validateThreadId(req.params.threadId);
+    if (!thread.ok) return badRequest(res, thread.errors);
+    const message = validateMessageId(req.params.messageId);
+    if (!message.ok) return badRequest(res, message.errors);
+    const body = validateMessageReaction(req.body || {});
+    if (!body.ok) return badRequest(res, body.errors);
+
+    const out = await service.toggleMessageReaction({
+      userId: req.userId,
+      threadId: thread.value,
+      messageId: message.value,
+      reaction: body.value.reaction,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getUserRelationState(req, res, next) {
+  try {
+    const user = validateUserId(req.params.userId);
+    if (!user.ok) return badRequest(res, user.errors);
+    const out = await service.getUserRelationState({
+      userId: req.userId,
+      otherUserId: user.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function sendUserRelationRequest(req, res, next) {
+  try {
+    const user = validateUserId(req.params.userId);
+    if (!user.ok) return badRequest(res, user.errors);
+    const out = await service.sendUserRelationRequest({
+      userId: req.userId,
+      otherUserId: user.value,
+    });
+    return res.status(201).json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function acceptUserRelationRequest(req, res, next) {
+  try {
+    const user = validateUserId(req.params.userId);
+    if (!user.ok) return badRequest(res, user.errors);
+    const out = await service.acceptUserRelationRequest({
+      userId: req.userId,
+      otherUserId: user.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function rejectUserRelationRequest(req, res, next) {
+  try {
+    const user = validateUserId(req.params.userId);
+    if (!user.ok) return badRequest(res, user.errors);
+    const out = await service.rejectUserRelationRequest({
+      userId: req.userId,
+      otherUserId: user.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function cancelUserRelationRequest(req, res, next) {
+  try {
+    const user = validateUserId(req.params.userId);
+    if (!user.ok) return badRequest(res, user.errors);
+    const out = await service.cancelUserRelationRequest({
+      userId: req.userId,
+      otherUserId: user.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function removeUserRelation(req, res, next) {
+  try {
+    const user = validateUserId(req.params.userId);
+    if (!user.ok) return badRequest(res, user.errors);
+    const out = await service.removeUserRelation({
+      userId: req.userId,
+      otherUserId: user.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function blockUserRelation(req, res, next) {
+  try {
+    const user = validateUserId(req.params.userId);
+    if (!user.ok) return badRequest(res, user.errors);
+    const out = await service.blockUserRelation({
+      userId: req.userId,
+      otherUserId: user.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function unblockUserRelation(req, res, next) {
+  try {
+    const user = validateUserId(req.params.userId);
+    if (!user.ok) return badRequest(res, user.errors);
+    const out = await service.unblockUserRelation({
+      userId: req.userId,
+      otherUserId: user.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listIncomingRelationRequests(req, res, next) {
+  try {
+    const qv = validateRelationListQuery(req.query || {});
+    if (!qv.ok) return badRequest(res, qv.errors);
+    const out = await service.listIncomingRelationRequests({
+      userId: req.userId,
+      query: qv.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listOutgoingRelationRequests(req, res, next) {
+  try {
+    const qv = validateRelationListQuery(req.query || {});
+    if (!qv.ok) return badRequest(res, qv.errors);
+    const out = await service.listOutgoingRelationRequests({
+      userId: req.userId,
+      query: qv.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getThreadCallState(req, res, next) {
+  try {
+    const thread = validateThreadId(req.params.threadId);
+    if (!thread.ok) return badRequest(res, thread.errors);
+    const qv = validateThreadCallStateQuery(req.query || {});
+    if (!qv.ok) return badRequest(res, qv.errors);
+    const out = await service.getThreadCallState({
+      userId: req.userId,
+      threadId: thread.value,
+      signalLimit: qv.value.signalLimit,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function startThreadCall(req, res, next) {
+  try {
+    const thread = validateThreadId(req.params.threadId);
+    if (!thread.ok) return badRequest(res, thread.errors);
+    const out = await service.startThreadCall({
+      userId: req.userId,
+      threadId: thread.value,
+    });
+    return res.status(201).json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function sendThreadCallSignal(req, res, next) {
+  try {
+    const thread = validateThreadId(req.params.threadId);
+    if (!thread.ok) return badRequest(res, thread.errors);
+    const body = validateThreadCallSignal(req.body || {});
+    if (!body.ok) return badRequest(res, body.errors);
+    const out = await service.sendThreadCallSignal({
+      userId: req.userId,
+      threadId: thread.value,
+      dto: body.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function endThreadCall(req, res, next) {
+  try {
+    const thread = validateThreadId(req.params.threadId);
+    if (!thread.ok) return badRequest(res, thread.errors);
+    const body = validateThreadCallEnd(req.body || {});
+    if (!body.ok) return badRequest(res, body.errors);
+    const out = await service.endThreadCall({
+      userId: req.userId,
+      threadId: thread.value,
+      dto: body.value,
+    });
+    return res.json(out);
   } catch (error) {
     return next(error);
   }

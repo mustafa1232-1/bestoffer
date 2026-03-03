@@ -811,16 +811,20 @@ export async function getThreadForUser({ threadId, userId }) {
   const r = await q(
     `SELECT
        t.*,
-      CASE WHEN t.user_a_id = $2 THEN t.user_b_id ELSE t.user_a_id END AS peer_user_id,
-      peer.full_name AS peer_full_name,
-      peer.phone AS peer_phone,
-      peer.role AS peer_role,
-      peer.image_url AS peer_image_url
-     FROM social_chat_thread t
-     JOIN app_user peer ON peer.id = CASE WHEN t.user_a_id = $2 THEN t.user_b_id ELSE t.user_a_id END
-     WHERE t.id = $1
-       AND (t.user_a_id = $2 OR t.user_b_id = $2)
-     LIMIT 1`,
+       CASE WHEN t.user_a_id = $2 THEN t.user_b_id ELSE t.user_a_id END AS peer_user_id,
+       peer.full_name AS peer_full_name,
+       peer.phone AS peer_phone,
+       peer.role AS peer_role,
+       peer.image_url AS peer_image_url
+      FROM social_chat_thread t
+      JOIN social_user_relation rel
+        ON rel.user_a_id = t.user_a_id
+       AND rel.user_b_id = t.user_b_id
+       AND rel.status = 'accepted'
+      JOIN app_user peer ON peer.id = CASE WHEN t.user_a_id = $2 THEN t.user_b_id ELSE t.user_a_id END
+      WHERE t.id = $1
+        AND (t.user_a_id = $2 OR t.user_b_id = $2)
+      LIMIT 1`,
     [Number(threadId), Number(userId)]
   );
   return r.rows[0] || null;
@@ -829,8 +833,8 @@ export async function getThreadForUser({ threadId, userId }) {
 export async function listThreadsForUser({ userId, limit = 50 }) {
   const r = await q(
     `SELECT
-       t.id,
-       t.user_a_id,
+        t.id,
+        t.user_a_id,
        t.user_b_id,
        t.created_at,
        t.updated_at,
@@ -840,14 +844,18 @@ export async function listThreadsForUser({ userId, limit = 50 }) {
        peer.phone AS peer_phone,
        peer.role AS peer_role,
        peer.image_url AS peer_image_url,
-       lm.id AS last_message_id,
-       lm.sender_user_id AS last_message_sender_user_id,
-       lm.body AS last_message_body,
-       lm.created_at AS last_message_created_at
-     FROM social_chat_thread t
-     JOIN app_user peer ON peer.id = CASE WHEN t.user_a_id = $1 THEN t.user_b_id ELSE t.user_a_id END
-     LEFT JOIN LATERAL (
-       SELECT m.id, m.sender_user_id, m.body, m.created_at
+        lm.id AS last_message_id,
+        lm.sender_user_id AS last_message_sender_user_id,
+        lm.body AS last_message_body,
+        lm.created_at AS last_message_created_at
+      FROM social_chat_thread t
+      JOIN social_user_relation rel
+        ON rel.user_a_id = t.user_a_id
+       AND rel.user_b_id = t.user_b_id
+       AND rel.status = 'accepted'
+      JOIN app_user peer ON peer.id = CASE WHEN t.user_a_id = $1 THEN t.user_b_id ELSE t.user_a_id END
+      LEFT JOIN LATERAL (
+        SELECT m.id, m.sender_user_id, m.body, m.created_at
        FROM social_chat_message m
        WHERE m.thread_id = t.id
          AND m.is_deleted = FALSE
@@ -891,6 +899,105 @@ export async function listMessagesForThread({
   return r.rows;
 }
 
+export async function getThreadMessageById({ threadId, messageId }) {
+  const r = await q(
+    `SELECT *
+     FROM social_chat_message
+     WHERE id = $1
+       AND thread_id = $2
+       AND is_deleted = FALSE
+     LIMIT 1`,
+    [Number(messageId), Number(threadId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function listMessageReactionsForMessages({ messageIds, userId }) {
+  const ids = Array.isArray(messageIds)
+    ? [...new Set(messageIds.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0))]
+    : [];
+  if (ids.length <= 0) return {};
+
+  const countsRes = await q(
+    `SELECT
+       message_id,
+       reaction,
+       COUNT(*)::int AS reaction_count
+     FROM social_chat_message_reaction
+     WHERE message_id = ANY($1::bigint[])
+     GROUP BY message_id, reaction`,
+    [ids]
+  );
+
+  const mineRes = await q(
+    `SELECT message_id, reaction
+     FROM social_chat_message_reaction
+     WHERE user_id = $1
+       AND message_id = ANY($2::bigint[])`,
+    [Number(userId), ids]
+  );
+
+  const out = {};
+  for (const id of ids) {
+    out[id] = { counts: {}, myReaction: null, totalCount: 0 };
+  }
+
+  for (const row of countsRes.rows) {
+    const messageId = Number(row.message_id);
+    const reaction = String(row.reaction || "").trim();
+    const count = Number(row.reaction_count || 0);
+    if (!out[messageId] || !reaction) continue;
+    out[messageId].counts[reaction] = count;
+    out[messageId].totalCount += count;
+  }
+
+  for (const row of mineRes.rows) {
+    const messageId = Number(row.message_id);
+    const reaction = String(row.reaction || "").trim();
+    if (!out[messageId] || !reaction) continue;
+    out[messageId].myReaction = reaction;
+  }
+
+  return out;
+}
+
+export async function toggleMessageReaction({ messageId, userId, reaction }) {
+  const targetReaction = String(reaction || "").trim().toLowerCase();
+  const allowed = new Set(["like", "heart", "laugh", "fire"]);
+  const safeReaction = allowed.has(targetReaction) ? targetReaction : "like";
+
+  const existingRes = await q(
+    `SELECT reaction
+     FROM social_chat_message_reaction
+     WHERE message_id = $1
+       AND user_id = $2
+     LIMIT 1`,
+    [Number(messageId), Number(userId)]
+  );
+  const existing = existingRes.rows[0] || null;
+
+  if (existing && String(existing.reaction || "").trim().toLowerCase() === safeReaction) {
+    await q(
+      `DELETE FROM social_chat_message_reaction
+       WHERE message_id = $1
+         AND user_id = $2`,
+      [Number(messageId), Number(userId)]
+    );
+    return { active: false, reaction: null };
+  }
+
+  await q(
+    `INSERT INTO social_chat_message_reaction (message_id, user_id, reaction)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (message_id, user_id)
+     DO UPDATE SET
+       reaction = EXCLUDED.reaction,
+       updated_at = NOW()`,
+    [Number(messageId), Number(userId), safeReaction]
+  );
+  return { active: true, reaction: safeReaction };
+}
+
 export async function insertThreadMessage({ threadId, senderUserId, body }) {
   const r = await q(
     `INSERT INTO social_chat_message (thread_id, sender_user_id, body)
@@ -909,4 +1016,355 @@ export async function touchThreadLastMessage(threadId) {
      WHERE id = $1`,
     [Number(threadId)]
   );
+}
+
+function normalizeRelationPair(userIdA, userIdB) {
+  const a = Number(userIdA);
+  const b = Number(userIdB);
+  return {
+    userAId: Math.min(a, b),
+    userBId: Math.max(a, b),
+  };
+}
+
+export async function getUserRelation({ userId, otherUserId }) {
+  const pair = normalizeRelationPair(userId, otherUserId);
+  const r = await q(
+    `SELECT *
+     FROM social_user_relation
+     WHERE user_a_id = $1
+       AND user_b_id = $2
+     LIMIT 1`,
+    [pair.userAId, pair.userBId]
+  );
+  return r.rows[0] || null;
+}
+
+export async function upsertPendingRelation({ fromUserId, toUserId }) {
+  const pair = normalizeRelationPair(fromUserId, toUserId);
+  const r = await q(
+    `INSERT INTO social_user_relation
+      (
+        user_a_id,
+        user_b_id,
+        initiator_user_id,
+        status,
+        requested_at,
+        responded_at
+      )
+     VALUES ($1, $2, $3, 'pending', NOW(), NULL)
+     ON CONFLICT (user_a_id, user_b_id)
+     DO UPDATE SET
+       initiator_user_id = EXCLUDED.initiator_user_id,
+       status = 'pending',
+       requested_at = NOW(),
+       responded_at = NULL,
+       updated_at = NOW()
+     RETURNING *`,
+    [pair.userAId, pair.userBId, Number(fromUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function updateRelationStatus({
+  userId,
+  otherUserId,
+  status,
+  initiatorUserId = null,
+}) {
+  const pair = normalizeRelationPair(userId, otherUserId);
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  const allowed = new Set(["pending", "accepted", "rejected", "cancelled", "blocked"]);
+  const safeStatus = allowed.has(normalizedStatus) ? normalizedStatus : "pending";
+  const params = [pair.userAId, pair.userBId, safeStatus];
+  const setInitiator =
+    initiatorUserId == null
+      ? ""
+      : `, initiator_user_id = $${params.push(Number(initiatorUserId))}`;
+  const r = await q(
+    `UPDATE social_user_relation
+     SET status = $3,
+         requested_at = CASE WHEN $3 = 'pending' THEN NOW() ELSE requested_at END,
+         responded_at = CASE WHEN $3 = 'pending' THEN NULL ELSE NOW() END
+         ${setInitiator},
+         updated_at = NOW()
+     WHERE user_a_id = $1
+       AND user_b_id = $2
+     RETURNING *`,
+    params
+  );
+  return r.rows[0] || null;
+}
+
+export async function deleteRelation({ userId, otherUserId }) {
+  const pair = normalizeRelationPair(userId, otherUserId);
+  const r = await q(
+    `DELETE FROM social_user_relation
+     WHERE user_a_id = $1
+       AND user_b_id = $2
+     RETURNING *`,
+    [pair.userAId, pair.userBId]
+  );
+  return r.rows[0] || null;
+}
+
+export async function listIncomingRelationRequests({ userId, limit = 100 }) {
+  const r = await q(
+    `SELECT
+       rel.user_a_id,
+       rel.user_b_id,
+       rel.initiator_user_id,
+       rel.status,
+       rel.requested_at,
+       rel.responded_at,
+       rel.updated_at,
+       requester.id AS requester_user_id,
+       requester.full_name AS requester_full_name,
+       requester.phone AS requester_phone,
+       requester.role AS requester_role,
+       requester.image_url AS requester_image_url
+     FROM social_user_relation rel
+     JOIN app_user requester ON requester.id = rel.initiator_user_id
+     WHERE rel.status = 'pending'
+       AND rel.initiator_user_id <> $1
+       AND (rel.user_a_id = $1 OR rel.user_b_id = $1)
+     ORDER BY rel.requested_at DESC, rel.updated_at DESC
+     LIMIT $2`,
+    [Number(userId), Math.max(1, Math.min(200, Number(limit) || 100))]
+  );
+  return r.rows;
+}
+
+export async function listOutgoingRelationRequests({ userId, limit = 100 }) {
+  const r = await q(
+    `SELECT
+       rel.user_a_id,
+       rel.user_b_id,
+       rel.initiator_user_id,
+       rel.status,
+       rel.requested_at,
+       rel.responded_at,
+       rel.updated_at,
+       target.id AS target_user_id,
+       target.full_name AS target_full_name,
+       target.phone AS target_phone,
+       target.role AS target_role,
+       target.image_url AS target_image_url
+     FROM social_user_relation rel
+     JOIN app_user target
+       ON target.id = CASE
+           WHEN rel.user_a_id = $1 THEN rel.user_b_id
+           ELSE rel.user_a_id
+         END
+     WHERE rel.status = 'pending'
+       AND rel.initiator_user_id = $1
+       AND (rel.user_a_id = $1 OR rel.user_b_id = $1)
+     ORDER BY rel.requested_at DESC, rel.updated_at DESC
+     LIMIT $2`,
+    [Number(userId), Math.max(1, Math.min(200, Number(limit) || 100))]
+  );
+  return r.rows;
+}
+
+export async function getUserRelationStats(userId) {
+  const r = await q(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'accepted')::int AS accepted_count,
+       COUNT(*) FILTER (
+         WHERE status = 'accepted' AND initiator_user_id <> $1
+       )::int AS followers_count,
+       COUNT(*) FILTER (
+         WHERE status = 'accepted' AND initiator_user_id = $1
+       )::int AS following_count,
+       COUNT(*) FILTER (
+         WHERE status = 'pending' AND initiator_user_id <> $1
+       )::int AS pending_incoming_count,
+       COUNT(*) FILTER (
+         WHERE status = 'pending' AND initiator_user_id = $1
+       )::int AS pending_outgoing_count,
+       COUNT(*) FILTER (
+         WHERE status = 'blocked' AND initiator_user_id = $1
+       )::int AS blocked_by_me_count
+     FROM social_user_relation
+     WHERE user_a_id = $1 OR user_b_id = $1`,
+    [Number(userId)]
+  );
+  return (
+    r.rows[0] || {
+      accepted_count: 0,
+      followers_count: 0,
+      following_count: 0,
+      pending_incoming_count: 0,
+      pending_outgoing_count: 0,
+      blocked_by_me_count: 0,
+    }
+  );
+}
+
+function normalizeSocialCallSession(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    threadId: Number(row.thread_id),
+    callerUserId: Number(row.caller_user_id),
+    calleeUserId: Number(row.callee_user_id),
+    status: row.status,
+    startedAt: row.started_at || row.created_at || null,
+    answeredAt: row.answered_at || null,
+    endedAt: row.ended_at || null,
+    endReason: row.end_reason || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function normalizeSocialCallSignal(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    sessionId: Number(row.session_id),
+    threadId: Number(row.thread_id),
+    senderUserId: Number(row.sender_user_id),
+    signalType: row.signal_type || "ice",
+    signalPayload: row.signal_payload || null,
+    createdAt: row.created_at || null,
+  };
+}
+
+export async function getActiveThreadCallSession(threadId) {
+  const r = await q(
+    `SELECT *
+     FROM social_call_session
+     WHERE thread_id = $1
+       AND status IN ('ringing', 'active')
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    [Number(threadId)]
+  );
+  return normalizeSocialCallSession(r.rows[0]);
+}
+
+export async function getThreadCallSessionById(sessionId) {
+  const r = await q(
+    `SELECT *
+     FROM social_call_session
+     WHERE id = $1
+     LIMIT 1`,
+    [Number(sessionId)]
+  );
+  return normalizeSocialCallSession(r.rows[0]);
+}
+
+export async function createThreadCallSession({
+  threadId,
+  callerUserId,
+  calleeUserId,
+}) {
+  await q(
+    `UPDATE social_call_session
+     SET status = 'ended',
+         ended_at = NOW(),
+         end_reason = COALESCE(end_reason, 'replaced'),
+         updated_at = NOW()
+     WHERE thread_id = $1
+       AND status IN ('ringing', 'active')`,
+    [Number(threadId)]
+  );
+
+  const r = await q(
+    `INSERT INTO social_call_session
+      (
+        thread_id,
+        caller_user_id,
+        callee_user_id,
+        status,
+        started_at,
+        created_at,
+        updated_at
+      )
+     VALUES ($1, $2, $3, 'ringing', NOW(), NOW(), NOW())
+     RETURNING *`,
+    [Number(threadId), Number(callerUserId), Number(calleeUserId)]
+  );
+  return normalizeSocialCallSession(r.rows[0]);
+}
+
+export async function markThreadCallAnswered({ sessionId }) {
+  const r = await q(
+    `UPDATE social_call_session
+     SET status = 'active',
+         answered_at = COALESCE(answered_at, NOW()),
+         updated_at = NOW()
+     WHERE id = $1
+       AND status IN ('ringing', 'active')
+     RETURNING *`,
+    [Number(sessionId)]
+  );
+  return normalizeSocialCallSession(r.rows[0]);
+}
+
+export async function endThreadCallSession({
+  sessionId,
+  status = "ended",
+  endReason = "hangup",
+}) {
+  const normalizedStatus = ["ended", "declined", "missed"].includes(
+    String(status || "").trim().toLowerCase()
+  )
+    ? String(status || "").trim().toLowerCase()
+    : "ended";
+  const r = await q(
+    `UPDATE social_call_session
+     SET status = $2,
+         ended_at = COALESCE(ended_at, NOW()),
+         end_reason = $3,
+         updated_at = NOW()
+     WHERE id = $1
+       AND status IN ('ringing', 'active')
+     RETURNING *`,
+    [Number(sessionId), normalizedStatus, endReason || null]
+  );
+  return normalizeSocialCallSession(r.rows[0]);
+}
+
+export async function insertThreadCallSignal({
+  sessionId,
+  threadId,
+  senderUserId,
+  signalType,
+  signalPayload = null,
+}) {
+  const r = await q(
+    `INSERT INTO social_call_signal
+      (session_id, thread_id, sender_user_id, signal_type, signal_payload)
+     VALUES ($1, $2, $3, $4, $5::jsonb)
+     RETURNING *`,
+    [
+      Number(sessionId),
+      Number(threadId),
+      Number(senderUserId),
+      String(signalType || "ice"),
+      signalPayload == null ? null : JSON.stringify(signalPayload),
+    ]
+  );
+  return normalizeSocialCallSignal(r.rows[0]);
+}
+
+export async function listThreadCallSignals(sessionId, { limit = 160 } = {}) {
+  const r = await q(
+    `SELECT *
+     FROM social_call_signal
+     WHERE session_id = $1
+     ORDER BY id DESC
+     LIMIT $2`,
+    [Number(sessionId), Math.max(1, Math.min(800, Number(limit) || 160))]
+  );
+  return r.rows.map(normalizeSocialCallSignal);
+}
+
+export async function getThreadCallState(threadId, { signalLimit = 160 } = {}) {
+  const session = await getActiveThreadCallSession(threadId);
+  if (!session) return { session: null, signals: [] };
+  const signals = await listThreadCallSignals(session.id, { limit: signalLimit });
+  return { session, signals };
 }

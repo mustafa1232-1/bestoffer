@@ -220,6 +220,11 @@ function mapMessageRow(row, viewerUserId) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isMine: Number(row.sender_user_id) === Number(viewerUserId),
+    reactions: {
+      counts: row.reaction_counts || {},
+      totalCount: Number(row.reaction_total_count || 0),
+      myReaction: row.my_reaction || null,
+    },
     sender: {
       id: Number(row.sender_user_id),
       fullName: row.sender_full_name || "",
@@ -227,6 +232,107 @@ function mapMessageRow(row, viewerUserId) {
       phone: row.sender_phone || "",
       role: row.sender_role || "user",
     },
+  };
+}
+
+function mapRelationRow(row, viewerUserId, otherUserId) {
+  const fallbackOtherId = Number(otherUserId || 0);
+  if (!row) {
+    return {
+      state: "none",
+      rawStatus: null,
+      requestDirection: null,
+      canChat: false,
+      canCall: false,
+      canSendRequest: fallbackOtherId > 0 && fallbackOtherId !== Number(viewerUserId),
+      blockedByMe: false,
+      blockedByOther: false,
+      otherUserId: fallbackOtherId > 0 ? fallbackOtherId : null,
+      initiatorUserId: null,
+      requestedAt: null,
+      respondedAt: null,
+      updatedAt: null,
+    };
+  }
+
+  const viewer = Number(viewerUserId);
+  const relationStatus = String(row.status || "").trim().toLowerCase();
+  const initiatorUserId = Number(row.initiator_user_id || 0);
+  const userA = Number(row.user_a_id || 0);
+  const userB = Number(row.user_b_id || 0);
+  const resolvedOtherId = userA === viewer ? userB : userA;
+  const outgoingPending = relationStatus === "pending" && initiatorUserId === viewer;
+  const incomingPending = relationStatus === "pending" && initiatorUserId !== viewer;
+  const accepted = relationStatus === "accepted";
+  const blockedByMe = relationStatus === "blocked" && initiatorUserId === viewer;
+  const blockedByOther = relationStatus === "blocked" && initiatorUserId !== viewer;
+
+  return {
+    state:
+      accepted
+        ? "accepted"
+        : outgoingPending
+        ? "pending_outgoing"
+        : incomingPending
+        ? "pending_incoming"
+        : blockedByMe
+        ? "blocked_by_me"
+        : blockedByOther
+        ? "blocked_by_other"
+        : "none",
+    rawStatus: relationStatus || null,
+    requestDirection: outgoingPending
+      ? "outgoing"
+      : incomingPending
+      ? "incoming"
+      : null,
+    canChat: accepted,
+    canCall: accepted,
+    canSendRequest:
+      !accepted &&
+      !outgoingPending &&
+      !incomingPending &&
+      !blockedByMe &&
+      !blockedByOther &&
+      resolvedOtherId !== viewer,
+    blockedByMe,
+    blockedByOther,
+    otherUserId: resolvedOtherId > 0 ? resolvedOtherId : null,
+    initiatorUserId: initiatorUserId > 0 ? initiatorUserId : null,
+    requestedAt: row.requested_at || null,
+    respondedAt: row.responded_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function mapCallSession(session, viewerUserId) {
+  if (!session) return null;
+  const viewer = Number(viewerUserId || 0);
+  return {
+    id: Number(session.id),
+    threadId: Number(session.threadId),
+    callerUserId: Number(session.callerUserId),
+    calleeUserId: Number(session.calleeUserId),
+    status: session.status || "ringing",
+    startedAt: session.startedAt || null,
+    answeredAt: session.answeredAt || null,
+    endedAt: session.endedAt || null,
+    endReason: session.endReason || null,
+    isCaller: Number(session.callerUserId) === viewer,
+    isCallee: Number(session.calleeUserId) === viewer,
+  };
+}
+
+function mapCallSignal(signal) {
+  if (!signal) return null;
+  return {
+    id: Number(signal.id),
+    sessionId: Number(signal.sessionId),
+    threadId: Number(signal.threadId),
+    senderUserId: Number(signal.senderUserId),
+    signalType: signal.signalType || "ice",
+    signalPayload: signal.signalPayload || {},
+    createdAt: signal.createdAt || null,
   };
 }
 
@@ -284,6 +390,27 @@ export async function listPosts(viewerUserId, query) {
   };
 }
 
+async function ensureUsersCanConnect({ userId, otherUserId }) {
+  if (Number(userId) === Number(otherUserId)) {
+    throw new AppError("THREAD_SELF_NOT_ALLOWED", { status: 400 });
+  }
+  const relation = await repo.getUserRelation({ userId, otherUserId });
+  const mapped = mapRelationRow(relation, userId, otherUserId);
+  if (mapped.blockedByMe || mapped.blockedByOther) {
+    throw new AppError("RELATION_BLOCKED", {
+      status: 403,
+      details: { relation: mapped },
+    });
+  }
+  if (mapped.state !== "accepted") {
+    throw new AppError("RELATION_REQUIRED", {
+      status: 403,
+      details: { relation: mapped },
+    });
+  }
+  return mapped;
+}
+
 export async function listUserPosts(viewerUserId, userId, query) {
   const owner = await repo.findUserSocialProfile(userId);
   if (!owner) {
@@ -326,7 +453,14 @@ export async function getUserProfile(viewerUserId, userId) {
   }
   const isMe = Number(profile.id) === Number(viewerUserId);
   const phoneVisible = canViewPhone({ viewerUserId, owner: profile });
-  const stats = await repo.getUserSocialStats(userId);
+  const [stats, relationRow, relationStats] = await Promise.all([
+    repo.getUserSocialStats(userId),
+    Number(viewerUserId) === Number(userId)
+      ? Promise.resolve(null)
+      : repo.getUserRelation({ userId: viewerUserId, otherUserId: userId }),
+    repo.getUserRelationStats(userId),
+  ]);
+  const relation = mapRelationRow(relationRow, viewerUserId, userId);
   return {
     profile: {
       id: Number(profile.id),
@@ -342,6 +476,7 @@ export async function getUserProfile(viewerUserId, userId) {
         postsPublic: profile.social_posts_public === true,
         storiesPublic: profile.social_stories_public === true,
       },
+      relation,
       stats: {
         totalPosts: Number(stats.total_posts || 0),
         imagePosts: Number(stats.image_posts || 0),
@@ -351,6 +486,12 @@ export async function getUserProfile(viewerUserId, userId) {
         commentsReceived: Number(stats.comments_received || 0),
         activeStories: Number(stats.active_stories || 0),
         highlightsCount: Number(stats.highlights_count || 0),
+        connectionsCount: Number(relationStats.accepted_count || 0),
+        friendsCount: Number(relationStats.accepted_count || 0),
+        followersCount: Number(relationStats.followers_count || 0),
+        followingCount: Number(relationStats.following_count || 0),
+        pendingIncomingCount: Number(relationStats.pending_incoming_count || 0),
+        pendingOutgoingCount: Number(relationStats.pending_outgoing_count || 0),
       },
     },
   };
@@ -387,7 +528,10 @@ export async function updateMyProfile(userId, dto) {
   if (!updated) {
     throw new AppError("USER_NOT_FOUND", { status: 404 });
   }
-  const stats = await repo.getUserSocialStats(userId);
+  const [stats, relationStats] = await Promise.all([
+    repo.getUserSocialStats(userId),
+    repo.getUserRelationStats(userId),
+  ]);
 
   return {
     profile: {
@@ -404,6 +548,7 @@ export async function updateMyProfile(userId, dto) {
         postsPublic: updated.social_posts_public === true,
         storiesPublic: updated.social_stories_public === true,
       },
+      relation: mapRelationRow(null, userId, userId),
       stats: {
         totalPosts: Number(stats.total_posts || 0),
         imagePosts: Number(stats.image_posts || 0),
@@ -413,6 +558,12 @@ export async function updateMyProfile(userId, dto) {
         commentsReceived: Number(stats.comments_received || 0),
         activeStories: Number(stats.active_stories || 0),
         highlightsCount: Number(stats.highlights_count || 0),
+        connectionsCount: Number(relationStats.accepted_count || 0),
+        friendsCount: Number(relationStats.accepted_count || 0),
+        followersCount: Number(relationStats.followers_count || 0),
+        followingCount: Number(relationStats.following_count || 0),
+        pendingIncomingCount: Number(relationStats.pending_incoming_count || 0),
+        pendingOutgoingCount: Number(relationStats.pending_outgoing_count || 0),
       },
     },
   };
@@ -791,12 +942,9 @@ export async function listMerchantOptions(query) {
 }
 
 export async function createThread({ userId, otherUserId }) {
-  if (Number(userId) === Number(otherUserId)) {
-    throw new AppError("THREAD_SELF_NOT_ALLOWED", { status: 400 });
-  }
-
   const other = await repo.findUserPublicProfile(otherUserId);
   if (!other) throw new AppError("USER_NOT_FOUND", { status: 404 });
+  await ensureUsersCanConnect({ userId, otherUserId });
 
   const baseThread = await repo.createOrGetThread({
     userAId: userId,
@@ -819,13 +967,32 @@ export async function listThreads(userId) {
 export async function listMessages({ userId, threadId, query }) {
   const thread = await repo.getThreadForUser({ threadId, userId });
   if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
+  await ensureUsersCanConnect({
+    userId,
+    otherUserId: Number(thread.peer_user_id),
+  });
 
   const rows = await repo.listMessagesForThread({
     threadId,
     limit: query.limit,
     beforeId: query.beforeId,
   });
-  const messages = rows.map((row) => mapMessageRow(row, userId)).reverse();
+  const messageIds = rows
+    .map((row) => Number(row.id))
+    .filter((v) => Number.isFinite(v) && v > 0);
+  const reactionsByMessage = await repo.listMessageReactionsForMessages({
+    messageIds,
+    userId,
+  });
+  const messages = rows
+    .map((row) => ({
+      ...row,
+      reaction_counts: reactionsByMessage[Number(row.id)]?.counts || {},
+      reaction_total_count: Number(reactionsByMessage[Number(row.id)]?.totalCount || 0),
+      my_reaction: reactionsByMessage[Number(row.id)]?.myReaction || null,
+    }))
+    .map((row) => mapMessageRow(row, userId))
+    .reverse();
 
   return {
     thread: mapThreadRow(thread, userId),
@@ -837,6 +1004,10 @@ export async function listMessages({ userId, threadId, query }) {
 export async function sendMessage({ userId, threadId, body }) {
   const thread = await repo.getThreadForUser({ threadId, userId });
   if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
+  await ensureUsersCanConnect({
+    userId,
+    otherUserId: Number(thread.peer_user_id),
+  });
 
   assertContentAllowed(body);
   const inserted = await repo.insertThreadMessage({
@@ -885,5 +1056,512 @@ export async function sendMessage({ userId, threadId, body }) {
   return {
     message: mapped,
     threadId: Number(threadId),
+  };
+}
+
+export async function toggleMessageReaction({ userId, threadId, messageId, reaction }) {
+  const thread = await repo.getThreadForUser({ threadId, userId });
+  if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
+  await ensureUsersCanConnect({
+    userId,
+    otherUserId: Number(thread.peer_user_id),
+  });
+
+  const message = await repo.getThreadMessageById({ threadId, messageId });
+  if (!message) throw new AppError("MESSAGE_NOT_FOUND", { status: 404 });
+
+  const toggled = await repo.toggleMessageReaction({
+    messageId,
+    userId,
+    reaction,
+  });
+  const summary = await repo.listMessageReactionsForMessages({
+    messageIds: [messageId],
+    userId,
+  });
+  const details = summary[Number(messageId)] || {
+    counts: {},
+    totalCount: 0,
+    myReaction: null,
+  };
+
+  const peerUserId = Number(thread.peer_user_id);
+  const payload = {
+    threadId: Number(threadId),
+    messageId: Number(messageId),
+    reaction: toggled.reaction,
+    active: toggled.active === true,
+    reactions: details,
+  };
+  emitToUser(Number(userId), "social_chat_message", payload);
+  emitToUser(peerUserId, "social_chat_message", payload);
+
+  return {
+    messageId: Number(messageId),
+    reaction: toggled.reaction,
+    active: toggled.active === true,
+    reactions: details,
+  };
+}
+
+export async function getUserRelationState({ userId, otherUserId }) {
+  const other = await repo.findUserPublicProfile(otherUserId);
+  if (!other) throw new AppError("USER_NOT_FOUND", { status: 404 });
+  const relation = await repo.getUserRelation({ userId, otherUserId });
+  return {
+    relation: mapRelationRow(relation, userId, otherUserId),
+  };
+}
+
+export async function sendUserRelationRequest({ userId, otherUserId }) {
+  if (Number(userId) === Number(otherUserId)) {
+    throw new AppError("RELATION_SELF_NOT_ALLOWED", { status: 400 });
+  }
+
+  const [other, actor] = await Promise.all([
+    repo.findUserPublicProfile(otherUserId),
+    repo.findUserPublicProfile(userId),
+  ]);
+  if (!other) throw new AppError("USER_NOT_FOUND", { status: 404 });
+
+  const current = await repo.getUserRelation({ userId, otherUserId });
+  const currentMapped = mapRelationRow(current, userId, otherUserId);
+
+  if (currentMapped.state === "accepted") {
+    return { relation: currentMapped };
+  }
+
+  if (current?.status === "blocked") {
+    throw new AppError("RELATION_BLOCKED", { status: 403 });
+  }
+
+  let updated = null;
+  let acceptedByReply = false;
+  if (currentMapped.state === "pending_incoming") {
+    updated = await repo.updateRelationStatus({
+      userId,
+      otherUserId,
+      status: "accepted",
+    });
+    acceptedByReply = true;
+  } else {
+    updated = await repo.upsertPendingRelation({
+      fromUserId: userId,
+      toUserId: otherUserId,
+    });
+  }
+
+  const mapped = mapRelationRow(updated, userId, otherUserId);
+
+  if (mapped.state === "pending_outgoing") {
+    await createNotification({
+      userId: Number(otherUserId),
+      type: "social.relation.request",
+      title: "طلب متابعة جديد",
+      body: `${actor?.full_name || "مستخدم"} أرسل لك طلب متابعة.`,
+      payload: {
+        actorUserId: Number(userId),
+        target: "social_feed",
+      },
+    });
+  } else if (acceptedByReply) {
+    await createNotification({
+      userId: Number(otherUserId),
+      type: "social.relation.accepted",
+      title: "تم قبول طلب المتابعة",
+      body: `${actor?.full_name || "مستخدم"} قبل طلب المتابعة.`,
+      payload: {
+        actorUserId: Number(userId),
+        target: "social_feed",
+      },
+    });
+  }
+
+  emitToUser(Number(userId), "social_relation_update", { relation: mapped });
+  emitToUser(Number(otherUserId), "social_relation_update", {
+    relation: mapRelationRow(updated, otherUserId, userId),
+  });
+  return { relation: mapped };
+}
+
+export async function acceptUserRelationRequest({ userId, otherUserId }) {
+  const current = await repo.getUserRelation({ userId, otherUserId });
+  if (!current) throw new AppError("RELATION_REQUEST_NOT_FOUND", { status: 404 });
+
+  const mapped = mapRelationRow(current, userId, otherUserId);
+  if (mapped.state !== "pending_incoming") {
+    throw new AppError("RELATION_ACCEPT_NOT_ALLOWED", { status: 409 });
+  }
+
+  const updated = await repo.updateRelationStatus({
+    userId,
+    otherUserId,
+    status: "accepted",
+  });
+  const next = mapRelationRow(updated, userId, otherUserId);
+
+  await createNotification({
+    userId: Number(otherUserId),
+    type: "social.relation.accepted",
+    title: "تم قبول طلب المتابعة",
+    body: "تم قبول طلب المتابعة ويمكنكم الآن المراسلة والاتصال.",
+    payload: {
+      actorUserId: Number(userId),
+      target: "social_feed",
+    },
+  });
+
+  emitToUser(Number(userId), "social_relation_update", { relation: next });
+  emitToUser(Number(otherUserId), "social_relation_update", {
+    relation: mapRelationRow(updated, otherUserId, userId),
+  });
+
+  return { relation: next };
+}
+
+export async function rejectUserRelationRequest({ userId, otherUserId }) {
+  const current = await repo.getUserRelation({ userId, otherUserId });
+  if (!current) throw new AppError("RELATION_REQUEST_NOT_FOUND", { status: 404 });
+
+  const mapped = mapRelationRow(current, userId, otherUserId);
+  if (mapped.state !== "pending_incoming") {
+    throw new AppError("RELATION_REJECT_NOT_ALLOWED", { status: 409 });
+  }
+
+  const updated = await repo.updateRelationStatus({
+    userId,
+    otherUserId,
+    status: "rejected",
+  });
+  const next = mapRelationRow(updated, userId, otherUserId);
+
+  emitToUser(Number(userId), "social_relation_update", { relation: next });
+  emitToUser(Number(otherUserId), "social_relation_update", {
+    relation: mapRelationRow(updated, otherUserId, userId),
+  });
+
+  return { relation: next };
+}
+
+export async function cancelUserRelationRequest({ userId, otherUserId }) {
+  const current = await repo.getUserRelation({ userId, otherUserId });
+  if (!current) throw new AppError("RELATION_REQUEST_NOT_FOUND", { status: 404 });
+
+  const mapped = mapRelationRow(current, userId, otherUserId);
+  if (mapped.state !== "pending_outgoing") {
+    throw new AppError("RELATION_CANCEL_NOT_ALLOWED", { status: 409 });
+  }
+
+  const updated = await repo.updateRelationStatus({
+    userId,
+    otherUserId,
+    status: "cancelled",
+  });
+  const next = mapRelationRow(updated, userId, otherUserId);
+
+  emitToUser(Number(userId), "social_relation_update", { relation: next });
+  emitToUser(Number(otherUserId), "social_relation_update", {
+    relation: mapRelationRow(updated, otherUserId, userId),
+  });
+
+  return { relation: next };
+}
+
+export async function removeUserRelation({ userId, otherUserId }) {
+  const current = await repo.getUserRelation({ userId, otherUserId });
+  if (!current) return { relation: mapRelationRow(null, userId, otherUserId) };
+
+  await repo.deleteRelation({ userId, otherUserId });
+  const emptyRelation = mapRelationRow(null, userId, otherUserId);
+
+  emitToUser(Number(userId), "social_relation_update", { relation: emptyRelation });
+  emitToUser(Number(otherUserId), "social_relation_update", {
+    relation: mapRelationRow(null, otherUserId, userId),
+  });
+
+  return { relation: emptyRelation };
+}
+
+export async function blockUserRelation({ userId, otherUserId }) {
+  if (Number(userId) === Number(otherUserId)) {
+    throw new AppError("RELATION_SELF_NOT_ALLOWED", { status: 400 });
+  }
+  const other = await repo.findUserPublicProfile(otherUserId);
+  if (!other) throw new AppError("USER_NOT_FOUND", { status: 404 });
+
+  let current = await repo.getUserRelation({ userId, otherUserId });
+  if (!current) {
+    await repo.upsertPendingRelation({
+      fromUserId: userId,
+      toUserId: otherUserId,
+    });
+  }
+  const updated = await repo.updateRelationStatus({
+    userId,
+    otherUserId,
+    status: "blocked",
+    initiatorUserId: userId,
+  });
+  const next = mapRelationRow(updated, userId, otherUserId);
+
+  emitToUser(Number(userId), "social_relation_update", { relation: next });
+  emitToUser(Number(otherUserId), "social_relation_update", {
+    relation: mapRelationRow(updated, otherUserId, userId),
+  });
+
+  return { relation: next };
+}
+
+export async function unblockUserRelation({ userId, otherUserId }) {
+  const current = await repo.getUserRelation({ userId, otherUserId });
+  if (!current) {
+    return { relation: mapRelationRow(null, userId, otherUserId) };
+  }
+  if (String(current.status || "").trim().toLowerCase() !== "blocked") {
+    throw new AppError("RELATION_UNBLOCK_NOT_ALLOWED", { status: 409 });
+  }
+  if (Number(current.initiator_user_id) !== Number(userId)) {
+    throw new AppError("RELATION_UNBLOCK_NOT_ALLOWED", { status: 403 });
+  }
+
+  await repo.deleteRelation({ userId, otherUserId });
+  const next = mapRelationRow(null, userId, otherUserId);
+
+  emitToUser(Number(userId), "social_relation_update", { relation: next });
+  emitToUser(Number(otherUserId), "social_relation_update", {
+    relation: mapRelationRow(null, otherUserId, userId),
+  });
+
+  return { relation: next };
+}
+
+export async function listIncomingRelationRequests({ userId, query }) {
+  const rows = await repo.listIncomingRelationRequests({
+    userId,
+    limit: query.limit,
+  });
+  return {
+    requests: rows.map((row) => ({
+      relation: mapRelationRow(row, userId),
+      user: {
+        id: Number(row.requester_user_id),
+        fullName: row.requester_full_name || "",
+        phone: row.requester_phone || "",
+        role: row.requester_role || "user",
+        imageUrl: row.requester_image_url || null,
+      },
+      requestedAt: row.requested_at || null,
+    })),
+  };
+}
+
+export async function listOutgoingRelationRequests({ userId, query }) {
+  const rows = await repo.listOutgoingRelationRequests({
+    userId,
+    limit: query.limit,
+  });
+  return {
+    requests: rows.map((row) => ({
+      relation: mapRelationRow(row, userId),
+      user: {
+        id: Number(row.target_user_id),
+        fullName: row.target_full_name || "",
+        phone: row.target_phone || "",
+        role: row.target_role || "user",
+        imageUrl: row.target_image_url || null,
+      },
+      requestedAt: row.requested_at || null,
+    })),
+  };
+}
+
+export async function getThreadCallState({ userId, threadId, signalLimit }) {
+  const thread = await repo.getThreadForUser({ threadId, userId });
+  if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
+
+  const state = await repo.getThreadCallState(threadId, { signalLimit });
+  return {
+    thread: mapThreadRow(thread, userId),
+    session: mapCallSession(state.session, userId),
+    signals: [...(state.signals || [])].reverse().map(mapCallSignal),
+  };
+}
+
+export async function startThreadCall({ userId, threadId }) {
+  const thread = await repo.getThreadForUser({ threadId, userId });
+  if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
+
+  const peerUserId = Number(thread.peer_user_id);
+  if (!Number.isFinite(peerUserId) || peerUserId <= 0 || peerUserId === Number(userId)) {
+    throw new AppError("SOCIAL_CALL_PEER_NOT_AVAILABLE", { status: 409 });
+  }
+
+  const session = await repo.createThreadCallSession({
+    threadId,
+    callerUserId: userId,
+    calleeUserId: peerUserId,
+  });
+  const signal = await repo.insertThreadCallSignal({
+    sessionId: session.id,
+    threadId,
+    senderUserId: userId,
+    signalType: "ringing",
+    signalPayload: {
+      callerUserId: Number(userId),
+      calleeUserId: peerUserId,
+    },
+  });
+
+  const mappedSession = mapCallSession(session, userId);
+  const mappedSignal = mapCallSignal(signal);
+  const incomingPayload = {
+    eventType: "incoming_call",
+    threadId: Number(threadId),
+    session: mapCallSession(session, peerUserId),
+    signal: mappedSignal,
+  };
+
+  emitToUser(peerUserId, "social_call_update", incomingPayload);
+  emitToUser(Number(userId), "social_call_update", {
+    eventType: "outgoing_call",
+    threadId: Number(threadId),
+    session: mappedSession,
+    signal: mappedSignal,
+  });
+
+  const caller = await repo.findUserPublicProfile(userId);
+  await createNotification({
+    userId: peerUserId,
+    type: "social.call.incoming",
+    title: `مكالمة واردة من ${caller?.full_name || "مستخدم"}`,
+    body: "اضغط للرد على المكالمة داخل التطبيق.",
+    payload: {
+      threadId: Number(threadId),
+      sessionId: Number(session.id),
+      senderUserId: Number(userId),
+      target: "social_call",
+    },
+  });
+
+  return {
+    session: mappedSession,
+    signal: mappedSignal,
+  };
+}
+
+export async function sendThreadCallSignal({ userId, threadId, dto }) {
+  const thread = await repo.getThreadForUser({ threadId, userId });
+  if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
+
+  let session = dto.sessionId
+    ? await repo.getThreadCallSessionById(dto.sessionId)
+    : await repo.getActiveThreadCallSession(threadId);
+  if (!session) {
+    throw new AppError("SOCIAL_CALL_SESSION_NOT_FOUND", { status: 404 });
+  }
+
+  if (Number(session.threadId) !== Number(threadId)) {
+    throw new AppError("SOCIAL_CALL_SESSION_NOT_FOUND", { status: 404 });
+  }
+
+  const participantIds = new Set([
+    Number(session.callerUserId),
+    Number(session.calleeUserId),
+  ]);
+  if (!participantIds.has(Number(userId))) {
+    throw new AppError("SOCIAL_CALL_FORBIDDEN", { status: 403 });
+  }
+
+  const signal = await repo.insertThreadCallSignal({
+    sessionId: session.id,
+    threadId,
+    senderUserId: userId,
+    signalType: dto.signalType,
+    signalPayload: dto.signalPayload || null,
+  });
+
+  if (dto.signalType === "accept" || dto.signalType === "answer") {
+    const answered = await repo.markThreadCallAnswered({ sessionId: session.id });
+    if (answered) session = answered;
+  } else if (dto.signalType === "decline") {
+    const ended = await repo.endThreadCallSession({
+      sessionId: session.id,
+      status: "declined",
+      endReason: "declined_by_user",
+    });
+    if (ended) session = ended;
+  } else if (dto.signalType === "hangup") {
+    const ended = await repo.endThreadCallSession({
+      sessionId: session.id,
+      status: "ended",
+      endReason: "hangup",
+    });
+    if (ended) session = ended;
+  }
+
+  const mappedSession = mapCallSession(session, userId);
+  const mappedSignal = mapCallSignal(signal);
+  const updatePayload = {
+    eventType: "call_signal",
+    threadId: Number(threadId),
+    session: mappedSession,
+    signal: mappedSignal,
+  };
+
+  emitToUser(Number(session.callerUserId), "social_call_update", updatePayload);
+  emitToUser(Number(session.calleeUserId), "social_call_update", updatePayload);
+
+  return {
+    session: mappedSession,
+    signal: mappedSignal,
+  };
+}
+
+export async function endThreadCall({ userId, threadId, dto }) {
+  const thread = await repo.getThreadForUser({ threadId, userId });
+  if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
+
+  const active = await repo.getActiveThreadCallSession(threadId);
+  if (!active) {
+    return { session: null, signal: null };
+  }
+
+  const participantIds = new Set([
+    Number(active.callerUserId),
+    Number(active.calleeUserId),
+  ]);
+  if (!participantIds.has(Number(userId))) {
+    throw new AppError("SOCIAL_CALL_FORBIDDEN", { status: 403 });
+  }
+
+  const ended = await repo.endThreadCallSession({
+    sessionId: active.id,
+    status: dto.status,
+    endReason: dto.reason || "hangup",
+  });
+  const signalType = dto.status === "declined" ? "decline" : "hangup";
+  const signal = await repo.insertThreadCallSignal({
+    sessionId: active.id,
+    threadId,
+    senderUserId: userId,
+    signalType,
+    signalPayload: {
+      reason: dto.reason || null,
+      status: dto.status,
+    },
+  });
+
+  const payload = {
+    eventType: "call_ended",
+    threadId: Number(threadId),
+    session: mapCallSession(ended || active, userId),
+    signal: mapCallSignal(signal),
+  };
+  emitToUser(Number(active.callerUserId), "social_call_update", payload);
+  emitToUser(Number(active.calleeUserId), "social_call_update", payload);
+
+  return {
+    session: mapCallSession(ended || active, userId),
+    signal: mapCallSignal(signal),
   };
 }

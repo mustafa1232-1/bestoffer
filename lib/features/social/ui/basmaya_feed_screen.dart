@@ -1893,6 +1893,7 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
       await ref
           .read(socialControllerProvider.notifier)
           .loadStories(silent: true);
+      if (!mounted) return;
       stories = ref.read(socialControllerProvider).stories;
     }
 

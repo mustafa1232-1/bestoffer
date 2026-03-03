@@ -176,6 +176,7 @@ function resolveNotificationTarget(notification, orderId) {
 
   if (type === "taxi.call.incoming") return "taxi_call";
   if (type.startsWith("taxi.")) return "taxi_live";
+  if (type.startsWith("social.call.")) return "social_call";
   if (type.startsWith("social.chat.")) return "social_chat";
   if (type.startsWith("social.")) return "social_feed";
   if (type.includes("admin_delivery_pending")) return "admin_merchants_pending";

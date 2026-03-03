@@ -62,6 +62,11 @@ class SocialApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> getUserRelation(int userId) async {
+    final response = await dio.get('/api/feed/users/$userId/relation');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> updateMyProfile({
     String? fullName,
     String? bio,
@@ -268,6 +273,123 @@ class SocialApi {
     final response = await dio.post(
       '/api/feed/chats/threads/$threadId/messages',
       data: {'body': body},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> toggleThreadMessageReaction({
+    required int threadId,
+    required int messageId,
+    String reaction = 'like',
+  }) async {
+    final response = await dio.post(
+      '/api/feed/chats/threads/$threadId/messages/$messageId/reaction',
+      data: {'reaction': reaction},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> sendRelationRequest(int userId) async {
+    final response = await dio.post('/api/feed/users/$userId/relation/request');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> acceptRelationRequest(int userId) async {
+    final response = await dio.post('/api/feed/users/$userId/relation/accept');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> rejectRelationRequest(int userId) async {
+    final response = await dio.post('/api/feed/users/$userId/relation/reject');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> cancelRelationRequest(int userId) async {
+    final response = await dio.post('/api/feed/users/$userId/relation/cancel');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> removeRelation(int userId) async {
+    final response = await dio.post('/api/feed/users/$userId/relation/remove');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> blockRelation(int userId) async {
+    final response = await dio.post('/api/feed/users/$userId/relation/block');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> unblockRelation(int userId) async {
+    final response = await dio.post('/api/feed/users/$userId/relation/unblock');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> listIncomingRelationRequests({
+    int limit = 80,
+  }) async {
+    final response = await dio.get(
+      '/api/feed/relations/incoming',
+      queryParameters: {'limit': limit},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> listOutgoingRelationRequests({
+    int limit = 80,
+  }) async {
+    final response = await dio.get(
+      '/api/feed/relations/outgoing',
+      queryParameters: {'limit': limit},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getThreadCallState({
+    required int threadId,
+    int signalLimit = 160,
+  }) async {
+    final response = await dio.get(
+      '/api/feed/chats/threads/$threadId/call',
+      queryParameters: {'signalLimit': signalLimit},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> startThreadCall({required int threadId}) async {
+    final response = await dio.post(
+      '/api/feed/chats/threads/$threadId/call/start',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> sendThreadCallSignal({
+    required int threadId,
+    int? sessionId,
+    required String signalType,
+    Map<String, dynamic>? signalPayload,
+  }) async {
+    final response = await dio.post(
+      '/api/feed/chats/threads/$threadId/call/signal',
+      data: <String, dynamic>{
+        'sessionId': sessionId,
+        'signalType': signalType,
+        'signalPayload': signalPayload,
+      }..removeWhere((_, value) => value == null),
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> endThreadCall({
+    required int threadId,
+    String status = 'ended',
+    String? reason,
+  }) async {
+    final response = await dio.post(
+      '/api/feed/chats/threads/$threadId/call/end',
+      data: {
+        'status': status,
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      },
     );
     return Map<String, dynamic>.from(response.data as Map);
   }

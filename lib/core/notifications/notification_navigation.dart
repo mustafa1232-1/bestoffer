@@ -7,6 +7,7 @@ import '../../features/notifications/ui/notifications_screen.dart';
 import '../../features/orders/ui/customer_orders_screen.dart';
 import '../../features/owner/ui/owner_dashboard_screen.dart';
 import '../../features/social/ui/basmaya_feed_screen.dart';
+import '../../features/social/ui/social_call_screen.dart';
 import '../../features/taxi/ui/taxi_call_screen.dart';
 import '../../features/taxi/ui/taxi_captain_dashboard_screen.dart';
 import '../../pages/map_page.dart';
@@ -31,6 +32,8 @@ class NotificationNavigation {
           _parseInt(payload?['story_id']),
       threadId:
           _parseInt(payload?['threadId']) ?? _parseInt(payload?['thread_id']),
+      sessionId:
+          _parseInt(payload?['sessionId']) ?? _parseInt(payload?['session_id']),
       notificationId: model.id,
       type: model.type,
       target: model.target ?? payload?['target']?.toString(),
@@ -58,6 +61,7 @@ class NotificationNavigation {
 
     if (normalizedType == 'taxi.call.incoming') return 'taxi_call';
     if (normalizedType.startsWith('taxi.')) return 'taxi_live';
+    if (normalizedType.startsWith('social.call.')) return 'social_call';
     if (normalizedType.startsWith('social.chat.')) return 'social_chat';
     if (normalizedType.startsWith('social.')) return 'social_feed';
     if (normalizedType.contains('admin_delivery_pending')) {
@@ -92,6 +96,7 @@ class NotificationNavigation {
     final postId = payload.postId;
     final storyId = payload.storyId;
     final threadId = payload.threadId;
+    final sessionId = payload.sessionId;
     final isCustomer = !auth.isBackoffice && !auth.isOwner && !auth.isDelivery;
 
     if (isCustomer) {
@@ -102,6 +107,20 @@ class NotificationNavigation {
             initialPostId: postId,
             initialStoryId: storyId,
           ),
+        );
+      }
+      if (target == 'social_call') {
+        if (threadId != null && threadId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => SocialCallScreen(
+              threadId: threadId,
+              isCaller: false,
+              initialSessionId: sessionId,
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => BasmayaFeedScreen(initialThreadId: threadId),
         );
       }
       if (target == 'social_feed') {

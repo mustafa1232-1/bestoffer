@@ -209,7 +209,7 @@ class _StoryCanvas extends StatelessWidget {
         child: Image.network(
           story.mediaUrl!,
           fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) =>
+          errorBuilder: (context, error, stackTrace) =>
               const _StoryTextFallback(message: 'تعذر تحميل الصورة'),
         ),
       );

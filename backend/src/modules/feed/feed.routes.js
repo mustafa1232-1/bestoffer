@@ -13,6 +13,16 @@ feedRouter.get("/posts/:postId", c.getPostById);
 feedRouter.get("/users/:userId/profile", c.getUserProfile);
 feedRouter.get("/users/:userId/posts", c.listUserPosts);
 feedRouter.get("/users/:userId/highlights", c.listUserHighlights);
+feedRouter.get("/users/:userId/relation", c.getUserRelationState);
+feedRouter.post("/users/:userId/relation/request", c.sendUserRelationRequest);
+feedRouter.post("/users/:userId/relation/accept", c.acceptUserRelationRequest);
+feedRouter.post("/users/:userId/relation/reject", c.rejectUserRelationRequest);
+feedRouter.post("/users/:userId/relation/cancel", c.cancelUserRelationRequest);
+feedRouter.post("/users/:userId/relation/remove", c.removeUserRelation);
+feedRouter.post("/users/:userId/relation/block", c.blockUserRelation);
+feedRouter.post("/users/:userId/relation/unblock", c.unblockUserRelation);
+feedRouter.get("/relations/incoming", c.listIncomingRelationRequests);
+feedRouter.get("/relations/outgoing", c.listOutgoingRelationRequests);
 feedRouter.patch("/profile/me", imageUpload.single("imageFile"), c.updateMyProfile);
 feedRouter.post("/posts", mediaUpload.single("mediaFile"), c.createPost);
 feedRouter.post("/posts/:postId/like", c.toggleLike);
@@ -30,3 +40,11 @@ feedRouter.get("/chats/threads", c.listThreads);
 feedRouter.post("/chats/threads", c.createThread);
 feedRouter.get("/chats/threads/:threadId/messages", c.listThreadMessages);
 feedRouter.post("/chats/threads/:threadId/messages", c.sendThreadMessage);
+feedRouter.post(
+  "/chats/threads/:threadId/messages/:messageId/reaction",
+  c.toggleThreadMessageReaction
+);
+feedRouter.get("/chats/threads/:threadId/call", c.getThreadCallState);
+feedRouter.post("/chats/threads/:threadId/call/start", c.startThreadCall);
+feedRouter.post("/chats/threads/:threadId/call/signal", c.sendThreadCallSignal);
+feedRouter.post("/chats/threads/:threadId/call/end", c.endThreadCall);

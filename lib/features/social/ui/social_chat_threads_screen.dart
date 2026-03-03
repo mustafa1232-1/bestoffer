@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' as intl;
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
+import 'social_call_screen.dart';
 import 'social_chat_thread_screen.dart';
 import 'social_profile_screen.dart';
+import 'social_relation_requests_screen.dart';
 import 'social_story_quick_viewer.dart';
 
 class SocialChatThreadsScreen extends ConsumerWidget {
@@ -38,6 +39,7 @@ class SocialChatThreadsScreen extends ConsumerWidget {
         await ref
             .read(socialControllerProvider.notifier)
             .loadStories(silent: true);
+        if (!context.mounted) return;
         stories = ref.read(socialControllerProvider).stories;
       }
       SocialStoryGroup? group;
@@ -55,13 +57,36 @@ class SocialChatThreadsScreen extends ConsumerWidget {
               .read(socialControllerProvider.notifier)
               .markStoryViewed(storyId),
         );
+        if (!context.mounted) return;
         return;
       }
       await openProfile(author);
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('محادثات بسماية')),
+      appBar: AppBar(
+        title: const Text('محادثات بسماية'),
+        actions: [
+          IconButton(
+            tooltip: 'طلبات المتابعة',
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SocialRelationRequestsScreen(),
+                ),
+              );
+              if (!context.mounted) return;
+              await refresh();
+            },
+            icon: const Icon(Icons.person_add_alt_1_rounded),
+          ),
+          IconButton(
+            tooltip: 'تحديث',
+            onPressed: refresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: refresh,
         child: ListView(
@@ -144,23 +169,15 @@ class SocialChatThreadsScreen extends ConsumerWidget {
                     trailing: IconButton(
                       tooltip: 'اتصال',
                       onPressed: () async {
-                        final phone = thread.peerPhone.trim();
-                        if (phone.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'رقم الهاتف غير متوفر لهذا المستخدم.',
-                              ),
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => SocialCallScreen(
+                              threadId: thread.id,
+                              isCaller: true,
+                              remoteDisplayName: thread.peer.fullName,
                             ),
-                          );
-                          return;
-                        }
-                        final ok = await launchUrl(Uri.parse('tel:$phone'));
-                        if (!ok && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('تعذر فتح الاتصال.')),
-                          );
-                        }
+                          ),
+                        );
                       },
                       icon: const Icon(Icons.call_outlined),
                     ),

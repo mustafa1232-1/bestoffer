@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' as intl;
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/network/api_error_mapper.dart';
 import '../../auth/state/auth_controller.dart';
@@ -11,6 +10,7 @@ import '../../notifications/data/notifications_api.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
+import 'social_call_screen.dart';
 import 'social_profile_screen.dart';
 import 'social_story_quick_viewer.dart';
 
@@ -55,6 +55,7 @@ class _SocialChatThreadScreenState
   Timer? _reconnectTimer;
 
   List<SocialChatMessage> _messages = const [];
+  final Set<int> _reactionBusyMessageIds = <int>{};
   int? _nextCursor;
   int? _lastEventId;
   bool _loading = false;
@@ -167,6 +168,23 @@ class _SocialChatThreadScreenState
               event.data['threadId'] ?? event.data['thread_id'],
             );
             if (threadId != widget.threadId) return;
+
+            final messageId = _parseInt(
+              event.data['messageId'] ?? event.data['message_id'],
+            );
+            if (messageId != null && event.data['reactions'] is Map) {
+              final rawSummary = event.data['reactions'];
+              final counts = _extractReactionCounts(rawSummary);
+              final total = _extractReactionTotalCount(rawSummary, counts);
+              _patchMessage(
+                messageId,
+                (current) => current.copyWith(
+                  reactionCounts: counts,
+                  reactionTotalCount: total,
+                ),
+              );
+              return;
+            }
             _loadMessages(silent: true);
           },
           onError: (_) => _scheduleReconnect(),
@@ -222,22 +240,152 @@ class _SocialChatThreadScreenState
     }
   }
 
-  Future<void> _callPeer() async {
-    final phone = (widget.peerPhone ?? '').trim();
-    if (phone.isEmpty) {
+  void _patchMessage(
+    int messageId,
+    SocialChatMessage Function(SocialChatMessage) transform,
+  ) {
+    if (!mounted) return;
+    setState(() {
+      _messages = _messages
+          .map((message) {
+            if (message.id != messageId) return message;
+            return transform(message);
+          })
+          .toList(growable: false);
+    });
+  }
+
+  Map<String, int> _extractReactionCounts(dynamic raw) {
+    if (raw is! Map) return const <String, int>{};
+    final dynamic countsRaw = raw['counts'];
+    if (countsRaw is! Map) return const <String, int>{};
+    final out = <String, int>{};
+    for (final entry in countsRaw.entries) {
+      final key = '${entry.key}'.trim().toLowerCase();
+      final value = int.tryParse('${entry.value}') ?? 0;
+      if (key.isEmpty || value <= 0) continue;
+      out[key] = value;
+    }
+    return out;
+  }
+
+  int _extractReactionTotalCount(dynamic raw, Map<String, int> counts) {
+    if (raw is Map) {
+      final direct = int.tryParse(
+        '${raw['totalCount'] ?? raw['total_count'] ?? ''}',
+      );
+      if (direct != null && direct >= 0) return direct;
+    }
+    return counts.values.fold<int>(0, (sum, item) => sum + item);
+  }
+
+  String? _extractMyReaction(dynamic raw) {
+    if (raw is! Map) return null;
+    final value = '${raw['myReaction'] ?? raw['my_reaction'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    return value.isEmpty ? null : value;
+  }
+
+  SocialChatMessage _optimisticMessageReaction(
+    SocialChatMessage message,
+    String reactionKey,
+  ) {
+    final normalized = reactionKey.trim().toLowerCase();
+    final counts = <String, int>{...message.reactionCounts};
+    final current = message.myReaction?.trim().toLowerCase();
+
+    if (current != null && current.isNotEmpty) {
+      final reduced = (counts[current] ?? 0) - 1;
+      if (reduced > 0) {
+        counts[current] = reduced;
+      } else {
+        counts.remove(current);
+      }
+    }
+
+    final togglingOff = current == normalized;
+    String? nextMyReaction;
+    if (!togglingOff) {
+      counts[normalized] = (counts[normalized] ?? 0) + 1;
+      nextMyReaction = normalized;
+    }
+
+    final total = counts.values.fold<int>(0, (sum, item) => sum + item);
+    return message.copyWith(
+      reactionCounts: counts,
+      reactionTotalCount: total,
+      myReaction: nextMyReaction,
+      clearMyReaction: nextMyReaction == null,
+    );
+  }
+
+  Future<void> _toggleReaction(
+    SocialChatMessage message,
+    String reactionKey,
+  ) async {
+    if (_reactionBusyMessageIds.contains(message.id)) return;
+    final normalized = reactionKey.trim().toLowerCase();
+    if (!_kMessageReactionKeys.contains(normalized)) return;
+
+    final previous = message;
+    final optimistic = _optimisticMessageReaction(previous, normalized);
+
+    setState(() {
+      _reactionBusyMessageIds.add(message.id);
+    });
+    _patchMessage(message.id, (_) => optimistic);
+
+    try {
+      final out = await _api.toggleThreadMessageReaction(
+        threadId: widget.threadId,
+        messageId: message.id,
+        reaction: normalized,
+      );
+      final rawSummary = out['reactions'];
+      final counts = _extractReactionCounts(rawSummary);
+      final total = _extractReactionTotalCount(rawSummary, counts);
+      final myReaction = _extractMyReaction(rawSummary);
+
+      _patchMessage(
+        message.id,
+        (current) => current.copyWith(
+          reactionCounts: counts,
+          reactionTotalCount: total,
+          myReaction: myReaction,
+          clearMyReaction: myReaction == null,
+        ),
+      );
+    } catch (e) {
+      _patchMessage(message.id, (_) => previous);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('رقم الهاتف غير متوفر لهذا المستخدم.')),
+        SnackBar(
+          content: Text(
+            mapAnyError(e, fallback: 'تعذر إضافة التفاعل على الرسالة.'),
+          ),
+        ),
       );
-      return;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _reactionBusyMessageIds.remove(message.id);
+        });
+      }
     }
-    final uri = Uri.parse('tel:$phone');
-    final ok = await launchUrl(uri);
-    if (!ok && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('تعذر فتح الاتصال.')));
-    }
+  }
+
+  Future<void> _startInAppCall() async {
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialCallScreen(
+          threadId: widget.threadId,
+          isCaller: true,
+          remoteDisplayName: widget.peerName,
+        ),
+      ),
+    );
   }
 
   Future<void> _openUserProfile({
@@ -261,6 +409,7 @@ class _SocialChatThreadScreenState
       await ref
           .read(socialControllerProvider.notifier)
           .loadStories(silent: true);
+      if (!mounted) return;
       stories = ref.read(socialControllerProvider).stories;
     }
 
@@ -280,6 +429,7 @@ class _SocialChatThreadScreenState
             .read(socialControllerProvider.notifier)
             .markStoryViewed(storyId),
       );
+      if (!mounted) return;
       return;
     }
 
@@ -358,7 +508,7 @@ class _SocialChatThreadScreenState
         actions: [
           IconButton(
             tooltip: 'اتصال',
-            onPressed: _callPeer,
+            onPressed: _startInAppCall,
             icon: const Icon(Icons.call_outlined),
           ),
         ],
@@ -424,11 +574,16 @@ class _SocialChatThreadScreenState
                         for (final message in _messages)
                           _ChatBubble(
                             message: message,
+                            reactionBusy: _reactionBusyMessageIds.contains(
+                              message.id,
+                            ),
                             timeText: message.createdAt == null
                                 ? ''
                                 : _timeFormat.format(
                                     message.createdAt!.toLocal(),
                                   ),
+                            onReact: (reactionKey) =>
+                                _toggleReaction(message, reactionKey),
                             onOpenAuthorAvatar: () => _openUserAvatar(
                               userId: message.sender.id,
                               fullName: message.sender.fullName,
@@ -505,13 +660,17 @@ class _SocialChatThreadScreenState
 
 class _ChatBubble extends StatelessWidget {
   final SocialChatMessage message;
+  final bool reactionBusy;
   final String timeText;
+  final ValueChanged<String> onReact;
   final VoidCallback onOpenAuthorAvatar;
   final VoidCallback onOpenAuthorProfile;
 
   const _ChatBubble({
     required this.message,
+    required this.reactionBusy,
     required this.timeText,
+    required this.onReact,
     required this.onOpenAuthorAvatar,
     required this.onOpenAuthorProfile,
   });
@@ -583,6 +742,62 @@ class _ChatBubble extends StatelessWidget {
                 textDirection: TextDirection.rtl,
                 style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
               ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _kMessageReactionSpecs
+                    .map((spec) {
+                      final selected = message.myReaction == spec.key;
+                      final count = message.reactionCounts[spec.key] ?? 0;
+                      return InkWell(
+                        onTap: reactionBusy ? null : () => onReact(spec.key),
+                        borderRadius: BorderRadius.circular(999),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: selected
+                                  ? Theme.of(context).colorScheme.primary
+                                  : textColor.withValues(alpha: 0.25),
+                            ),
+                            color: selected
+                                ? Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.14)
+                                : Colors.transparent,
+                          ),
+                          child: Text(
+                            count > 0 ? '${spec.emoji} $count' : spec.emoji,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: textColor.withValues(
+                                alpha: selected ? 1 : 0.88,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    })
+                    .toList(growable: false),
+              ),
+              if (reactionBusy)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'جاري حفظ التفاعل...',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: textColor.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ),
               if (timeText.isNotEmpty) ...[
                 const SizedBox(height: 3),
                 Text(
@@ -605,4 +820,26 @@ class _ChatBubble extends StatelessWidget {
 int? _parseInt(dynamic value) {
   if (value == null) return null;
   return int.tryParse('$value');
+}
+
+const Set<String> _kMessageReactionKeys = <String>{
+  'like',
+  'heart',
+  'laugh',
+  'fire',
+};
+
+const List<_MessageReactionSpec> _kMessageReactionSpecs =
+    <_MessageReactionSpec>[
+      _MessageReactionSpec('like', '👍'),
+      _MessageReactionSpec('heart', '❤️'),
+      _MessageReactionSpec('laugh', '😂'),
+      _MessageReactionSpec('fire', '🔥'),
+    ];
+
+class _MessageReactionSpec {
+  final String key;
+  final String emoji;
+
+  const _MessageReactionSpec(this.key, this.emoji);
 }

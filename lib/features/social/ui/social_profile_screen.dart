@@ -9,6 +9,9 @@ import '../../../core/network/api_error_mapper.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
+import 'social_call_screen.dart';
+import 'social_chat_thread_screen.dart';
+import 'social_relation_requests_screen.dart';
 import 'social_story_quick_viewer.dart';
 
 class SocialProfileScreen extends ConsumerStatefulWidget {
@@ -44,6 +47,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   bool _storiesPrivateForViewer = false;
   String? _selectedKind;
   String? _error;
+  bool _relationBusy = false;
 
   final intl.DateFormat _dateFmt = intl.DateFormat('yyyy/MM/dd', 'ar');
 
@@ -62,7 +66,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     ]);
   }
 
-  String _keyOfKind(String? kind) => kind == null ? _allPostsKey : kind;
+  String _keyOfKind(String? kind) => kind ?? _allPostsKey;
 
   List<SocialPost> _postsForKind(String? kind) {
     final key = _keyOfKind(kind);
@@ -210,6 +214,278 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     }
   }
 
+  SocialUserProfile _copyProfileWithRelation(
+    SocialUserProfile profile,
+    SocialRelation relation,
+  ) {
+    return SocialUserProfile(
+      id: profile.id,
+      fullName: profile.fullName,
+      role: profile.role,
+      bio: profile.bio,
+      imageUrl: profile.imageUrl,
+      phone: profile.phone,
+      showPhone: profile.showPhone,
+      postsPublic: profile.postsPublic,
+      storiesPublic: profile.storiesPublic,
+      joinedAt: profile.joinedAt,
+      isMe: profile.isMe,
+      relation: relation,
+      stats: profile.stats,
+    );
+  }
+
+  Future<void> _runRelationAction(
+    Future<Map<String, dynamic>> Function() action, {
+    required String successMessage,
+  }) async {
+    final profile = _profile;
+    if (profile == null || profile.isMe || _relationBusy) return;
+
+    setState(() {
+      _relationBusy = true;
+      _error = null;
+    });
+
+    try {
+      final out = await action();
+      final rawRelation = out['relation'];
+      if (!mounted) return;
+      if (rawRelation is Map && _profile != null) {
+        final relation = SocialRelation.fromJson(
+          Map<String, dynamic>.from(rawRelation),
+        );
+        setState(() {
+          _profile = _copyProfileWithRelation(_profile!, relation);
+        });
+      }
+      await _loadProfile();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(successMessage)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(mapAnyError(e, fallback: 'تعذر تنفيذ الإجراء حالياً.')),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _relationBusy = false);
+      }
+    }
+  }
+
+  Future<void> _sendRelationRequest() async {
+    await _runRelationAction(
+      () => _api.sendRelationRequest(widget.userId),
+      successMessage: 'تم إرسال طلب المتابعة',
+    );
+  }
+
+  Future<void> _acceptRelationRequest() async {
+    await _runRelationAction(
+      () => _api.acceptRelationRequest(widget.userId),
+      successMessage: 'تم قبول طلب المتابعة',
+    );
+    await ref.read(socialControllerProvider.notifier).loadThreads();
+  }
+
+  Future<void> _rejectRelationRequest() async {
+    await _runRelationAction(
+      () => _api.rejectRelationRequest(widget.userId),
+      successMessage: 'تم رفض طلب المتابعة',
+    );
+  }
+
+  Future<void> _cancelRelationRequest() async {
+    await _runRelationAction(
+      () => _api.cancelRelationRequest(widget.userId),
+      successMessage: 'تم إلغاء الطلب',
+    );
+  }
+
+  Future<void> _removeRelation() async {
+    await _runRelationAction(
+      () => _api.removeRelation(widget.userId),
+      successMessage: 'تم إلغاء المتابعة',
+    );
+  }
+
+  Future<void> _blockRelation() async {
+    await _runRelationAction(
+      () => _api.blockRelation(widget.userId),
+      successMessage: 'تم حظر هذا المستخدم',
+    );
+  }
+
+  Future<void> _unblockRelation() async {
+    await _runRelationAction(
+      () => _api.unblockRelation(widget.userId),
+      successMessage: 'تم فك الحظر',
+    );
+  }
+
+  Future<void> _openChatWithUser() async {
+    final profile = _profile;
+    if (profile == null || profile.isMe) return;
+
+    final thread = await ref
+        .read(socialControllerProvider.notifier)
+        .createThreadWithUser(profile.id);
+    if (thread == null || !mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialChatThreadScreen(
+          threadId: thread.id,
+          peerName: thread.peer.fullName,
+          peerPhone: thread.peerPhone,
+          peerUserId: thread.peer.id,
+          peerImageUrl: thread.peer.imageUrl,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openInAppCall() async {
+    final profile = _profile;
+    if (profile == null || profile.isMe) return;
+
+    final thread = await ref
+        .read(socialControllerProvider.notifier)
+        .createThreadWithUser(profile.id);
+    if (thread == null || !mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialCallScreen(
+          threadId: thread.id,
+          isCaller: true,
+          remoteDisplayName: profile.fullName,
+        ),
+      ),
+    );
+  }
+
+  Widget? _buildRelationActions(SocialUserProfile profile) {
+    if (profile.isMe) return null;
+    final relation = profile.relation;
+
+    if (relation.isBlockedByMe) {
+      return FilledButton.tonalIcon(
+        onPressed: _relationBusy ? null : _unblockRelation,
+        icon: const Icon(Icons.lock_open_rounded),
+        label: const Text('فك الحظر'),
+      );
+    }
+
+    if (relation.isBlockedByOther) {
+      return const Text(
+        'لا يمكن التفاعل مع هذا الحساب حالياً بسبب الحظر.',
+        style: TextStyle(fontWeight: FontWeight.w700),
+      );
+    }
+
+    if (relation.isAccepted) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          FilledButton.icon(
+            onPressed: _openChatWithUser,
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            label: const Text('مراسلة'),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: _openInAppCall,
+            icon: const Icon(Icons.call_outlined),
+            label: const Text('اتصال'),
+          ),
+          OutlinedButton(
+            onPressed: _relationBusy ? null : _removeRelation,
+            child: const Text('إلغاء المتابعة'),
+          ),
+          OutlinedButton.icon(
+            onPressed: _relationBusy ? null : _blockRelation,
+            icon: const Icon(Icons.block_rounded),
+            label: const Text('حظر'),
+          ),
+        ],
+      );
+    }
+
+    if (relation.isPendingIncoming) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          OutlinedButton(
+            onPressed: _relationBusy ? null : _rejectRelationRequest,
+            child: const Text('رفض'),
+          ),
+          FilledButton(
+            onPressed: _relationBusy ? null : _acceptRelationRequest,
+            child: const Text('قبول المتابعة'),
+          ),
+        ],
+      );
+    }
+
+    if (relation.isPendingOutgoing) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          const Text(
+            'طلبك قيد الانتظار',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          OutlinedButton(
+            onPressed: _relationBusy ? null : _cancelRelationRequest,
+            child: const Text('إلغاء الطلب'),
+          ),
+        ],
+      );
+    }
+
+    if (relation.canSendRequest || relation.isNone) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          FilledButton.icon(
+            onPressed: _relationBusy ? null : _sendRelationRequest,
+            icon: const Icon(Icons.person_add_alt_1_rounded),
+            label: const Text('إرسال طلب متابعة'),
+          ),
+          OutlinedButton.icon(
+            onPressed: _relationBusy ? null : _blockRelation,
+            icon: const Icon(Icons.block_rounded),
+            label: const Text('حظر'),
+          ),
+        ],
+      );
+    }
+
+    return const Text(
+      'لا يمكن بدء التفاعل مع هذا الحساب حالياً.',
+      style: TextStyle(fontWeight: FontWeight.w700),
+    );
+  }
+
+  String _relationStatusText(SocialRelation relation) {
+    if (relation.isBlockedByMe) return 'هذا الحساب محظور من طرفك';
+    if (relation.isBlockedByOther) return 'هذا الحساب قام بحظرك';
+    if (relation.isAccepted) return 'متابعون لبعض';
+    if (relation.isPendingIncoming) return 'أرسل لك طلب متابعة';
+    if (relation.isPendingOutgoing) return 'طلب المتابعة بانتظار الرد';
+    return 'غير متابع';
+  }
+
   Future<void> _openMediaViewer(SocialPost post) async {
     final mediaUrl = (post.mediaUrl ?? '').trim();
     if (mediaUrl.isEmpty) return;
@@ -236,6 +512,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       await ref
           .read(socialControllerProvider.notifier)
           .loadStories(silent: true);
+      if (!mounted) return;
       stories = ref.read(socialControllerProvider).stories;
     }
 
@@ -248,6 +525,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
               .read(socialControllerProvider.notifier)
               .markStoryViewed(storyId),
         );
+        if (!mounted) return;
         return;
       }
     }
@@ -452,6 +730,20 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
             ),
             if (profile?.isMe == true)
               IconButton(
+                tooltip: 'طلبات المتابعة',
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SocialRelationRequestsScreen(),
+                    ),
+                  );
+                  if (!mounted) return;
+                  await _loadProfile();
+                },
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+              ),
+            if (profile?.isMe == true)
+              IconButton(
                 tooltip: 'تعديل',
                 onPressed: _openEditProfileSheet,
                 icon: const Icon(Icons.edit_outlined),
@@ -481,6 +773,20 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
                           joinedAt: _formatDate(profile.joinedAt),
                           favorites: favorites,
                           onAvatarTap: _openAvatarStoryOrImage,
+                          relationStatus: _relationStatusText(profile.relation),
+                          relationActions: _buildRelationActions(profile),
+                          onRequestsTap: profile.isMe
+                              ? () async {
+                                  await Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) =>
+                                          const SocialRelationRequestsScreen(),
+                                    ),
+                                  );
+                                  if (!mounted) return;
+                                  await _loadProfile();
+                                }
+                              : null,
                           onEditTap: profile.isMe
                               ? _openEditProfileSheet
                               : null,
@@ -641,6 +947,9 @@ class _ProfileHeaderCard extends StatelessWidget {
   final String joinedAt;
   final List<String> favorites;
   final VoidCallback onAvatarTap;
+  final String relationStatus;
+  final Widget? relationActions;
+  final VoidCallback? onRequestsTap;
   final VoidCallback? onEditTap;
 
   const _ProfileHeaderCard({
@@ -649,6 +958,9 @@ class _ProfileHeaderCard extends StatelessWidget {
     required this.joinedAt,
     required this.favorites,
     required this.onAvatarTap,
+    required this.relationStatus,
+    required this.relationActions,
+    required this.onRequestsTap,
     required this.onEditTap,
   });
 
@@ -735,6 +1047,38 @@ class _ProfileHeaderCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
+              if (!profile.isMe) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.7),
+                  ),
+                  child: Text(
+                    relationStatus,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                if (relationActions != null) ...[
+                  const SizedBox(height: 8),
+                  relationActions!,
+                ],
+              ],
+              if (profile.isMe && onRequestsTap != null) ...[
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton.icon(
+                    onPressed: onRequestsTap,
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                    label: const Text('طلبات المتابعة'),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -785,6 +1129,18 @@ class _ProfileHeaderCard extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   _StatChip(
+                    label: 'أصدقاء',
+                    value: stats.friendsCount.toString(),
+                  ),
+                  _StatChip(
+                    label: 'متابعون',
+                    value: stats.followersCount.toString(),
+                  ),
+                  _StatChip(
+                    label: 'يتابع',
+                    value: stats.followingCount.toString(),
+                  ),
+                  _StatChip(
                     label: 'منشورات',
                     value: stats.totalPosts.toString(),
                   ),
@@ -806,6 +1162,16 @@ class _ProfileHeaderCard extends StatelessWidget {
                     label: 'ستوري نشطة',
                     value: stats.activeStories.toString(),
                   ),
+                  if (stats.pendingIncomingCount > 0)
+                    _StatChip(
+                      label: 'طلبات واردة',
+                      value: stats.pendingIncomingCount.toString(),
+                    ),
+                  if (stats.pendingOutgoingCount > 0)
+                    _StatChip(
+                      label: 'طلبات صادرة',
+                      value: stats.pendingOutgoingCount.toString(),
+                    ),
                 ],
               ),
               if (favorites.isNotEmpty) ...[
@@ -993,7 +1359,8 @@ class _HighlightsSection extends StatelessWidget {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: albums.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(width: 10),
                   itemBuilder: (context, index) {
                     final album = albums[index];
                     final coverUrl = (album.cover.story.mediaUrl ?? '').trim();
@@ -1145,7 +1512,7 @@ class _ProfileMediaGrid extends StatelessWidget {
                           child: Image.network(
                             mediaUrl,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
+                            errorBuilder: (context, error, stackTrace) =>
                                 const SizedBox.shrink(),
                           ),
                         ),
@@ -1219,11 +1586,12 @@ class _ProfilePostCard extends StatelessWidget {
                         Image.network(
                           mediaUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            color: const Color(0xFF15355F),
-                            alignment: Alignment.center,
-                            child: const Icon(Icons.broken_image_outlined),
-                          ),
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                color: const Color(0xFF15355F),
+                                alignment: Alignment.center,
+                                child: const Icon(Icons.broken_image_outlined),
+                              ),
                         ),
                         if (isVideo)
                           const Center(
@@ -1881,7 +2249,7 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
                 child: Image.network(
                   widget.mediaUrl,
                   fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) =>
+                  errorBuilder: (context, error, stackTrace) =>
                       const _MediaError(message: 'تعذر تحميل الصورة.'),
                 ),
               ),

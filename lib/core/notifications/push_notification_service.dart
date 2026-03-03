@@ -40,6 +40,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         postId: parsed.$3.postId,
         storyId: parsed.$3.storyId,
         threadId: parsed.$3.threadId,
+        sessionId: parsed.$3.sessionId,
         notificationId: parsed.$3.notificationId,
         type: parsed.$3.type,
         target: parsed.$3.target,
@@ -123,6 +124,7 @@ class PushNotificationService {
         postId: parsed.$3.postId,
         storyId: parsed.$3.storyId,
         threadId: parsed.$3.threadId,
+        sessionId: parsed.$3.sessionId,
         notificationId: parsed.$3.notificationId,
         type: parsed.$3.type,
         target: parsed.$3.target,
@@ -273,6 +275,9 @@ class PushNotificationService {
     ),
     threadId: int.tryParse(
       '${message.data['threadId'] ?? message.data['thread_id'] ?? ''}',
+    ),
+    sessionId: int.tryParse(
+      '${message.data['sessionId'] ?? message.data['session_id'] ?? ''}',
     ),
     notificationId: int.tryParse('${message.data['notificationId'] ?? ''}'),
     type:

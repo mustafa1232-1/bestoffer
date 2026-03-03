@@ -1,4 +1,4 @@
-import 'package:dio/dio.dart';
+﻿import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/files/local_media_file.dart';
@@ -13,18 +13,22 @@ final socialApiProvider = Provider<SocialApi>((ref) {
 });
 
 const Map<String, String> _socialApiMessages = {
-  'CONTENT_NOT_ALLOWED':
-      'هذا المحتوى غير مسموح. يرجى تجنب العنف أو الإساءة أو السياسة.',
+  'CONTENT_NOT_ALLOWED': 'هذا المحتوى غير مسموح. يرجى تجنب العنف أو الإساءة أو السياسة.',
   'MEDIA_REQUIRED': 'يرجى اختيار صورة أو فيديو قبل النشر.',
   'EMPTY_POST': 'اكتب نصًا أو أضف وسائط قبل النشر.',
   'MERCHANT_REVIEW_INCOMPLETE': 'يرجى اختيار المتجر والتقييم قبل نشر المراجعة.',
   'POST_NOT_FOUND': 'المنشور غير موجود أو تمت إزالته.',
   'THREAD_NOT_FOUND': 'المحادثة غير متاحة.',
   'THREAD_SELF_NOT_ALLOWED': 'لا يمكنك إنشاء محادثة مع نفسك.',
+  'RELATION_REQUIRED': 'قبل المراسلة لازم يتم قبول طلب المتابعة بين الطرفين.',
+  'RELATION_REQUEST_NOT_FOUND': 'طلب المتابعة غير موجود.',
+  'RELATION_ACCEPT_NOT_ALLOWED': 'لا يمكن قبول هذا الطلب حاليًا.',
+  'RELATION_REJECT_NOT_ALLOWED': 'لا يمكن رفض هذا الطلب حاليًا.',
+  'RELATION_CANCEL_NOT_ALLOWED': 'لا يمكن إلغاء هذا الطلب حاليًا.',
+  'RELATION_BLOCKED': 'لا يمكن إتمام العملية بسبب إعدادات الخصوصية.',
   'EMPTY_STORY': 'أضف نصًا أو صورة/فيديو قبل نشر الستوري.',
   'STORY_NOT_FOUND': 'الستوري غير متاحة حاليًا.',
-  'INVALID_MEDIA_TYPE':
-      'نوع الملف غير مدعوم. استخدم JPG أو PNG أو WEBP أو MP4.',
+  'INVALID_MEDIA_TYPE': 'نوع الملف غير مدعوم. استخدم JPG أو PNG أو WEBP أو MP4.',
 };
 
 class SocialState {
@@ -177,7 +181,7 @@ class SocialController extends StateNotifier<SocialState> {
           loadingMorePosts: false,
           error: mapDioError(
             e,
-            fallback: 'تعذر تحميل منشورات شديصير بسماية.',
+            fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ù…Ù†Ø´ÙˆØ±Ø§Øª Ø´Ø¯ÙŠØµÙŠØ± Ø¨Ø³Ù…Ø§ÙŠØ©.',
             customMessages: _socialApiMessages,
             appendRequestId: true,
           ),
@@ -189,7 +193,7 @@ class SocialController extends StateNotifier<SocialState> {
         state.copyWith(
           loadingPosts: false,
           loadingMorePosts: false,
-          error: mapAnyError(e, fallback: 'تعذر تحميل المنشورات.'),
+          error: mapAnyError(e, fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ù†Ø´ÙˆØ±Ø§Øª.'),
         ),
       );
     }
@@ -229,7 +233,7 @@ class SocialController extends StateNotifier<SocialState> {
           loadingStories: false,
           error: mapDioError(
             e,
-            fallback: 'تعذر تحميل الستوري.',
+            fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø³ØªÙˆØ±ÙŠ.',
             customMessages: _socialApiMessages,
             appendRequestId: true,
           ),
@@ -240,7 +244,7 @@ class SocialController extends StateNotifier<SocialState> {
       _safeSetState(
         state.copyWith(
           loadingStories: false,
-          error: mapAnyError(e, fallback: 'تعذر تحميل الستوري.'),
+          error: mapAnyError(e, fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø³ØªÙˆØ±ÙŠ.'),
         ),
       );
     }
@@ -268,7 +272,7 @@ class SocialController extends StateNotifier<SocialState> {
           creatingStory: false,
           error: mapDioError(
             e,
-            fallback: 'تعذر نشر الستوري.',
+            fallback: 'ØªØ¹Ø°Ø± Ù†Ø´Ø± Ø§Ù„Ø³ØªÙˆØ±ÙŠ.',
             customMessages: _socialApiMessages,
             appendRequestId: true,
           ),
@@ -278,7 +282,7 @@ class SocialController extends StateNotifier<SocialState> {
       _safeSetState(
         state.copyWith(
           creatingStory: false,
-          error: mapAnyError(e, fallback: 'تعذر نشر الستوري.'),
+          error: mapAnyError(e, fallback: 'ØªØ¹Ø°Ø± Ù†Ø´Ø± Ø§Ù„Ø³ØªÙˆØ±ÙŠ.'),
         ),
       );
     }
@@ -408,7 +412,7 @@ class SocialController extends StateNotifier<SocialState> {
           creatingPost: false,
           error: mapDioError(
             e,
-            fallback: 'تعذر نشر المنشور. تحقق من المحتوى وحاول مرة أخرى.',
+            fallback: 'ØªØ¹Ø°Ø± Ù†Ø´Ø± Ø§Ù„Ù…Ù†Ø´ÙˆØ±. ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ù…Ø­ØªÙˆÙ‰ ÙˆØ­Ø§ÙˆÙ„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.',
             customMessages: _socialApiMessages,
             appendRequestId: true,
           ),
@@ -418,7 +422,7 @@ class SocialController extends StateNotifier<SocialState> {
       _safeSetState(
         state.copyWith(
           creatingPost: false,
-          error: mapAnyError(e, fallback: 'تعذر نشر المنشور.'),
+          error: mapAnyError(e, fallback: 'ØªØ¹Ø°Ø± Ù†Ø´Ø± Ø§Ù„Ù…Ù†Ø´ÙˆØ±.'),
         ),
       );
     }
@@ -462,7 +466,7 @@ class SocialController extends StateNotifier<SocialState> {
               .toList(growable: false),
           error: mapDioError(
             e,
-            fallback: 'تعذر تحديث الإعجاب.',
+            fallback: 'ØªØ¹Ø°Ø± ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø¥Ø¹Ø¬Ø§Ø¨.',
             customMessages: _socialApiMessages,
           ),
         ),
@@ -509,7 +513,7 @@ class SocialController extends StateNotifier<SocialState> {
           loadingThreads: false,
           error: mapDioError(
             e,
-            fallback: 'تعذر تحميل المحادثات.',
+            fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø§Øª.',
             customMessages: _socialApiMessages,
           ),
         ),
@@ -518,7 +522,7 @@ class SocialController extends StateNotifier<SocialState> {
       _safeSetState(
         state.copyWith(
           loadingThreads: false,
-          error: mapAnyError(e, fallback: 'تعذر تحميل المحادثات.'),
+          error: mapAnyError(e, fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø§Øª.'),
         ),
       );
     }
@@ -541,7 +545,7 @@ class SocialController extends StateNotifier<SocialState> {
         state.copyWith(
           error: mapDioError(
             e,
-            fallback: 'تعذر بدء المحادثة.',
+            fallback: 'ØªØ¹Ø°Ø± Ø¨Ø¯Ø¡ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø©.',
             customMessages: _socialApiMessages,
           ),
         ),
@@ -549,7 +553,7 @@ class SocialController extends StateNotifier<SocialState> {
       return null;
     } catch (e) {
       _safeSetState(
-        state.copyWith(error: mapAnyError(e, fallback: 'تعذر بدء المحادثة.')),
+        state.copyWith(error: mapAnyError(e, fallback: 'ØªØ¹Ø°Ø± Ø¨Ø¯Ø¡ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø©.')),
       );
       return null;
     }
@@ -566,3 +570,4 @@ int? _parseInt(dynamic value) {
   if (value == null) return null;
   return int.tryParse('$value');
 }
+

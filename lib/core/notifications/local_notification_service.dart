@@ -18,6 +18,7 @@ class NotificationTapPayload {
   final int? postId;
   final int? storyId;
   final int? threadId;
+  final int? sessionId;
   final int? notificationId;
   final String? type;
   final String? target;
@@ -28,6 +29,7 @@ class NotificationTapPayload {
     this.postId,
     this.storyId,
     this.threadId,
+    this.sessionId,
     this.notificationId,
     this.type,
     this.target,
@@ -110,6 +112,9 @@ class LocalNotificationService {
           notification.storyId ??
           int.tryParse('${notification.payload?['storyId'] ?? ''}'),
       threadId: int.tryParse('${notification.payload?['threadId'] ?? ''}'),
+      sessionId:
+          int.tryParse('${notification.payload?['sessionId'] ?? ''}') ??
+          int.tryParse('${notification.payload?['session_id'] ?? ''}'),
       type: notification.type,
       target: target,
       notificationId: id,
@@ -124,6 +129,7 @@ class LocalNotificationService {
     int? postId,
     int? storyId,
     int? threadId,
+    int? sessionId,
     int? notificationId,
     String? type,
     String? target,
@@ -140,6 +146,7 @@ class LocalNotificationService {
       'postId': postId,
       'storyId': storyId,
       'threadId': threadId,
+      'sessionId': sessionId,
       'notificationId': id,
       'type': type,
       'target': target,
@@ -181,6 +188,9 @@ class LocalNotificationService {
         postId: int.tryParse('${map['postId'] ?? ''}'),
         storyId: int.tryParse('${map['storyId'] ?? ''}'),
         threadId: int.tryParse('${map['threadId'] ?? ''}'),
+        sessionId:
+            int.tryParse('${map['sessionId'] ?? ''}') ??
+            int.tryParse('${map['session_id'] ?? ''}'),
         notificationId: int.tryParse('${map['notificationId'] ?? ''}'),
         type: map['type']?.toString(),
         target: map['target']?.toString(),

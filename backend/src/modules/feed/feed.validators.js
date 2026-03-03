@@ -310,6 +310,15 @@ export function validateThreadId(threadId) {
   };
 }
 
+export function validateMessageId(messageId) {
+  const value = asPositiveInt(messageId);
+  return {
+    ok: value != null,
+    errors: value == null ? ["messageId"] : [],
+    value,
+  };
+}
+
 export function validateListMessages(query = {}) {
   const limit = Number(query.limit ?? 40);
   const beforeId = query.beforeId == null ? null : asPositiveInt(query.beforeId);
@@ -335,6 +344,19 @@ export function validateSendMessage(body = {}) {
     ok: errors.length === 0,
     errors,
     value: { body: text },
+  };
+}
+
+export function validateMessageReaction(body = {}) {
+  const reaction = asTrimmed(body.reaction).toLowerCase() || "like";
+  const errors = [];
+  if (!["like", "heart", "laugh", "fire"].includes(reaction)) {
+    errors.push("reaction");
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: { reaction },
   };
 }
 
@@ -419,5 +441,99 @@ export function validateHighlightId(highlightId) {
     ok: value != null,
     errors: value == null ? ["highlightId"] : [],
     value,
+  };
+}
+
+export function validateRelationListQuery(query = {}) {
+  const errors = [];
+  const limit = Number(query.limit ?? 80);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200) errors.push("limit");
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      limit: Math.min(200, Math.max(1, Number.isInteger(limit) ? limit : 80)),
+    },
+  };
+}
+
+export function validateThreadCallStateQuery(query = {}) {
+  const errors = [];
+  const signalLimit = Number(query.signalLimit ?? 160);
+  if (!Number.isInteger(signalLimit) || signalLimit < 1 || signalLimit > 800) {
+    errors.push("signalLimit");
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      signalLimit: Math.min(
+        800,
+        Math.max(1, Number.isInteger(signalLimit) ? signalLimit : 160)
+      ),
+    },
+  };
+}
+
+export function validateThreadCallSignal(body = {}) {
+  const errors = [];
+  const sessionId =
+    body.sessionId == null || body.sessionId === ""
+      ? null
+      : asPositiveInt(body.sessionId);
+  const signalType = asTrimmed(body.signalType).toLowerCase();
+  const signalPayload =
+    body.signalPayload && typeof body.signalPayload === "object"
+      ? body.signalPayload
+      : {};
+  const allowedTypes = new Set([
+    "offer",
+    "answer",
+    "ice",
+    "accept",
+    "decline",
+    "hangup",
+  ]);
+
+  if (body.sessionId != null && sessionId == null) errors.push("sessionId");
+  if (!allowedTypes.has(signalType)) errors.push("signalType");
+
+  if (signalType === "offer" || signalType === "answer") {
+    const sdp = String(signalPayload?.sdp || "").trim();
+    const sdpType = String(signalPayload?.type || "").trim().toLowerCase();
+    if (!sdp || sdp.length < 10) errors.push("signalPayload.sdp");
+    if (!["offer", "answer"].includes(sdpType)) errors.push("signalPayload.type");
+  }
+
+  if (signalType === "ice") {
+    const candidate = String(signalPayload?.candidate || "").trim();
+    if (!candidate) errors.push("signalPayload.candidate");
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      sessionId,
+      signalType,
+      signalPayload,
+    },
+  };
+}
+
+export function validateThreadCallEnd(body = {}) {
+  const errors = [];
+  const status = asTrimmed(body.status).toLowerCase() || "ended";
+  const reason = asTrimmed(body.reason);
+  const allowedStatus = new Set(["ended", "declined", "missed"]);
+  if (!allowedStatus.has(status)) errors.push("status");
+  if (reason.length > 80) errors.push("reason");
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      status,
+      reason: reason || null,
+    },
   };
 }
