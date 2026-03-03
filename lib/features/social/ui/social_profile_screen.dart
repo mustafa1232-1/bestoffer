@@ -142,7 +142,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen>
 
       if (!mounted) return;
       final List<SocialPost> merged = refresh
-          ? posts
+          ? List<SocialPost>.from(posts)
           : [...(_postsByKey[key] ?? const <SocialPost>[]), ...posts];
       setState(() {
         _postsByKey[key] = merged;
@@ -180,6 +180,14 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(_profile?.fullName ?? widget.initialName ?? 'الملف الشخصي'),
+        actions: [
+          if (_profile?.isMe == true)
+            IconButton(
+              tooltip: 'أرشيف الستوري',
+              onPressed: _openStoryArchive,
+              icon: const Icon(Icons.history_rounded),
+            ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
@@ -242,6 +250,15 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen>
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _openStoryArchive() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const _MyStoryArchiveSheet(),
     );
   }
 }
@@ -407,6 +424,19 @@ class _ProfilePostCard extends StatelessWidget {
                   width: double.infinity,
                   height: 200,
                   fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    height: 200,
+                    color: const Color(0xFF102A4A),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      'تعذر تحميل الصورة',
+                      textDirection: TextDirection.rtl,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -440,4 +470,240 @@ class _ProfileTab {
   final String? kind;
   final IconData icon;
   const _ProfileTab(this.label, this.kind, this.icon);
+}
+
+class _MyStoryArchiveSheet extends ConsumerStatefulWidget {
+  const _MyStoryArchiveSheet();
+
+  @override
+  ConsumerState<_MyStoryArchiveSheet> createState() =>
+      _MyStoryArchiveSheetState();
+}
+
+class _MyStoryArchiveSheetState extends ConsumerState<_MyStoryArchiveSheet> {
+  final List<SocialStory> _stories = <SocialStory>[];
+  final intl.DateFormat _dateFmt = intl.DateFormat('yyyy/MM/dd HH:mm', 'ar');
+  bool _loading = true;
+  bool _loadingMore = false;
+  int? _cursor;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() => _load(refresh: true));
+  }
+
+  Future<void> _load({required bool refresh}) async {
+    if (refresh) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    } else {
+      if (_loadingMore || _cursor == null) return;
+      setState(() => _loadingMore = true);
+    }
+
+    try {
+      final out = await ref
+          .read(socialApiProvider)
+          .listMyStoryArchive(limit: 32, beforeId: refresh ? null : _cursor);
+      final raw = List<dynamic>.from(out['stories'] as List? ?? const []);
+      final parsed = raw
+          .map((e) => SocialStory.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(growable: false);
+      if (!mounted) return;
+      setState(() {
+        if (refresh) {
+          _stories
+            ..clear()
+            ..addAll(parsed);
+        } else {
+          _stories.addAll(parsed);
+        }
+        _cursor = int.tryParse('${out['nextCursor']}');
+        _loading = false;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadingMore = false;
+        _error = 'تعذر تحميل أرشيف الستوري حالياً.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.82,
+        child: Column(
+          children: [
+            ListTile(
+              title: const Text(
+                'أرشيف الستوري',
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.end,
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: const Text(
+                'الستوريات المنتهية بعد 24 ساعة',
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.end,
+              ),
+              leading: IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => _load(refresh: true),
+                child: _loading && _stories.isEmpty
+                    ? const Center(child: CircularProgressIndicator())
+                    : _stories.isEmpty
+                    ? ListView(
+                        children: const [
+                          SizedBox(height: 120),
+                          Center(
+                            child: Text(
+                              'لا توجد ستوريات مؤرشفة بعد.',
+                              textDirection: TextDirection.rtl,
+                            ),
+                          ),
+                        ],
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        itemCount: _stories.length + 1,
+                        itemBuilder: (context, index) {
+                          if (index >= _stories.length) {
+                            if (_cursor == null) {
+                              return const SizedBox(height: 8);
+                            }
+                            if (!_loadingMore) {
+                              _load(refresh: false);
+                            }
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            );
+                          }
+
+                          final story = _stories[index];
+                          final isImage =
+                              (story.mediaKind == 'image') &&
+                              (story.mediaUrl ?? '').trim().isNotEmpty;
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            clipBehavior: Clip.antiAlias,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                SizedBox(
+                                  height: 170,
+                                  width: double.infinity,
+                                  child: isImage
+                                      ? Image.network(
+                                          story.mediaUrl!,
+                                          fit: BoxFit.cover,
+                                          errorBuilder:
+                                              (context, error, stackTrace) {
+                                                return _ArchiveTextStoryPreview(
+                                                  story: story,
+                                                );
+                                              },
+                                        )
+                                      : _ArchiveTextStoryPreview(story: story),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.all(10),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      if (story.caption.trim().isNotEmpty)
+                                        Text(
+                                          story.caption.trim(),
+                                          textDirection: TextDirection.rtl,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'نُشرت: ${_dateFmt.format((story.createdAt ?? DateTime.now()).toLocal())}',
+                                        textDirection: TextDirection.rtl,
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  _error!,
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ArchiveTextStoryPreview extends StatelessWidget {
+  final SocialStory story;
+  const _ArchiveTextStoryPreview({required this.story});
+
+  Color _hex(String value, Color fallback) {
+    final cleaned = value.replaceAll('#', '').trim();
+    if (cleaned.length == 6) {
+      final parsed = int.tryParse('FF$cleaned', radix: 16);
+      if (parsed != null) return Color(parsed);
+    }
+    if (cleaned.length == 8) {
+      final parsed = int.tryParse(cleaned, radix: 16);
+      if (parsed != null) return Color(parsed);
+    }
+    return fallback;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = _hex(story.style.backgroundColor, const Color(0xFF1E3A8A));
+    final fg = _hex(story.style.textColor, Colors.white);
+    return Container(
+      color: bg,
+      padding: const EdgeInsets.all(16),
+      alignment: Alignment.center,
+      child: Text(
+        story.caption.trim().isEmpty ? '—' : story.caption.trim(),
+        textDirection: TextDirection.rtl,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: fg,
+          fontWeight: FontWeight.w700,
+          fontSize: 15 * story.style.fontScale.clamp(0.8, 2.0),
+        ),
+      ),
+    );
+  }
 }

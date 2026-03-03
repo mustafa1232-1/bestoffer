@@ -160,6 +160,7 @@ class SocialStory {
   final String caption;
   final String? mediaUrl;
   final String? mediaKind;
+  final SocialStoryStyle style;
   final bool isViewed;
   final bool isMine;
   final DateTime? createdAt;
@@ -171,6 +172,7 @@ class SocialStory {
     required this.caption,
     required this.mediaUrl,
     required this.mediaKind,
+    required this.style,
     required this.isViewed,
     required this.isMine,
     required this.createdAt,
@@ -183,11 +185,68 @@ class SocialStory {
     caption: parseString(j['caption']),
     mediaUrl: parseNullableString(j['mediaUrl'] ?? j['media_url']),
     mediaKind: parseNullableString(j['mediaKind'] ?? j['media_kind']),
+    style: SocialStoryStyle.fromJson(
+      Map<String, dynamic>.from(
+        j['storyStyle'] ?? j['story_style'] ?? const <String, dynamic>{},
+      ),
+    ),
     isViewed: parseBool(j['isViewed'] ?? j['is_viewed']),
     isMine: parseBool(j['isMine'] ?? j['is_mine']),
     createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
     expiresAt: parseNullableDateTime(j['expiresAt'] ?? j['expires_at']),
   );
+}
+
+class SocialStoryStyle {
+  final String backgroundColor;
+  final String textColor;
+  final String textAlign;
+  final String fontFamily;
+  final String fontWeight;
+  final double fontScale;
+
+  const SocialStoryStyle({
+    required this.backgroundColor,
+    required this.textColor,
+    required this.textAlign,
+    required this.fontFamily,
+    required this.fontWeight,
+    required this.fontScale,
+  });
+
+  factory SocialStoryStyle.fromJson(Map<String, dynamic> j) => SocialStoryStyle(
+    backgroundColor: parseString(
+      j['backgroundColor'] ?? j['background_color'],
+      fallback: '#1E3A8A',
+    ),
+    textColor: parseString(
+      j['textColor'] ?? j['text_color'],
+      fallback: '#FFFFFF',
+    ),
+    textAlign: parseString(
+      j['textAlign'] ?? j['text_align'],
+      fallback: 'center',
+    ),
+    fontFamily: parseString(
+      j['fontFamily'] ?? j['font_family'],
+      fallback: 'system',
+    ),
+    fontWeight: parseString(
+      j['fontWeight'] ?? j['font_weight'],
+      fallback: 'bold',
+    ),
+    fontScale:
+        double.tryParse('${j['fontScale'] ?? j['font_scale'] ?? 1.0}') ?? 1.0,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'backgroundColor': backgroundColor,
+    'textColor': textColor,
+    'textAlign': textAlign,
+    'fontFamily': fontFamily,
+    'fontWeight': fontWeight,
+    'fontScale': fontScale,
+  };
 }
 
 class SocialStoryGroup {

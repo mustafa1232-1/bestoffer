@@ -183,6 +183,7 @@ export async function listActiveStoriesRaw({
        s.caption,
        s.media_url,
        s.media_kind,
+       s.story_style,
        s.created_at,
        s.updated_at,
        s.expires_at,
@@ -206,22 +207,68 @@ export async function listActiveStoriesRaw({
   return r.rows;
 }
 
+export async function listArchivedStoriesRaw({
+  viewerUserId,
+  ownerUserId,
+  beforeId = null,
+  limit = 40,
+}) {
+  const r = await q(
+    `SELECT
+       s.id,
+       s.user_id,
+       s.caption,
+       s.media_url,
+       s.media_kind,
+       s.story_style,
+       s.created_at,
+       s.updated_at,
+       s.expires_at,
+       u.full_name AS user_full_name,
+       u.phone AS user_phone,
+       u.image_url AS user_image_url,
+       u.role AS user_role,
+       COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
+     FROM social_story s
+     JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_story_view v
+       ON v.story_id = s.id
+      AND v.user_id = $1
+     WHERE s.user_id = $2
+       AND s.is_deleted = FALSE
+       AND s.moderation_status = 'approved'
+       AND s.expires_at <= NOW()
+       AND ($3::bigint IS NULL OR s.id < $3::bigint)
+     ORDER BY s.id DESC
+     LIMIT $4`,
+    [
+      Number(viewerUserId),
+      Number(ownerUserId),
+      beforeId == null ? null : Number(beforeId),
+      Number(limit),
+    ]
+  );
+  return r.rows;
+}
+
 export async function insertStory({
   userId,
   caption,
   mediaUrl = null,
   mediaKind = null,
+  storyStyle = {},
 }) {
   const r = await q(
     `INSERT INTO social_story
-      (user_id, caption, media_url, media_kind, moderation_status)
-     VALUES ($1, $2, $3, $4, 'approved')
+      (user_id, caption, media_url, media_kind, story_style, moderation_status)
+     VALUES ($1, $2, $3, $4, $5::jsonb, 'approved')
      RETURNING *`,
     [
       Number(userId),
       caption || null,
       mediaUrl,
       mediaKind,
+      JSON.stringify(storyStyle && typeof storyStyle === "object" ? storyStyle : {}),
     ]
   );
   return r.rows[0] || null;
@@ -235,6 +282,7 @@ export async function findStoryById({ viewerUserId, storyId }) {
        s.caption,
        s.media_url,
        s.media_kind,
+       s.story_style,
        s.created_at,
        s.updated_at,
        s.expires_at,

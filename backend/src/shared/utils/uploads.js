@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 
-const uploadsDirFromEnv = String(process.env.UPLOADS_DIR || "uploads").trim();
+const defaultUploadsDir =
+  process.env.NODE_ENV === "production" ? "/data/uploads" : "uploads";
+const uploadsDirFromEnv = String(
+  process.env.UPLOADS_DIR || defaultUploadsDir
+).trim();
 
 export const uploadsDir = path.isAbsolute(uploadsDirFromEnv)
   ? uploadsDirFromEnv

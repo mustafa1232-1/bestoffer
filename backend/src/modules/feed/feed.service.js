@@ -123,12 +123,17 @@ function mapCommentRow(row) {
 }
 
 function mapStoryRow(row, viewerUserId) {
+  const storyStyle =
+    row.story_style && typeof row.story_style === "object" && !Array.isArray(row.story_style)
+      ? row.story_style
+      : {};
   return {
     id: Number(row.id),
     userId: Number(row.user_id),
     caption: row.caption || "",
     mediaUrl: row.media_url || null,
     mediaKind: row.media_kind || null,
+    storyStyle,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     expiresAt: row.expires_at,
@@ -355,6 +360,27 @@ export async function listStories(viewerUserId, query) {
   };
 }
 
+export async function listMyStoryArchive(userId, query) {
+  const safeLimit = Math.max(1, Math.min(100, Number(query?.limit) || 40));
+  const beforeId =
+    Number.isInteger(Number(query?.beforeId)) && Number(query.beforeId) > 0
+      ? Number(query.beforeId)
+      : null;
+
+  const rows = await repo.listArchivedStoriesRaw({
+    viewerUserId: userId,
+    ownerUserId: userId,
+    beforeId,
+    limit: safeLimit,
+  });
+
+  const stories = rows.map((row) => mapStoryRow(row, userId));
+  return {
+    stories,
+    nextCursor: rows.length > 0 ? Number(rows[rows.length - 1].id) : null,
+  };
+}
+
 export async function getPostById(viewerUserId, postId) {
   const row = await repo.findFeedPostById({
     viewerUserId,
@@ -434,6 +460,7 @@ export async function createStory(userId, dto, media) {
     caption: dto.caption,
     mediaUrl,
     mediaKind,
+    storyStyle: dto.storyStyle,
   });
   if (!inserted?.id) {
     throw new AppError("STORY_CREATE_FAILED", { status: 500 });

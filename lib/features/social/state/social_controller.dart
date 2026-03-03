@@ -22,7 +22,9 @@ const Map<String, String> _socialApiMessages = {
   'THREAD_NOT_FOUND': 'المحادثة غير متاحة.',
   'THREAD_SELF_NOT_ALLOWED': 'لا يمكنك إنشاء محادثة مع نفسك.',
   'EMPTY_STORY': 'أضف نصًا أو صورة/فيديو قبل نشر الستوري.',
-  'STORY_NOT_FOUND': 'الستوري غير متاحة حالياً.',
+  'STORY_NOT_FOUND': 'الستوري غير متاحة حاليًا.',
+  'INVALID_MEDIA_TYPE':
+      'نوع الملف غير مدعوم. استخدم JPG أو PNG أو WEBP أو MP4.',
 };
 
 class SocialState {
@@ -247,12 +249,17 @@ class SocialController extends StateNotifier<SocialState> {
   Future<void> createStory({
     required String caption,
     LocalMediaFile? mediaFile,
+    Map<String, dynamic>? storyStyle,
   }) async {
     _safeSetState(state.copyWith(creatingStory: true, error: null));
     try {
       await ref
           .read(socialApiProvider)
-          .createStory(caption: caption, mediaFile: mediaFile);
+          .createStory(
+            caption: caption,
+            mediaFile: mediaFile,
+            storyStyle: storyStyle,
+          );
       _safeSetState(state.copyWith(creatingStory: false));
       await loadStories();
     } on DioException catch (e) {
@@ -308,6 +315,7 @@ class SocialController extends StateNotifier<SocialState> {
                     caption: story.caption,
                     mediaUrl: story.mediaUrl,
                     mediaKind: story.mediaKind,
+                    style: story.style,
                     isViewed: true,
                     isMine: story.isMine,
                     createdAt: story.createdAt,

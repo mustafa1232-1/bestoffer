@@ -17,6 +17,7 @@ feedRouter.post("/posts/:postId/like", c.toggleLike);
 feedRouter.get("/posts/:postId/comments", c.listPostComments);
 feedRouter.post("/posts/:postId/comments", c.addComment);
 feedRouter.get("/stories", c.listStories);
+feedRouter.get("/stories/archive/me", c.listMyStoryArchive);
 feedRouter.post("/stories", mediaUpload.single("mediaFile"), c.createStory);
 feedRouter.post("/stories/:storyId/view", c.markStoryViewed);
 feedRouter.get("/merchants", c.listMerchants);

@@ -6,6 +6,7 @@ import {
   validateCreatePost,
   validateCreateThread,
   validateListStories,
+  validateListStoryArchive,
   validateListMessages,
   validateListPosts,
   validateMerchantSearch,
@@ -41,6 +42,18 @@ export async function listStories(req, res, next) {
     if (!v.ok) return badRequest(res, v.errors);
 
     const out = await service.listStories(req.userId, v.value);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listMyStoryArchive(req, res, next) {
+  try {
+    const v = validateListStoryArchive(req.query || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.listMyStoryArchive(req.userId, v.value);
     return res.json(out);
   } catch (error) {
     return next(error);

@@ -184,6 +184,10 @@ class CustomerInsightProfileScreen extends StatelessWidget {
     final activityPattern = _asMap(behaviorProfile['activityPattern']);
     final favoritesSummary = _asMap(behaviorProfile['favoritesSummary']);
     final carSignals = _asMap(behaviorProfile['carSignals']);
+    final socialInsights = _asMap(behaviorProfile['socialInsights']);
+    final socialSummary = _asMap(socialInsights['summary']);
+    final socialEngagement = _asMap(socialInsights['engagement']);
+    final socialKeywords = _asMap(socialInsights['keywords']);
 
     final topMerchantTypes = _asList(orderProfile['topMerchantTypes']);
     final topMerchants = _asList(orderProfile['topMerchants']);
@@ -198,6 +202,12 @@ class CustomerInsightProfileScreen extends StatelessWidget {
     final topCarBrands = _asList(carSignals['topBrands']);
     final topCarModels = _asList(carSignals['topModels']);
     final campaignHints = _asStringList(persona['campaignHints']);
+    final socialTopKeywords = _asList(socialKeywords['topKeywords']);
+    final socialTopTopics = _asList(socialKeywords['topTopics']);
+    final socialReviewedMerchants = _asList(
+      socialInsights['reviewedMerchants'],
+    );
+    final consentNotice = '${customer['consentNotice'] ?? ''}'.trim();
 
     final fullName = '${customer['fullName'] ?? '-'}';
     final phone = '${customer['phone'] ?? '-'}';
@@ -251,6 +261,117 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                             ),
                           ),
                         ],
+                      ),
+                      if (consentNotice.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          consentNotice,
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.secondary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _sectionTitle(
+                        context,
+                        'تحليل السوشال (منشورات وستوريات)',
+                        subtitle: 'يفعّل فقط بعد موافقة المستخدم على التحليلات',
+                      ),
+                      const SizedBox(height: 10),
+                      GridView.count(
+                        crossAxisCount: 2,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: 2.2,
+                        children: [
+                          _metricTile(
+                            icon: Icons.article_outlined,
+                            label: 'إجمالي المنشورات',
+                            value: '${_asInt(socialSummary['postsCount'])}',
+                          ),
+                          _metricTile(
+                            icon: Icons.auto_stories_outlined,
+                            label: 'إجمالي الستوريات',
+                            value: '${_asInt(socialSummary['storiesCount'])}',
+                          ),
+                          _metricTile(
+                            icon: Icons.history_rounded,
+                            label: 'ستوريات مؤرشفة',
+                            value:
+                                '${_asInt(socialSummary['archivedStoriesCount'])}',
+                          ),
+                          _metricTile(
+                            icon: Icons.favorite_outline_rounded,
+                            label: 'إعجابات مستلمة',
+                            value:
+                                '${_asInt(socialEngagement['likesReceived'])}',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'تعليقات مستلمة: ${_asInt(socialEngagement['commentsReceived'])} | تعليقات كتبها: ${_asInt(socialEngagement['commentsWritten'])}',
+                        textDirection: TextDirection.rtl,
+                      ),
+                      Text(
+                        'آخر منشور: ${_fmtDate(socialSummary['lastPostAt'])} | آخر ستوري: ${_fmtDate(socialSummary['lastStoryAt'])}',
+                        textDirection: TextDirection.rtl,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'أكثر كلمات يستخدمها',
+                        textDirection: TextDirection.rtl,
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      _buildTopRows(
+                        emptyText: 'لا توجد كلمات كافية',
+                        rows: socialTopKeywords,
+                        titleKey: 'keyword',
+                        valueKey: 'count',
+                        valueSuffix: 'مرة',
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'أكثر مواضيع ينشر عنها',
+                        textDirection: TextDirection.rtl,
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      _buildTopRows(
+                        emptyText: 'لا توجد مواضيع واضحة',
+                        rows: socialTopTopics,
+                        titleKey: 'topic',
+                        valueKey: 'count',
+                        valueSuffix: 'منشور',
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'متاجر راجعها عبر المنشورات',
+                        textDirection: TextDirection.rtl,
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      _buildTopRows(
+                        emptyText: 'لا توجد مراجعات منشورة',
+                        rows: socialReviewedMerchants,
+                        titleKey: 'merchantName',
+                        valueKey: 'reviewsCount',
+                        valueSuffix: 'مراجعة',
                       ),
                     ],
                   ),

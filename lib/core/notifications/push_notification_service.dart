@@ -154,6 +154,10 @@ class PushNotificationService {
 
   Future<void> unregisterCurrentToken() async {
     if (!_firebaseReady) return;
+    final accessToken = await store.readToken();
+    if (accessToken == null || accessToken.isEmpty) {
+      return;
+    }
     final token = await FirebaseMessaging.instance.getToken();
     if (token == null || token.isEmpty) return;
     try {

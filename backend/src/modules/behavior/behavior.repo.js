@@ -466,3 +466,133 @@ export async function getCustomerAiPreferenceProfile(customerUserId) {
   );
   return r.rows[0] || null;
 }
+
+export async function getCustomerSocialSummary(customerUserId) {
+  const r = await q(
+    `WITH post_stats AS (
+       SELECT
+         COUNT(*)::int AS posts_count,
+         COUNT(*) FILTER (WHERE post_kind = 'text')::int AS text_posts_count,
+         COUNT(*) FILTER (WHERE post_kind = 'image')::int AS image_posts_count,
+         COUNT(*) FILTER (WHERE post_kind = 'video')::int AS video_posts_count,
+         COUNT(*) FILTER (WHERE post_kind = 'merchant_review')::int AS review_posts_count,
+         MAX(created_at) AS last_post_at
+       FROM social_post
+       WHERE user_id = $1
+         AND is_deleted = FALSE
+         AND moderation_status = 'approved'
+     ),
+     story_stats AS (
+       SELECT
+         COUNT(*)::int AS stories_count,
+         COUNT(*) FILTER (WHERE expires_at > NOW())::int AS active_stories_count,
+         COUNT(*) FILTER (WHERE expires_at <= NOW())::int AS archived_stories_count,
+         MAX(created_at) AS last_story_at
+       FROM social_story
+       WHERE user_id = $1
+         AND is_deleted = FALSE
+         AND moderation_status = 'approved'
+     )
+     SELECT
+       p.posts_count,
+       p.text_posts_count,
+       p.image_posts_count,
+       p.video_posts_count,
+       p.review_posts_count,
+       p.last_post_at,
+       s.stories_count,
+       s.active_stories_count,
+       s.archived_stories_count,
+       s.last_story_at
+     FROM post_stats p
+     CROSS JOIN story_stats s`,
+    [Number(customerUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function getCustomerSocialEngagement(customerUserId) {
+  const r = await q(
+    `SELECT
+       (
+         SELECT COUNT(*)::int
+         FROM social_post_like l
+         JOIN social_post p ON p.id = l.post_id
+         WHERE p.user_id = $1
+           AND p.is_deleted = FALSE
+           AND p.moderation_status = 'approved'
+       ) AS likes_received,
+       (
+         SELECT COUNT(*)::int
+         FROM social_post_comment c
+         JOIN social_post p ON p.id = c.post_id
+         WHERE p.user_id = $1
+           AND c.is_deleted = FALSE
+           AND c.moderation_status = 'approved'
+           AND p.is_deleted = FALSE
+           AND p.moderation_status = 'approved'
+       ) AS comments_received,
+       (
+         SELECT COUNT(*)::int
+         FROM social_post_like l
+         WHERE l.user_id = $1
+       ) AS likes_given,
+       (
+         SELECT COUNT(*)::int
+         FROM social_post_comment c
+         WHERE c.user_id = $1
+           AND c.is_deleted = FALSE
+           AND c.moderation_status = 'approved'
+       ) AS comments_written`,
+    [Number(customerUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function getCustomerTopReviewedMerchants(customerUserId, { limit = 8 } = {}) {
+  const r = await q(
+    `SELECT
+       p.merchant_id,
+       m.name AS merchant_name,
+       m.type AS merchant_type,
+       COUNT(*)::int AS reviews_count,
+       COALESCE(AVG(p.review_rating), 0) AS avg_rating,
+       MAX(p.created_at) AS last_review_at
+     FROM social_post p
+     JOIN merchant m ON m.id = p.merchant_id
+     WHERE p.user_id = $1
+       AND p.post_kind = 'merchant_review'
+       AND p.is_deleted = FALSE
+       AND p.moderation_status = 'approved'
+     GROUP BY p.merchant_id, m.name, m.type
+     ORDER BY reviews_count DESC, avg_rating DESC, last_review_at DESC
+     LIMIT $2`,
+    [Number(customerUserId), Number(limit)]
+  );
+  return r.rows;
+}
+
+export async function getCustomerRecentSocialTexts(customerUserId, { limit = 220 } = {}) {
+  const r = await q(
+    `SELECT caption, created_at
+     FROM (
+       SELECT caption, created_at
+       FROM social_post
+       WHERE user_id = $1
+         AND is_deleted = FALSE
+         AND moderation_status = 'approved'
+         AND COALESCE(TRIM(caption), '') <> ''
+       UNION ALL
+       SELECT caption, created_at
+       FROM social_story
+       WHERE user_id = $1
+         AND is_deleted = FALSE
+         AND moderation_status = 'approved'
+         AND COALESCE(TRIM(caption), '') <> ''
+     ) t
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [Number(customerUserId), Number(limit)]
+  );
+  return r.rows;
+}

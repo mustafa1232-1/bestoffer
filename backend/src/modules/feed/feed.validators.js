@@ -60,6 +60,24 @@ export function validateListStories(query = {}) {
   };
 }
 
+export function validateListStoryArchive(query = {}) {
+  const errors = [];
+  const limit = Number(query.limit ?? 40);
+  const beforeId = query.beforeId == null ? null : asPositiveInt(query.beforeId);
+
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) errors.push("limit");
+  if (query.beforeId != null && beforeId == null) errors.push("beforeId");
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      limit: Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 40)),
+      beforeId,
+    },
+  };
+}
+
 export function validateCreatePost(body = {}) {
   const errors = [];
   const caption = asTrimmed(body.caption);
@@ -105,6 +123,7 @@ export function validateCreatePost(body = {}) {
 export function validateCreateStory(body = {}) {
   const errors = [];
   const caption = asTrimmed(body.caption);
+  const storyStyle = _parseStoryStyle(body.storyStyle ?? body.story_style, errors);
 
   if (caption.length > 500) errors.push("caption");
 
@@ -113,6 +132,7 @@ export function validateCreateStory(body = {}) {
     errors,
     value: {
       caption,
+      storyStyle,
     },
   };
 }
@@ -142,6 +162,77 @@ export function validateStoryId(storyId) {
     errors: value == null ? ["storyId"] : [],
     value,
   };
+}
+
+function _parseStoryStyle(rawStyle, errors) {
+  if (rawStyle == null || rawStyle === "") return {};
+
+  let style = rawStyle;
+  if (typeof rawStyle === "string") {
+    try {
+      style = JSON.parse(rawStyle);
+    } catch (_) {
+      errors.push("storyStyle");
+      return {};
+    }
+  }
+
+  if (!style || typeof style !== "object" || Array.isArray(style)) {
+    errors.push("storyStyle");
+    return {};
+  }
+
+  const out = {};
+
+  const backgroundColor = asTrimmed(style.backgroundColor);
+  if (backgroundColor) {
+    if (/^#[0-9A-Fa-f]{6}$/.test(backgroundColor) || /^#[0-9A-Fa-f]{8}$/.test(backgroundColor)) {
+      out.backgroundColor = backgroundColor;
+    } else {
+      errors.push("storyStyle.backgroundColor");
+    }
+  }
+
+  const textColor = asTrimmed(style.textColor);
+  if (textColor) {
+    if (/^#[0-9A-Fa-f]{6}$/.test(textColor) || /^#[0-9A-Fa-f]{8}$/.test(textColor)) {
+      out.textColor = textColor;
+    } else {
+      errors.push("storyStyle.textColor");
+    }
+  }
+
+  const fontFamily = asTrimmed(style.fontFamily);
+  if (fontFamily) {
+    const allowed = new Set(["system", "serif", "monospace"]);
+    if (allowed.has(fontFamily)) out.fontFamily = fontFamily;
+    else errors.push("storyStyle.fontFamily");
+  }
+
+  const align = asTrimmed(style.textAlign).toLowerCase();
+  if (align) {
+    const allowed = new Set(["left", "center", "right"]);
+    if (allowed.has(align)) out.textAlign = align;
+    else errors.push("storyStyle.textAlign");
+  }
+
+  const weight = asTrimmed(style.fontWeight).toLowerCase();
+  if (weight) {
+    const allowed = new Set(["normal", "bold", "heavy"]);
+    if (allowed.has(weight)) out.fontWeight = weight;
+    else errors.push("storyStyle.fontWeight");
+  }
+
+  const fontScaleRaw = Number(style.fontScale);
+  if (style.fontScale != null && style.fontScale !== "") {
+    if (Number.isFinite(fontScaleRaw) && fontScaleRaw >= 0.8 && fontScaleRaw <= 2.4) {
+      out.fontScale = fontScaleRaw;
+    } else {
+      errors.push("storyStyle.fontScale");
+    }
+  }
+
+  return out;
 }
 
 export function validateCreateComment(body = {}) {

@@ -477,12 +477,100 @@ function extractSearchSignals(events = []) {
   };
 }
 
+const socialStopWords = new Set([
+  "في",
+  "من",
+  "على",
+  "الى",
+  "إلى",
+  "عن",
+  "مع",
+  "هذا",
+  "هذه",
+  "ذلك",
+  "تلك",
+  "شنو",
+  "اني",
+  "هاي",
+  "مو",
+  "ما",
+  "هو",
+  "هي",
+  "the",
+  "and",
+  "for",
+  "this",
+  "that",
+  "with",
+  "from",
+  "you",
+  "your",
+  "have",
+  "just",
+]);
+
+function normalizeSocialToken(raw) {
+  const token = String(raw || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06ff]/g, "")
+    .trim();
+  if (!token || token.length < 3) return null;
+  if (socialStopWords.has(token)) return null;
+  return token.length > 48 ? token.slice(0, 48) : token;
+}
+
+function extractSocialTextSignals(rows = []) {
+  const keywordCount = new Map();
+  const keywordLastAt = new Map();
+  const topicCount = new Map();
+  let totalTexts = 0;
+
+  for (const row of rows) {
+    const caption = trimOrNull(row.caption);
+    if (!caption) continue;
+    totalTexts += 1;
+
+    const createdAt = toIsoOrNull(row.created_at || row.createdAt);
+    const tokens = caption
+      .split(/[\s,.;:!?،؛()[\]{}"'\-_/\\|]+/g)
+      .map(normalizeSocialToken)
+      .filter(Boolean);
+
+    for (const token of tokens) {
+      mergeCount(keywordCount, token, 1);
+      if (createdAt) {
+        const curr = keywordLastAt.get(token);
+        if (!curr || curr < createdAt) keywordLastAt.set(token, createdAt);
+      }
+    }
+
+    const detectedTopic = detectDomainFromText(caption) || "general";
+    mergeCount(topicCount, detectedTopic, 1);
+  }
+
+  const topKeywords = [...keywordCount.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 18)
+    .map(([keyword, count]) => ({
+      keyword,
+      count,
+      lastAt: keywordLastAt.get(keyword) || null,
+    }));
+
+  return {
+    totalTexts,
+    topKeywords,
+    topTopics: mapEntries(topicCount, 8, "topic", "count"),
+  };
+}
+
 function buildAffinityProfile({
   topCategories = [],
   topActions = [],
   topMerchantTypes = [],
   orderCategories = [],
   searchSignals = null,
+  socialTextSignals = null,
   aiPreferenceJson = null,
 }) {
   const score = {
@@ -548,6 +636,14 @@ function buildAffinityProfile({
     const domain = trimOrNull(row.domain)?.toLowerCase();
     const c = toNumber(row.count, 0);
     if (domain && score[domain] !== undefined) score[domain] += c * 3;
+  }
+  for (const row of socialTextSignals?.topKeywords || []) {
+    boostByText(row.keyword, toNumber(row.count, 0) * 1.5);
+  }
+  for (const row of socialTextSignals?.topTopics || []) {
+    const topic = trimOrNull(row.topic)?.toLowerCase();
+    const c = toNumber(row.count, 0);
+    if (topic && score[topic] !== undefined) score[topic] += c * 3;
   }
 
   const homePrefs = aiPreferenceJson?.homePreferences;
@@ -671,6 +767,17 @@ function mapTopMerchants(rows = []) {
   }));
 }
 
+function mapReviewedMerchants(rows = []) {
+  return rows.map((row) => ({
+    merchantId: toNumber(row.merchant_id),
+    merchantName: row.merchant_name || null,
+    merchantType: row.merchant_type || null,
+    reviewsCount: toNumber(row.reviews_count),
+    avgRating: Number(toNumber(row.avg_rating).toFixed(2)),
+    lastReviewAt: toIsoOrNull(row.last_review_at),
+  }));
+}
+
 function mapTopProducts(rows = []) {
   return rows.map((row) => ({
     productId: toNumber(row.product_id),
@@ -718,49 +825,75 @@ export async function getCustomerFullInsight(customerUserId) {
   if (!base) {
     throw new AppError("CUSTOMER_NOT_FOUND", { status: 404 });
   }
+  const consentGranted = base.analytics_consent_granted === true;
+
+  const [orders, topMerchantTypes, topMerchantsRows, topProductsRows, topOrderCategoriesRows, favorites] =
+    await Promise.all([
+      repo.getCustomerOrderStats(customerUserId),
+      repo.getCustomerTopMerchantTypes(customerUserId),
+      repo.getCustomerTopMerchants(customerUserId),
+      repo.getCustomerTopProducts(customerUserId),
+      repo.getCustomerTopOrderCategories(customerUserId),
+      repo.getCustomerFavoritesSummary(customerUserId),
+    ]);
+
+  const behaviorBundle = consentGranted
+    ? await Promise.all([
+        repo.getCustomerTopActivityCategories(customerUserId),
+        repo.getCustomerTopEventActions(customerUserId),
+        repo.getCustomerLastCarSignals(customerUserId),
+        repo.getCustomerActivitySummary(customerUserId),
+        repo.getCustomerHourlyActivity(customerUserId),
+        repo.getCustomerEventsForAnalysis(customerUserId),
+        repo.getCustomerAiPreferenceProfile(customerUserId),
+        repo.getCustomerLastEvents(customerUserId, { limit: 60 }),
+        repo.getCustomerSocialSummary(customerUserId),
+        repo.getCustomerSocialEngagement(customerUserId),
+        repo.getCustomerTopReviewedMerchants(customerUserId, { limit: 10 }),
+        repo.getCustomerRecentSocialTexts(customerUserId, { limit: 260 }),
+      ])
+    : [[], [], [], null, [], [], null, [], null, null, [], []];
 
   const [
-    orders,
-    topMerchantTypes,
     topCategories,
     topActions,
     carSignalsRows,
-    topMerchantsRows,
-    topProductsRows,
-    topOrderCategoriesRows,
-    favorites,
     activitySummary,
     hourlyActivity,
     eventsForAnalysis,
     aiProfile,
     lastEvents,
-  ] = await Promise.all([
-    repo.getCustomerOrderStats(customerUserId),
-    repo.getCustomerTopMerchantTypes(customerUserId),
-    repo.getCustomerTopActivityCategories(customerUserId),
-    repo.getCustomerTopEventActions(customerUserId),
-    repo.getCustomerLastCarSignals(customerUserId),
-    repo.getCustomerTopMerchants(customerUserId),
-    repo.getCustomerTopProducts(customerUserId),
-    repo.getCustomerTopOrderCategories(customerUserId),
-    repo.getCustomerFavoritesSummary(customerUserId),
-    repo.getCustomerActivitySummary(customerUserId),
-    repo.getCustomerHourlyActivity(customerUserId),
-    repo.getCustomerEventsForAnalysis(customerUserId),
-    repo.getCustomerAiPreferenceProfile(customerUserId),
-    repo.getCustomerLastEvents(customerUserId, { limit: 60 }),
-  ]);
+    socialSummaryRaw,
+    socialEngagementRaw,
+    reviewedMerchantsRows,
+    socialTextRows,
+  ] = behaviorBundle;
 
-  const searchSignals = extractSearchSignals(eventsForAnalysis);
+  const safeTopCategories = consentGranted ? topCategories : [];
+  const safeTopActions = consentGranted ? topActions : [];
+  const safeEventsForAnalysis = consentGranted ? eventsForAnalysis : [];
+  const safeAiProfile = consentGranted ? aiProfile : null;
+  const safeLastEvents = consentGranted ? lastEvents : [];
+  const safeCarSignalsRows = consentGranted ? carSignalsRows : [];
+  const safeHourlyActivity = consentGranted ? hourlyActivity : [];
+  const safeActivitySummary = consentGranted ? activitySummary : null;
+  const safeSocialSummaryRaw = consentGranted ? socialSummaryRaw : null;
+  const safeSocialEngagementRaw = consentGranted ? socialEngagementRaw : null;
+  const safeReviewedMerchantsRows = consentGranted ? reviewedMerchantsRows : [];
+  const safeSocialTextRows = consentGranted ? socialTextRows : [];
+
+  const searchSignals = extractSearchSignals(safeEventsForAnalysis);
+  const socialTextSignals = extractSocialTextSignals(safeSocialTextRows);
   const affinity = buildAffinityProfile({
-    topCategories,
-    topActions,
+    topCategories: safeTopCategories,
+    topActions: safeTopActions,
     topMerchantTypes,
     orderCategories: topOrderCategoriesRows,
     searchSignals,
-    aiPreferenceJson: aiProfile?.preference_json || null,
+    socialTextSignals,
+    aiPreferenceJson: safeAiProfile?.preference_json || null,
   });
-  const activityPattern = buildActivityPattern(activitySummary, hourlyActivity);
+  const activityPattern = buildActivityPattern(safeActivitySummary, safeHourlyActivity);
   const favoritesSummary = mapFavoriteSummary(favorites);
   const persona = buildPersonaSummary({
     orders,
@@ -769,6 +902,34 @@ export async function getCustomerFullInsight(customerUserId) {
     searchSignals,
     favoritesSummary,
   });
+  const socialSummary = {
+    postsCount: toNumber(safeSocialSummaryRaw?.posts_count),
+    textPostsCount: toNumber(safeSocialSummaryRaw?.text_posts_count),
+    imagePostsCount: toNumber(safeSocialSummaryRaw?.image_posts_count),
+    videoPostsCount: toNumber(safeSocialSummaryRaw?.video_posts_count),
+    reviewPostsCount: toNumber(safeSocialSummaryRaw?.review_posts_count),
+    storiesCount: toNumber(safeSocialSummaryRaw?.stories_count),
+    activeStoriesCount: toNumber(safeSocialSummaryRaw?.active_stories_count),
+    archivedStoriesCount: toNumber(safeSocialSummaryRaw?.archived_stories_count),
+    lastPostAt: toIsoOrNull(safeSocialSummaryRaw?.last_post_at),
+    lastStoryAt: toIsoOrNull(safeSocialSummaryRaw?.last_story_at),
+  };
+  const socialEngagement = {
+    likesReceived: toNumber(safeSocialEngagementRaw?.likes_received),
+    commentsReceived: toNumber(safeSocialEngagementRaw?.comments_received),
+    likesGiven: toNumber(safeSocialEngagementRaw?.likes_given),
+    commentsWritten: toNumber(safeSocialEngagementRaw?.comments_written),
+  };
+  const reviewedMerchants = mapReviewedMerchants(safeReviewedMerchantsRows);
+  const socialInsights = {
+    summary: socialSummary,
+    engagement: socialEngagement,
+    keywords: socialTextSignals,
+    reviewedMerchants,
+  };
+  const consentNotice = consentGranted
+    ? null
+    : "هذا المستخدم لم يوافق على التحليلات السلوكية؛ تم إخفاء تحليل النشاط والمنشورات.";
 
   return {
     customer: {
@@ -785,7 +946,8 @@ export async function getCustomerFullInsight(customerUserId) {
         version: base.analytics_consent_version || null,
         grantedAt: base.analytics_consent_granted_at || null,
       },
-      profileLastUpdatedAt: toCompactDateTime(aiProfile?.updated_at),
+      profileLastUpdatedAt: toCompactDateTime(safeAiProfile?.updated_at),
+      consentNotice,
     },
     orderProfile: {
       ordersCount: toNumber(orders?.orders_count || 0),
@@ -805,8 +967,8 @@ export async function getCustomerFullInsight(customerUserId) {
       topOrderCategories: mapOrderCategories(topOrderCategoriesRows),
     },
     behaviorProfile: {
-      topCategories: mapTopRows(topCategories, "category", "events_count"),
-      topActions: (topActions || []).map((row) => ({
+      topCategories: mapTopRows(safeTopCategories, "category", "events_count"),
+      topActions: (safeTopActions || []).map((row) => ({
         eventName: row.event_name || null,
         category: row.category || null,
         eventsCount: toNumber(row.events_count),
@@ -817,16 +979,19 @@ export async function getCustomerFullInsight(customerUserId) {
       activityPattern,
       favoritesSummary,
       persona,
+      socialInsights,
       aiProfile: {
-        hasProfile: !!aiProfile,
-        lastSummary: aiProfile?.last_summary || null,
+        hasProfile: !!safeAiProfile,
+        lastSummary: safeAiProfile?.last_summary || null,
         homePreferences:
-          aiProfile?.preference_json && typeof aiProfile.preference_json === "object"
-            ? aiProfile.preference_json.homePreferences || null
+          safeAiProfile?.preference_json &&
+          typeof safeAiProfile.preference_json === "object"
+            ? safeAiProfile.preference_json.homePreferences || null
             : null,
       },
-      carSignals: extractTopCarSignals(carSignalsRows),
-      lastEvents: (lastEvents || []).map((row) => ({
+      carSignals: extractTopCarSignals(safeCarSignalsRows),
+      consentRestricted: !consentGranted,
+      lastEvents: (safeLastEvents || []).map((row) => ({
         id: toNumber(row.id),
         eventName: row.event_name || null,
         category: row.category || null,

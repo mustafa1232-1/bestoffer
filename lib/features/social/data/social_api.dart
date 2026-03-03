@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'dart:convert';
 
 import '../../../core/files/local_media_file.dart';
 
@@ -34,6 +35,19 @@ class SocialApi {
     final response = await dio.get(
       '/api/feed/stories',
       queryParameters: {'limitUsers': limitUsers, 'maxPerUser': maxPerUser},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> listMyStoryArchive({
+    int limit = 40,
+    int? beforeId,
+  }) async {
+    final query = <String, dynamic>{'limit': limit, 'beforeId': beforeId}
+      ..removeWhere((_, value) => value == null);
+    final response = await dio.get(
+      '/api/feed/stories/archive/me',
+      queryParameters: query,
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -102,8 +116,12 @@ class SocialApi {
   Future<Map<String, dynamic>> createStory({
     required String caption,
     LocalMediaFile? mediaFile,
+    Map<String, dynamic>? storyStyle,
   }) async {
-    final payload = <String, dynamic>{'caption': caption};
+    final payload = <String, dynamic>{
+      'caption': caption,
+      'storyStyle': storyStyle,
+    }..removeWhere((_, value) => value == null);
 
     final response = mediaFile == null
         ? await dio.post('/api/feed/stories', data: payload)
@@ -111,6 +129,7 @@ class SocialApi {
             '/api/feed/stories',
             data: FormData.fromMap({
               ...payload,
+              if (storyStyle != null) 'storyStyle': jsonEncode(storyStyle),
               'mediaFile': await mediaFile.toMultipartFile(),
             }),
           );

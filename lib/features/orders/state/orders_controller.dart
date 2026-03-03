@@ -86,25 +86,25 @@ class OrdersController extends StateNotifier<OrdersState> {
           skipped += 1;
         }
       }
-      state = state.copyWith(
+      _setStateSafely(state.copyWith(
         loading: silent ? state.loading : false,
         orders: orders,
         error: skipped > 0
             ? 'تم تجاهل بعض الطلبات بسبب بيانات غير مكتملة'
             : null,
-      );
+      ));
     } on DioException catch (e) {
       if (_disposed) return;
-      state = state.copyWith(
+      _setStateSafely(state.copyWith(
         loading: silent ? state.loading : false,
         error: _mapError(e),
-      );
+      ));
     } catch (_) {
       if (_disposed) return;
-      state = state.copyWith(
+      _setStateSafely(state.copyWith(
         loading: silent ? state.loading : false,
         error: 'فشل تحميل الطلبات',
-      );
+      ));
     }
   }
 
@@ -132,17 +132,17 @@ class OrdersController extends StateNotifier<OrdersState> {
     final addressState = ref.read(deliveryAddressControllerProvider);
     final selectedAddress = addressState.selectedAddress;
     if (cart.merchantId == null || cart.items.isEmpty) {
-      state = state.copyWith(error: 'السلة فارغة');
+      _setStateSafely(state.copyWith(error: 'السلة فارغة'));
       return false;
     }
     if (selectedAddress == null) {
-      state = state.copyWith(
+      _setStateSafely(state.copyWith(
         error: 'الرجاء اختيار عنوان توصيل قبل إتمام الطلب',
-      );
+      ));
       return false;
     }
 
-    state = state.copyWith(placingOrder: true, error: null);
+    _setStateSafely(state.copyWith(placingOrder: true, error: null));
 
     try {
       final cleanedNote = note?.trim();
@@ -160,28 +160,28 @@ class OrdersController extends StateNotifier<OrdersState> {
 
       ref.read(cartControllerProvider.notifier).clear();
       await loadMyOrders();
-      state = state.copyWith(placingOrder: false);
+      _setStateSafely(state.copyWith(placingOrder: false));
       return true;
     } on DioException catch (e) {
-      state = state.copyWith(placingOrder: false, error: _mapError(e));
+      _setStateSafely(state.copyWith(placingOrder: false, error: _mapError(e)));
       return false;
     } catch (_) {
-      state = state.copyWith(placingOrder: false, error: 'فشل إرسال الطلب');
+      _setStateSafely(state.copyWith(placingOrder: false, error: 'فشل إرسال الطلب'));
       return false;
     }
   }
 
   Future<bool> confirmDelivered(int orderId) async {
-    state = state.copyWith(error: null);
+    _setStateSafely(state.copyWith(error: null));
     try {
       await ref.read(ordersApiProvider).confirmDelivered(orderId);
       await loadMyOrders();
       return true;
     } on DioException catch (e) {
-      state = state.copyWith(error: _mapError(e));
+      _setStateSafely(state.copyWith(error: _mapError(e)));
       return false;
     } catch (_) {
-      state = state.copyWith(error: 'فشل تأكيد الاستلام');
+      _setStateSafely(state.copyWith(error: 'فشل تأكيد الاستلام'));
       return false;
     }
   }
@@ -191,16 +191,16 @@ class OrdersController extends StateNotifier<OrdersState> {
     required int rating,
     String? review,
   }) async {
-    state = state.copyWith(error: null);
+    _setStateSafely(state.copyWith(error: null));
     try {
       await ref
           .read(ordersApiProvider)
           .rateDelivery(orderId: orderId, rating: rating, review: review);
       await loadMyOrders();
     } on DioException catch (e) {
-      state = state.copyWith(error: _mapError(e));
+      _setStateSafely(state.copyWith(error: _mapError(e)));
     } catch (_) {
-      state = state.copyWith(error: 'فشل إرسال تقييم الدلفري');
+      _setStateSafely(state.copyWith(error: 'فشل إرسال تقييم الدلفري'));
     }
   }
 
@@ -209,43 +209,43 @@ class OrdersController extends StateNotifier<OrdersState> {
     required int rating,
     String? review,
   }) async {
-    state = state.copyWith(error: null);
+    _setStateSafely(state.copyWith(error: null));
     try {
       await ref
           .read(ordersApiProvider)
           .rateMerchant(orderId: orderId, rating: rating, review: review);
       await loadMyOrders();
     } on DioException catch (e) {
-      state = state.copyWith(error: _mapError(e));
+      _setStateSafely(state.copyWith(error: _mapError(e)));
     } catch (_) {
-      state = state.copyWith(error: 'فشل إرسال تقييم المتجر');
+      _setStateSafely(state.copyWith(error: 'فشل إرسال تقييم المتجر'));
     }
   }
 
   Future<void> reorder(int orderId, {String? note}) async {
-    state = state.copyWith(placingOrder: true, error: null);
+    _setStateSafely(state.copyWith(placingOrder: true, error: null));
     try {
       await ref.read(ordersApiProvider).reorder(orderId: orderId, note: note);
       await loadMyOrders();
-      state = state.copyWith(placingOrder: false);
+      _setStateSafely(state.copyWith(placingOrder: false));
     } on DioException catch (e) {
-      state = state.copyWith(placingOrder: false, error: _mapError(e));
+      _setStateSafely(state.copyWith(placingOrder: false, error: _mapError(e)));
     } catch (_) {
-      state = state.copyWith(placingOrder: false, error: 'فشل إعادة الطلب');
+      _setStateSafely(state.copyWith(placingOrder: false, error: 'فشل إعادة الطلب'));
     }
   }
 
   Future<void> loadFavoriteProductIds() async {
     try {
       final ids = await ref.read(ordersApiProvider).listFavoriteProductIds();
-      state = state.copyWith(favoriteProductIds: ids.toSet());
+      _setStateSafely(state.copyWith(favoriteProductIds: ids.toSet()));
     } catch (_) {
       // Ignore silently to avoid interrupting ordering flow.
     }
   }
 
   Future<void> toggleFavoriteProduct(int productId, bool nextFavorite) async {
-    state = state.copyWith(error: null);
+    _setStateSafely(state.copyWith(error: null));
     final before = state.favoriteProductIds;
     final optimistic = <int>{...before};
     if (nextFavorite) {
@@ -253,7 +253,7 @@ class OrdersController extends StateNotifier<OrdersState> {
     } else {
       optimistic.remove(productId);
     }
-    state = state.copyWith(favoriteProductIds: optimistic);
+    _setStateSafely(state.copyWith(favoriteProductIds: optimistic));
 
     try {
       if (nextFavorite) {
@@ -262,12 +262,12 @@ class OrdersController extends StateNotifier<OrdersState> {
         await ref.read(ordersApiProvider).removeFavoriteProduct(productId);
       }
     } on DioException catch (e) {
-      state = state.copyWith(favoriteProductIds: before, error: _mapError(e));
+      _setStateSafely(state.copyWith(favoriteProductIds: before, error: _mapError(e)));
     } catch (_) {
-      state = state.copyWith(
+      _setStateSafely(state.copyWith(
         favoriteProductIds: before,
         error: 'فشل تحديث المفضلة',
-      );
+      ));
     }
   }
 

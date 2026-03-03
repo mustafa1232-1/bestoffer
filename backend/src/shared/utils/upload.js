@@ -10,8 +10,6 @@ const allowedMimeTypes = new Set([
   "image/png",
   "image/webp",
   "image/gif",
-  "image/heic",
-  "image/heif",
 ]);
 
 const allowedMediaMimeTypes = new Set([

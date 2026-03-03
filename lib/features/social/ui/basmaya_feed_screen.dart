@@ -480,13 +480,26 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
                         ],
                         if (isImage) ...[
                           const SizedBox(height: 10),
-                          ClipRRect(
+                          InkWell(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.network(
-                              post.mediaUrl!,
-                              width: double.infinity,
-                              height: 210,
-                              fit: BoxFit.cover,
+                            onTap: () {
+                              if (post.isLiked) return;
+                              ref
+                                  .read(socialControllerProvider.notifier)
+                                  .toggleLike(post);
+                            },
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.network(
+                                post.mediaUrl!,
+                                width: double.infinity,
+                                height: 210,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    _MediaLoadFailed(
+                                      message: 'تعذر تحميل الصورة',
+                                    ),
+                              ),
                             ),
                           ),
                         ],
@@ -1033,7 +1046,30 @@ class _CreateStorySheet extends ConsumerStatefulWidget {
 
 class _CreateStorySheetState extends ConsumerState<_CreateStorySheet> {
   final TextEditingController _captionCtrl = TextEditingController();
+  static const List<Color> _storyBgPalette = <Color>[
+    Color(0xFF1E3A8A),
+    Color(0xFF0F766E),
+    Color(0xFF7C2D12),
+    Color(0xFF5B21B6),
+    Color(0xFF0F172A),
+    Color(0xFF14532D),
+  ];
+  static const List<Color> _storyTextPalette = <Color>[
+    Colors.white,
+    Color(0xFFFFF7ED),
+    Color(0xFFE0F2FE),
+    Color(0xFFFFF3C4),
+    Color(0xFFF8FAFC),
+    Color(0xFF111827),
+  ];
+
   LocalMediaFile? _media;
+  int _backgroundIndex = 0;
+  int _textColorIndex = 0;
+  String _fontFamily = 'system';
+  String _fontWeight = 'bold';
+  String _textAlign = 'center';
+  double _fontScale = 1.2;
   bool _publishing = false;
   String? _error;
 
@@ -1063,7 +1099,11 @@ class _CreateStorySheetState extends ConsumerState<_CreateStorySheet> {
 
     await ref
         .read(socialControllerProvider.notifier)
-        .createStory(caption: caption, mediaFile: _media);
+        .createStory(
+          caption: caption,
+          mediaFile: _media,
+          storyStyle: _currentStoryStyle(),
+        );
 
     if (!mounted) return;
     final err = ref.read(socialControllerProvider).error;
@@ -1096,19 +1136,173 @@ class _CreateStorySheetState extends ConsumerState<_CreateStorySheet> {
                 style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
               ),
               const SizedBox(height: 10),
-              TextField(
-                controller: _captionCtrl,
-                textDirection: TextDirection.rtl,
-                minLines: 2,
-                maxLines: 5,
-                decoration: InputDecoration(
-                  labelText: 'اكتب شي بسيط عن يومك...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+              Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(
+                  minHeight: 200,
+                  maxHeight: 260,
+                ),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _storyBgPalette[_backgroundIndex],
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Center(
+                  child: TextField(
+                    controller: _captionCtrl,
+                    minLines: 2,
+                    maxLines: 6,
+                    textDirection: TextDirection.rtl,
+                    textAlign: _toTextAlign(_textAlign),
+                    style: _storyTextStyle(_storyTextPalette[_textColorIndex]),
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'اكتب ستوريك هنا...',
+                      hintStyle: _storyTextStyle(
+                        _storyTextPalette[_textColorIndex].withValues(
+                          alpha: 0.55,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
               const SizedBox(height: 10),
+              _StoryStyleSection(
+                title: 'الخلفية',
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: List<Widget>.generate(_storyBgPalette.length, (
+                    index,
+                  ) {
+                    final selected = _backgroundIndex == index;
+                    return _ColorChip(
+                      color: _storyBgPalette[index],
+                      selected: selected,
+                      onTap: () => setState(() => _backgroundIndex = index),
+                    );
+                  }),
+                ),
+              ),
+              const SizedBox(height: 8),
+              _StoryStyleSection(
+                title: 'لون الخط',
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: List<Widget>.generate(
+                    _storyTextPalette.length,
+                    (index) => _ColorChip(
+                      color: _storyTextPalette[index],
+                      selected: _textColorIndex == index,
+                      onTap: () => setState(() => _textColorIndex = index),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              _StoryStyleSection(
+                title: 'نوع الخط',
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _ModeChip(
+                      selected: _fontFamily == 'system',
+                      label: 'عصري',
+                      icon: Icons.text_fields_rounded,
+                      onTap: () => setState(() => _fontFamily = 'system'),
+                    ),
+                    _ModeChip(
+                      selected: _fontFamily == 'serif',
+                      label: 'كلاسيكي',
+                      icon: Icons.format_shapes_rounded,
+                      onTap: () => setState(() => _fontFamily = 'serif'),
+                    ),
+                    _ModeChip(
+                      selected: _fontFamily == 'monospace',
+                      label: 'مونو',
+                      icon: Icons.code_rounded,
+                      onTap: () => setState(() => _fontFamily = 'monospace'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              _StoryStyleSection(
+                title: 'سماكة الخط',
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _ModeChip(
+                      selected: _fontWeight == 'normal',
+                      label: 'عادي',
+                      icon: Icons.format_bold_rounded,
+                      onTap: () => setState(() => _fontWeight = 'normal'),
+                    ),
+                    _ModeChip(
+                      selected: _fontWeight == 'bold',
+                      label: 'عريض',
+                      icon: Icons.format_bold_rounded,
+                      onTap: () => setState(() => _fontWeight = 'bold'),
+                    ),
+                    _ModeChip(
+                      selected: _fontWeight == 'heavy',
+                      label: 'ثقيل',
+                      icon: Icons.format_bold_rounded,
+                      onTap: () => setState(() => _fontWeight = 'heavy'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              _StoryStyleSection(
+                title: 'المحاذاة',
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _ModeChip(
+                      selected: _textAlign == 'right',
+                      label: 'يمين',
+                      icon: Icons.format_align_right_rounded,
+                      onTap: () => setState(() => _textAlign = 'right'),
+                    ),
+                    _ModeChip(
+                      selected: _textAlign == 'center',
+                      label: 'وسط',
+                      icon: Icons.format_align_center_rounded,
+                      onTap: () => setState(() => _textAlign = 'center'),
+                    ),
+                    _ModeChip(
+                      selected: _textAlign == 'left',
+                      label: 'يسار',
+                      icon: Icons.format_align_left_rounded,
+                      onTap: () => setState(() => _textAlign = 'left'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              _StoryStyleSection(
+                title: 'حجم الخط',
+                child: Slider(
+                  value: _fontScale,
+                  min: 0.8,
+                  max: 2.2,
+                  divisions: 14,
+                  label: _fontScale.toStringAsFixed(1),
+                  onChanged: (value) => setState(() => _fontScale = value),
+                ),
+              ),
+              const SizedBox(height: 4),
               Row(
                 children: [
                   if (_media != null) Expanded(child: Text(_media!.name)),
@@ -1148,6 +1342,56 @@ class _CreateStorySheetState extends ConsumerState<_CreateStorySheet> {
       ),
     );
   }
+
+  Map<String, dynamic> _currentStoryStyle() => <String, dynamic>{
+    'backgroundColor': _toHex(_storyBgPalette[_backgroundIndex]),
+    'textColor': _toHex(_storyTextPalette[_textColorIndex]),
+    'fontFamily': _fontFamily,
+    'fontWeight': _fontWeight,
+    'textAlign': _textAlign,
+    'fontScale': _fontScale,
+  };
+
+  TextAlign _toTextAlign(String value) {
+    switch (value) {
+      case 'left':
+        return TextAlign.left;
+      case 'right':
+        return TextAlign.right;
+      default:
+        return TextAlign.center;
+    }
+  }
+
+  TextStyle _storyTextStyle(Color color) {
+    FontWeight weight;
+    switch (_fontWeight) {
+      case 'normal':
+        weight = FontWeight.w500;
+        break;
+      case 'heavy':
+        weight = FontWeight.w900;
+        break;
+      default:
+        weight = FontWeight.w700;
+        break;
+    }
+
+    String? family;
+    if (_fontFamily == 'serif') {
+      family = 'serif';
+    } else if (_fontFamily == 'monospace') {
+      family = 'monospace';
+    }
+
+    return TextStyle(
+      color: color,
+      fontWeight: weight,
+      fontFamily: family,
+      fontSize: 18 * _fontScale,
+      height: 1.35,
+    );
+  }
 }
 
 class _StoryViewerSheet extends StatefulWidget {
@@ -1165,8 +1409,11 @@ class _StoryViewerSheet extends StatefulWidget {
   State<_StoryViewerSheet> createState() => _StoryViewerSheetState();
 }
 
-class _StoryViewerSheetState extends State<_StoryViewerSheet> {
+class _StoryViewerSheetState extends State<_StoryViewerSheet>
+    with TickerProviderStateMixin {
+  static const Duration _storyDuration = Duration(seconds: 30);
   late final PageController _pageController;
+  late final AnimationController _progress;
   late int _currentIndex;
   final Set<int> _viewedIds = <int>{};
 
@@ -1183,7 +1430,24 @@ class _StoryViewerSheetState extends State<_StoryViewerSheet> {
       }
     }
     _pageController = PageController(initialPage: _currentIndex);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _markCurrentViewed());
+    _progress = AnimationController(vsync: this, duration: _storyDuration)
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          _goNext();
+        }
+      });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _markCurrentViewed();
+      _restartProgress();
+    });
+  }
+
+  void _restartProgress() {
+    if (!mounted) return;
+    _progress
+      ..stop()
+      ..value = 0
+      ..forward();
   }
 
   void _markCurrentViewed() {
@@ -1196,8 +1460,40 @@ class _StoryViewerSheetState extends State<_StoryViewerSheet> {
     widget.onStoryViewed(story.id);
   }
 
+  Future<void> _goNext() async {
+    final stories = widget.group.stories;
+    _progress.stop();
+    if (_currentIndex >= stories.length - 1) {
+      if (mounted) Navigator.of(context).maybePop();
+      return;
+    }
+    await _pageController.nextPage(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Future<void> _goPrevious() async {
+    if (_currentIndex <= 0) return;
+    _progress.stop();
+    await _pageController.previousPage(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  String _timeAgo(DateTime? date) {
+    if (date == null) return 'الآن';
+    final diff = DateTime.now().difference(date.toLocal());
+    if (diff.inSeconds < 60) return 'منذ ثوانٍ';
+    if (diff.inMinutes < 60) return 'منذ ${diff.inMinutes} دقيقة';
+    if (diff.inHours < 24) return 'منذ ${diff.inHours} ساعة';
+    return 'منذ ${diff.inDays} يوم';
+  }
+
   @override
   void dispose() {
+    _progress.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -1213,110 +1509,229 @@ class _StoryViewerSheetState extends State<_StoryViewerSheet> {
     return SafeArea(
       child: SizedBox(
         height: height,
-        child: Column(
-          children: [
-            ListTile(
-              title: Text(
-                widget.group.author.fullName,
-                textDirection: TextDirection.rtl,
-                textAlign: TextAlign.end,
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-              subtitle: Text(
-                'ستوري خلال 24 ساعة',
-                textDirection: TextDirection.rtl,
-                textAlign: TextAlign.end,
-              ),
-              leading: IconButton(
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.close_rounded),
-              ),
-            ),
-            Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                itemCount: stories.length,
-                reverse: true,
-                onPageChanged: (index) {
-                  setState(() => _currentIndex = index);
-                  _markCurrentViewed();
-                },
-                itemBuilder: (context, index) {
-                  final story = stories[index];
-                  final isImage =
-                      (story.mediaKind == 'image') &&
-                      (story.mediaUrl ?? '').trim().isNotEmpty;
-                  final isVideo =
-                      (story.mediaKind == 'video') &&
-                      (story.mediaUrl ?? '').trim().isNotEmpty;
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
-                    child: Card(
-                      clipBehavior: Clip.antiAlias,
-                      child: Stack(
-                        fit: StackFit.expand,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
+          child: AnimatedBuilder(
+            animation: _progress,
+            builder: (context, _) {
+              return Card(
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    PageView.builder(
+                      controller: _pageController,
+                      itemCount: stories.length,
+                      onPageChanged: (index) {
+                        setState(() => _currentIndex = index);
+                        _markCurrentViewed();
+                        _restartProgress();
+                      },
+                      itemBuilder: (context, index) {
+                        final story = stories[index];
+                        final isImage =
+                            (story.mediaKind == 'image') &&
+                            (story.mediaUrl ?? '').trim().isNotEmpty;
+                        final isVideo =
+                            (story.mediaKind == 'video') &&
+                            (story.mediaUrl ?? '').trim().isNotEmpty;
+
+                        return LayoutBuilder(
+                          builder: (context, constraints) {
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onLongPressStart: (_) => _progress.stop(),
+                              onLongPressEnd: (_) {
+                                if (!_progress.isAnimating) {
+                                  _progress.forward();
+                                }
+                              },
+                              onTapUp: (details) {
+                                final width = constraints.maxWidth;
+                                final dx = details.localPosition.dx;
+                                if (dx <= width * 0.35) {
+                                  _goNext();
+                                  return;
+                                }
+                                if (dx >= width * 0.65) {
+                                  _goPrevious();
+                                }
+                              },
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  if (isImage)
+                                    Image.network(
+                                      story.mediaUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (context, error, stackTrace) =>
+                                              _MediaLoadFailed(
+                                                message:
+                                                    'تعذر تحميل صورة الستوري',
+                                              ),
+                                    )
+                                  else
+                                    _StoryTextCanvas(story: story),
+                                  if (isVideo)
+                                    Center(
+                                      child: FilledButton.icon(
+                                        onPressed: () async {
+                                          final uri = Uri.tryParse(
+                                            story.mediaUrl!,
+                                          );
+                                          if (uri == null) return;
+                                          await launchUrl(
+                                            uri,
+                                            mode:
+                                                LaunchMode.externalApplication,
+                                          );
+                                        },
+                                        icon: const Icon(
+                                          Icons.play_arrow_rounded,
+                                        ),
+                                        label: const Text('تشغيل الفيديو'),
+                                      ),
+                                    ),
+                                  if (isImage || isVideo)
+                                    Positioned(
+                                      right: 12,
+                                      left: 12,
+                                      bottom: 14,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.38,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          story.caption.trim().isEmpty
+                                              ? '—'
+                                              : story.caption.trim(),
+                                          textDirection: TextDirection.rtl,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w700,
+                                            height: 1.35,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      right: 10,
+                      child: Column(
                         children: [
-                          if (isImage)
-                            Image.network(story.mediaUrl!, fit: BoxFit.cover)
-                          else
-                            Container(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Color(0xFF0F172A),
-                                    Color(0xFF1E3A8A),
+                          Row(
+                            children: List.generate(stories.length, (index) {
+                              final value = index < _currentIndex
+                                  ? 1.0
+                                  : index == _currentIndex
+                                  ? _progress.value
+                                  : 0.0;
+                              return Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 2,
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(999),
+                                    child: LinearProgressIndicator(
+                                      minHeight: 3,
+                                      value: value,
+                                      backgroundColor: Colors.white.withValues(
+                                        alpha: 0.25,
+                                      ),
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            textDirection: TextDirection.rtl,
+                            children: [
+                              CircleAvatar(
+                                radius: 16,
+                                backgroundImage:
+                                    (widget.group.author.imageUrl ?? '')
+                                        .trim()
+                                        .isNotEmpty
+                                    ? NetworkImage(
+                                        widget.group.author.imageUrl!,
+                                      )
+                                    : null,
+                                child:
+                                    (widget.group.author.imageUrl ?? '')
+                                        .trim()
+                                        .isEmpty
+                                    ? const Icon(
+                                        Icons.person_outline_rounded,
+                                        size: 18,
+                                      )
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'نشر بواسطة ${widget.group.author.fullName}',
+                                      textDirection: TextDirection.rtl,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    Text(
+                                      _timeAgo(
+                                        stories[_currentIndex].createdAt,
+                                      ),
+                                      textDirection: TextDirection.rtl,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.9,
+                                        ),
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
+                                    ),
                                   ],
-                                  begin: Alignment.topRight,
-                                  end: Alignment.bottomLeft,
                                 ),
                               ),
-                            ),
-                          if (isVideo)
-                            Center(
-                              child: FilledButton.icon(
-                                onPressed: () async {
-                                  final uri = Uri.tryParse(story.mediaUrl!);
-                                  if (uri == null) return;
-                                  await launchUrl(
-                                    uri,
-                                    mode: LaunchMode.externalApplication,
-                                  );
-                                },
-                                icon: const Icon(Icons.play_arrow_rounded),
-                                label: const Text('تشغيل الفيديو'),
-                              ),
-                            ),
-                          Positioned(
-                            right: 12,
-                            left: 12,
-                            bottom: 14,
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.38),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                story.caption.trim().isEmpty
-                                    ? '—'
-                                    : story.caption.trim(),
-                                textDirection: TextDirection.rtl,
-                                style: const TextStyle(
+                              IconButton(
+                                onPressed: () =>
+                                    Navigator.of(context).maybePop(),
+                                icon: const Icon(
+                                  Icons.close_rounded,
                                   color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.35,
                                 ),
                               ),
-                            ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                  );
-                },
-              ),
-            ),
-          ],
+                  ],
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -1470,6 +1885,197 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
       ),
     );
   }
+}
+
+class _StoryStyleSection extends StatelessWidget {
+  final String title;
+  final Widget child;
+
+  const _StoryStyleSection({required this.title, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          title,
+          textDirection: TextDirection.rtl,
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+        ),
+        const SizedBox(height: 6),
+        child,
+      ],
+    );
+  }
+}
+
+class _ColorChip extends StatelessWidget {
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ColorChip({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: selected
+                ? Colors.white
+                : Colors.white.withValues(alpha: 0.35),
+            width: selected ? 2.4 : 1.2,
+          ),
+          boxShadow: selected
+              ? const [
+                  BoxShadow(
+                    color: Color(0x6622D3EE),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : null,
+        ),
+      ),
+    );
+  }
+}
+
+class _MediaLoadFailed extends StatelessWidget {
+  final String message;
+
+  const _MediaLoadFailed({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.center,
+      color: const Color(0xFF102A4A),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.broken_image_outlined,
+              size: 28,
+              color: Colors.white70,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textDirection: TextDirection.rtl,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StoryTextCanvas extends StatelessWidget {
+  final SocialStory story;
+
+  const _StoryTextCanvas({required this.story});
+
+  @override
+  Widget build(BuildContext context) {
+    final style = story.style;
+    final bg = _hexToColor(style.backgroundColor, const Color(0xFF1E3A8A));
+    final fg = _hexToColor(style.textColor, Colors.white);
+    final align = _textAlignFromString(style.textAlign);
+    final weight = _fontWeightFromString(style.fontWeight);
+    final family = _fontFamilyFromString(style.fontFamily);
+    final scale = style.fontScale.clamp(0.8, 2.4);
+    final text = story.caption.trim();
+
+    return Container(
+      color: bg,
+      padding: const EdgeInsets.all(18),
+      alignment: Alignment.center,
+      child: Text(
+        text.isEmpty ? '—' : text,
+        textAlign: align,
+        textDirection: TextDirection.rtl,
+        style: TextStyle(
+          color: fg,
+          fontWeight: weight,
+          fontFamily: family,
+          fontSize: 18 * scale,
+          height: 1.38,
+        ),
+      ),
+    );
+  }
+}
+
+TextAlign _textAlignFromString(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'left':
+      return TextAlign.left;
+    case 'right':
+      return TextAlign.right;
+    default:
+      return TextAlign.center;
+  }
+}
+
+FontWeight _fontWeightFromString(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'normal':
+      return FontWeight.w500;
+    case 'heavy':
+      return FontWeight.w900;
+    default:
+      return FontWeight.w700;
+  }
+}
+
+String? _fontFamilyFromString(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'serif':
+      return 'serif';
+    case 'monospace':
+      return 'monospace';
+    default:
+      return null;
+  }
+}
+
+Color _hexToColor(String value, Color fallback) {
+  final hex = value.replaceAll('#', '').trim();
+  if (hex.length == 6) {
+    final parsed = int.tryParse('FF$hex', radix: 16);
+    if (parsed != null) return Color(parsed);
+  }
+  if (hex.length == 8) {
+    final parsed = int.tryParse(hex, radix: 16);
+    if (parsed != null) return Color(parsed);
+  }
+  return fallback;
+}
+
+String _toHex(Color color) {
+  final value = color.toARGB32();
+  final hex = value.toRadixString(16).padLeft(8, '0').toUpperCase();
+  return '#$hex';
 }
 
 class _FeedFilter {
