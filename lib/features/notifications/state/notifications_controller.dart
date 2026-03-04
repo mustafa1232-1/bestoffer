@@ -167,7 +167,7 @@ class NotificationsController extends StateNotifier<NotificationsState> {
 
     unawaited(refreshUnreadCount());
     unawaited(loadNotifications(silent: true));
-    _fallbackPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+    _fallbackPollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       unawaited(refreshUnreadCount());
       unawaited(loadNotifications(silent: true));
     });

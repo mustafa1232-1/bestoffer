@@ -313,6 +313,12 @@ class _NotificationCard extends StatelessWidget {
 
   IconData _iconForTarget(String target) {
     switch (target) {
+      case 'social_chat':
+        return Icons.chat_bubble_rounded;
+      case 'social_call':
+        return Icons.call_rounded;
+      case 'social_feed':
+        return Icons.newspaper_rounded;
       case 'order_tracking':
         return Icons.receipt_long_rounded;
       case 'taxi_call':
@@ -334,6 +340,12 @@ class _NotificationCard extends StatelessWidget {
 
   Color _colorForTarget(String target) {
     switch (target) {
+      case 'social_chat':
+        return const Color(0xFF60A5FA);
+      case 'social_call':
+        return const Color(0xFFFB7185);
+      case 'social_feed':
+        return const Color(0xFFA78BFA);
       case 'order_tracking':
         return const Color(0xFF4CC9F0);
       case 'taxi_call':
@@ -355,6 +367,12 @@ class _NotificationCard extends StatelessWidget {
 
   String _targetHint(String target) {
     switch (target) {
+      case 'social_chat':
+        return '\u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0627\u062A';
+      case 'social_call':
+        return '\u0645\u0643\u0627\u0644\u0645\u0629 \u062F\u0627\u062E\u0644 \u0627\u0644\u062A\u0637\u0628\u064A\u0642';
+      case 'social_feed':
+        return '\u0634\u062F\u064A\u0635\u064A\u0631 \u0628\u0633\u0645\u0627\u064A\u0629';
       case 'order_tracking':
         return '\u062A\u062A\u0628\u0639 \u0627\u0644\u0637\u0644\u0628';
       case 'taxi_call':

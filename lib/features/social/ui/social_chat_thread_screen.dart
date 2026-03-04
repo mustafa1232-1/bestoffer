@@ -61,6 +61,7 @@ class _SocialChatThreadScreenState
   bool _loading = false;
   bool _loadingMore = false;
   bool _sending = false;
+  bool _showJumpToBottom = false;
   String? _error;
 
   @override
@@ -68,6 +69,7 @@ class _SocialChatThreadScreenState
     super.initState();
     _api = ref.read(socialApiProvider);
     _liveApi = ref.read(_liveNotificationsApiProvider);
+    _scrollController.addListener(_handleScroll);
     Future.microtask(_bootstrap);
   }
 
@@ -76,7 +78,7 @@ class _SocialChatThreadScreenState
     if (!mounted) return;
     _connectRealtime();
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       _loadMessages(silent: true);
     });
   }
@@ -138,7 +140,7 @@ class _SocialChatThreadScreenState
         _loadingMore = false;
       });
 
-      if (initial || !loadMore) {
+      if (initial || (!loadMore && _isNearBottom(threshold: 260))) {
         _scrollToBottom(animated: !initial);
       }
     } catch (e) {
@@ -191,6 +193,20 @@ class _SocialChatThreadScreenState
           onDone: _scheduleReconnect,
           cancelOnError: true,
         );
+  }
+
+  bool _isNearBottom({double threshold = 160}) {
+    if (!_scrollController.hasClients) return true;
+    final max = _scrollController.position.maxScrollExtent;
+    final current = _scrollController.offset;
+    return (max - current) <= threshold;
+  }
+
+  void _handleScroll() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final shouldShow = !_isNearBottom(threshold: 180);
+    if (_showJumpToBottom == shouldShow) return;
+    setState(() => _showJumpToBottom = shouldShow);
   }
 
   void _scheduleReconnect() {
@@ -534,68 +550,86 @@ class _SocialChatThreadScreenState
               ),
             ),
           Expanded(
-            child: _loading && isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : RefreshIndicator(
-                    onRefresh: () => _loadMessages(),
-                    child: ListView(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.fromLTRB(12, 14, 12, 8),
-                      children: [
-                        if (_nextCursor != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: OutlinedButton.icon(
-                              onPressed: _loadingMore
-                                  ? null
-                                  : () => _loadMessages(loadMore: true),
-                              icon: _loadingMore
-                                  ? const SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.expand_less_rounded),
-                              label: const Text('عرض رسائل أقدم'),
-                            ),
-                          ),
-                        if (isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 80),
-                            child: Center(
-                              child: Text(
-                                'لا توجد رسائل بعد. ابدأ المحادثة الآن.',
-                                textDirection: TextDirection.rtl,
-                              ),
-                            ),
-                          ),
-                        for (final message in _messages)
-                          _ChatBubble(
-                            message: message,
-                            reactionBusy: _reactionBusyMessageIds.contains(
-                              message.id,
-                            ),
-                            timeText: message.createdAt == null
-                                ? ''
-                                : _timeFormat.format(
-                                    message.createdAt!.toLocal(),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: _loading && isEmpty
+                      ? const Center(child: CircularProgressIndicator())
+                      : RefreshIndicator(
+                          onRefresh: () => _loadMessages(),
+                          child: ListView(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.fromLTRB(12, 14, 12, 8),
+                            children: [
+                              if (_nextCursor != null)
+                                Align(
+                                  alignment: Alignment.center,
+                                  child: OutlinedButton.icon(
+                                    onPressed: _loadingMore
+                                        ? null
+                                        : () => _loadMessages(loadMore: true),
+                                    icon: _loadingMore
+                                        ? const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.expand_less_rounded),
+                                    label: const Text('عرض رسائل أقدم'),
                                   ),
-                            onReact: (reactionKey) =>
-                                _toggleReaction(message, reactionKey),
-                            onOpenAuthorAvatar: () => _openUserAvatar(
-                              userId: message.sender.id,
-                              fullName: message.sender.fullName,
-                            ),
-                            onOpenAuthorProfile: () => _openUserProfile(
-                              userId: message.sender.id,
-                              fullName: message.sender.fullName,
-                            ),
+                                ),
+                              if (isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 80),
+                                  child: Center(
+                                    child: Text(
+                                      'لا توجد رسائل بعد. ابدأ المحادثة الآن.',
+                                      textDirection: TextDirection.rtl,
+                                    ),
+                                  ),
+                                ),
+                              for (final message in _messages)
+                                _ChatBubble(
+                                  message: message,
+                                  reactionBusy: _reactionBusyMessageIds
+                                      .contains(message.id),
+                                  timeText: message.createdAt == null
+                                      ? ''
+                                      : _timeFormat.format(
+                                          message.createdAt!.toLocal(),
+                                        ),
+                                  onReact: (reactionKey) =>
+                                      _toggleReaction(message, reactionKey),
+                                  onOpenAuthorAvatar: () => _openUserAvatar(
+                                    userId: message.sender.id,
+                                    fullName: message.sender.fullName,
+                                  ),
+                                  onOpenAuthorProfile: () => _openUserProfile(
+                                    userId: message.sender.id,
+                                    fullName: message.sender.fullName,
+                                  ),
+                                ),
+                            ],
                           ),
-                      ],
+                        ),
+                ),
+                if (_showJumpToBottom)
+                  Positioned(
+                    left: 14,
+                    bottom: 12,
+                    child: FloatingActionButton.small(
+                      heroTag: 'chat_scroll_bottom',
+                      tooltip: 'آخر الرسائل',
+                      onPressed: _scrollToBottom,
+                      child: const Icon(
+                        Icons.keyboard_double_arrow_down_rounded,
+                      ),
                     ),
                   ),
+              ],
+            ),
           ),
           SafeArea(
             top: false,

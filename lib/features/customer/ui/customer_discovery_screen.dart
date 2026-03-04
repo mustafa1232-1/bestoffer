@@ -15,6 +15,7 @@ import '../models/customer_ad_board_item.dart';
 import '../state/customer_ad_board_controller.dart';
 import '../state/customer_home_prefs_controller.dart';
 import '../../social/ui/basmaya_feed_screen.dart';
+import '../../social/ui/social_chat_threads_screen.dart';
 import 'customer_cars_hub_screen.dart';
 import 'customer_electronics_hub_screen.dart';
 import 'customer_food_hub_screen.dart';
@@ -139,6 +140,12 @@ class _CustomerDiscoveryScreenState
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const BasmayaFeedScreen()));
+  }
+
+  Future<void> _openChatThreads() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const SocialChatThreadsScreen()));
   }
 
   Future<void> _openDiscoveryHub(_DiscoveryHub hub) async {
@@ -666,6 +673,11 @@ class _CustomerDiscoveryScreenState
         onTap: (_) => _openBasmayaFeed(),
       ),
       AppUserDrawerItem(
+        icon: Icons.chat_bubble_outline_rounded,
+        label: 'المحادثات',
+        onTap: (_) => _openChatThreads(),
+      ),
+      AppUserDrawerItem(
         icon: Icons.refresh_rounded,
         label: 'تحديث البيانات',
         onTap: (_) async {
@@ -706,6 +718,11 @@ class _CustomerDiscoveryScreenState
             tooltip: 'الطلبات',
             onPressed: _openOrders,
             icon: const Icon(Icons.receipt_long_rounded),
+          ),
+          IconButton(
+            tooltip: 'المحادثات',
+            onPressed: _openChatThreads,
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
           ),
           Stack(
             children: [

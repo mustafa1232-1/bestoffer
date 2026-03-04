@@ -94,17 +94,14 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       } else {
         setState(() {
           _loadingProfile = false;
-          _error = 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ.';
+          _error = 'تعذر تحميل الملف الشخصي.';
         });
       }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loadingProfile = false;
-        _error = mapAnyError(
-          e,
-          fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ.',
-        );
+        _error = mapAnyError(e, fallback: 'تعذر تحميل الملف الشخصي.');
       });
     }
   }
@@ -137,10 +134,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       if (!mounted) return;
       setState(() {
         _loadingHighlights = false;
-        _error = mapAnyError(
-          e,
-          fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª.',
-        );
+        _error = mapAnyError(e, fallback: 'تعذر تحميل الهايلايت.');
       });
     }
   }
@@ -196,10 +190,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       if (!mounted) return;
       setState(() {
         _loadingByKey[key] = false;
-        _error = mapAnyError(
-          e,
-          fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ù…Ù†Ø´ÙˆØ±Ø§Øª Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù….',
-        );
+        _error = mapAnyError(e, fallback: 'تعذر تحميل منشورات المستخدم.');
       });
     }
   }
@@ -278,12 +269,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            mapAnyError(
-              e,
-              fallback: 'ØªØ¹Ø°Ø± ØªÙ†ÙÙŠØ° Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡ Ø­Ø§Ù„ÙŠØ§Ù‹.',
-            ),
-          ),
+          content: Text(mapAnyError(e, fallback: 'تعذر تنفيذ الإجراء حالياً.')),
         ),
       );
     } finally {
@@ -296,14 +282,14 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   Future<void> _sendRelationRequest() async {
     await _runRelationAction(
       () => _api.sendRelationRequest(widget.userId),
-      successMessage: 'ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
+      successMessage: 'تم إرسال طلب المتابعة',
     );
   }
 
   Future<void> _acceptRelationRequest() async {
     await _runRelationAction(
       () => _api.acceptRelationRequest(widget.userId),
-      successMessage: 'ØªÙ… Ù‚Ø¨ÙˆÙ„ Ø·Ù„Ø¨ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
+      successMessage: 'تم قبول طلب المتابعة',
     );
     await ref.read(socialControllerProvider.notifier).loadThreads();
   }
@@ -311,35 +297,35 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   Future<void> _rejectRelationRequest() async {
     await _runRelationAction(
       () => _api.rejectRelationRequest(widget.userId),
-      successMessage: 'ØªÙ… Ø±ÙØ¶ Ø·Ù„Ø¨ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
+      successMessage: 'تم رفض طلب المتابعة',
     );
   }
 
   Future<void> _cancelRelationRequest() async {
     await _runRelationAction(
       () => _api.cancelRelationRequest(widget.userId),
-      successMessage: 'ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨',
+      successMessage: 'تم إلغاء الطلب',
     );
   }
 
   Future<void> _removeRelation() async {
     await _runRelationAction(
       () => _api.removeRelation(widget.userId),
-      successMessage: 'ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
+      successMessage: 'تم إلغاء المتابعة',
     );
   }
 
   Future<void> _blockRelation() async {
     await _runRelationAction(
       () => _api.blockRelation(widget.userId),
-      successMessage: 'ØªÙ… Ø­Ø¸Ø± Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…',
+      successMessage: 'تم حظر هذا المستخدم',
     );
   }
 
   Future<void> _unblockRelation() async {
     await _runRelationAction(
       () => _api.unblockRelation(widget.userId),
-      successMessage: 'ØªÙ… ÙÙƒ Ø§Ù„Ø­Ø¸Ø±',
+      successMessage: 'تم فك الحظر',
     );
   }
 
@@ -636,7 +622,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
           mediaUrl: avatarUrl,
           isVideo: false,
           title: profile.fullName,
-          subtitle: 'Ø§Ù„ØµÙˆØ±Ø© Ø§Ù„Ø´Ø®ØµÙŠØ©',
+          subtitle: 'الصورة الشخصية',
           caption: profile.bio,
         ),
       ),
@@ -665,7 +651,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
               return _HighlightAlbum(
                 id: cover.id,
                 title: cover.title.trim().isEmpty
-                    ? 'Ù‡Ø§ÙŠÙ„Ø§ÙŠØª'
+                    ? 'هايلايت'
                     : cover.title.trim(),
                 cover: cover,
                 stories: highlights.map((h) => h.story).toList(growable: false),
@@ -710,17 +696,15 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     try {
       await _api.removeStoryHighlight(album.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ØªÙ… Ø­Ø°Ù Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم حذف الهايلايت')));
       await Future.wait([_loadHighlights(), _loadProfile()]);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            mapAnyError(e, fallback: 'ØªØ¹Ø°Ø± Ø­Ø°Ù Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª.'),
-          ),
+          content: Text(mapAnyError(e, fallback: 'تعذر حذف الهايلايت.')),
         ),
       );
     }
@@ -773,19 +757,19 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   String _friendlyRole(String role) {
     switch (role.toLowerCase()) {
       case 'admin':
-        return 'Ø£Ø¯Ù…Ù†';
+        return 'أدمن';
       case 'super_admin':
-        return 'Ø³ÙˆØ¨Ø± Ø£Ø¯Ù…Ù†';
+        return 'سوبر أدمن';
       case 'deputy_admin':
-        return 'Ù†Ø§Ø¦Ø¨ Ø£Ø¯Ù…Ù†';
+        return 'نائب أدمن';
       case 'owner':
-        return 'ØµØ§Ø­Ø¨ Ù…ØªØ¬Ø±';
+        return 'صاحب متجر';
       case 'delivery':
-        return 'Ø¯Ù„ÙØ±ÙŠ';
+        return 'دلفري';
       case 'taxi_captain':
-        return 'ÙƒØ§Ø¨ØªÙ† ØªÙƒØ³ÙŠ';
+        return 'كابتن تكسي';
       default:
-        return 'Ù…Ø³ØªØ®Ø¯Ù…';
+        return 'مستخدم';
     }
   }
 
@@ -820,19 +804,17 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
         backgroundColor: const Color(0xFF0F2140),
         appBar: AppBar(
           title: Text(
-            profile?.fullName ??
-                widget.initialName ??
-                'Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ',
+            profile?.fullName ?? widget.initialName ?? 'الملف الشخصي',
           ),
           actions: [
             IconButton(
-              tooltip: 'ØªØ­Ø¯ÙŠØ«',
+              tooltip: 'تحديث',
               onPressed: _refreshAll,
               icon: const Icon(Icons.refresh_rounded),
             ),
             if (profile?.isMe == true)
               IconButton(
-                tooltip: 'Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
+                tooltip: 'طلبات المتابعة',
                 onPressed: () async {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -846,7 +828,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
               ),
             if (profile?.isMe == true)
               IconButton(
-                tooltip: 'ØªØ¹Ø¯ÙŠÙ„',
+                tooltip: 'تعديل',
                 onPressed: _openEditProfileSheet,
                 icon: const Icon(Icons.edit_outlined),
               ),
@@ -919,7 +901,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
                           name:
                               profile?.fullName ??
                               widget.initialName ??
-                              'Ø§Ù„Ø­Ø³Ø§Ø¨',
+                              'الحساب',
                         )
                       else if (currentPosts.isEmpty)
                         const _EmptyPostsNotice()
@@ -955,7 +937,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
                                     ),
                                   )
                                 : const Icon(Icons.expand_more_rounded),
-                            label: const Text('Ø¹Ø±Ø¶ Ø§Ù„Ù…Ø²ÙŠØ¯'),
+                            label: const Text('عرض المزيد'),
                           ),
                         ),
                     ],
@@ -1001,7 +983,7 @@ class _EmptyPostsNotice extends StatelessWidget {
       padding: EdgeInsets.only(top: 30),
       child: Center(
         child: Text(
-          'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ù†Ø´ÙˆØ±Ø§Øª Ø¶Ù…Ù† Ù‡Ø°Ø§ Ø§Ù„ÙÙ„ØªØ±.',
+          'لا توجد منشورات ضمن هذا الفلتر.',
           style: TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
@@ -1031,7 +1013,7 @@ class _PrivatePostsNotice extends StatelessWidget {
               const Icon(Icons.lock_outline_rounded),
               const SizedBox(height: 8),
               Text(
-                'Ù…Ù†Ø´ÙˆØ±Ø§Øª $name Ù…Ø®ÙÙŠØ© Ø§Ù„Ø¢Ù†.',
+                'منشورات $name مخفية الآن.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
@@ -1068,7 +1050,39 @@ class _ProfileHeaderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final stats = profile.stats;
+    final phone = (profile.phone ?? '').trim();
+    final hasPhone = phone.isNotEmpty;
+
+    final secondaryStats = <_StatChip>[
+      _StatChip(label: 'أصدقاء', value: stats.friendsCount.toString()),
+      _StatChip(label: 'صور', value: stats.imagePosts.toString()),
+      _StatChip(label: 'ريلز', value: stats.videoPosts.toString()),
+      _StatChip(label: 'تقييمات', value: stats.reviewPosts.toString()),
+      _StatChip(label: 'إعجابات', value: stats.likesReceived.toString()),
+      _StatChip(label: 'تعليقات', value: stats.commentsReceived.toString()),
+      _StatChip(label: 'ستوري نشطة', value: stats.activeStories.toString()),
+    ];
+
+    if (stats.pendingIncomingCount > 0) {
+      secondaryStats.add(
+        _StatChip(
+          label: 'طلبات واردة',
+          value: stats.pendingIncomingCount.toString(),
+        ),
+      );
+    }
+
+    if (stats.pendingOutgoingCount > 0) {
+      secondaryStats.add(
+        _StatChip(
+          label: 'طلبات صادرة',
+          value: stats.pendingOutgoingCount.toString(),
+        ),
+      );
+    }
+
     return Card(
       child: Container(
         decoration: BoxDecoration(
@@ -1077,12 +1091,8 @@ class _ProfileHeaderCard extends StatelessWidget {
             begin: Alignment.topRight,
             end: Alignment.bottomLeft,
             colors: [
-              Theme.of(
-                context,
-              ).colorScheme.primaryContainer.withValues(alpha: 0.42),
-              Theme.of(
-                context,
-              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.18),
+              theme.colorScheme.primaryContainer.withValues(alpha: 0.42),
+              theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.18),
             ],
           ),
         ),
@@ -1092,76 +1102,100 @@ class _ProfileHeaderCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          profile.fullName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 20,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '$roleLabel • عضو منذ $joinedAt',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: 0.72),
-                          ),
-                        ),
-                        if (profile.age != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              'العمر: ${profile.age} سنة',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.72),
-                              ),
-                            ),
-                          ),
-                        if (profile.phone != null &&
-                            profile.phone!.trim().isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              profile.phone!,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.72),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
                   GestureDetector(
                     onTap: onAvatarTap,
-                    child: CircleAvatar(
-                      radius: 36,
-                      backgroundImage:
-                          (profile.imageUrl ?? '').trim().isNotEmpty
-                          ? NetworkImage(profile.imageUrl!)
-                          : null,
-                      child: (profile.imageUrl ?? '').trim().isEmpty
-                          ? const Icon(Icons.person_outline, size: 28)
-                          : null,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.65,
+                          ),
+                          width: 2.2,
+                        ),
+                      ),
+                      child: CircleAvatar(
+                        radius: 40,
+                        backgroundImage:
+                            (profile.imageUrl ?? '').trim().isNotEmpty
+                            ? NetworkImage(profile.imageUrl!)
+                            : null,
+                        child: (profile.imageUrl ?? '').trim().isEmpty
+                            ? const Icon(Icons.person_outline, size: 30)
+                            : null,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _ProfileMainStat(
+                          value: stats.totalPosts.toString(),
+                          label: 'منشورات',
+                        ),
+                        _ProfileMainStat(
+                          value: stats.followersCount.toString(),
+                          label: 'متابعون',
+                        ),
+                        _ProfileMainStat(
+                          value: stats.followingCount.toString(),
+                          label: 'يتابع',
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 14),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  profile.fullName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 20,
+                    height: 1.1,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ProfileInfoChip(
+                    icon: Icons.badge_outlined,
+                    label: roleLabel,
+                  ),
+                  _ProfileInfoChip(
+                    icon: Icons.calendar_month_outlined,
+                    label: 'عضو منذ $joinedAt',
+                  ),
+                  if (profile.age != null)
+                    _ProfileInfoChip(
+                      icon: Icons.cake_outlined,
+                      label: 'العمر ${profile.age} سنة',
+                    ),
+                  if (hasPhone)
+                    _ProfileInfoChip(icon: Icons.call_outlined, label: phone),
+                ],
+              ),
+              if (profile.bio.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  profile.bio.trim(),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    height: 1.4,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.92),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
               if (!profile.isMe) ...[
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -1170,8 +1204,9 @@ class _ProfileHeaderCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.7),
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.7,
+                    ),
                   ),
                   child: Text(
                     relationStatus,
@@ -1184,12 +1219,33 @@ class _ProfileHeaderCard extends StatelessWidget {
                 ],
               ],
               if (profile.isMe && onRequestsTap != null) ...[
+                Row(
+                  children: [
+                    if (onEditTap != null)
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: onEditTap,
+                          icon: const Icon(Icons.edit_outlined),
+                          label: const Text('تعديل الملف'),
+                        ),
+                      ),
+                    if (onEditTap != null) const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: onRequestsTap,
+                        icon: const Icon(Icons.person_add_alt_1_rounded),
+                        label: const Text('طلبات المتابعة'),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else if (onEditTap != null) ...[
                 Align(
                   alignment: Alignment.centerRight,
                   child: OutlinedButton.icon(
-                    onPressed: onRequestsTap,
-                    icon: const Icon(Icons.person_add_alt_1_rounded),
-                    label: const Text('Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©'),
+                    onPressed: onEditTap,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('تعديل الملف الشخصي'),
                   ),
                 ),
               ],
@@ -1200,110 +1256,42 @@ class _ProfileHeaderCard extends StatelessWidget {
                 children: [
                   _PrivacyPill(
                     icon: Icons.phone_enabled_outlined,
-                    label: profile.showPhone
-                        ? 'Ø§Ù„Ù‡Ø§ØªÙ Ø¸Ø§Ù‡Ø±'
-                        : 'Ø§Ù„Ù‡Ø§ØªÙ Ù…Ø®ÙÙŠ',
+                    label: profile.showPhone ? 'الهاتف ظاهر' : 'الهاتف مخفي',
                     active: profile.showPhone,
                   ),
                   _PrivacyPill(
                     icon: Icons.public_rounded,
                     label: profile.postsPublic
-                        ? 'Ø§Ù„Ù…Ù†Ø´ÙˆØ±Ø§Øª Ø¹Ø§Ù…Ø©'
-                        : 'Ø§Ù„Ù…Ù†Ø´ÙˆØ±Ø§Øª Ø®Ø§ØµØ©',
+                        ? 'المنشورات عامة'
+                        : 'المنشورات خاصة',
                     active: profile.postsPublic,
                   ),
                   _PrivacyPill(
                     icon: Icons.auto_stories_rounded,
                     label: profile.storiesPublic
-                        ? 'Ø§Ù„Ø³ØªÙˆØ±ÙŠØ§Øª Ø¹Ø§Ù…Ø©'
-                        : 'Ø§Ù„Ø³ØªÙˆØ±ÙŠØ§Øª Ø®Ø§ØµØ©',
+                        ? 'الستوريات عامة'
+                        : 'الستوريات خاصة',
                     active: profile.storiesPublic,
                   ),
                 ],
               ),
-              if (profile.bio.trim().isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                  ),
-                  child: Text(
-                    profile.bio.trim(),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-              ],
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _StatChip(
-                    label: 'Ø£ØµØ¯Ù‚Ø§Ø¡',
-                    value: stats.friendsCount.toString(),
-                  ),
-                  _StatChip(
-                    label: 'Ù…ØªØ§Ø¨Ø¹ÙˆÙ†',
-                    value: stats.followersCount.toString(),
-                  ),
-                  _StatChip(
-                    label: 'ÙŠØªØ§Ø¨Ø¹',
-                    value: stats.followingCount.toString(),
-                  ),
-                  _StatChip(
-                    label: 'Ù…Ù†Ø´ÙˆØ±Ø§Øª',
-                    value: stats.totalPosts.toString(),
-                  ),
-                  _StatChip(
-                    label: 'ØµÙˆØ±',
-                    value: stats.imagePosts.toString(),
-                  ),
-                  _StatChip(
-                    label: 'Ø±ÙŠÙ„Ø²',
-                    value: stats.videoPosts.toString(),
-                  ),
-                  _StatChip(
-                    label: 'ØªÙ‚ÙŠÙŠÙ…Ø§Øª',
-                    value: stats.reviewPosts.toString(),
-                  ),
-                  _StatChip(
-                    label: 'Ø¥Ø¹Ø¬Ø§Ø¨Ø§Øª',
-                    value: stats.likesReceived.toString(),
-                  ),
-                  _StatChip(
-                    label: 'ØªØ¹Ù„ÙŠÙ‚Ø§Øª',
-                    value: stats.commentsReceived.toString(),
-                  ),
-                  _StatChip(
-                    label: 'Ø³ØªÙˆØ±ÙŠ Ù†Ø´Ø·Ø©',
-                    value: stats.activeStories.toString(),
-                  ),
-                  if (stats.pendingIncomingCount > 0)
-                    _StatChip(
-                      label: 'Ø·Ù„Ø¨Ø§Øª ÙˆØ§Ø±Ø¯Ø©',
-                      value: stats.pendingIncomingCount.toString(),
-                    ),
-                  if (stats.pendingOutgoingCount > 0)
-                    _StatChip(
-                      label: 'Ø·Ù„Ø¨Ø§Øª ØµØ§Ø¯Ø±Ø©',
-                      value: stats.pendingOutgoingCount.toString(),
-                    ),
-                ],
+              Text(
+                'إحصائيات إضافية',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: theme.colorScheme.primary,
+                ),
               ),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: secondaryStats),
               if (favorites.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(
-                  'Ø§Ù„Ù…ØªØ§Ø¬Ø± Ø§Ù„Ù…ÙØ¶Ù„Ø©',
+                  'المتاجر المفضلة',
                   style: TextStyle(
                     fontWeight: FontWeight.w800,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: theme.colorScheme.primary,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -1319,20 +1307,68 @@ class _ProfileHeaderCard extends StatelessWidget {
                       .toList(growable: false),
                 ),
               ],
-              if (onEditTap != null) ...[
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    onPressed: onEditTap,
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ'),
-                  ),
-                ),
-              ],
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ProfileMainStat extends StatelessWidget {
+  final String value;
+  final String label;
+
+  const _ProfileMainStat({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.76),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileInfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _ProfileInfoChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.82),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14),
+          const SizedBox(width: 6),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ],
       ),
     );
   }
@@ -1438,13 +1474,13 @@ class _HighlightsSection extends StatelessWidget {
               children: [
                 if (canManage)
                   IconButton(
-                    tooltip: 'ØªØ«Ø¨ÙŠØª Ø³ØªÙˆØ±ÙŠ',
+                    tooltip: 'تثبيت ستوري',
                     onPressed: onAdd,
                     icon: const Icon(Icons.add_circle_outline_rounded),
                   ),
                 const Spacer(),
                 const Text(
-                  'Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª',
+                  'الهايلايت',
                   style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                 ),
               ],
@@ -1456,7 +1492,7 @@ class _HighlightsSection extends StatelessWidget {
               )
             else if (isPrivateForViewer)
               Text(
-                'Ø§Ù„Ø³ØªÙˆØ±ÙŠØ§Øª Ù…Ø®ÙÙŠØ© Ù…Ù† ØµØ§Ø­Ø¨ Ø§Ù„Ø­Ø³Ø§Ø¨.',
+                'الستوريات مخفية من صاحب الحساب.',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: Theme.of(
@@ -1467,8 +1503,8 @@ class _HighlightsSection extends StatelessWidget {
             else if (albums.isEmpty)
               Text(
                 canManage
-                    ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‡Ø§ÙŠÙ„Ø§ÙŠØª Ø¨Ø¹Ø¯. Ø«Ø¨Ù‘Øª Ø³ØªÙˆØ±ÙŠ Ù…Ù† Ø§Ù„Ø£Ø±Ø´ÙŠÙ.'
-                    : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‡Ø§ÙŠÙ„Ø§ÙŠØª Ù„Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù….',
+                    ? 'لا توجد هايلايت بعد. ثبّت ستوري من الأرشيف.'
+                    : 'لا توجد هايلايت لهذا المستخدم.',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: Theme.of(
@@ -1747,13 +1783,13 @@ class _ProfilePostCard extends StatelessWidget {
                   Text(
                     post.reviewRating == null
                         ? '-'
-                        : 'â­ ${post.reviewRating}/5',
+                        : '\u2b50 ${post.reviewRating}/5',
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                   const Spacer(),
                   Text(
                     post.merchantName?.trim().isEmpty ?? true
-                        ? 'ØªÙ‚ÙŠÙŠÙ… Ù…ØªØ¬Ø±'
+                        ? 'تقييم متجر'
                         : post.merchantName!.trim(),
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
@@ -1795,19 +1831,19 @@ class _KindPill extends StatelessWidget {
     final IconData icon;
     switch (kind) {
       case 'image':
-        label = 'ØµÙˆØ±';
+        label = 'صور';
         icon = Icons.image_outlined;
         break;
       case 'video':
-        label = 'Ø±ÙŠÙ„Ø²';
+        label = 'ريلز';
         icon = Icons.ondemand_video_rounded;
         break;
       case 'merchant_review':
-        label = 'ØªÙ‚ÙŠÙŠÙ…';
+        label = 'تقييم';
         icon = Icons.rate_review_outlined;
         break;
       default:
-        label = 'Ù†Øµ';
+        label = 'نص';
         icon = Icons.text_fields_rounded;
     }
 
@@ -1903,10 +1939,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = mapAnyError(
-          e,
-          fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø£Ø±Ø´ÙŠÙ Ø§Ù„Ø³ØªÙˆØ±ÙŠ.',
-        );
+        _error = mapAnyError(e, fallback: 'تعذر تحميل أرشيف الستوري.');
       });
     }
   }
@@ -1931,20 +1964,13 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
         _saving = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'ØªÙ… ØªØ«Ø¨ÙŠØª Ø§Ù„Ø³ØªÙˆØ±ÙŠ ÙÙŠ Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª.',
-          ),
-        ),
+        const SnackBar(content: Text('تم تثبيت الستوري في الهايلايت.')),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = mapAnyError(
-          e,
-          fallback: 'ØªØ¹Ø°Ø± ØªØ«Ø¨ÙŠØª Ø§Ù„Ø³ØªÙˆØ±ÙŠ.',
-        );
+        _error = mapAnyError(e, fallback: 'تعذر تثبيت الستوري.');
       });
     }
   }
@@ -1964,7 +1990,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
           children: [
             const ListTile(
               title: Text(
-                'ØªØ«Ø¨ÙŠØª Ø³ØªÙˆØ±ÙŠ ÙÙŠ Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª',
+                'تثبيت ستوري في الهايلايت',
                 textDirection: TextDirection.rtl,
                 textAlign: TextAlign.end,
               ),
@@ -1975,7 +2001,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
                 controller: _titleCtrl,
                 textDirection: TextDirection.rtl,
                 decoration: const InputDecoration(
-                  labelText: 'Ø¹Ù†ÙˆØ§Ù† Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)',
+                  labelText: 'عنوان الهايلايت (اختياري)',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -1998,7 +2024,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
                   : _stories.isEmpty
                   ? const Center(
                       child: Text(
-                        'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø³ØªÙˆØ±ÙŠØ§Øª Ø¨Ø§Ù„Ø£Ø±Ø´ÙŠÙ Ø­Ø§Ù„ÙŠØ§Ù‹.',
+                        'لا توجد ستوريات بالأرشيف حالياً.',
                         textDirection: TextDirection.rtl,
                       ),
                     )
@@ -2027,7 +2053,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
                                   ),
                             title: Text(
                               story.caption.trim().isEmpty
-                                  ? 'Ø³ØªÙˆØ±ÙŠ Ø¨Ø¯ÙˆÙ† Ù†Øµ'
+                                  ? 'ستوري بدون نص'
                                   : story.caption.trim(),
                               textDirection: TextDirection.rtl,
                               maxLines: 2,
@@ -2037,7 +2063,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
                               onPressed: _saving
                                   ? null
                                   : () => _pinStory(story),
-                              child: const Text('ØªØ«Ø¨ÙŠØª'),
+                              child: const Text('تثبيت'),
                             ),
                           ),
                         );
@@ -2048,7 +2074,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
               padding: const EdgeInsets.all(12),
               child: OutlinedButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Ø¥Ù†Ù‡Ø§Ø¡'),
+                child: const Text('إنهاء'),
               ),
             ),
           ],
@@ -2100,11 +2126,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     if (!mime.startsWith('image/')) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Ø§Ø®ØªØ± ØµÙˆØ±Ø© ÙÙ‚Ø· Ù„ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ.',
-          ),
-        ),
+        const SnackBar(content: Text('اختر صورة فقط لتحديث الملف الشخصي.')),
       );
       return;
     }
@@ -2120,7 +2142,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     final ageText = _ageCtrl.text.trim();
     int? age;
     if (fullName.isEmpty) {
-      setState(() => _error = 'Ø§Ù„Ø§Ø³Ù… Ù…Ø·Ù„ÙˆØ¨.');
+      setState(() => _error = 'الاسم مطلوب.');
       return;
     }
     if (ageText.isNotEmpty) {
@@ -2149,7 +2171,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       if (raw is! Map) {
         setState(() {
           _saving = false;
-          _error = 'ØªØ¹Ø°Ø± Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª.';
+          _error = 'تعذر حفظ التعديلات.';
         });
         return;
       }
@@ -2161,10 +2183,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = mapAnyError(
-          e,
-          fallback: 'ØªØ¹Ø°Ø± Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª.',
-        );
+        _error = mapAnyError(e, fallback: 'تعذر حفظ التعديلات.');
       });
     }
   }
@@ -2191,7 +2210,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ',
+                'تعديل الملف الشخصي',
                 textDirection: TextDirection.rtl,
                 style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
               ),
@@ -2227,7 +2246,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 controller: _nameCtrl,
                 textDirection: TextDirection.rtl,
                 decoration: const InputDecoration(
-                  labelText: 'Ø§Ù„Ø§Ø³Ù… Ø§Ù„ÙƒØ§Ù…Ù„',
+                  labelText: 'الاسم الكامل',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -2249,7 +2268,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 maxLines: 6,
                 maxLength: 280,
                 decoration: const InputDecoration(
-                  labelText: 'Ù†Ø¨Ø°Ø© ØªØ¹Ø±ÙŠÙÙŠØ©',
+                  labelText: 'نبذة تعريفية',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -2258,7 +2277,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 value: _showPhone,
                 onChanged: (value) => setState(() => _showPhone = value),
                 title: const Text(
-                  'Ø¥Ø¸Ù‡Ø§Ø± Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ ÙÙŠ Ø§Ù„ØµÙØ­Ø© Ø§Ù„Ø´Ø®ØµÙŠØ©',
+                  'إظهار رقم الهاتف في الصفحة الشخصية',
                   textDirection: TextDirection.rtl,
                 ),
               ),
@@ -2266,7 +2285,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 value: _postsPublic,
                 onChanged: (value) => setState(() => _postsPublic = value),
                 title: const Text(
-                  'Ø§Ù„Ø³Ù…Ø§Ø­ Ù„Ù„Ø¬Ù…ÙŠØ¹ Ø¨Ø±Ø¤ÙŠØ© Ù…Ù†Ø´ÙˆØ±Ø§ØªÙŠ',
+                  'السماح للجميع برؤية منشوراتي',
                   textDirection: TextDirection.rtl,
                 ),
               ),
@@ -2274,7 +2293,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 value: _storiesPublic,
                 onChanged: (value) => setState(() => _storiesPublic = value),
                 title: const Text(
-                  'Ø§Ù„Ø³Ù…Ø§Ø­ Ù„Ù„Ø¬Ù…ÙŠØ¹ Ø¨Ø±Ø¤ÙŠØ© Ø³ØªÙˆØ±ÙŠØ§ØªÙŠ',
+                  'السماح للجميع برؤية ستورياتي',
                   textDirection: TextDirection.rtl,
                 ),
               ),
@@ -2299,7 +2318,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.save_outlined),
-                label: const Text('Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª'),
+                label: const Text('حفظ التعديلات'),
               ),
             ],
           ),
@@ -2346,9 +2365,7 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
     try {
       final uri = Uri.tryParse(widget.mediaUrl);
       if (uri == null) {
-        setState(
-          () => _videoError = 'Ø±Ø§Ø¨Ø· Ø§Ù„ÙÙŠØ¯ÙŠÙˆ ØºÙŠØ± ØµØ§Ù„Ø­.',
-        );
+        setState(() => _videoError = 'رابط الفيديو غير صالح.');
         return;
       }
       final controller = VideoPlayerController.networkUrl(uri);
@@ -2365,7 +2382,7 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _videoError = 'ØªØ¹Ø°Ø± ØªØ´ØºÙŠÙ„ Ø§Ù„ÙÙŠØ¯ÙŠÙˆ.');
+      setState(() => _videoError = 'تعذر تشغيل الفيديو.');
     }
   }
 
@@ -2417,9 +2434,7 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
                   widget.mediaUrl,
                   fit: BoxFit.contain,
                   errorBuilder: (context, error, stackTrace) =>
-                      const _MediaError(
-                        message: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØµÙˆØ±Ø©.',
-                      ),
+                      const _MediaError(message: 'تعذر تحميل الصورة.'),
                 ),
               ),
             )
@@ -2526,15 +2541,15 @@ class _HighlightAlbum {
 const String _allPostsKey = '__all__';
 
 const List<_ProfileFilterOption> _profileFilters = <_ProfileFilterOption>[
-  _ProfileFilterOption('Ø§Ù„ÙƒÙ„', null, Icons.grid_view_rounded),
-  _ProfileFilterOption('ØµÙˆØ±', 'image', Icons.image_outlined),
-  _ProfileFilterOption('Ø±ÙŠÙ„Ø²', 'video', Icons.ondemand_video_rounded),
+  _ProfileFilterOption('الكل', null, Icons.grid_view_rounded),
+  _ProfileFilterOption('صور', 'image', Icons.image_outlined),
+  _ProfileFilterOption('ريلز', 'video', Icons.ondemand_video_rounded),
   _ProfileFilterOption(
-    'ØªÙ‚ÙŠÙŠÙ…Ø§Øª',
+    'تقييمات',
     'merchant_review',
     Icons.rate_review_outlined,
   ),
-  _ProfileFilterOption('Ù†ØµÙˆØµ', 'text', Icons.text_fields_rounded),
+  _ProfileFilterOption('نصوص', 'text', Icons.text_fields_rounded),
 ];
 
 int? _parseInt(dynamic value) {

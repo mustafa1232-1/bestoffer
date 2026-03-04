@@ -156,7 +156,8 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
         _onConnected();
       } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         _scheduleIceRecover(force: true);
-      } else if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+      } else if (state ==
+          RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
         _scheduleIceRecover();
       }
     };
@@ -178,9 +179,19 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
 
     _localStream = await navigator.mediaDevices.getUserMedia({
       'audio': {
+        'channelCount': 1,
+        'sampleRate': 48000,
+        'latency': 0,
         'echoCancellation': true,
         'noiseSuppression': true,
         'autoGainControl': true,
+        'googEchoCancellation': true,
+        'googEchoCancellation2': true,
+        'googNoiseSuppression': true,
+        'googNoiseSuppression2': true,
+        'googAutoGainControl': true,
+        'googAutoGainControl2': true,
+        'googHighpassFilter': true,
       },
       'video': false,
     });
@@ -773,11 +784,17 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
                   const SizedBox(height: 14),
                   Text(
                     widget.remoteDisplayName ?? 'الطرف الآخر',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(999),
                       color: statusColor.withValues(alpha: 0.16),
@@ -797,7 +814,10 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
                   const SizedBox(height: 8),
                   Text(
                     _inCall ? _durationText() : '00:00',
-                    style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const Spacer(),
                   if (incomingAwaitingAccept)
@@ -829,7 +849,9 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         _RoundActionButton(
-                          icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
+                          icon: _muted
+                              ? Icons.mic_off_rounded
+                              : Icons.mic_rounded,
                           label: _muted ? 'إلغاء الكتم' : 'كتم',
                           onTap: _toggleMute,
                         ),

@@ -8,6 +8,7 @@ import '../../features/orders/ui/customer_orders_screen.dart';
 import '../../features/owner/ui/owner_dashboard_screen.dart';
 import '../../features/social/ui/basmaya_feed_screen.dart';
 import '../../features/social/ui/social_call_screen.dart';
+import '../../features/social/ui/social_chat_threads_screen.dart';
 import '../../features/taxi/ui/taxi_call_screen.dart';
 import '../../features/taxi/ui/taxi_captain_dashboard_screen.dart';
 import '../../pages/map_page.dart';
@@ -101,12 +102,13 @@ class NotificationNavigation {
 
     if (isCustomer) {
       if (target == 'social_chat') {
+        if (threadId != null && threadId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => SocialChatThreadsScreen(initialThreadId: threadId),
+          );
+        }
         return MaterialPageRoute(
-          builder: (_) => BasmayaFeedScreen(
-            initialThreadId: threadId,
-            initialPostId: postId,
-            initialStoryId: storyId,
-          ),
+          builder: (_) => const SocialChatThreadsScreen(),
         );
       }
       if (target == 'social_call') {
@@ -120,7 +122,7 @@ class NotificationNavigation {
           );
         }
         return MaterialPageRoute(
-          builder: (_) => BasmayaFeedScreen(initialThreadId: threadId),
+          builder: (_) => const SocialChatThreadsScreen(),
         );
       }
       if (target == 'social_feed') {
