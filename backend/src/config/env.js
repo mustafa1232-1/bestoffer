@@ -52,7 +52,7 @@ export const env = {
   cfR2SecretAccessKey: readString("CF_R2_SECRET_ACCESS_KEY", ""),
   cfR2PublicBaseUrl: readString("CF_R2_PUBLIC_BASE_URL", ""),
   cfR2UploadPrefix: readString("CF_R2_UPLOAD_PREFIX", "uploads"),
-  cfR2MinFileSizeBytes: readNumber("CF_R2_MIN_FILE_SIZE_BYTES", 524288, {
+  cfR2MinFileSizeBytes: readNumber("CF_R2_MIN_FILE_SIZE_BYTES", 0, {
     min: 0,
     max: 104857600,
   }),

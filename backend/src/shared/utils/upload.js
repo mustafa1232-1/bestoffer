@@ -11,7 +11,7 @@ import {
 import { ensureUploadsDir, uploadsDir } from "./uploads.js";
 
 const useR2Storage = isR2UploadsEnabled();
-const r2MinFileSizeBytes = Number(env.cfR2MinFileSizeBytes || 524288);
+const r2MinFileSizeBytes = Number(env.cfR2MinFileSizeBytes || 0);
 ensureUploadsDir();
 let lastR2UploadError = null;
 let lastR2UploadAt = null;
@@ -81,7 +81,7 @@ const r2Storage = {
     });
 
     out.on("finish", async () => {
-      if (useR2Storage && size >= r2MinFileSizeBytes) {
+      if (useR2Storage) {
         try {
           const readStream = fs.createReadStream(localPath);
           const uploaded = await uploadStreamToR2({
