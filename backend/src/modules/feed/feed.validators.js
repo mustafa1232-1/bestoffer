@@ -36,6 +36,14 @@ function asBooleanOrNull(value) {
   return null;
 }
 
+function asSocialAgeOrNull(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isInteger(n)) return Number.NaN;
+  if (n < 13 || n > 100) return Number.NaN;
+  return n;
+}
+
 export function validateListPosts(query = {}) {
   const errors = [];
   const limit = Number(query.limit ?? 20);
@@ -366,6 +374,7 @@ export function validateUpdateSocialProfile(body = {}, opts = {}) {
   const hasFullName =
     body.fullName !== undefined && body.fullName !== null && String(body.fullName).trim().length > 0;
   const hasBio = body.bio !== undefined && body.bio !== null;
+  const hasAge = body.age !== undefined;
   const hasImageUrl =
     body.imageUrl !== undefined && body.imageUrl !== null && String(body.imageUrl).trim().length > 0;
   const hasShowPhone = body.showPhone !== undefined;
@@ -374,10 +383,12 @@ export function validateUpdateSocialProfile(body = {}, opts = {}) {
   const showPhone = asBooleanOrNull(body.showPhone);
   const postsPublic = asBooleanOrNull(body.postsPublic);
   const storiesPublic = asBooleanOrNull(body.storiesPublic);
+  const age = asSocialAgeOrNull(body.age);
 
   if (
     !hasFullName &&
     !hasBio &&
+    !hasAge &&
     !hasImageUrl &&
     !hasImageUpload &&
     !hasShowPhone &&
@@ -393,6 +404,9 @@ export function validateUpdateSocialProfile(body = {}, opts = {}) {
 
   if (hasBio && !isOptionalString(body.bio, 280)) {
     errors.push("bio");
+  }
+  if (hasAge && Number.isNaN(age)) {
+    errors.push("age");
   }
 
   if (hasImageUrl && !isOptionalString(body.imageUrl, 1000)) {
@@ -414,6 +428,7 @@ export function validateUpdateSocialProfile(body = {}, opts = {}) {
     value: {
       fullName: hasFullName ? String(body.fullName).trim() : undefined,
       bio: hasBio ? String(body.bio || "").trim() : undefined,
+      age: hasAge ? age : undefined,
       imageUrl: hasImageUrl ? String(body.imageUrl).trim() : undefined,
       showPhone: hasShowPhone ? showPhone : undefined,
       postsPublic: hasPostsPublic ? postsPublic : undefined,

@@ -410,6 +410,7 @@ class SocialUserProfile {
   final String fullName;
   final String role;
   final String bio;
+  final int? age;
   final String? imageUrl;
   final String? phone;
   final bool showPhone;
@@ -425,6 +426,7 @@ class SocialUserProfile {
     required this.fullName,
     required this.role,
     required this.bio,
+    required this.age,
     required this.imageUrl,
     required this.phone,
     required this.showPhone,
@@ -445,6 +447,9 @@ class SocialUserProfile {
       fullName: parseString(j['fullName'] ?? j['full_name']),
       role: parseString(j['role'], fallback: 'user'),
       bio: parseString(j['bio'], fallback: ''),
+      age: j['age'] == null && j['social_age'] == null
+          ? null
+          : parseInt(j['age'] ?? j['social_age']),
       imageUrl: parseNullableString(j['imageUrl'] ?? j['image_url']),
       phone: parseNullableString(j['phone']),
       showPhone: parseBool(

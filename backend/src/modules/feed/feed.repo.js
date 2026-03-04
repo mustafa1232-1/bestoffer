@@ -638,6 +638,7 @@ export async function findUserPublicProfile(userId) {
        phone,
        role,
        image_url,
+       social_age,
        social_show_phone,
        social_posts_public,
        social_stories_public
@@ -657,6 +658,7 @@ export async function findUserSocialProfile(userId) {
        phone,
        role,
        image_url,
+       social_age,
        social_bio,
        social_show_phone,
        social_posts_public,
@@ -674,6 +676,7 @@ export async function updateUserSocialProfile({
   userId,
   fullName,
   bio,
+  age,
   imageUrl,
   showPhone,
   postsPublic,
@@ -689,6 +692,10 @@ export async function updateUserSocialProfile({
   if (bio !== undefined) {
     params.push(String(bio || "").trim());
     sets.push(`social_bio = $${params.length}`);
+  }
+  if (age !== undefined) {
+    params.push(age == null ? null : Number(age));
+    sets.push(`social_age = $${params.length}`);
   }
   if (imageUrl !== undefined) {
     params.push(String(imageUrl || "").trim() || null);
@@ -722,6 +729,7 @@ export async function updateUserSocialProfile({
        phone,
        role,
        image_url,
+       social_age,
        social_bio,
        social_show_phone,
        social_posts_public,

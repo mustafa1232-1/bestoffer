@@ -70,6 +70,7 @@ class SocialApi {
   Future<Map<String, dynamic>> updateMyProfile({
     String? fullName,
     String? bio,
+    int? age,
     String? imageUrl,
     bool? showPhone,
     bool? postsPublic,
@@ -79,6 +80,7 @@ class SocialApi {
     final payload = <String, dynamic>{
       'fullName': fullName,
       'bio': bio,
+      'age': age,
       'imageUrl': imageUrl,
       'showPhone': showPhone,
       'postsPublic': postsPublic,

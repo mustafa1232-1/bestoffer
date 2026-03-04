@@ -467,6 +467,10 @@ export async function getUserProfile(viewerUserId, userId) {
       fullName: profile.full_name || "",
       imageUrl: profile.image_url || null,
       bio: profile.social_bio || "",
+      age:
+        profile.social_age == null || !Number.isFinite(Number(profile.social_age))
+          ? null
+          : Number(profile.social_age),
       phone: phoneVisible ? profile.phone || "" : "",
       role: profile.role || "user",
       joinedAt: profile.created_at || null,
@@ -501,6 +505,7 @@ export async function updateMyProfile(userId, dto) {
   if (
     dto.fullName === undefined &&
     dto.bio === undefined &&
+    dto.age === undefined &&
     dto.imageUrl === undefined &&
     dto.showPhone === undefined &&
     dto.postsPublic === undefined &&
@@ -520,6 +525,7 @@ export async function updateMyProfile(userId, dto) {
     userId,
     fullName: dto.fullName,
     bio: dto.bio,
+    age: dto.age,
     imageUrl: dto.imageUrl,
     showPhone: dto.showPhone,
     postsPublic: dto.postsPublic,
@@ -539,6 +545,10 @@ export async function updateMyProfile(userId, dto) {
       fullName: updated.full_name || "",
       imageUrl: updated.image_url || null,
       bio: updated.social_bio || "",
+      age:
+        updated.social_age == null || !Number.isFinite(Number(updated.social_age))
+          ? null
+          : Number(updated.social_age),
       phone: updated.phone || "",
       role: updated.role || "user",
       joinedAt: updated.created_at || null,

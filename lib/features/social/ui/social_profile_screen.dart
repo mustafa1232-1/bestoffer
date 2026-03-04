@@ -94,14 +94,17 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       } else {
         setState(() {
           _loadingProfile = false;
-          _error = 'تعذر تحميل الملف الشخصي.';
+          _error = 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ.';
         });
       }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loadingProfile = false;
-        _error = mapAnyError(e, fallback: 'تعذر تحميل الملف الشخصي.');
+        _error = mapAnyError(
+          e,
+          fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ.',
+        );
       });
     }
   }
@@ -134,7 +137,10 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       if (!mounted) return;
       setState(() {
         _loadingHighlights = false;
-        _error = mapAnyError(e, fallback: 'تعذر تحميل الهايلايت.');
+        _error = mapAnyError(
+          e,
+          fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª.',
+        );
       });
     }
   }
@@ -190,7 +196,10 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       if (!mounted) return;
       setState(() {
         _loadingByKey[key] = false;
-        _error = mapAnyError(e, fallback: 'تعذر تحميل منشورات المستخدم.');
+        _error = mapAnyError(
+          e,
+          fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ù…Ù†Ø´ÙˆØ±Ø§Øª Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù….',
+        );
       });
     }
   }
@@ -223,6 +232,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       fullName: profile.fullName,
       role: profile.role,
       bio: profile.bio,
+      age: profile.age,
       imageUrl: profile.imageUrl,
       phone: profile.phone,
       showPhone: profile.showPhone,
@@ -268,7 +278,12 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(mapAnyError(e, fallback: 'تعذر تنفيذ الإجراء حالياً.')),
+          content: Text(
+            mapAnyError(
+              e,
+              fallback: 'ØªØ¹Ø°Ø± ØªÙ†ÙÙŠØ° Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡ Ø­Ø§Ù„ÙŠØ§Ù‹.',
+            ),
+          ),
         ),
       );
     } finally {
@@ -281,14 +296,14 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   Future<void> _sendRelationRequest() async {
     await _runRelationAction(
       () => _api.sendRelationRequest(widget.userId),
-      successMessage: 'تم إرسال طلب المتابعة',
+      successMessage: 'ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
     );
   }
 
   Future<void> _acceptRelationRequest() async {
     await _runRelationAction(
       () => _api.acceptRelationRequest(widget.userId),
-      successMessage: 'تم قبول طلب المتابعة',
+      successMessage: 'ØªÙ… Ù‚Ø¨ÙˆÙ„ Ø·Ù„Ø¨ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
     );
     await ref.read(socialControllerProvider.notifier).loadThreads();
   }
@@ -296,35 +311,35 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   Future<void> _rejectRelationRequest() async {
     await _runRelationAction(
       () => _api.rejectRelationRequest(widget.userId),
-      successMessage: 'تم رفض طلب المتابعة',
+      successMessage: 'ØªÙ… Ø±ÙØ¶ Ø·Ù„Ø¨ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
     );
   }
 
   Future<void> _cancelRelationRequest() async {
     await _runRelationAction(
       () => _api.cancelRelationRequest(widget.userId),
-      successMessage: 'تم إلغاء الطلب',
+      successMessage: 'ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨',
     );
   }
 
   Future<void> _removeRelation() async {
     await _runRelationAction(
       () => _api.removeRelation(widget.userId),
-      successMessage: 'تم إلغاء المتابعة',
+      successMessage: 'ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
     );
   }
 
   Future<void> _blockRelation() async {
     await _runRelationAction(
       () => _api.blockRelation(widget.userId),
-      successMessage: 'تم حظر هذا المستخدم',
+      successMessage: 'ØªÙ… Ø­Ø¸Ø± Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…',
     );
   }
 
   Future<void> _unblockRelation() async {
     await _runRelationAction(
       () => _api.unblockRelation(widget.userId),
-      successMessage: 'تم فك الحظر',
+      successMessage: 'ØªÙ… ÙÙƒ Ø§Ù„Ø­Ø¸Ø±',
     );
   }
 
@@ -370,6 +385,98 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     );
   }
 
+  Future<void> _confirmRemoveRelation({
+    required String title,
+    required String content,
+    required String confirmLabel,
+  }) async {
+    if (!mounted) return;
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    if (approved == true) {
+      await _removeRelation();
+    }
+  }
+
+  Future<void> _onFollowPressed() async {
+    final profile = _profile;
+    if (profile == null || profile.isMe || _relationBusy) return;
+    final relation = profile.relation;
+    if (relation.isBlocked) return;
+
+    if (relation.isAccepted) {
+      await _confirmRemoveRelation(
+        title: 'إلغاء المتابعة',
+        content: 'سيتم إلغاء المتابعة وحالة الصداقة الحالية.',
+        confirmLabel: 'إلغاء المتابعة',
+      );
+      return;
+    }
+    if (relation.isPendingOutgoing) {
+      await _cancelRelationRequest();
+      return;
+    }
+    if (relation.isPendingIncoming) {
+      await _acceptRelationRequest();
+      return;
+    }
+    await _sendRelationRequest();
+  }
+
+  Future<void> _onFriendPressed() async {
+    final profile = _profile;
+    if (profile == null || profile.isMe || _relationBusy) return;
+    final relation = profile.relation;
+    if (relation.isBlocked) return;
+
+    if (relation.isAccepted) {
+      await _confirmRemoveRelation(
+        title: 'إلغاء الصداقة',
+        content: 'سيتم إلغاء الصداقة والمتابعة بينكما.',
+        confirmLabel: 'إلغاء الصداقة',
+      );
+      return;
+    }
+    if (relation.isPendingOutgoing) {
+      await _cancelRelationRequest();
+      return;
+    }
+    if (relation.isPendingIncoming) {
+      await _acceptRelationRequest();
+      return;
+    }
+    await _sendRelationRequest();
+  }
+
+  String _followButtonLabel(SocialRelation relation) {
+    if (relation.isAccepted) return 'متابع';
+    if (relation.isPendingOutgoing) return 'متابعة قيد الانتظار';
+    if (relation.isPendingIncoming) return 'قبول المتابعة';
+    return 'متابعة';
+  }
+
+  String _friendButtonLabel(SocialRelation relation) {
+    if (relation.isAccepted) return 'صديق';
+    if (relation.isPendingOutgoing) return 'طلب صداقة قيد الانتظار';
+    if (relation.isPendingIncoming) return 'قبول الصداقة';
+    return 'إضافة صديق';
+  }
+
   Widget? _buildRelationActions(SocialUserProfile profile) {
     if (profile.isMe) return null;
     final relation = profile.relation;
@@ -389,100 +496,91 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       );
     }
 
-    if (relation.isAccepted) {
-      return Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          FilledButton.icon(
-            onPressed: _openChatWithUser,
-            icon: const Icon(Icons.chat_bubble_outline_rounded),
-            label: const Text('مراسلة'),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _relationBusy ? null : _onFollowPressed,
+                icon: Icon(
+                  relation.isAccepted
+                      ? Icons.check_circle_rounded
+                      : Icons.person_add_alt_1_rounded,
+                ),
+                label: Text(_followButtonLabel(relation)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _relationBusy ? null : _onFriendPressed,
+                icon: Icon(
+                  relation.isAccepted
+                      ? Icons.verified_rounded
+                      : Icons.group_add_rounded,
+                ),
+                label: Text(_friendButtonLabel(relation)),
+              ),
+            ),
+          ],
+        ),
+        if (relation.isPendingIncoming) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton(
+                onPressed: _relationBusy ? null : _rejectRelationRequest,
+                child: const Text('رفض الطلب'),
+              ),
+              FilledButton(
+                onPressed: _relationBusy ? null : _acceptRelationRequest,
+                child: const Text('قبول الطلب'),
+              ),
+            ],
           ),
-          FilledButton.tonalIcon(
-            onPressed: _openInAppCall,
-            icon: const Icon(Icons.call_outlined),
-            label: const Text('اتصال'),
+        ],
+        if (relation.isAccepted) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: _openChatWithUser,
+                icon: const Icon(Icons.chat_bubble_outline_rounded),
+                label: const Text('مراسلة'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: _openInAppCall,
+                icon: const Icon(Icons.call_outlined),
+                label: const Text('اتصال'),
+              ),
+            ],
           ),
-          OutlinedButton(
-            onPressed: _relationBusy ? null : _removeRelation,
-            child: const Text('إلغاء المتابعة'),
-          ),
-          OutlinedButton.icon(
+        ],
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: OutlinedButton.icon(
             onPressed: _relationBusy ? null : _blockRelation,
             icon: const Icon(Icons.block_rounded),
             label: const Text('حظر'),
           ),
-        ],
-      );
-    }
-
-    if (relation.isPendingIncoming) {
-      return Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          OutlinedButton(
-            onPressed: _relationBusy ? null : _rejectRelationRequest,
-            child: const Text('رفض'),
-          ),
-          FilledButton(
-            onPressed: _relationBusy ? null : _acceptRelationRequest,
-            child: const Text('قبول المتابعة'),
-          ),
-        ],
-      );
-    }
-
-    if (relation.isPendingOutgoing) {
-      return Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          const Text(
-            'طلبك قيد الانتظار',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-          OutlinedButton(
-            onPressed: _relationBusy ? null : _cancelRelationRequest,
-            child: const Text('إلغاء الطلب'),
-          ),
-        ],
-      );
-    }
-
-    if (relation.canSendRequest || relation.isNone) {
-      return Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          FilledButton.icon(
-            onPressed: _relationBusy ? null : _sendRelationRequest,
-            icon: const Icon(Icons.person_add_alt_1_rounded),
-            label: const Text('إرسال طلب متابعة'),
-          ),
-          OutlinedButton.icon(
-            onPressed: _relationBusy ? null : _blockRelation,
-            icon: const Icon(Icons.block_rounded),
-            label: const Text('حظر'),
-          ),
-        ],
-      );
-    }
-
-    return const Text(
-      'لا يمكن بدء التفاعل مع هذا الحساب حالياً.',
-      style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ],
     );
   }
 
   String _relationStatusText(SocialRelation relation) {
     if (relation.isBlockedByMe) return 'هذا الحساب محظور من طرفك';
     if (relation.isBlockedByOther) return 'هذا الحساب قام بحظرك';
-    if (relation.isAccepted) return 'متابعون لبعض';
-    if (relation.isPendingIncoming) return 'أرسل لك طلب متابعة';
-    if (relation.isPendingOutgoing) return 'طلب المتابعة بانتظار الرد';
+    if (relation.isAccepted) return 'صديقك ومتابع لك';
+    if (relation.isPendingIncoming) return 'أرسل لك طلب صداقة/متابعة';
+    if (relation.isPendingOutgoing) return 'طلب الصداقة بانتظار الرد';
     return 'غير متابع';
   }
 
@@ -538,7 +636,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
           mediaUrl: avatarUrl,
           isVideo: false,
           title: profile.fullName,
-          subtitle: 'الصورة الشخصية',
+          subtitle: 'Ø§Ù„ØµÙˆØ±Ø© Ø§Ù„Ø´Ø®ØµÙŠØ©',
           caption: profile.bio,
         ),
       ),
@@ -567,7 +665,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
               return _HighlightAlbum(
                 id: cover.id,
                 title: cover.title.trim().isEmpty
-                    ? 'هايلايت'
+                    ? 'Ù‡Ø§ÙŠÙ„Ø§ÙŠØª'
                     : cover.title.trim(),
                 cover: cover,
                 stories: highlights.map((h) => h.story).toList(growable: false),
@@ -612,15 +710,17 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     try {
       await _api.removeStoryHighlight(album.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('تم حذف الهايلايت')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ØªÙ… Ø­Ø°Ù Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª')),
+      );
       await Future.wait([_loadHighlights(), _loadProfile()]);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(mapAnyError(e, fallback: 'تعذر حذف الهايلايت.')),
+          content: Text(
+            mapAnyError(e, fallback: 'ØªØ¹Ø°Ø± Ø­Ø°Ù Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª.'),
+          ),
         ),
       );
     }
@@ -673,19 +773,19 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   String _friendlyRole(String role) {
     switch (role.toLowerCase()) {
       case 'admin':
-        return 'أدمن';
+        return 'Ø£Ø¯Ù…Ù†';
       case 'super_admin':
-        return 'سوبر أدمن';
+        return 'Ø³ÙˆØ¨Ø± Ø£Ø¯Ù…Ù†';
       case 'deputy_admin':
-        return 'نائب أدمن';
+        return 'Ù†Ø§Ø¦Ø¨ Ø£Ø¯Ù…Ù†';
       case 'owner':
-        return 'صاحب متجر';
+        return 'ØµØ§Ø­Ø¨ Ù…ØªØ¬Ø±';
       case 'delivery':
-        return 'دلفري';
+        return 'Ø¯Ù„ÙØ±ÙŠ';
       case 'taxi_captain':
-        return 'كابتن تكسي';
+        return 'ÙƒØ§Ø¨ØªÙ† ØªÙƒØ³ÙŠ';
       default:
-        return 'مستخدم';
+        return 'Ù…Ø³ØªØ®Ø¯Ù…';
     }
   }
 
@@ -720,17 +820,19 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
         backgroundColor: const Color(0xFF0F2140),
         appBar: AppBar(
           title: Text(
-            profile?.fullName ?? widget.initialName ?? 'الملف الشخصي',
+            profile?.fullName ??
+                widget.initialName ??
+                'Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ',
           ),
           actions: [
             IconButton(
-              tooltip: 'تحديث',
+              tooltip: 'ØªØ­Ø¯ÙŠØ«',
               onPressed: _refreshAll,
               icon: const Icon(Icons.refresh_rounded),
             ),
             if (profile?.isMe == true)
               IconButton(
-                tooltip: 'طلبات المتابعة',
+                tooltip: 'Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©',
                 onPressed: () async {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -744,7 +846,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
               ),
             if (profile?.isMe == true)
               IconButton(
-                tooltip: 'تعديل',
+                tooltip: 'ØªØ¹Ø¯ÙŠÙ„',
                 onPressed: _openEditProfileSheet,
                 icon: const Icon(Icons.edit_outlined),
               ),
@@ -817,7 +919,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
                           name:
                               profile?.fullName ??
                               widget.initialName ??
-                              'الحساب',
+                              'Ø§Ù„Ø­Ø³Ø§Ø¨',
                         )
                       else if (currentPosts.isEmpty)
                         const _EmptyPostsNotice()
@@ -853,7 +955,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
                                     ),
                                   )
                                 : const Icon(Icons.expand_more_rounded),
-                            label: const Text('عرض المزيد'),
+                            label: const Text('Ø¹Ø±Ø¶ Ø§Ù„Ù…Ø²ÙŠØ¯'),
                           ),
                         ),
                     ],
@@ -899,7 +1001,7 @@ class _EmptyPostsNotice extends StatelessWidget {
       padding: EdgeInsets.only(top: 30),
       child: Center(
         child: Text(
-          'لا توجد منشورات ضمن هذا الفلتر.',
+          'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ù†Ø´ÙˆØ±Ø§Øª Ø¶Ù…Ù† Ù‡Ø°Ø§ Ø§Ù„ÙÙ„ØªØ±.',
           style: TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
@@ -929,7 +1031,7 @@ class _PrivatePostsNotice extends StatelessWidget {
               const Icon(Icons.lock_outline_rounded),
               const SizedBox(height: 8),
               Text(
-                'منشورات $name مخفية الآن.',
+                'Ù…Ù†Ø´ÙˆØ±Ø§Øª $name Ù…Ø®ÙÙŠØ© Ø§Ù„Ø¢Ù†.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
@@ -1013,6 +1115,19 @@ class _ProfileHeaderCard extends StatelessWidget {
                             ).colorScheme.onSurface.withValues(alpha: 0.72),
                           ),
                         ),
+                        if (profile.age != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              'العمر: ${profile.age} سنة',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: 0.72),
+                              ),
+                            ),
+                          ),
                         if (profile.phone != null &&
                             profile.phone!.trim().isNotEmpty)
                           Padding(
@@ -1074,7 +1189,7 @@ class _ProfileHeaderCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onRequestsTap,
                     icon: const Icon(Icons.person_add_alt_1_rounded),
-                    label: const Text('طلبات المتابعة'),
+                    label: const Text('Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©'),
                   ),
                 ),
               ],
@@ -1085,21 +1200,23 @@ class _ProfileHeaderCard extends StatelessWidget {
                 children: [
                   _PrivacyPill(
                     icon: Icons.phone_enabled_outlined,
-                    label: profile.showPhone ? 'الهاتف ظاهر' : 'الهاتف مخفي',
+                    label: profile.showPhone
+                        ? 'Ø§Ù„Ù‡Ø§ØªÙ Ø¸Ø§Ù‡Ø±'
+                        : 'Ø§Ù„Ù‡Ø§ØªÙ Ù…Ø®ÙÙŠ',
                     active: profile.showPhone,
                   ),
                   _PrivacyPill(
                     icon: Icons.public_rounded,
                     label: profile.postsPublic
-                        ? 'المنشورات عامة'
-                        : 'المنشورات خاصة',
+                        ? 'Ø§Ù„Ù…Ù†Ø´ÙˆØ±Ø§Øª Ø¹Ø§Ù…Ø©'
+                        : 'Ø§Ù„Ù…Ù†Ø´ÙˆØ±Ø§Øª Ø®Ø§ØµØ©',
                     active: profile.postsPublic,
                   ),
                   _PrivacyPill(
                     icon: Icons.auto_stories_rounded,
                     label: profile.storiesPublic
-                        ? 'الستوريات عامة'
-                        : 'الستوريات خاصة',
+                        ? 'Ø§Ù„Ø³ØªÙˆØ±ÙŠØ§Øª Ø¹Ø§Ù…Ø©'
+                        : 'Ø§Ù„Ø³ØªÙˆØ±ÙŠØ§Øª Ø®Ø§ØµØ©',
                     active: profile.storiesPublic,
                   ),
                 ],
@@ -1129,47 +1246,53 @@ class _ProfileHeaderCard extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   _StatChip(
-                    label: 'أصدقاء',
+                    label: 'Ø£ØµØ¯Ù‚Ø§Ø¡',
                     value: stats.friendsCount.toString(),
                   ),
                   _StatChip(
-                    label: 'متابعون',
+                    label: 'Ù…ØªØ§Ø¨Ø¹ÙˆÙ†',
                     value: stats.followersCount.toString(),
                   ),
                   _StatChip(
-                    label: 'يتابع',
+                    label: 'ÙŠØªØ§Ø¨Ø¹',
                     value: stats.followingCount.toString(),
                   ),
                   _StatChip(
-                    label: 'منشورات',
+                    label: 'Ù…Ù†Ø´ÙˆØ±Ø§Øª',
                     value: stats.totalPosts.toString(),
                   ),
-                  _StatChip(label: 'صور', value: stats.imagePosts.toString()),
-                  _StatChip(label: 'ريلز', value: stats.videoPosts.toString()),
                   _StatChip(
-                    label: 'تقييمات',
+                    label: 'ØµÙˆØ±',
+                    value: stats.imagePosts.toString(),
+                  ),
+                  _StatChip(
+                    label: 'Ø±ÙŠÙ„Ø²',
+                    value: stats.videoPosts.toString(),
+                  ),
+                  _StatChip(
+                    label: 'ØªÙ‚ÙŠÙŠÙ…Ø§Øª',
                     value: stats.reviewPosts.toString(),
                   ),
                   _StatChip(
-                    label: 'إعجابات',
+                    label: 'Ø¥Ø¹Ø¬Ø§Ø¨Ø§Øª',
                     value: stats.likesReceived.toString(),
                   ),
                   _StatChip(
-                    label: 'تعليقات',
+                    label: 'ØªØ¹Ù„ÙŠÙ‚Ø§Øª',
                     value: stats.commentsReceived.toString(),
                   ),
                   _StatChip(
-                    label: 'ستوري نشطة',
+                    label: 'Ø³ØªÙˆØ±ÙŠ Ù†Ø´Ø·Ø©',
                     value: stats.activeStories.toString(),
                   ),
                   if (stats.pendingIncomingCount > 0)
                     _StatChip(
-                      label: 'طلبات واردة',
+                      label: 'Ø·Ù„Ø¨Ø§Øª ÙˆØ§Ø±Ø¯Ø©',
                       value: stats.pendingIncomingCount.toString(),
                     ),
                   if (stats.pendingOutgoingCount > 0)
                     _StatChip(
-                      label: 'طلبات صادرة',
+                      label: 'Ø·Ù„Ø¨Ø§Øª ØµØ§Ø¯Ø±Ø©',
                       value: stats.pendingOutgoingCount.toString(),
                     ),
                 ],
@@ -1177,7 +1300,7 @@ class _ProfileHeaderCard extends StatelessWidget {
               if (favorites.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(
-                  'المتاجر المفضلة',
+                  'Ø§Ù„Ù…ØªØ§Ø¬Ø± Ø§Ù„Ù…ÙØ¶Ù„Ø©',
                   style: TextStyle(
                     fontWeight: FontWeight.w800,
                     color: Theme.of(context).colorScheme.primary,
@@ -1203,7 +1326,7 @@ class _ProfileHeaderCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onEditTap,
                     icon: const Icon(Icons.edit_outlined),
-                    label: const Text('تعديل الملف الشخصي'),
+                    label: const Text('ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ'),
                   ),
                 ),
               ],
@@ -1315,13 +1438,13 @@ class _HighlightsSection extends StatelessWidget {
               children: [
                 if (canManage)
                   IconButton(
-                    tooltip: 'تثبيت ستوري',
+                    tooltip: 'ØªØ«Ø¨ÙŠØª Ø³ØªÙˆØ±ÙŠ',
                     onPressed: onAdd,
                     icon: const Icon(Icons.add_circle_outline_rounded),
                   ),
                 const Spacer(),
                 const Text(
-                  'الهايلايت',
+                  'Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª',
                   style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                 ),
               ],
@@ -1333,7 +1456,7 @@ class _HighlightsSection extends StatelessWidget {
               )
             else if (isPrivateForViewer)
               Text(
-                'الستوريات مخفية من صاحب الحساب.',
+                'Ø§Ù„Ø³ØªÙˆØ±ÙŠØ§Øª Ù…Ø®ÙÙŠØ© Ù…Ù† ØµØ§Ø­Ø¨ Ø§Ù„Ø­Ø³Ø§Ø¨.',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: Theme.of(
@@ -1344,8 +1467,8 @@ class _HighlightsSection extends StatelessWidget {
             else if (albums.isEmpty)
               Text(
                 canManage
-                    ? 'لا توجد هايلايت بعد. ثبّت ستوري من الأرشيف.'
-                    : 'لا توجد هايلايت لهذا المستخدم.',
+                    ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‡Ø§ÙŠÙ„Ø§ÙŠØª Ø¨Ø¹Ø¯. Ø«Ø¨Ù‘Øª Ø³ØªÙˆØ±ÙŠ Ù…Ù† Ø§Ù„Ø£Ø±Ø´ÙŠÙ.'
+                    : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‡Ø§ÙŠÙ„Ø§ÙŠØª Ù„Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù….',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: Theme.of(
@@ -1624,13 +1747,13 @@ class _ProfilePostCard extends StatelessWidget {
                   Text(
                     post.reviewRating == null
                         ? '-'
-                        : '⭐ ${post.reviewRating}/5',
+                        : 'â­ ${post.reviewRating}/5',
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                   const Spacer(),
                   Text(
                     post.merchantName?.trim().isEmpty ?? true
-                        ? 'تقييم متجر'
+                        ? 'ØªÙ‚ÙŠÙŠÙ… Ù…ØªØ¬Ø±'
                         : post.merchantName!.trim(),
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
@@ -1672,19 +1795,19 @@ class _KindPill extends StatelessWidget {
     final IconData icon;
     switch (kind) {
       case 'image':
-        label = 'صور';
+        label = 'ØµÙˆØ±';
         icon = Icons.image_outlined;
         break;
       case 'video':
-        label = 'ريلز';
+        label = 'Ø±ÙŠÙ„Ø²';
         icon = Icons.ondemand_video_rounded;
         break;
       case 'merchant_review':
-        label = 'تقييم';
+        label = 'ØªÙ‚ÙŠÙŠÙ…';
         icon = Icons.rate_review_outlined;
         break;
       default:
-        label = 'نص';
+        label = 'Ù†Øµ';
         icon = Icons.text_fields_rounded;
     }
 
@@ -1780,7 +1903,10 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = mapAnyError(e, fallback: 'تعذر تحميل أرشيف الستوري.');
+        _error = mapAnyError(
+          e,
+          fallback: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø£Ø±Ø´ÙŠÙ Ø§Ù„Ø³ØªÙˆØ±ÙŠ.',
+        );
       });
     }
   }
@@ -1805,13 +1931,20 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
         _saving = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تثبيت الستوري في الهايلايت.')),
+        const SnackBar(
+          content: Text(
+            'ØªÙ… ØªØ«Ø¨ÙŠØª Ø§Ù„Ø³ØªÙˆØ±ÙŠ ÙÙŠ Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª.',
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = mapAnyError(e, fallback: 'تعذر تثبيت الستوري.');
+        _error = mapAnyError(
+          e,
+          fallback: 'ØªØ¹Ø°Ø± ØªØ«Ø¨ÙŠØª Ø§Ù„Ø³ØªÙˆØ±ÙŠ.',
+        );
       });
     }
   }
@@ -1831,7 +1964,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
           children: [
             const ListTile(
               title: Text(
-                'تثبيت ستوري في الهايلايت',
+                'ØªØ«Ø¨ÙŠØª Ø³ØªÙˆØ±ÙŠ ÙÙŠ Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª',
                 textDirection: TextDirection.rtl,
                 textAlign: TextAlign.end,
               ),
@@ -1842,7 +1975,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
                 controller: _titleCtrl,
                 textDirection: TextDirection.rtl,
                 decoration: const InputDecoration(
-                  labelText: 'عنوان الهايلايت (اختياري)',
+                  labelText: 'Ø¹Ù†ÙˆØ§Ù† Ø§Ù„Ù‡Ø§ÙŠÙ„Ø§ÙŠØª (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -1865,7 +1998,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
                   : _stories.isEmpty
                   ? const Center(
                       child: Text(
-                        'لا توجد ستوريات بالأرشيف حالياً.',
+                        'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø³ØªÙˆØ±ÙŠØ§Øª Ø¨Ø§Ù„Ø£Ø±Ø´ÙŠÙ Ø­Ø§Ù„ÙŠØ§Ù‹.',
                         textDirection: TextDirection.rtl,
                       ),
                     )
@@ -1894,7 +2027,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
                                   ),
                             title: Text(
                               story.caption.trim().isEmpty
-                                  ? 'ستوري بدون نص'
+                                  ? 'Ø³ØªÙˆØ±ÙŠ Ø¨Ø¯ÙˆÙ† Ù†Øµ'
                                   : story.caption.trim(),
                               textDirection: TextDirection.rtl,
                               maxLines: 2,
@@ -1904,7 +2037,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
                               onPressed: _saving
                                   ? null
                                   : () => _pinStory(story),
-                              child: const Text('تثبيت'),
+                              child: const Text('ØªØ«Ø¨ÙŠØª'),
                             ),
                           ),
                         );
@@ -1915,7 +2048,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
               padding: const EdgeInsets.all(12),
               child: OutlinedButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('إنهاء'),
+                child: const Text('Ø¥Ù†Ù‡Ø§Ø¡'),
               ),
             ),
           ],
@@ -1938,6 +2071,7 @@ class _EditProfileSheet extends StatefulWidget {
 class _EditProfileSheetState extends State<_EditProfileSheet> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _bioCtrl;
+  late final TextEditingController _ageCtrl;
   late bool _showPhone;
   late bool _postsPublic;
   late bool _storiesPublic;
@@ -1951,6 +2085,9 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.initialProfile.fullName);
     _bioCtrl = TextEditingController(text: widget.initialProfile.bio);
+    _ageCtrl = TextEditingController(
+      text: widget.initialProfile.age?.toString() ?? '',
+    );
     _showPhone = widget.initialProfile.showPhone;
     _postsPublic = widget.initialProfile.postsPublic;
     _storiesPublic = widget.initialProfile.storiesPublic;
@@ -1963,7 +2100,11 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     if (!mime.startsWith('image/')) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختر صورة فقط لتحديث الملف الشخصي.')),
+        const SnackBar(
+          content: Text(
+            'Ø§Ø®ØªØ± ØµÙˆØ±Ø© ÙÙ‚Ø· Ù„ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ.',
+          ),
+        ),
       );
       return;
     }
@@ -1976,9 +2117,18 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     if (_saving) return;
     final fullName = _nameCtrl.text.trim();
     final bio = _bioCtrl.text.trim();
+    final ageText = _ageCtrl.text.trim();
+    int? age;
     if (fullName.isEmpty) {
-      setState(() => _error = 'الاسم مطلوب.');
+      setState(() => _error = 'Ø§Ù„Ø§Ø³Ù… Ù…Ø·Ù„ÙˆØ¨.');
       return;
+    }
+    if (ageText.isNotEmpty) {
+      age = int.tryParse(ageText);
+      if (age == null || age < 13 || age > 100) {
+        setState(() => _error = 'يرجى إدخال عمر صحيح بين 13 و100.');
+        return;
+      }
     }
     setState(() {
       _saving = true;
@@ -1988,6 +2138,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       final out = await widget.api.updateMyProfile(
         fullName: fullName,
         bio: bio,
+        age: age,
         showPhone: _showPhone,
         postsPublic: _postsPublic,
         storiesPublic: _storiesPublic,
@@ -1998,7 +2149,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       if (raw is! Map) {
         setState(() {
           _saving = false;
-          _error = 'تعذر حفظ التعديلات.';
+          _error = 'ØªØ¹Ø°Ø± Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª.';
         });
         return;
       }
@@ -2010,7 +2161,10 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = mapAnyError(e, fallback: 'تعذر حفظ التعديلات.');
+        _error = mapAnyError(
+          e,
+          fallback: 'ØªØ¹Ø°Ø± Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª.',
+        );
       });
     }
   }
@@ -2019,6 +2173,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   void dispose() {
     _nameCtrl.dispose();
     _bioCtrl.dispose();
+    _ageCtrl.dispose();
     super.dispose();
   }
 
@@ -2036,7 +2191,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'تعديل الملف الشخصي',
+                'ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ',
                 textDirection: TextDirection.rtl,
                 style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
               ),
@@ -2072,7 +2227,17 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 controller: _nameCtrl,
                 textDirection: TextDirection.rtl,
                 decoration: const InputDecoration(
-                  labelText: 'الاسم الكامل',
+                  labelText: 'Ø§Ù„Ø§Ø³Ù… Ø§Ù„ÙƒØ§Ù…Ù„',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _ageCtrl,
+                keyboardType: TextInputType.number,
+                textDirection: TextDirection.rtl,
+                decoration: const InputDecoration(
+                  labelText: 'العمر (اختياري)',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -2084,7 +2249,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 maxLines: 6,
                 maxLength: 280,
                 decoration: const InputDecoration(
-                  labelText: 'نبذة تعريفية',
+                  labelText: 'Ù†Ø¨Ø°Ø© ØªØ¹Ø±ÙŠÙÙŠØ©',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -2093,7 +2258,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 value: _showPhone,
                 onChanged: (value) => setState(() => _showPhone = value),
                 title: const Text(
-                  'إظهار رقم الهاتف في الصفحة الشخصية',
+                  'Ø¥Ø¸Ù‡Ø§Ø± Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ ÙÙŠ Ø§Ù„ØµÙØ­Ø© Ø§Ù„Ø´Ø®ØµÙŠØ©',
                   textDirection: TextDirection.rtl,
                 ),
               ),
@@ -2101,7 +2266,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 value: _postsPublic,
                 onChanged: (value) => setState(() => _postsPublic = value),
                 title: const Text(
-                  'السماح للجميع برؤية منشوراتي',
+                  'Ø§Ù„Ø³Ù…Ø§Ø­ Ù„Ù„Ø¬Ù…ÙŠØ¹ Ø¨Ø±Ø¤ÙŠØ© Ù…Ù†Ø´ÙˆØ±Ø§ØªÙŠ',
                   textDirection: TextDirection.rtl,
                 ),
               ),
@@ -2109,7 +2274,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 value: _storiesPublic,
                 onChanged: (value) => setState(() => _storiesPublic = value),
                 title: const Text(
-                  'السماح للجميع برؤية ستورياتي',
+                  'Ø§Ù„Ø³Ù…Ø§Ø­ Ù„Ù„Ø¬Ù…ÙŠØ¹ Ø¨Ø±Ø¤ÙŠØ© Ø³ØªÙˆØ±ÙŠØ§ØªÙŠ',
                   textDirection: TextDirection.rtl,
                 ),
               ),
@@ -2134,7 +2299,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.save_outlined),
-                label: const Text('حفظ التعديلات'),
+                label: const Text('Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª'),
               ),
             ],
           ),
@@ -2181,7 +2346,9 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
     try {
       final uri = Uri.tryParse(widget.mediaUrl);
       if (uri == null) {
-        setState(() => _videoError = 'رابط الفيديو غير صالح.');
+        setState(
+          () => _videoError = 'Ø±Ø§Ø¨Ø· Ø§Ù„ÙÙŠØ¯ÙŠÙˆ ØºÙŠØ± ØµØ§Ù„Ø­.',
+        );
         return;
       }
       final controller = VideoPlayerController.networkUrl(uri);
@@ -2198,7 +2365,7 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _videoError = 'تعذر تشغيل الفيديو.');
+      setState(() => _videoError = 'ØªØ¹Ø°Ø± ØªØ´ØºÙŠÙ„ Ø§Ù„ÙÙŠØ¯ÙŠÙˆ.');
     }
   }
 
@@ -2250,7 +2417,9 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
                   widget.mediaUrl,
                   fit: BoxFit.contain,
                   errorBuilder: (context, error, stackTrace) =>
-                      const _MediaError(message: 'تعذر تحميل الصورة.'),
+                      const _MediaError(
+                        message: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØµÙˆØ±Ø©.',
+                      ),
                 ),
               ),
             )
@@ -2357,15 +2526,15 @@ class _HighlightAlbum {
 const String _allPostsKey = '__all__';
 
 const List<_ProfileFilterOption> _profileFilters = <_ProfileFilterOption>[
-  _ProfileFilterOption('الكل', null, Icons.grid_view_rounded),
-  _ProfileFilterOption('صور', 'image', Icons.image_outlined),
-  _ProfileFilterOption('ريلز', 'video', Icons.ondemand_video_rounded),
+  _ProfileFilterOption('Ø§Ù„ÙƒÙ„', null, Icons.grid_view_rounded),
+  _ProfileFilterOption('ØµÙˆØ±', 'image', Icons.image_outlined),
+  _ProfileFilterOption('Ø±ÙŠÙ„Ø²', 'video', Icons.ondemand_video_rounded),
   _ProfileFilterOption(
-    'تقييمات',
+    'ØªÙ‚ÙŠÙŠÙ…Ø§Øª',
     'merchant_review',
     Icons.rate_review_outlined,
   ),
-  _ProfileFilterOption('نصوص', 'text', Icons.text_fields_rounded),
+  _ProfileFilterOption('Ù†ØµÙˆØµ', 'text', Icons.text_fields_rounded),
 ];
 
 int? _parseInt(dynamic value) {
