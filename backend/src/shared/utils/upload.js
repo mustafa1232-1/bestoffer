@@ -108,11 +108,14 @@ const r2Storage = {
         } catch (error) {
           lastR2UploadError = String(error?.message || "R2_UPLOAD_FAILED");
           lastR2UploadAt = new Date().toISOString();
-          console.warn(
-            `[upload] R2 upload failed, falling back to local storage: ${
-              error?.message || "unknown error"
-            }`
-          );
+          safeUnlink(localPath);
+          const r2Error = new Error("R2_UPLOAD_FAILED");
+          r2Error.status = 503;
+          r2Error.details = {
+            reason: String(error?.message || "unknown error"),
+          };
+          done(r2Error);
+          return;
         }
       }
 
