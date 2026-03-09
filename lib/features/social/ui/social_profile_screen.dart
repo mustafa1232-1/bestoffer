@@ -6,6 +6,8 @@ import 'package:video_player/video_player.dart';
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/platform/app_platform_capabilities.dart';
+import '../../../core/widgets/appbar_quick_actions.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
@@ -222,6 +224,9 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       id: profile.id,
       fullName: profile.fullName,
       role: profile.role,
+      isSuperAdmin: profile.isSuperAdmin,
+      accountDisabled: profile.accountDisabled,
+      viewerIsSuperAdmin: profile.viewerIsSuperAdmin,
       bio: profile.bio,
       age: profile.age,
       imageUrl: profile.imageUrl,
@@ -231,6 +236,8 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       storiesPublic: profile.storiesPublic,
       joinedAt: profile.joinedAt,
       isMe: profile.isMe,
+      notificationPreference: profile.notificationPreference,
+      superAdminControls: profile.superAdminControls,
       relation: relation,
       stats: profile.stats,
     );
@@ -327,6 +334,108 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       () => _api.unblockRelation(widget.userId),
       successMessage: 'تم فك الحظر',
     );
+  }
+
+  Future<void> _setNotificationPreference(bool enabled) async {
+    final profile = _profile;
+    if (profile == null || profile.isMe || _relationBusy) return;
+
+    setState(() {
+      _relationBusy = true;
+      _error = null;
+    });
+    try {
+      final out = await _api.setUserNotificationPreference(
+        userId: widget.userId,
+        enabled: enabled,
+      );
+      final raw =
+          out['notificationPreference'] ?? out['notification_preference'];
+      if (raw is Map && mounted && _profile != null) {
+        final nextPref = SocialUserNotificationPreference.fromJson(
+          Map<String, dynamic>.from(raw),
+        );
+        setState(() {
+          _profile = SocialUserProfile(
+            id: _profile!.id,
+            fullName: _profile!.fullName,
+            role: _profile!.role,
+            isSuperAdmin: _profile!.isSuperAdmin,
+            accountDisabled: _profile!.accountDisabled,
+            viewerIsSuperAdmin: _profile!.viewerIsSuperAdmin,
+            bio: _profile!.bio,
+            age: _profile!.age,
+            imageUrl: _profile!.imageUrl,
+            phone: _profile!.phone,
+            showPhone: _profile!.showPhone,
+            postsPublic: _profile!.postsPublic,
+            storiesPublic: _profile!.storiesPublic,
+            joinedAt: _profile!.joinedAt,
+            isMe: _profile!.isMe,
+            notificationPreference: nextPref,
+            superAdminControls: _profile!.superAdminControls,
+            relation: _profile!.relation,
+            stats: _profile!.stats,
+          );
+        });
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled
+                ? 'تم تفعيل إشعارات هذا المستخدم'
+                : 'تم إيقاف إشعارات هذا المستخدم',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapAnyError(e, fallback: 'تعذر تحديث تفضيل الإشعارات.'),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _relationBusy = false);
+      }
+    }
+  }
+
+  Future<void> _runSuperAdminAction({
+    required String action,
+    required String successMessage,
+  }) async {
+    final profile = _profile;
+    if (profile == null || profile.isMe || _relationBusy) return;
+
+    setState(() {
+      _relationBusy = true;
+      _error = null;
+    });
+    try {
+      await _api.runSuperAdminUserAction(userId: widget.userId, action: action);
+      if (!mounted) return;
+      await _loadProfile();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(successMessage)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(mapAnyError(e, fallback: 'تعذر تنفيذ أمر الأدمن.')),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _relationBusy = false);
+      }
+    }
   }
 
   Future<void> _openChatWithUser() async {
@@ -465,20 +574,38 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
 
   Widget? _buildRelationActions(SocialUserProfile profile) {
     if (profile.isMe) return null;
+    if (profile.viewerIsSuperAdmin && profile.superAdminControls != null) {
+      return _buildSuperAdminActions(profile);
+    }
+
     final relation = profile.relation;
 
     if (relation.isBlockedByMe) {
-      return FilledButton.tonalIcon(
-        onPressed: _relationBusy ? null : _unblockRelation,
-        icon: const Icon(Icons.lock_open_rounded),
-        label: const Text('فك الحظر'),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FilledButton.tonalIcon(
+            onPressed: _relationBusy ? null : _unblockRelation,
+            icon: const Icon(Icons.lock_open_rounded),
+            label: const Text('فك الحظر'),
+          ),
+          const SizedBox(height: 8),
+          _buildNotificationToggle(profile),
+        ],
       );
     }
 
     if (relation.isBlockedByOther) {
-      return const Text(
-        'لا يمكن التفاعل مع هذا الحساب حالياً بسبب الحظر.',
-        style: TextStyle(fontWeight: FontWeight.w700),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'لا يمكن التفاعل مع هذا الحساب حالياً بسبب الحظر.',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          _buildNotificationToggle(profile),
+        ],
       );
     }
 
@@ -549,6 +676,8 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
           ),
         ],
         const SizedBox(height: 8),
+        _buildNotificationToggle(profile),
+        const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerRight,
           child: OutlinedButton.icon(
@@ -561,7 +690,170 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     );
   }
 
+  Widget _buildNotificationToggle(SocialUserProfile profile) {
+    final pref = profile.notificationPreference;
+    final enabled = pref?.enabled ?? true;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: OutlinedButton.icon(
+        onPressed: _relationBusy
+            ? null
+            : () => _setNotificationPreference(!enabled),
+        icon: Icon(
+          enabled
+              ? Icons.notifications_active_outlined
+              : Icons.notifications_off_outlined,
+        ),
+        label: Text(enabled ? 'إيقاف إشعاراته' : 'تفعيل إشعاراته'),
+      ),
+    );
+  }
+
+  Widget _buildSuperAdminActions(SocialUserProfile profile) {
+    final controls = profile.superAdminControls;
+    if (controls == null) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: Theme.of(
+              context,
+            ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
+          ),
+          child: Text(
+            controls.accountDisabled
+                ? 'الحساب معطل حالياً'
+                : 'الحساب مفعل حالياً',
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: _relationBusy
+                  ? null
+                  : () => _runSuperAdminAction(
+                      action: controls.accountDisabled
+                          ? 'enable_account'
+                          : 'disable_account',
+                      successMessage: controls.accountDisabled
+                          ? 'تم تفعيل الحساب'
+                          : 'تم تعطيل الحساب',
+                    ),
+              icon: Icon(
+                controls.accountDisabled
+                    ? Icons.lock_open_rounded
+                    : Icons.block_rounded,
+              ),
+              label: Text(
+                controls.accountDisabled ? 'تفعيل الحساب' : 'تعطيل الحساب',
+              ),
+            ),
+            if (!controls.targetIsSuperAdmin && profile.role != 'admin')
+              FilledButton.tonalIcon(
+                onPressed: _relationBusy
+                    ? null
+                    : () => _runSuperAdminAction(
+                        action: 'promote_admin',
+                        successMessage: 'تمت ترقية المستخدم إلى أدمن',
+                      ),
+                icon: const Icon(Icons.admin_panel_settings_outlined),
+                label: const Text('ترقية إلى أدمن'),
+              ),
+            if (!controls.targetIsSuperAdmin && profile.role != 'user')
+              OutlinedButton.icon(
+                onPressed: _relationBusy
+                    ? null
+                    : () => _runSuperAdminAction(
+                        action: 'demote_user',
+                        successMessage: 'تمت إعادة الدور إلى مستخدم',
+                      ),
+                icon: const Icon(Icons.person_outline_rounded),
+                label: const Text('إرجاع إلى مستخدم'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if ((controls.blockCode ?? '').isNotEmpty)
+          OutlinedButton.icon(
+            onPressed: _relationBusy
+                ? null
+                : () => _runSuperAdminAction(
+                    action: controls.isBlockManager
+                        ? 'revoke_block_manager'
+                        : 'grant_block_manager',
+                    successMessage: controls.isBlockManager
+                        ? 'تمت إزالة إدارة البلوك'
+                        : 'تمت ترقية مدير البلوك',
+                  ),
+            icon: const Icon(Icons.account_tree_outlined),
+            label: Text(
+              controls.isBlockManager
+                  ? 'إزالة مدير البلوك (${controls.blockCode})'
+                  : 'ترقية مدير البلوك (${controls.blockCode})',
+            ),
+          ),
+        if ((controls.compoundCode ?? '').isNotEmpty) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _relationBusy
+                ? null
+                : () => _runSuperAdminAction(
+                    action: controls.isCompoundManager
+                        ? 'revoke_compound_manager'
+                        : 'grant_compound_manager',
+                    successMessage: controls.isCompoundManager
+                        ? 'تمت إزالة إدارة المجمع'
+                        : 'تمت ترقية مدير المجمع',
+                  ),
+            icon: const Icon(Icons.groups_2_outlined),
+            label: Text(
+              controls.isCompoundManager
+                  ? 'إزالة مدير المجمع (${controls.compoundCode})'
+                  : 'ترقية مدير المجمع (${controls.compoundCode})',
+            ),
+          ),
+        ],
+        if ((controls.buildingCode ?? '').isNotEmpty) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _relationBusy
+                ? null
+                : () => _runSuperAdminAction(
+                    action: controls.isBuildingManager
+                        ? 'revoke_building_manager'
+                        : 'grant_building_manager',
+                    successMessage: controls.isBuildingManager
+                        ? 'تمت إزالة إدارة العمارة'
+                        : 'تمت ترقية مدير العمارة',
+                  ),
+            icon: const Icon(Icons.apartment_rounded),
+            label: Text(
+              controls.isBuildingManager
+                  ? 'إزالة مدير العمارة (${controls.buildingCode})'
+                  : 'ترقية مدير العمارة (${controls.buildingCode})',
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   String _relationStatusText(SocialRelation relation) {
+    final profile = _profile;
+    if (profile != null &&
+        !profile.isMe &&
+        profile.viewerIsSuperAdmin &&
+        profile.superAdminControls != null) {
+      return 'وضع إدارة السوبر أدمن';
+    }
     if (relation.isBlockedByMe) return 'هذا الحساب محظور من طرفك';
     if (relation.isBlockedByOther) return 'هذا الحساب قام بحظرك';
     if (relation.isAccepted) return 'صديقك ومتابع لك';
@@ -832,6 +1124,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
                 onPressed: _openEditProfileSheet,
                 icon: const Icon(Icons.edit_outlined),
               ),
+            const AppBarQuickActions(compact: true, includeProfile: false),
           ],
         ),
         body: _loadingProfile && profile == null
@@ -1925,11 +2218,49 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
 
   Future<void> _loadArchive() async {
     try {
-      final out = await widget.api.listMyStoryArchive(limit: 80);
-      final raw = List<dynamic>.from(out['stories'] as List? ?? const []);
-      final stories = raw
+      final archiveOut = await widget.api.listMyStoryArchive(limit: 80);
+      final archiveRaw = List<dynamic>.from(
+        archiveOut['stories'] as List? ?? const [],
+      );
+      final archiveStories = archiveRaw
           .map((e) => SocialStory.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(growable: false);
+
+      List<SocialStory> liveStories = const <SocialStory>[];
+      try {
+        final liveOut = await widget.api.listStories(
+          limitUsers: 60,
+          maxPerUser: 20,
+        );
+        final liveRaw = List<dynamic>.from(
+          liveOut['stories'] as List? ?? const [],
+        );
+        liveStories = liveRaw
+            .map(
+              (e) => SocialStoryGroup.fromJson(
+                Map<String, dynamic>.from(e as Map),
+              ),
+            )
+            .expand((group) => group.stories.where((story) => story.isMine))
+            .toList(growable: false);
+      } catch (_) {
+        // Keep archive flow functional even if live stories endpoint fails.
+      }
+
+      final mergedById = <int, SocialStory>{};
+      for (final story in liveStories) {
+        mergedById[story.id] = story;
+      }
+      for (final story in archiveStories) {
+        mergedById.putIfAbsent(story.id, () => story);
+      }
+      final stories = mergedById.values.toList(growable: false)
+        ..sort((a, b) {
+          final aTime = a.createdAt?.millisecondsSinceEpoch ?? a.id;
+          final bTime = b.createdAt?.millisecondsSinceEpoch ?? b.id;
+          return bTime.compareTo(aTime);
+        });
+
       if (!mounted) return;
       setState(() {
         _stories = stories;
@@ -1966,6 +2297,7 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تم تثبيت الستوري في الهايلايت.')),
       );
+      Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -2357,7 +2689,11 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
   void initState() {
     super.initState();
     if (widget.isVideo) {
-      _initVideo();
+      if (!appSupportsInlineVideoPlayback) {
+        _videoError = 'تشغيل الفيديو غير مدعوم على هذه المنصة.';
+      } else {
+        _initVideo();
+      }
     }
   }
 

@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
+import '../../../core/i18n/app_strings.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/widgets/app_user_drawer.dart';
 import '../../auth/state/auth_controller.dart';
@@ -357,6 +358,7 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(socialControllerProvider);
+    final strings = ref.watch(appStringsProvider);
     final hasPosts = state.posts.isNotEmpty;
     final scheme = Theme.of(context).colorScheme;
     const feedTop = Color(0xFF120F2D);
@@ -374,22 +376,22 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
     final drawerItems = <AppUserDrawerItem>[
       AppUserDrawerItem(
         icon: Icons.refresh_rounded,
-        label: '????? ??????',
+        label: strings.t('drawerRefresh'),
         onTap: (_) async => _refreshAll(),
       ),
       AppUserDrawerItem(
         icon: Icons.chat_bubble_outline_rounded,
-        label: '???????',
+        label: strings.t('drawerChats'),
         onTap: (_) async => _openThreads(),
       ),
       AppUserDrawerItem(
         icon: Icons.post_add_rounded,
-        label: '????? ?????',
+        label: strings.t('drawerNewPost'),
         onTap: (_) async => _openCreatePost(),
       ),
       AppUserDrawerItem(
         icon: Icons.add_circle_outline_rounded,
-        label: '????? ?????',
+        label: strings.t('drawerNewStory'),
         onTap: (_) async => _openCreateStory(),
       ),
     ];
@@ -397,8 +399,8 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
     return Scaffold(
       backgroundColor: feedBottom,
       drawer: AppUserDrawer(
-        title: '?????? ??????',
-        subtitle: '????? ?????? ???? ????? ????',
+        title: strings.t('drawerBasmayaTitle'),
+        subtitle: strings.t('drawerBasmayaSubtitle'),
         items: drawerItems,
         showCommunitySection: true,
       ),
@@ -408,7 +410,7 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
         icon: const Icon(Icons.post_add_rounded),
         backgroundColor: const Color(0xFF3E6DF5),
         foregroundColor: Colors.white,
-        label: const Text('إضافة منشور'),
+        label: Text(strings.t('drawerNewPost')),
       ),
       body: Container(
         decoration: const BoxDecoration(

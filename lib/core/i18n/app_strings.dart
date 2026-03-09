@@ -28,8 +28,8 @@ const Map<String, Map<String, String>> _translations = {
   'logout': {'ar': 'تسجيل الخروج', 'en': 'Logout'},
   'myOrders': {'ar': 'طلباتي', 'en': 'My Orders'},
   'customerHomeTitle': {
-    'ar': 'شكاكي | سوقك اليومي',
-    'en': 'Shakaky | Your Daily Market',
+    'ar': 'مَسْلَكي | سوقك اليومي',
+    'en': 'Maslaki | Your Daily Market',
   },
   'backofficeMerchantsTitle': {
     'ar': 'إدارة المتاجر',
@@ -85,6 +85,45 @@ const Map<String, Map<String, String>> _translations = {
   'drawerPendingSettlements': {
     'ar': 'طلبات تسديد المستحقات',
     'en': 'Pending settlement requests',
+  },
+  'drawerProfile': {'ar': 'الملف الشخصي', 'en': 'Profile'},
+  'drawerCancel': {'ar': 'إلغاء', 'en': 'Cancel'},
+  'drawerEnter': {'ar': 'دخول', 'en': 'Enter'},
+  'drawerManualSelection': {'ar': 'اختيار يدوي', 'en': 'Manual selection'},
+  'drawerBlockCommunity': {'ar': 'مجتمع البلوك', 'en': 'Block Community'},
+  'drawerCompoundCommunity': {'ar': 'مجتمع المجمع', 'en': 'Compound Community'},
+  'drawerBuildingCommunity': {
+    'ar': 'مجتمع العمارة',
+    'en': 'Building Community',
+  },
+  'drawerEnterBlockCode': {'ar': 'ادخل رمز البلوك', 'en': 'Enter block code'},
+  'drawerEnterCompoundCode': {
+    'ar': 'ادخل رمز المجمع',
+    'en': 'Enter compound code',
+  },
+  'drawerEnterBuildingCode': {
+    'ar': 'ادخل رمز العمارة',
+    'en': 'Enter building code',
+  },
+  'drawerBlockCodeHint': {
+    'ar': 'اكتب رمز البلوك مثل A أو B',
+    'en': 'Type block code like A or B',
+  },
+  'drawerCompoundCodeHint': {
+    'ar': 'اكتب رمز المجمع مثل A1 أو B4',
+    'en': 'Type compound code like A1 or B4',
+  },
+  'drawerBuildingCodeHint': {
+    'ar': 'اكتب رمز العمارة مثل A711',
+    'en': 'Type building code like A711',
+  },
+  'drawerChats': {'ar': 'المحادثات', 'en': 'Chats'},
+  'drawerNewPost': {'ar': 'إضافة منشور', 'en': 'New Post'},
+  'drawerNewStory': {'ar': 'إضافة ستوري', 'en': 'New Story'},
+  'drawerBasmayaTitle': {'ar': 'شديصير بسماية', 'en': 'Shdysir Basmaya'},
+  'drawerBasmayaSubtitle': {
+    'ar': 'تابع مجتمع بسماية لحظة بلحظة',
+    'en': 'Follow Basmaya community updates',
   },
 
   'ownerApprovalPendingTitle': {
@@ -176,7 +215,7 @@ const Map<String, Map<String, String>> _translations = {
   'phoneLabel': {'ar': 'رقم الهاتف', 'en': 'Phone Number'},
   'pinLabel': {'ar': 'الرمز السري (PIN)', 'en': 'PIN'},
   'loginTagline': {
-    'ar': 'شكاكي وياك • كلشي يلگاك',
-    'en': 'Shakaky with you • everything you need in one place',
+    'ar': 'مَسْلَكي وياك • كلشي يلگاگ',
+    'en': 'Maslaki with you • everything you need in one place',
   },
 };
