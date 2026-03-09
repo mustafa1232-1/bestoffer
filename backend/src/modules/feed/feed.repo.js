@@ -300,6 +300,7 @@ export async function upsertStoryHighlight({
   storyId,
   title = null,
 }) {
+  const normalizedTitle = typeof title === "string" ? title.trim() : "";
   const r = await q(
     `INSERT INTO social_story_highlight
       (owner_user_id, story_id, title)
@@ -309,7 +310,7 @@ export async function upsertStoryHighlight({
        title = COALESCE(NULLIF(EXCLUDED.title, ''), social_story_highlight.title),
        updated_at = NOW()
      RETURNING *`,
-    [Number(ownerUserId), Number(storyId), title || null]
+    [Number(ownerUserId), Number(storyId), normalizedTitle]
   );
   return r.rows[0] || null;
 }
@@ -1376,3 +1377,4 @@ export async function getThreadCallState(threadId, { signalLimit = 160 } = {}) {
   const signals = await listThreadCallSignals(session.id, { limit: signalLimit });
   return { session, signals };
 }
+
