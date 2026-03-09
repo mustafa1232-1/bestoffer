@@ -10,13 +10,18 @@ import 'package:video_player/video_player.dart';
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/widgets/app_user_drawer.dart';
 import '../../auth/state/auth_controller.dart';
+import '../../auth/ui/merchants_list_screen.dart';
+import '../../merchants/models/merchant_model.dart';
+import '../../merchants/ui/merchant_products_screen.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'social_chat_thread_screen.dart';
 import 'social_chat_threads_screen.dart';
 import 'social_profile_screen.dart';
+import 'widgets/basmaya_shell_bars.dart';
 
 class BasmayaFeedScreen extends ConsumerStatefulWidget {
   final int? initialThreadId;
@@ -310,6 +315,45 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
     );
   }
 
+  Future<void> _openMerchantFromReview(SocialPost post) async {
+    final merchantId = post.merchantId;
+    final merchantName = (post.merchantName ?? '').trim();
+
+    if (merchantId == null || merchantId <= 0) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => MerchantsListScreen(
+            initialSearchQuery: merchantName,
+            compactCustomerMode: true,
+          ),
+        ),
+      );
+      return;
+    }
+
+    final merchantType = (post.merchantType ?? '').trim().toLowerCase();
+    final merchant = MerchantModel(
+      id: merchantId,
+      name: merchantName.isEmpty ? 'متجر' : merchantName,
+      type: merchantType.isEmpty ? 'market' : merchantType,
+      description: null,
+      phone: null,
+      imageUrl: post.merchantImageUrl,
+      tagline: null,
+      workingHours: null,
+      serviceAreaNote: null,
+      isOpen: true,
+      hasDiscountOffer: false,
+      hasFreeDeliveryOffer: false,
+    );
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MerchantProductsScreen(merchant: merchant),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(socialControllerProvider);
@@ -327,30 +371,38 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
       );
     });
 
+    final drawerItems = <AppUserDrawerItem>[
+      AppUserDrawerItem(
+        icon: Icons.refresh_rounded,
+        label: '????? ??????',
+        onTap: (_) async => _refreshAll(),
+      ),
+      AppUserDrawerItem(
+        icon: Icons.chat_bubble_outline_rounded,
+        label: '???????',
+        onTap: (_) async => _openThreads(),
+      ),
+      AppUserDrawerItem(
+        icon: Icons.post_add_rounded,
+        label: '????? ?????',
+        onTap: (_) async => _openCreatePost(),
+      ),
+      AppUserDrawerItem(
+        icon: Icons.add_circle_outline_rounded,
+        label: '????? ?????',
+        onTap: (_) async => _openCreateStory(),
+      ),
+    ];
+
     return Scaffold(
       backgroundColor: feedBottom,
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF111C36),
-        foregroundColor: Colors.white,
-        title: const Text('شديصير بسماية'),
-        actions: [
-          IconButton(
-            tooltip: 'تحديث',
-            onPressed: _refreshAll,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          IconButton(
-            tooltip: 'المحادثات',
-            onPressed: _openThreads,
-            icon: const Icon(Icons.chat_bubble_outline_rounded),
-          ),
-          IconButton(
-            tooltip: 'منشور جديد',
-            onPressed: _openCreatePost,
-            icon: const Icon(Icons.add_circle_outline_rounded),
-          ),
-        ],
+      drawer: AppUserDrawer(
+        title: '?????? ??????',
+        subtitle: '????? ?????? ???? ????? ????',
+        items: drawerItems,
+        showCommunitySection: true,
       ),
+      appBar: BasmayaTopAppBar(onAddPost: _openCreatePost),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openCreatePost,
         icon: const Icon(Icons.post_add_rounded),
@@ -551,6 +603,8 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
                         onShare: () => _sharePost(post),
                         onMessageAuthor: () => _messageAuthor(post.author),
                         onOpenMedia: () => _openPostMedia(post),
+                        onOpenMerchantReview: () =>
+                            _openMerchantFromReview(post),
                         isImage: _isImagePost(post),
                         isVideo: _isVideoPost(post),
                       );
@@ -567,6 +621,9 @@ class _BasmayaFeedScreenState extends ConsumerState<BasmayaFeedScreen> {
             ],
           ),
         ),
+      ),
+      bottomNavigationBar: const BasmayaBottomNavBar(
+        current: BasmayaNavKey.home,
       ),
     );
   }
@@ -2260,6 +2317,7 @@ class _FeedPostCard extends StatelessWidget {
   final VoidCallback onShare;
   final VoidCallback onMessageAuthor;
   final VoidCallback onOpenMedia;
+  final VoidCallback onOpenMerchantReview;
 
   const _FeedPostCard({
     required this.post,
@@ -2273,6 +2331,7 @@ class _FeedPostCard extends StatelessWidget {
     required this.onShare,
     required this.onMessageAuthor,
     required this.onOpenMedia,
+    required this.onOpenMerchantReview,
   });
 
   @override
@@ -2357,36 +2416,92 @@ class _FeedPostCard extends StatelessWidget {
             ],
             if (post.postKind == 'merchant_review') ...[
               const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      'تقييم: ${post.merchantName ?? 'غير معروف'}',
-                      textDirection: TextDirection.rtl,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: List.generate(
-                        5,
-                        (i) => Icon(
-                          i < (post.reviewRating ?? 0)
-                              ? Icons.star_rounded
-                              : Icons.star_border_rounded,
-                          color: Colors.amber,
-                          size: 18,
-                        ),
+                  onTap:
+                      (post.merchantId != null && post.merchantId! > 0) ||
+                          (post.merchantName ?? '').trim().isNotEmpty
+                      ? onOpenMerchantReview
+                      : null,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: scheme.surfaceContainerHighest.withValues(
+                        alpha: 0.6,
                       ),
                     ),
-                  ],
+                    child: Row(
+                      textDirection: TextDirection.rtl,
+                      children: [
+                        CircleAvatar(
+                          radius: 20,
+                          backgroundImage:
+                              (post.merchantImageUrl ?? '').trim().isNotEmpty
+                              ? NetworkImage(post.merchantImageUrl!)
+                              : null,
+                          child: (post.merchantImageUrl ?? '').trim().isEmpty
+                              ? const Icon(Icons.storefront_rounded, size: 18)
+                              : null,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                "تقييم: ${post.merchantName ?? 'متجر'}",
+                                textDirection: TextDirection.rtl,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: List.generate(
+                                  5,
+                                  (i) => Icon(
+                                    i < (post.reviewRating ?? 0)
+                                        ? Icons.star_rounded
+                                        : Icons.star_border_rounded,
+                                    color: Colors.amber,
+                                    size: 18,
+                                  ),
+                                ),
+                              ),
+                              if ((post.merchantId != null &&
+                                      post.merchantId! > 0) ||
+                                  (post.merchantName ?? '')
+                                      .trim()
+                                      .isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  'اضغط لفتح صفحة المتجر',
+                                  textDirection: TextDirection.rtl,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: scheme.primary,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if ((post.merchantId != null && post.merchantId! > 0) ||
+                            (post.merchantName ?? '').trim().isNotEmpty)
+                          Icon(
+                            Icons.open_in_new_rounded,
+                            size: 18,
+                            color: scheme.primary,
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
