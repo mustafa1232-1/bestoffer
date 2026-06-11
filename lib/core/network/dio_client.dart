@@ -1,11 +1,27 @@
 import 'dart:math';
 
-import 'package:bestoffer/core/storage/secure_storage.dart';
+import 'package:maslaki/core/network/auth_session_token_cache.dart';
+import 'package:maslaki/core/storage/secure_storage.dart';
 import 'package:dio/dio.dart';
 
 import '../constants/api.dart';
 import '../utils/parsers.dart';
 
+/// Purpose:
+/// عميل HTTP المركزي للتطبيق. يضيف auth/device headers، يطبع payloads
+/// النصية، ويطبق fallback بين base URLs عند أعطال الشبكة.
+///
+/// Used by:
+/// - معظم `*Api` في طبقة البيانات
+///
+/// Critical notes:
+/// - أي تغيير هنا ينعكس على كل طلبات التطبيق تقريباً.
+/// - fallback بين الـ base URLs مقصود لتجاوز انقطاع مؤقت في بيئة واحدة،
+///   وليس لإخفاء أخطاء business responses.
+///
+/// Maintenance notes:
+/// - عند تكرار 401 أو فشل requests جماعي أو payloads مشوهة، ابدأ من هذا
+///   الملف قبل الغوص في API module محدد.
 class DioClient {
   final Dio dio;
   final SecureStore store;
@@ -24,8 +40,12 @@ class DioClient {
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final token = await store.readToken();
-          if (token != null && token.isNotEmpty) {
+          final skipAuth = options.extra['skipAuth'] == true;
+          final token =
+              skipAuth
+                  ? null
+                  : await store.readToken() ?? AuthSessionTokenCache.currentToken;
+          if (!skipAuth && token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
           final deviceId = await _ensureDeviceId(store);
@@ -61,8 +81,12 @@ class DioClient {
                 },
               );
 
-              final token = await store.readToken();
-              if (token != null && token.isNotEmpty) {
+              final skipAuth = retryOptions.extra['skipAuth'] == true;
+              final token =
+                  skipAuth
+                      ? null
+                      : await store.readToken() ?? AuthSessionTokenCache.currentToken;
+              if (!skipAuth && token != null && token.isNotEmpty) {
                 retryOptions.headers['Authorization'] = 'Bearer $token';
               }
 
@@ -85,6 +109,7 @@ class DioClient {
   }
 }
 
+/// يضمن وجود device id ثابت لكل تثبيت تطبيق لاستخدامه في tracing والجلسات.
 Future<String> _ensureDeviceId(SecureStore store) async {
   final existing = await store.readString(DioClient._deviceIdKey);
   if (existing != null && existing.trim().isNotEmpty) {
@@ -97,6 +122,7 @@ Future<String> _ensureDeviceId(SecureStore store) async {
   return value;
 }
 
+/// يميز أخطاء النقل المؤقتة عن أخطاء الخادم أو business validation.
 bool _isRetryableConnectionError(DioException error) {
   return error.type == DioExceptionType.connectionError ||
       error.type == DioExceptionType.connectionTimeout ||
@@ -116,6 +142,8 @@ List<String> _readTriedBaseUrls(RequestOptions request) {
   return [current];
 }
 
+/// يمر على payload recursively لتوحيد النصوص المرسلة من الخادم قبل دخولها
+/// إلى النماذج أو الواجهة.
 dynamic _normalizePayload(dynamic value) {
   if (value is String) {
     return normalizeText(value);

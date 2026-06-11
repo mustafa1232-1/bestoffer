@@ -12,19 +12,43 @@ final customerAdBoardControllerProvider =
 class CustomerAdBoardController
     extends StateNotifier<AsyncValue<List<CustomerAdBoardItem>>> {
   final Ref ref;
+  String? _loadedType;
+  Future<void>? _inFlight;
 
-  CustomerAdBoardController(this.ref) : super(const AsyncValue.loading()) {
-    Future.microtask(load);
+  CustomerAdBoardController(this.ref) : super(const AsyncValue.loading());
+
+  Future<void> load({String? type, bool force = false}) {
+    final normalizedType = type?.trim().toLowerCase();
+    final hasLoadedCurrent = _loadedType == normalizedType && state.hasValue;
+    if (!force && hasLoadedCurrent) {
+      return Future.value();
+    }
+    if (!force && _inFlight != null) {
+      return _inFlight!;
+    }
+
+    final future = _performLoad(normalizedType);
+    _inFlight = future;
+    return future.whenComplete(() {
+      if (identical(_inFlight, future)) {
+        _inFlight = null;
+      }
+    });
   }
 
-  Future<void> load({String? type}) async {
-    state = const AsyncValue.loading();
+  Future<void> _performLoad(String? normalizedType) async {
+    if (!state.hasValue) {
+      state = const AsyncValue.loading();
+    }
     try {
-      final raw = await ref.read(merchantsApiProvider).adBoard(type: type);
+      final raw = await ref
+          .read(merchantsApiProvider)
+          .adBoard(type: normalizedType);
       final items = raw
           .map((e) => Map<String, dynamic>.from(e as Map))
           .map(CustomerAdBoardItem.fromJson)
           .toList();
+      _loadedType = normalizedType;
       state = AsyncValue.data(items);
     } catch (error, stackTrace) {
       state = AsyncValue.error(error, stackTrace);

@@ -21,18 +21,19 @@ const Map<String, String> _socialApiMessages = {
   'POST_NOT_FOUND': 'المنشور غير موجود أو تمت إزالته.',
   'THREAD_NOT_FOUND': 'المحادثة غير متاحة.',
   'THREAD_SELF_NOT_ALLOWED': 'لا يمكنك إنشاء محادثة مع نفسك.',
-  'RELATION_REQUIRED': 'قبل المراسلة لازم يتم قبول طلب المتابعة بين الطرفين.',
+  'RELATION_REQUIRED': 'قبل المراسلة يجب قبول طلب المتابعة بين الطرفين.',
   'RELATION_REQUEST_NOT_FOUND': 'طلب المتابعة غير موجود.',
   'RELATION_ACCEPT_NOT_ALLOWED': 'لا يمكن قبول هذا الطلب حاليًا.',
   'RELATION_REJECT_NOT_ALLOWED': 'لا يمكن رفض هذا الطلب حاليًا.',
   'RELATION_CANCEL_NOT_ALLOWED': 'لا يمكن إلغاء هذا الطلب حاليًا.',
   'RELATION_BLOCKED': 'لا يمكن إتمام العملية بسبب إعدادات الخصوصية.',
-  'EMPTY_STORY': 'أضف نصًا أو صورة/فيديو قبل نشر الستوري.',
+  'EMPTY_STORY': 'أضف نصًا أو صورة أو فيديو قبل نشر الستوري.',
   'STORY_NOT_FOUND': 'الستوري غير متاحة حاليًا.',
   'INVALID_MEDIA_TYPE':
       'نوع الملف غير مدعوم. استخدم JPG أو PNG أو WEBP أو MP4.',
 };
 
+/// حالة المجتمع المركزية: القصص، المنشورات، threads، ونوع الفلترة النشط.
 class SocialState {
   final bool loadingStories;
   final bool creatingStory;
@@ -102,6 +103,11 @@ final socialControllerProvider =
       (ref) => SocialController(ref),
     );
 
+/// المتحكم المركزي لوحدة المجتمع في الواجهة.
+///
+/// Maintenance notes:
+/// - عند desync بين القصص والمنشورات أو عند paging غير صحيح، ابدأ من هذا
+///   الملف ثم راجع `SocialApi`.
 class SocialController extends StateNotifier<SocialState> {
   final Ref ref;
   bool _disposed = false;
@@ -113,10 +119,12 @@ class SocialController extends StateNotifier<SocialState> {
     state = next;
   }
 
+  /// يحمل القصص والمنشورات والـ threads معاً عند فتح التجربة الاجتماعية.
   Future<void> bootstrap() async {
     await Future.wait([loadStories(), loadPosts(refresh: true), loadThreads()]);
   }
 
+  /// يبدل نوع المحتوى النشط ويعيد تحميل feed من البداية.
   Future<void> setActiveKind(String? kind) async {
     final normalized = kind == null || kind.trim().isEmpty ? null : kind.trim();
     if (normalized == state.activeKind && state.posts.isNotEmpty) return;
@@ -131,6 +139,7 @@ class SocialController extends StateNotifier<SocialState> {
     await loadPosts(refresh: true, kind: normalized);
   }
 
+  /// يحمل صفحة منشورات مع دعم refresh وload-more.
   Future<void> loadPosts({
     bool refresh = false,
     String? kind,
@@ -183,7 +192,7 @@ class SocialController extends StateNotifier<SocialState> {
           loadingMorePosts: false,
           error: mapDioError(
             e,
-            fallback: 'تعذر تحميل منشورات شديصير بسماية.',
+            fallback: 'تعذر تحميل منشورات مسلكي.',
             customMessages: _socialApiMessages,
             appendRequestId: true,
           ),
@@ -207,6 +216,7 @@ class SocialController extends StateNotifier<SocialState> {
     await loadPosts(refresh: false, silent: false);
   }
 
+  /// يحمل القصص النشطة الظاهرة للمستخدم.
   Future<void> loadStories({bool silent = false}) async {
     if (!silent) {
       _safeSetState(state.copyWith(loadingStories: true, error: null));
@@ -322,6 +332,10 @@ class SocialController extends StateNotifier<SocialState> {
                     mediaUrl: story.mediaUrl,
                     mediaKind: story.mediaKind,
                     style: story.style,
+                    archivedAt: story.archivedAt,
+                    likesCount: story.likesCount,
+                    commentsCount: story.commentsCount,
+                    isLiked: story.isLiked,
                     isViewed: true,
                     isMine: story.isMine,
                     createdAt: story.createdAt,
@@ -387,6 +401,8 @@ class SocialController extends StateNotifier<SocialState> {
     int? merchantId,
     int? reviewRating,
     LocalMediaFile? mediaFile,
+    String? audienceScopeType,
+    String? audienceScopeCode,
   }) async {
     _safeSetState(state.copyWith(creatingPost: true, error: null));
     try {
@@ -398,6 +414,8 @@ class SocialController extends StateNotifier<SocialState> {
             merchantId: merchantId,
             reviewRating: reviewRating,
             mediaFile: mediaFile,
+            audienceScopeType: audienceScopeType,
+            audienceScopeCode: audienceScopeCode,
           );
       final postMap = Map<String, dynamic>.from(out['post'] as Map);
       final post = SocialPost.fromJson(postMap);
@@ -484,6 +502,72 @@ class SocialController extends StateNotifier<SocialState> {
     }
   }
 
+  Future<void> toggleSave(SocialPost post) async {
+    final previous = post;
+    final optimisticSaved = !post.isSaved;
+    final optimistic = post.copyWith(
+      isSaved: optimisticSaved,
+      savesCount: (post.savesCount + (post.isSaved ? -1 : 1)).clamp(0, 999999),
+    );
+    _safeSetState(
+      state.copyWith(
+        posts: state.posts
+            .map((p) => p.id == post.id ? optimistic : p)
+            .toList(growable: false),
+        error: null,
+      ),
+    );
+
+    final entityType = post.postKind == 'merchant_review'
+        ? 'review'
+        : post.postKind == 'reel'
+        ? 'reel'
+        : 'post';
+
+    try {
+      final out = await ref.read(socialApiProvider).toggleSaved(
+            entityType: entityType,
+            entityId: post.id,
+          );
+      final savesCount =
+          _parseInt(out['savesCount'] ?? out['saves_count']) ??
+              optimistic.savesCount;
+      final saved = out['saved'] == true;
+      _safeSetState(
+        state.copyWith(
+          posts: state.posts
+              .map(
+                (p) => p.id == post.id
+                    ? p.copyWith(isSaved: saved, savesCount: savesCount)
+                    : p,
+              )
+              .toList(growable: false),
+        ),
+      );
+    } on DioException catch (e) {
+      _safeSetState(
+        state.copyWith(
+          posts: state.posts
+              .map((p) => p.id == post.id ? previous : p)
+              .toList(growable: false),
+          error: mapDioError(
+            e,
+            fallback: 'تعذر تحديث المحفوظات.',
+            customMessages: _socialApiMessages,
+          ),
+        ),
+      );
+    } catch (_) {
+      _safeSetState(
+        state.copyWith(
+          posts: state.posts
+              .map((p) => p.id == post.id ? previous : p)
+              .toList(growable: false),
+        ),
+      );
+    }
+  }
+
   void patchCommentsCount({required int postId, required int commentsCount}) {
     _safeSetState(
       state.copyWith(
@@ -497,8 +581,10 @@ class SocialController extends StateNotifier<SocialState> {
     );
   }
 
-  Future<void> loadThreads() async {
-    _safeSetState(state.copyWith(loadingThreads: true, error: null));
+  Future<void> loadThreads({bool silent = false}) async {
+    if (!silent) {
+      _safeSetState(state.copyWith(loadingThreads: true, error: null));
+    }
     try {
       final out = await ref.read(socialApiProvider).listThreads();
       final raw = List<dynamic>.from(out['threads'] as List? ?? const []);
@@ -508,8 +594,14 @@ class SocialController extends StateNotifier<SocialState> {
                 SocialChatThread.fromJson(Map<String, dynamic>.from(e as Map)),
           )
           .toList(growable: false);
-      _safeSetState(state.copyWith(loadingThreads: false, threads: threads));
+      _safeSetState(
+        state.copyWith(
+          loadingThreads: silent ? state.loadingThreads : false,
+          threads: threads,
+        ),
+      );
     } on DioException catch (e) {
+      if (silent) return;
       _safeSetState(
         state.copyWith(
           loadingThreads: false,
@@ -521,6 +613,7 @@ class SocialController extends StateNotifier<SocialState> {
         ),
       );
     } catch (e) {
+      if (silent) return;
       _safeSetState(
         state.copyWith(
           loadingThreads: false,
@@ -561,6 +654,47 @@ class SocialController extends StateNotifier<SocialState> {
     }
   }
 
+  Future<SocialChatThread?> createGroupThread({
+    required String title,
+    required List<int> memberIds,
+    String? imageUrl,
+  }) async {
+    try {
+      final out = await ref.read(socialApiProvider).createGroupThread(
+        title: title,
+        memberIds: memberIds,
+        imageUrl: imageUrl,
+      );
+      final thread = SocialChatThread.fromJson(
+        Map<String, dynamic>.from(out['thread'] as Map),
+      );
+      _safeSetState(
+        state.copyWith(
+          threads: [thread, ...state.threads.where((t) => t.id != thread.id)],
+        ),
+      );
+      return thread;
+    } on DioException catch (e) {
+      _safeSetState(
+        state.copyWith(
+          error: mapDioError(
+            e,
+            fallback: 'تعذر إنشاء المجموعة.',
+            customMessages: _socialApiMessages,
+          ),
+        ),
+      );
+      return null;
+    } catch (e) {
+      _safeSetState(
+        state.copyWith(
+          error: mapAnyError(e, fallback: 'تعذر إنشاء المجموعة.'),
+        ),
+      );
+      return null;
+    }
+  }
+
   @override
   void dispose() {
     _disposed = true;
@@ -572,3 +706,4 @@ int? _parseInt(dynamic value) {
   if (value == null) return null;
   return int.tryParse('$value');
 }
+

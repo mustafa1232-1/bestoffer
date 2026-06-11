@@ -1,53 +1,130 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 
 class CustomerFoodHubScreen extends StatelessWidget {
   const CustomerFoodHubScreen({super.key});
 
-  void _open(
-    BuildContext context, {
-    required String title,
-    required String query,
-  }) {
+  void _open(BuildContext context, _FoodTopic topic) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
           initialType: 'restaurant',
-          initialSearchQuery: query,
-          overrideTitle: title,
+          initialSearchQuery: topic.searchQuery,
+          requiredAnyKeywords: topic.searchTerms,
+          overrideTitle: topic.title,
           compactCustomerMode: true,
+          applyInitialSearchQuery: true,
         ),
       ),
     );
   }
 
+  List<_FoodTopic> _topics(BuildContext context) {
+    final l10n = context.l10n;
+    return [
+      _FoodTopic(
+        title: l10n.customerFoodHubRestaurantsTitle,
+        subtitle: l10n.customerFoodHubRestaurantsSubtitle,
+        searchQuery: '',
+        searchTerms: ['مطاعم', 'مأكولات', 'restaurant', 'restaurants', 'food'],
+        icon: Icons.restaurant_rounded,
+        colorA: const Color(0xFF23588A),
+        colorB: const Color(0xFF183D65),
+      ),
+      _FoodTopic(
+        title: l10n.customerFoodHubDessertsTitle,
+        subtitle: l10n.customerFoodHubDessertsSubtitle,
+        searchQuery: 'حلويات',
+        searchTerms: [
+          'حلويات',
+          'حلوى',
+          'كيك',
+          'بقلاوة',
+          'كنافة',
+          'dessert',
+          'sweets',
+          'cake',
+        ],
+        icon: Icons.cake_rounded,
+        colorA: const Color(0xFF7A3E8E),
+        colorB: const Color(0xFF4C2A65),
+      ),
+      _FoodTopic(
+        title: l10n.customerFoodHubBakeryTitle,
+        subtitle: l10n.customerFoodHubBakerySubtitle,
+        searchQuery: 'معجنات',
+        searchTerms: [
+          'معجنات',
+          'مخبوزات',
+          'كرواسون',
+          'مناقيش',
+          'bakery',
+          'pastry',
+          'croissant',
+        ],
+        icon: Icons.bakery_dining_rounded,
+        colorA: const Color(0xFF99623A),
+        colorB: const Color(0xFF6A4427),
+      ),
+      _FoodTopic(
+        title: l10n.customerFoodHubCoffeeTitle,
+        subtitle: l10n.customerFoodHubCoffeeSubtitle,
+        searchQuery: 'قهوة',
+        searchTerms: [
+          'قهوة',
+          'كوفي',
+          'مشروبات',
+          'عصير',
+          'coffee',
+          'cafe',
+          'drinks',
+          'tea',
+        ],
+        icon: Icons.local_cafe_rounded,
+        colorA: const Color(0xFF556F8A),
+        colorB: const Color(0xFF36485C),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: AppBar(title: const Text('قسم الطعام والمشروبات')),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
-          children: [
-            _HeaderCard(),
-            const SizedBox(height: 12),
-            _TopicGrid(
-              topics: _foodTopics,
-              onTap: (topic) =>
-                  _open(context, title: topic.title, query: topic.query),
-            ),
-          ],
-        ),
+    final l10n = context.l10n;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(l10n.customerFoodHubTitle),
+        actions: const [AppBarQuickActions()],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
+        children: [
+          _HeaderCard(
+            title: l10n.customerFoodHubHeaderTitle,
+            subtitle: l10n.customerFoodHubHeaderSubtitle,
+          ),
+          const SizedBox(height: 12),
+          _TopicGrid(
+            topics: _topics(context),
+            onTap: (topic) => _open(context, topic),
+          ),
+        ],
       ),
     );
   }
 }
 
 class _HeaderCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+
+  const _HeaderCard({required this.title, required this.subtitle});
+
   @override
   Widget build(BuildContext context) {
+    final isLtr = Directionality.of(context) == TextDirection.ltr;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -59,15 +136,18 @@ class _HeaderCard extends StatelessWidget {
         ),
         border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
       ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
+        crossAxisAlignment: isLtr
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.end,
         children: [
           Text(
-            'كل خيارات الأكل بمكان واحد',
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+            title,
+            textAlign: isLtr ? TextAlign.start : TextAlign.end,
+            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
           ),
-          SizedBox(height: 6),
-          Text('مطاعم، حلويات، معجنات، قهوة ومشروبات.'),
+          const SizedBox(height: 6),
+          Text(subtitle, textAlign: isLtr ? TextAlign.start : TextAlign.end),
         ],
       ),
     );
@@ -82,6 +162,7 @@ class _TopicGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLtr = Directionality.of(context) == TextDirection.ltr;
     return GridView.builder(
       itemCount: topics.length,
       shrinkWrap: true,
@@ -110,18 +191,22 @@ class _TopicGrid extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(10),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                crossAxisAlignment: isLtr
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.end,
                 children: [
                   Icon(topic.icon, size: 24),
                   const Spacer(),
                   Text(
                     topic.title,
+                    textAlign: isLtr ? TextAlign.start : TextAlign.end,
                     style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     topic.subtitle,
-                    maxLines: 1,
+                    textAlign: isLtr ? TextAlign.start : TextAlign.end,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.86),
@@ -141,7 +226,8 @@ class _TopicGrid extends StatelessWidget {
 class _FoodTopic {
   final String title;
   final String subtitle;
-  final String query;
+  final String searchQuery;
+  final List<String> searchTerms;
   final IconData icon;
   final Color colorA;
   final Color colorB;
@@ -149,44 +235,10 @@ class _FoodTopic {
   const _FoodTopic({
     required this.title,
     required this.subtitle,
-    required this.query,
+    required this.searchQuery,
+    required this.searchTerms,
     required this.icon,
     required this.colorA,
     required this.colorB,
   });
 }
-
-const _foodTopics = <_FoodTopic>[
-  _FoodTopic(
-    title: 'مطاعم',
-    subtitle: 'وجبات يومية',
-    query: 'مطاعم',
-    icon: Icons.restaurant_rounded,
-    colorA: Color(0xFF23588A),
-    colorB: Color(0xFF183D65),
-  ),
-  _FoodTopic(
-    title: 'حلويات',
-    subtitle: 'كيك وبقلاوة',
-    query: 'حلويات',
-    icon: Icons.cake_rounded,
-    colorA: Color(0xFF7A3E8E),
-    colorB: Color(0xFF4C2A65),
-  ),
-  _FoodTopic(
-    title: 'معجنات',
-    subtitle: 'طازج يوميًا',
-    query: 'معجنات',
-    icon: Icons.bakery_dining_rounded,
-    colorA: Color(0xFF99623A),
-    colorB: Color(0xFF6A4427),
-  ),
-  _FoodTopic(
-    title: 'قهوة ومشروبات',
-    subtitle: 'ساخن وبارد',
-    query: 'قهوة مشروبات',
-    icon: Icons.local_cafe_rounded,
-    colorA: Color(0xFF556F8A),
-    colorB: Color(0xFF36485C),
-  ),
-];

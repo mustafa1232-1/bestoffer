@@ -2,49 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/app_permission_matrix.dart';
+import '../utils/parsers.dart';
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/settings/ui/settings_screen.dart';
 import '../../features/social/models/social_models.dart';
 import '../../features/social/state/social_controller.dart';
+import '../../features/social/ui/social_activity_screen.dart';
 import '../../features/social/ui/social_community_screen.dart';
 import '../../features/social/ui/social_profile_screen.dart';
-import '../i18n/app_strings.dart';
+import '../../features/social/ui/social_relation_requests_screen.dart';
+import '../../features/social/ui/social_reported_posts_screen.dart';
+import '../../features/social/ui/social_search_screen.dart';
+import '../../features/social/ui/social_shell_screen.dart';
+import '../i18n/app_localizations_context.dart';
 
-const Map<String, String> _drawerAutoEnglishMap = {
-  'الواجهة الرئيسية': 'Home',
-  'تحديث البيانات': 'Refresh Data',
-  'المحادثات': 'Chats',
-  'إضافة منشور': 'New Post',
-  'إضافة ستوري': 'New Story',
-  'الملف الشخصي': 'Profile',
-  'تسجيل الخروج': 'Logout',
-  'لوحة التحكم': 'Dashboard',
-  'الطلبات الحالية': 'Current Orders',
-  'السجل المؤرشف': 'Archive',
-  'طلباتي': 'My Orders',
-  'السلة': 'Cart',
-  'الخريطة': 'Map',
-  'المساعد الذكي': 'AI Assistant',
-  'إنهاء اليوم': 'End Day',
-  'لوحة التكسي': 'Taxi Board',
-  'إدارة المتجر': 'Store Management',
-  'إدارة الطلبات': 'Orders Management',
-  'الأصناف والمنتجات': 'Categories & Products',
-  'كوبونات المتجر': 'Store Coupons',
-  'صندوق الموافقات': 'Approvals Inbox',
-  'سجل التدقيق': 'Audit Log',
-  'إدارة كوبونات الأدمن': 'Admin Coupons',
-  'مراقبة المحادثات': 'Chat Monitor',
-  'شديصير بسماية': 'Shdysir Basmaya',
-  'دخول أي مجتمع': 'Open Any Community',
-  'لوحة الإعلانات': 'Ads Board',
-};
-
-String _drawerAutoTranslate(AppStrings strings, String? value) {
-  final text = (value ?? '').trim();
-  if (text.isEmpty || !strings.isEnglish) return value ?? '';
-  return _drawerAutoEnglishMap[text] ?? (value ?? '');
-}
+String _drawerText(String? value) => normalizeText((value ?? '').trim());
 
 final _drawerCommunityScopesProvider =
     FutureProvider.autoDispose<List<SocialCommunityScopeInfo>>((ref) async {
@@ -63,17 +35,23 @@ class AppUserDrawerItem {
   final IconData icon;
   final String label;
   final String? subtitle;
+  final String? group;
+  final int? badgeCount;
+  final Widget? trailing;
   final Future<void> Function(BuildContext context)? onTap;
 
   const AppUserDrawerItem({
     required this.icon,
     required this.label,
     this.subtitle,
+    this.group,
+    this.badgeCount,
+    this.trailing,
     this.onTap,
   });
 }
 
-class AppUserDrawer extends ConsumerWidget {
+class AppUserDrawer extends ConsumerStatefulWidget {
   final String title;
   final String? subtitle;
   final List<AppUserDrawerItem> items;
@@ -81,6 +59,10 @@ class AppUserDrawer extends ConsumerWidget {
   final bool embedded;
   final bool showProfileButton;
   final bool showCommunitySection;
+  final bool enableItemSearch;
+  final bool enableGroupCollapse;
+  final bool collapseGroupsByDefault;
+  final String? searchHintText;
 
   const AppUserDrawer({
     super.key,
@@ -91,17 +73,47 @@ class AppUserDrawer extends ConsumerWidget {
     this.embedded = false,
     this.showProfileButton = true,
     this.showCommunitySection = true,
+    this.enableItemSearch = false,
+    this.enableGroupCollapse = false,
+    this.collapseGroupsByDefault = false,
+    this.searchHintText,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AppUserDrawer> createState() => _AppUserDrawerState();
+}
+
+class _AppUserDrawerState extends ConsumerState<AppUserDrawer> {
+  final TextEditingController _searchController = TextEditingController();
+  final Set<String> _collapsedGroups = <String>{};
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  String _normalizeForSearch(String value) =>
+      normalizeText(value).trim().toLowerCase();
+
+  @override
+  Widget build(BuildContext context) {
+    final title = widget.title;
+    final subtitle = widget.subtitle;
+    final showSettings = widget.showSettings;
+    final embedded = widget.embedded;
+    final showProfileButton = widget.showProfileButton;
+    final showCommunitySection = widget.showCommunitySection;
+    final enableItemSearch = widget.enableItemSearch;
+    final enableGroupCollapse = widget.enableGroupCollapse;
+    final collapseGroupsByDefault = widget.collapseGroupsByDefault;
+    final searchHintText = widget.searchHintText;
     final auth = ref.watch(authControllerProvider);
     final currentUserId = auth.user?.id;
     final permissions = ref.watch(appPermissionMatrixProvider);
-    final strings = ref.watch(appStringsProvider);
-    final textDirection = strings.isEnglish
-        ? TextDirection.ltr
-        : TextDirection.rtl;
+    final l10n = context.l10n;
+    final textDirection = Directionality.of(context);
     final userName = auth.user?.fullName.trim();
     final userPhone = auth.user?.phone.trim();
     final canUseCommunityScopes = permissions.can(
@@ -176,13 +188,45 @@ class AppUserDrawer extends ConsumerWidget {
         : null;
     final allowManualCommunityScopeSelection = auth.isBackoffice;
     final isCommunityCatalogMode = auth.isBackoffice && remoteScopes.length > 6;
+    final isCustomerProfile =
+        auth.isAuthed &&
+        !auth.isBackoffice &&
+        !auth.isOwner &&
+        !auth.isDelivery &&
+        !auth.isTaxiCaptain &&
+        !auth.isHr &&
+        !auth.isAccountant;
+    final canOpenCommunitySection =
+        isCustomerProfile || allowManualCommunityScopeSelection;
     final shouldShowCommunitySection =
         showCommunitySection &&
+        canOpenCommunitySection &&
         (allowManualCommunityScopeSelection ||
             isCommunityCatalogMode ||
             blockScopeCode != null ||
             compoundScopeCode != null ||
             buildingScopeCode != null);
+    final canOpenSocialTools =
+        isCustomerProfile &&
+        (permissions.can(AppCapability.socialFeed) ||
+            permissions.can(AppCapability.socialChats) ||
+            permissions.can(AppCapability.socialCommunityScopes) ||
+            auth.isSuperAdmin);
+    final drawerItems = widget.items;
+    final socialGroup = l10n.drawerGroupSocial;
+    final communityGroup = l10n.drawerGroupCommunity;
+    final settingsGroup = l10n.commonSettings;
+
+    bool hasDrawerItem(String label) {
+      final normalized = normalizeText(label).trim().toLowerCase();
+      if (normalized.isEmpty) return false;
+      for (final item in drawerItems) {
+        if (normalizeText(item.label).trim().toLowerCase() == normalized) {
+          return true;
+        }
+      }
+      return false;
+    }
 
     Future<void> openProfile() async {
       final userId = currentUserId;
@@ -211,6 +255,75 @@ class AppUserDrawer extends ConsumerWidget {
       final navigator = Navigator.of(context);
       if (!embedded) navigator.pop();
       await item.onTap?.call(navigator.context);
+    }
+
+    Widget? buildDrawerTrailing(AppUserDrawerItem item) {
+      if (item.trailing != null) return item.trailing;
+      final badgeCount = item.badgeCount;
+      if (badgeCount == null) return null;
+      final scheme = Theme.of(context).colorScheme;
+      final hasItems = badgeCount > 0;
+      final color = hasItems ? scheme.error : scheme.outline;
+      return Container(
+        constraints: const BoxConstraints(minWidth: 30),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: hasItems ? 0.16 : 0.10),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          '$badgeCount',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: color, fontWeight: FontWeight.w800),
+        ),
+      );
+    }
+
+    Future<void> openSocialSearch() async {
+      final navigator = Navigator.of(context);
+      if (!embedded) navigator.pop();
+      await navigator.push(
+        MaterialPageRoute<void>(builder: (_) => const SocialSearchScreen()),
+      );
+    }
+
+    Future<void> openNotifications() async {
+      final navigator = Navigator.of(context);
+      if (!embedded) navigator.pop();
+      await navigator.push(
+        MaterialPageRoute<void>(builder: (_) => const SocialActivityScreen()),
+      );
+    }
+
+    Future<void> openFriendRequests() async {
+      final navigator = Navigator.of(context);
+      if (!embedded) navigator.pop();
+      await navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const SocialRelationRequestsScreen(),
+        ),
+      );
+    }
+
+    Future<void> openSocialChats() async {
+      final navigator = Navigator.of(context);
+      if (!embedded) navigator.pop();
+      await navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              const SocialShellScreen(initialTab: SocialShellTab.messages),
+        ),
+      );
+    }
+
+    Future<void> openReportedPosts() async {
+      final navigator = Navigator.of(context);
+      if (!embedded) navigator.pop();
+      await navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const SocialReportedPostsScreen(),
+        ),
+      );
     }
 
     Future<void> openCommunityScope({
@@ -253,11 +366,11 @@ class AppUserDrawer extends ConsumerWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: Text(strings.t('drawerCancel')),
+              child: Text(l10n.commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: Text(strings.t('drawerEnter')),
+              child: Text(l10n.commonOpen),
             ),
           ],
         ),
@@ -274,6 +387,145 @@ class AppUserDrawer extends ConsumerWidget {
       );
     }
 
+    final resolvedItems = <AppUserDrawerItem>[
+      ...drawerItems,
+      if (canOpenSocialTools && !hasDrawerItem(l10n.drawerNotifications))
+        AppUserDrawerItem(
+          icon: Icons.notifications_outlined,
+          label: l10n.drawerNotifications,
+          subtitle: l10n.drawerNotificationsSub,
+          group: socialGroup,
+          onTap: (_) => openNotifications(),
+        ),
+      if (canOpenSocialTools && !hasDrawerItem(l10n.drawerUserSearch))
+        AppUserDrawerItem(
+          icon: Icons.person_search_rounded,
+          label: l10n.drawerUserSearch,
+          subtitle: l10n.drawerUserSearchSub,
+          group: socialGroup,
+          onTap: (_) => openSocialSearch(),
+        ),
+      if (canOpenSocialTools && !hasDrawerItem(l10n.drawerFriendRequests))
+        AppUserDrawerItem(
+          icon: Icons.person_add_alt_1_rounded,
+          label: l10n.drawerFriendRequests,
+          subtitle: l10n.drawerFriendRequestsSub,
+          group: socialGroup,
+          onTap: (_) => openFriendRequests(),
+        ),
+      if (canOpenSocialTools && !hasDrawerItem(l10n.drawerMessages))
+        AppUserDrawerItem(
+          icon: Icons.chat_bubble_outline_rounded,
+          label: l10n.drawerMessages,
+          subtitle: l10n.drawerMessagesSub,
+          group: socialGroup,
+          onTap: (_) => openSocialChats(),
+        ),
+      if (canOpenSocialTools && !hasDrawerItem(l10n.drawerReportedPosts))
+        AppUserDrawerItem(
+          icon: Icons.flag_outlined,
+          label: l10n.drawerReportedPosts,
+          subtitle: l10n.drawerReportedPostsSub,
+          group: socialGroup,
+          onTap: (_) => openReportedPosts(),
+        ),
+      if (shouldShowCommunitySection &&
+          (blockScopeCode != null || allowManualCommunityScopeSelection))
+        AppUserDrawerItem(
+          icon: Icons.account_tree_outlined,
+          label: l10n.drawerBlockCommunity,
+          subtitle: (isCommunityCatalogMode || blockScopeCode == null)
+              ? l10n.drawerManualSelection
+              : blockScopeCode,
+          group: communityGroup,
+          onTap: (_) => (isCommunityCatalogMode || blockScopeCode == null)
+              ? openCommunityScopePrompt(
+                  scopeType: 'block',
+                  titleLabel: l10n.drawerEnterBlockCode,
+                  hintText: l10n.drawerBlockCodeHint,
+                )
+              : openCommunityScope(
+                  scopeType: 'block',
+                  scopeCode: blockScopeCode,
+                  title: '${l10n.drawerBlockCommunity} $blockScopeCode',
+                ),
+        ),
+      if (shouldShowCommunitySection &&
+          (compoundScopeCode != null || allowManualCommunityScopeSelection))
+        AppUserDrawerItem(
+          icon: Icons.groups_2_outlined,
+          label: l10n.drawerCompoundCommunity,
+          subtitle: (isCommunityCatalogMode || compoundScopeCode == null)
+              ? l10n.drawerManualSelection
+              : compoundScopeCode,
+          group: communityGroup,
+          onTap: (_) => (isCommunityCatalogMode || compoundScopeCode == null)
+              ? openCommunityScopePrompt(
+                  scopeType: 'compound',
+                  titleLabel: l10n.drawerEnterCompoundCode,
+                  hintText: l10n.drawerCompoundCodeHint,
+                )
+              : openCommunityScope(
+                  scopeType: 'compound',
+                  scopeCode: compoundScopeCode,
+                  title: '${l10n.drawerCompoundCommunity} $compoundScopeCode',
+                ),
+        ),
+      if (shouldShowCommunitySection &&
+          (buildingScopeCode != null || allowManualCommunityScopeSelection))
+        AppUserDrawerItem(
+          icon: Icons.apartment_rounded,
+          label: l10n.drawerBuildingCommunity,
+          subtitle: (isCommunityCatalogMode || buildingScopeCode == null)
+              ? l10n.drawerManualSelection
+              : buildingScopeCode,
+          group: communityGroup,
+          onTap: (_) => (isCommunityCatalogMode || buildingScopeCode == null)
+              ? openCommunityScopePrompt(
+                  scopeType: 'building',
+                  titleLabel: l10n.drawerEnterBuildingCode,
+                  hintText: l10n.drawerBuildingCodeHint,
+                )
+              : openCommunityScope(
+                  scopeType: 'building',
+                  scopeCode: buildingScopeCode,
+                  title: '${l10n.drawerBuildingCommunity} $buildingScopeCode',
+                ),
+        ),
+      if (showSettings)
+        AppUserDrawerItem(
+          icon: Icons.settings_outlined,
+          label: l10n.commonSettings,
+          group: settingsGroup,
+          onTap: (_) => openSettings(),
+        ),
+    ];
+
+    final normalizedQuery = _normalizeForSearch(_searchQuery);
+    final visibleItems = normalizedQuery.isEmpty
+        ? resolvedItems
+        : resolvedItems
+              .where((item) {
+                final haystack =
+                    '${item.label} ${item.subtitle ?? ''} ${item.group ?? ''}';
+                return _normalizeForSearch(haystack).contains(normalizedQuery);
+              })
+              .toList(growable: false);
+
+    final groupedItems = <String, List<AppUserDrawerItem>>{};
+    for (final item in visibleItems) {
+      final group = (item.group ?? '').trim().isEmpty
+          ? l10n.commonOperations
+          : item.group!.trim();
+      groupedItems.putIfAbsent(group, () => <AppUserDrawerItem>[]).add(item);
+    }
+
+    if (enableGroupCollapse && collapseGroupsByDefault) {
+      for (final group in groupedItems.keys) {
+        _collapsedGroups.add(group);
+      }
+    }
+
     final content = SafeArea(
       child: Column(
         children: [
@@ -285,7 +537,7 @@ class AppUserDrawer extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _drawerAutoTranslate(strings, title),
+                  _drawerText(title),
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 16,
@@ -293,7 +545,7 @@ class AppUserDrawer extends ConsumerWidget {
                 ),
                 if (subtitle?.isNotEmpty == true) ...[
                   const SizedBox(height: 4),
-                  Text(_drawerAutoTranslate(strings, subtitle!)),
+                  Text(_drawerText(subtitle)),
                 ],
                 if (userName?.isNotEmpty == true ||
                     userPhone?.isNotEmpty == true)
@@ -303,119 +555,136 @@ class AppUserDrawer extends ConsumerWidget {
                 if (showProfileButton && currentUserId != null) ...[
                   const SizedBox(height: 8),
                   Align(
-                    alignment: Alignment.centerRight,
+                    alignment: AlignmentDirectional.centerEnd,
                     child: OutlinedButton.icon(
                       onPressed: openProfile,
                       icon: const Icon(Icons.person_outline_rounded),
-                      label: Text(strings.t('drawerProfile')),
+                      label: Text(l10n.drawerProfile),
                     ),
                   ),
                 ],
               ],
             ),
           ),
+          if (enableItemSearch)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              child: TextField(
+                controller: _searchController,
+                textInputAction: TextInputAction.search,
+                onChanged: (value) {
+                  setState(() => _searchQuery = value);
+                },
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  hintText: searchHintText ?? l10n.commonSearch,
+                  suffixIcon: _searchQuery.trim().isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                          icon: const Icon(Icons.clear_rounded),
+                        ),
+                ),
+              ),
+            ),
           Expanded(
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                for (final item in items)
-                  ListTile(
-                    leading: Icon(item.icon),
-                    title: Text(_drawerAutoTranslate(strings, item.label)),
-                    subtitle: item.subtitle == null
-                        ? null
-                        : Text(_drawerAutoTranslate(strings, item.subtitle!)),
-                    onTap: item.onTap == null ? null : () => runItem(item),
-                  ),
-                if (shouldShowCommunitySection) const Divider(height: 1),
-                if (shouldShowCommunitySection &&
-                    (blockScopeCode != null ||
-                        allowManualCommunityScopeSelection))
-                  ListTile(
-                    leading: const Icon(Icons.account_tree_outlined),
-                    title: Text(strings.t('drawerBlockCommunity')),
-                    subtitle: Text(
-                      (isCommunityCatalogMode || blockScopeCode == null)
-                          ? strings.t('drawerManualSelection')
-                          : blockScopeCode,
-                    ),
-                    onTap: () =>
-                        (isCommunityCatalogMode || blockScopeCode == null)
-                        ? openCommunityScopePrompt(
-                            scopeType: 'block',
-                            titleLabel: strings.t('drawerEnterBlockCode'),
-                            hintText: strings.t('drawerBlockCodeHint'),
-                          )
-                        : openCommunityScope(
-                            scopeType: 'block',
-                            scopeCode: blockScopeCode,
-                            title:
-                                '${strings.t('drawerBlockCommunity')} $blockScopeCode',
+                ...() {
+                  final widgets = <Widget>[];
+                  if (groupedItems.isEmpty) {
+                    widgets.add(
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 28, 16, 16),
+                        child: Text(
+                          l10n.commonNoResults,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                    );
+                    return widgets;
+                  }
+                  for (final entry in groupedItems.entries) {
+                    final group = entry.key;
+                    final isCollapsed = _collapsedGroups.contains(group);
+                    final items = entry.value;
+                    widgets.add(
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
+                        child: ListTile(
+                          dense: true,
+                          leading: enableGroupCollapse
+                              ? Icon(
+                                  isCollapsed
+                                      ? Icons.chevron_right_rounded
+                                      : Icons.expand_more_rounded,
+                                )
+                              : null,
+                          title: Text(
+                            _drawerText(group),
+                            style: Theme.of(context).textTheme.labelLarge
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.92),
+                                ),
                           ),
-                  ),
-                if (shouldShowCommunitySection &&
-                    (compoundScopeCode != null ||
-                        allowManualCommunityScopeSelection))
-                  ListTile(
-                    leading: const Icon(Icons.groups_2_outlined),
-                    title: Text(strings.t('drawerCompoundCommunity')),
-                    subtitle: Text(
-                      (isCommunityCatalogMode || compoundScopeCode == null)
-                          ? strings.t('drawerManualSelection')
-                          : compoundScopeCode,
-                    ),
-                    onTap: () =>
-                        (isCommunityCatalogMode || compoundScopeCode == null)
-                        ? openCommunityScopePrompt(
-                            scopeType: 'compound',
-                            titleLabel: strings.t('drawerEnterCompoundCode'),
-                            hintText: strings.t('drawerCompoundCodeHint'),
-                          )
-                        : openCommunityScope(
-                            scopeType: 'compound',
-                            scopeCode: compoundScopeCode,
-                            title:
-                                '${strings.t('drawerCompoundCommunity')} $compoundScopeCode',
+                          trailing: Text(
+                            '${items.length}',
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
                           ),
-                  ),
-                if (shouldShowCommunitySection &&
-                    (buildingScopeCode != null ||
-                        allowManualCommunityScopeSelection))
-                  ListTile(
-                    leading: const Icon(Icons.apartment_rounded),
-                    title: Text(strings.t('drawerBuildingCommunity')),
-                    subtitle: Text(
-                      (isCommunityCatalogMode || buildingScopeCode == null)
-                          ? strings.t('drawerManualSelection')
-                          : buildingScopeCode,
-                    ),
-                    onTap: () =>
-                        (isCommunityCatalogMode || buildingScopeCode == null)
-                        ? openCommunityScopePrompt(
-                            scopeType: 'building',
-                            titleLabel: strings.t('drawerEnterBuildingCode'),
-                            hintText: strings.t('drawerBuildingCodeHint'),
-                          )
-                        : openCommunityScope(
-                            scopeType: 'building',
-                            scopeCode: buildingScopeCode,
-                            title:
-                                '${strings.t('drawerBuildingCommunity')} $buildingScopeCode',
-                          ),
-                  ),
-                if (showSettings)
-                  ListTile(
-                    leading: const Icon(Icons.settings_outlined),
-                    title: Text(strings.t('settings')),
-                    onTap: openSettings,
-                  ),
+                          onTap: enableGroupCollapse
+                              ? () {
+                                  setState(() {
+                                    if (isCollapsed) {
+                                      _collapsedGroups.remove(group);
+                                    } else {
+                                      _collapsedGroups.add(group);
+                                    }
+                                  });
+                                }
+                              : null,
+                        ),
+                      ),
+                    );
+                    if (enableGroupCollapse && isCollapsed) {
+                      continue;
+                    }
+                    for (final item in items) {
+                      widgets.add(
+                        ListTile(
+                          leading: Icon(item.icon),
+                          title: Text(_drawerText(item.label)),
+                          subtitle: item.subtitle == null
+                              ? null
+                              : Text(_drawerText(item.subtitle)),
+                          trailing: buildDrawerTrailing(item),
+                          onTap: item.onTap == null
+                              ? null
+                              : () => runItem(item),
+                        ),
+                      );
+                    }
+                  }
+                  return widgets;
+                }(),
               ],
             ),
           ),
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.logout),
-            title: Text(strings.t('logout')),
+            title: Text(l10n.commonLogout),
             onTap: () async {
               if (!embedded) {
                 Navigator.of(context).pop();

@@ -1,6 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/forms/backend_field_error_parser.dart'
+    show ParsedBackendFieldErrors;
+import '../../../core/network/api_error_mapper.dart';
+import '../../auth/state/auth_controller.dart';
 import '../models/delivery_address_model.dart';
 import 'orders_controller.dart';
 
@@ -17,6 +21,7 @@ class DeliveryAddressState {
   final List<DeliveryAddressModel> addresses;
   final int? selectedAddressId;
   final String? error;
+  final ParsedBackendFieldErrors? validationError;
 
   const DeliveryAddressState({
     this.loading = false,
@@ -24,6 +29,7 @@ class DeliveryAddressState {
     this.addresses = const [],
     this.selectedAddressId,
     this.error,
+    this.validationError,
   });
 
   DeliveryAddressModel? get selectedAddress {
@@ -41,6 +47,7 @@ class DeliveryAddressState {
     int? selectedAddressId,
     bool clearSelection = false,
     String? error,
+    ParsedBackendFieldErrors? validationError,
   }) {
     return DeliveryAddressState(
       loading: loading ?? this.loading,
@@ -50,6 +57,7 @@ class DeliveryAddressState {
           ? null
           : selectedAddressId ?? this.selectedAddressId,
       error: error,
+      validationError: validationError,
     );
   }
 }
@@ -61,15 +69,32 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
 
   Future<void> bootstrap({bool silent = false}) async {
     if (!silent) {
-      state = state.copyWith(loading: true, error: null);
+      state = state.copyWith(
+        loading: true,
+        error: null,
+        validationError: null,
+      );
     }
     try {
-      final raw = await ref.read(ordersApiProvider).listDeliveryAddresses();
-      final addresses = raw
+      var raw = await ref.read(ordersApiProvider).listDeliveryAddresses();
+      var addresses = raw
           .map(
-            (e) => DeliveryAddressModel.fromJson(Map<String, dynamic>.from(e as Map)),
+            (e) => DeliveryAddressModel.fromJson(
+              Map<String, dynamic>.from(e as Map),
+            ),
           )
           .toList();
+
+      if (addresses.isEmpty && await _ensurePrimaryAddressFromAccount()) {
+        raw = await ref.read(ordersApiProvider).listDeliveryAddresses();
+        addresses = raw
+            .map(
+              (e) => DeliveryAddressModel.fromJson(
+                Map<String, dynamic>.from(e as Map),
+              ),
+            )
+            .toList();
+      }
 
       int? nextSelected = state.selectedAddressId;
       if (addresses.isEmpty) {
@@ -78,8 +103,9 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
         final hasCurrent =
             nextSelected != null && addresses.any((a) => a.id == nextSelected);
         if (!hasCurrent) {
-          nextSelected =
-              addresses.firstWhere((a) => a.isDefault, orElse: () => addresses.first).id;
+          nextSelected = addresses
+              .firstWhere((a) => a.isDefault, orElse: () => addresses.first)
+              .id;
         }
       }
 
@@ -88,17 +114,65 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
         addresses: addresses,
         selectedAddressId: nextSelected,
         error: null,
+        validationError: null,
       );
     } on DioException catch (e) {
-      state = state.copyWith(loading: false, error: _mapError(e));
+      state = state.copyWith(
+        loading: false,
+        error: _mapError(e),
+        validationError: parseBackendFieldErrors(e),
+      );
     } catch (_) {
-      state = state.copyWith(loading: false, error: 'تعذر تحميل عناوين التوصيل');
+      state = state.copyWith(
+        loading: false,
+        error: resolveLocalizedText(
+          (l10n) => l10n.deliveryAddressesLoadFailed,
+        ),
+        validationError: null,
+      );
+    }
+  }
+
+  Future<bool> _ensurePrimaryAddressFromAccount() async {
+    final auth = ref.read(authControllerProvider);
+    final user = auth.user;
+    if (user == null || auth.isBackoffice || auth.isOwner || auth.isDelivery) {
+      return false;
+    }
+
+    final block = user.block.trim();
+    final buildingNumber = user.buildingNumber.trim();
+    final apartment = user.apartment.trim();
+    if (block.isEmpty || buildingNumber.isEmpty || apartment.isEmpty) {
+      return false;
+    }
+
+    try {
+      await ref.read(ordersApiProvider).createDeliveryAddress({
+        'label': resolveLocalizedText(
+          (l10n) => l10n.deliveryAddressesDefaultLabel,
+        ),
+        'city': resolveLocalizedText(
+          (l10n) => l10n.deliveryAddressesDefaultCity,
+        ),
+        'block': block,
+        'buildingNumber': buildingNumber,
+        'apartment': apartment,
+        'isDefault': true,
+      });
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
   void selectAddress(int addressId) {
     if (!state.addresses.any((a) => a.id == addressId)) return;
-    state = state.copyWith(selectedAddressId: addressId, error: null);
+    state = state.copyWith(
+      selectedAddressId: addressId,
+      error: null,
+      validationError: null,
+    );
   }
 
   Future<void> createAddress({
@@ -109,7 +183,11 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
     required String apartment,
     bool isDefault = false,
   }) async {
-    state = state.copyWith(saving: true, error: null);
+    state = state.copyWith(
+      saving: true,
+      error: null,
+      validationError: null,
+    );
     try {
       await ref.read(ordersApiProvider).createDeliveryAddress({
         'label': label.trim(),
@@ -120,11 +198,25 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
         'isDefault': isDefault,
       });
       await bootstrap(silent: true);
-      state = state.copyWith(saving: false, error: null);
+      state = state.copyWith(
+        saving: false,
+        error: null,
+        validationError: null,
+      );
     } on DioException catch (e) {
-      state = state.copyWith(saving: false, error: _mapError(e));
+      state = state.copyWith(
+        saving: false,
+        error: _mapError(e),
+        validationError: parseBackendFieldErrors(e),
+      );
     } catch (_) {
-      state = state.copyWith(saving: false, error: 'فشل إضافة عنوان التوصيل');
+      state = state.copyWith(
+        saving: false,
+        error: resolveLocalizedText(
+          (l10n) => l10n.deliveryAddressesCreateFailed,
+        ),
+        validationError: null,
+      );
     }
   }
 
@@ -137,7 +229,11 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
     required String apartment,
     bool isDefault = false,
   }) async {
-    state = state.copyWith(saving: true, error: null);
+    state = state.copyWith(
+      saving: true,
+      error: null,
+      validationError: null,
+    );
     try {
       await ref.read(ordersApiProvider).updateDeliveryAddress(addressId, {
         'label': label.trim(),
@@ -148,16 +244,34 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
         'isDefault': isDefault,
       });
       await bootstrap(silent: true);
-      state = state.copyWith(saving: false, error: null);
+      state = state.copyWith(
+        saving: false,
+        error: null,
+        validationError: null,
+      );
     } on DioException catch (e) {
-      state = state.copyWith(saving: false, error: _mapError(e));
+      state = state.copyWith(
+        saving: false,
+        error: _mapError(e),
+        validationError: parseBackendFieldErrors(e),
+      );
     } catch (_) {
-      state = state.copyWith(saving: false, error: 'فشل تحديث عنوان التوصيل');
+      state = state.copyWith(
+        saving: false,
+        error: resolveLocalizedText(
+          (l10n) => l10n.deliveryAddressesUpdateFailed,
+        ),
+        validationError: null,
+      );
     }
   }
 
   Future<void> setDefaultAddress(int addressId) async {
-    state = state.copyWith(saving: true, error: null);
+    state = state.copyWith(
+      saving: true,
+      error: null,
+      validationError: null,
+    );
     try {
       await ref.read(ordersApiProvider).setDefaultDeliveryAddress(addressId);
       await bootstrap(silent: true);
@@ -165,37 +279,61 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
         saving: false,
         selectedAddressId: addressId,
         error: null,
+        validationError: null,
       );
     } on DioException catch (e) {
-      state = state.copyWith(saving: false, error: _mapError(e));
+      state = state.copyWith(
+        saving: false,
+        error: _mapError(e),
+        validationError: parseBackendFieldErrors(e),
+      );
     } catch (_) {
       state = state.copyWith(
         saving: false,
-        error: 'فشل تعيين العنوان الافتراضي',
+        error: resolveLocalizedText(
+          (l10n) => l10n.deliveryAddressesDefaultFailed,
+        ),
+        validationError: null,
       );
     }
   }
 
   Future<void> deleteAddress(int addressId) async {
-    state = state.copyWith(saving: true, error: null);
+    state = state.copyWith(
+      saving: true,
+      error: null,
+      validationError: null,
+    );
     try {
       await ref.read(ordersApiProvider).deleteDeliveryAddress(addressId);
       await bootstrap(silent: true);
-      state = state.copyWith(saving: false, error: null);
+      state = state.copyWith(
+        saving: false,
+        error: null,
+        validationError: null,
+      );
     } on DioException catch (e) {
-      state = state.copyWith(saving: false, error: _mapError(e));
+      state = state.copyWith(
+        saving: false,
+        error: _mapError(e),
+        validationError: parseBackendFieldErrors(e),
+      );
     } catch (_) {
-      state = state.copyWith(saving: false, error: 'فشل حذف عنوان التوصيل');
+      state = state.copyWith(
+        saving: false,
+        error: resolveLocalizedText(
+          (l10n) => l10n.deliveryAddressesDeleteFailed,
+        ),
+        validationError: null,
+      );
     }
   }
 
   String _mapError(DioException e) {
-    final data = e.response?.data;
-    if (data is Map) {
-      final map = Map<String, dynamic>.from(data);
-      final message = map['message'];
-      if (message is String && message.isNotEmpty) return message;
-    }
-    return 'حدث خطأ في الاتصال بالخادم';
+    return mapDioErrorL10n(
+      e,
+      fallbackBuilder: (l10n) => l10n.errorsServerFailure,
+      appendRequestId: true,
+    );
   }
 }

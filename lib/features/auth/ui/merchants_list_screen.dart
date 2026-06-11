@@ -5,12 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/pricing.dart';
-import '../../../core/i18n/app_strings.dart';
+import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/utils/parsers.dart';
 import '../../../core/utils/currency.dart';
-import '../../../core/widgets/app_user_drawer.dart';
-import '../../assistant/ui/assistant_chat_screen.dart';
+import '../../../core/widgets/maslaki_user_drawer.dart';
+import '../../behavior/data/behavior_api.dart';
 import '../../merchants/models/merchant_discovery_model.dart';
 import '../../merchants/models/merchant_model.dart';
+import '../../merchants/models/store_activity_model.dart';
 import '../../merchants/state/customer_merchant_prefs_controller.dart';
 import '../../merchants/state/merchant_discovery_controller.dart';
 import '../../merchants/state/merchants_controller.dart';
@@ -21,21 +23,33 @@ import '../../orders/state/delivery_address_controller.dart';
 import '../../orders/ui/cart_screen.dart';
 import '../../orders/ui/customer_orders_screen.dart';
 import '../../orders/ui/delivery_addresses_screen.dart';
+import '../../coupons/ui/customer_coupons_hub_screen.dart';
+import '../../taxi/ui/taxi_customer_tools_screen.dart';
 import '../state/auth_controller.dart';
 import 'add_merchant_screen.dart';
 
+import 'package:maslaki/core/media/cached_app_image.dart';
+
 class MerchantsListScreen extends ConsumerStatefulWidget {
   final String? initialType;
+  final String? initialActivityType;
+  final String? initialDiscoverySubcategory;
   final String initialSearchQuery;
+  final List<String> requiredAnyKeywords;
   final String? overrideTitle;
   final bool compactCustomerMode;
+  final bool applyInitialSearchQuery;
 
   const MerchantsListScreen({
     super.key,
     this.initialType,
+    this.initialActivityType,
+    this.initialDiscoverySubcategory,
     this.initialSearchQuery = '',
+    this.requiredAnyKeywords = const [],
     this.overrideTitle,
     this.compactCustomerMode = false,
+    this.applyInitialSearchQuery = true,
   });
 
   @override
@@ -48,25 +62,32 @@ enum _CustomerMerchantSort { recommended, openFirst, offersFirst, alphabetical }
 enum _DiscoveryMode { quick, savings, favorites, surprise }
 
 class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
-  static const _promoItems = <_PromoItem>[
-    _PromoItem(
-      title: 'عروض بسماية اليومية',
-      subtitle: 'خصومات متجددة على المطاعم والمتاجر القريبة منك',
-      icon: Icons.local_offer_rounded,
-    ),
-    _PromoItem(
-      title: 'توصيل سريع داخل المجمع',
-      subtitle: 'من المتجر إلى باب بيتك بأجور ثابتة وواضحة',
-      icon: Icons.delivery_dining_rounded,
-    ),
-    _PromoItem(
-      title: 'متاجر الحي بين يديك',
-      subtitle: 'كل ما تحتاجه يوميًا من مكان واحد وبلمسة حديثة',
-      icon: Icons.storefront_rounded,
-    ),
-  ];
+  static const int _promoItemCount = 3;
+
+  static List<_PromoItem> _promoItems(BuildContext context) {
+    final l10n = context.l10n;
+    return <_PromoItem>[
+      _PromoItem(
+        title: l10n.customerDiscoveryBannerOfferTitle,
+        subtitle: l10n.customerDiscoveryBannerOfferSubtitle,
+        icon: Icons.local_offer_rounded,
+      ),
+      _PromoItem(
+        title: l10n.merchantListPromoFastDeliveryTitle,
+        subtitle: l10n.merchantListPromoFastDeliverySubtitle,
+        icon: Icons.delivery_dining_rounded,
+      ),
+      _PromoItem(
+        title: l10n.merchantListPromoNeighborhoodTitle,
+        subtitle: l10n.merchantListPromoNeighborhoodSubtitle,
+        icon: Icons.storefront_rounded,
+      ),
+    ];
+  }
 
   String? filterType;
+  String? selectedActivityType;
+  String? selectedDiscoverySubcategory;
   String searchQuery = '';
   bool openNowOnly = false;
   bool favoritesOnly = false;
@@ -74,17 +95,47 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
   _DiscoveryMode? activeDiscoveryMode;
   bool surprisePicking = false;
   int? highlightedMerchantId;
+  String? _serverSideSearch;
+  late final List<String> _requiredKeywords;
+  late final bool _seededKeywordIntent;
+  late final String _normalizedInitialSearchQuery;
+  List<StoreActivityModel> _activities = const <StoreActivityModel>[];
+  List<StoreDiscoveryOptionModel> _discoveryOptions =
+      const <StoreDiscoveryOptionModel>[];
 
   final searchCtrl = TextEditingController();
   final promoController = PageController(viewportFraction: 0.92);
   Timer? promoTimer;
   int promoPage = 0;
+  String? _lastTrackedBrowseSignature;
+
+  String? _normalizeNullableToken(String? value) {
+    final normalized = normalizeText(value ?? '').trim().toLowerCase();
+    return normalized.isEmpty ? null : normalized;
+  }
 
   @override
   void initState() {
     super.initState();
     filterType = widget.initialType;
-    searchQuery = widget.initialSearchQuery.trim();
+    selectedActivityType = _normalizeNullableToken(widget.initialActivityType);
+    selectedDiscoverySubcategory = _normalizeNullableToken(
+      widget.initialDiscoverySubcategory,
+    );
+    _normalizedInitialSearchQuery = normalizeText(
+      widget.initialSearchQuery,
+    ).trim();
+    _requiredKeywords = widget.requiredAnyKeywords
+        .map((e) => normalizeText(e).trim().toLowerCase())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    _seededKeywordIntent =
+        widget.compactCustomerMode && _requiredKeywords.isNotEmpty;
+    searchQuery = widget.applyInitialSearchQuery && !_seededKeywordIntent
+        ? _normalizedInitialSearchQuery
+        : '';
+    _serverSideSearch = searchQuery.isEmpty ? null : searchQuery;
     if (searchQuery.isNotEmpty) {
       searchCtrl.text = searchQuery;
       searchCtrl.selection = TextSelection.collapsed(
@@ -97,9 +148,15 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
 
       await ref
           .read(merchantsControllerProvider.notifier)
-          .load(type: filterType);
+          .loadWithFilters(
+            type: filterType,
+            search: _serverSideSearch,
+            activityType: selectedActivityType,
+            discoverySubcategory: selectedDiscoverySubcategory,
+          );
       await ref.read(deliveryAddressControllerProvider.notifier).bootstrap();
       await _loadDiscoveryForType(auth: auth, type: filterType);
+      await _loadActivityFilters();
       if (!auth.isBackoffice &&
           !auth.isOwner &&
           !auth.isDelivery &&
@@ -108,10 +165,11 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
             .read(customerMerchantPrefsProvider.notifier)
             .bootstrap(userId: userId);
       }
+      await _trackBrowseSurface();
     });
     promoTimer = Timer.periodic(const Duration(seconds: 6), (_) {
       if (!mounted || !promoController.hasClients) return;
-      promoPage = (promoPage + 1) % _promoItems.length;
+      promoPage = (promoPage + 1) % _promoItemCount;
       promoController.animateToPage(
         promoPage,
         duration: const Duration(milliseconds: 520),
@@ -141,25 +199,134 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     ).push(MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()));
   }
 
-  Future<void> _openAssistant() async {
+  Future<void> _openTaxiTools(int tab) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TaxiCustomerToolsScreen(initialTab: tab),
+      ),
+    );
+  }
+
+  Future<void> _openCouponsHub() async {
     await Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const AssistantChatScreen()));
+    ).push(MaterialPageRoute(builder: (_) => const CustomerCouponsHubScreen()));
+  }
+
+  String _resolvedBrowseRoute() {
+    final type = (filterType ?? widget.initialType ?? '').trim().toLowerCase();
+    final route = type == 'market' ? 'main_market' : 'shopping';
+    final params = <String, String>{};
+    if ((filterType ?? widget.initialType ?? '').trim().isNotEmpty) {
+      params['type'] = (filterType ?? widget.initialType ?? '').trim();
+    }
+    if ((selectedActivityType ?? '').trim().isNotEmpty) {
+      params['activityType'] = selectedActivityType!.trim();
+    }
+    if ((selectedDiscoverySubcategory ?? '').trim().isNotEmpty) {
+      params['discoverySubcategory'] = selectedDiscoverySubcategory!.trim();
+    }
+    final title = _resolvedBrowseTitle().trim();
+    if (title.isNotEmpty) {
+      params['title'] = title;
+    }
+    if (params.isEmpty) {
+      return route;
+    }
+    return Uri(path: route, queryParameters: params).toString();
+  }
+
+  String _resolvedBrowseTitle() {
+    final override = (widget.overrideTitle ?? '').trim();
+    if (override.isNotEmpty) {
+      return override;
+    }
+    final activity = selectedActivityType;
+    if (activity != null && activity.isNotEmpty) {
+      for (final item in _activities) {
+        if (item.activityType == activity) {
+          return item.localizedLabel(
+            Directionality.of(context) == TextDirection.rtl,
+          );
+        }
+      }
+    }
+    final type = (filterType ?? widget.initialType ?? '').trim().toLowerCase();
+    if (type == 'market') {
+      return 'كل السوق';
+    }
+    if (type == 'restaurant') {
+      return 'المطاعم';
+    }
+    return 'التسوق';
+  }
+
+  Future<void> _trackBrowseSurface() async {
+    if (!mounted) return;
+    final title = _resolvedBrowseTitle();
+    final signature = [
+      filterType ?? widget.initialType ?? '',
+      selectedActivityType ?? '',
+      selectedDiscoverySubcategory ?? '',
+      widget.overrideTitle ?? '',
+    ].join('|');
+    if (_lastTrackedBrowseSignature == signature) {
+      return;
+    }
+    _lastTrackedBrowseSignature = signature;
+    await ref
+        .read(behaviorApiProvider)
+        .trackEvent(
+          eventName: 'shopping.catalog_open',
+          category: 'shopping',
+          action: 'browse_catalog',
+          metadata: {
+            'type': filterType ?? widget.initialType,
+            'activityType': selectedActivityType,
+            'discoverySubcategory': selectedDiscoverySubcategory,
+            'route': _resolvedBrowseRoute(),
+            'screenLabel': title,
+            'recentTitle': 'كنت تتصفح $title',
+            'recentSubtitle': 'اضغط للعودة إلى $title',
+          },
+        );
   }
 
   Future<void> _refresh() {
     final auth = ref.read(authControllerProvider);
     return Future.wait([
-      ref.read(merchantsControllerProvider.notifier).load(type: filterType),
+      ref
+          .read(merchantsControllerProvider.notifier)
+          .loadWithFilters(
+            type: filterType,
+            search: _serverSideSearch,
+            activityType: selectedActivityType,
+            discoverySubcategory: selectedDiscoverySubcategory,
+          ),
       _loadDiscoveryForType(auth: auth, type: filterType, force: true),
-    ]);
+      _loadActivityFilters(force: true),
+    ]).then((_) => _trackBrowseSurface());
   }
 
   void _onChangeType(String? value) {
     if (filterType == value) return;
-    setState(() => filterType = value);
-    ref.read(merchantsControllerProvider.notifier).load(type: value);
+    setState(() {
+      filterType = value;
+      selectedActivityType = null;
+      selectedDiscoverySubcategory = null;
+      _discoveryOptions = const <StoreDiscoveryOptionModel>[];
+    });
+    ref
+        .read(merchantsControllerProvider.notifier)
+        .loadWithFilters(
+          type: value,
+          search: _serverSideSearch,
+          activityType: selectedActivityType,
+          discoverySubcategory: selectedDiscoverySubcategory,
+        );
     _loadDiscoveryForType(auth: ref.read(authControllerProvider), type: value);
+    _loadActivityFilters(force: true);
+    unawaited(_trackBrowseSurface());
   }
 
   bool _isCustomerView(AuthState auth) {
@@ -187,17 +354,168 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     await ref.read(merchantDiscoveryControllerProvider.notifier).clear();
   }
 
-  String _searchHintText() {
+  Future<void> _loadActivityFilters({bool force = false}) async {
+    try {
+      if (_activities.isNotEmpty && !force) {
+        await _loadDiscoveryOptionsForSelectedActivity(force: force);
+        return;
+      }
+      final controller = ref.read(merchantsControllerProvider.notifier);
+      final activities = await controller.listActivities();
+      if (!mounted) return;
+      final currentType = filterType?.trim();
+      final visible = currentType == null || currentType.isEmpty
+          ? activities
+          : activities
+                .where((activity) => activity.baseType == currentType)
+                .toList();
+      final prioritizedVisible = _prioritizeActivities(
+        visible,
+        currentType: currentType,
+      );
+      final hasSelected =
+          selectedActivityType != null &&
+          prioritizedVisible.any(
+            (activity) => activity.activityType == selectedActivityType,
+          );
+      setState(() {
+        _activities = prioritizedVisible;
+        if (!hasSelected) {
+          selectedActivityType = null;
+          selectedDiscoverySubcategory = null;
+        }
+      });
+      await _loadDiscoveryOptionsForSelectedActivity(force: force);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _activities = const <StoreActivityModel>[];
+        selectedActivityType = null;
+        selectedDiscoverySubcategory = null;
+        _discoveryOptions = const <StoreDiscoveryOptionModel>[];
+      });
+    }
+  }
+
+  List<StoreActivityModel> _prioritizeActivities(
+    List<StoreActivityModel> source, {
+    required String? currentType,
+  }) {
+    if (source.length <= 1) return source;
+    final normalizedType = normalizeText(
+      currentType ?? '',
+    ).trim().toLowerCase();
+    if (normalizedType.isNotEmpty && normalizedType != 'market') {
+      return source;
+    }
+    final list = <StoreActivityModel>[...source];
+    final pharmacyIndex = list.indexWhere(
+      (item) => item.activityType == 'pharmacy',
+    );
+    if (pharmacyIndex <= 0) return list;
+    final pharmacy = list.removeAt(pharmacyIndex);
+    list.insert(0, pharmacy);
+    return list;
+  }
+
+  Future<void> _loadDiscoveryOptionsForSelectedActivity({
+    bool force = false,
+  }) async {
+    final activity = selectedActivityType;
+    if (activity == null || activity.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _discoveryOptions = const <StoreDiscoveryOptionModel>[];
+        selectedDiscoverySubcategory = null;
+      });
+      return;
+    }
+    StoreActivityModel? target;
+    for (final item in _activities) {
+      if (item.activityType == activity) {
+        target = item;
+        break;
+      }
+    }
+    if (target == null || !target.hasDiscoverySubcategories) {
+      if (!mounted) return;
+      setState(() {
+        _discoveryOptions = const <StoreDiscoveryOptionModel>[];
+        selectedDiscoverySubcategory = null;
+      });
+      return;
+    }
+    if (_discoveryOptions.isNotEmpty && !force) return;
+    try {
+      final controller = ref.read(merchantsControllerProvider.notifier);
+      final options = await controller.listDiscoveryOptions(
+        activityType: activity,
+      );
+      if (!mounted) return;
+      final hasSelected =
+          selectedDiscoverySubcategory != null &&
+          options.any((item) => item.code == selectedDiscoverySubcategory);
+      setState(() {
+        _discoveryOptions = options;
+        if (!hasSelected) selectedDiscoverySubcategory = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _discoveryOptions = const <StoreDiscoveryOptionModel>[];
+        selectedDiscoverySubcategory = null;
+      });
+    }
+  }
+
+  Future<void> _onSelectActivityType(String? value) async {
+    final normalized = _normalizeNullableToken(value);
+    if (selectedActivityType == normalized) return;
+    setState(() {
+      selectedActivityType = normalized;
+      selectedDiscoverySubcategory = null;
+      _discoveryOptions = const <StoreDiscoveryOptionModel>[];
+    });
+    await _loadDiscoveryOptionsForSelectedActivity(force: true);
+    if (!mounted) return;
+    await ref
+        .read(merchantsControllerProvider.notifier)
+        .loadWithFilters(
+          type: filterType,
+          search: _serverSideSearch,
+          activityType: selectedActivityType,
+          discoverySubcategory: selectedDiscoverySubcategory,
+        );
+    await _trackBrowseSurface();
+  }
+
+  Future<void> _onSelectDiscoverySubcategory(String? value) async {
+    final normalized = _normalizeNullableToken(value);
+    if (selectedDiscoverySubcategory == normalized) return;
+    setState(() => selectedDiscoverySubcategory = normalized);
+    await ref
+        .read(merchantsControllerProvider.notifier)
+        .loadWithFilters(
+          type: filterType,
+          search: _serverSideSearch,
+          activityType: selectedActivityType,
+          discoverySubcategory: selectedDiscoverySubcategory,
+        );
+    await _trackBrowseSurface();
+  }
+
+  String _resolvedSearchHintText() {
+    final l10n = context.l10n;
     final title = (widget.overrideTitle ?? '').trim();
     if (title.isNotEmpty) {
-      return 'ابحث عن $title';
+      return l10n.merchantListSearchHintFor(title);
     }
 
     final currentType = filterType ?? widget.initialType;
     if (currentType == 'market') {
-      return 'ابحث عن الأسواق';
+      return l10n.merchantListSearchHintMarket;
     }
-    return 'ابحث عن المطاعم';
+    return l10n.merchantListSearchHintRestaurant;
   }
 
   List<MerchantModel> _applySearch(
@@ -205,16 +523,16 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     Set<int> favoriteMerchantIds,
     Map<int, double> insightScoreByMerchantId,
   ) {
-    final q = searchQuery.trim().toLowerCase();
+    final q = normalizeText(searchQuery).trim().toLowerCase();
+    final hasExplicitSearch = q.isNotEmpty;
     var filtered = q.isEmpty
         ? list
         : list.where((merchant) {
-            final name = merchant.name.toLowerCase();
-            final description = (merchant.description ?? '').toLowerCase();
-            final phone = (merchant.phone ?? '').toLowerCase();
-            return name.contains(q) ||
-                description.contains(q) ||
-                phone.contains(q);
+            final haystack = normalizeText(
+              '${merchant.name} ${merchant.description ?? ''} '
+              '${merchant.tagline ?? ''} ${merchant.phone ?? ''}',
+            ).toLowerCase();
+            return haystack.contains(q);
           }).toList();
 
     if (openNowOnly) {
@@ -225,11 +543,56 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
           .where((merchant) => favoriteMerchantIds.contains(merchant.id))
           .toList();
     }
-    return _sortMerchants(
+    final sorted = _sortMerchants(
       filtered,
       favoriteMerchantIds,
       insightScoreByMerchantId,
     );
+    if (_requiredKeywords.isEmpty || hasExplicitSearch) {
+      return sorted;
+    }
+
+    final matched = <MerchantModel>[];
+    final fallback = <MerchantModel>[];
+    for (final merchant in sorted) {
+      if (_matchesSeedIntent(merchant)) {
+        matched.add(merchant);
+      } else {
+        fallback.add(merchant);
+      }
+    }
+    return [...matched, ...fallback];
+  }
+
+  void _clearCustomerFilters() {
+    searchCtrl.clear();
+    setState(() {
+      searchQuery = '';
+      openNowOnly = false;
+      favoritesOnly = false;
+      sortBy = _CustomerMerchantSort.recommended;
+      activeDiscoveryMode = null;
+      highlightedMerchantId = null;
+      selectedActivityType = null;
+      selectedDiscoverySubcategory = null;
+      _discoveryOptions = const <StoreDiscoveryOptionModel>[];
+    });
+    ref
+        .read(merchantsControllerProvider.notifier)
+        .loadWithFilters(
+          type: filterType,
+          search: _serverSideSearch,
+          activityType: selectedActivityType,
+          discoverySubcategory: selectedDiscoverySubcategory,
+        );
+  }
+
+  bool _matchesSeedIntent(MerchantModel merchant) {
+    if (_requiredKeywords.isEmpty) return false;
+    final haystack = normalizeText(
+      '${merchant.name} ${merchant.description ?? ''} ${merchant.tagline ?? ''} ${merchant.phone ?? ''}',
+    ).toLowerCase();
+    return _requiredKeywords.any(haystack.contains);
   }
 
   List<MerchantModel> _sortMerchants(
@@ -338,20 +701,23 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     ).take(10).toList();
   }
 
-  String _greetingByHour(int hour) {
-    if (hour < 6) return 'ليلة هادئة';
-    if (hour < 12) return 'صباح نشيط';
-    if (hour < 17) return 'ظهيرة سريعة';
-    if (hour < 22) return 'مساء حيوي';
-    return 'ليل بسماية';
+  String _greetingByHour(BuildContext context, int hour) {
+    final l10n = context.l10n;
+    if (hour < 6) return l10n.merchantListGreetingLateNight;
+    if (hour < 12) return l10n.merchantListGreetingMorning;
+    if (hour < 17) return l10n.merchantListGreetingAfternoon;
+    if (hour < 22) return l10n.merchantListGreetingEvening;
+    return l10n.merchantListGreetingBismayahNight;
   }
 
-  ({String label, Color color, double score}) _cityPulse({
+  ({String label, Color color, double score}) _cityPulse(
+    BuildContext context, {
     required int hour,
     required int openCount,
     required int offersCount,
     required int totalCount,
   }) {
+    final l10n = context.l10n;
     final openRatio = totalCount <= 0 ? 0.0 : openCount / totalCount;
     final offerRatio = totalCount <= 0 ? 0.0 : offersCount / totalCount;
     final hourBias = (hour >= 12 && hour <= 23) ? 0.22 : 0.12;
@@ -361,19 +727,23 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     );
     if (score >= 0.72) {
       return (
-        label: 'ذروة الطلب',
+        label: l10n.merchantListPulsePeakDemand,
         color: const Color(0xFF2DD881),
         score: score,
       );
     }
     if (score >= 0.42) {
       return (
-        label: 'نشاط متوسط',
+        label: l10n.merchantListPulseModerate,
         color: const Color(0xFFF9C74F),
         score: score,
       );
     }
-    return (label: 'نشاط هادئ', color: const Color(0xFF56CFE1), score: score);
+    return (
+      label: l10n.merchantListPulseCalm,
+      color: const Color(0xFF56CFE1),
+      score: score,
+    );
   }
 
   Future<void> _openMerchant(
@@ -411,7 +781,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     if (pool.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا توجد متاجر متاحة حالياً')),
+        SnackBar(content: Text(context.l10n.merchantListNoStores)),
       );
       return;
     }
@@ -505,37 +875,39 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
   }
 
   String _spendingBandText(String value) {
+    final l10n = context.l10n;
     switch (value) {
       case 'budget':
-        return 'اقتصادي';
+        return l10n.merchantListSpendingBandBudget;
       case 'balanced':
-        return 'متوازن';
+        return l10n.merchantListSpendingBandBalanced;
       case 'premium':
-        return 'مرتفع';
+        return l10n.merchantListSpendingBandPremium;
       default:
-        return 'جديد';
+        return l10n.merchantListSpendingBandNew;
     }
   }
 
   String _priceSensitivityText(String value) {
+    final l10n = context.l10n;
     switch (value) {
       case 'high':
-        return 'حساسية سعر عالية';
+        return l10n.merchantListPriceSensitivityHigh;
       case 'low':
-        return 'يركز على الجودة';
+        return l10n.merchantListPriceSensitivityLow;
       default:
-        return 'تفضيل متوازن';
+        return l10n.merchantListPriceSensitivityBalanced;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final auth = ref.watch(authControllerProvider);
     final merchants = ref.watch(merchantsControllerProvider);
     final discovery = ref.watch(merchantDiscoveryControllerProvider);
     final cart = ref.watch(cartControllerProvider);
     final prefs = ref.watch(customerMerchantPrefsProvider);
-    final strings = ref.watch(appStringsProvider);
     final showCustomerActions =
         !auth.isBackoffice && !auth.isOwner && !auth.isDelivery;
     final showRichDiscovery =
@@ -543,94 +915,112 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     final lockTypeSelection =
         widget.compactCustomerMode && widget.initialType != null;
     final showSecondaryFilters = showCustomerActions && !lockTypeSelection;
-    final drawerItems = <AppUserDrawerItem>[
-      AppUserDrawerItem(
-        icon: Icons.home_outlined,
-        label: strings.t('drawerHome'),
+    final hasInitialActivityContext = (widget.initialActivityType ?? '')
+        .trim()
+        .isNotEmpty;
+    final normalizedInitialType = (widget.initialType ?? '')
+        .trim()
+        .toLowerCase();
+    final isRestaurantLanding = normalizedInitialType == 'restaurant';
+    final isActivityLockedContext =
+        hasInitialActivityContext || isRestaurantLanding;
+    final showActivityFilters = showCustomerActions && !isActivityLockedContext;
+    Future<void> runDrawerAction(Future<void> Function() action) async {
+      Navigator.of(context).pop();
+      await action();
+    }
+
+    final extraDrawerSections = <MaslakiDrawerSection>[
+      MaslakiDrawerSection(
+        title: showCustomerActions ? 'السوق الحالي' : 'إدارة المتاجر',
+        entries: [
+          MaslakiDrawerEntry(
+            icon: Icons.home_outlined,
+            label: l10n.drawerHome,
+            onTap: () => runDrawerAction(() async {
+              Navigator.of(
+                context,
+                rootNavigator: true,
+              ).popUntil((route) => route.isFirst);
+            }),
+          ),
+          MaslakiDrawerEntry(
+            icon: Icons.refresh_rounded,
+            label: l10n.drawerRefresh,
+            onTap: () => runDrawerAction(_refresh),
+          ),
+          if (showCustomerActions)
+            MaslakiDrawerEntry(
+              icon: Icons.receipt_long_rounded,
+              label: l10n.customerDiscoveryOrders,
+              onTap: () => runDrawerAction(_openOrders),
+            ),
+          if (showCustomerActions)
+            MaslakiDrawerEntry(
+              icon: Icons.shopping_cart_outlined,
+              label: l10n.drawerCart,
+              onTap: () => runDrawerAction(_openCart),
+            ),
+          if (showCustomerActions)
+            MaslakiDrawerEntry(
+              icon: Icons.schedule_outlined,
+              label: l10n.taxiScheduledRidesTitle,
+              onTap: () => runDrawerAction(() => _openTaxiTools(2)),
+            ),
+          if (showCustomerActions)
+            MaslakiDrawerEntry(
+              icon: Icons.discount_outlined,
+              label: l10n.taxiMyCouponsTitle,
+              onTap: () => runDrawerAction(_openCouponsHub),
+            ),
+          if (auth.isAdmin)
+            MaslakiDrawerEntry(
+              icon: Icons.add_business_rounded,
+              label: l10n.drawerCreateMerchant,
+              onTap: () => runDrawerAction(() async {
+                final created = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(builder: (_) => const AddMerchantScreen()),
+                );
+                if (created == true) {
+                  await _refresh();
+                }
+              }),
+            ),
+        ],
       ),
-      AppUserDrawerItem(
-        icon: Icons.refresh_rounded,
-        label: strings.t('drawerRefresh'),
-        onTap: (_) => _refresh(),
-      ),
-      if (showCustomerActions)
-        AppUserDrawerItem(
-          icon: Icons.receipt_long_rounded,
-          label: strings.t('myOrders'),
-          onTap: (_) async => _openOrders(),
-        ),
-      if (showCustomerActions)
-        AppUserDrawerItem(
-          icon: Icons.shopping_cart_outlined,
-          label: strings.t('drawerCart'),
-          onTap: (_) async => _openCart(),
-        ),
-      if (showCustomerActions)
-        AppUserDrawerItem(
-          icon: Icons.location_on_outlined,
-          label: 'عناوين التوصيل',
-          onTap: (_) async => _openAddresses(),
-        ),
-      if (showCustomerActions)
-        AppUserDrawerItem(
-          icon: Icons.smart_toy_outlined,
-          label: 'المساعد الذكي',
-          onTap: (_) async => _openAssistant(),
-        ),
-      if (auth.isAdmin)
-        AppUserDrawerItem(
-          icon: Icons.add_business_rounded,
-          label: strings.t('drawerCreateMerchant'),
-          onTap: (_) async {
-            final created = await Navigator.of(context).push<bool>(
-              MaterialPageRoute(builder: (_) => const AddMerchantScreen()),
-            );
-            if (created == true) {
-              await _refresh();
-            }
-          },
-        ),
     ];
 
     return Scaffold(
-      drawer: AppUserDrawer(
-        title: strings.t('drawerWorkspace'),
-        subtitle: strings.t('drawerMerchantsSub'),
-        items: drawerItems,
-      ),
+      endDrawer: MaslakiUserDrawer(extraSections: extraDrawerSections),
       appBar: AppBar(
         title: Text(
           widget.overrideTitle ??
               (showCustomerActions
-                  ? strings.t('customerHomeTitle')
-                  : strings.t('backofficeMerchantsTitle')),
+                  ? l10n.customerHomeTitle
+                  : l10n.adminBackofficeMerchantsTitle),
         ),
         actions: [
           if (showCustomerActions)
             IconButton(
-              tooltip: strings.t('myOrders'),
+              tooltip: l10n.customerDiscoveryOrders,
               onPressed: _openOrders,
               icon: const Icon(Icons.receipt_long),
             ),
           if (showCustomerActions)
             IconButton(
-              tooltip: 'المساعد الذكي',
-              onPressed: _openAssistant,
-              icon: const Icon(Icons.smart_toy_outlined),
-            ),
-          if (showCustomerActions)
-            IconButton(
-              tooltip: 'عناوين التوصيل',
+              tooltip: l10n.drawerAddresses,
               onPressed: _openAddresses,
               icon: const Icon(Icons.location_on_outlined),
             ),
           if (showCustomerActions)
             _CartButton(totalItems: cart.totalItems, onPressed: _openCart),
           if (showCustomerActions) const NotificationsBellButton(),
+          const MaslakiUserDrawerButton(),
         ],
       ),
       floatingActionButton: auth.isAdmin
           ? FloatingActionButton.extended(
+              heroTag: null,
               onPressed: () async {
                 final created = await Navigator.of(context).push<bool>(
                   MaterialPageRoute(builder: (_) => const AddMerchantScreen()),
@@ -639,14 +1029,8 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                   await _refresh();
                 }
               },
-              label: const Text('إنشاء متجر'),
+              label: Text(l10n.drawerCreateMerchant),
               icon: const Icon(Icons.add_business_rounded),
-            )
-          : showRichDiscovery
-          ? FloatingActionButton.small(
-              onPressed: _openAssistant,
-              tooltip: 'المساعد الذكي',
-              child: const Icon(Icons.smart_toy_outlined),
             )
           : null,
       body: merchants.when(
@@ -682,6 +1066,11 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
             prefs.favoriteMerchantIds,
             insightScoreByMerchantId,
           );
+          final normalizedUserSearch = normalizeText(searchQuery).trim();
+          final hasUserSearch = normalizedUserSearch.isNotEmpty;
+          final hasUserFilters = hasUserSearch || openNowOnly || favoritesOnly;
+          final showEmptyInventory = list.isEmpty;
+          final showFilteredEmpty = list.isNotEmpty && filtered.isEmpty;
           final recommended = _recommendedMerchants(
             list,
             prefs.favoriteMerchantIds,
@@ -746,6 +1135,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
               )
               .length;
           final cityPulse = _cityPulse(
+            context,
             hour: DateTime.now().hour,
             openCount: openCount,
             offersCount: offersCount,
@@ -760,7 +1150,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                 const SizedBox(height: 12),
                 if (showRichDiscovery) ...[
                   _CityPulseCard(
-                    greeting: _greetingByHour(DateTime.now().hour),
+                    greeting: _greetingByHour(context, DateTime.now().hour),
                     totalMerchants: list.length,
                     openMerchants: openCount,
                     offersCount: offersCount,
@@ -801,7 +1191,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                   textDirection: TextDirection.rtl,
                   onChanged: (value) => setState(() => searchQuery = value),
                   decoration: InputDecoration(
-                    hintText: _searchHintText(),
+                    hintText: _resolvedSearchHintText(),
                     prefixIcon: const Icon(Icons.search_rounded),
                     suffixIcon: searchQuery.isEmpty
                         ? null
@@ -828,12 +1218,25 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                     selectedType: filterType,
                     onSelectType: _onChangeType,
                   ),
+                  const SizedBox(height: 10),
+                ],
+                if (showActivityFilters) ...[
+                  _ActivityDiscoveryRail(
+                    activities: _activities,
+                    discoveryOptions: _discoveryOptions,
+                    selectedActivityType: selectedActivityType,
+                    selectedDiscoverySubcategory: selectedDiscoverySubcategory,
+                    isArabic: Directionality.of(context) == TextDirection.rtl,
+                    onSelectActivityType: _onSelectActivityType,
+                    onSelectDiscoverySubcategory: _onSelectDiscoverySubcategory,
+                  ),
+                  const SizedBox(height: 10),
                 ],
                 if (showRichDiscovery) const SizedBox(height: 14),
                 if (showRichDiscovery)
                   _PromoCarousel(
                     controller: promoController,
-                    promoItems: _promoItems,
+                    promoItems: _promoItems(context),
                     currentPage: promoPage,
                   ),
                 if (categoryDiscoveryEnabled) ...[
@@ -861,9 +1264,9 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                     ),
                     const SizedBox(height: 12),
                     if (fastestMerchants.isNotEmpty) ...[
-                      const _MiniSectionHeader(
-                        title: 'الأسرع توصيلًا',
-                        subtitle: 'ترتيب حسب سرعة التوصيل الفعلية',
+                      _MiniSectionHeader(
+                        title: l10n.customerDiscoveryFastestDelivery,
+                        subtitle: l10n.merchantListFastestDeliverySubtitle,
                       ),
                       const SizedBox(height: 8),
                       _MerchantQuickRail(
@@ -875,9 +1278,9 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                       const SizedBox(height: 10),
                     ],
                     if (topRatedMerchants.isNotEmpty) ...[
-                      const _MiniSectionHeader(
-                        title: 'الأعلى تقييمًا',
-                        subtitle: 'أفضل جودة خدمة وطعم حسب التقييمات',
+                      _MiniSectionHeader(
+                        title: l10n.customerDiscoveryTopRated,
+                        subtitle: l10n.merchantListTopRatedSubtitle,
                       ),
                       const SizedBox(height: 8),
                       _MerchantQuickRail(
@@ -889,9 +1292,9 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                       const SizedBox(height: 10),
                     ],
                     if (bestValueMerchants.isNotEmpty) ...[
-                      const _MiniSectionHeader(
-                        title: 'أفضل قيمة مقابل السعر',
-                        subtitle: 'السعر مع الجودة معًا',
+                      _MiniSectionHeader(
+                        title: l10n.customerDiscoveryBestPrice,
+                        subtitle: l10n.merchantListBestPriceSubtitle,
                       ),
                       const SizedBox(height: 8),
                       _MerchantQuickRail(
@@ -903,9 +1306,9 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                       const SizedBox(height: 10),
                     ],
                     if (bestOffersMerchants.isNotEmpty) ...[
-                      const _MiniSectionHeader(
-                        title: 'عروض اليوم',
-                        subtitle: 'خصومات وتوصيل مجاني متاح الآن',
+                      _MiniSectionHeader(
+                        title: l10n.customerDiscoveryTodayOffers,
+                        subtitle: l10n.merchantListTodayOffersSubtitle,
                       ),
                       const SizedBox(height: 8),
                       _MerchantQuickRail(
@@ -917,9 +1320,9 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                       const SizedBox(height: 10),
                     ],
                     if (mostOrderedMerchants.isNotEmpty) ...[
-                      const _MiniSectionHeader(
-                        title: 'الأكثر طلبًا',
-                        subtitle: 'الأكثر نشاطًا من الزبائن اليوميين',
+                      _MiniSectionHeader(
+                        title: l10n.merchantListMostOrderedTitle,
+                        subtitle: l10n.merchantListMostOrderedSubtitle,
                       ),
                       const SizedBox(height: 8),
                       _MerchantQuickRail(
@@ -931,9 +1334,9 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                       const SizedBox(height: 10),
                     ],
                     if (reorderMerchants.isNotEmpty) ...[
-                      const _MiniSectionHeader(
-                        title: 'أعد طلبك السابق',
-                        subtitle: 'عودة سريعة للمتاجر التي طلبت منها',
+                      _MiniSectionHeader(
+                        title: l10n.customerDiscoveryReorder,
+                        subtitle: l10n.merchantListReorderSubtitle,
                       ),
                       const SizedBox(height: 8),
                       _MerchantQuickRail(
@@ -947,15 +1350,17 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                 ],
                 const SizedBox(height: 18),
                 _SectionHeader(
-                  title: 'متاجر بسماية',
-                  subtitle:
-                      '${filtered.length} متجر متاح • ${filtered.where((m) => m.isOpen).length} مفتوح الآن',
+                  title: l10n.merchantListSectionTitle,
+                  subtitle: l10n.merchantListSectionSubtitle(
+                    filtered.length.toString(),
+                    filtered.where((m) => m.isOpen).length.toString(),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 if (showRichDiscovery && storyMerchants.isNotEmpty) ...[
                   _MiniSectionHeader(
-                    title: 'حالات سريعة',
-                    subtitle: 'ادخل مباشرة على المتاجر النشطة',
+                    title: l10n.merchantListQuickStatesTitle,
+                    subtitle: l10n.merchantListQuickStatesSubtitle,
                   ),
                   const SizedBox(height: 8),
                   _MerchantStoriesRail(
@@ -968,8 +1373,8 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                 ],
                 if (showRichDiscovery && recommended.isNotEmpty) ...[
                   _MiniSectionHeader(
-                    title: 'مقترح لك',
-                    subtitle: 'أفضل خيارات حسب التوفر والعروض',
+                    title: l10n.merchantListSuggestedTitle,
+                    subtitle: l10n.merchantListSuggestedSubtitle,
                   ),
                   const SizedBox(height: 8),
                   _MerchantQuickRail(
@@ -982,15 +1387,15 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                 ],
                 if (showRichDiscovery && recentViewed.isNotEmpty) ...[
                   _MiniSectionHeader(
-                    title: 'شوهد مؤخراً',
-                    subtitle: 'عودة سريعة للمتاجر التي زرتها',
+                    title: l10n.merchantListRecentlyViewedTitle,
+                    subtitle: l10n.merchantListRecentlyViewedSubtitle,
                     trailing: TextButton(
                       onPressed: userId == null
                           ? null
                           : () => ref
                                 .read(customerMerchantPrefsProvider.notifier)
                                 .clearRecent(userId: userId),
-                      child: const Text('مسح'),
+                      child: Text(l10n.commonClear),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -1002,8 +1407,20 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                if (filtered.isEmpty)
-                  const _EmptySearchState()
+                if (showEmptyInventory)
+                  _MerchantListEmptyState(
+                    title: l10n.merchantListNoStores,
+                    subtitle: l10n.merchantListNoStoresSubtitle,
+                  )
+                else if (showFilteredEmpty)
+                  _MerchantListEmptyState(
+                    title: l10n.merchantListNoMatching,
+                    subtitle: hasUserFilters
+                        ? l10n.merchantListTryChangingFilters
+                        : l10n.merchantListNoStoresSubtitle,
+                    actionLabel: hasUserFilters ? l10n.commonReset : null,
+                    onAction: hasUserFilters ? _clearCustomerFilters : null,
+                  )
                 else
                   ...List.generate(filtered.length, (index) {
                     final merchant = filtered[index];
@@ -1086,6 +1503,7 @@ class _BackofficeMerchantsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: Column(
@@ -1098,9 +1516,9 @@ class _BackofficeMerchantsView extends StatelessWidget {
           Expanded(
             child: merchants.isEmpty
                 ? ListView(
-                    children: const [
-                      SizedBox(height: 180),
-                      Center(child: Text('لا توجد متاجر')),
+                    children: [
+                      const SizedBox(height: 180),
+                      Center(child: Text(l10n.merchantListNoStores)),
                     ],
                   )
                 : ListView.separated(
@@ -1110,8 +1528,8 @@ class _BackofficeMerchantsView extends StatelessWidget {
                     itemBuilder: (_, index) {
                       final merchant = merchants[index];
                       final typeLabel = merchant.type == 'restaurant'
-                          ? 'مطعم'
-                          : 'سوق';
+                          ? l10n.merchantListTypeRestaurant
+                          : l10n.merchantListTypeMarket;
                       return Card(
                         child: ListTile(
                           onTap: () => onOpenMerchant(merchant),
@@ -1123,7 +1541,11 @@ class _BackofficeMerchantsView extends StatelessWidget {
                             '$typeLabel • ${merchant.phone ?? ''}',
                             textDirection: TextDirection.rtl,
                           ),
-                          trailing: Text(merchant.isOpen ? 'مفتوح' : 'مغلق'),
+                          trailing: Text(
+                            merchant.isOpen
+                                ? l10n.commonOpen
+                                : l10n.commonClosed,
+                          ),
                         ),
                       );
                     },
@@ -1154,6 +1576,7 @@ class _CustomerQuickActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1164,7 +1587,7 @@ class _CustomerQuickActions extends StatelessWidget {
                 Expanded(
                   child: _QuickActionButton(
                     icon: Icons.location_on_outlined,
-                    label: 'العناوين',
+                    label: l10n.drawerAddresses,
                     onTap: onOpenAddresses,
                   ),
                 ),
@@ -1172,7 +1595,7 @@ class _CustomerQuickActions extends StatelessWidget {
                 Expanded(
                   child: _QuickActionButton(
                     icon: Icons.receipt_long_outlined,
-                    label: 'طلباتي',
+                    label: l10n.customerDiscoveryOrders,
                     onTap: onOpenOrders,
                   ),
                 ),
@@ -1180,7 +1603,7 @@ class _CustomerQuickActions extends StatelessWidget {
                 Expanded(
                   child: _QuickActionButton(
                     icon: Icons.shopping_cart_outlined,
-                    label: 'السلة',
+                    label: l10n.drawerCart,
                     onTap: onOpenCart,
                   ),
                 ),
@@ -1190,7 +1613,7 @@ class _CustomerQuickActions extends StatelessWidget {
               const SizedBox(height: 8),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('عرض المتاجر المفتوحة الآن فقط'),
+                title: Text(l10n.merchantListOpenNowOnlyToggle),
                 value: openNowOnly,
                 onChanged: onToggleOpenNowOnly,
               ),
@@ -1292,27 +1715,27 @@ class _CityPulseCard extends StatelessWidget {
               children: [
                 _PulseChip(
                   icon: Icons.storefront_rounded,
-                  label: 'المتاجر',
+                  label: context.l10n.customerDiscoveryMerchants,
                   value: '$totalMerchants',
                 ),
                 _PulseChip(
                   icon: Icons.lock_open_rounded,
-                  label: 'مفتوح الآن',
+                  label: context.l10n.customerDiscoveryOpenNow,
                   value: '$openMerchants',
                 ),
                 _PulseChip(
                   icon: Icons.local_offer_rounded,
-                  label: 'عروض',
+                  label: context.l10n.customerDiscoveryOffers,
                   value: '$offersCount',
                 ),
                 _PulseChip(
                   icon: Icons.favorite_rounded,
-                  label: 'مفضلة',
+                  label: context.l10n.merchantListFavorites,
                   value: '$favoritesCount',
                 ),
                 _PulseChip(
                   icon: Icons.history_rounded,
-                  label: 'شوهد مؤخراً',
+                  label: context.l10n.merchantListRecentlyViewedShort,
                   value: '$recentCount',
                 ),
               ],
@@ -1493,10 +1916,10 @@ class _MerchantStoryBubbleState extends State<_MerchantStoryBubble>
             ),
             child: ClipOval(
               child: widget.merchant.imageUrl?.isNotEmpty == true
-                  ? Image.network(
-                      widget.merchant.imageUrl!,
+                  ? CachedAppImage(
+                      imageUrl: widget.merchant.imageUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
+                      errorWidget: (context, error, stackTrace) => Container(
                         color: Colors.white.withValues(alpha: 0.08),
                         alignment: Alignment.center,
                         child: const Icon(Icons.storefront_rounded, size: 24),
@@ -1538,6 +1961,7 @@ class _DiscoveryModesPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1548,11 +1972,11 @@ class _DiscoveryModesPanel extends StatelessWidget {
               children: [
                 const Icon(Icons.auto_awesome_rounded, size: 18),
                 const SizedBox(width: 6),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'مزاجي الآن',
+                    l10n.merchantListDiscoveryModesTitle,
                     textDirection: TextDirection.rtl,
-                    style: TextStyle(fontWeight: FontWeight.w700),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
                 AnimatedSwitcher(
@@ -1578,28 +2002,28 @@ class _DiscoveryModesPanel extends StatelessWidget {
                   mode: _DiscoveryMode.quick,
                   activeMode: activeMode,
                   icon: Icons.flash_on_rounded,
-                  label: 'مستعجل',
+                  label: l10n.merchantListDiscoveryModeQuick,
                   onTap: onSelectMode,
                 ),
                 _DiscoveryModeChip(
                   mode: _DiscoveryMode.savings,
                   activeMode: activeMode,
                   icon: Icons.savings_rounded,
-                  label: 'توفير',
+                  label: l10n.merchantListDiscoveryModeSavings,
                   onTap: onSelectMode,
                 ),
                 _DiscoveryModeChip(
                   mode: _DiscoveryMode.favorites,
                   activeMode: activeMode,
                   icon: Icons.favorite_rounded,
-                  label: 'المفضلة',
+                  label: l10n.merchantListDiscoveryModeFavorites,
                   onTap: onSelectMode,
                 ),
                 _DiscoveryModeChip(
                   mode: _DiscoveryMode.surprise,
                   activeMode: activeMode,
                   icon: Icons.casino_rounded,
-                  label: 'فاجئني',
+                  label: l10n.merchantListDiscoveryModeSurprise,
                   onTap: onSelectMode,
                   animated: true,
                 ),
@@ -1635,14 +2059,37 @@ class _DiscoveryModeChip extends StatefulWidget {
 
 class _DiscoveryModeChipState extends State<_DiscoveryModeChip>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1100),
-  )..repeat(reverse: true);
+  AnimationController? _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _configureAnimationController();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DiscoveryModeChip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animated == widget.animated) return;
+    if (widget.animated) {
+      _configureAnimationController();
+    } else {
+      _controller?.dispose();
+      _controller = null;
+    }
+  }
+
+  void _configureAnimationController() {
+    if (!widget.animated || _controller != null) return;
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat(reverse: true);
+  }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
@@ -1656,14 +2103,15 @@ class _DiscoveryModeChipState extends State<_DiscoveryModeChip>
       label: Text(widget.label),
     );
 
-    if (!widget.animated || selected) {
+    final animation = _controller;
+    if (!widget.animated || selected || animation == null) {
       return chip;
     }
 
     return AnimatedBuilder(
-      animation: _controller,
+      animation: animation,
       builder: (context, child) {
-        final value = 1 + (_controller.value * 0.035);
+        final value = 1 + (animation.value * 0.035);
         return Transform.scale(scale: value, child: child);
       },
       child: chip,
@@ -1686,6 +2134,7 @@ class _MerchantDiscoveryToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1696,11 +2145,11 @@ class _MerchantDiscoveryToolbar extends StatelessWidget {
               children: [
                 const Icon(Icons.tune_rounded, size: 18),
                 const SizedBox(width: 6),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'تخصيص عرض المتاجر',
+                    l10n.merchantListCustomizeView,
                     textDirection: TextDirection.rtl,
-                    style: TextStyle(fontWeight: FontWeight.w700),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
                 DropdownButton<_CustomerMerchantSort>(
@@ -1709,22 +2158,22 @@ class _MerchantDiscoveryToolbar extends StatelessWidget {
                     if (value == null) return;
                     onChangeSort(value);
                   },
-                  items: const [
+                  items: [
                     DropdownMenuItem(
                       value: _CustomerMerchantSort.recommended,
-                      child: Text('المقترحة'),
+                      child: Text(l10n.merchantListSortRecommended),
                     ),
                     DropdownMenuItem(
                       value: _CustomerMerchantSort.openFirst,
-                      child: Text('المفتوحة أولاً'),
+                      child: Text(l10n.merchantListSortOpenFirst),
                     ),
                     DropdownMenuItem(
                       value: _CustomerMerchantSort.offersFirst,
-                      child: Text('الأفضل بالعروض'),
+                      child: Text(l10n.merchantListSortOffersFirst),
                     ),
                     DropdownMenuItem(
                       value: _CustomerMerchantSort.alphabetical,
-                      child: Text('أبجدياً'),
+                      child: Text(l10n.merchantListSortAlphabetical),
                     ),
                   ],
                 ),
@@ -1737,7 +2186,7 @@ class _MerchantDiscoveryToolbar extends StatelessWidget {
                 FilterChip(
                   selected: favoritesOnly,
                   onSelected: onToggleFavoritesOnly,
-                  label: const Text('المفضلة فقط'),
+                  label: Text(l10n.merchantListFavoritesOnly),
                   avatar: const Icon(Icons.favorite_rounded, size: 16),
                 ),
               ],
@@ -1794,6 +2243,7 @@ class _CategoryIntelligenceLoadingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
@@ -1807,7 +2257,7 @@ class _CategoryIntelligenceLoadingCard extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'جارٍ بناء ترتيب المتاجر الذكي لهذا التصنيف...',
+                l10n.merchantListCategoryIntelLoading,
                 textDirection: TextDirection.rtl,
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.90),
@@ -1830,6 +2280,7 @@ class _CategoryIntelligenceErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -1840,12 +2291,12 @@ class _CategoryIntelligenceErrorCard extends StatelessWidget {
                 onRetry();
               },
               icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('إعادة'),
+              label: Text(l10n.commonRetry),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'تعذر تحميل ترتيب المتاجر الذكي، أعد المحاولة.',
+                l10n.merchantListCategoryIntelLoadFailed,
                 textDirection: TextDirection.rtl,
                 textAlign: TextAlign.right,
                 style: TextStyle(color: Colors.white.withValues(alpha: 0.86)),
@@ -1874,6 +2325,7 @@ class _CategoryProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1892,16 +2344,19 @@ class _CategoryProfileCard extends StatelessWidget {
             children: [
               const Icon(Icons.tune_rounded),
               const Spacer(),
-              const Text(
-                'لوحة الذكاء داخل التصنيف',
+              Text(
+                l10n.merchantListCategoryIntelTitle,
                 textDirection: TextDirection.rtl,
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            'الترتيب يعتمد على السرعة والتقييم والسعر والعروض بدون معيار القرب.',
+            l10n.merchantListCategoryIntelSubtitle,
             textDirection: TextDirection.rtl,
             style: TextStyle(color: Colors.white.withValues(alpha: 0.84)),
           ),
@@ -1913,22 +2368,22 @@ class _CategoryProfileCard extends StatelessWidget {
             children: [
               _MetricPill(
                 icon: Icons.storefront_rounded,
-                label: 'المتاجر',
+                label: l10n.customerDiscoveryMerchants,
                 value: '$merchantCount',
               ),
               _MetricPill(
                 icon: Icons.shopping_cart_checkout_rounded,
-                label: 'طلباتك',
+                label: l10n.customerDiscoveryOrders,
                 value: '${profile.ordersCountInCategory120d}',
               ),
               _MetricPill(
                 icon: Icons.account_balance_wallet_outlined,
-                label: 'قدرتك الشرائية',
+                label: l10n.merchantListPurchasingPower,
                 value: spendingBandText,
               ),
               _MetricPill(
                 icon: Icons.price_check_rounded,
-                label: 'تفضيل السعر',
+                label: l10n.merchantListPricePreference,
                 value: priceSensitivityText,
               ),
             ],
@@ -2024,10 +2479,10 @@ class _MerchantQuickRail extends StatelessWidget {
                       width: 50,
                       height: 50,
                       child: merchant.imageUrl?.isNotEmpty == true
-                          ? Image.network(
-                              merchant.imageUrl!,
+                          ? CachedAppImage(
+                              imageUrl: merchant.imageUrl!,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
+                              errorWidget: (context, error, stackTrace) =>
                                   Container(
                                     color: Colors.white.withValues(alpha: 0.08),
                                     child: const Icon(Icons.storefront_rounded),
@@ -2077,7 +2532,9 @@ class _MerchantQuickRail extends StatelessWidget {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              merchant.isOpen ? 'مفتوح' : 'مغلق',
+                              merchant.isOpen
+                                  ? context.l10n.commonOpen
+                                  : context.l10n.commonClosed,
                               style: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.72),
                                 fontSize: 11,
@@ -2130,7 +2587,7 @@ class _CartButton extends StatelessWidget {
     return Stack(
       children: [
         IconButton(
-          tooltip: 'السلة',
+          tooltip: context.l10n.customerDiscoveryCart,
           onPressed: onPressed,
           icon: const Icon(Icons.shopping_bag_outlined),
         ),
@@ -2166,6 +2623,7 @@ class _BasmayaLocationStrip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final addressState = ref.watch(deliveryAddressControllerProvider);
     final selected = addressState.selectedAddress;
 
@@ -2197,7 +2655,7 @@ class _BasmayaLocationStrip extends ConsumerWidget {
       child: Row(
         children: [
           IconButton(
-            tooltip: 'إدارة العناوين',
+            tooltip: l10n.customerDiscoveryDeliveryAddresses,
             onPressed: () => onOpenAddresses(),
             icon: const Icon(Icons.edit_location_alt_outlined),
           ),
@@ -2207,7 +2665,7 @@ class _BasmayaLocationStrip extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  'مدينة بسماية',
+                  l10n.deliveryAddressesDefaultCity,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: Colors.white.withValues(alpha: 0.90),
                     fontWeight: FontWeight.w700,
@@ -2215,15 +2673,15 @@ class _BasmayaLocationStrip extends ConsumerWidget {
                 ),
                 const SizedBox(height: 2),
                 if (addressState.loading)
-                  const Text(
-                    'جاري تحميل العناوين...',
+                  Text(
+                    l10n.merchantListAddressesLoading,
                     textDirection: TextDirection.rtl,
                   )
                 else if (selected == null && listItems.isEmpty)
                   InkWell(
                     onTap: () => onOpenAddresses(selectMode: true),
                     child: Text(
-                      'أضف عنوان توصيل للبدء',
+                      l10n.merchantListAddressesAddToStart,
                       textDirection: TextDirection.rtl,
                       style: TextStyle(
                         decoration: TextDecoration.underline,
@@ -2238,7 +2696,7 @@ class _BasmayaLocationStrip extends ConsumerWidget {
                       child: DropdownButton<int>(
                         isExpanded: true,
                         value: selected?.id,
-                        hint: const Text('اختر عنوان التوصيل'),
+                        hint: Text(l10n.merchantListAddressesChoose),
                         items: listItems,
                         onChanged: (value) {
                           if (value == null) return;
@@ -2270,32 +2728,191 @@ class _CustomerCategoryRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return SizedBox(
       height: 56,
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
           _CategoryPill(
-            label: 'الكل',
+            label: l10n.commonAll,
             icon: Icons.grid_view_rounded,
             selected: selectedType == null,
             onTap: () => onSelectType(null),
           ),
           const SizedBox(width: 8),
           _CategoryPill(
-            label: 'مطاعم',
+            label: l10n.customerDiscoveryRestaurants,
             icon: Icons.restaurant_menu_rounded,
             selected: selectedType == 'restaurant',
             onTap: () => onSelectType('restaurant'),
           ),
           const SizedBox(width: 8),
           _CategoryPill(
-            label: 'أسواق',
+            label: l10n.customerDiscoveryMarkets,
             icon: Icons.storefront_rounded,
             selected: selectedType == 'market',
             onTap: () => onSelectType('market'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ActivityDiscoveryRail extends StatelessWidget {
+  final List<StoreActivityModel> activities;
+  final List<StoreDiscoveryOptionModel> discoveryOptions;
+  final String? selectedActivityType;
+  final String? selectedDiscoverySubcategory;
+  final bool isArabic;
+  final Future<void> Function(String? value) onSelectActivityType;
+  final Future<void> Function(String? value) onSelectDiscoverySubcategory;
+
+  const _ActivityDiscoveryRail({
+    required this.activities,
+    required this.discoveryOptions,
+    required this.selectedActivityType,
+    required this.selectedDiscoverySubcategory,
+    required this.isArabic,
+    required this.onSelectActivityType,
+    required this.onSelectDiscoverySubcategory,
+  });
+
+  IconData _iconForActivity(String activityType) {
+    switch (activityType) {
+      case 'restaurant':
+        return Icons.restaurant_menu_rounded;
+      case 'pharmacy':
+        return Icons.local_hospital_rounded;
+      case 'supermarket':
+        return Icons.local_grocery_store_rounded;
+      case 'construction':
+        return Icons.handyman_rounded;
+      case 'electronics':
+        return Icons.devices_other_rounded;
+      case 'beauty':
+        return Icons.spa_rounded;
+      default:
+        return Icons.storefront_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (activities.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final l10n = context.l10n;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.addMerchantActivityTypeLabel,
+          style: Theme.of(
+            context,
+          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 56,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              _CategoryPill(
+                label: l10n.commonAll,
+                icon: Icons.apps_rounded,
+                selected: selectedActivityType == null,
+                onTap: () => onSelectActivityType(null),
+              ),
+              const SizedBox(width: 8),
+              ...activities.map(
+                (activity) => Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 8),
+                  child: _CategoryPill(
+                    label: activity.localizedLabel(isArabic),
+                    icon: _iconForActivity(activity.activityType),
+                    selected: selectedActivityType == activity.activityType,
+                    onTap: () => onSelectActivityType(activity.activityType),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (discoveryOptions.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(
+            l10n.addMerchantDiscoverySubcategoryLabel,
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _DiscoveryPill(
+                  label: l10n.commonAll,
+                  selected: selectedDiscoverySubcategory == null,
+                  onTap: () => onSelectDiscoverySubcategory(null),
+                ),
+                const SizedBox(width: 8),
+                ...discoveryOptions.map(
+                  (option) => Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 8),
+                    child: _DiscoveryPill(
+                      label: option.localizedLabel(isArabic),
+                      selected: selectedDiscoverySubcategory == option.code,
+                      onTap: () => onSelectDiscoverySubcategory(option.code),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _DiscoveryPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _DiscoveryPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            color: selected
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2)
+                : Colors.white.withValues(alpha: 0.08),
+            border: Border.all(
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.white.withValues(alpha: 0.12),
+            ),
+          ),
+          child: Text(label, style: const TextStyle(fontSize: 12.5)),
+        ),
       ),
     );
   }
@@ -2479,8 +3096,18 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _EmptySearchState extends StatelessWidget {
-  const _EmptySearchState();
+class _MerchantListEmptyState extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const _MerchantListEmptyState({
+    required this.title,
+    required this.subtitle,
+    this.actionLabel,
+    this.onAction,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2491,17 +3118,25 @@ class _EmptySearchState extends StatelessWidget {
           children: [
             const Icon(Icons.search_off_rounded, size: 34),
             const SizedBox(height: 8),
-            const Text(
-              'لا توجد نتائج مطابقة',
+            Text(
+              title,
               textDirection: TextDirection.rtl,
-              style: TextStyle(fontWeight: FontWeight.w700),
+              style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
             Text(
-              'جرّب البحث باسم مختلف أو اختر قسمًا آخر',
+              subtitle,
               textDirection: TextDirection.rtl,
               style: TextStyle(color: Colors.white.withValues(alpha: 0.76)),
             ),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.refresh_rounded),
+                label: Text(actionLabel!),
+              ),
+            ],
           ],
         ),
       ),
@@ -2526,14 +3161,21 @@ class _MerchantTalabatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final typeLabel = merchant.type == 'restaurant' ? 'مطعم' : 'متجر';
+    final l10n = context.l10n;
+    final typeLabel = merchant.type == 'restaurant'
+        ? l10n.merchantListTypeRestaurant
+        : l10n.merchantListTypeMarket;
     final hasOffers =
         merchant.hasDiscountOffer || merchant.hasFreeDeliveryOffer;
     final deliveryLabel = merchant.hasFreeDeliveryOffer
-        ? 'توصيل مجاني'
+        ? l10n.merchantListBadgeFreeDelivery
         : formatIqd(deliveryFeeIqd);
-    final etaLabel = merchant.isOpen ? '25 - 40 دقيقة' : 'خارج الدوام';
-    final statusLabel = merchant.isOpen ? 'مفتوح الآن' : 'مغلق الآن';
+    final etaLabel = merchant.isOpen
+        ? l10n.merchantListEtaMinutesRange(25, 40)
+        : l10n.merchantListEtaClosed;
+    final statusLabel = merchant.isOpen
+        ? l10n.merchantListStatusOpenNow
+        : l10n.merchantListStatusClosedNow;
 
     return AnimatedScale(
       duration: const Duration(milliseconds: 260),
@@ -2602,10 +3244,10 @@ class _MerchantTalabatCard extends StatelessWidget {
                                   width: 66,
                                   height: 66,
                                   child: merchant.imageUrl?.isNotEmpty == true
-                                      ? Image.network(
-                                          merchant.imageUrl!,
+                                      ? CachedAppImage(
+                                          imageUrl: merchant.imageUrl!,
                                           fit: BoxFit.cover,
-                                          errorBuilder:
+                                          errorWidget:
                                               (
                                                 context,
                                                 error,
@@ -2682,7 +3324,7 @@ class _MerchantTalabatCard extends StatelessWidget {
                             Text(
                               merchant.description?.trim().isNotEmpty == true
                                   ? merchant.description!
-                                  : 'متجر من قلب بسماية',
+                                  : l10n.merchantListCardFallbackDescription,
                               textDirection: TextDirection.rtl,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -2698,14 +3340,14 @@ class _MerchantTalabatCard extends StatelessWidget {
                                 alignment: WrapAlignment.end,
                                 children: [
                                   if (merchant.hasDiscountOffer)
-                                    const _MetaChip(
+                                    _MetaChip(
                                       icon: Icons.local_offer_rounded,
-                                      text: 'عروض خصم',
+                                      text: l10n.merchantListBadgeDiscounts,
                                     ),
                                   if (merchant.hasFreeDeliveryOffer)
-                                    const _MetaChip(
+                                    _MetaChip(
                                       icon: Icons.local_shipping_rounded,
-                                      text: 'توصيل مجاني',
+                                      text: l10n.merchantListBadgeFreeDelivery,
                                     ),
                                 ],
                               ),
@@ -2826,23 +3468,24 @@ class _BackofficeFilters extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Wrap(
         spacing: 8,
         children: [
           ChoiceChip(
-            label: const Text('الكل'),
+            label: Text(l10n.commonAll),
             selected: selectedType == null,
             onSelected: (_) => onSelectType(null),
           ),
           ChoiceChip(
-            label: const Text('مطاعم'),
+            label: Text(l10n.merchantListTypeRestaurant),
             selected: selectedType == 'restaurant',
             onSelected: (_) => onSelectType('restaurant'),
           ),
           ChoiceChip(
-            label: const Text('أسواق'),
+            label: Text(l10n.merchantListTypeMarket),
             selected: selectedType == 'market',
             onSelected: (_) => onSelectType('market'),
           ),

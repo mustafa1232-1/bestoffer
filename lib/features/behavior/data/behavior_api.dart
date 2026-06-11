@@ -42,4 +42,42 @@ class BehaviorApi {
       // Analytics tracking must never break user flow.
     }
   }
+
+  Future<BehaviorEventsPage> myEvents({int limit = 80, int? beforeId}) async {
+    final response = await _dio.get(
+      '/api/behavior/events/me',
+      queryParameters: {
+        'limit': limit,
+        if (beforeId != null && beforeId > 0) 'beforeId': beforeId,
+      },
+    );
+    final data = response.data;
+    if (data is List) {
+      final items = List<dynamic>.from(data)
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList(growable: false);
+      return BehaviorEventsPage(items: items, nextCursor: null);
+    }
+    final map = Map<String, dynamic>.from((data as Map?) ?? const {});
+    final raw = List<dynamic>.from(map['items'] as List? ?? const []);
+    final items = raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: false);
+    final nextCursor = int.tryParse('${map['nextCursor'] ?? ''}');
+    return BehaviorEventsPage(items: items, nextCursor: nextCursor);
+  }
+
+  Future<Map<String, dynamic>> myInsights() async {
+    final response = await _dio.get('/api/behavior/insights/me');
+    return Map<String, dynamic>.from((response.data as Map?) ?? const {});
+  }
+}
+
+class BehaviorEventsPage {
+  final List<Map<String, dynamic>> items;
+  final int? nextCursor;
+
+  const BehaviorEventsPage({required this.items, required this.nextCursor});
 }

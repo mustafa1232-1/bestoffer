@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'admin_controller.dart';
+import '../../../core/files/local_image_file.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../models/ad_board_item_model.dart';
+import 'admin_controller.dart';
 
 final adminAdBoardControllerProvider =
     StateNotifierProvider<AdminAdBoardController, AdminAdBoardState>(
@@ -53,41 +55,49 @@ class AdminAdBoardController extends StateNotifier<AdminAdBoardState> {
       final items = raw
           .map((e) => Map<String, dynamic>.from(e as Map))
           .map(AdBoardItemModel.fromJson)
-          .toList();
+          .toList(growable: false);
       state = state.copyWith(loading: false, items: items);
     } on DioException catch (e) {
       state = state.copyWith(loading: false, error: _mapError(e));
     } catch (_) {
-      state = state.copyWith(
-        loading: false,
-        error: 'تعذر تحميل لوحة الإعلانات',
-      );
+      state = state.copyWith(loading: false, error: 'ad_board.load_failed');
     }
   }
 
-  Future<void> createItem(Map<String, dynamic> body) async {
+  Future<void> createItem(
+    Map<String, dynamic> body, {
+    LocalImageFile? imageFile,
+  }) async {
     state = state.copyWith(saving: true, error: null, success: null);
     try {
-      await ref.read(adminApiProvider).createAdBoardItem(body);
+      await ref
+          .read(adminApiProvider)
+          .createAdBoardItem(body, imageFile: imageFile);
       await bootstrap();
-      state = state.copyWith(saving: false, success: 'تمت إضافة الإعلان بنجاح');
+      state = state.copyWith(saving: false, success: 'ad_board.create_success');
     } on DioException catch (e) {
       state = state.copyWith(saving: false, error: _mapError(e));
     } catch (_) {
-      state = state.copyWith(saving: false, error: 'تعذر إضافة الإعلان');
+      state = state.copyWith(saving: false, error: 'ad_board.create_failed');
     }
   }
 
-  Future<void> updateItem(int itemId, Map<String, dynamic> body) async {
+  Future<void> updateItem(
+    int itemId,
+    Map<String, dynamic> body, {
+    LocalImageFile? imageFile,
+  }) async {
     state = state.copyWith(saving: true, error: null, success: null);
     try {
-      await ref.read(adminApiProvider).updateAdBoardItem(itemId, body);
+      await ref
+          .read(adminApiProvider)
+          .updateAdBoardItem(itemId, body, imageFile: imageFile);
       await bootstrap();
-      state = state.copyWith(saving: false, success: 'تم تحديث الإعلان');
+      state = state.copyWith(saving: false, success: 'ad_board.update_success');
     } on DioException catch (e) {
       state = state.copyWith(saving: false, error: _mapError(e));
     } catch (_) {
-      state = state.copyWith(saving: false, error: 'تعذر تحديث الإعلان');
+      state = state.copyWith(saving: false, error: 'ad_board.update_failed');
     }
   }
 
@@ -96,11 +106,11 @@ class AdminAdBoardController extends StateNotifier<AdminAdBoardState> {
     try {
       await ref.read(adminApiProvider).deleteAdBoardItem(itemId);
       await bootstrap();
-      state = state.copyWith(saving: false, success: 'تم حذف الإعلان');
+      state = state.copyWith(saving: false, success: 'ad_board.delete_success');
     } on DioException catch (e) {
       state = state.copyWith(saving: false, error: _mapError(e));
     } catch (_) {
-      state = state.copyWith(saving: false, error: 'تعذر حذف الإعلان');
+      state = state.copyWith(saving: false, error: 'ad_board.delete_failed');
     }
   }
 
@@ -109,13 +119,13 @@ class AdminAdBoardController extends StateNotifier<AdminAdBoardState> {
     if (data is Map<String, dynamic>) {
       final fields = data['fields'];
       if (fields is List && fields.isNotEmpty) {
-        return 'التحقق فشل: ${fields.join(", ")}';
-      }
-      final message = data['message'];
-      if (message is String && message.trim().isNotEmpty) {
-        return message;
+        return 'ad_board.validation_failed:${fields.join(",")}';
       }
     }
-    return 'حدث خطأ في الاتصال بالخادم';
+    return mapDioError(
+      e,
+      fallback: 'ad_board.connection_failed',
+      appendRequestId: true,
+    );
   }
 }

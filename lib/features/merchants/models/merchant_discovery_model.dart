@@ -265,12 +265,21 @@ class MerchantInsightModel {
   final int merchantId;
   final String name;
   final String type;
+  final String activityType;
+  final String? discoverySubcategory;
+  final List<String> discoverySubcategories;
+  final bool discoverySelectAll;
   final String? description;
   final String? phone;
   final String? imageUrl;
   final bool isOpen;
   final bool hasDiscountOffer;
   final bool hasFreeDeliveryOffer;
+  final bool supportsChat;
+  final bool supportsAttachments;
+  final bool supportsPharmacyWorkflow;
+  final Map<String, dynamic> serviceFlags;
+  final List<String> badges;
   final int totalOrders;
   final int deliveredOrders;
   final int cancelledOrders;
@@ -304,12 +313,21 @@ class MerchantInsightModel {
     required this.merchantId,
     required this.name,
     required this.type,
+    required this.activityType,
+    required this.discoverySubcategory,
+    required this.discoverySubcategories,
+    required this.discoverySelectAll,
     required this.description,
     required this.phone,
     required this.imageUrl,
     required this.isOpen,
     required this.hasDiscountOffer,
     required this.hasFreeDeliveryOffer,
+    required this.supportsChat,
+    required this.supportsAttachments,
+    required this.supportsPharmacyWorkflow,
+    required this.serviceFlags,
+    required this.badges,
     required this.totalOrders,
     required this.deliveredOrders,
     required this.cancelledOrders,
@@ -345,12 +363,41 @@ class MerchantInsightModel {
       merchantId: parseInt(json['merchantId']),
       name: parseString(json['name']),
       type: parseString(json['type']),
+      activityType: parseString(json['activityType'], fallback: 'market'),
+      discoverySubcategory: parseNullableString(json['discoverySubcategory']),
+      discoverySubcategories:
+          (json['discoverySubcategories'] ?? json['discovery_subcategories'])
+              is List
+          ? List<dynamic>.from(
+                  (json['discoverySubcategories'] ??
+                          json['discovery_subcategories'])
+                      as List,
+                )
+                .map((e) => parseString(e, fallback: '').trim().toLowerCase())
+                .where((e) => e.isNotEmpty)
+                .toList()
+          : const <String>[],
+      discoverySelectAll: parseBool(
+        json['discoverySelectAll'] ?? json['discovery_select_all'],
+      ),
       description: parseNullableString(json['description']),
       phone: parseNullableString(json['phone']),
       imageUrl: parseNullableString(json['imageUrl']),
       isOpen: parseBool(json['isOpen'], fallback: true),
       hasDiscountOffer: parseBool(json['hasDiscountOffer']),
       hasFreeDeliveryOffer: parseBool(json['hasFreeDeliveryOffer']),
+      supportsChat: parseBool(json['supportsChat']),
+      supportsAttachments: parseBool(json['supportsAttachments']),
+      supportsPharmacyWorkflow: parseBool(json['supportsPharmacyWorkflow']),
+      serviceFlags: (json['serviceFlags'] is Map)
+          ? Map<String, dynamic>.from(json['serviceFlags'] as Map)
+          : const <String, dynamic>{},
+      badges: (json['badges'] is List)
+          ? List<dynamic>.from(json['badges'] as List)
+                .map((e) => parseString(e, fallback: ''))
+                .where((e) => e.isNotEmpty)
+                .toList()
+          : const <String>[],
       totalOrders: parseInt(json['totalOrders']),
       deliveredOrders: parseInt(json['deliveredOrders']),
       cancelledOrders: parseInt(json['cancelledOrders']),

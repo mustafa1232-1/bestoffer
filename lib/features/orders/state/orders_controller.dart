@@ -4,6 +4,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/files/local_image_file.dart';
+import '../../../core/network/api_error_mapper.dart';
+import '../../../core/notifications/local_notification_service.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/orders_api.dart';
 import '../models/order_model.dart';
@@ -20,6 +22,7 @@ final ordersControllerProvider =
       return OrdersController(ref);
     });
 
+/// حالة تدفق طلبات العميل: القائمة الحالية، حالة الإنشاء، ومفضلات المنتجات.
 class OrdersState {
   final bool loading;
   final bool placingOrder;
@@ -52,6 +55,11 @@ class OrdersState {
   }
 }
 
+/// المتحكم المركزي لطلبات العميل وسير checkout وpolling الطلبات الحية.
+///
+/// Critical notes:
+/// - هذا المتحكم خاص بالعميل النهائي. عند اكتشاف دور backoffice/owner/
+///   delivery يتم إيقاف polling لتجنب استدعاءات خاطئة وصلاحيات مرفوضة.
 class OrdersController extends StateNotifier<OrdersState> {
   final Ref ref;
   Timer? _liveOrdersTimer;
@@ -65,8 +73,32 @@ class OrdersController extends StateNotifier<OrdersState> {
     state = nextState;
   }
 
+  bool _canRunCustomerPolling() {
+    final auth = ref.read(authControllerProvider);
+    return auth.isAuthed &&
+        !auth.isBackoffice &&
+        !auth.isOwner &&
+        !auth.isDelivery;
+  }
+
+  bool _isCustomerForbiddenError(DioException error) {
+    if (error.response?.statusCode != 403) return false;
+    final data = error.response?.data;
+    if (data is! Map) return false;
+    final message = '${data['message'] ?? ''}'.trim().toUpperCase();
+    final code = '${data['code'] ?? ''}'.trim().toUpperCase();
+    return message == 'FORBIDDEN_CUSTOMER_ONLY' ||
+        code == 'FORBIDDEN_CUSTOMER_ONLY';
+  }
+
+  /// يحمل طلبات العميل الحالية مع حماية ضد البيانات الجزئية أو النماذج
+  /// غير المكتملة القادمة من API.
   Future<void> loadMyOrders({bool silent = false}) async {
     if (_disposed) return;
+    if (!_canRunCustomerPolling()) {
+      stopLiveOrders();
+      return;
+    }
     if (!silent) {
       _setStateSafely(state.copyWith(loading: true, error: null));
     }
@@ -86,33 +118,51 @@ class OrdersController extends StateNotifier<OrdersState> {
           skipped += 1;
         }
       }
-      _setStateSafely(state.copyWith(
-        loading: silent ? state.loading : false,
-        orders: orders,
-        error: skipped > 0
-            ? 'تم تجاهل بعض الطلبات بسبب بيانات غير مكتملة'
-            : null,
-      ));
+      _setStateSafely(
+        state.copyWith(
+          loading: silent ? state.loading : false,
+          orders: orders,
+          error: skipped > 0
+              ? 'تم تجاهل بعض الطلبات بسبب بيانات غير مكتملة'
+              : null,
+        ),
+      );
     } on DioException catch (e) {
       if (_disposed) return;
-      _setStateSafely(state.copyWith(
-        loading: silent ? state.loading : false,
-        error: _mapError(e),
-      ));
+      _setStateSafely(
+        state.copyWith(
+          loading: silent ? state.loading : false,
+          error: _mapError(e),
+        ),
+      );
+      if (_isCustomerForbiddenError(e)) {
+        stopLiveOrders();
+      }
     } catch (_) {
       if (_disposed) return;
-      _setStateSafely(state.copyWith(
-        loading: silent ? state.loading : false,
-        error: 'فشل تحميل الطلبات',
-      ));
+      _setStateSafely(
+        state.copyWith(
+          loading: silent ? state.loading : false,
+          error: 'فشل تحميل الطلبات',
+        ),
+      );
     }
   }
 
-  void startLiveOrders({Duration interval = const Duration(seconds: 4)}) {
+  /// يبدأ polling دوري للطلبات طالما المستخدم في سياق عميل عادي.
+  void startLiveOrders({Duration interval = const Duration(seconds: 10)}) {
+    if (!_canRunCustomerPolling()) {
+      stopLiveOrders();
+      return;
+    }
     _liveOrdersTimer?.cancel();
     _liveOrdersTimer = Timer.periodic(interval, (_) async {
       if (_disposed) return;
       if (_liveFetchInFlight) return;
+      if (!_canRunCustomerPolling()) {
+        stopLiveOrders();
+        return;
+      }
       _liveFetchInFlight = true;
       try {
         await loadMyOrders(silent: true);
@@ -127,18 +177,38 @@ class OrdersController extends StateNotifier<OrdersState> {
     _liveOrdersTimer = null;
   }
 
-  Future<bool> checkout({String? note, LocalImageFile? imageFile}) async {
+  /// ينفذ checkout الكامل اعتماداً على السلة والعنوان المختار الحاليين.
+  ///
+  /// Return value:
+  /// - `true` عند نجاح إنشاء الطلب وتفريغ السلة.
+  ///
+  /// Maintenance notes:
+  /// - إذا فشل checkout ظاهرياً لكن الطلب أنشئ فعلاً، افحص هذا المسار مع
+  ///   `OrdersApi.createOrder`, حالة السلة، ثم refresh اللاحق للطلبات.
+  Future<bool> checkout({
+    String? note,
+    LocalImageFile? imageFile,
+    int? couponId,
+    String? couponCode,
+  }) async {
     final cart = ref.read(cartControllerProvider);
-    final addressState = ref.read(deliveryAddressControllerProvider);
-    final selectedAddress = addressState.selectedAddress;
-    if (cart.merchantId == null || cart.items.isEmpty) {
+    var addressState = ref.read(deliveryAddressControllerProvider);
+    var selectedAddress = addressState.selectedAddress;
+    if (cart.items.isEmpty) {
       _setStateSafely(state.copyWith(error: 'السلة فارغة'));
       return false;
     }
     if (selectedAddress == null) {
-      _setStateSafely(state.copyWith(
-        error: 'الرجاء اختيار عنوان توصيل قبل إتمام الطلب',
-      ));
+      await ref
+          .read(deliveryAddressControllerProvider.notifier)
+          .bootstrap(silent: true);
+      addressState = ref.read(deliveryAddressControllerProvider);
+      selectedAddress = addressState.selectedAddress;
+    }
+    if (selectedAddress == null) {
+      _setStateSafely(
+        state.copyWith(error: 'الرجاء اختيار عنوان توصيل قبل إتمام الطلب'),
+      );
       return false;
     }
 
@@ -147,16 +217,49 @@ class OrdersController extends StateNotifier<OrdersState> {
     try {
       final cleanedNote = note?.trim();
 
-      await ref.read(ordersApiProvider).createOrder({
-        'merchantId': cart.merchantId,
-        'note': (cleanedNote == null || cleanedNote.isEmpty)
-            ? null
-            : cleanedNote,
+      final payload = <String, dynamic>{
+        'note': (cleanedNote == null || cleanedNote.isEmpty) ? null : cleanedNote,
         'addressId': selectedAddress.id,
-        'items': cart.items
-            .map((i) => {'productId': i.product.id, 'quantity': i.quantity})
-            .toList(),
-      }, imageFile: imageFile);
+      };
+      if (cart.storesCount > 1) {
+        payload['storeOrders'] = cart.storeSections
+            .map(
+              (section) => {
+                'merchantId': section.merchantId,
+                'items': section.items
+                    .map(
+                      (i) => {
+                        'productId': i.product.id,
+                        'quantity': i.quantity,
+                        if (i.selectedModifiers.isNotEmpty)
+                          'selectedModifiers': i.selectedModifiers,
+                      },
+                    )
+                    .toList(),
+              },
+            )
+            .toList();
+      } else {
+        payload['merchantId'] = cart.merchantId;
+        payload['items'] = cart.items
+            .map(
+              (i) => {
+                'productId': i.product.id,
+                'quantity': i.quantity,
+                if (i.selectedModifiers.isNotEmpty)
+                  'selectedModifiers': i.selectedModifiers,
+              },
+            )
+            .toList();
+        if (couponId != null && couponId > 0) {
+          payload['couponId'] = couponId;
+        }
+        if (couponCode != null && couponCode.trim().isNotEmpty) {
+          payload['couponCode'] = couponCode.trim();
+        }
+      }
+
+      await ref.read(ordersApiProvider).createOrder(payload, imageFile: imageFile);
 
       ref.read(cartControllerProvider.notifier).clear();
       await loadMyOrders();
@@ -166,7 +269,9 @@ class OrdersController extends StateNotifier<OrdersState> {
       _setStateSafely(state.copyWith(placingOrder: false, error: _mapError(e)));
       return false;
     } catch (_) {
-      _setStateSafely(state.copyWith(placingOrder: false, error: 'فشل إرسال الطلب'));
+      _setStateSafely(
+        state.copyWith(placingOrder: false, error: 'فشل إرسال الطلب'),
+      );
       return false;
     }
   }
@@ -175,6 +280,9 @@ class OrdersController extends StateNotifier<OrdersState> {
     _setStateSafely(state.copyWith(error: null));
     try {
       await ref.read(ordersApiProvider).confirmDelivered(orderId);
+      await ref
+          .read(localNotificationsProvider)
+          .cancelCustomerConfirmationReminder(orderId);
       await loadMyOrders();
       return true;
     } on DioException catch (e) {
@@ -222,6 +330,7 @@ class OrdersController extends StateNotifier<OrdersState> {
     }
   }
 
+  /// يعيد استخدام عناصر طلب سابق لإنشاء طلب جديد من الواجهة.
   Future<void> reorder(int orderId, {String? note}) async {
     _setStateSafely(state.copyWith(placingOrder: true, error: null));
     try {
@@ -231,7 +340,59 @@ class OrdersController extends StateNotifier<OrdersState> {
     } on DioException catch (e) {
       _setStateSafely(state.copyWith(placingOrder: false, error: _mapError(e)));
     } catch (_) {
-      _setStateSafely(state.copyWith(placingOrder: false, error: 'فشل إعادة الطلب'));
+      _setStateSafely(
+        state.copyWith(placingOrder: false, error: 'فشل إعادة الطلب'),
+      );
+    }
+  }
+
+  Future<bool> cancelOrderByCustomer({
+    required int orderId,
+    required String reasonCode,
+    String? reasonText,
+  }) async {
+    _setStateSafely(state.copyWith(error: null));
+    try {
+      await ref.read(ordersApiProvider).cancelOrderByCustomer(
+            orderId: orderId,
+            reasonCode: reasonCode,
+            reasonText: reasonText,
+          );
+      await loadMyOrders();
+      return true;
+    } on DioException catch (e) {
+      _setStateSafely(state.copyWith(error: _mapError(e)));
+      return false;
+    } catch (_) {
+      _setStateSafely(
+        state.copyWith(error: 'تعذر إلغاء الطلب في الوقت الحالي.'),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> requestReturnByCustomer({
+    required int orderId,
+    required String reasonCode,
+    String? reasonText,
+  }) async {
+    _setStateSafely(state.copyWith(error: null));
+    try {
+      await ref.read(ordersApiProvider).requestReturnByCustomer(
+            orderId: orderId,
+            reasonCode: reasonCode,
+            reasonText: reasonText,
+          );
+      await loadMyOrders();
+      return true;
+    } on DioException catch (e) {
+      _setStateSafely(state.copyWith(error: _mapError(e)));
+      return false;
+    } catch (_) {
+      _setStateSafely(
+        state.copyWith(error: 'تعذر إرسال طلب الإرجاع الآن.'),
+      );
+      return false;
     }
   }
 
@@ -262,24 +423,22 @@ class OrdersController extends StateNotifier<OrdersState> {
         await ref.read(ordersApiProvider).removeFavoriteProduct(productId);
       }
     } on DioException catch (e) {
-      _setStateSafely(state.copyWith(favoriteProductIds: before, error: _mapError(e)));
+      _setStateSafely(
+        state.copyWith(favoriteProductIds: before, error: _mapError(e)),
+      );
     } catch (_) {
-      _setStateSafely(state.copyWith(
-        favoriteProductIds: before,
-        error: 'فشل تحديث المفضلة',
-      ));
+      _setStateSafely(
+        state.copyWith(favoriteProductIds: before, error: 'فشل تحديث المفضلة'),
+      );
     }
   }
 
   String _mapError(DioException e) {
-    final data = e.response?.data;
-    if (data is Map<String, dynamic>) {
-      final message = data['message'];
-      if (message is String && message.isNotEmpty) {
-        return message;
-      }
-    }
-    return 'حدث خطأ في الاتصال بالخادم';
+    return mapDioError(
+      e,
+      fallback: 'تعذر الاتصال بالخادم.',
+      appendRequestId: true,
+    );
   }
 
   @override

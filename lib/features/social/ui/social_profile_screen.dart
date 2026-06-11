@@ -1,21 +1,53 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart' as intl;
+import 'dart:async';
+import 'dart:math' as math;
+import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
+import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
+import '../../../core/media/media_cache_service.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
-import '../../../core/widgets/appbar_quick_actions.dart';
+import '../../paid_upgrades/state/paid_upgrades_summary_provider.dart';
+import '../../paid_upgrades/ui/paid_upgrades_home_screen.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
+import '../state/social_saved_controller.dart';
 import 'social_call_screen.dart';
 import 'social_chat_thread_screen.dart';
+import 'social_profile_archive_screen.dart';
+import 'social_insights_screen.dart';
+import 'social_profile_account_management_screen.dart';
+import 'social_profile_activity_screen.dart';
+import 'social_profile_admin_actions_screen.dart';
+import 'social_profile_posts_screen.dart';
+import 'social_premium_membership_screen.dart';
+import 'social_activity_screen.dart';
+import 'social_content_navigation.dart';
 import 'social_relation_requests_screen.dart';
+import 'social_reported_posts_screen.dart';
+import 'social_residence_change_screen.dart';
+import 'social_saved_screen.dart';
 import 'social_story_quick_viewer.dart';
+import 'social_story_archive_screen.dart';
+import 'social_tagged_posts_screen.dart';
+import 'social_user_connections_screen.dart';
+import 'widgets/social_identity_view.dart';
+import 'widgets/social_post_card_v2.dart';
 
+import 'package:maslaki/core/media/cached_app_image.dart';
+
+/// Purpose: شاشة الملف الشخصي الاجتماعي مع tabs للمحتوى والعلاقات والهايلايت وإجراءات المتابعة/الحظر.
+/// Used by: feed، المحادثات، mention routes، والبحث داخل المجتمع.
+/// Depends on: `SocialApi`, `socialControllerProvider`, وواجهات relation/chat/call/insights الفرعية.
+/// Critical notes: الشاشة تدير أكثر من مصدر حالة محلياً لتفادي إعادة تحميل كل شيء عند تبديل tab أو pagination.
+/// Maintenance notes: إذا ظهرت profile data قديمة أو ناقصة افحص `getUserProfile`, ثم loaders المحلية `_loadProfile/_loadPosts/_loadHighlights`.
+/// شاشة الملف الشخصي العامة أو الذاتية في مجتمع التطبيق.
 class SocialProfileScreen extends ConsumerStatefulWidget {
   final int userId;
   final String? initialName;
@@ -30,6 +62,8 @@ class SocialProfileScreen extends ConsumerStatefulWidget {
   ConsumerState<SocialProfileScreen> createState() =>
       _SocialProfileScreenState();
 }
+
+enum _ProfileContentTab { posts, reels, saved, reviews, tagged }
 
 class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   late final SocialApi _api;
@@ -47,12 +81,11 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   bool _loadingHighlights = false;
   bool _postsPrivateForViewer = false;
   bool _storiesPrivateForViewer = false;
-  String? _selectedKind;
   String? _error;
   bool _relationBusy = false;
+  _ProfileContentTab _selectedTab = _ProfileContentTab.posts;
 
-  final intl.DateFormat _dateFmt = intl.DateFormat('yyyy/MM/dd', 'ar');
-
+  /// يطلق تحميل الملف، الهايلايت، وأول دفعة منشورات بالتوازي لأن الشاشة تعتمد عليها كلها.
   @override
   void initState() {
     super.initState();
@@ -60,6 +93,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     Future.microtask(_bootstrap);
   }
 
+  /// نقطة bootstrap الموحدة للشاشة عند أول فتح أو عند الحاجة لإعادة التهيئة الكاملة.
   Future<void> _bootstrap() async {
     await Future.wait([
       _loadProfile(),
@@ -75,10 +109,12 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     return _postsByKey[key] ?? const <SocialPost>[];
   }
 
-  int? _nextCursorForKind(String? kind) => _nextCursorByKey[_keyOfKind(kind)];
-
   bool _isLoadingKind(String? kind) => _loadingByKey[_keyOfKind(kind)] == true;
 
+  /// يجلب بطاقة الملف الشخصي الأساسية ويعيد ضبط رسالة الخطأ المحلية.
+  ///
+  /// إذا فشل هذا المسار بينما تنجح بقية loaders فغالباً الخلل في route الملف
+  /// نفسه أو ownership/visibility checks داخل الباكند.
   Future<void> _loadProfile() async {
     setState(() {
       _loadingProfile = true;
@@ -108,6 +144,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     }
   }
 
+  /// يجلب highlights مع مراعاة الخصوصية؛ وعند كونها خاصة يعرض حالة خالية مقصودة.
   Future<void> _loadHighlights() async {
     setState(() {
       _loadingHighlights = true;
@@ -141,6 +178,10 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     }
   }
 
+  /// يجلب منشورات نوع معين مع pagination ودمج dedupe حسب المعرف.
+  ///
+  /// الدمج حسب `post.id` مقصود لتفادي تكرار العناصر عندما تتقاطع نتائج
+  /// refresh مع scroll pagination أو عندما يرجع الباكند نفس post في أكثر من نافذة.
   Future<void> _loadPosts({required String? kind, bool refresh = false}) async {
     final key = _keyOfKind(kind);
     if (_isLoadingKind(kind)) return;
@@ -197,43 +238,66 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     }
   }
 
+  /// يعيد تحميل كل المقاطع المفتوحة حالياً، وليس tab واحداً فقط.
+  ///
+  /// هذا يحافظ على اتساق counts والـ grids بعد أي إجراء علاقة أو تعديل محتوى.
   Future<void> _refreshAll() async {
+    final loadedKinds = _postsByKey.keys
+        .where((key) => key != _allPostsKey)
+        .map((key) => key)
+        .toList(growable: false);
     await Future.wait([
       _loadProfile(),
       _loadHighlights(),
       _loadPosts(kind: null, refresh: true),
-      if (_selectedKind != null) _loadPosts(kind: _selectedKind, refresh: true),
+      ...loadedKinds.map(
+        (key) =>
+            _loadPosts(kind: key == _allPostsKey ? null : key, refresh: true),
+      ),
     ]);
   }
 
-  Future<void> _onSelectFilter(String? kind) async {
-    final nextKind = _selectedKind == kind ? null : kind;
-    setState(() {
-      _selectedKind = nextKind;
-    });
-    if (!_postsByKey.containsKey(_keyOfKind(nextKind))) {
-      await _loadPosts(kind: nextKind, refresh: true);
-    }
-  }
-
+  /// يبني نسخة profile جديدة بعد تغيير relation بدون انتظار round-trip كامل للواجهة.
   SocialUserProfile _copyProfileWithRelation(
     SocialUserProfile profile,
     SocialRelation relation,
   ) {
     return SocialUserProfile(
       id: profile.id,
+      username: profile.username,
       fullName: profile.fullName,
       role: profile.role,
       isSuperAdmin: profile.isSuperAdmin,
       accountDisabled: profile.accountDisabled,
       viewerIsSuperAdmin: profile.viewerIsSuperAdmin,
       bio: profile.bio,
+      workTitle: profile.workTitle,
+      workCompany: profile.workCompany,
       age: profile.age,
       imageUrl: profile.imageUrl,
       phone: profile.phone,
       showPhone: profile.showPhone,
       postsPublic: profile.postsPublic,
       storiesPublic: profile.storiesPublic,
+      relationsPublic: profile.relationsPublic,
+      accountPrivate: profile.accountPrivate,
+      contentPrivate: profile.contentPrivate,
+      onlineStatusVisibility: profile.onlineStatusVisibility,
+      lastSeenVisibility: profile.lastSeenVisibility,
+      readReceiptsEnabled: profile.readReceiptsEnabled,
+      typingIndicatorsEnabled: profile.typingIndicatorsEnabled,
+      coreProfileLockedUntil: profile.coreProfileLockedUntil,
+      localContext: profile.localContext,
+      localContextMeta: profile.localContextMeta,
+      accountLabelKey: profile.accountLabelKey,
+      badges: profile.badges,
+      isResidentVerified: profile.isResidentVerified,
+      isMerchantVerified: profile.isMerchantVerified,
+      isPremiumMember: profile.isPremiumMember,
+      isCarSeller: profile.isCarSeller,
+      isPropertySeller: profile.isPropertySeller,
+      premiumBadgeVisible: profile.premiumBadgeVisible,
+      tabs: profile.tabs,
       joinedAt: profile.joinedAt,
       isMe: profile.isMe,
       notificationPreference: profile.notificationPreference,
@@ -243,6 +307,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     );
   }
 
+  /// يشغل إجراء relation موحداً مع optimistic-ish refresh ورسالة نجاح/فشل متسقة.
   Future<void> _runRelationAction(
     Future<Map<String, dynamic>> Function() action, {
     required String successMessage,
@@ -301,13 +366,6 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     await ref.read(socialControllerProvider.notifier).loadThreads();
   }
 
-  Future<void> _rejectRelationRequest() async {
-    await _runRelationAction(
-      () => _api.rejectRelationRequest(widget.userId),
-      successMessage: 'تم رفض طلب المتابعة',
-    );
-  }
-
   Future<void> _cancelRelationRequest() async {
     await _runRelationAction(
       () => _api.cancelRelationRequest(widget.userId),
@@ -358,18 +416,40 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
         setState(() {
           _profile = SocialUserProfile(
             id: _profile!.id,
+            username: _profile!.username,
             fullName: _profile!.fullName,
             role: _profile!.role,
             isSuperAdmin: _profile!.isSuperAdmin,
             accountDisabled: _profile!.accountDisabled,
             viewerIsSuperAdmin: _profile!.viewerIsSuperAdmin,
             bio: _profile!.bio,
+            workTitle: _profile!.workTitle,
+            workCompany: _profile!.workCompany,
             age: _profile!.age,
             imageUrl: _profile!.imageUrl,
             phone: _profile!.phone,
             showPhone: _profile!.showPhone,
             postsPublic: _profile!.postsPublic,
             storiesPublic: _profile!.storiesPublic,
+            relationsPublic: _profile!.relationsPublic,
+            accountPrivate: _profile!.accountPrivate,
+            contentPrivate: _profile!.contentPrivate,
+            onlineStatusVisibility: _profile!.onlineStatusVisibility,
+            lastSeenVisibility: _profile!.lastSeenVisibility,
+            readReceiptsEnabled: _profile!.readReceiptsEnabled,
+            typingIndicatorsEnabled: _profile!.typingIndicatorsEnabled,
+            coreProfileLockedUntil: _profile!.coreProfileLockedUntil,
+            localContext: _profile!.localContext,
+            localContextMeta: _profile!.localContextMeta,
+            accountLabelKey: _profile!.accountLabelKey,
+            badges: _profile!.badges,
+            isResidentVerified: _profile!.isResidentVerified,
+            isMerchantVerified: _profile!.isMerchantVerified,
+            isPremiumMember: _profile!.isPremiumMember,
+            isCarSeller: _profile!.isCarSeller,
+            isPropertySeller: _profile!.isPropertySeller,
+            premiumBadgeVisible: _profile!.premiumBadgeVisible,
+            tabs: _profile!.tabs,
             joinedAt: _profile!.joinedAt,
             isMe: _profile!.isMe,
             notificationPreference: nextPref,
@@ -451,7 +531,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       MaterialPageRoute<void>(
         builder: (_) => SocialChatThreadScreen(
           threadId: thread.id,
-          peerName: thread.peer.fullName,
+          peerName: socialPrimaryIdentityLabel(thread.peer),
           peerPhone: thread.peerPhone,
           peerUserId: thread.peer.id,
           peerImageUrl: thread.peer.imageUrl,
@@ -474,7 +554,9 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
         builder: (_) => SocialCallScreen(
           threadId: thread.id,
           isCaller: true,
-          remoteDisplayName: profile.fullName,
+          remoteDisplayName: (profile.username ?? '').trim().isNotEmpty
+              ? '@${profile.username!.trim()}'
+              : profile.fullName,
         ),
       ),
     );
@@ -533,180 +615,17 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     await _sendRelationRequest();
   }
 
-  Future<void> _onFriendPressed() async {
-    final profile = _profile;
-    if (profile == null || profile.isMe || _relationBusy) return;
-    final relation = profile.relation;
-    if (relation.isBlocked) return;
-
+  String _followButtonLabel(SocialRelation relation) {
     if (relation.isAccepted) {
-      await _confirmRemoveRelation(
-        title: 'إلغاء الصداقة',
-        content: 'سيتم إلغاء الصداقة والمتابعة بينكما.',
-        confirmLabel: 'إلغاء الصداقة',
-      );
-      return;
+      return 'متابع';
     }
     if (relation.isPendingOutgoing) {
-      await _cancelRelationRequest();
-      return;
+      return 'متابعة قيد الانتظار';
     }
     if (relation.isPendingIncoming) {
-      await _acceptRelationRequest();
-      return;
+      return 'قبول المتابعة';
     }
-    await _sendRelationRequest();
-  }
-
-  String _followButtonLabel(SocialRelation relation) {
-    if (relation.isAccepted) return 'متابع';
-    if (relation.isPendingOutgoing) return 'متابعة قيد الانتظار';
-    if (relation.isPendingIncoming) return 'قبول المتابعة';
     return 'متابعة';
-  }
-
-  String _friendButtonLabel(SocialRelation relation) {
-    if (relation.isAccepted) return 'صديق';
-    if (relation.isPendingOutgoing) return 'طلب صداقة قيد الانتظار';
-    if (relation.isPendingIncoming) return 'قبول الصداقة';
-    return 'إضافة صديق';
-  }
-
-  Widget? _buildRelationActions(SocialUserProfile profile) {
-    if (profile.isMe) return null;
-    if (profile.viewerIsSuperAdmin && profile.superAdminControls != null) {
-      return _buildSuperAdminActions(profile);
-    }
-
-    final relation = profile.relation;
-
-    if (relation.isBlockedByMe) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          FilledButton.tonalIcon(
-            onPressed: _relationBusy ? null : _unblockRelation,
-            icon: const Icon(Icons.lock_open_rounded),
-            label: const Text('فك الحظر'),
-          ),
-          const SizedBox(height: 8),
-          _buildNotificationToggle(profile),
-        ],
-      );
-    }
-
-    if (relation.isBlockedByOther) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'لا يمكن التفاعل مع هذا الحساب حالياً بسبب الحظر.',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          _buildNotificationToggle(profile),
-        ],
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: _relationBusy ? null : _onFollowPressed,
-                icon: Icon(
-                  relation.isAccepted
-                      ? Icons.check_circle_rounded
-                      : Icons.person_add_alt_1_rounded,
-                ),
-                label: Text(_followButtonLabel(relation)),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _relationBusy ? null : _onFriendPressed,
-                icon: Icon(
-                  relation.isAccepted
-                      ? Icons.verified_rounded
-                      : Icons.group_add_rounded,
-                ),
-                label: Text(_friendButtonLabel(relation)),
-              ),
-            ),
-          ],
-        ),
-        if (relation.isPendingIncoming) ...[
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton(
-                onPressed: _relationBusy ? null : _rejectRelationRequest,
-                child: const Text('رفض الطلب'),
-              ),
-              FilledButton(
-                onPressed: _relationBusy ? null : _acceptRelationRequest,
-                child: const Text('قبول الطلب'),
-              ),
-            ],
-          ),
-        ],
-        if (relation.isAccepted) ...[
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.tonalIcon(
-                onPressed: _openChatWithUser,
-                icon: const Icon(Icons.chat_bubble_outline_rounded),
-                label: const Text('مراسلة'),
-              ),
-              FilledButton.tonalIcon(
-                onPressed: _openInAppCall,
-                icon: const Icon(Icons.call_outlined),
-                label: const Text('اتصال'),
-              ),
-            ],
-          ),
-        ],
-        const SizedBox(height: 8),
-        _buildNotificationToggle(profile),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerRight,
-          child: OutlinedButton.icon(
-            onPressed: _relationBusy ? null : _blockRelation,
-            icon: const Icon(Icons.block_rounded),
-            label: const Text('حظر'),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildNotificationToggle(SocialUserProfile profile) {
-    final pref = profile.notificationPreference;
-    final enabled = pref?.enabled ?? true;
-    return Align(
-      alignment: Alignment.centerRight,
-      child: OutlinedButton.icon(
-        onPressed: _relationBusy
-            ? null
-            : () => _setNotificationPreference(!enabled),
-        icon: Icon(
-          enabled
-              ? Icons.notifications_active_outlined
-              : Icons.notifications_off_outlined,
-        ),
-        label: Text(enabled ? 'إيقاف إشعاراته' : 'تفعيل إشعاراته'),
-      ),
-    );
   }
 
   Widget _buildSuperAdminActions(SocialUserProfile profile) {
@@ -854,28 +773,32 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
         profile.superAdminControls != null) {
       return 'وضع إدارة السوبر أدمن';
     }
-    if (relation.isBlockedByMe) return 'هذا الحساب محظور من طرفك';
-    if (relation.isBlockedByOther) return 'هذا الحساب قام بحظرك';
-    if (relation.isAccepted) return 'صديقك ومتابع لك';
-    if (relation.isPendingIncoming) return 'أرسل لك طلب صداقة/متابعة';
-    if (relation.isPendingOutgoing) return 'طلب الصداقة بانتظار الرد';
+    if (relation.isBlockedByMe) {
+      return 'هذا الحساب محظور من طرفك';
+    }
+    if (relation.isBlockedByOther) {
+      return 'هذا الحساب قام بحظرك';
+    }
+    if (relation.isAccepted) {
+      return 'صديقك ومتابع لك';
+    }
+    if (relation.isPendingIncoming) {
+      return 'أرسل لك طلب صداقة/متابعة';
+    }
+    if (relation.isPendingOutgoing) {
+      return 'طلب الصداقة بانتظار الرد';
+    }
     return 'غير متابع';
   }
 
-  Future<void> _openMediaViewer(SocialPost post) async {
-    final mediaUrl = (post.mediaUrl ?? '').trim();
-    if (mediaUrl.isEmpty) return;
-    final isVideo = (post.mediaKind ?? post.postKind).toLowerCase() == 'video';
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => _ProfileMediaViewerPage(
-          mediaUrl: mediaUrl,
-          isVideo: isVideo,
-          title: post.author.fullName,
-          subtitle: _formatDateTime(post.createdAt),
-          caption: post.caption,
-        ),
-      ),
+  Future<void> _openProfileContent(
+    SocialPost post, {
+    List<SocialPost>? contextPosts,
+  }) async {
+    await openSocialContent(
+      context,
+      post: post,
+      reelContextPosts: contextPosts,
     );
   }
 
@@ -897,6 +820,10 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
         await showSocialStoryQuickViewer(
           context: context,
           group: group,
+          api: _api,
+          onStoryArchiveChanged: () {
+            unawaited(Future.wait([_loadHighlights(), _loadProfile()]));
+          },
           onStoryViewed: (storyId) => ref
               .read(socialControllerProvider.notifier)
               .markStoryViewed(storyId),
@@ -977,6 +904,10 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     await showSocialStoryQuickViewer(
       context: context,
       group: group,
+      api: _api,
+      onStoryArchiveChanged: () {
+        unawaited(Future.wait([_loadHighlights(), _loadProfile()]));
+      },
       onStoryViewed: (storyId) =>
           ref.read(socialControllerProvider.notifier).markStoryViewed(storyId),
     );
@@ -1030,11 +961,6 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     }
   }
 
-  String _formatDate(DateTime? dateTime) {
-    if (dateTime == null) return '-';
-    return _dateFmt.format(dateTime.toLocal());
-  }
-
   String _formatDateTime(DateTime? dateTime) {
     if (dateTime == null) return '-';
     final d = dateTime.toLocal();
@@ -1047,21 +973,870 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   }
 
   String _friendlyRole(String role) {
+    final l10n = context.l10n;
     switch (role.toLowerCase()) {
       case 'admin':
-        return 'أدمن';
+        return l10n.socialProfileRoleAdmin;
       case 'super_admin':
-        return 'سوبر أدمن';
+        return l10n.socialProfileRoleSuperAdmin;
       case 'deputy_admin':
-        return 'نائب أدمن';
+        return l10n.socialProfileRoleDeputyAdmin;
       case 'owner':
-        return 'صاحب متجر';
+        return l10n.socialProfileRoleMerchantOwner;
       case 'delivery':
-        return 'دلفري';
+        return l10n.socialProfileRoleDelivery;
       case 'taxi_captain':
-        return 'كابتن تكسي';
+        return l10n.socialProfileRoleTaxiCaptain;
       default:
-        return 'مستخدم';
+        return l10n.socialProfileRoleUser;
+    }
+  }
+
+  String _accountPrimaryLabel(SocialUserProfile profile) {
+    final l10n = context.l10n;
+    if (profile.isCarSeller && profile.isPropertySeller) {
+      return l10n.socialProfileAccountCarsAndRealEstate;
+    }
+    if (profile.isCarSeller) {
+      return l10n.socialProfileAccountCarSeller;
+    }
+    if (profile.isPropertySeller) {
+      return l10n.socialProfileAccountPropertyBroker;
+    }
+    if (profile.accountLabelKey == 'premium_member' ||
+        profile.isPremiumMember) {
+      return l10n.socialProfileAccountPremiumMember;
+    }
+    if (profile.role == 'owner') {
+      return l10n.socialProfileRoleMerchantOwner;
+    }
+    return _friendlyRole(profile.role);
+  }
+
+  List<String> _profileBadgeLabels(SocialUserProfile profile) {
+    final l10n = context.l10n;
+    final labels = <String>[];
+    if (profile.isMerchantVerified && profile.role == 'owner') {
+      labels.add(l10n.socialProfileBadgeVerifiedMerchant);
+    }
+    if (profile.isCarSeller) {
+      labels.add(l10n.socialProfileBadgeVerifiedSeller);
+    }
+    if (profile.isPropertySeller) {
+      labels.add(l10n.socialProfileBadgeVerifiedBroker);
+    }
+    if (labels.isEmpty && profile.isPremiumMember) {
+      labels.add(l10n.socialProfileBadgeVerifiedUser);
+    }
+    return labels.toSet().toList(growable: false);
+  }
+
+  Future<void> _shareProfile() async {
+    final profile = _profile;
+    if (profile == null) return;
+    final l10n = context.l10n;
+    final badgeLabels = _profileBadgeLabels(profile);
+    final lines = <String>[
+      profile.fullName,
+      _accountPrimaryLabel(profile),
+      if (badgeLabels.isNotEmpty) badgeLabels.join(' • '),
+      if (profile.bio.trim().isNotEmpty) profile.bio.trim(),
+      l10n.socialProfileShareLine,
+    ];
+    await SharePlus.instance.share(ShareParams(text: lines.join('\n')));
+  }
+
+  int _tabCountValue(dynamic value) {
+    if (value is bool) return value ? 1 : 0;
+    return int.tryParse('$value') ?? 0;
+  }
+
+  String _tabLabel(_ProfileContentTab tab) {
+    final l10n = context.l10n;
+    switch (tab) {
+      case _ProfileContentTab.posts:
+        return l10n.socialProfileTabPosts;
+      case _ProfileContentTab.reels:
+        return l10n.socialProfileTabReels;
+      case _ProfileContentTab.saved:
+        return l10n.socialProfileTabSaved;
+      case _ProfileContentTab.reviews:
+        return l10n.socialProfileTabReviews;
+      case _ProfileContentTab.tagged:
+        return l10n.socialProfileTabTagged;
+    }
+  }
+
+  int _tabCountValueFor(_ProfileContentTab tab, SocialUserProfile profile) {
+    switch (tab) {
+      case _ProfileContentTab.posts:
+        return profile.stats.totalPosts;
+      case _ProfileContentTab.reels:
+        return profile.stats.videoPosts;
+      case _ProfileContentTab.saved:
+        return _tabCountValue(profile.tabs['saved']);
+      case _ProfileContentTab.reviews:
+        return math.max(
+          profile.stats.reviewPosts,
+          _tabCountValue(profile.tabs['reviews']),
+        );
+      case _ProfileContentTab.tagged:
+        return _tabCountValue(profile.tabs['tagged']);
+    }
+  }
+
+  bool _canOpenInsights(SocialUserProfile profile) {
+    return profile.isMe ||
+        profile.viewerIsSuperAdmin ||
+        _tabCountValue(profile.tabs['insights']) > 0 ||
+        profile.role == 'owner';
+  }
+
+  List<_ProfileContentTab> _visibleTabsForProfile(SocialUserProfile profile) {
+    return <_ProfileContentTab>[
+      _ProfileContentTab.posts,
+      _ProfileContentTab.reels,
+      if (profile.isMe) _ProfileContentTab.saved,
+      if (profile.stats.reviewPosts > 0 ||
+          _tabCountValue(profile.tabs['reviews']) > 0)
+        _ProfileContentTab.reviews,
+      if (profile.isMe || _tabCountValue(profile.tabs['tagged']) > 0)
+        _ProfileContentTab.tagged,
+    ];
+  }
+
+  Future<void> _selectContentTab(_ProfileContentTab tab) async {
+    setState(() => _selectedTab = tab);
+    switch (tab) {
+      case _ProfileContentTab.posts:
+        if (_postsForKind(null).isEmpty) {
+          await _loadPosts(kind: null, refresh: true);
+        }
+        break;
+      case _ProfileContentTab.reels:
+        if (_postsForKind('reel').isEmpty) {
+          await _loadPosts(kind: 'reel', refresh: true);
+        }
+        break;
+      case _ProfileContentTab.reviews:
+        if (_postsForKind('merchant_review').isEmpty) {
+          await _loadPosts(kind: 'merchant_review', refresh: true);
+        }
+        break;
+      case _ProfileContentTab.saved:
+      case _ProfileContentTab.tagged:
+        break;
+    }
+  }
+
+  Future<void> _openResidenceChangeScreen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SocialResidenceChangeScreen(),
+      ),
+    );
+    if (!mounted) return;
+    await _loadProfile();
+  }
+
+  Future<void> _openPaidUpgradesScreen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const PaidUpgradesHomeScreen()),
+    );
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.invalidate(myPaidUpgradesSummaryProvider);
+      unawaited(_loadProfile());
+    });
+  }
+
+  Future<void> _openInsightsScreen() async {
+    final l10n = context.l10n;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialInsightsScreen(
+          userId: widget.userId,
+          title: _profile?.isMe == true
+              ? l10n.socialProfileMyInsights
+              : l10n.socialProfileInsights,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSavedScreen() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const SocialSavedScreen()));
+  }
+
+  Future<void> _openTaggedScreen() async {
+    final l10n = context.l10n;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialTaggedPostsScreen(
+          userId: widget.userId,
+          title: l10n.socialProfileTaggedPosts,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openReportedPosts() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SocialReportedPostsScreen(),
+      ),
+    );
+  }
+
+  Future<void> _openAccountManagementScreen() async {
+    final profile = _profile;
+    if (profile == null || !profile.isMe) return;
+    final paidSummary = ref.read(myPaidUpgradesSummaryProvider).valueOrNull;
+    final action = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (pageContext) => SocialProfileAccountManagementScreen(
+          profile: profile,
+          paidSummary: paidSummary,
+          onEditProfile: () async => Navigator.of(pageContext).pop('edit'),
+          onOpenRelationRequests: () async {
+            await Navigator.of(pageContext).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SocialRelationRequestsScreen(),
+              ),
+            );
+            if (!mounted) return;
+            await _loadProfile();
+          },
+          onOpenResidenceChange: _openResidenceChangeScreen,
+          onOpenPremiumStatus: () async {
+            await Navigator.of(pageContext).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SocialPremiumMembershipScreen(),
+              ),
+            );
+            if (!mounted) return;
+            ref.invalidate(myPaidUpgradesSummaryProvider);
+            await _loadProfile();
+          },
+          onOpenPaidUpgrades: profile.isPremiumMember
+              ? null
+              : () async {
+                  await Navigator.of(pageContext).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const PaidUpgradesHomeScreen(),
+                    ),
+                  );
+                },
+          onOpenReportedPosts: _openReportedPosts,
+          onOpenInsights: _openInsightsScreen,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'edit') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_openEditProfileSheet());
+      });
+    }
+  }
+
+  Future<void> _reportUser() async {
+    final profile = _profile;
+    if (profile == null || profile.isMe) return;
+    final l10n = context.l10n;
+
+    String reason = '';
+    String details = '';
+    final approved = await showDialog<bool>(
+      context: context,
+      useRootNavigator: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          scrollable: true,
+          title: Text(
+            l10n.socialProfileReportUserTitle,
+            textAlign: TextAlign.end,
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                onChanged: (value) => reason = value,
+                decoration: InputDecoration(
+                  labelText: l10n.socialProfileReportReason,
+                  hintText: l10n.socialProfileReportReasonHint,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                onChanged: (value) => details = value,
+                minLines: 2,
+                maxLines: 4,
+                decoration: InputDecoration(
+                  labelText: l10n.socialProfileReportAdditionalDetails,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(l10n.commonCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(l10n.socialProfileSubmitReport),
+            ),
+          ],
+        );
+      },
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 16));
+    reason = reason.trim();
+    details = details.trim();
+    if (approved != true || reason.isEmpty) return;
+
+    try {
+      await _api.reportUser(
+        userId: widget.userId,
+        reason: reason,
+        details: details,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.socialProfileReportSubmitted)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapAnyError(e, fallback: l10n.socialProfileReportSubmitFailed),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _reportPost(SocialPost post) async {
+    final profile = _profile;
+    if (profile == null || profile.isMe) return;
+    final l10n = context.l10n;
+    String reason = '';
+    String details = '';
+    final approved = await showDialog<bool>(
+      context: context,
+      useRootNavigator: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          scrollable: true,
+          title: Text(l10n.commonReport, textAlign: TextAlign.end),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                onChanged: (value) => reason = value,
+                decoration: const InputDecoration(labelText: 'السبب'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                onChanged: (value) => details = value,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(labelText: 'تفاصيل إضافية'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(l10n.commonCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(l10n.commonConfirm),
+            ),
+          ],
+        );
+      },
+    );
+    reason = reason.trim();
+    details = details.trim();
+    if (approved != true || reason.isEmpty) return;
+
+    try {
+      await _api.reportPost(postId: post.id, reason: reason, details: details);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم إرسال التبليغ بنجاح.')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapAnyError(
+              e,
+              fallback: context.l10n.socialProfileReportSubmitFailed,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openActivityScreen() async {
+    final profile = _profile;
+    if (profile == null || !profile.isMe) return;
+    final l10n = context.l10n;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialProfileActivityScreen(
+          profile: profile,
+          favoriteMerchants: _favoriteMerchants(),
+          savedCount: _tabCountValue(profile.tabs['saved']),
+          onOpenImages: () => _openPostsCollectionScreen(
+            title: l10n.socialProfileImages,
+            mode: SocialProfilePostCollectionMode.userPosts,
+            kind: 'image',
+            gridLayout: true,
+          ),
+          onOpenReels: () => _openPostsCollectionScreen(
+            title: l10n.socialProfileTabReels,
+            mode: SocialProfilePostCollectionMode.userPosts,
+            kind: 'reel',
+            gridLayout: true,
+          ),
+          onOpenReviews:
+              (profile.stats.reviewPosts > 0 ||
+                  _tabCountValue(profile.tabs['reviews']) > 0)
+              ? () => _openPostsCollectionScreen(
+                  title: l10n.socialProfileTabReviews,
+                  mode: SocialProfilePostCollectionMode.userPosts,
+                  kind: 'merchant_review',
+                )
+              : null,
+          onOpenHighlights: _openStoryArchiveScreen,
+          onOpenFriends: () => _openConnectionsScreen(
+            SocialConnectionListMode.friends,
+            l10n.socialProfileFriends,
+          ),
+          onOpenLikedPosts: () => _openPostsCollectionScreen(
+            title: l10n.socialProfileLikesMade,
+            mode: SocialProfilePostCollectionMode.likedPosts,
+          ),
+          onOpenCommentedPosts: () => _openPostsCollectionScreen(
+            title: l10n.socialProfileCommentsMade,
+            mode: SocialProfilePostCollectionMode.commentedPosts,
+          ),
+          onOpenReceivedLikes: () => _openSocialActivityInbox(
+            title: l10n.socialProfileLikesReceived,
+            initialFilter: 'likes',
+          ),
+          onOpenReceivedComments: () => _openSocialActivityInbox(
+            title: l10n.socialProfileCommentsReceived,
+            initialFilter: 'comments',
+          ),
+          onOpenSaved: _openSavedScreen,
+          onOpenInsights: _openInsightsScreen,
+          onOpenTagged: _tabCountValue(profile.tabs['tagged']) > 0
+              ? _openTaggedScreen
+              : null,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openConnectionsScreen(
+    SocialConnectionListMode mode,
+    String title,
+  ) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialUserConnectionsScreen(
+          userId: widget.userId,
+          mode: mode,
+          title: title,
+        ),
+      ),
+    );
+  }
+
+  bool _canOpenRelations(SocialUserProfile profile) {
+    return profile.isMe ||
+        profile.relationsPublic ||
+        profile.relation.isAccepted;
+  }
+
+  Future<void> _openFollowersFromProfile(SocialUserProfile profile) async {
+    if (!_canOpenRelations(profile)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.l10n.socialProfileManageRelationsPrivate),
+        ),
+      );
+      return;
+    }
+    await _openConnectionsScreen(
+      SocialConnectionListMode.followers,
+      context.l10n.socialProfileStatsFollowers,
+    );
+  }
+
+  Future<void> _openFollowingFromProfile(SocialUserProfile profile) async {
+    if (!_canOpenRelations(profile)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.l10n.socialProfileManageRelationsPrivate),
+        ),
+      );
+      return;
+    }
+    await _openConnectionsScreen(
+      SocialConnectionListMode.following,
+      context.l10n.socialProfileStatsFollowing,
+    );
+  }
+
+  Future<void> _openPostsCollectionScreen({
+    required String title,
+    required SocialProfilePostCollectionMode mode,
+    String? kind,
+    bool gridLayout = false,
+  }) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialProfilePostsScreen(
+          userId: widget.userId,
+          title: title,
+          mode: mode,
+          kind: kind,
+          gridLayout: gridLayout,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSocialActivityInbox({
+    required String title,
+    required String initialFilter,
+  }) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            SocialActivityScreen(title: title, initialFilterKey: initialFilter),
+      ),
+    );
+  }
+
+  Future<void> _openArchiveScreen() async {
+    final profile = _profile;
+    if (profile == null || !profile.isMe) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SocialProfileArchiveScreen(),
+      ),
+    );
+    if (!mounted) return;
+    await Future.wait([_loadProfile(), _loadPosts(kind: null, refresh: true)]);
+  }
+
+  Future<void> _openStoryArchiveScreen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const SocialStoryArchiveScreen()),
+    );
+  }
+
+  Future<void> _togglePostArchive(SocialPost post, bool archived) async {
+    final profile = _profile;
+    if (profile == null || !profile.isMe) return;
+    try {
+      if (archived) {
+        await _api.archivePost(post.id);
+      } else {
+        await _api.restorePost(post.id);
+      }
+      if (!mounted) return;
+      setState(() {
+        final nextByKey = <String, List<SocialPost>>{};
+        for (final entry in _postsByKey.entries) {
+          nextByKey[entry.key] = entry.value
+              .where((item) => item.id != post.id)
+              .toList(growable: false);
+        }
+        _postsByKey
+          ..clear()
+          ..addAll(nextByKey);
+      });
+      await Future.wait([
+        _loadProfile(),
+        _loadPosts(kind: null, refresh: true),
+        if (_postsByKey.containsKey('reel'))
+          _loadPosts(kind: 'reel', refresh: true),
+        if (_postsByKey.containsKey('merchant_review'))
+          _loadPosts(kind: 'merchant_review', refresh: true),
+      ]);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            archived
+                ? context.l10n.socialProfileContentArchived
+                : context.l10n.socialProfileContentRestored,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapAnyError(
+              e,
+              fallback: archived
+                  ? context.l10n.socialProfileContentArchiveFailed
+                  : context.l10n.socialProfileContentRestoreFailed,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _deletePost(SocialPost post) async {
+    final profile = _profile;
+    if (profile == null || !profile.isMe) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(context.l10n.commonDelete),
+        content: Text(context.l10n.socialProfileDeletePostConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(context.l10n.commonCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(context.l10n.commonDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final previousByKey = <String, List<SocialPost>>{
+      for (final entry in _postsByKey.entries)
+        entry.key: List<SocialPost>.from(entry.value),
+    };
+    if (mounted) {
+      setState(() {
+        final nextByKey = <String, List<SocialPost>>{};
+        for (final entry in _postsByKey.entries) {
+          nextByKey[entry.key] = entry.value
+              .where((item) => item.id != post.id)
+              .toList(growable: false);
+        }
+        _postsByKey
+          ..clear()
+          ..addAll(nextByKey);
+      });
+    }
+
+    try {
+      await _api.deletePost(post.id);
+      if (!mounted) return;
+      await Future.wait([
+        _loadProfile(),
+        _loadPosts(kind: null, refresh: true),
+        if (_postsByKey.containsKey('reel'))
+          _loadPosts(kind: 'reel', refresh: true),
+        if (_postsByKey.containsKey('merchant_review'))
+          _loadPosts(kind: 'merchant_review', refresh: true),
+      ]);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.socialProfileDeletePostSuccess)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _postsByKey
+          ..clear()
+          ..addAll(previousByKey);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapAnyError(
+              e,
+              fallback: context.l10n.socialProfileDeletePostFailed,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openAdminActionsScreen() async {
+    final profile = _profile;
+    if (profile == null ||
+        !profile.viewerIsSuperAdmin ||
+        profile.superAdminControls == null) {
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialProfileAdminActionsScreen(
+          profileName: profile.fullName,
+          subtitle: _friendlyRole(profile.role),
+          content: _buildSuperAdminActions(profile),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _loadProfile();
+  }
+
+  Future<void> _performPrimaryAction(SocialUserProfile profile) async {
+    if (profile.isMe) {
+      await _openEditProfileSheet();
+      return;
+    }
+    if (profile.relation.isBlockedByMe) {
+      await _unblockRelation();
+      return;
+    }
+    if (profile.relation.isBlockedByOther) return;
+    await _onFollowPressed();
+  }
+
+  String _primaryActionLabel(SocialUserProfile profile) {
+    final l10n = context.l10n;
+    if (profile.isMe) return l10n.socialProfileEditProfile;
+    if (profile.relation.isBlockedByMe) {
+      return l10n.socialProfileUnblock;
+    }
+    if (profile.relation.isBlockedByOther) {
+      return l10n.socialProfileBlocked;
+    }
+    return _followButtonLabel(profile.relation);
+  }
+
+  IconData _primaryActionIcon(SocialUserProfile profile) {
+    if (profile.isMe) return Icons.edit_outlined;
+    if (profile.relation.isBlockedByMe) return Icons.lock_open_rounded;
+    if (profile.relation.isAccepted) return Icons.check_circle_rounded;
+    return Icons.person_add_alt_1_rounded;
+  }
+
+  List<PopupMenuEntry<String>> _buildMoreEntries(SocialUserProfile profile) {
+    final l10n = context.l10n;
+    if (profile.isMe) {
+      return <PopupMenuEntry<String>>[
+        PopupMenuItem<String>(
+          value: 'manage',
+          child: Text(l10n.socialProfileManageAccount),
+        ),
+        PopupMenuItem<String>(
+          value: 'activity',
+          child: Text(l10n.socialProfileProfileActivity),
+        ),
+        PopupMenuItem<String>(
+          value: 'archive',
+          child: Text(l10n.socialProfileArchive),
+        ),
+        if (_canOpenInsights(profile))
+          PopupMenuItem<String>(
+            value: 'insights',
+            child: Text(l10n.socialProfileInsightsMenu),
+          ),
+        PopupMenuItem<String>(
+          value: 'share',
+          child: Text(l10n.socialProfileShareProfile),
+        ),
+      ];
+    }
+    final entries = <PopupMenuEntry<String>>[
+      PopupMenuItem<String>(
+        value: 'share',
+        child: Text(l10n.socialProfileShareProfile),
+      ),
+      PopupMenuItem<String>(
+        value: 'notify',
+        child: Text(
+          (profile.notificationPreference?.enabled ?? true)
+              ? l10n.socialProfileMuteNotifications
+              : l10n.socialProfileEnableNotifications,
+        ),
+      ),
+      if (profile.relation.canCall && appInAppCallsEnabled)
+        PopupMenuItem<String>(value: 'call', child: Text(l10n.commonCall)),
+      PopupMenuItem<String>(
+        value: profile.relation.isBlockedByMe ? 'unblock' : 'block',
+        child: Text(
+          profile.relation.isBlockedByMe
+              ? l10n.socialProfileUnblock
+              : l10n.socialProfileBlock,
+        ),
+      ),
+      PopupMenuItem<String>(value: 'report', child: Text(l10n.commonReport)),
+    ];
+    if (profile.viewerIsSuperAdmin && profile.superAdminControls != null) {
+      entries.add(
+        PopupMenuItem<String>(
+          value: 'admin',
+          child: Text(l10n.socialProfileManageUser),
+        ),
+      );
+    }
+    return entries;
+  }
+
+  Future<void> _handleMoreAction(String action) async {
+    final profile = _profile;
+    if (profile == null) return;
+    switch (action) {
+      case 'manage':
+        await _openAccountManagementScreen();
+        return;
+      case 'activity':
+        await _openActivityScreen();
+        return;
+      case 'archive':
+        await _openArchiveScreen();
+        return;
+      case 'insights':
+        await _openInsightsScreen();
+        return;
+      case 'share':
+        await _shareProfile();
+        return;
+      case 'notify':
+        final enabled = profile.notificationPreference?.enabled ?? true;
+        await _setNotificationPreference(!enabled);
+        return;
+      case 'call':
+        await _openInAppCall();
+        return;
+      case 'block':
+        await _blockRelation();
+        return;
+      case 'unblock':
+        await _unblockRelation();
+        return;
+      case 'report':
+        await _reportUser();
+        return;
+      case 'admin':
+        await _openAdminActionsScreen();
+        return;
     }
   }
 
@@ -1079,162 +1854,138 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
     return sorted.take(6).map((e) => e.key).toList(growable: false);
   }
 
-  bool _isMediaFilter(String? kind) => kind == 'image' || kind == 'video';
-
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final profile = _profile;
-    final currentPosts = _postsForKind(_selectedKind);
-    final currentNextCursor = _nextCursorForKind(_selectedKind);
-    final loadingCurrentKind = _isLoadingKind(_selectedKind);
-    final favorites = _favoriteMerchants();
     final albums = _buildHighlightAlbums();
+    final tabs = profile == null
+        ? const <_ProfileContentTab>[_ProfileContentTab.posts]
+        : _visibleTabsForProfile(profile);
+    if (!tabs.contains(_selectedTab)) {
+      _selectedTab = tabs.first;
+    }
 
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: context.appTextDirection,
       child: Scaffold(
-        backgroundColor: const Color(0xFF0F2140),
         appBar: AppBar(
-          title: Text(
-            profile?.fullName ?? widget.initialName ?? 'الملف الشخصي',
+          title: _ProfileAppBarTitle(
+            username: profile?.username,
+            fallbackTitle:
+                profile?.fullName ??
+                widget.initialName ??
+                l10n.socialProfileTitle,
+            verified: profile?.premiumBadgeVisible == true,
           ),
           actions: [
-            IconButton(
-              tooltip: 'تحديث',
-              onPressed: _refreshAll,
-              icon: const Icon(Icons.refresh_rounded),
-            ),
-            if (profile?.isMe == true)
-              IconButton(
-                tooltip: 'طلبات المتابعة',
-                onPressed: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const SocialRelationRequestsScreen(),
-                    ),
-                  );
-                  if (!mounted) return;
-                  await _loadProfile();
+            if (profile != null)
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    Future<void>.delayed(const Duration(milliseconds: 220), () {
+                      if (!mounted) return;
+                      unawaited(_handleMoreAction(value));
+                    });
+                  });
                 },
-                icon: const Icon(Icons.person_add_alt_1_rounded),
+                itemBuilder: (_) => _buildMoreEntries(profile),
               ),
-            if (profile?.isMe == true)
-              IconButton(
-                tooltip: 'تعديل',
-                onPressed: _openEditProfileSheet,
-                icon: const Icon(Icons.edit_outlined),
-              ),
-            const AppBarQuickActions(compact: true, includeProfile: false),
           ],
         ),
         body: _loadingProfile && profile == null
             ? const Center(child: CircularProgressIndicator())
-            : Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0xFF122A4F), Color(0xFF0A1832)],
-                  ),
-                ),
-                child: RefreshIndicator(
-                  onRefresh: _refreshAll,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-                    children: [
-                      if (_error != null) _ErrorBanner(message: _error!),
-                      if (profile != null)
-                        _ProfileHeaderCard(
-                          profile: profile,
-                          roleLabel: _friendlyRole(profile.role),
-                          joinedAt: _formatDate(profile.joinedAt),
-                          favorites: favorites,
-                          onAvatarTap: _openAvatarStoryOrImage,
-                          relationStatus: _relationStatusText(profile.relation),
-                          relationActions: _buildRelationActions(profile),
-                          onRequestsTap: profile.isMe
-                              ? () async {
-                                  await Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) =>
-                                          const SocialRelationRequestsScreen(),
-                                    ),
-                                  );
-                                  if (!mounted) return;
-                                  await _loadProfile();
-                                }
-                              : null,
-                          onEditTap: profile.isMe
-                              ? _openEditProfileSheet
-                              : null,
-                        ),
-                      const SizedBox(height: 12),
-                      _HighlightsSection(
-                        loading: _loadingHighlights,
-                        albums: albums,
-                        isPrivateForViewer: _storiesPrivateForViewer,
-                        canManage: profile?.isMe == true,
-                        onAdd: _openAddHighlightSheet,
-                        onOpen: _openHighlightAlbum,
-                        onRemove: _removeHighlight,
+            : RefreshIndicator(
+                onRefresh: _refreshAll,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                  children: [
+                    if (_error != null) _ErrorBanner(message: _error!),
+                    if (profile != null) ...[
+                      _ProfileHeaderSection(
+                        profile: profile,
+                        primaryLabel: _accountPrimaryLabel(profile),
+                        badgeLabels: _profileBadgeLabels(profile),
+                        onAvatarTap: _openAvatarStoryOrImage,
+                        onOpenFollowers: () =>
+                            _openFollowersFromProfile(profile),
+                        onOpenFollowing: () =>
+                            _openFollowingFromProfile(profile),
                       ),
-                      const SizedBox(height: 12),
-                      _FiltersSection(
-                        selectedKind: _selectedKind,
-                        onSelect: _onSelectFilter,
+                      const SizedBox(height: 14),
+                      _ProfileActionRow(
+                        profile: profile,
+                        primaryLabel: _primaryActionLabel(profile),
+                        primaryIcon: _primaryActionIcon(profile),
+                        onPrimaryTap: () => _performPrimaryAction(profile),
+                        onShareTap: _shareProfile,
+                        onMessageTap:
+                            !profile.isMe &&
+                                profile.relation.canChat &&
+                                !profile.relation.isBlocked
+                            ? _openChatWithUser
+                            : null,
+                        onUpgradeTap: profile.isMe && !profile.isPremiumMember
+                            ? _openPaidUpgradesScreen
+                            : null,
                       ),
-                      const SizedBox(height: 10),
-                      if (loadingCurrentKind && currentPosts.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 30),
-                          child: Center(child: CircularProgressIndicator()),
-                        )
-                      else if (_postsPrivateForViewer)
-                        _PrivatePostsNotice(
-                          name:
-                              profile?.fullName ??
-                              widget.initialName ??
-                              'الحساب',
-                        )
-                      else if (currentPosts.isEmpty)
-                        const _EmptyPostsNotice()
-                      else if (_isMediaFilter(_selectedKind))
-                        _ProfileMediaGrid(
-                          posts: currentPosts,
-                          onOpenMedia: _openMediaViewer,
-                        )
-                      else
-                        ...currentPosts.map(
-                          (post) => _ProfilePostCard(
-                            post: post,
-                            dateText: _formatDateTime(post.createdAt),
-                            onOpenMedia: () => _openMediaViewer(post),
-                          ),
+                      if (!profile.isMe &&
+                          profile.relation.state != 'none') ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          _relationStatusText(profile.relation),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: 0.72),
+                              ),
                         ),
-                      if (currentNextCursor != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: OutlinedButton.icon(
-                            onPressed: loadingCurrentKind
-                                ? null
-                                : () => _loadPosts(
-                                    kind: _selectedKind,
-                                    refresh: false,
-                                  ),
-                            icon: loadingCurrentKind
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.expand_more_rounded),
-                            label: const Text('عرض المزيد'),
-                          ),
-                        ),
+                      ],
                     ],
-                  ),
+                    const SizedBox(height: 14),
+                    _HighlightsSection(
+                      loading: _loadingHighlights,
+                      albums: albums,
+                      isPrivateForViewer: _storiesPrivateForViewer,
+                      canManage: profile?.isMe == true,
+                      onAdd: _openAddHighlightSheet,
+                      onOpen: _openHighlightAlbum,
+                      onRemove: _removeHighlight,
+                    ),
+                    if (profile != null) ...[
+                      const SizedBox(height: 18),
+                      _ProfileTabsStrip(
+                        profile: profile,
+                        tabs: tabs,
+                        selectedTab: _selectedTab,
+                        onSelect: _selectContentTab,
+                        labelBuilder: (tab) => _tabLabel(tab),
+                        countBuilder: (tab) => _tabCountValueFor(tab, profile),
+                      ),
+                      const SizedBox(height: 16),
+                      _ProfileTabContent(
+                        profile: profile,
+                        selectedTab: _selectedTab,
+                        postsByKey: _postsByKey,
+                        nextCursorByKey: _nextCursorByKey,
+                        loadingByKey: _loadingByKey,
+                        postsPrivateForViewer: _postsPrivateForViewer,
+                        onLoadMore: _loadPosts,
+                        onOpenMedia: _openProfileContent,
+                        onToggleArchive: profile.isMe
+                            ? _togglePostArchive
+                            : null,
+                        onDeletePost: profile.isMe ? _deletePost : null,
+                        onReportPost: profile.isMe ? null : _reportPost,
+                        formatDateTime: _formatDateTime,
+                        userId: widget.userId,
+                        profileName: profile.fullName,
+                      ),
+                    ],
+                  ],
                 ),
               ),
       ),
@@ -1268,16 +2019,18 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 class _EmptyPostsNotice extends StatelessWidget {
-  const _EmptyPostsNotice();
+  const _EmptyPostsNotice({this.title});
+
+  final String? title;
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.only(top: 30),
+    return Padding(
+      padding: const EdgeInsets.only(top: 30),
       child: Center(
         child: Text(
-          'لا توجد منشورات ضمن هذا الفلتر.',
-          style: TextStyle(fontWeight: FontWeight.w700),
+          title ?? context.l10n.socialProfileNoPostsForFilter,
+          style: const TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
     );
@@ -1306,7 +2059,7 @@ class _PrivatePostsNotice extends StatelessWidget {
               const Icon(Icons.lock_outline_rounded),
               const SizedBox(height: 8),
               Text(
-                'منشورات $name مخفية الآن.',
+                context.l10n.socialProfilePrivatePostsNotice(name),
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
@@ -1318,6 +2071,583 @@ class _PrivatePostsNotice extends StatelessWidget {
   }
 }
 
+class _ProfileHeaderSection extends StatelessWidget {
+  final SocialUserProfile profile;
+  final String primaryLabel;
+  final List<String> badgeLabels;
+  final VoidCallback onAvatarTap;
+  final VoidCallback? onOpenFollowers;
+  final VoidCallback? onOpenFollowing;
+
+  const _ProfileHeaderSection({
+    required this.profile,
+    required this.primaryLabel,
+    required this.badgeLabels,
+    required this.onAvatarTap,
+    this.onOpenFollowers,
+    this.onOpenFollowing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final stats = profile.stats;
+    final theme = Theme.of(context);
+    final hasBio = profile.bio.trim().isNotEmpty;
+    final displayName = profile.fullName.trim();
+    final username = (profile.username ?? '').trim();
+    final headerName = displayName.isNotEmpty
+        ? displayName
+        : (username.isNotEmpty
+              ? '@$username'
+              : context.l10n.socialProfileRoleUser);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            GestureDetector(
+              onTap: onAvatarTap,
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.24),
+                    width: 2,
+                  ),
+                ),
+                child: CircleAvatar(
+                  radius: 42,
+                  backgroundImage: (profile.imageUrl ?? '').trim().isNotEmpty
+                      ? AppCachedImageProvider(profile.imageUrl!)
+                      : null,
+                  child: (profile.imageUrl ?? '').trim().isEmpty
+                      ? const Icon(Icons.person_outline_rounded, size: 32)
+                      : null,
+                ),
+              ),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _ProfileMainStat(
+                    value: stats.totalPosts.toString(),
+                    label: context.l10n.socialProfileStatsPosts,
+                  ),
+                  _ProfileMainStat(
+                    value: stats.followersCount.toString(),
+                    label: context.l10n.socialProfileStatsFollowers,
+                    onTap: onOpenFollowers,
+                  ),
+                  _ProfileMainStat(
+                    value: stats.followingCount.toString(),
+                    label: context.l10n.socialProfileStatsFollowing,
+                    onTap: onOpenFollowing,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _IdentityTextWithBadge(
+          label: headerName,
+          verified: profile.premiumBadgeVisible,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          primaryLabel,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+          ),
+        ),
+        if (hasBio) ...[
+          const SizedBox(height: 8),
+          Text(
+            profile.bio.trim(),
+            style: theme.textTheme.bodyLarge?.copyWith(
+              height: 1.4,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+        if (badgeLabels.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: badgeLabels
+                .take(4)
+                .map(
+                  (badge) => _ProfileInfoChip(
+                    icon: Icons.verified_outlined,
+                    label: badge,
+                  ),
+                )
+                .toList(growable: false),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ProfileAppBarTitle extends StatelessWidget {
+  final String? username;
+  final String fallbackTitle;
+  final bool verified;
+
+  const _ProfileAppBarTitle({
+    required this.username,
+    required this.fallbackTitle,
+    required this.verified,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final normalizedUsername = (username ?? '').trim();
+    if (normalizedUsername.isEmpty) {
+      return Text(fallbackTitle);
+    }
+
+    return _IdentityTextWithBadge(
+      label: '@$normalizedUsername',
+      verified: verified,
+      forceLtr: true,
+      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+    );
+  }
+}
+
+class _IdentityTextWithBadge extends StatelessWidget {
+  final String label;
+  final bool verified;
+  final TextStyle? style;
+  final bool forceLtr;
+
+  const _IdentityTextWithBadge({
+    required this.label,
+    required this.verified,
+    this.style,
+    this.forceLtr = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: style,
+    );
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: forceLtr
+              ? Directionality(textDirection: TextDirection.ltr, child: text)
+              : text,
+        ),
+        if (verified) ...[
+          const SizedBox(width: 6),
+          Icon(
+            Icons.verified_rounded,
+            size: 18,
+            color: theme.colorScheme.primary,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ProfileActionRow extends StatelessWidget {
+  final SocialUserProfile profile;
+  final String primaryLabel;
+  final IconData primaryIcon;
+  final Future<void> Function() onPrimaryTap;
+  final Future<void> Function() onShareTap;
+  final Future<void> Function()? onMessageTap;
+  final Future<void> Function()? onUpgradeTap;
+
+  const _ProfileActionRow({
+    required this.profile,
+    required this.primaryLabel,
+    required this.primaryIcon,
+    required this.onPrimaryTap,
+    required this.onShareTap,
+    this.onMessageTap,
+    this.onUpgradeTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final buttons = <Widget>[
+      Expanded(
+        child: FilledButton.icon(
+          onPressed: onPrimaryTap,
+          icon: Icon(primaryIcon),
+          label: Text(primaryLabel),
+        ),
+      ),
+      if (onMessageTap != null) ...[
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: onMessageTap,
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            label: Text(context.l10n.commonMessage),
+          ),
+        ),
+      ],
+      const SizedBox(width: 10),
+      Expanded(
+        child: OutlinedButton.icon(
+          onPressed: onShareTap,
+          icon: const Icon(Icons.ios_share_rounded),
+          label: Text(context.l10n.commonShare),
+        ),
+      ),
+      if (profile.isMe && onUpgradeTap != null) ...[
+        const SizedBox(width: 10),
+        Expanded(
+          child: FilledButton.tonalIcon(
+            onPressed: onUpgradeTap,
+            icon: const Icon(Icons.workspace_premium_outlined),
+            label: Text(context.l10n.socialProfileUpgrade),
+          ),
+        ),
+      ],
+    ];
+
+    return Row(children: buttons);
+  }
+}
+
+class _ProfileTabsStrip extends StatelessWidget {
+  final SocialUserProfile profile;
+  final List<_ProfileContentTab> tabs;
+  final _ProfileContentTab selectedTab;
+  final Future<void> Function(_ProfileContentTab tab) onSelect;
+  final String Function(_ProfileContentTab tab) labelBuilder;
+  final int Function(_ProfileContentTab tab) countBuilder;
+
+  const _ProfileTabsStrip({
+    required this.profile,
+    required this.tabs,
+    required this.selectedTab,
+    required this.onSelect,
+    required this.labelBuilder,
+    required this.countBuilder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: tabs
+            .map(
+              (tab) => Padding(
+                padding: const EdgeInsetsDirectional.only(end: 8),
+                child: ChoiceChip(
+                  selected: selectedTab == tab,
+                  label: Text(
+                    countBuilder(tab) > 0
+                        ? '${labelBuilder(tab)} ${countBuilder(tab)}'
+                        : labelBuilder(tab),
+                  ),
+                  onSelected: (_) => onSelect(tab),
+                ),
+              ),
+            )
+            .toList(growable: false),
+      ),
+    );
+  }
+}
+
+class _ProfileTabContent extends ConsumerWidget {
+  final SocialUserProfile profile;
+  final _ProfileContentTab selectedTab;
+  final Map<String, List<SocialPost>> postsByKey;
+  final Map<String, int?> nextCursorByKey;
+  final Map<String, bool> loadingByKey;
+  final bool postsPrivateForViewer;
+  final Future<void> Function({required String? kind, bool refresh}) onLoadMore;
+  final Future<void> Function(SocialPost post, {List<SocialPost>? contextPosts})
+  onOpenMedia;
+  final Future<void> Function(SocialPost post, bool archived)? onToggleArchive;
+  final Future<void> Function(SocialPost post)? onDeletePost;
+  final Future<void> Function(SocialPost post)? onReportPost;
+  final String Function(DateTime? value) formatDateTime;
+  final int userId;
+  final String profileName;
+
+  const _ProfileTabContent({
+    required this.profile,
+    required this.selectedTab,
+    required this.postsByKey,
+    required this.nextCursorByKey,
+    required this.loadingByKey,
+    required this.postsPrivateForViewer,
+    required this.onLoadMore,
+    required this.onOpenMedia,
+    required this.onToggleArchive,
+    required this.onDeletePost,
+    required this.onReportPost,
+    required this.formatDateTime,
+    required this.userId,
+    required this.profileName,
+  });
+
+  String _keyOfKind(String? kind) => kind ?? _allPostsKey;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (selectedTab == _ProfileContentTab.saved) {
+      return _ProfileSavedInlineBody(
+        onOpenMedia: onOpenMedia,
+        onReportPost: onReportPost,
+      );
+    }
+    if (selectedTab == _ProfileContentTab.tagged) {
+      return _ProfileTaggedInlineBody(
+        userId: userId,
+        onOpenMedia: onOpenMedia,
+        onReportPost: onReportPost,
+        formatDateTime: formatDateTime,
+      );
+    }
+
+    final kind = switch (selectedTab) {
+      _ProfileContentTab.posts => null,
+      _ProfileContentTab.reels => 'reel',
+      _ProfileContentTab.reviews => 'merchant_review',
+      _ProfileContentTab.saved => null,
+      _ProfileContentTab.tagged => null,
+    };
+
+    final rawPosts = postsByKey[_keyOfKind(kind)] ?? const <SocialPost>[];
+    final posts = rawPosts;
+    final loading = loadingByKey[_keyOfKind(kind)] == true;
+    final nextCursor = nextCursorByKey[_keyOfKind(kind)];
+
+    if (postsPrivateForViewer && !profile.isMe) {
+      return _PrivatePostsNotice(name: profileName);
+    }
+    if (loading && posts.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 48),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (posts.isEmpty) {
+      return const _EmptyPostsNotice();
+    }
+
+    return Column(
+      children: [
+        ...posts.map(
+          (post) => _ProfilePostCard(
+            post: post,
+            onOpenMedia: () =>
+                unawaited(onOpenMedia(post, contextPosts: posts)),
+            onToggleArchive: onToggleArchive == null
+                ? null
+                : (archived) => onToggleArchive!(post, archived),
+            onDeletePost: onDeletePost == null
+                ? null
+                : () => onDeletePost!(post),
+            onReportPost: onReportPost == null
+                ? null
+                : () => onReportPost!(post),
+          ),
+        ),
+        if (nextCursor != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: OutlinedButton.icon(
+              onPressed: loading
+                  ? null
+                  : () => onLoadMore(kind: kind, refresh: false),
+              icon: loading
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.expand_more_rounded),
+              label: Text(context.l10n.socialProfileLoadMore),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ProfileSavedInlineBody extends ConsumerStatefulWidget {
+  final Future<void> Function(SocialPost post, {List<SocialPost>? contextPosts})
+  onOpenMedia;
+  final Future<void> Function(SocialPost post)? onReportPost;
+
+  const _ProfileSavedInlineBody({
+    required this.onOpenMedia,
+    required this.onReportPost,
+  });
+
+  @override
+  ConsumerState<_ProfileSavedInlineBody> createState() =>
+      _ProfileSavedInlineBodyState();
+}
+
+class _ProfileSavedInlineBodyState
+    extends ConsumerState<_ProfileSavedInlineBody> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(
+      () =>
+          ref.read(socialSavedControllerProvider.notifier).load(refresh: true),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(socialSavedControllerProvider);
+    if (state.loading && state.items.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 48),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (state.items.isEmpty) return const _EmptyPostsNotice();
+    final savedPosts = state.items
+        .map((item) => item.content)
+        .toList(growable: false);
+    return Column(
+      children: state.items
+          .map(
+            (item) => _ProfilePostCard(
+              post: item.content,
+              onOpenMedia: () => unawaited(
+                widget.onOpenMedia(item.content, contextPosts: savedPosts),
+              ),
+              onReportPost: widget.onReportPost == null
+                  ? null
+                  : () => widget.onReportPost!(item.content),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+}
+
+class _ProfileTaggedInlineBody extends ConsumerStatefulWidget {
+  final int userId;
+  final Future<void> Function(SocialPost post, {List<SocialPost>? contextPosts})
+  onOpenMedia;
+  final Future<void> Function(SocialPost post)? onReportPost;
+  final String Function(DateTime? value) formatDateTime;
+
+  const _ProfileTaggedInlineBody({
+    required this.userId,
+    required this.onOpenMedia,
+    required this.onReportPost,
+    required this.formatDateTime,
+  });
+
+  @override
+  ConsumerState<_ProfileTaggedInlineBody> createState() =>
+      _ProfileTaggedInlineBodyState();
+}
+
+class _ProfileTaggedInlineBodyState
+    extends ConsumerState<_ProfileTaggedInlineBody> {
+  bool _loading = true;
+  String? _error;
+  List<SocialPost> _posts = const <SocialPost>[];
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_load);
+  }
+
+  Future<void> _load() async {
+    try {
+      final out = await ref
+          .read(socialApiProvider)
+          .listProfileTagged(userId: widget.userId);
+      final rows = List<dynamic>.from(
+        out['posts'] ??
+            out['items'] ??
+            out['taggedPosts'] ??
+            out['tagged_posts'] ??
+            const [],
+      );
+      if (!mounted) return;
+      setState(() {
+        _posts = rows
+            .map(
+              (e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)),
+            )
+            .toList(growable: false);
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = mapAnyError(
+          e,
+          fallback: context.l10n.socialTaggedPostsLoadFailedFriendly,
+        );
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 48),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_error != null) {
+      return _ErrorBanner(message: _error!);
+    }
+    if (_posts.isEmpty) {
+      return _EmptyPostsNotice(title: context.l10n.socialTaggedPostsEmpty);
+    }
+    return Column(
+      children: _posts
+          .map(
+            (post) => _ProfilePostCard(
+              post: post,
+              onOpenMedia: () =>
+                  unawaited(widget.onOpenMedia(post, contextPosts: _posts)),
+              onReportPost: widget.onReportPost == null
+                  ? null
+                  : () => widget.onReportPost!(post),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+}
+
+// ignore: unused_element
 class _ProfileHeaderCard extends StatelessWidget {
   final SocialUserProfile profile;
   final String roleLabel;
@@ -1413,7 +2743,7 @@ class _ProfileHeaderCard extends StatelessWidget {
                         radius: 40,
                         backgroundImage:
                             (profile.imageUrl ?? '').trim().isNotEmpty
-                            ? NetworkImage(profile.imageUrl!)
+                            ? AppCachedImageProvider(profile.imageUrl!)
                             : null,
                         child: (profile.imageUrl ?? '').trim().isEmpty
                             ? const Icon(Icons.person_outline, size: 30)
@@ -1611,12 +2941,17 @@ class _ProfileHeaderCard extends StatelessWidget {
 class _ProfileMainStat extends StatelessWidget {
   final String value;
   final String label;
+  final VoidCallback? onTap;
 
-  const _ProfileMainStat({required this.value, required this.label});
+  const _ProfileMainStat({
+    required this.value,
+    required this.label,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final content = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
@@ -1635,6 +2970,17 @@ class _ProfileMainStat extends StatelessWidget {
           ),
         ),
       ],
+    );
+    if (onTap == null) {
+      return content;
+    }
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: content,
+      ),
     );
   }
 }
@@ -1836,7 +3182,7 @@ class _HighlightsSection extends StatelessWidget {
                                     coverUrl.isNotEmpty &&
                                         album.cover.story.mediaKind == 'image'
                                     ? DecorationImage(
-                                        image: NetworkImage(coverUrl),
+                                        image: AppCachedImageProvider(coverUrl),
                                         fit: BoxFit.cover,
                                       )
                                     : null,
@@ -1885,6 +3231,7 @@ class _HighlightsSection extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _FiltersSection extends StatelessWidget {
   final String? selectedKind;
   final ValueChanged<String?> onSelect;
@@ -1921,273 +3268,92 @@ class _FiltersSection extends StatelessWidget {
   }
 }
 
-class _ProfileMediaGrid extends StatelessWidget {
-  final List<SocialPost> posts;
-  final ValueChanged<SocialPost> onOpenMedia;
-
-  const _ProfileMediaGrid({required this.posts, required this.onOpenMedia});
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: posts.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 6,
-        crossAxisSpacing: 6,
-      ),
-      itemBuilder: (context, index) {
-        final post = posts[index];
-        final isVideo = (post.mediaKind ?? post.postKind) == 'video';
-        final mediaUrl = (post.mediaUrl ?? '').trim();
-
-        return GestureDetector(
-          onTap: () => onOpenMedia(post),
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              image: mediaUrl.isNotEmpty && !isVideo
-                  ? DecorationImage(
-                      image: NetworkImage(mediaUrl),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
-            ),
-            child: isVideo
-                ? Stack(
-                    children: [
-                      if (mediaUrl.isNotEmpty)
-                        Positioned.fill(
-                          child: Image.network(
-                            mediaUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                const SizedBox.shrink(),
-                          ),
-                        ),
-                      const Center(
-                        child: Icon(
-                          Icons.play_circle_fill_rounded,
-                          color: Colors.white,
-                          size: 34,
-                        ),
-                      ),
-                    ],
-                  )
-                : null,
-          ),
-        );
-      },
-    );
-  }
-}
-
 class _ProfilePostCard extends StatelessWidget {
   final SocialPost post;
-  final String dateText;
   final VoidCallback onOpenMedia;
+  final Future<void> Function(bool archived)? onToggleArchive;
+  final Future<void> Function()? onDeletePost;
+  final Future<void> Function()? onReportPost;
 
   const _ProfilePostCard({
     required this.post,
-    required this.dateText,
     required this.onOpenMedia,
+    this.onToggleArchive,
+    this.onDeletePost,
+    this.onReportPost,
   });
 
   @override
   Widget build(BuildContext context) {
-    final mediaUrl = (post.mediaUrl ?? '').trim();
-    final isVideo = (post.mediaKind ?? post.postKind) == 'video';
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Text(
-                  dateText,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.68),
-                  ),
-                ),
-                const Spacer(),
-                _KindPill(kind: post.postKind),
-              ],
-            ),
-            if (mediaUrl.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              GestureDetector(
-                onTap: onOpenMedia,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Image.network(
-                          mediaUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(
-                                color: const Color(0xFF15355F),
-                                alignment: Alignment.center,
-                                child: const Icon(Icons.broken_image_outlined),
-                              ),
-                        ),
-                        if (isVideo)
-                          const Center(
-                            child: Icon(
-                              Icons.play_circle_fill_rounded,
-                              color: Colors.white,
-                              size: 52,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-            if (post.caption.trim().isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Text(
-                post.caption.trim(),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  height: 1.35,
-                ),
-              ),
-            ],
-            if (post.postKind == 'merchant_review') ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Text(
-                    post.reviewRating == null
-                        ? '-'
-                        : '\u2b50 ${post.reviewRating}/5',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  const Spacer(),
-                  Text(
-                    post.merchantName?.trim().isEmpty ?? true
-                        ? 'تقييم متجر'
-                        : post.merchantName!.trim(),
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _MetricBadge(
-                  icon: Icons.comment_outlined,
-                  label: post.commentsCount.toString(),
-                ),
-                const SizedBox(width: 8),
-                _MetricBadge(
-                  icon: post.isLiked ? Icons.favorite : Icons.favorite_border,
-                  label: post.likesCount.toString(),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _KindPill extends StatelessWidget {
-  final String kind;
-
-  const _KindPill({required this.kind});
-
-  @override
-  Widget build(BuildContext context) {
-    final String label;
-    final IconData icon;
-    switch (kind) {
-      case 'image':
-        label = 'صور';
-        icon = Icons.image_outlined;
-        break;
-      case 'video':
-        label = 'ريلز';
-        icon = Icons.ondemand_video_rounded;
-        break;
-      case 'merchant_review':
-        label = 'تقييم';
-        icon = Icons.rate_review_outlined;
-        break;
-      default:
-        label = 'نص';
-        icon = Icons.text_fields_rounded;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: Theme.of(context).colorScheme.primaryContainer,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    final showMenu =
+        onToggleArchive != null || onDeletePost != null || onReportPost != null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Stack(
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              color: Theme.of(context).colorScheme.onPrimaryContainer,
+          SocialPostCardV2(
+            post: post,
+            onOpenDetails: onOpenMedia,
+            onOpenComments: onOpenMedia,
+            onOpenMerchantLink: onOpenMedia,
+            autoPlayVideoPreview: post.postKind == 'reel',
+          ),
+          if (showMenu)
+            PositionedDirectional(
+              top: 10,
+              end: 10,
+              child: Material(
+                color: Colors.black.withValues(alpha: 0.36),
+                shape: const CircleBorder(),
+                child: PopupMenuButton<String>(
+                  onSelected: (value) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!context.mounted) return;
+                      Future<void>.delayed(
+                        const Duration(milliseconds: 220),
+                        () {
+                          if (!context.mounted) return;
+                          if (value == 'archive') {
+                            if (onToggleArchive != null) {
+                              unawaited(onToggleArchive!(true));
+                            }
+                          } else if (value == 'report') {
+                            if (onReportPost != null) {
+                              unawaited(onReportPost!());
+                            }
+                          } else if (value == 'delete') {
+                            if (onDeletePost != null) {
+                              unawaited(onDeletePost!());
+                            }
+                          }
+                        },
+                      );
+                    });
+                  },
+                  itemBuilder: (_) => [
+                    if (onToggleArchive != null)
+                      const PopupMenuItem<String>(
+                        value: 'archive',
+                        child: Text('أرشفة'),
+                      ),
+                    if (onDeletePost != null)
+                      PopupMenuItem<String>(
+                        value: 'delete',
+                        child: Text(context.l10n.commonDelete),
+                      ),
+                    if (onReportPost != null)
+                      PopupMenuItem<String>(
+                        value: 'report',
+                        child: Text(context.l10n.commonReport),
+                      ),
+                  ],
+                  icon: const Icon(
+                    Icons.more_horiz_rounded,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
             ),
-          ),
-          const SizedBox(width: 6),
-          Icon(
-            icon,
-            size: 14,
-            color: Theme.of(context).colorScheme.onPrimaryContainer,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetricBadge extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _MetricBadge({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
-          const SizedBox(width: 4),
-          Icon(icon, size: 15),
         ],
       ),
     );
@@ -2373,8 +3539,8 @@ class _AddHighlightSheetState extends State<_AddHighlightSheet> {
                             leading: isImage
                                 ? ClipRRect(
                                     borderRadius: BorderRadius.circular(8),
-                                    child: Image.network(
-                                      mediaUrl,
+                                    child: CachedAppImage(
+                                      imageUrl: mediaUrl,
                                       width: 46,
                                       height: 46,
                                       fit: BoxFit.cover,
@@ -2428,20 +3594,33 @@ class _EditProfileSheet extends StatefulWidget {
 
 class _EditProfileSheetState extends State<_EditProfileSheet> {
   late final TextEditingController _nameCtrl;
+  late final TextEditingController _usernameCtrl;
   late final TextEditingController _bioCtrl;
   late final TextEditingController _ageCtrl;
   late bool _showPhone;
   late bool _postsPublic;
   late bool _storiesPublic;
+  late bool _relationsPublic;
+  late bool _accountPrivate;
+  late String _onlineStatusVisibility;
+  late String _lastSeenVisibility;
+  late bool _readReceiptsEnabled;
+  late bool _typingIndicatorsEnabled;
 
   LocalMediaFile? _pickedImage;
   bool _saving = false;
+  bool _checkingUsername = false;
   String? _error;
+  String? _usernameError;
+  Timer? _usernameDebounce;
 
   @override
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.initialProfile.fullName);
+    _usernameCtrl = TextEditingController(
+      text: widget.initialProfile.username ?? '',
+    );
     _bioCtrl = TextEditingController(text: widget.initialProfile.bio);
     _ageCtrl = TextEditingController(
       text: widget.initialProfile.age?.toString() ?? '',
@@ -2449,6 +3628,115 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _showPhone = widget.initialProfile.showPhone;
     _postsPublic = widget.initialProfile.postsPublic;
     _storiesPublic = widget.initialProfile.storiesPublic;
+    _relationsPublic = widget.initialProfile.relationsPublic;
+    _accountPrivate = widget.initialProfile.accountPrivate;
+    _onlineStatusVisibility = widget.initialProfile.onlineStatusVisibility;
+    _lastSeenVisibility = widget.initialProfile.lastSeenVisibility;
+    _readReceiptsEnabled = widget.initialProfile.readReceiptsEnabled;
+    _typingIndicatorsEnabled = widget.initialProfile.typingIndicatorsEnabled;
+    _usernameCtrl.addListener(_scheduleUsernameCheck);
+  }
+
+  List<DropdownMenuItem<String>> _buildVisibilityItems() {
+    const values = <String>['connections', 'everyone', 'nobody'];
+    return values
+        .map(
+          (value) => DropdownMenuItem<String>(
+            value: value,
+            child: Text(
+              value == 'everyone'
+                  ? 'الجميع'
+                  : value == 'nobody'
+                  ? 'لا أحد'
+                  : 'العلاقات فقط',
+            ),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  String? _validateUsernameLocally(String value) {
+    final username = value.trim().toLowerCase();
+    if (username.isEmpty) {
+      return 'اسم المستخدم مطلوب.';
+    }
+    final ok =
+        username.length >= 4 &&
+        username.length <= 24 &&
+        !username.contains('..') &&
+        RegExp(r'^[a-z0-9](?:[a-z0-9._]{2,22})[a-z0-9]$').hasMatch(username);
+    if (!ok) {
+      return 'استخدم 4-24 حرفًا إنكليزيًا أو رقمًا مع _ أو .';
+    }
+    return null;
+  }
+
+  void _scheduleUsernameCheck() {
+    _usernameDebounce?.cancel();
+    if (mounted) {
+      setState(() {});
+    }
+    final localError = _validateUsernameLocally(_usernameCtrl.text);
+    if (localError != null) {
+      setState(() => _usernameError = localError);
+      return;
+    }
+    final initialUsername = (widget.initialProfile.username ?? '')
+        .trim()
+        .toLowerCase();
+    final nextUsername = _usernameCtrl.text.trim().toLowerCase();
+    if (nextUsername == initialUsername) {
+      setState(() => _usernameError = null);
+      return;
+    }
+    _usernameDebounce = Timer(
+      const Duration(milliseconds: 350),
+      _checkUsernameAvailability,
+    );
+  }
+
+  Future<bool> _checkUsernameAvailability() async {
+    final username = _usernameCtrl.text.trim().toLowerCase();
+    final localError = _validateUsernameLocally(username);
+    if (localError != null) {
+      if (mounted) setState(() => _usernameError = localError);
+      return false;
+    }
+    final initialUsername = (widget.initialProfile.username ?? '')
+        .trim()
+        .toLowerCase();
+    if (username == initialUsername) {
+      if (mounted) {
+        setState(() {
+          _checkingUsername = false;
+          _usernameError = null;
+        });
+      }
+      return true;
+    }
+    if (mounted) {
+      setState(() {
+        _checkingUsername = true;
+        _usernameError = null;
+      });
+    }
+    try {
+      final out = await widget.api.checkUsernameAvailability(username);
+      final available = out['available'] == true;
+      if (!mounted) return available;
+      setState(() {
+        _checkingUsername = false;
+        _usernameError = available ? null : 'اسم المستخدم مستخدم بالفعل.';
+      });
+      return available;
+    } catch (_) {
+      if (!mounted) return false;
+      setState(() {
+        _checkingUsername = false;
+        _usernameError = 'تعذر التحقق من اسم المستخدم الآن.';
+      });
+      return false;
+    }
   }
 
   Future<void> _pickImage() async {
@@ -2470,11 +3758,16 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   Future<void> _save() async {
     if (_saving) return;
     final fullName = _nameCtrl.text.trim();
+    final username = _usernameCtrl.text.trim().toLowerCase();
     final bio = _bioCtrl.text.trim();
     final ageText = _ageCtrl.text.trim();
     int? age;
     if (fullName.isEmpty) {
       setState(() => _error = 'الاسم مطلوب.');
+      return;
+    }
+    final usernameOk = await _checkUsernameAvailability();
+    if (!mounted || !usernameOk || _usernameError != null) {
       return;
     }
     if (ageText.isNotEmpty) {
@@ -2491,14 +3784,24 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     try {
       final out = await widget.api.updateMyProfile(
         fullName: fullName,
+        username: username,
         bio: bio,
         age: age,
         showPhone: _showPhone,
         postsPublic: _postsPublic,
         storiesPublic: _storiesPublic,
+        relationsPublic: _relationsPublic,
+        accountPrivate: _accountPrivate,
+        onlineStatusVisibility: _onlineStatusVisibility,
+        lastSeenVisibility: _lastSeenVisibility,
+        readReceiptsEnabled: _readReceiptsEnabled,
+        typingIndicatorsEnabled: _typingIndicatorsEnabled,
         imageFile: _pickedImage,
       );
       final raw = out['profile'];
+      final hasCoreChangeRequest =
+          out['coreProfileChangeRequest'] is Map ||
+          (raw is Map && raw['coreProfileChangeRequest'] is Map);
       if (!mounted) return;
       if (raw is! Map) {
         setState(() {
@@ -2510,6 +3813,15 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       final profile = SocialUserProfile.fromJson(
         Map<String, dynamic>.from(raw),
       );
+      if (hasCoreChangeRequest) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'تم إرسال طلب تعديل الاسم/اسم المستخدم إلى الإدارة للمراجعة.',
+            ),
+          ),
+        );
+      }
       Navigator.of(context).pop(profile);
     } catch (e) {
       if (!mounted) return;
@@ -2522,7 +3834,9 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
 
   @override
   void dispose() {
+    _usernameDebounce?.cancel();
     _nameCtrl.dispose();
+    _usernameCtrl.dispose();
     _bioCtrl.dispose();
     _ageCtrl.dispose();
     super.dispose();
@@ -2554,7 +3868,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                       radius: 42,
                       backgroundImage:
                           _pickedImage == null && avatarUrl.isNotEmpty
-                          ? NetworkImage(avatarUrl)
+                          ? AppCachedImageProvider(avatarUrl)
                           : null,
                       child: _pickedImage != null
                           ? const Icon(Icons.image_rounded, size: 30)
@@ -2584,6 +3898,20 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
               ),
               const SizedBox(height: 10),
               TextField(
+                controller: _usernameCtrl,
+                keyboardType: TextInputType.text,
+                textDirection: TextDirection.ltr,
+                decoration: InputDecoration(
+                  labelText: 'اسم المستخدم',
+                  helperText: _checkingUsername
+                      ? 'جارٍ التحقق من التوفر...'
+                      : '@${_usernameCtrl.text.trim().toLowerCase()}',
+                  errorText: _usernameError,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
                 controller: _ageCtrl,
                 keyboardType: TextInputType.number,
                 textDirection: TextDirection.rtl,
@@ -2606,6 +3934,18 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
               ),
               const SizedBox(height: 10),
               SwitchListTile.adaptive(
+                value: _accountPrivate,
+                onChanged: (value) => setState(() => _accountPrivate = value),
+                title: const Text(
+                  'جعل الحساب خاصًا',
+                  textDirection: TextDirection.rtl,
+                ),
+                subtitle: const Text(
+                  'لا يرى المحتوى إلا من لديهم علاقة مقبولة معك.',
+                  textDirection: TextDirection.rtl,
+                ),
+              ),
+              SwitchListTile.adaptive(
                 value: _showPhone,
                 onChanged: (value) => setState(() => _showPhone = value),
                 title: const Text(
@@ -2626,6 +3966,68 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 onChanged: (value) => setState(() => _storiesPublic = value),
                 title: const Text(
                   'السماح للجميع برؤية ستورياتي',
+                  textDirection: TextDirection.rtl,
+                ),
+              ),
+              SwitchListTile.adaptive(
+                value: _relationsPublic,
+                onChanged: (value) => setState(() => _relationsPublic = value),
+                title: const Text(
+                  'السماح للآخرين برؤية المتابعين والمتابَعين',
+                  textDirection: TextDirection.rtl,
+                ),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: _onlineStatusVisibility,
+                decoration: const InputDecoration(
+                  labelText: 'من يرى حالة الاتصال',
+                  border: OutlineInputBorder(),
+                ),
+                items: _buildVisibilityItems(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _onlineStatusVisibility = value);
+                },
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue: _lastSeenVisibility,
+                decoration: const InputDecoration(
+                  labelText: 'من يرى آخر ظهور',
+                  border: OutlineInputBorder(),
+                ),
+                items: _buildVisibilityItems(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _lastSeenVisibility = value);
+                },
+              ),
+              SwitchListTile.adaptive(
+                value: _readReceiptsEnabled,
+                onChanged: (value) =>
+                    setState(() => _readReceiptsEnabled = value),
+                title: const Text(
+                  'إظهار حالة قراءة الرسائل',
+                  textDirection: TextDirection.rtl,
+                ),
+                subtitle: Text(
+                  _readReceiptsEnabled
+                      ? 'يرى الطرف الآخر أنك قرأت الرسائل.'
+                      : 'سيتم إخفاء حالة القراءة من الطرف الآخر.',
+                  textDirection: TextDirection.rtl,
+                ),
+              ),
+              SwitchListTile.adaptive(
+                value: _typingIndicatorsEnabled,
+                onChanged: (value) =>
+                    setState(() => _typingIndicatorsEnabled = value),
+                title: const Text(
+                  'إظهار مؤشر الكتابة',
+                  textDirection: TextDirection.rtl,
+                ),
+                subtitle: const Text(
+                  'إخفاء هذا الخيار يمنع ظهور "يكتب الآن" للطرف الآخر.',
                   textDirection: TextDirection.rtl,
                 ),
               ),
@@ -2699,12 +4101,17 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
 
   Future<void> _initVideo() async {
     try {
-      final uri = Uri.tryParse(widget.mediaUrl);
-      if (uri == null) {
+      final mediaUrl = widget.mediaUrl.trim();
+      if (mediaUrl.isEmpty) {
         setState(() => _videoError = 'رابط الفيديو غير صالح.');
         return;
       }
-      final controller = VideoPlayerController.networkUrl(uri);
+      final source = await MediaCacheService.instance.resolveVideoSource(
+        url: mediaUrl,
+      );
+      final controller = source.isLocalFile
+          ? VideoPlayerController.file(source.file!)
+          : VideoPlayerController.networkUrl(source.uri);
       await controller.initialize();
       await controller.setLooping(true);
       await controller.play();
@@ -2766,10 +4173,10 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
               minScale: 0.7,
               maxScale: 4,
               child: Center(
-                child: Image.network(
-                  widget.mediaUrl,
+                child: CachedAppImage(
+                  imageUrl: widget.mediaUrl,
                   fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) =>
+                  errorWidget: (context, error, stackTrace) =>
                       const _MediaError(message: 'تعذر تحميل الصورة.'),
                 ),
               ),

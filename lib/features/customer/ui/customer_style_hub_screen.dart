@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 
 class CustomerStyleHubScreen extends StatelessWidget {
@@ -10,48 +12,188 @@ class CustomerStyleHubScreen extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
           initialType: 'market',
-          initialSearchQuery: topic.query,
+          initialSearchQuery: topic.searchQuery,
+          requiredAnyKeywords: topic.searchTerms,
           overrideTitle: topic.title,
           compactCustomerMode: true,
+          applyInitialSearchQuery: true,
         ),
       ),
     );
   }
 
+  List<_StyleTopic> _womenTopics(BuildContext context) {
+    final l10n = context.l10n;
+    return [
+      _StyleTopic(
+        title: l10n.customerStyleHubWomenClothingTitle,
+        subtitle: l10n.customerStyleHubWomenClothingSubtitle,
+        searchQuery: 'نسائي',
+        searchTerms: [
+          'نسائي',
+          'نساء',
+          'فساتين',
+          'عبايات',
+          'حجاب',
+          'women',
+          'ladies',
+        ],
+        icon: Icons.checkroom_rounded,
+        colorA: const Color(0xFF7A3E8D),
+        colorB: const Color(0xFF4E2A66),
+      ),
+      _StyleTopic(
+        title: l10n.customerStyleHubWomenShoesTitle,
+        subtitle: l10n.customerStyleHubWomenShoesSubtitle,
+        searchQuery: 'أحذية نسائية',
+        searchTerms: [
+          'أحذية نسائية',
+          'كعب',
+          'سنيكرز',
+          'women shoes',
+          'heels',
+          'sneakers',
+        ],
+        icon: Icons.shopping_bag_rounded,
+        colorA: const Color(0xFF6A517F),
+        colorB: const Color(0xFF3F3353),
+      ),
+      _StyleTopic(
+        title: l10n.customerStyleHubBagsTitle,
+        subtitle: l10n.customerStyleHubBagsSubtitle,
+        searchQuery: 'شنط',
+        searchTerms: [
+          'شنط',
+          'حقائب',
+          'اكسسوارات',
+          'ساعات',
+          'bags',
+          'accessories',
+          'watch',
+        ],
+        icon: Icons.shopping_bag_outlined,
+        colorA: const Color(0xFF8E5D3F),
+        colorB: const Color(0xFF5A3A26),
+      ),
+      _StyleTopic(
+        title: l10n.customerStyleHubBeautyTitle,
+        subtitle: l10n.customerStyleHubBeautySubtitle,
+        searchQuery: 'تجميل',
+        searchTerms: [
+          'تجميل',
+          'مكياج',
+          'عناية',
+          'عطور',
+          'beauty',
+          'makeup',
+          'perfume',
+          'skincare',
+        ],
+        icon: Icons.auto_awesome_rounded,
+        colorA: const Color(0xFF4E6E95),
+        colorB: const Color(0xFF314A69),
+      ),
+    ];
+  }
+
+  List<_StyleTopic> _menTopics(BuildContext context) {
+    final l10n = context.l10n;
+    return [
+      _StyleTopic(
+        title: l10n.customerStyleHubMenClothingTitle,
+        subtitle: l10n.customerStyleHubMenClothingSubtitle,
+        searchQuery: 'رجالي',
+        searchTerms: ['رجالي', 'رجال', 'بدلات', 'قمصان', 'men', 'mens'],
+        icon: Icons.checkroom_rounded,
+        colorA: const Color(0xFF1F4F81),
+        colorB: const Color(0xFF183A62),
+      ),
+      _StyleTopic(
+        title: l10n.customerStyleHubMenShoesTitle,
+        subtitle: l10n.customerStyleHubMenShoesSubtitle,
+        searchQuery: 'أحذية رجالية',
+        searchTerms: [
+          'أحذية رجالية',
+          'رجالي',
+          'men shoes',
+          'formal shoes',
+          'sport shoes',
+        ],
+        icon: Icons.hiking_rounded,
+        colorA: const Color(0xFF2F6C70),
+        colorB: const Color(0xFF1D4A4D),
+      ),
+      _StyleTopic(
+        title: l10n.customerStyleHubMenFragranceTitle,
+        subtitle: l10n.customerStyleHubMenFragranceSubtitle,
+        searchQuery: 'عطور رجالية',
+        searchTerms: [
+          'عطور رجالية',
+          'عطر رجالي',
+          'perfume',
+          'fragrance',
+          'men perfume',
+        ],
+        icon: Icons.water_drop_rounded,
+        colorA: const Color(0xFF5A6786),
+        colorB: const Color(0xFF35415A),
+      ),
+      _StyleTopic(
+        title: l10n.customerStyleHubSportsTitle,
+        subtitle: l10n.customerStyleHubSportsSubtitle,
+        searchQuery: 'رياضية',
+        searchTerms: ['رياضية', 'رياضة', 'gym', 'sport', 'تمارين', 'fitness'],
+        icon: Icons.sports_gymnastics_rounded,
+        colorA: const Color(0xFF3D6E51),
+        colorB: const Color(0xFF274836),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: AppBar(title: const Text('سوق الأزياء - نسائي ورجالي')),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
-          children: [
-            _HeaderCard(),
-            const SizedBox(height: 12),
-            const _SectionTitle('قسم النساء'),
-            const SizedBox(height: 8),
-            _TopicGrid(
-              topics: _womenTopics,
-              onTap: (topic) => _open(context, topic),
-            ),
-            const SizedBox(height: 14),
-            const _SectionTitle('قسم الرجال'),
-            const SizedBox(height: 8),
-            _TopicGrid(
-              topics: _menTopics,
-              onTap: (topic) => _open(context, topic),
-            ),
-          ],
-        ),
+    final l10n = context.l10n;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(l10n.customerStyleHubTitle),
+        actions: const [AppBarQuickActions()],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
+        children: [
+          _HeaderCard(
+            title: l10n.customerStyleHubHeaderTitle,
+            subtitle: l10n.customerStyleHubHeaderSubtitle,
+          ),
+          const SizedBox(height: 12),
+          _SectionTitle(title: l10n.customerStyleHubWomenSection),
+          const SizedBox(height: 8),
+          _TopicGrid(
+            topics: _womenTopics(context),
+            onTap: (topic) => _open(context, topic),
+          ),
+          const SizedBox(height: 14),
+          _SectionTitle(title: l10n.customerStyleHubMenSection),
+          const SizedBox(height: 8),
+          _TopicGrid(
+            topics: _menTopics(context),
+            onTap: (topic) => _open(context, topic),
+          ),
+        ],
       ),
     );
   }
 }
 
 class _HeaderCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+
+  const _HeaderCard({required this.title, required this.subtitle});
+
   @override
   Widget build(BuildContext context) {
+    final isLtr = Directionality.of(context) == TextDirection.ltr;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -63,17 +205,18 @@ class _HeaderCard extends StatelessWidget {
         ),
         border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
       ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
+        crossAxisAlignment: isLtr
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.end,
         children: [
           Text(
-            'اختار حسب احتياجك',
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+            title,
+            textAlign: isLtr ? TextAlign.start : TextAlign.end,
+            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
           ),
-          SizedBox(height: 6),
-          Text(
-            'ملابس، أحذية، شنط، عناية... قسم واضح وسريع حتى توصل للمطلوب بدون لف.',
-          ),
+          const SizedBox(height: 6),
+          Text(subtitle, textAlign: isLtr ? TextAlign.start : TextAlign.end),
         ],
       ),
     );
@@ -81,14 +224,14 @@ class _HeaderCard extends StatelessWidget {
 }
 
 class _SectionTitle extends StatelessWidget {
-  final String text;
+  final String title;
 
-  const _SectionTitle(this.text);
+  const _SectionTitle({required this.title});
 
   @override
   Widget build(BuildContext context) {
     return Text(
-      text,
+      title,
       style: Theme.of(
         context,
       ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
@@ -104,6 +247,7 @@ class _TopicGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLtr = Directionality.of(context) == TextDirection.ltr;
     return GridView.builder(
       itemCount: topics.length,
       shrinkWrap: true,
@@ -132,18 +276,22 @@ class _TopicGrid extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(10),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                crossAxisAlignment: isLtr
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.end,
                 children: [
                   Icon(topic.icon, size: 24),
                   const Spacer(),
                   Text(
                     topic.title,
+                    textAlign: isLtr ? TextAlign.start : TextAlign.end,
                     style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     topic.subtitle,
-                    maxLines: 1,
+                    textAlign: isLtr ? TextAlign.start : TextAlign.end,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.86),
@@ -163,7 +311,8 @@ class _TopicGrid extends StatelessWidget {
 class _StyleTopic {
   final String title;
   final String subtitle;
-  final String query;
+  final String searchQuery;
+  final List<String> searchTerms;
   final IconData icon;
   final Color colorA;
   final Color colorB;
@@ -171,79 +320,10 @@ class _StyleTopic {
   const _StyleTopic({
     required this.title,
     required this.subtitle,
-    required this.query,
+    required this.searchQuery,
+    required this.searchTerms,
     required this.icon,
     required this.colorA,
     required this.colorB,
   });
 }
-
-const _womenTopics = <_StyleTopic>[
-  _StyleTopic(
-    title: 'ملابس نسائية',
-    subtitle: 'فساتين وعبايات',
-    query: 'ملابس نسائية فساتين عبايات',
-    icon: Icons.checkroom_rounded,
-    colorA: Color(0xFF7A3E8D),
-    colorB: Color(0xFF4E2A66),
-  ),
-  _StyleTopic(
-    title: 'أحذية نسائية',
-    subtitle: 'كعب وسنيكرز',
-    query: 'أحذية نسائية كعب',
-    icon: Icons.shopping_bag_rounded,
-    colorA: Color(0xFF6A517F),
-    colorB: Color(0xFF3F3353),
-  ),
-  _StyleTopic(
-    title: 'شنط وإكسسوارات',
-    subtitle: 'حقائب وساعات',
-    query: 'شنط نسائية اكسسوار',
-    icon: Icons.shopping_bag_outlined,
-    colorA: Color(0xFF8E5D3F),
-    colorB: Color(0xFF5A3A26),
-  ),
-  _StyleTopic(
-    title: 'عناية وتجميل',
-    subtitle: 'عطور ومكياج',
-    query: 'مكياج عناية عطور نسائية',
-    icon: Icons.auto_awesome_rounded,
-    colorA: Color(0xFF4E6E95),
-    colorB: Color(0xFF314A69),
-  ),
-];
-
-const _menTopics = <_StyleTopic>[
-  _StyleTopic(
-    title: 'ملابس رجالية',
-    subtitle: 'كاجوال ورسمي',
-    query: 'ملابس رجالية دشاديش',
-    icon: Icons.checkroom_rounded,
-    colorA: Color(0xFF1F4F81),
-    colorB: Color(0xFF183A62),
-  ),
-  _StyleTopic(
-    title: 'أحذية رجالية',
-    subtitle: 'رسمي ورياضي',
-    query: 'أحذية رجالية رياضي',
-    icon: Icons.hiking_rounded,
-    colorA: Color(0xFF2F6C70),
-    colorB: Color(0xFF1D4A4D),
-  ),
-  _StyleTopic(
-    title: 'عطور رجالية',
-    subtitle: 'روائح يومية',
-    query: 'عطور رجالية',
-    icon: Icons.water_drop_rounded,
-    colorA: Color(0xFF5A6786),
-    colorB: Color(0xFF35415A),
-  ),
-  _StyleTopic(
-    title: 'مستلزمات رياضية',
-    subtitle: 'ألبسة وتجهيزات',
-    query: 'ملابس رياضية رجالية',
-    icon: Icons.sports_gymnastics_rounded,
-    colorA: Color(0xFF3D6E51),
-    colorB: Color(0xFF274836),
-  ),
-];

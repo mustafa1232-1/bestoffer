@@ -1,11 +1,22 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/currency.dart';
 
 class CustomerInsightProfileScreen extends StatelessWidget {
   final Map<String, dynamic> details;
 
   const CustomerInsightProfileScreen({super.key, required this.details});
+
+  String _t(BuildContext context, String ar, String en) =>
+      context.localizedText(ar: ar, en: en);
+
+  TextDirection _dir(BuildContext context) => context.appTextDirection;
+
+  CrossAxisAlignment _textCrossAxis(BuildContext context) =>
+      context.isEnglishLocale
+      ? CrossAxisAlignment.start
+      : CrossAxisAlignment.end;
 
   Map<String, dynamic> _asMap(dynamic value) {
     if (value is Map) return Map<String, dynamic>.from(value);
@@ -59,11 +70,11 @@ class CustomerInsightProfileScreen extends StatelessWidget {
 
   Widget _sectionTitle(BuildContext context, String title, {String? subtitle}) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: _textCrossAxis(context),
       children: [
         Text(
           title,
-          textDirection: TextDirection.rtl,
+          textDirection: _dir(context),
           style: Theme.of(
             context,
           ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -72,7 +83,7 @@ class CustomerInsightProfileScreen extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             subtitle,
-            textDirection: TextDirection.rtl,
+            textDirection: _dir(context),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Colors.white.withValues(alpha: 0.8),
             ),
@@ -82,7 +93,8 @@ class CustomerInsightProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _metricTile({
+  Widget _metricTile(
+    BuildContext context, {
     required String label,
     required String value,
     IconData icon = Icons.insights_outlined,
@@ -95,17 +107,17 @@ class CustomerInsightProfileScreen extends StatelessWidget {
         border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
       ),
       child: Row(
-        textDirection: TextDirection.rtl,
+        textDirection: _dir(context),
         children: [
           Icon(icon, size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment: _textCrossAxis(context),
               children: [
                 Text(
                   label,
-                  textDirection: TextDirection.rtl,
+                  textDirection: _dir(context),
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: 12,
@@ -115,7 +127,7 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  textDirection: TextDirection.rtl,
+                  textDirection: _dir(context),
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ],
@@ -126,7 +138,8 @@ class CustomerInsightProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildTopRows({
+  Widget _buildTopRows(
+    BuildContext context, {
     required String emptyText,
     required List<Map<String, dynamic>> rows,
     required String titleKey,
@@ -134,7 +147,7 @@ class CustomerInsightProfileScreen extends StatelessWidget {
     String? valueSuffix,
   }) {
     if (rows.isEmpty) {
-      return Text(emptyText, textDirection: TextDirection.rtl);
+      return Text(emptyText, textDirection: _dir(context));
     }
 
     return Column(
@@ -147,12 +160,12 @@ class CustomerInsightProfileScreen extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.only(bottom: 6),
           child: Row(
-            textDirection: TextDirection.rtl,
+            textDirection: _dir(context),
             children: [
               Expanded(
                 child: Text(
                   title,
-                  textDirection: TextDirection.rtl,
+                  textDirection: _dir(context),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -162,7 +175,7 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                 valueSuffix == null
                     ? displayValue
                     : '$displayValue $valueSuffix',
-                textDirection: TextDirection.rtl,
+                textDirection: _dir(context),
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ],
@@ -211,13 +224,20 @@ class CustomerInsightProfileScreen extends StatelessWidget {
 
     final fullName = '${customer['fullName'] ?? '-'}';
     final phone = '${customer['phone'] ?? '-'}';
-    final address =
-        'بلك ${customer['block'] ?? '-'} - عمارة ${customer['buildingNumber'] ?? '-'} - شقة ${customer['apartment'] ?? '-'}';
+    final address = _t(
+      context,
+      'بلك ${customer['block'] ?? '-'} - عمارة ${customer['buildingNumber'] ?? '-'} - شقة ${customer['apartment'] ?? '-'}',
+      'Block ${customer['block'] ?? '-'} - Building ${customer['buildingNumber'] ?? '-'} - Apt ${customer['apartment'] ?? '-'}',
+    );
 
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: _dir(context),
       child: Scaffold(
-        appBar: AppBar(title: const Text('ملف العميل الذكي')),
+        appBar: AppBar(
+          title: Text(
+            _t(context, 'ملف العميل الذكي', 'Smart Customer Profile'),
+          ),
+        ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -232,32 +252,55 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                       _sectionTitle(
                         context,
                         fullName,
-                        subtitle: 'رقم الهاتف: $phone',
+                        subtitle: _t(
+                          context,
+                          'رقم الهاتف: $phone',
+                          'Phone: $phone',
+                        ),
                       ),
                       const SizedBox(height: 8),
-                      Text(address, textDirection: TextDirection.rtl),
+                      Text(address, textDirection: _dir(context)),
                       const SizedBox(height: 8),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
+                        alignment: context.isEnglishLocale
+                            ? WrapAlignment.start
+                            : WrapAlignment.end,
                         children: [
                           Chip(
                             label: Text(
                               customer['analyticsConsent'] is Map &&
                                       (customer['analyticsConsent']['granted'] ==
                                           true)
-                                  ? 'وافق على التحليل'
-                                  : 'بدون موافقة تحليل',
+                                  ? _t(
+                                      context,
+                                      'وافق على التحليل',
+                                      'Analytics consent granted',
+                                    )
+                                  : _t(
+                                      context,
+                                      'بدون موافقة تحليل',
+                                      'No analytics consent',
+                                    ),
                             ),
                           ),
                           Chip(
                             label: Text(
-                              'أنشئ: ${_fmtDate(customer['createdAt'])}',
+                              _t(
+                                context,
+                                'أُنشئ: ${_fmtDate(customer['createdAt'])}',
+                                'Created: ${_fmtDate(customer['createdAt'])}',
+                              ),
                             ),
                           ),
                           Chip(
                             label: Text(
-                              'آخر تحديث ملف: ${_fmtDate(customer['profileLastUpdatedAt'])}',
+                              _t(
+                                context,
+                                'آخر تحديث ملف: ${_fmtDate(customer['profileLastUpdatedAt'])}',
+                                'Profile updated: ${_fmtDate(customer['profileLastUpdatedAt'])}',
+                              ),
                             ),
                           ),
                         ],
@@ -266,7 +309,7 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                         const SizedBox(height: 8),
                         Text(
                           consentNotice,
-                          textDirection: TextDirection.rtl,
+                          textDirection: _dir(context),
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.secondary,
                             fontWeight: FontWeight.w700,
@@ -299,24 +342,44 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                         childAspectRatio: 2.2,
                         children: [
                           _metricTile(
+                            context,
                             icon: Icons.article_outlined,
-                            label: 'إجمالي المنشورات',
+                            label: _t(
+                              context,
+                              'إجمالي المنشورات',
+                              'Total posts',
+                            ),
                             value: '${_asInt(socialSummary['postsCount'])}',
                           ),
                           _metricTile(
+                            context,
                             icon: Icons.auto_stories_outlined,
-                            label: 'إجمالي الستوريات',
+                            label: _t(
+                              context,
+                              'إجمالي الستوريات',
+                              'Total stories',
+                            ),
                             value: '${_asInt(socialSummary['storiesCount'])}',
                           ),
                           _metricTile(
+                            context,
                             icon: Icons.history_rounded,
-                            label: 'ستوريات مؤرشفة',
+                            label: _t(
+                              context,
+                              'ستوريات مؤرشفة',
+                              'Archived stories',
+                            ),
                             value:
                                 '${_asInt(socialSummary['archivedStoriesCount'])}',
                           ),
                           _metricTile(
+                            context,
                             icon: Icons.favorite_outline_rounded,
-                            label: 'إعجابات مستلمة',
+                            label: _t(
+                              context,
+                              'إعجابات مستلمة',
+                              'Likes received',
+                            ),
                             value:
                                 '${_asInt(socialEngagement['likesReceived'])}',
                           ),
@@ -324,54 +387,93 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'تعليقات مستلمة: ${_asInt(socialEngagement['commentsReceived'])} | تعليقات كتبها: ${_asInt(socialEngagement['commentsWritten'])}',
-                        textDirection: TextDirection.rtl,
+                        _t(
+                          context,
+                          'تعليقات مستلمة: ${_asInt(socialEngagement['commentsReceived'])} | تعليقات كتبها: ${_asInt(socialEngagement['commentsWritten'])}',
+                          'Comments received: ${_asInt(socialEngagement['commentsReceived'])} | Comments written: ${_asInt(socialEngagement['commentsWritten'])}',
+                        ),
+                        textDirection: _dir(context),
                       ),
                       Text(
-                        'آخر منشور: ${_fmtDate(socialSummary['lastPostAt'])} | آخر ستوري: ${_fmtDate(socialSummary['lastStoryAt'])}',
-                        textDirection: TextDirection.rtl,
+                        _t(
+                          context,
+                          'آخر منشور: ${_fmtDate(socialSummary['lastPostAt'])} | آخر ستوري: ${_fmtDate(socialSummary['lastStoryAt'])}',
+                          'Last post: ${_fmtDate(socialSummary['lastPostAt'])} | Last story: ${_fmtDate(socialSummary['lastStoryAt'])}',
+                        ),
+                        textDirection: _dir(context),
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'أكثر كلمات يستخدمها',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(
+                          context,
+                          'أكثر الكلمات استخدامًا',
+                          'Top used keywords',
+                        ),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       _buildTopRows(
-                        emptyText: 'لا توجد كلمات كافية',
+                        context,
+                        emptyText: _t(
+                          context,
+                          'لا توجد كلمات كافية',
+                          'Not enough keywords yet',
+                        ),
                         rows: socialTopKeywords,
                         titleKey: 'keyword',
                         valueKey: 'count',
-                        valueSuffix: 'مرة',
+                        valueSuffix: context.isEnglishLocale ? 'times' : 'مرة',
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'أكثر مواضيع ينشر عنها',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(
+                          context,
+                          'أكثر المواضيع التي ينشر عنها',
+                          'Top topics',
+                        ),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       _buildTopRows(
-                        emptyText: 'لا توجد مواضيع واضحة',
+                        context,
+                        emptyText: _t(
+                          context,
+                          'لا توجد مواضيع واضحة',
+                          'No clear topics yet',
+                        ),
                         rows: socialTopTopics,
                         titleKey: 'topic',
                         valueKey: 'count',
-                        valueSuffix: 'منشور',
+                        valueSuffix: context.isEnglishLocale
+                            ? 'posts'
+                            : 'منشور',
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'متاجر راجعها عبر المنشورات',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(
+                          context,
+                          'متاجر راجعها عبر المنشورات',
+                          'Reviewed merchants',
+                        ),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       _buildTopRows(
-                        emptyText: 'لا توجد مراجعات منشورة',
+                        context,
+                        emptyText: _t(
+                          context,
+                          'لا توجد مراجعات منشورة',
+                          'No published reviews yet',
+                        ),
                         rows: socialReviewedMerchants,
                         titleKey: 'merchantName',
                         valueKey: 'reviewsCount',
-                        valueSuffix: 'مراجعة',
+                        valueSuffix: context.isEnglishLocale
+                            ? 'reviews'
+                            : 'مراجعة',
                       ),
                     ],
                   ),
@@ -384,7 +486,14 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _sectionTitle(context, 'مؤشرات الطلبات والإنفاق'),
+                      _sectionTitle(
+                        context,
+                        _t(
+                          context,
+                          'مؤشرات الطلبات والإنفاق',
+                          'Orders and Spending',
+                        ),
+                      ),
                       const SizedBox(height: 10),
                       GridView.count(
                         crossAxisCount: 2,
@@ -395,26 +504,38 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                         childAspectRatio: 2.15,
                         children: [
                           _metricTile(
+                            context,
                             icon: Icons.shopping_bag_outlined,
-                            label: 'إجمالي الطلبات',
+                            label: _t(
+                              context,
+                              'إجمالي الطلبات',
+                              'Total orders',
+                            ),
                             value: '${_asInt(orderProfile['ordersCount'])}',
                           ),
                           _metricTile(
+                            context,
                             icon: Icons.check_circle_outline,
-                            label: 'طلبات مكتملة',
+                            label: _t(
+                              context,
+                              'طلبات مكتملة',
+                              'Delivered orders',
+                            ),
                             value:
                                 '${_asInt(orderProfile['deliveredOrdersCount'])}',
                           ),
                           _metricTile(
+                            context,
                             icon: Icons.wallet_outlined,
-                            label: 'إجمالي الصرف',
+                            label: _t(context, 'إجمالي الصرف', 'Total spent'),
                             value: formatIqd(
                               _asDouble(orderProfile['totalSpent']),
                             ),
                           ),
                           _metricTile(
+                            context,
                             icon: Icons.shopping_cart_outlined,
-                            label: 'متوسط السلة',
+                            label: _t(context, 'متوسط السلة', 'Average basket'),
                             value: formatIqd(
                               _asDouble(orderProfile['avgBasket']),
                             ),
@@ -423,8 +544,12 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'آخر طلب: ${_fmtDate(orderProfile['lastOrderAt'])}',
-                        textDirection: TextDirection.rtl,
+                        _t(
+                          context,
+                          'آخر طلب: ${_fmtDate(orderProfile['lastOrderAt'])}',
+                          'Last order: ${_fmtDate(orderProfile['lastOrderAt'])}',
+                        ),
+                        textDirection: _dir(context),
                       ),
                     ],
                   ),
@@ -445,9 +570,13 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       if (affinityScores.isEmpty)
-                        const Text(
-                          'لا توجد بيانات كافية',
-                          textDirection: TextDirection.rtl,
+                        Text(
+                          _t(
+                            context,
+                            'لا توجد بيانات كافية',
+                            'Not enough data',
+                          ),
+                          textDirection: _dir(context),
                         )
                       else
                         ...affinityScores.take(6).map((item) {
@@ -460,7 +589,7 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 Row(
-                                  textDirection: TextDirection.rtl,
+                                  textDirection: _dir(context),
                                   children: [
                                     Text(
                                       label,
@@ -498,39 +627,56 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _sectionTitle(context, 'سلوك البحث'),
-                      const SizedBox(height: 8),
-                      Text(
-                        'إجمالي أحداث البحث: ${_asInt(searchSignals['totalSearchEvents'])}',
-                        textDirection: TextDirection.rtl,
+                      _sectionTitle(
+                        context,
+                        _t(context, 'سلوك البحث', 'Search Behavior'),
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'أكثر كلمات بحث',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(
+                          context,
+                          'إجمالي أحداث البحث: ${_asInt(searchSignals['totalSearchEvents'])}',
+                          'Total search events: ${_asInt(searchSignals['totalSearchEvents'])}',
+                        ),
+                        textDirection: _dir(context),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _t(context, 'أكثر كلمات البحث', 'Top search terms'),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       _buildTopRows(
-                        emptyText: 'لا توجد كلمات بحث',
+                        context,
+                        emptyText: _t(
+                          context,
+                          'لا توجد كلمات بحث',
+                          'No search terms yet',
+                        ),
                         rows: topSearchTerms,
                         titleKey: 'term',
                         valueKey: 'count',
-                        valueSuffix: 'مرة',
+                        valueSuffix: context.isEnglishLocale ? 'times' : 'مرة',
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'مجالات البحث',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(context, 'مجالات البحث', 'Search domains'),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       _buildTopRows(
-                        emptyText: 'لا توجد مجالات بحث',
+                        context,
+                        emptyText: _t(
+                          context,
+                          'لا توجد مجالات بحث',
+                          'No search domains yet',
+                        ),
                         rows: topSearchDomains,
                         titleKey: 'domain',
                         valueKey: 'count',
-                        valueSuffix: 'مرة',
+                        valueSuffix: context.isEnglishLocale ? 'times' : 'مرة',
                       ),
                     ],
                   ),
@@ -543,34 +689,50 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _sectionTitle(context, 'ملخص الخوارزمية التسويقية'),
-                      const SizedBox(height: 8),
-                      Text(
-                        'مستوى الإنفاق: ${persona['spendingTier'] ?? '-'}',
-                        textDirection: TextDirection.rtl,
-                      ),
-                      Text(
-                        'مستوى التفاعل: ${persona['engagementLevel'] ?? '-'}',
-                        textDirection: TextDirection.rtl,
-                      ),
-                      Text(
-                        'نمط القرار: ${persona['decisionStyle'] ?? '-'}',
-                        textDirection: TextDirection.rtl,
+                      _sectionTitle(
+                        context,
+                        _t(
+                          context,
+                          'ملخص الخوارزمية التسويقية',
+                          'Marketing Persona Summary',
+                        ),
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'اقتراحات الاستهداف',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(
+                          context,
+                          'مستوى الإنفاق: ${persona['spendingTier'] ?? '-'}',
+                          'Spending tier: ${persona['spendingTier'] ?? '-'}',
+                        ),
+                        textDirection: _dir(context),
+                      ),
+                      Text(
+                        _t(
+                          context,
+                          'مستوى التفاعل: ${persona['engagementLevel'] ?? '-'}',
+                          'Engagement level: ${persona['engagementLevel'] ?? '-'}',
+                        ),
+                        textDirection: _dir(context),
+                      ),
+                      Text(
+                        _t(
+                          context,
+                          'نمط القرار: ${persona['decisionStyle'] ?? '-'}',
+                          'Decision style: ${persona['decisionStyle'] ?? '-'}',
+                        ),
+                        textDirection: _dir(context),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _t(context, 'اقتراحات الاستهداف', 'Campaign hints'),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       ...campaignHints.map(
                         (hint) => Padding(
                           padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            '- $hint',
-                            textDirection: TextDirection.rtl,
-                          ),
+                          child: Text('- $hint', textDirection: _dir(context)),
                         ),
                       ),
                     ],
@@ -584,62 +746,81 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _sectionTitle(context, 'الأنماط المفضلة'),
+                      _sectionTitle(
+                        context,
+                        _t(context, 'الأنماط المفضلة', 'Favorite Patterns'),
+                      ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'أنواع المتاجر المفضلة',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(
+                          context,
+                          'أنواع المتاجر المفضلة',
+                          'Preferred merchant types',
+                        ),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       _buildTopRows(
-                        emptyText: 'لا توجد بيانات',
+                        context,
+                        emptyText: _t(context, 'لا توجد بيانات', 'No data yet'),
                         rows: topMerchantTypes,
                         titleKey: 'type',
                         valueKey: 'ordersCount',
-                        valueSuffix: 'طلب',
+                        valueSuffix: context.isEnglishLocale ? 'orders' : 'طلب',
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'أفضل المتاجر للعميل',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(context, 'أفضل المتاجر للعميل', 'Top merchants'),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       _buildTopRows(
-                        emptyText: 'لا توجد بيانات',
+                        context,
+                        emptyText: _t(context, 'لا توجد بيانات', 'No data yet'),
                         rows: topMerchants,
                         titleKey: 'merchantName',
                         valueKey: 'ordersCount',
-                        valueSuffix: 'طلب',
+                        valueSuffix: context.isEnglishLocale ? 'orders' : 'طلب',
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'المنتجات الأكثر تكراراً',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(
+                          context,
+                          'المنتجات الأكثر تكراراً',
+                          'Most repeated products',
+                        ),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       _buildTopRows(
-                        emptyText: 'لا توجد بيانات',
+                        context,
+                        emptyText: _t(context, 'لا توجد بيانات', 'No data yet'),
                         rows: topProducts,
                         titleKey: 'productName',
                         valueKey: 'unitsCount',
-                        valueSuffix: 'وحدة',
+                        valueSuffix: context.isEnglishLocale ? 'units' : 'وحدة',
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'الفئات الأكثر شراءً',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(
+                          context,
+                          'الفئات الأكثر شراءً',
+                          'Top order categories',
+                        ),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       _buildTopRows(
-                        emptyText: 'لا توجد بيانات',
+                        context,
+                        emptyText: _t(context, 'لا توجد بيانات', 'No data yet'),
                         rows: topOrderCategories,
                         titleKey: 'categoryName',
                         valueKey: 'itemsCount',
-                        valueSuffix: 'عنصر',
+                        valueSuffix: context.isEnglishLocale ? 'items' : 'عنصر',
                       ),
                     ],
                   ),
@@ -652,66 +833,104 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _sectionTitle(context, 'إشارات السيارات والنشاط'),
-                      const SizedBox(height: 8),
-                      Text(
-                        'عمليات تفضيل سيارات: ${_asInt(carSignals['samplesCount'])}',
-                        textDirection: TextDirection.rtl,
-                      ),
-                      Text(
-                        'أيام نشاط خلال 30 يوم: ${_asInt(activityPattern['activeDays30d'])}',
-                        textDirection: TextDirection.rtl,
-                      ),
-                      Text(
-                        'أحداث خلال 7 أيام: ${_asInt(activityPattern['events7d'])}',
-                        textDirection: TextDirection.rtl,
+                      _sectionTitle(
+                        context,
+                        _t(
+                          context,
+                          'إشارات السيارات والنشاط',
+                          'Cars and Activity Signals',
+                        ),
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'أكثر ماركات السيارات',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(
+                          context,
+                          'عمليات تفضيل سيارات: ${_asInt(carSignals['samplesCount'])}',
+                          'Car preference samples: ${_asInt(carSignals['samplesCount'])}',
+                        ),
+                        textDirection: _dir(context),
+                      ),
+                      Text(
+                        _t(
+                          context,
+                          'أيام نشاط خلال 30 يوم: ${_asInt(activityPattern['activeDays30d'])}',
+                          'Active days in 30d: ${_asInt(activityPattern['activeDays30d'])}',
+                        ),
+                        textDirection: _dir(context),
+                      ),
+                      Text(
+                        _t(
+                          context,
+                          'أحداث خلال 7 أيام: ${_asInt(activityPattern['events7d'])}',
+                          'Events in 7d: ${_asInt(activityPattern['events7d'])}',
+                        ),
+                        textDirection: _dir(context),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _t(context, 'أكثر ماركات السيارات', 'Top car brands'),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 6),
                       _buildTopRows(
-                        emptyText: 'لا توجد إشارات كافية',
+                        context,
+                        emptyText: _t(
+                          context,
+                          'لا توجد إشارات كافية',
+                          'Not enough signals yet',
+                        ),
                         rows: topCarBrands,
                         titleKey: 'name',
                         valueKey: 'count',
-                        valueSuffix: 'مرة',
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'أكثر موديلات السيارات',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 6),
-                      _buildTopRows(
-                        emptyText: 'لا توجد إشارات كافية',
-                        rows: topCarModels,
-                        titleKey: 'name',
-                        valueKey: 'count',
-                        valueSuffix: 'مرة',
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'ساعات الذروة داخل التطبيق',
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 6),
-                      _buildTopRows(
-                        emptyText: 'لا توجد بيانات',
-                        rows: topHours,
-                        titleKey: 'hour',
-                        valueKey: 'eventsCount',
-                        valueSuffix: 'حدث',
+                        valueSuffix: context.isEnglishLocale ? 'times' : 'مرة',
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'المفضلة المحفوظة: ${_asInt(favoritesSummary['favoritesCount'])}',
-                        textDirection: TextDirection.rtl,
+                        _t(context, 'أكثر موديلات السيارات', 'Top car models'),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      _buildTopRows(
+                        context,
+                        emptyText: _t(
+                          context,
+                          'لا توجد إشارات كافية',
+                          'Not enough signals yet',
+                        ),
+                        rows: topCarModels,
+                        titleKey: 'name',
+                        valueKey: 'count',
+                        valueSuffix: context.isEnglishLocale ? 'times' : 'مرة',
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _t(
+                          context,
+                          'ساعات الذروة داخل التطبيق',
+                          'Top in-app hours',
+                        ),
+                        textDirection: _dir(context),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      _buildTopRows(
+                        context,
+                        emptyText: _t(context, 'لا توجد بيانات', 'No data yet'),
+                        rows: topHours,
+                        titleKey: 'hour',
+                        valueKey: 'eventsCount',
+                        valueSuffix: context.isEnglishLocale ? 'events' : 'حدث',
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _t(
+                          context,
+                          'المفضلة المحفوظة: ${_asInt(favoritesSummary['favoritesCount'])}',
+                          'Saved favorites: ${_asInt(favoritesSummary['favoritesCount'])}',
+                        ),
+                        textDirection: _dir(context),
                       ),
                     ],
                   ),
@@ -724,12 +943,19 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _sectionTitle(context, 'آخر النشاطات'),
+                      _sectionTitle(
+                        context,
+                        _t(context, 'آخر النشاطات', 'Recent Events'),
+                      ),
                       const SizedBox(height: 8),
                       if (recentEvents.isEmpty)
-                        const Text(
-                          'لا توجد أحداث حديثة',
-                          textDirection: TextDirection.rtl,
+                        Text(
+                          _t(
+                            context,
+                            'لا توجد أحداث حديثة',
+                            'No recent events',
+                          ),
+                          textDirection: _dir(context),
                         )
                       else
                         ...recentEvents.take(20).map((event) {
@@ -751,26 +977,31 @@ class CustomerInsightProfileScreen extends StatelessWidget {
                                 ),
                               ),
                               child: Row(
-                                textDirection: TextDirection.rtl,
+                                textDirection: _dir(context),
                                 children: [
                                   const Icon(Icons.bolt_rounded, size: 17),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
+                                      crossAxisAlignment: _textCrossAxis(
+                                        context,
+                                      ),
                                       children: [
                                         Text(
                                           title,
-                                          textDirection: TextDirection.rtl,
+                                          textDirection: _dir(context),
                                           style: const TextStyle(
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          'الفئة: $category',
-                                          textDirection: TextDirection.rtl,
+                                          _t(
+                                            context,
+                                            'الفئة: $category',
+                                            'Category: $category',
+                                          ),
+                                          textDirection: _dir(context),
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: Colors.white.withValues(

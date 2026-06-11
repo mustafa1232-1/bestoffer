@@ -1,5 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../network/auth_session_token_cache.dart';
+
 class SecureStore {
   static const _storage = FlutterSecureStorage();
   static const _tokenKey = 'access_token';
@@ -9,6 +11,7 @@ class SecureStore {
   Future<void> saveToken(String token) async {
     _volatileValues[_tokenKey] = token;
     _volatileToken = token;
+    AuthSessionTokenCache.setToken(token);
     try {
       await _storage.write(key: _tokenKey, value: token);
     } catch (_) {
@@ -20,14 +23,21 @@ class SecureStore {
     final value = await readString(_tokenKey);
     if (value != null && value.isNotEmpty) {
       _volatileToken = value;
+      AuthSessionTokenCache.setToken(value);
       return value;
     }
-    return _volatileToken ?? _volatileValues[_tokenKey];
+    final fallback =
+        _volatileToken ??
+        _volatileValues[_tokenKey] ??
+        AuthSessionTokenCache.currentToken;
+    AuthSessionTokenCache.setToken(fallback);
+    return fallback;
   }
 
   Future<void> clear() async {
     _volatileValues.remove(_tokenKey);
     _volatileToken = null;
+    AuthSessionTokenCache.clear();
     try {
       await _storage.delete(key: _tokenKey);
     } catch (_) {

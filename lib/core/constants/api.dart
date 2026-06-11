@@ -4,7 +4,7 @@ class Api {
   static const String _baseUrlFromEnv = String.fromEnvironment('API_BASE_URL');
   static const String _defaultProductionUrl = String.fromEnvironment(
     'API_DEFAULT_PROD_URL',
-    defaultValue: 'https://bestoffer-production-549e.up.railway.app',
+    defaultValue: 'https://bestoffer-production.up.railway.app',
   );
 
   static List<String> get fallbackBaseUrls {
@@ -24,7 +24,7 @@ class Api {
     if (kReleaseMode) {
       return urls.isNotEmpty
           ? urls.toList()
-          : const ['https://bestoffer-production-549e.up.railway.app'];
+          : const ['https://bestoffer-production.up.railway.app'];
     }
 
     if (kIsWeb) {

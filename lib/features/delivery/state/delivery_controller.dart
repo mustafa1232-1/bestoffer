@@ -1,7 +1,14 @@
+import 'dart:async';
+
+import 'package:core_maps/core_maps.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
+import '../../../core/network/api_error_mapper.dart';
+import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/utils/order_status.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../orders/models/order_model.dart';
 import '../data/delivery_api.dart';
@@ -16,12 +23,20 @@ final deliveryControllerProvider =
       return DeliveryController(ref);
     });
 
+/// حالة تجربة المندوب: الطلبات الحالية، السجل، الطلبات المعلقة، والتحليلات.
 class DeliveryState {
   final bool loading;
   final bool saving;
   final List<OrderModel> currentOrders;
   final List<OrderModel> historyOrders;
+  final List<Map<String, dynamic>> pendingRequests;
   final Map<String, dynamic> analytics;
+  final Map<String, dynamic> dashboardV2;
+  final Map<String, dynamic> reportsV2;
+  final Map<String, dynamic> competitionsV2;
+  final Map<String, dynamic> competitionsHistoryV2;
+  final Map<String, dynamic> competitionProgressV2;
+  final Map<String, dynamic> competitionAchievementsV2;
   final String? error;
   final String? lastArchiveMessage;
 
@@ -30,7 +45,14 @@ class DeliveryState {
     this.saving = false,
     this.currentOrders = const [],
     this.historyOrders = const [],
+    this.pendingRequests = const [],
     this.analytics = const {},
+    this.dashboardV2 = const {},
+    this.reportsV2 = const {},
+    this.competitionsV2 = const {},
+    this.competitionsHistoryV2 = const {},
+    this.competitionProgressV2 = const {},
+    this.competitionAchievementsV2 = const {},
     this.error,
     this.lastArchiveMessage,
   });
@@ -40,7 +62,14 @@ class DeliveryState {
     bool? saving,
     List<OrderModel>? currentOrders,
     List<OrderModel>? historyOrders,
+    List<Map<String, dynamic>>? pendingRequests,
     Map<String, dynamic>? analytics,
+    Map<String, dynamic>? dashboardV2,
+    Map<String, dynamic>? reportsV2,
+    Map<String, dynamic>? competitionsV2,
+    Map<String, dynamic>? competitionsHistoryV2,
+    Map<String, dynamic>? competitionProgressV2,
+    Map<String, dynamic>? competitionAchievementsV2,
     String? error,
     String? lastArchiveMessage,
   }) {
@@ -49,119 +78,535 @@ class DeliveryState {
       saving: saving ?? this.saving,
       currentOrders: currentOrders ?? this.currentOrders,
       historyOrders: historyOrders ?? this.historyOrders,
+      pendingRequests: pendingRequests ?? this.pendingRequests,
       analytics: analytics ?? this.analytics,
+      dashboardV2: dashboardV2 ?? this.dashboardV2,
+      reportsV2: reportsV2 ?? this.reportsV2,
+      competitionsV2: competitionsV2 ?? this.competitionsV2,
+      competitionsHistoryV2:
+          competitionsHistoryV2 ?? this.competitionsHistoryV2,
+      competitionProgressV2:
+          competitionProgressV2 ?? this.competitionProgressV2,
+      competitionAchievementsV2:
+          competitionAchievementsV2 ?? this.competitionAchievementsV2,
       error: error,
       lastArchiveMessage: lastArchiveMessage ?? this.lastArchiveMessage,
     );
   }
 }
 
+/// المتحكم المركزي لتجربة الدليفري داخل Flutter.
+///
+/// Critical notes:
+/// - source of truth لشاشات الدليفري الحالية والتاريخ والتقارير.
+/// - يوقف polling تلقائياً إذا فقد المستخدم دور الدليفري.
 class DeliveryController extends StateNotifier<DeliveryState> {
   final Ref ref;
+  Timer? _liveOrdersTimer;
+  DateTime? _lastPresenceSyncAt;
+  bool _liveFetchInFlight = false;
+  bool _presenceSyncInFlight = false;
+  bool _disposed = false;
+  int _livePollingSubscribers = 0;
 
   DeliveryController(this.ref) : super(const DeliveryState());
 
-  Future<void> bootstrap({String? historyDate}) async {
-    state = state.copyWith(loading: true, error: null);
+  void _setStateSafely(DeliveryState nextState) {
+    if (_disposed) return;
+    state = nextState;
+  }
+
+  bool _canRunDeliveryPolling() {
+    final auth = ref.read(authControllerProvider);
+    return auth.isAuthed && auth.isDelivery;
+  }
+
+  bool _isDeliveryForbiddenError(DioException error) {
+    if (error.response?.statusCode != 403) return false;
+    final data = error.response?.data;
+    if (data is! Map) return false;
+    final message = '${data['message'] ?? ''}'.trim().toUpperCase();
+    final code = '${data['code'] ?? ''}'.trim().toUpperCase();
+    return message == 'FORBIDDEN_DELIVERY_ONLY' ||
+        code == 'FORBIDDEN_DELIVERY_ONLY';
+  }
+
+  List<OrderModel> _trackableOrders(List<OrderModel> orders) {
+    return orders.where((order) {
+      final normalized = normalizeOrderStatusForUi(order.status);
+      final hasCourier = order.deliveryUserId != null;
+      return hasCourier &&
+          const {'ready_for_delivery', 'on_the_way', 'arrived'}.contains(
+            normalized,
+          );
+    }).toList(growable: false);
+  }
+
+  Future<void> _syncCourierPresence({bool force = false}) async {
+    if (_disposed || _presenceSyncInFlight || !_canRunDeliveryPolling()) return;
+    final trackable = _trackableOrders(state.currentOrders);
+    if (trackable.isEmpty) return;
+    if (!force && _lastPresenceSyncAt != null) {
+      final elapsed = DateTime.now().difference(_lastPresenceSyncAt!);
+      if (elapsed < const Duration(seconds: 18)) return;
+    }
+
+    _presenceSyncInFlight = true;
     try {
-      final currentResponse = await ref
-          .read(deliveryApiProvider)
-          .currentOrders();
-      final historyResponse = await ref
-          .read(deliveryApiProvider)
-          .history(date: historyDate);
-      final analyticsResponse = await ref.read(deliveryApiProvider).analytics();
+      final permissionService = ref.read(locationPermissionServiceProvider);
+      final status = await permissionService.getStatus();
+      if (!status.serviceEnabled) return;
+      var permissionState = status.state;
+      if (permissionState == AppLocationPermissionState.denied) {
+        permissionState = (await permissionService.requestPermission()).state;
+      }
+      if (permissionState == AppLocationPermissionState.denied ||
+          permissionState == AppLocationPermissionState.permanentlyDenied ||
+          permissionState == AppLocationPermissionState.serviceDisabled) {
+        return;
+      }
 
-      final currentOrders = currentResponse
-          .map((e) => OrderModel.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-      final historyOrders = historyResponse
-          .map((e) => OrderModel.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-
-      state = state.copyWith(
-        loading: false,
-        currentOrders: currentOrders,
-        historyOrders: historyOrders,
-        analytics: analyticsResponse,
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 12),
       );
-    } on DioException catch (e) {
-      state = state.copyWith(loading: false, error: _mapError(e));
+      final api = ref.read(deliveryApiProvider);
+      for (final order in trackable) {
+        await api.upsertPresence(
+          orderId: order.id,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          headingDeg: position.heading.isFinite ? position.heading : null,
+          speedKmh: position.speed.isFinite ? position.speed * 3.6 : null,
+          accuracyM: position.accuracy.isFinite ? position.accuracy : null,
+        );
+      }
+      _lastPresenceSyncAt = DateTime.now();
     } catch (_) {
-      state = state.copyWith(loading: false, error: 'فشل تحميل بيانات الدلفري');
+      // Best-effort live tracking update; failures must not break courier flows.
+    } finally {
+      _presenceSyncInFlight = false;
     }
   }
 
-  Future<void> claimOrder(int orderId) async {
-    state = state.copyWith(saving: true, error: null);
+  /// يحمل snapshot أولية تشمل الطلبات، analytics، dashboard، والتقارير.
+  Future<void> bootstrap({String? historyDate}) async {
+    _setStateSafely(state.copyWith(loading: true, error: null));
     try {
-      await ref.read(deliveryApiProvider).claimOrder(orderId);
-      await bootstrap();
-      state = state.copyWith(saving: false);
+      final api = ref.read(deliveryApiProvider);
+      final ordersFuture = api.ordersV2().catchError((_) => <dynamic>[]);
+      final analyticsFuture = api.analytics().catchError(
+        (_) => <String, dynamic>{},
+      );
+      final dashboardV2Future = api.dashboardV2().catchError(
+        (_) => <String, dynamic>{},
+      );
+      final reportsV2Future = api.reportsV2().catchError(
+        (_) => <String, dynamic>{},
+      );
+      final requestsFuture = api.requestsV2().catchError((_) => <dynamic>[]);
+      final competitionsFuture = api
+          .competitionsV2(scope: 'active')
+          .catchError((_) => <String, dynamic>{});
+      final competitionsHistoryFuture = api
+          .competitionsV2(scope: 'history')
+          .catchError((_) => <String, dynamic>{});
+      final competitionProgressFuture = api.competitionProgressV2().catchError(
+        (_) => <String, dynamic>{},
+      );
+      final competitionAchievementsFuture = api
+          .competitionAchievementsSummaryV2()
+          .catchError((_) => <String, dynamic>{});
+
+      await Future.wait([
+        ordersFuture,
+        analyticsFuture,
+        dashboardV2Future,
+        reportsV2Future,
+        requestsFuture,
+        competitionsFuture,
+        competitionsHistoryFuture,
+        competitionProgressFuture,
+        competitionAchievementsFuture,
+      ]);
+
+      final ordersResponse = await ordersFuture;
+      final analyticsResponse = await analyticsFuture;
+      final dashboardV2 = await dashboardV2Future;
+      final reportsV2 = await reportsV2Future;
+      final requestsRaw = await requestsFuture;
+      final competitionsV2 = await competitionsFuture;
+      final competitionsHistoryV2 = await competitionsHistoryFuture;
+      final competitionProgressV2 = await competitionProgressFuture;
+      final competitionAchievementsV2 = await competitionAchievementsFuture;
+
+      final allOrders = ordersResponse
+          .map((e) => OrderModel.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(growable: false);
+
+      bool isHistory(OrderModel order) {
+        final normalized = normalizeOrderStatusForUi(order.status);
+        return const {
+          'delivered',
+          'received',
+          'completed',
+          'cancelled',
+          'failed_delivery',
+          'returned_if_needed',
+        }.contains(normalized);
+      }
+
+      DateTime? toDateOnly(DateTime? value) =>
+          value == null ? null : DateTime(value.year, value.month, value.day);
+
+      DateTime? requestedHistoryDay;
+      if (historyDate != null && historyDate.trim().isNotEmpty) {
+        requestedHistoryDay = DateTime.tryParse(historyDate.trim());
+        requestedHistoryDay = toDateOnly(requestedHistoryDay);
+      }
+
+      final currentOrders = allOrders
+          .where((o) => !isHistory(o))
+          .toList(growable: false);
+      var historyOrders = allOrders.where(isHistory).toList(growable: false);
+      if (requestedHistoryDay != null) {
+        historyOrders = historyOrders
+            .where((o) {
+              final refDate =
+                  toDateOnly(o.customerConfirmedAt) ??
+                  toDateOnly(o.deliveredAt) ??
+                  toDateOnly(o.createdAt);
+              return refDate == requestedHistoryDay;
+            })
+            .toList(growable: false);
+      }
+
+      _setStateSafely(
+        state.copyWith(
+          loading: false,
+          currentOrders: currentOrders,
+          historyOrders: historyOrders,
+          pendingRequests: requestsRaw
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
+          analytics: analyticsResponse,
+          dashboardV2: dashboardV2,
+          reportsV2: reportsV2,
+          competitionsV2: competitionsV2,
+          competitionsHistoryV2: competitionsHistoryV2,
+          competitionProgressV2: competitionProgressV2,
+          competitionAchievementsV2: competitionAchievementsV2,
+        ),
+      );
+      unawaited(_syncCourierPresence());
     } on DioException catch (e) {
-      state = state.copyWith(saving: false, error: _mapError(e));
+      _setStateSafely(state.copyWith(loading: false, error: _mapError(e)));
     } catch (_) {
-      state = state.copyWith(saving: false, error: 'فشل استلام الطلب');
+      _setStateSafely(
+        state.copyWith(
+          loading: false,
+          error: resolveLocalizedText(
+            (l10n) => l10n.deliveryDashboardLoadFailed,
+          ),
+        ),
+      );
     }
   }
 
-  Future<void> startOrder(int orderId, {int? estimatedDeliveryMinutes}) async {
-    state = state.copyWith(saving: true, error: null);
+  Future<void> refreshCurrentOrders({bool silent = false}) async {
     try {
+      final api = ref.read(deliveryApiProvider);
+      final currentFuture = api.ordersV2();
+      final requestsFuture = api.requestsV2().catchError((_) => <dynamic>[]);
+      final dashboardFuture = api.dashboardV2().catchError(
+        (_) => <String, dynamic>{},
+      );
+      final competitionsFuture = api
+          .competitionsV2(scope: 'active')
+          .catchError((_) => <String, dynamic>{'competitions': <dynamic>[]});
+      final competitionsHistoryFuture = api
+          .competitionsV2(scope: 'history')
+          .catchError((_) => <String, dynamic>{'competitions': <dynamic>[]});
+      final competitionProgressFuture = api.competitionProgressV2().catchError(
+        (_) => <String, dynamic>{'items': <dynamic>[]},
+      );
+      final competitionAchievementsFuture = api
+          .competitionAchievementsSummaryV2()
+          .catchError((_) => <String, dynamic>{'summary': <String, dynamic>{}});
+
+      await Future.wait([
+        currentFuture,
+        requestsFuture,
+        dashboardFuture,
+        competitionsFuture,
+        competitionsHistoryFuture,
+        competitionProgressFuture,
+        competitionAchievementsFuture,
+      ]);
+
+      final currentResponse = await currentFuture;
+      final requestsResponse = await requestsFuture;
+      final dashboardV2 = await dashboardFuture;
+      final competitionsV2 = await competitionsFuture;
+      final competitionsHistoryV2 = await competitionsHistoryFuture;
+      final competitionProgressV2 = await competitionProgressFuture;
+      final competitionAchievementsV2 = await competitionAchievementsFuture;
+
+      final allOrders = currentResponse
+          .map((e) => OrderModel.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(growable: false);
+      final currentOrders = allOrders
+          .where((o) {
+            final normalized = normalizeOrderStatusForUi(o.status);
+            return !const {
+              'delivered',
+              'received',
+              'completed',
+              'cancelled',
+              'failed_delivery',
+              'returned_if_needed',
+            }.contains(normalized);
+          })
+          .toList(growable: false);
+      _setStateSafely(
+        state.copyWith(
+          currentOrders: currentOrders,
+          pendingRequests: requestsResponse
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
+          dashboardV2: dashboardV2,
+          competitionsV2: competitionsV2,
+          competitionsHistoryV2: competitionsHistoryV2,
+          competitionProgressV2: competitionProgressV2,
+          competitionAchievementsV2: competitionAchievementsV2,
+          error: null,
+        ),
+      );
+      unawaited(_syncCourierPresence());
+    } on DioException catch (e) {
+      if (_isDeliveryForbiddenError(e)) {
+        stopLiveOrders(force: true);
+      }
+      if (silent) return;
+      _setStateSafely(state.copyWith(error: _mapError(e)));
+    }
+  }
+
+  void startLiveOrders({Duration interval = const Duration(seconds: 6)}) {
+    if (!_canRunDeliveryPolling()) {
+      stopLiveOrders(force: true);
+      return;
+    }
+    _livePollingSubscribers += 1;
+    if (_liveOrdersTimer != null) return;
+    _liveOrdersTimer = Timer.periodic(interval, (_) async {
+      if (_disposed || _liveFetchInFlight) return;
+      if (!_canRunDeliveryPolling()) {
+        stopLiveOrders(force: true);
+        return;
+      }
+      _liveFetchInFlight = true;
+      try {
+        await refreshCurrentOrders(silent: true);
+        await _syncCourierPresence();
+      } finally {
+        _liveFetchInFlight = false;
+      }
+    });
+  }
+
+  void stopLiveOrders({bool force = false}) {
+    if (force) {
+      _livePollingSubscribers = 0;
+    } else if (_livePollingSubscribers > 0) {
+      _livePollingSubscribers -= 1;
+    }
+    if (_livePollingSubscribers > 0) return;
+    _liveOrdersTimer?.cancel();
+    _liveOrdersTimer = null;
+  }
+
+  Future<void> acceptRequest(int orderId, {String? note}) async {
+    _setStateSafely(state.copyWith(saving: true, error: null));
+    try {
+      await ref.read(deliveryApiProvider).acceptOrderV2(orderId, note: note);
       await ref
-          .read(deliveryApiProvider)
-          .startOrder(
+          .read(localNotificationsProvider)
+          .cancelDeliveryPickupReminder(orderId);
+      await bootstrap();
+      _setStateSafely(state.copyWith(saving: false));
+    } on DioException catch (e) {
+      _setStateSafely(state.copyWith(saving: false, error: _mapError(e)));
+    } catch (_) {
+      _setStateSafely(
+        state.copyWith(
+          saving: false,
+          error: resolveLocalizedText(
+            (l10n) => l10n.deliveryAcceptRequestFailed,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> rejectRequest(int orderId, {String? note}) async {
+    _setStateSafely(state.copyWith(saving: true, error: null));
+    try {
+      await ref.read(deliveryApiProvider).rejectOrderV2(orderId, note: note);
+      await bootstrap();
+      _setStateSafely(state.copyWith(saving: false));
+    } on DioException catch (e) {
+      _setStateSafely(state.copyWith(saving: false, error: _mapError(e)));
+    } catch (_) {
+      _setStateSafely(
+        state.copyWith(
+          saving: false,
+          error: resolveLocalizedText(
+            (l10n) => l10n.deliveryRejectRequestFailed,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> pickedUpOrder(int orderId, {String? note}) async {
+    _setStateSafely(state.copyWith(saving: true, error: null));
+    try {
+      await ref.read(deliveryApiProvider).pickedUpV2(orderId, note: note);
+      await bootstrap();
+      await _syncCourierPresence(force: true);
+      _setStateSafely(state.copyWith(saving: false));
+    } on DioException catch (e) {
+      _setStateSafely(state.copyWith(saving: false, error: _mapError(e)));
+    } catch (_) {
+      _setStateSafely(
+        state.copyWith(
+          saving: false,
+          error: resolveLocalizedText(
+            (l10n) => l10n.deliveryPickedUpOrderFailed,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> arrivedOrder(int orderId, {String? note}) async {
+    _setStateSafely(state.copyWith(saving: true, error: null));
+    try {
+      await ref.read(deliveryApiProvider).arrivedV2(orderId, note: note);
+      await bootstrap();
+      await _syncCourierPresence(force: true);
+      _setStateSafely(state.copyWith(saving: false));
+    } on DioException catch (e) {
+      _setStateSafely(state.copyWith(saving: false, error: _mapError(e)));
+    } catch (_) {
+      _setStateSafely(
+        state.copyWith(
+          saving: false,
+          error: resolveLocalizedText(
+            (l10n) => l10n.deliveryArrivedOrderFailed,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> deliveredOrder(int orderId, {String? note}) async {
+    _setStateSafely(state.copyWith(saving: true, error: null));
+    try {
+      await ref.read(deliveryApiProvider).deliveredV2(orderId, note: note);
+      await bootstrap();
+      _setStateSafely(state.copyWith(saving: false));
+    } on DioException catch (e) {
+      _setStateSafely(state.copyWith(saving: false, error: _mapError(e)));
+    } catch (_) {
+      _setStateSafely(
+        state.copyWith(
+          saving: false,
+          error: resolveLocalizedText(
+            (l10n) => l10n.deliveryDeliveredOrderFailed,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> requestCancelOrder(
+    int orderId, {
+    required String reasonCode,
+    String? reasonText,
+  }) async {
+    _setStateSafely(state.copyWith(saving: true, error: null));
+    try {
+      await ref.read(deliveryApiProvider).requestCancelV2(
             orderId,
-            estimatedDeliveryMinutes: estimatedDeliveryMinutes,
+            reasonCode: reasonCode,
+            reasonText: reasonText,
           );
       await bootstrap();
-      state = state.copyWith(saving: false);
+      _setStateSafely(state.copyWith(saving: false));
     } on DioException catch (e) {
-      state = state.copyWith(saving: false, error: _mapError(e));
+      _setStateSafely(state.copyWith(saving: false, error: _mapError(e)));
     } catch (_) {
-      state = state.copyWith(saving: false, error: 'فشل تحديث حالة الطلب');
+      _setStateSafely(
+        state.copyWith(
+          saving: false,
+          error: resolveLocalizedText(
+            (l10n) => l10n.deliveryCancelOrderRequestFailed,
+          ),
+        ),
+      );
     }
   }
 
-  Future<void> markDelivered(int orderId) async {
-    state = state.copyWith(saving: true, error: null);
-    try {
-      await ref.read(deliveryApiProvider).markDelivered(orderId);
-      await bootstrap();
-      state = state.copyWith(saving: false);
-    } on DioException catch (e) {
-      state = state.copyWith(saving: false, error: _mapError(e));
-    } catch (_) {
-      state = state.copyWith(saving: false, error: 'فشل إنهاء الطلب');
-    }
-  }
+  // Backward compatible wrappers for existing screens:
+  Future<void> claimOrder(int orderId) => pickedUpOrder(orderId);
+
+  Future<void> startOrder(int orderId) => arrivedOrder(orderId);
+
+  Future<void> markDelivered(int orderId) => deliveredOrder(orderId);
 
   Future<void> endDay() async {
-    state = state.copyWith(saving: true, error: null);
+    _setStateSafely(state.copyWith(saving: true, error: null));
     try {
       final summary = await ref.read(deliveryApiProvider).endDay();
       final count = summary['ordersCount'] ?? 0;
       final date = summary['archiveDate'] ?? '';
       final amount = summary['totalAmount'] ?? 0;
       await bootstrap();
-      state = state.copyWith(
-        saving: false,
-        lastArchiveMessage:
-            'تم إنهاء يوم $date - $count طلب - الإجمالي ${formatIqd(amount)}',
+      _setStateSafely(
+        state.copyWith(
+          saving: false,
+          lastArchiveMessage: resolveLocalizedText(
+            (l10n) =>
+                l10n.deliveryEndDaySummary(date, '$count', formatIqd(amount)),
+          ),
+        ),
       );
     } on DioException catch (e) {
-      state = state.copyWith(saving: false, error: _mapError(e));
+      _setStateSafely(state.copyWith(saving: false, error: _mapError(e)));
     } catch (_) {
-      state = state.copyWith(saving: false, error: 'فشل إنهاء اليوم');
+      _setStateSafely(
+        state.copyWith(
+          saving: false,
+          error: resolveLocalizedText((l10n) => l10n.deliveryEndDayFailed),
+        ),
+      );
     }
   }
 
   String _mapError(DioException e) {
-    final data = e.response?.data;
-    if (data is Map<String, dynamic>) {
-      final message = data['message'];
-      if (message is String && message.isNotEmpty) return message;
-    }
-    return 'حدث خطأ في الاتصال بالخادم';
+    return mapDioErrorL10n(
+      e,
+      fallbackBuilder: (l10n) => l10n.commonServerConnectionFailed,
+      appendRequestId: true,
+    );
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    stopLiveOrders(force: true);
+    super.dispose();
   }
 }

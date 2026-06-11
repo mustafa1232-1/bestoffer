@@ -13,6 +13,14 @@ class ProductModel {
   final String? imageUrl;
   final bool freeDelivery;
   final String? offerLabel;
+  final bool requiresPrescription;
+  final bool requiresReview;
+  final int? activeOfferId;
+  final String? activeOfferType;
+  final String? activeOfferTitle;
+  final double? activeOfferDiscountValue;
+  final int? activeOfferBuyQuantity;
+  final int? activeOfferGetQuantity;
   final bool isAvailable;
   final int sortOrder;
 
@@ -29,6 +37,14 @@ class ProductModel {
     this.imageUrl,
     required this.freeDelivery,
     this.offerLabel,
+    this.requiresPrescription = false,
+    this.requiresReview = false,
+    this.activeOfferId,
+    this.activeOfferType,
+    this.activeOfferTitle,
+    this.activeOfferDiscountValue,
+    this.activeOfferBuyQuantity,
+    this.activeOfferGetQuantity,
     required this.isAvailable,
     required this.sortOrder,
   });
@@ -52,10 +68,45 @@ class ProductModel {
       imageUrl: parseNullableString(j['image_url'] ?? j['imageUrl']),
       freeDelivery: j['free_delivery'] ?? j['freeDelivery'] ?? false,
       offerLabel: parseNullableString(j['offer_label'] ?? j['offerLabel']),
+      requiresPrescription: parseBool(
+        j['requires_prescription'] ?? j['requiresPrescription'],
+      ),
+      requiresReview: parseBool(
+        j['requires_review'] ?? j['requiresReview'],
+      ),
+      activeOfferId: _parseNullableInt(
+        j['active_offer_id'] ?? j['activeOfferId'],
+      ),
+      activeOfferType: parseNullableString(
+        j['active_offer_type'] ?? j['activeOfferType'],
+      ),
+      activeOfferTitle: parseNullableString(
+        j['active_offer_title'] ?? j['activeOfferTitle'],
+      ),
+      activeOfferDiscountValue:
+          (j['active_offer_discount_value'] ?? j['activeOfferDiscountValue']) ==
+              null
+          ? null
+          : parseDouble(
+              j['active_offer_discount_value'] ?? j['activeOfferDiscountValue'],
+            ),
+      activeOfferBuyQuantity: _parseNullableInt(
+        j['active_offer_buy_quantity'] ?? j['activeOfferBuyQuantity'],
+      ),
+      activeOfferGetQuantity: _parseNullableInt(
+        j['active_offer_get_quantity'] ?? j['activeOfferGetQuantity'],
+      ),
       isAvailable: j['is_available'] ?? j['isAvailable'] ?? true,
       sortOrder: parseInt(j['sort_order'] ?? j['sortOrder']),
     );
   }
+
+  bool get hasActiveOffer => activeOfferId != null;
+
+  bool get requiresPharmacyConversation =>
+      requiresPrescription || requiresReview;
+
+  bool get isBuyXGetYOffer => activeOfferType == 'buy_x_get_y';
 
   bool get hasDiscount =>
       discountedPrice != null &&

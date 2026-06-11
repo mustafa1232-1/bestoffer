@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/i18n/app_strings.dart';
+import '../../../../core/i18n/app_localizations_context.dart';
 import '../../../../core/settings/app_settings_controller.dart';
 
 class SettingsLanguageScreen extends ConsumerWidget {
@@ -9,11 +9,11 @@ class SettingsLanguageScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final strings = ref.watch(appStringsProvider);
     final settings = ref.watch(appSettingsControllerProvider);
+    final l10n = context.l10n;
 
     return Scaffold(
-      appBar: AppBar(title: Text(strings.t('language'))),
+      appBar: AppBar(title: Text(l10n.commonLanguage)),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
@@ -23,12 +23,12 @@ class SettingsLanguageScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(strings.t('currentLanguage')),
+                  Text(l10n.settingsCurrentLanguage),
                   const SizedBox(height: 8),
                   Text(
                     settings.locale.languageCode == 'ar'
-                        ? strings.t('arabic')
-                        : strings.t('english'),
+                        ? l10n.commonArabic
+                        : l10n.commonEnglish,
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 16,
@@ -46,12 +46,12 @@ class SettingsLanguageScreen extends ConsumerWidget {
                 segments: [
                   ButtonSegment<String>(
                     value: 'ar',
-                    label: Text(strings.t('arabic')),
+                    label: Text(l10n.commonArabic),
                     icon: const Icon(Icons.translate),
                   ),
                   ButtonSegment<String>(
                     value: 'en',
-                    label: Text(strings.t('english')),
+                    label: Text(l10n.commonEnglish),
                     icon: const Icon(Icons.language_rounded),
                   ),
                 ],

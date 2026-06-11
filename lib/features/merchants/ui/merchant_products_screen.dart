@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
 import '../../auth/state/auth_controller.dart';
-import '../../notifications/ui/notifications_bell.dart';
+import '../../behavior/data/behavior_api.dart';
 import '../../orders/state/cart_controller.dart';
 import '../../orders/state/orders_controller.dart';
 import '../../orders/ui/cart_screen.dart';
-import '../../orders/ui/customer_orders_screen.dart';
+import '../../pharmacy/ui/pharmacy_conversation_screen.dart';
 import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
+import 'merchant_product_details_screen.dart';
 import '../models/merchant_model.dart';
 import '../state/merchants_controller.dart';
+
+import 'package:maslaki/core/media/cached_app_image.dart';
 
 class MerchantProductsScreen extends ConsumerStatefulWidget {
   final MerchantModel merchant;
@@ -38,7 +44,7 @@ class _MerchantProductsScreenState
   int? selectedCategoryId;
   final productSearchCtrl = TextEditingController();
   String productSearchQuery = '';
-  bool onlyAvailable = true;
+  bool onlyAvailable = false;
   bool onlyOffers = false;
   bool favoritesOnly = false;
   _ProductsSortMode sortMode = _ProductsSortMode.recommended;
@@ -46,6 +52,7 @@ class _MerchantProductsScreenState
   int smartPartySize = 1;
   _SmartBundleStyle smartBundleStyle = _SmartBundleStyle.balanced;
   bool generatingSmartBundle = false;
+  final bool _legacySingleStoreReplacementEnabled = false;
 
   bool get _canCustomerActions {
     final auth = ref.read(authControllerProvider);
@@ -106,6 +113,23 @@ class _MerchantProductsScreenState
         () => state = AsyncValue.data(
           _MerchantProductsData(products: products, categories: categories),
         ),
+      );
+      await ref.read(behaviorApiProvider).trackEvent(
+        eventName: 'shopping.merchant_open',
+        category: 'shopping',
+        action: 'open_merchant',
+        entityType: 'merchant',
+        entityId: widget.merchant.id,
+        metadata: {
+          'merchantId': widget.merchant.id,
+          'merchantName': widget.merchant.name,
+          'merchantType': widget.merchant.type,
+          'activityType': widget.merchant.activityType,
+          'route': widget.merchant.type == 'market' ? 'main_market' : 'shopping',
+          'screenLabel': widget.merchant.name,
+          'recentTitle': 'كنت تتصفح متجر: ${widget.merchant.name}',
+          'recentSubtitle': 'اضغط للعودة إلى ${widget.merchant.name}',
+        },
       );
     } catch (_) {
       setState(
@@ -184,8 +208,175 @@ class _MerchantProductsScreenState
     return list;
   }
 
+  Map<int, int> _countProductsByCategory(List<ProductModel> products) {
+    final counts = <int, int>{};
+    for (final product in products) {
+      final categoryId = product.categoryId;
+      if (categoryId == null) continue;
+      counts.update(categoryId, (value) => value + 1, ifAbsent: () => 1);
+    }
+    return counts;
+  }
+
+  List<Widget> _buildProductCards(
+    List<ProductModel> products,
+    List<ProductModel> allProducts,
+    Set<int> favoriteProductIds,
+  ) {
+    return products.map((product) {
+      final canOrder = widget.merchant.isOpen && product.isAvailable;
+      final isFavorite = favoriteProductIds.contains(product.id);
+      final usesPharmacyConversation = _requiresPharmacyConversation(product);
+
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: _ProductCard(
+          product: product,
+          canOrder: canOrder,
+          usesPharmacyConversation: usesPharmacyConversation,
+          isFavorite: isFavorite,
+          showCustomerActions: _canCustomerActions,
+          onOpenDetails: () =>
+              _openProductDetails(product: product, allProducts: allProducts),
+          onToggleFavorite: _canCustomerActions
+              ? () => ref
+                    .read(ordersControllerProvider.notifier)
+                    .toggleFavoriteProduct(product.id, !isFavorite)
+              : null,
+          onAddToCart: _canCustomerActions && canOrder
+              ? () => _addToCart(product, quantity: 1)
+              : null,
+          closedLabel: widget.merchant.isOpen
+              ? 'غير متوفر حالياً'
+              : 'المتجر مغلق الآن',
+        ),
+      );
+    }).toList();
+  }
+
+  List<Widget> _buildProductSections(
+    List<ProductModel> visibleProducts,
+    List<ProductModel> allProducts,
+    List<ProductCategoryModel> categories,
+    Set<int> favoriteProductIds,
+  ) {
+    if (visibleProducts.isEmpty) return const [_EmptyProducts()];
+
+    if (selectedCategoryId != null) {
+      return _buildProductCards(
+        visibleProducts,
+        allProducts,
+        favoriteProductIds,
+      );
+    }
+
+    final sections = <Widget>[];
+    final grouped = <int, List<ProductModel>>{};
+    final uncategorized = <ProductModel>[];
+
+    for (final product in visibleProducts) {
+      final categoryId = product.categoryId;
+      if (categoryId == null) {
+        uncategorized.add(product);
+        continue;
+      }
+      grouped.putIfAbsent(categoryId, () => <ProductModel>[]).add(product);
+    }
+
+    for (final category in categories) {
+      final items = grouped[category.id];
+      if (items == null || items.isEmpty) continue;
+      sections.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _CategorySectionHeader(
+            title: category.name,
+            countLabel: '${items.length} مادة',
+          ),
+        ),
+      );
+      sections.addAll(
+        _buildProductCards(items, allProducts, favoriteProductIds),
+      );
+    }
+
+    if (uncategorized.isNotEmpty) {
+      sections.add(
+        const Padding(
+          padding: EdgeInsets.only(bottom: 10),
+          child: _CategorySectionHeader(
+            title: 'مواد أخرى',
+            countLabel: 'بدون تصنيف',
+          ),
+        ),
+      );
+      sections.addAll(
+        _buildProductCards(uncategorized, allProducts, favoriteProductIds),
+      );
+    }
+
+    return sections.isEmpty ? const [_EmptyProducts()] : sections;
+  }
+
+  List<ProductModel> _buildDiscountHighlights(List<ProductModel> products) {
+    final discounted = products
+        .where((product) => product.hasDiscount)
+        .toList();
+    discounted.sort((a, b) {
+      final aDiscount = a.discountPercent ?? 0;
+      final bDiscount = b.discountPercent ?? 0;
+      final byDiscount = bDiscount.compareTo(aDiscount);
+      if (byDiscount != 0) return byDiscount;
+      return _effectivePrice(a).compareTo(_effectivePrice(b));
+    });
+    return discounted.take(12).toList();
+  }
+
   double _effectivePrice(ProductModel product) {
     return product.discountedPrice ?? product.price;
+  }
+
+  bool _requiresPharmacyConversation(ProductModel product) {
+    return widget.merchant.supportsPharmacyWorkflow &&
+        product.requiresPharmacyConversation;
+  }
+
+  String _buildPharmacyContextMessage(ProductModel product, {int quantity = 1}) {
+    final pieces = <String>[
+      context.lt(
+        ar: 'أرغب بمراجعة هذا المنتج الصيدلي:',
+        en: 'I want this pharmacy product to be reviewed:',
+      ),
+      product.name,
+      context.lt(
+        ar: 'الكمية المطلوبة: $quantity',
+        en: 'Requested quantity: $quantity',
+      ),
+    ];
+    if ((product.description ?? '').trim().isNotEmpty) {
+      pieces.add(
+        context.lt(
+          ar: 'ملاحظات المنتج: ${product.description!.trim()}',
+          en: 'Product notes: ${product.description!.trim()}',
+        ),
+      );
+    }
+    return pieces.join('\n');
+  }
+
+  Map<String, dynamic> _buildPharmacyContextMetadata(
+    ProductModel product, {
+    int quantity = 1,
+  }) {
+    return <String, dynamic>{
+      'source': 'product_catalog',
+      'productId': product.id,
+      'productName': product.name,
+      'quantity': quantity,
+      'requiresPrescription': product.requiresPrescription,
+      'requiresReview': product.requiresReview,
+      'merchantId': widget.merchant.id,
+    };
   }
 
   int _productScore(ProductModel product, Set<int> favoriteProductIds) {
@@ -238,7 +429,9 @@ class _MerchantProductsScreenState
     required List<ProductModel> products,
     required Set<int> favoriteProductIds,
   }) {
-    final available = products.where((p) => p.isAvailable).toList();
+    final available = products
+        .where((p) => p.isAvailable && !_requiresPharmacyConversation(p))
+        .toList();
     if (available.isEmpty) return const <ProductModel>[];
 
     final budget = _parseSmartBudget();
@@ -294,10 +487,12 @@ class _MerchantProductsScreenState
     return picked;
   }
 
+  // ignore: unused_element
   Future<void> _addBundleToCart(List<ProductModel> bundle) async {
     if (bundle.isEmpty) return;
     final cart = ref.read(cartControllerProvider);
-    if (cart.merchantId != null &&
+    if (_legacySingleStoreReplacementEnabled &&
+        cart.merchantId != null &&
         cart.merchantId != widget.merchant.id &&
         cart.items.isNotEmpty) {
       final replace = await showDialog<bool>(
@@ -338,6 +533,49 @@ class _MerchantProductsScreenState
       SnackBar(
         behavior: SnackBarBehavior.floating,
         content: Text('تم إنشاء سلة ذكية وإضافة ${bundle.length} منتجات'),
+      ),
+    );
+  }
+
+  Future<void> _addBundleToCartSafe(List<ProductModel> bundle) async {
+    if (bundle.isEmpty) return;
+    final notifier = ref.read(cartControllerProvider.notifier);
+    var addedCount = 0;
+    var rejectedCount = 0;
+    for (final product in bundle) {
+      final status = notifier.addItem(
+        product: product,
+        merchantId: widget.merchant.id,
+        merchantName: widget.merchant.name,
+      );
+      if (status == CartAddStatus.added) {
+        addedCount += 1;
+      } else {
+        rejectedCount += 1;
+      }
+    }
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar(reason: SnackBarClosedReason.dismiss);
+    if (addedCount == 0) {
+      messenger.showSnackBar(
+        const SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'لا يمكن إضافة منتجات من متجر رابع. الحد الأقصى 3 متاجر.',
+          ),
+        ),
+      );
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          rejectedCount > 0
+              ? 'تمت إضافة $addedCount منتجات وتعذر إضافة $rejectedCount بسبب حد 3 متاجر.'
+              : 'تمت إضافة $addedCount منتجات إلى السلة.',
+        ),
       ),
     );
   }
@@ -400,7 +638,7 @@ class _MerchantProductsScreenState
                 ElevatedButton.icon(
                   onPressed: () async {
                     Navigator.of(context).pop();
-                    await _addBundleToCart(bundle);
+                    await _addBundleToCartSafe(bundle);
                   },
                   icon: const Icon(Icons.auto_awesome_rounded),
                   label: const Text('اعتماد السلة الذكية'),
@@ -420,17 +658,123 @@ class _MerchantProductsScreenState
     ).push(MaterialPageRoute(builder: (_) => const CartScreen()));
   }
 
-  Future<void> _openOrders() async {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()));
+  List<ProductModel> _buildSimilarProducts(
+    ProductModel product,
+    List<ProductModel> allProducts,
+  ) {
+    final others = allProducts.where((item) => item.id != product.id).toList();
+    if (others.isEmpty) return const <ProductModel>[];
+
+    final sameCategory = others
+        .where(
+          (item) =>
+              product.categoryId != null &&
+              item.categoryId == product.categoryId,
+        )
+        .toList();
+    final differentCategory = others
+        .where((item) => !sameCategory.any((same) => same.id == item.id))
+        .toList();
+    final merged = <ProductModel>[...sameCategory, ...differentCategory];
+
+    merged.sort((a, b) {
+      final availabilityDiff = (b.isAvailable ? 1 : 0).compareTo(
+        a.isAvailable ? 1 : 0,
+      );
+      if (availabilityDiff != 0) return availabilityDiff;
+      final aPrice = _effectivePrice(a);
+      final bPrice = _effectivePrice(b);
+      return aPrice.compareTo(bPrice);
+    });
+
+    return merged.take(12).toList();
   }
 
-  Future<void> _addToCart(ProductModel product) async {
+  Future<void> _openProductDetails({
+    required ProductModel product,
+    required List<ProductModel> allProducts,
+  }) async {
+    final canOrder = widget.merchant.isOpen && product.isAvailable;
+    final similar = _buildSimilarProducts(product, allProducts);
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MerchantProductDetailsScreen(
+          merchant: widget.merchant,
+          product: product,
+          similarProducts: similar,
+          canOrder: canOrder,
+          unavailableLabel: widget.merchant.isOpen
+              ? 'غير متوفر حالياً'
+              : 'المتجر مغلق الآن',
+          onAddToCart: _canCustomerActions
+              ? (selectedProduct, quantity) async =>
+                    _addToCart(
+                      selectedProduct,
+                      quantity: quantity,
+                      showFeedback: false,
+                    )
+              : null,
+          onOpenProduct: (selectedProduct) => _openProductDetails(
+            product: selectedProduct,
+            allProducts: allProducts,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPharmacyConversation() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PharmacyConversationScreen(
+          merchantId: widget.merchant.id,
+          titleOverride: widget.merchant.name,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPharmacyConversationForProduct(
+    ProductModel product, {
+    int quantity = 1,
+  }) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PharmacyConversationScreen(
+          merchantId: widget.merchant.id,
+          titleOverride: widget.merchant.name,
+          pendingProductContextMessage: _buildPharmacyContextMessage(
+            product,
+            quantity: quantity,
+          ),
+          pendingProductContextMetadata: _buildPharmacyContextMetadata(
+            product,
+            quantity: quantity,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _addToCart(
+    ProductModel product, {
+    int quantity = 1,
+    bool showFeedback = true,
+  }) async {
+    final safeQuantity = quantity < 1 ? 1 : quantity;
+    if (_requiresPharmacyConversation(product)) {
+      if (!widget.merchant.isOpen || !product.isAvailable) return;
+      await _openPharmacyConversationForProduct(
+        product,
+        quantity: safeQuantity,
+      );
+      return;
+    }
     final cart = ref.read(cartControllerProvider);
 
-    if (cart.merchantId != null &&
+    if (_legacySingleStoreReplacementEnabled &&
+        cart.merchantId != null &&
         cart.merchantId != widget.merchant.id &&
         cart.items.isNotEmpty) {
       final replace = await showDialog<bool>(
@@ -457,15 +801,26 @@ class _MerchantProductsScreenState
       ref.read(cartControllerProvider.notifier).clear();
     }
 
-    ref
+    final addStatus = ref
         .read(cartControllerProvider.notifier)
         .addItem(
           product: product,
           merchantId: widget.merchant.id,
           merchantName: widget.merchant.name,
+          quantity: safeQuantity,
         );
 
     if (!mounted) return;
+    if (addStatus == CartAddStatus.storeLimitExceeded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text('لا يمكن إضافة متجر رابع. الحد الأقصى للسلة 3 متاجر.'),
+        ),
+      );
+      return;
+    }
+    if (!showFeedback) return;
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar(reason: SnackBarClosedReason.dismiss);
     messenger.showSnackBar(
@@ -490,55 +845,48 @@ class _MerchantProductsScreenState
       }
     });
 
-    final canOpenCartQuickly =
-        _canCustomerActions &&
-        cart.totalItems > 0 &&
-        cart.merchantId == widget.merchant.id;
+    final canOpenCartQuickly = _canCustomerActions && cart.totalItems > 0;
 
+    final tokens = context.maslakiTokens;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.merchant.name),
+      backgroundColor: tokens.backgroundPrimary,
+      appBar: MaslakiTopBar(
+        title: widget.merchant.name,
+        subtitle:
+            widget.merchant.tagline ??
+            widget.merchant.description ??
+            widget.merchant.activityType,
+        leading: IconButton(
+          icon: Icon(
+            Icons.arrow_forward_ios_rounded,
+            size: 20,
+            color: tokens.textPrimary,
+          ),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         actions: [
-          if (_canCustomerActions)
+          if (_canCustomerActions && widget.merchant.supportsPharmacyWorkflow)
             IconButton(
-              tooltip: 'طلباتي',
-              onPressed: _openOrders,
-              icon: const Icon(Icons.receipt_long),
+              tooltip: context.l10n.pharmacyConversationTitle,
+              onPressed: _openPharmacyConversation,
+              icon: Icon(
+                Icons.local_hospital_outlined,
+                color: tokens.textPrimary,
+              ),
             ),
-          if (_canCustomerActions)
-            Stack(
-              children: [
-                IconButton(
-                  tooltip: 'السلة',
-                  onPressed: _openCart,
-                  icon: const Icon(Icons.shopping_cart_outlined),
-                ),
-                if (cart.totalItems > 0)
-                  Positioned(
-                    right: 8,
-                    top: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        '${cart.totalItems}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+          IconButton(
+            tooltip: 'مشاركة',
+            onPressed: () {},
+            icon: Icon(Icons.ios_share_rounded, color: tokens.textPrimary),
+          ),
+          IconButton(
+            tooltip: 'المفضلة',
+            onPressed: () {},
+            icon: Icon(
+              Icons.favorite_border_rounded,
+              color: tokens.textPrimary,
             ),
-          const NotificationsBellButton(),
+          ),
         ],
       ),
       bottomNavigationBar: canOpenCartQuickly
@@ -546,11 +894,62 @@ class _MerchantProductsScreenState
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                child: ElevatedButton.icon(
-                  onPressed: _openCart,
-                  icon: const Icon(Icons.shopping_cart_checkout_rounded),
-                  label: Text(
-                    'إكمال الطلب • ${cart.totalItems} منتج • ${formatIqd(cart.total)}',
+                child: MaslakiCard(
+                  radius: 20,
+                  backgroundColor: tokens.surfacePrimary,
+                  child: Row(
+                    textDirection: TextDirection.rtl,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: tokens.primaryAccent.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: tokens.primaryAccent.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.shopping_cart_rounded,
+                              color: tokens.primaryAccent,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${cart.totalItems}',
+                              style: TextStyle(
+                                color: tokens.primaryAccent,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${formatIqd(cart.total)} الإجمالي',
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 124,
+                        child: MaslakiPrimaryButton(
+                          label: 'عرض السلة',
+                          onPressed: _openCart,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -564,28 +963,40 @@ class _MerchantProductsScreenState
               data.products,
               orders.favoriteProductIds,
             );
+            final productCounts = _countProductsByCategory(data.products);
+            final productSections = _buildProductSections(
+              visibleProducts,
+              data.products,
+              data.categories,
+              orders.favoriteProductIds,
+            );
+            final discountHighlights = _buildDiscountHighlights(data.products);
 
             return ListView(
               padding: const EdgeInsets.all(12),
               children: [
                 _MerchantHeader(merchant: widget.merchant),
+                if (widget.merchant.supportsPharmacyWorkflow) ...[
+                  const SizedBox(height: 12),
+                  _PharmacyWorkflowCard(
+                    onOpenConversation: _openPharmacyConversation,
+                  ),
+                ],
                 const SizedBox(height: 12),
                 _CategoryFilterRow(
                   categories: data.categories,
                   selectedCategoryId: selectedCategoryId,
                   totalProductsCount: data.products.length,
+                  productCounts: productCounts,
                   onSelect: (id) => setState(() => selectedCategoryId = id),
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                MaslakiSearchField(
                   controller: productSearchCtrl,
-                  textDirection: TextDirection.rtl,
                   onChanged: (value) =>
                       setState(() => productSearchQuery = value),
-                  decoration: InputDecoration(
-                    hintText: 'ابحث عن المنتجات',
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    suffixIcon: productSearchQuery.isEmpty
+                  hintText: 'ابحث عن المنتجات',
+                  trailing: productSearchQuery.isEmpty
                         ? null
                         : IconButton(
                             onPressed: () {
@@ -594,7 +1005,6 @@ class _MerchantProductsScreenState
                             },
                             icon: const Icon(Icons.close_rounded),
                           ),
-                  ),
                 ),
                 const SizedBox(height: 10),
                 _ProductsDiscoveryToolbar(
@@ -626,40 +1036,157 @@ class _MerchantProductsScreenState
                   ),
                   const SizedBox(height: 12),
                 ],
-                if (visibleProducts.isEmpty)
-                  const _EmptyProducts()
-                else
-                  ...visibleProducts.map((product) {
-                    final canOrder =
-                        widget.merchant.isOpen && product.isAvailable;
-                    final isFavorite = orders.favoriteProductIds.contains(
-                      product.id,
-                    );
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _ProductCard(
-                        product: product,
-                        canOrder: canOrder,
-                        isFavorite: isFavorite,
-                        showCustomerActions: _canCustomerActions,
-                        onToggleFavorite: _canCustomerActions
-                            ? () => ref
-                                  .read(ordersControllerProvider.notifier)
-                                  .toggleFavoriteProduct(
-                                    product.id,
-                                    !isFavorite,
-                                  )
-                            : null,
-                        onAddToCart: _canCustomerActions && canOrder
-                            ? () => _addToCart(product)
-                            : null,
-                        closedLabel: widget.merchant.isOpen
-                            ? 'غير متاح حالياً'
-                            : 'المتجر مغلق الآن',
-                      ),
-                    );
-                  }),
+                if (discountHighlights.isNotEmpty) ...[
+                  _CategorySectionHeader(
+                    title: 'العروض',
+                    countLabel: '${discountHighlights.length} منتجات مخفضة',
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 152,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      reverse: true,
+                      itemCount: discountHighlights.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final product = discountHighlights[index];
+                        final finalPrice = _effectivePrice(product);
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _openProductDetails(
+                            product: product,
+                            allProducts: data.products,
+                          ),
+                          child: Ink(
+                            width: 210,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: Colors.white.withValues(alpha: 0.04),
+                              border: Border.all(
+                                color: Colors.orange.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: SizedBox(
+                                      width: 62,
+                                      height: 62,
+                                      child:
+                                          (product.imageUrl?.isNotEmpty ??
+                                              false)
+                                          ? CachedAppImage(
+                                              imageUrl: product.imageUrl!,
+                                              cacheIdentity:
+                                                  'product_${product.id}',
+                                              fit: BoxFit.cover,
+                                            )
+                                          : Container(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.08,
+                                              ),
+                                              alignment: Alignment.center,
+                                              child: const Icon(
+                                                Icons.local_offer_outlined,
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          product.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textDirection: TextDirection.rtl,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              formatIqd(finalPrice),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              formatIqd(product.price),
+                                              style: TextStyle(
+                                                decoration:
+                                                    TextDecoration.lineThrough,
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.62,
+                                                ),
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            const Spacer(),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 3,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                                color: Colors.orange.withValues(
+                                                  alpha: 0.20,
+                                                ),
+                                              ),
+                                              child: Text(
+                                                '-${product.discountPercent ?? 0}%',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        if (_canCustomerActions)
+                                          Align(
+                                            alignment: Alignment.centerLeft,
+                                            child: IconButton.filledTonal(
+                                              onPressed:
+                                                  widget.merchant.isOpen &&
+                                                      product.isAvailable
+                                                  ? () => _addToCart(
+                                                      product,
+                                                      quantity: 1,
+                                                    )
+                                                  : null,
+                                              icon: const Icon(
+                                                Icons.add_shopping_cart_rounded,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                ...productSections,
               ],
             );
           },
@@ -688,89 +1215,253 @@ class _MerchantHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    final visual = context.visualTheme;
+
     return Container(
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.78),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        borderRadius: BorderRadius.circular(20),
+        color: tokens.cardPrimary.withValues(alpha: 0.85),
+        border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-            child: AspectRatio(
-              aspectRatio: 16 / 8,
-              child: merchant.imageUrl == null || merchant.imageUrl!.isEmpty
-                  ? Container(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        merchant.type == 'restaurant'
-                            ? Icons.restaurant_rounded
-                            : Icons.storefront_rounded,
-                        size: 46,
-                      ),
-                    )
-                  : Image.network(
-                      merchant.imageUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        color: Colors.black.withValues(alpha: 0.18),
-                        alignment: Alignment.center,
-                        child: const Icon(Icons.image_not_supported_rounded),
-                      ),
-                    ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  merchant.name,
-                  textDirection: TextDirection.rtl,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  merchant.description?.trim().isNotEmpty == true
-                      ? merchant.description!
-                      : 'متجر من مدينة بسماية',
-                  textDirection: TextDirection.rtl,
-                  textAlign: TextAlign.right,
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.84)),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.end,
+          // Store logo + name row
+          Row(
+            textDirection: TextDirection.rtl,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    _Badge(
-                      text: merchant.isOpen ? 'مفتوح الآن' : 'مغلق الآن',
-                      color: merchant.isOpen
-                          ? Colors.green.withValues(alpha: 0.20)
-                          : Colors.red.withValues(alpha: 0.18),
-                    ),
-                    if (merchant.hasDiscountOffer)
-                      _Badge(
-                        text: 'عروض خصم',
-                        color: Colors.orange.withValues(alpha: 0.24),
+                    Text(
+                      merchant.name,
+                      textDirection: TextDirection.rtl,
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
                       ),
-                    if (merchant.hasFreeDeliveryOffer)
-                      _Badge(
-                        text: 'يوجد توصيل مجاني',
-                        color: Colors.teal.withValues(alpha: 0.24),
+                    ),
+                    const SizedBox(height: 3),
+                    if (merchant.description?.trim().isNotEmpty == true)
+                      Text(
+                        merchant.description!,
+                        textDirection: TextDirection.rtl,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: tokens.textMuted, fontSize: 13),
                       ),
                   ],
                 ),
-              ],
+              ),
+              const SizedBox(width: 12),
+              // Logo box
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: tokens.surfaceSecondary,
+                  border: Border.all(color: tokens.borderSubtle),
+                ),
+                child: merchant.imageUrl == null || merchant.imageUrl!.isEmpty
+                    ? Icon(
+                        merchant.type == 'restaurant'
+                            ? Icons.restaurant_rounded
+                            : Icons.storefront_rounded,
+                        color: visual.accentCyan,
+                        size: 32,
+                      )
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: CachedAppImage(
+                          imageUrl: merchant.imageUrl!,
+                          cacheIdentity: 'merchant_${merchant.id}',
+                          fit: BoxFit.cover,
+                          errorWidget: (_, _, _) => Icon(
+                            Icons.storefront_rounded,
+                            color: visual.accentCyan,
+                            size: 32,
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Stats row
+          Row(
+            textDirection: TextDirection.rtl,
+            children: [
+              Icon(Icons.star_rounded, color: visual.accentGold, size: 16),
+              const SizedBox(width: 3),
+              Text(
+                '4.7 (1.2k)',
+                style: TextStyle(
+                  color: tokens.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Icon(
+                Icons.access_time_rounded,
+                color: tokens.textMuted,
+                size: 14,
+              ),
+              const SizedBox(width: 3),
+              Text(
+                '15-25 دقيقة',
+                style: TextStyle(color: tokens.textMuted, fontSize: 12),
+              ),
+              const SizedBox(width: 10),
+              Icon(
+                Icons.delivery_dining_rounded,
+                color: tokens.textMuted,
+                size: 14,
+              ),
+              const SizedBox(width: 3),
+              Text(
+                merchant.hasFreeDeliveryOffer ? 'مجاني' : '6 رس',
+                style: TextStyle(color: tokens.textMuted, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Badges row
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            alignment: WrapAlignment.end,
+            children: [
+              _Badge(
+                text: merchant.isOpen ? 'مفتوح الآن' : 'مغلق الآن',
+                color: merchant.isOpen
+                    ? tokens.success.withValues(alpha: 0.18)
+                    : tokens.danger.withValues(alpha: 0.18),
+                textColor: merchant.isOpen ? tokens.success : tokens.danger,
+              ),
+              if (merchant.hasDiscountOffer)
+                _Badge(
+                  text: 'طبق اليوم',
+                  color: tokens.success.withValues(alpha: 0.18),
+                  textColor: tokens.success,
+                ),
+              if (merchant.hasFreeDeliveryOffer)
+                _Badge(
+                  text: 'توصيل مجاني فوق 75',
+                  color: visual.accentCyan.withValues(alpha: 0.12),
+                  textColor: visual.accentCyan,
+                ),
+              if (merchant.workingHours?.trim().isNotEmpty == true)
+                _Badge(
+                  text: merchant.workingHours!,
+                  color: tokens.borderSubtle.withValues(alpha: 0.5),
+                  textColor: tokens.textMuted,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PharmacyWorkflowCard extends StatelessWidget {
+  final Future<void> Function() onOpenConversation;
+
+  const _PharmacyWorkflowCard({required this.onOpenConversation});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: const LinearGradient(
+          begin: AlignmentDirectional.topStart,
+          end: AlignmentDirectional.bottomEnd,
+          colors: [Color(0xFF0F436D), Color(0xFF113B89)],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.medical_services_outlined, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  l10n.pharmacyWorkflowBannerTitle,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                  textDirection: TextDirection.rtl,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            l10n.pharmacyWorkflowBannerSubtitle,
+            textDirection: TextDirection.rtl,
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.92)),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: onOpenConversation,
+                  icon: const Icon(Icons.chat_bubble_outline_rounded),
+                  label: Text(l10n.pharmacyChatCta),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategorySectionHeader extends StatelessWidget {
+  final String title;
+  final String countLabel;
+
+  const _CategorySectionHeader({required this.title, required this.countLabel});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: Colors.white.withValues(alpha: 0.06),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        children: [
+          Text(
+            countLabel,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.72),
+              fontSize: 12,
             ),
+          ),
+          const Spacer(),
+          Text(
+            title,
+            textDirection: TextDirection.rtl,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
           ),
         ],
       ),
@@ -782,12 +1473,14 @@ class _CategoryFilterRow extends StatelessWidget {
   final List<ProductCategoryModel> categories;
   final int? selectedCategoryId;
   final int totalProductsCount;
+  final Map<int, int> productCounts;
   final void Function(int? categoryId) onSelect;
 
   const _CategoryFilterRow({
     required this.categories,
     required this.selectedCategoryId,
     required this.totalProductsCount,
+    required this.productCounts,
     required this.onSelect,
   });
 
@@ -808,7 +1501,7 @@ class _CategoryFilterRow extends StatelessWidget {
             (category) => Padding(
               padding: const EdgeInsets.only(right: 8),
               child: _CategoryChip(
-                label: '${category.name} (${category.availableProductsCount})',
+                label: '${category.name} (${productCounts[category.id] ?? 0})',
                 selected: selectedCategoryId == category.id,
                 onTap: () => onSelect(category.id),
               ),
@@ -1077,8 +1770,10 @@ class _SmartBundlePlannerCard extends StatelessWidget {
 class _ProductCard extends StatelessWidget {
   final ProductModel product;
   final bool canOrder;
+  final bool usesPharmacyConversation;
   final bool isFavorite;
   final bool showCustomerActions;
+  final VoidCallback onOpenDetails;
   final VoidCallback? onToggleFavorite;
   final VoidCallback? onAddToCart;
   final String closedLabel;
@@ -1086,8 +1781,10 @@ class _ProductCard extends StatelessWidget {
   const _ProductCard({
     required this.product,
     required this.canOrder,
+    required this.usesPharmacyConversation,
     required this.isFavorite,
     required this.showCustomerActions,
+    required this.onOpenDetails,
     required this.onToggleFavorite,
     required this.onAddToCart,
     required this.closedLabel,
@@ -1096,161 +1793,154 @@ class _ProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectivePrice = product.discountedPrice ?? product.price;
+    final tokens = context.maslakiTokens;
+    final visual = context.visualTheme;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: SizedBox(
-                width: 88,
-                height: 88,
-                child: product.imageUrl == null || product.imageUrl!.isEmpty
-                    ? Container(
-                        color: Colors.white.withValues(alpha: 0.08),
-                        alignment: Alignment.center,
-                        child: const Icon(Icons.fastfood_rounded),
-                      )
-                    : Image.network(
-                        product.imageUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          color: Colors.white.withValues(alpha: 0.08),
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.broken_image_rounded),
-                        ),
-                      ),
-              ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onOpenDetails,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            color: tokens.cardPrimary.withValues(alpha: 0.7),
+            border: Border.all(
+              color: tokens.borderSubtle.withValues(alpha: 0.4),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    product.name,
-                    textDirection: TextDirection.rtl,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (product.categoryName?.isNotEmpty == true) ...[
-                    const SizedBox(height: 2),
+          ),
+          child: Row(
+            textDirection: TextDirection.rtl,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Product info (right side in RTL)
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
                     Text(
-                      product.categoryName!,
+                      product.name,
                       textDirection: TextDirection.rtl,
                       style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.70),
+                        color: tokens.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ],
-                  if (product.description?.isNotEmpty == true) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      product.description!,
-                      textDirection: TextDirection.rtl,
-                      textAlign: TextAlign.right,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.84),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    alignment: WrapAlignment.end,
-                    children: [
-                      if (product.hasDiscount &&
-                          product.discountPercent != null)
-                        _Badge(
-                          text: 'خصم ${product.discountPercent}%',
-                          color: Colors.orange.withValues(alpha: 0.24),
-                        ),
-                      if (product.freeDelivery)
-                        _Badge(
-                          text: 'توصيل مجاني',
-                          color: Colors.teal.withValues(alpha: 0.24),
-                        ),
-                      if (product.offerLabel?.trim().isNotEmpty == true)
-                        _Badge(
-                          text: product.offerLabel!.trim(),
-                          color: Colors.pink.withValues(alpha: 0.22),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
+                    if (product.description?.isNotEmpty == true) ...[
+                      const SizedBox(height: 3),
                       Text(
-                        formatIqd(effectivePrice),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
+                        product.description!,
+                        textDirection: TextDirection.rtl,
+                        textAlign: TextAlign.right,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: tokens.textMuted,
+                          fontSize: 12,
+                          height: 1.3,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      if (product.hasDiscount)
+                    ],
+                    const SizedBox(height: 7),
+                    Row(
+                      textDirection: TextDirection.rtl,
+                      children: [
                         Text(
-                          formatIqd(product.price),
+                          '${formatIqd(effectivePrice)} رس',
                           style: TextStyle(
-                            decoration: TextDecoration.lineThrough,
-                            color: Colors.white.withValues(alpha: 0.65),
-                            fontSize: 12,
+                            color: tokens.textPrimary,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
                           ),
                         ),
-                      const Spacer(),
-                      if (showCustomerActions) ...[
-                        IconButton(
-                          tooltip: isFavorite
-                              ? 'إزالة من المفضلة'
-                              : 'إضافة إلى المفضلة',
-                          onPressed: onToggleFavorite,
-                          icon: Icon(
-                            isFavorite
-                                ? Icons.favorite_rounded
-                                : Icons.favorite_border_rounded,
-                            color: isFavorite ? Colors.red : null,
-                          ),
-                        ),
-                        if (canOrder)
-                          IconButton(
-                            tooltip: 'إضافة إلى السلة',
-                            onPressed: onAddToCart,
-                            icon: const Icon(Icons.add_shopping_cart_rounded),
-                          )
-                        else
+                        if (product.hasDiscount) ...[
+                          const SizedBox(width: 6),
                           Text(
-                            closedLabel,
+                            formatIqd(product.price),
                             style: TextStyle(
-                              color: Colors.red.shade300,
+                              decoration: TextDecoration.lineThrough,
+                              color: tokens.textMuted,
                               fontSize: 12,
                             ),
                           ),
-                      ] else
-                        Text(
-                          canOrder ? 'متاح' : 'غير متاح',
-                          style: TextStyle(
-                            color: canOrder
-                                ? Colors.green.shade400
-                                : Colors.red.shade300,
-                            fontSize: 12,
+                          const SizedBox(width: 6),
+                          _Badge(
+                            text: '-${product.discountPercent ?? 0}%',
+                            color: Colors.orange.withValues(alpha: 0.20),
+                            textColor: Colors.orange,
                           ),
-                        ),
-                    ],
-                  ),
-                ],
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+              if (product.requiresPrescription || product.requiresReview) ...[
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (product.requiresPrescription)
+                      _Badge(
+                        text: context.lt(
+                          ar: 'وصفة مطلوبة',
+                          en: 'Prescription required',
+                        ),
+                        color: Color(0x1A9C27B0),
+                      ),
+                    if (product.requiresPrescription && product.requiresReview)
+                      const SizedBox(height: 6),
+                    if (product.requiresReview)
+                      _Badge(
+                        text: context.lt(
+                          ar: 'مراجعة صيدلانية',
+                          en: 'Pharmacist review',
+                        ),
+                        color: Color(0x1A03A9F4),
+                      ),
+                  ],
+                ),
+              ],
+              const SizedBox(width: 12),
+              // Add button / status (left side in RTL)
+              if (showCustomerActions)
+                GestureDetector(
+                  onTap: canOrder ? onAddToCart : null,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: canOrder
+                          ? visual.accentCyan.withValues(alpha: 0.15)
+                          : tokens.borderSubtle.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: canOrder
+                            ? visual.accentCyan.withValues(alpha: 0.4)
+                            : tokens.borderSubtle,
+                      ),
+                    ),
+                    child: Icon(
+                      usesPharmacyConversation
+                          ? Icons.chat_bubble_outline_rounded
+                          : Icons.add_rounded,
+                      color: canOrder ? visual.accentCyan : tokens.textMuted,
+                      size: 22,
+                    ),
+                  ),
+                )
+              else
+                Text(
+                  canOrder ? 'متاح' : 'غير متاح',
+                  style: TextStyle(
+                    color: canOrder ? tokens.success : tokens.danger,
+                    fontSize: 12,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -1260,8 +1950,9 @@ class _ProductCard extends StatelessWidget {
 class _Badge extends StatelessWidget {
   final String text;
   final Color color;
+  final Color? textColor;
 
-  const _Badge({required this.text, required this.color});
+  const _Badge({required this.text, required this.color, this.textColor});
 
   @override
   Widget build(BuildContext context) {
@@ -1271,7 +1962,14 @@ class _Badge extends StatelessWidget {
         color: color,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(text, style: const TextStyle(fontSize: 11)),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          color: textColor,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
@@ -1281,21 +1979,10 @@ class _EmptyProducts extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          children: const [
-            Icon(Icons.inventory_2_outlined, size: 34),
-            SizedBox(height: 8),
-            Text(
-              'لا توجد منتجات متاحة في هذا القسم',
-              textDirection: TextDirection.rtl,
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ],
-        ),
-      ),
+    return const MaslakiEmptyState(
+      icon: Icons.inventory_2_outlined,
+      title: 'لا توجد منتجات متاحة',
+      body: 'غيّر الفئة أو أزل بعض الفلاتر لرؤية خيارات أخرى من المتجر.',
     );
   }
 }

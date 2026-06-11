@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' as intl;
 
+import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/widgets/appbar_quick_actions.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'social_profile_screen.dart';
+
+import 'package:maslaki/core/media/cached_app_image.dart';
 
 class SocialRelationRequestsScreen extends ConsumerStatefulWidget {
   const SocialRelationRequestsScreen({super.key});
@@ -21,7 +25,6 @@ class _SocialRelationRequestsScreenState
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   late final SocialApi _api;
-  final intl.DateFormat _dateFormat = intl.DateFormat('d/M hh:mm a', 'ar');
 
   List<SocialRelationRequest> _incoming = const <SocialRelationRequest>[];
   List<SocialRelationRequest> _outgoing = const <SocialRelationRequest>[];
@@ -29,6 +32,11 @@ class _SocialRelationRequestsScreenState
   bool _loadingOutgoing = true;
   bool _actionBusy = false;
   String? _error;
+
+  intl.DateFormat get _dateFormat => intl.DateFormat(
+    'd/M hh:mm a',
+    Localizations.localeOf(context).languageCode == 'en' ? 'en' : 'ar',
+  );
 
   @override
   void initState() {
@@ -71,7 +79,10 @@ class _SocialRelationRequestsScreenState
       if (!mounted) return;
       setState(() {
         _loadingIncoming = false;
-        _error = mapAnyError(e, fallback: 'تعذر تحميل طلبات المتابعة الواردة.');
+        _error = mapAnyError(
+          e,
+          fallback: context.l10n.socialRelationRequestsLoadIncomingFailed,
+        );
       });
     }
   }
@@ -99,9 +110,21 @@ class _SocialRelationRequestsScreenState
       if (!mounted) return;
       setState(() {
         _loadingOutgoing = false;
-        _error = mapAnyError(e, fallback: 'تعذر تحميل طلبات المتابعة الصادرة.');
+        _error = mapAnyError(
+          e,
+          fallback: context.l10n.socialRelationRequestsLoadOutgoingFailed,
+        );
       });
     }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, textDirection: Directionality.of(context)),
+      ),
+    );
   }
 
   Future<void> _acceptRequest(SocialRelationRequest request) async {
@@ -117,13 +140,16 @@ class _SocialRelationRequestsScreenState
       });
       await ref.read(socialControllerProvider.notifier).loadThreads();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تم قبول متابعة ${request.user.fullName}')),
+      _showSnack(
+        context.l10n.socialRelationRequestsAccepted(request.user.fullName),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mapAnyError(e, fallback: 'تعذر قبول الطلب.'))),
+      _showSnack(
+        mapAnyError(
+          e,
+          fallback: context.l10n.socialRelationRequestsAcceptFailed,
+        ),
       );
     } finally {
       if (mounted) setState(() => _actionBusy = false);
@@ -141,13 +167,14 @@ class _SocialRelationRequestsScreenState
             .where((r) => r.user.id != request.user.id)
             .toList();
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('تم رفض الطلب')));
+      _showSnack(context.l10n.socialRelationRequestsRejected);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mapAnyError(e, fallback: 'تعذر رفض الطلب.'))),
+      _showSnack(
+        mapAnyError(
+          e,
+          fallback: context.l10n.socialRelationRequestsRejectFailed,
+        ),
       );
     } finally {
       if (mounted) setState(() => _actionBusy = false);
@@ -165,13 +192,14 @@ class _SocialRelationRequestsScreenState
             .where((r) => r.user.id != request.user.id)
             .toList();
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('تم إلغاء الطلب')));
+      _showSnack(context.l10n.socialRelationRequestsCancelled);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mapAnyError(e, fallback: 'تعذر إلغاء الطلب.'))),
+      _showSnack(
+        mapAnyError(
+          e,
+          fallback: context.l10n.socialRelationRequestsCancelFailed,
+        ),
       );
     } finally {
       if (mounted) setState(() => _actionBusy = false);
@@ -190,29 +218,34 @@ class _SocialRelationRequestsScreenState
   }
 
   String _formatRequestedAt(DateTime? value) {
-    if (value == null) return 'بدون وقت';
+    if (value == null) return context.l10n.socialRelationRequestsNoTimestamp;
     return _dateFormat.format(value.toLocal());
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('طلبات المتابعة'),
+          title: Text(l10n.socialProfileManageConnectionRequests),
           actions: [
             IconButton(
-              tooltip: 'تحديث',
+              tooltip: l10n.commonRefresh,
               onPressed: _bootstrap,
               icon: const Icon(Icons.refresh_rounded),
+            ),
+            const AppBarQuickActions(
+              compact: true,
+              includeFriendRequests: false,
             ),
           ],
           bottom: TabBar(
             controller: _tabController,
             tabs: [
-              Tab(text: 'واردة (${_incoming.length})'),
-              Tab(text: 'صادرة (${_outgoing.length})'),
+              Tab(text: '${l10n.commonIncoming} (${_incoming.length})'),
+              Tab(text: '${l10n.commonOutgoing} (${_outgoing.length})'),
             ],
           ),
         ),
@@ -229,6 +262,7 @@ class _SocialRelationRequestsScreenState
                 ),
                 child: Text(
                   _error!,
+                  textDirection: Directionality.of(context),
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onErrorContainer,
                     fontWeight: FontWeight.w700,
@@ -242,7 +276,7 @@ class _SocialRelationRequestsScreenState
                   _RequestsList(
                     loading: _loadingIncoming,
                     requests: _incoming,
-                    emptyText: 'لا توجد طلبات متابعة واردة حالياً.',
+                    emptyText: l10n.socialRelationRequestsEmptyIncoming,
                     dateFormatter: _formatRequestedAt,
                     onOpenProfile: _openProfile,
                     actionsBuilder: (request) => Wrap(
@@ -252,13 +286,13 @@ class _SocialRelationRequestsScreenState
                           onPressed: _actionBusy
                               ? null
                               : () => _rejectRequest(request),
-                          child: const Text('رفض'),
+                          child: Text(l10n.commonReject),
                         ),
                         FilledButton(
                           onPressed: _actionBusy
                               ? null
                               : () => _acceptRequest(request),
-                          child: const Text('قبول'),
+                          child: Text(l10n.commonAccept),
                         ),
                       ],
                     ),
@@ -266,14 +300,14 @@ class _SocialRelationRequestsScreenState
                   _RequestsList(
                     loading: _loadingOutgoing,
                     requests: _outgoing,
-                    emptyText: 'لا توجد طلبات متابعة صادرة حالياً.',
+                    emptyText: l10n.socialRelationRequestsEmptyOutgoing,
                     dateFormatter: _formatRequestedAt,
                     onOpenProfile: _openProfile,
                     actionsBuilder: (request) => FilledButton.tonal(
                       onPressed: _actionBusy
                           ? null
                           : () => _cancelRequest(request),
-                      child: const Text('إلغاء الطلب'),
+                      child: Text(l10n.socialRelationRequestsCancelAction),
                     ),
                   ),
                 ],
@@ -305,6 +339,7 @@ class _RequestsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     if (loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -312,6 +347,8 @@ class _RequestsList extends StatelessWidget {
       return Center(
         child: Text(
           emptyText,
+          textDirection: Directionality.of(context),
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontWeight: FontWeight.w700,
             color: Theme.of(
@@ -337,7 +374,7 @@ class _RequestsList extends StatelessWidget {
               borderRadius: BorderRadius.circular(999),
               child: CircleAvatar(
                 backgroundImage: (user.imageUrl ?? '').trim().isNotEmpty
-                    ? NetworkImage(user.imageUrl!)
+                    ? AppCachedImageProvider(user.imageUrl!)
                     : null,
                 child: (user.imageUrl ?? '').trim().isEmpty
                     ? const Icon(Icons.person_outline)
@@ -349,11 +386,13 @@ class _RequestsList extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               child: Text(
                 user.fullName,
+                textDirection: Directionality.of(context),
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
             subtitle: Text(
-              'منذ ${dateFormatter(request.requestedAt)}',
+              '${l10n.commonSince} ${dateFormatter(request.requestedAt)}',
+              textDirection: Directionality.of(context),
               style: TextStyle(
                 color: Theme.of(
                   context,

@@ -5,6 +5,7 @@ class AppNotificationModel {
   final int? orderId;
   final int? rideId;
   final int? storyId;
+  final int? reelId;
   final int? merchantId;
   final String? target;
   final String type;
@@ -20,6 +21,7 @@ class AppNotificationModel {
     required this.orderId,
     required this.rideId,
     required this.storyId,
+    required this.reelId,
     required this.merchantId,
     required this.target,
     required this.type,
@@ -43,6 +45,7 @@ class AppNotificationModel {
       orderId: j['order_id'] == null ? null : parseInt(j['order_id']),
       rideId: _parseRideId(j, payload),
       storyId: _parseStoryId(j, payload),
+      reelId: _parseReelId(j, payload),
       merchantId: j['merchant_id'] == null ? null : parseInt(j['merchant_id']),
       target: _parseTarget(j, payload),
       type: parseString(j['type']),
@@ -61,6 +64,7 @@ class AppNotificationModel {
       orderId: orderId,
       rideId: rideId,
       storyId: storyId,
+      reelId: reelId,
       merchantId: merchantId,
       target: target,
       type: type,
@@ -109,6 +113,19 @@ int? _parseStoryId(Map<String, dynamic> json, Map<String, dynamic>? payload) {
   }
 
   final fromPayload = payload?['storyId'] ?? payload?['story_id'];
+  final parsed = int.tryParse('$fromPayload');
+  if (parsed != null && parsed > 0) return parsed;
+  return null;
+}
+
+int? _parseReelId(Map<String, dynamic> json, Map<String, dynamic>? payload) {
+  final top = json['reel_id'] ?? json['reelId'];
+  if (top != null) {
+    final out = int.tryParse('$top');
+    if (out != null && out > 0) return out;
+  }
+
+  final fromPayload = payload?['reelId'] ?? payload?['reel_id'];
   final parsed = int.tryParse('$fromPayload');
   if (parsed != null && parsed > 0) return parsed;
   return null;

@@ -46,6 +46,7 @@ class NotificationsApi {
     String? platform,
     String? appVersion,
     String? deviceModel,
+    String? localeCode,
   }) async {
     await dio.post(
       '/api/notifications/push-token',
@@ -54,6 +55,7 @@ class NotificationsApi {
         'platform': platform,
         'appVersion': appVersion,
         'deviceModel': deviceModel,
+        'locale': localeCode,
       },
     );
   }
@@ -67,10 +69,42 @@ class NotificationsApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Stream<NotificationLiveEvent> streamEvents({int? lastEventId}) async* {
+  Future<Map<String, dynamic>> trackAction({
+    required String actionId,
+    int? notificationId,
+    String? target,
+    String? entityType,
+    int? entityId,
+    String requestState = 'opened',
+    Map<String, dynamic> payload = const {},
+  }) async {
+    final response = await dio.post(
+      '/api/notifications/actions/track',
+      data: {
+        'actionId': actionId,
+        'notificationId': notificationId,
+        'target': target,
+        'entityType': entityType,
+        'entityId': entityId,
+        'requestState': requestState,
+        'payload': payload,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Stream<NotificationLiveEvent> streamEvents({
+    int? lastEventId,
+    String channel = 'notifications',
+  }) async* {
+    final normalizedChannel = switch (channel.trim().toLowerCase()) {
+      'social' => 'social',
+      _ => 'notifications',
+    };
     final response = await dio.get<ResponseBody>(
       '/api/notifications/stream',
       queryParameters: {
+        'channel': normalizedChannel,
         if (lastEventId != null && lastEventId > 0) 'lastEventId': lastEventId,
       },
       options: Options(
@@ -79,6 +113,7 @@ class NotificationsApi {
         receiveTimeout: const Duration(hours: 1),
         headers: {
           'Accept': 'text/event-stream',
+          'X-Realtime-Channel': normalizedChannel,
           if (lastEventId != null && lastEventId > 0)
             'Last-Event-ID': '$lastEventId',
         },
@@ -98,6 +133,10 @@ class NotificationsApi {
     int? parsedEventId;
 
     await for (final line in lines) {
+      if (line.startsWith('retry:')) {
+        continue;
+      }
+
       if (line.startsWith('id:')) {
         parsedEventId = int.tryParse(line.substring(3).trim());
         continue;

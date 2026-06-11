@@ -5,14 +5,20 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/i18n/app_strings.dart';
+import '../../../core/i18n/app_localizations_context.dart';
+import '../../../l10n/app_localizations.dart';
+import '../../../core/platform/app_platform_capabilities.dart';
 import '../../../core/settings/app_settings_controller.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/maslaki_brand_mark.dart';
+import '../../../core/widgets/maslaki_wordmark.dart';
 import '../../settings/ui/settings_screen.dart';
+import '../../services/ui/service_provider_onboarding_screen.dart';
 import '../state/auth_controller.dart';
-import 'delivery_register_screen.dart';
-import 'owner_register_screen.dart';
 import 'register_screen.dart';
 
+/// شاشة الدخول الأساسية للتطبيق، وتستخدم أيضاً كبوابة مقيدة لمسار أصحاب
+/// المتاجر عندما يكون `ownerOnly=true`.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -25,6 +31,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   final phoneCtrl = TextEditingController();
   final pinCtrl = TextEditingController();
   late final AnimationController _controller;
+  String? _phoneError;
+  String? _pinError;
 
   @override
   void initState() {
@@ -43,11 +51,81 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     super.dispose();
   }
 
+  /// يتحقق من صحة الهاتف قبل إرسال الطلب إلى الخادم لتقليل round-trips.
+  String? _validatePhone(BuildContext context, String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return context.l10n.authPhoneRequired;
+    }
+    final digitsOnly = normalized.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digitsOnly.length < 10) {
+      return context.l10n.authPhoneIncomplete;
+    }
+    return null;
+  }
+
+  /// يتحقق من صيغة PIN المتوقعة من النظام قبل login.
+  String? _validatePin(BuildContext context, String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return context.l10n.authPinRequired;
+    }
+    if (!RegExp(r'^[0-9]{4,8}$').hasMatch(normalized)) {
+      return context.l10n.authPinInvalidFormat;
+    }
+    return null;
+  }
+
+  /// ينفذ login ثم يطبق guard إضافي لمسار owner-only إذا كانت الشاشة مستخدمة
+  /// داخل تطبيق أو تدفق مقصور على أصحاب المتاجر.
+  Future<void> _submitLogin(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final l10n = context.l10n;
+    FocusScope.of(context).unfocus();
+    final phoneError = _validatePhone(context, phoneCtrl.text);
+    final pinError = _validatePin(context, pinCtrl.text);
+    setState(() {
+      _phoneError = phoneError;
+      _pinError = pinError;
+    });
+    if (phoneError != null || pinError != null) return;
+
+    await ref
+        .read(authControllerProvider.notifier)
+        .login(phoneCtrl.text, pinCtrl.text);
+
+    if (!mounted) return;
+    final authAfter = ref.read(authControllerProvider);
+    if (!authAfter.isAuthed && authAfter.error != null) {
+      setState(() {
+        _pinError = authAfter.error;
+      });
+      return;
+    }
+    final isAllowedInPrimaryApp =
+        !authAfter.isOwner &&
+        !authAfter.isDelivery &&
+        !authAfter.isTaxiCaptain &&
+        !authAfter.isCompanyPortal;
+    if (isAllowedInPrimaryApp) return;
+
+    if (authAfter.isAuthed) {
+      await ref.read(authControllerProvider.notifier).logout();
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.authUserOnlyAppError)),
+      );
+    }
+  }
+
   @override
+  /// يبني shell شاشة الدخول مع دعم layout مكتبي/هاتفي وسلوك اللغة الحالي.
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
-    final strings = ref.watch(appStringsProvider);
     final settings = ref.watch(appSettingsControllerProvider);
+    final l10n = context.l10n;
+    final useDesktopLayout =
+        appIsDesktop && MediaQuery.sizeOf(context).width >= 1180;
 
     if (settings.animationsEnabled && !_controller.isAnimating) {
       _controller.repeat(reverse: true);
@@ -60,197 +138,360 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       body: Stack(
         children: [
           const _MeshBackground(),
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 430),
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                    child: Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.16),
+          SafeArea(
+            child: Padding(
+              padding: EdgeInsets.all(useDesktopLayout ? 24 : 18),
+              child: useDesktopLayout
+                  ? Row(
+                      children: [
+                        const Expanded(child: _DesktopLoginShowcase()),
+                        const SizedBox(width: 24),
+                        SizedBox(
+                          width: 470,
+                          child: _buildLoginCard(
+                            context,
+                            auth: auth,
+                            settings: settings,
+                            l10n: l10n,
+                          ),
                         ),
-                        color: Colors.white.withOpacity(0.08),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 46,
-                                height: 46,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(14),
-                                  color: Colors.white.withOpacity(0.12),
-                                ),
-                                child: const Icon(
-                                  Icons.storefront,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              const Expanded(
-                                child: Text(
-                                  'Shakaky | شكاكي',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 21,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              PopupMenuButton<String>(
-                                tooltip: strings.t('language'),
-                                icon: const Icon(
-                                  Icons.translate,
-                                  color: Colors.white,
-                                ),
-                                onSelected: (code) {
-                                  ref
-                                      .read(
-                                        appSettingsControllerProvider.notifier,
-                                      )
-                                      .setLocale(Locale(code));
-                                },
-                                itemBuilder: (context) => [
-                                  PopupMenuItem(
-                                    value: 'ar',
-                                    child: Text(strings.t('arabic')),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'en',
-                                    child: Text(strings.t('english')),
-                                  ),
-                                ],
-                              ),
-                              IconButton(
-                                tooltip: strings.t('settings'),
-                                onPressed: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => const SettingsScreen(),
-                                    ),
-                                  );
-                                },
-                                icon: const Icon(
-                                  Icons.settings_outlined,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          _WelcomePill(
-                            controller: _controller,
-                            animationsEnabled: settings.animationsEnabled,
-                            text: strings.t('loginTagline'),
-                          ),
-                          const SizedBox(height: 14),
-                          _Field(
-                            controller: phoneCtrl,
-                            label: strings.t('phoneLabel'),
-                            hint: '0770xxxxxxx',
-                            keyboardType: TextInputType.phone,
-                            textDirection: strings.isEnglish
-                                ? TextDirection.ltr
-                                : TextDirection.rtl,
-                          ),
-                          const SizedBox(height: 12),
-                          _Field(
-                            controller: pinCtrl,
-                            label: strings.t('pinLabel'),
-                            hint: '****',
-                            keyboardType: TextInputType.number,
-                            obscure: true,
-                            textDirection: TextDirection.ltr,
-                          ),
-                          const SizedBox(height: 14),
-                          if (auth.error != null)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Text(
-                                auth.error!,
-                                style: const TextStyle(color: Colors.amber),
-                                textAlign: TextAlign.start,
-                              ),
-                            ),
-                          ElevatedButton(
-                            onPressed: auth.loading
-                                ? null
-                                : () async {
-                                    FocusScope.of(context).unfocus();
-                                    await ref
-                                        .read(authControllerProvider.notifier)
-                                        .login(phoneCtrl.text, pinCtrl.text);
-                                  },
-                            child: auth.loading
-                                ? const SizedBox(
-                                    height: 18,
-                                    width: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : Text(strings.t('login')),
-                          ),
-                          const SizedBox(height: 8),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => const RegisterScreen(),
-                                ),
-                              );
-                            },
-                            child: Text(
-                              strings.t('createUserAccount'),
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => const OwnerRegisterScreen(),
-                                ),
-                              );
-                            },
-                            child: Text(
-                              strings.t('createOwnerAccount'),
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      const DeliveryRegisterScreen(),
-                                ),
-                              );
-                            },
-                            child: const Text(
-                              'إنشاء حساب كابتن تكسي',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          ),
-                        ],
+                      ],
+                    )
+                  : Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 430),
+                        child: _buildLoginCard(
+                          context,
+                          auth: auth,
+                          settings: settings,
+                          l10n: l10n,
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// يبني البطاقة الزجاجية التي تحتوي حقول الدخول والإجراءات الثانوية.
+  Widget _buildLoginCard(
+    BuildContext context, {
+    required AuthState auth,
+    required AppSettingsState settings,
+    required AppLocalizations l10n,
+  }) {
+    final tokens = context.maslakiTokens;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: tokens.borderSubtle.withValues(alpha: 0.72),
+            ),
+            color: tokens.cardPrimary.withValues(alpha: 0.78),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const MaslakiBrandMark(size: 46, borderRadius: 14),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: MaslakiWordmark(
+                      arabicSize: 22,
+                      latinSize: 9.5,
+                      latinLetterSpacing: 3.6,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: l10n.commonLanguage,
+                    icon: Icon(Icons.translate, color: tokens.textPrimary),
+                    onSelected: (code) {
+                      ref
+                          .read(appSettingsControllerProvider.notifier)
+                          .setLocale(Locale(code));
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'ar',
+                        child: Text(l10n.commonArabic),
+                      ),
+                      PopupMenuItem(
+                        value: 'en',
+                        child: Text(l10n.commonEnglish),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    tooltip: l10n.commonSettings,
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const SettingsScreen(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(
+                      Icons.settings_outlined,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _WelcomePill(
+                controller: _controller,
+                animationsEnabled: settings.animationsEnabled,
+                text: l10n.authLoginTagline,
+              ),
+              const SizedBox(height: 14),
+              Form(
+                child: Column(
+                  children: [
+                    _Field(
+                      controller: phoneCtrl,
+                      label: l10n.authPhoneLabel,
+                      hint: '0770xxxxxxx',
+                      keyboardType: TextInputType.phone,
+                      textDirection: TextDirection.ltr,
+                      errorText: _phoneError,
+                      onChanged: (_) {
+                        if (_phoneError == null) return;
+                        setState(() {
+                          _phoneError = null;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _Field(
+                      controller: pinCtrl,
+                      label: l10n.authPinLabel,
+                      hint: '****',
+                      keyboardType: TextInputType.number,
+                      obscure: true,
+                      textDirection: TextDirection.ltr,
+                      errorText: _pinError,
+                      onChanged: (_) {
+                        if (_pinError == null) return;
+                        setState(() {
+                          _pinError = null;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (auth.error != null && _pinError != auth.error)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    auth.error!,
+                    style: const TextStyle(color: Colors.amber),
+                    textAlign: TextAlign.start,
+                  ),
+                ),
+              ElevatedButton(
+                onPressed: auth.loading ? null : () => _submitLogin(context),
+                child: auth.loading
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(l10n.authLogin),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                  );
+                },
+                child: Text(
+                  l10n.authCreateUserAccount,
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ServiceProviderOnboardingScreen(),
+                    ),
+                  );
+                },
+                child: const Text('إنشاء حساب صاحب خدمة'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopLoginShowcase extends StatelessWidget {
+  const _DesktopLoginShowcase();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = context.l10n;
+    return Container(
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(34),
+        gradient: const LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [Color(0x66D4B07A), Color(0x22FFFFFF), Color(0x334A6D93)],
+        ),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              MaslakiBrandMark(size: 56, borderRadius: 18),
+              SizedBox(width: 12),
+              MaslakiWordmark(
+                arabicSize: 30,
+                latinSize: 11,
+                latinLetterSpacing: 4.2,
+                arabicColor: Colors.white,
+                latinColor: Color(0xFFE5C38F),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            l10n.authDesktopTitle,
+            style: theme.textTheme.displaySmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            l10n.authLoginTagline,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: Colors.white.withOpacity(0.86),
+            ),
+          ),
+          const SizedBox(height: 24),
+          _DesktopFeatureTile(
+            icon: Icons.desktop_windows_rounded,
+            title: l10n.authDesktopFeatureNavigationTitle,
+            subtitle: l10n.authDesktopFeatureNavigationBody,
+          ),
+          const SizedBox(height: 12),
+          _DesktopFeatureTile(
+            icon: Icons.dashboard_customize_rounded,
+            title: l10n.authDesktopFeatureControlsTitle,
+            subtitle: l10n.authDesktopFeatureControlsBody,
+          ),
+          const SizedBox(height: 12),
+          _DesktopFeatureTile(
+            icon: Icons.fullscreen_rounded,
+            title: l10n.authDesktopFeatureWorkspaceTitle,
+            subtitle: l10n.authDesktopFeatureWorkspaceBody,
+          ),
+          const Spacer(),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _DesktopStatChip(label: l10n.authDesktopChipCommunity),
+              _DesktopStatChip(label: l10n.authDesktopChipOrders),
+              _DesktopStatChip(label: l10n.authDesktopChipTaxi),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopFeatureTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _DesktopFeatureTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        color: Colors.white.withOpacity(0.06),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: const Color(0xFFD4B07A)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(color: Colors.white.withOpacity(0.76)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopStatChip extends StatelessWidget {
+  final String label;
+
+  const _DesktopStatChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: Colors.white.withOpacity(0.10),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -288,8 +529,8 @@ class _WelcomePill extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
         color: Color.lerp(
-          const Color(0x334ED6FF),
-          const Color(0x3395FFD3),
+          const Color(0x33D4B07A),
+          const Color(0x334A6D93),
           value,
         ),
         border: Border.all(color: Colors.white.withOpacity(0.14)),
@@ -310,6 +551,8 @@ class _Field extends StatelessWidget {
   final TextInputType keyboardType;
   final bool obscure;
   final TextDirection textDirection;
+  final String? errorText;
+  final ValueChanged<String>? onChanged;
 
   const _Field({
     required this.controller,
@@ -318,19 +561,23 @@ class _Field extends StatelessWidget {
     required this.keyboardType,
     required this.textDirection,
     this.obscure = false,
+    this.errorText,
+    this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: textDirection,
-      child: TextField(
+      child: TextFormField(
         controller: controller,
         keyboardType: keyboardType,
         obscureText: obscure,
+        onChanged: onChanged,
         style: const TextStyle(color: Colors.white),
         decoration: InputDecoration(
           labelText: label,
+          errorText: errorText,
           hintText: hint,
           hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
           labelStyle: TextStyle(color: Colors.white.withOpacity(0.85)),

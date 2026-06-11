@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../files/local_image_file.dart';
+import '../forms/inline_field_error_text.dart';
+import '../i18n/app_localizations_context.dart';
+
+import 'package:maslaki/core/media/cached_app_image.dart';
 
 class ImagePickerField extends StatelessWidget {
   final String title;
@@ -8,6 +12,9 @@ class ImagePickerField extends StatelessWidget {
   final String? existingImageUrl;
   final VoidCallback onPick;
   final VoidCallback? onClear;
+  final String? errorText;
+  final String? helperText;
+  final bool required;
 
   const ImagePickerField({
     super.key,
@@ -16,29 +23,59 @@ class ImagePickerField extends StatelessWidget {
     required this.existingImageUrl,
     required this.onPick,
     this.onClear,
+    this.errorText,
+    this.helperText,
+    this.required = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final hasError = errorText != null && errorText!.trim().isNotEmpty;
+    final borderColor = hasError
+        ? theme.colorScheme.error
+        : Colors.white.withValues(alpha: 0.18);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          title,
-          textDirection: TextDirection.rtl,
-          textAlign: TextAlign.right,
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        RichText(
+          text: TextSpan(
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+            children: [
+              TextSpan(text: title),
+              if (required)
+                TextSpan(
+                  text: ' *',
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
+            ],
+          ),
         ),
         const SizedBox(height: 8),
         Container(
           height: 140,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+            border: Border.all(color: borderColor),
           ),
           clipBehavior: Clip.antiAlias,
           child: _buildPreview(context),
         ),
+        InlineFieldErrorText(text: errorText),
+        if (helperText != null && helperText!.trim().isNotEmpty && !hasError)
+          Padding(
+            padding: const EdgeInsetsDirectional.only(top: 8, start: 4, end: 4),
+            child: Text(
+              helperText!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+              ),
+            ),
+          ),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -46,13 +83,13 @@ class ImagePickerField extends StatelessWidget {
               TextButton.icon(
                 onPressed: onClear,
                 icon: const Icon(Icons.delete_outline),
-                label: const Text('حذف الصورة'),
+                label: Text(l10n.commonRemoveImage),
               ),
             const Spacer(),
             OutlinedButton.icon(
               onPressed: onPick,
               icon: const Icon(Icons.photo_library_outlined),
-              label: const Text('اختيار من الجهاز'),
+              label: Text(l10n.commonChooseFromDevice),
             ),
           ],
         ),
@@ -62,17 +99,14 @@ class ImagePickerField extends StatelessWidget {
 
   Widget _buildPreview(BuildContext context) {
     if (selectedFile?.hasBytes == true) {
-      return Image.memory(
-        selectedFile!.bytes!,
-        fit: BoxFit.cover,
-      );
+      return Image.memory(selectedFile!.bytes!, fit: BoxFit.cover);
     }
 
     if (existingImageUrl != null && existingImageUrl!.trim().isNotEmpty) {
-      return Image.network(
-        existingImageUrl!,
+      return CachedAppImage(
+        imageUrl: existingImageUrl!,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
+        errorWidget: (context, error, stackTrace) {
           return _placeholder();
         },
       );
@@ -89,4 +123,3 @@ class ImagePickerField extends StatelessWidget {
     );
   }
 }
-

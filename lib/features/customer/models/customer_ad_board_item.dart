@@ -7,6 +7,12 @@ class CustomerAdBoardItem {
   final String? imageUrl;
   final String? badgeLabel;
   final String? ctaLabel;
+  final String type;
+  final int? targetId;
+  final String? targetRoute;
+  final String? promoCode;
+  final String? category;
+  final String? externalLink;
   final String ctaTargetType;
   final String? ctaTargetValue;
   final int? merchantId;
@@ -22,6 +28,12 @@ class CustomerAdBoardItem {
     required this.imageUrl,
     required this.badgeLabel,
     required this.ctaLabel,
+    this.type = 'none',
+    this.targetId,
+    this.targetRoute,
+    this.promoCode,
+    this.category,
+    this.externalLink,
     required this.ctaTargetType,
     required this.ctaTargetValue,
     required this.merchantId,
@@ -39,7 +51,19 @@ class CustomerAdBoardItem {
       imageUrl: parseNullableString(json['imageUrl']),
       badgeLabel: parseNullableString(json['badgeLabel']),
       ctaLabel: parseNullableString(json['ctaLabel']),
-      ctaTargetType: parseString(json['ctaTargetType'], fallback: 'none'),
+      type: parseString(
+        json['type'] ?? json['ctaTargetType'],
+        fallback: 'none',
+      ),
+      targetId: parseNullableInt(json['targetId']),
+      targetRoute: parseNullableString(json['targetRoute']),
+      promoCode: parseNullableString(json['promoCode']),
+      category: parseNullableString(json['category']),
+      externalLink: parseNullableString(json['externalLink']),
+      ctaTargetType: parseString(
+        json['ctaTargetType'] ?? json['type'],
+        fallback: 'none',
+      ),
       ctaTargetValue: parseNullableString(json['ctaTargetValue']),
       merchantId: json['merchantId'] == null
           ? null

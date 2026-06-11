@@ -2,9 +2,12 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
 
+import '../../../core/forms/backend_field_error_parser.dart'
+    show ParsedBackendFieldErrors;
 import '../../../core/files/local_image_file.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/media/media_cache_service.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../data/auth_api.dart';
 import '../data/auth_repo_impl.dart';
@@ -27,8 +30,17 @@ class AuthState {
   final UserModel? user;
   final String? token;
   final String? error;
+  final ParsedBackendFieldErrors? validationError;
+  final String? errorCode;
 
-  const AuthState({this.loading = false, this.user, this.token, this.error});
+  const AuthState({
+    this.loading = false,
+    this.user,
+    this.token,
+    this.error,
+    this.validationError,
+    this.errorCode,
+  });
 
   bool get isAuthed => token != null && token!.isNotEmpty;
 
@@ -36,14 +48,30 @@ class AuthState {
 
   bool get isOwner => _resolveRole() == 'owner';
 
-  bool get isDelivery => _resolveRole() == 'delivery';
+  bool get isTaxiCaptain {
+    if (user?.isTaxiCaptain == true) return true;
+    final role = _resolveRole();
+    if (role == 'taxi_captain') return true;
+    return _resolveTaxiCaptainClaim();
+  }
+
+  bool get isDelivery => _resolveRole() == 'delivery' && !isTaxiCaptain;
+
+  bool get isAccountant => _resolveRole() == 'accountant';
+
+  bool get isHr => _resolveRole() == 'hr';
 
   bool get isDeputyAdmin => _resolveRole() == 'deputy_admin';
 
-  bool get isBackoffice => isAdmin || isDeputyAdmin;
+  bool get isCompanyPortal => _resolveRole() == 'company_portal';
+
+  bool get isServiceProvider => _resolveRole() == 'service_provider';
+
+  bool get isBackoffice => isAdmin || isDeputyAdmin || isSuperAdmin;
 
   bool get isSuperAdmin {
     if (user?.isSuperAdmin == true) return true;
+    if (_resolveRole() == 'super_admin') return true;
 
     final currentToken = token;
     if (currentToken == null || currentToken.isEmpty) return false;
@@ -70,17 +98,44 @@ class AuthState {
     }
   }
 
+  bool _resolveTaxiCaptainClaim() {
+    final currentToken = token;
+    if (currentToken == null || currentToken.isEmpty) return false;
+    try {
+      final claims = JwtDecoder.decode(currentToken);
+      final raw =
+          claims['is_taxi_captain'] ??
+          claims['isTaxiCaptain'] ??
+          claims['taxi_captain'] ??
+          claims['tc'];
+      if (raw is bool) return raw;
+      if (raw is num) return raw != 0;
+      final normalized = '${raw ?? ''}'.trim().toLowerCase();
+      return normalized == 'true' || normalized == '1' || normalized == 'yes';
+    } catch (_) {
+      return false;
+    }
+  }
+
   AuthState copyWith({
     bool? loading,
     UserModel? user,
     String? token,
     String? error,
+    ParsedBackendFieldErrors? validationError,
+    String? errorCode,
+    bool clearValidationError = false,
+    bool clearErrorCode = false,
   }) {
     return AuthState(
       loading: loading ?? this.loading,
       user: user ?? this.user,
       token: token ?? this.token,
       error: error,
+      validationError: clearValidationError
+          ? null
+          : (validationError ?? this.validationError),
+      errorCode: clearErrorCode ? null : (errorCode ?? this.errorCode),
     );
   }
 }
@@ -99,11 +154,20 @@ class AuthController extends StateNotifier<AuthState> {
     final token = await store.readToken();
     if (token == null || token.isEmpty) return;
 
-    state = state.copyWith(token: token);
+    state = state.copyWith(
+      token: token,
+      clearValidationError: true,
+      clearErrorCode: true,
+    );
 
     try {
       final user = await ref.read(authRepoProvider).me();
-      state = state.copyWith(user: user);
+      state = state.copyWith(
+        user: user,
+        error: null,
+        clearValidationError: true,
+        clearErrorCode: true,
+      );
     } catch (_) {
       await store.clear();
       state = const AuthState();
@@ -111,20 +175,40 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> login(String phone, String pin) async {
-    state = state.copyWith(loading: true, error: null);
+    state = state.copyWith(
+      loading: true,
+      error: null,
+      clearValidationError: true,
+      clearErrorCode: true,
+    );
 
     try {
       final user = await ref
           .read(authRepoProvider)
           .login(phone: phone, pin: pin);
       final token = await ref.read(secureStoreProvider).readToken();
-      state = state.copyWith(loading: false, user: user, token: token);
+      state = state.copyWith(
+        loading: false,
+        user: user,
+        token: token,
+        error: null,
+        clearValidationError: true,
+        clearErrorCode: true,
+      );
     } on DioException catch (e) {
-      state = state.copyWith(loading: false, error: _mapLoginError(e));
+      final parsed = parseBackendFieldErrors(e);
+      state = state.copyWith(
+        loading: false,
+        error: _mapLoginError(e),
+        validationError: parsed,
+        errorCode: parsed.messageCode,
+      );
     } catch (e) {
       state = state.copyWith(
         loading: false,
         error: mapAnyError(e, fallback: 'Login failed. Please try again.'),
+        clearValidationError: true,
+        clearErrorCode: true,
       );
     }
   }
@@ -133,7 +217,12 @@ class AuthController extends StateNotifier<AuthState> {
     Map<String, dynamic> dto, {
     LocalImageFile? imageFile,
   }) async {
-    state = state.copyWith(loading: true, error: null);
+    state = state.copyWith(
+      loading: true,
+      error: null,
+      clearValidationError: true,
+      clearErrorCode: true,
+    );
 
     try {
       final user = await ref
@@ -152,13 +241,28 @@ class AuthController extends StateNotifier<AuthState> {
           );
 
       final token = await ref.read(secureStoreProvider).readToken();
-      state = state.copyWith(loading: false, user: user, token: token);
+      state = state.copyWith(
+        loading: false,
+        user: user,
+        token: token,
+        error: null,
+        clearValidationError: true,
+        clearErrorCode: true,
+      );
     } on DioException catch (e) {
-      state = state.copyWith(loading: false, error: _mapRegisterError(e));
+      final parsed = parseBackendFieldErrors(e);
+      state = state.copyWith(
+        loading: false,
+        error: _mapRegisterError(e),
+        validationError: parsed,
+        errorCode: parsed.messageCode,
+      );
     } catch (e) {
       state = state.copyWith(
         loading: false,
         error: mapAnyError(e, fallback: 'Account creation failed.'),
+        clearValidationError: true,
+        clearErrorCode: true,
       );
     }
   }
@@ -168,23 +272,81 @@ class AuthController extends StateNotifier<AuthState> {
     LocalImageFile? ownerImageFile,
     LocalImageFile? merchantImageFile,
   }) async {
-    state = state.copyWith(loading: true, error: null);
+    state = state.copyWith(
+      loading: true,
+      error: null,
+      clearValidationError: true,
+      clearErrorCode: true,
+    );
 
     try {
+      String? optionalTrimmed(dynamic value) {
+        if (value == null) return null;
+        final text = '$value'.trim();
+        return text.isEmpty ? null : text;
+      }
+
+      String requiredTrimmed(String key) {
+        final value = optionalTrimmed(dto[key]);
+        if (value == null) {
+          throw StateError('MISSING_REQUIRED_FIELD:$key');
+        }
+        return value;
+      }
+
+      final merchantName = requiredTrimmed('merchantName');
+      final fullName = optionalTrimmed(dto['fullName']) ?? merchantName;
+      final merchantPhone =
+          optionalTrimmed(dto['merchantPhone']) ?? requiredTrimmed('phone');
+      final merchantType = optionalTrimmed(dto['merchantType']) ?? 'market';
+      final merchantActivityType = requiredTrimmed('merchantActivityType');
       final user = await ref
           .read(authRepoProvider)
           .registerOwner(
-            fullName: dto['fullName']!.trim(),
-            phone: dto['phone']!.trim(),
-            pin: dto['pin']!.trim(),
-            block: dto['block']!.trim(),
-            buildingNumber: dto['buildingNumber']!.trim(),
-            apartment: dto['apartment']!.trim(),
-            merchantName: dto['merchantName']!.trim(),
-            merchantType: dto['merchantType']!.trim(),
-            merchantDescription: dto['merchantDescription']!.trim(),
-            merchantPhone: dto['merchantPhone']!.trim(),
-            merchantImageUrl: dto['merchantImageUrl']!.trim(),
+            fullName: fullName,
+            phone: requiredTrimmed('phone'),
+            pin: requiredTrimmed('pin'),
+            block: optionalTrimmed(dto['block']),
+            buildingNumber: optionalTrimmed(dto['buildingNumber']),
+            apartment: optionalTrimmed(dto['apartment']),
+            merchantName: merchantName,
+            merchantType: merchantType,
+            merchantActivityType: merchantActivityType,
+            merchantDiscoverySubcategory: optionalTrimmed(
+              dto['merchantDiscoverySubcategory'],
+            ),
+            merchantDiscoverySubcategories:
+                dto['merchantDiscoverySubcategories'] is List
+                ? List<String>.from(
+                    dto['merchantDiscoverySubcategories'] as List,
+                  )
+                : null,
+            merchantDiscoverySelectAll:
+                dto['merchantDiscoverySelectAll'] is bool
+                ? dto['merchantDiscoverySelectAll'] as bool
+                : null,
+            merchantDescription:
+                optionalTrimmed(dto['merchantDescription']) ?? '',
+            merchantPhone: merchantPhone,
+            merchantImageUrl: optionalTrimmed(dto['merchantImageUrl']),
+            merchantServiceFlags:
+                dto['merchantServiceFlags'] is Map<String, dynamic>
+                ? dto['merchantServiceFlags'] as Map<String, dynamic>
+                : null,
+            merchantBadges: dto['merchantBadges'] is List
+                ? List<String>.from(dto['merchantBadges'] as List)
+                : null,
+            merchantSupportsChat: dto['merchantSupportsChat'] is bool
+                ? dto['merchantSupportsChat'] as bool
+                : null,
+            merchantSupportsAttachments:
+                dto['merchantSupportsAttachments'] is bool
+                ? dto['merchantSupportsAttachments'] as bool
+                : null,
+            merchantSupportsPharmacyWorkflow:
+                dto['merchantSupportsPharmacyWorkflow'] is bool
+                ? dto['merchantSupportsPharmacyWorkflow'] as bool
+                : null,
             analyticsConsentAccepted: dto['analyticsConsentAccepted'] == true,
             analyticsConsentVersion:
                 '${dto['analyticsConsentVersion'] ?? 'analytics_v1'}',
@@ -193,13 +355,28 @@ class AuthController extends StateNotifier<AuthState> {
           );
 
       final token = await ref.read(secureStoreProvider).readToken();
-      state = state.copyWith(loading: false, user: user, token: token);
+      state = state.copyWith(
+        loading: false,
+        user: user,
+        token: token,
+        error: null,
+        clearValidationError: true,
+        clearErrorCode: true,
+      );
     } on DioException catch (e) {
-      state = state.copyWith(loading: false, error: _mapOwnerRegisterError(e));
+      final parsed = parseBackendFieldErrors(e);
+      state = state.copyWith(
+        loading: false,
+        error: _mapOwnerRegisterError(e),
+        validationError: parsed,
+        errorCode: parsed.messageCode,
+      );
     } catch (e) {
       state = state.copyWith(
         loading: false,
         error: mapAnyError(e, fallback: 'Owner account creation failed.'),
+        clearValidationError: true,
+        clearErrorCode: true,
       );
     }
   }
@@ -209,7 +386,12 @@ class AuthController extends StateNotifier<AuthState> {
     LocalImageFile? profileImageFile,
     LocalImageFile? carImageFile,
   }) async {
-    state = state.copyWith(loading: true, error: null);
+    state = state.copyWith(
+      loading: true,
+      error: null,
+      clearValidationError: true,
+      clearErrorCode: true,
+    );
 
     try {
       await ref
@@ -239,12 +421,17 @@ class AuthController extends StateNotifier<AuthState> {
         user: null,
         token: null,
         error: null,
+        clearValidationError: true,
+        clearErrorCode: true,
       );
       return true;
     } on DioException catch (e) {
+      final parsed = parseBackendFieldErrors(e);
       state = state.copyWith(
         loading: false,
         error: _mapDeliveryRegisterError(e),
+        validationError: parsed,
+        errorCode: parsed.messageCode,
       );
       return false;
     } catch (e) {
@@ -254,12 +441,86 @@ class AuthController extends StateNotifier<AuthState> {
           e,
           fallback: 'Taxi captain account creation failed.',
         ),
+        clearValidationError: true,
+        clearErrorCode: true,
       );
       return false;
     }
   }
 
+  Future<Map<String, dynamic>?> extractResidenceCard(
+    LocalImageFile cardImageFile,
+  ) async {
+    final out = await ref
+        .read(authRepoProvider)
+        .extractResidenceCard(cardImageFile: cardImageFile);
+    return out;
+  }
+
+  Future<void> registerWithCard(
+    Map<String, dynamic> payload, {
+    LocalImageFile? imageFile,
+    required LocalImageFile cardImageFile,
+  }) async {
+    state = state.copyWith(
+      loading: true,
+      error: null,
+      clearValidationError: true,
+      clearErrorCode: true,
+    );
+
+    try {
+      final user = await ref
+          .read(authRepoProvider)
+          .registerWithCard(
+            payload: payload,
+            imageFile: imageFile,
+            cardImageFile: cardImageFile,
+          );
+      final token = await ref.read(secureStoreProvider).readToken();
+      state = state.copyWith(
+        loading: false,
+        user: user,
+        token: token,
+        error: null,
+        clearValidationError: true,
+        clearErrorCode: true,
+      );
+    } on DioException catch (e) {
+      final parsed = parseBackendFieldErrors(e);
+      state = state.copyWith(
+        loading: false,
+        error: _mapRegisterError(e),
+        validationError: parsed,
+        errorCode: parsed.messageCode,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        loading: false,
+        error: mapAnyError(e, fallback: 'Account creation failed.'),
+        clearValidationError: true,
+        clearErrorCode: true,
+      );
+    }
+  }
+
+  Future<bool> registerTaxiCaptain(
+    Map<String, dynamic> dto, {
+    LocalImageFile? profileImageFile,
+    LocalImageFile? carImageFile,
+  }) {
+    return registerDelivery(
+      dto,
+      profileImageFile: profileImageFile,
+      carImageFile: carImageFile,
+    );
+  }
+
   Future<void> logout() async {
+    final userId = state.user?.id ?? 0;
+    if (userId > 0) {
+      await ref.read(mediaCacheServiceProvider).clearUserScopedCache(userId);
+    }
     await ref.read(authRepoProvider).logout();
     state = const AuthState();
   }
@@ -269,7 +530,12 @@ class AuthController extends StateNotifier<AuthState> {
     String? newPhone,
     String? newPin,
   }) async {
-    state = state.copyWith(loading: true, error: null);
+    state = state.copyWith(
+      loading: true,
+      error: null,
+      clearValidationError: true,
+      clearErrorCode: true,
+    );
 
     try {
       final updated = await ref
@@ -279,21 +545,60 @@ class AuthController extends StateNotifier<AuthState> {
             newPhone: newPhone,
             newPin: newPin,
           );
-      state = state.copyWith(loading: false, user: updated, error: null);
+      state = state.copyWith(
+        loading: false,
+        user: updated,
+        error: null,
+        clearValidationError: true,
+        clearErrorCode: true,
+      );
       return true;
     } on DioException catch (e) {
-      state = state.copyWith(loading: false, error: _mapUpdateAccountError(e));
+      final parsed = parseBackendFieldErrors(e);
+      state = state.copyWith(
+        loading: false,
+        error: _mapUpdateAccountError(e),
+        validationError: parsed,
+        errorCode: parsed.messageCode,
+      );
       return false;
     } catch (e) {
       state = state.copyWith(
         loading: false,
         error: mapAnyError(e, fallback: 'Unable to update account details.'),
+        clearValidationError: true,
+        clearErrorCode: true,
       );
       return false;
     }
   }
 
+  void updateLocalWorkProfile({String? workTitle, String? workCompany}) {
+    final user = state.user;
+    if (user == null) return;
+    state = state.copyWith(
+      user: user.copyWith(
+        workTitle: workTitle,
+        workCompany: workCompany,
+        clearWorkTitle: workTitle == null || workTitle.trim().isEmpty,
+        clearWorkCompany: workCompany == null || workCompany.trim().isEmpty,
+      ),
+    );
+  }
+
   String _mapLoginError(DioException e) {
+    final data = e.response?.data;
+    final code = data is Map ? '${data['message'] ?? ''}'.trim() : '';
+    if (code.toUpperCase() == 'ACCOUNT_DISABLED') {
+      final details = data is Map && data['details'] is Map
+          ? Map<String, dynamic>.from(data['details'] as Map)
+          : const <String, dynamic>{};
+      final note = '${details['note'] ?? ''}'.trim();
+      if (note.isNotEmpty) {
+        return 'الحساب معطّل من الإدارة. السبب: $note';
+      }
+      return 'الحساب معطّل من الإدارة.';
+    }
     return mapDioError(
       e,
       fallback: 'Login failed. Please check your phone and PIN.',

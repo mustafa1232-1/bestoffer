@@ -7,6 +7,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'order_status.dart';
+
 Future<void> printSimpleReport({
   required String title,
   required List<String> lines,
@@ -237,9 +239,9 @@ Future<void> exportOrdersExcelReport({
       itemsSheet.appendRow([
         IntCellValue(order.id),
         TextCellValue('لا توجد عناصر'),
-        IntCellValue(0),
-        DoubleCellValue(0),
-        DoubleCellValue(0),
+        const IntCellValue(0),
+        const DoubleCellValue(0),
+        const DoubleCellValue(0),
       ]);
       continue;
     }
@@ -345,9 +347,9 @@ List<pw.Widget> _buildOrderDetailTables(_ReportOrder order) {
     pw.Container(
       width: double.infinity,
       padding: const pw.EdgeInsets.all(8),
-      decoration: pw.BoxDecoration(
+      decoration: const pw.BoxDecoration(
         color: PdfColors.grey200,
-        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5)),
+        borderRadius: pw.BorderRadius.all(pw.Radius.circular(5)),
       ),
       child: pw.Text(
         'تفاصيل الطلب #${order.id} - ${_statusLabel(order.status)}',
@@ -571,22 +573,7 @@ String _money(double value) {
 }
 
 String _statusLabel(String status) {
-  switch (status) {
-    case 'pending':
-      return 'قيد الانتظار';
-    case 'preparing':
-      return 'قيد التحضير';
-    case 'ready_for_delivery':
-      return 'جاهز للتوصيل';
-    case 'on_the_way':
-      return 'في الطريق';
-    case 'delivered':
-      return 'تم التسليم';
-    case 'cancelled':
-      return 'ملغي';
-    default:
-      return status;
-  }
+  return orderStatusLabel(status);
 }
 
 class _ReportOrder {

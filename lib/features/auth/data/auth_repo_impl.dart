@@ -1,4 +1,4 @@
-import 'package:bestoffer/core/storage/secure_storage.dart';
+import 'package:maslaki/core/storage/secure_storage.dart';
 import '../../../core/files/local_image_file.dart';
 
 import '../domain/auth_repo.dart';
@@ -42,18 +42,52 @@ class AuthRepoImpl implements AuthRepo {
   }
 
   @override
+  Future<Map<String, dynamic>> extractResidenceCard({
+    required LocalImageFile cardImageFile,
+  }) {
+    return api.extractResidenceCard(cardImageFile: cardImageFile);
+  }
+
+  @override
+  Future<UserModel> registerWithCard({
+    required Map<String, dynamic> payload,
+    LocalImageFile? imageFile,
+    required LocalImageFile cardImageFile,
+  }) async {
+    final data = await api.registerWithCard(
+      payload,
+      imageFile: imageFile,
+      cardImageFile: cardImageFile,
+    );
+    final token = data['token'];
+    if (token is String && token.trim().isNotEmpty) {
+      await store.saveToken(token);
+    }
+    return _readUser(data);
+  }
+
+  @override
   Future<UserModel> registerOwner({
-    required String fullName,
+    String? fullName,
     required String phone,
     required String pin,
-    required String block,
-    required String buildingNumber,
-    required String apartment,
+    String? block,
+    String? buildingNumber,
+    String? apartment,
     required String merchantName,
     required String merchantType,
+    required String merchantActivityType,
+    String? merchantDiscoverySubcategory,
+    List<String>? merchantDiscoverySubcategories,
+    bool? merchantDiscoverySelectAll,
     required String merchantDescription,
     required String merchantPhone,
-    required String merchantImageUrl,
+    String? merchantImageUrl,
+    Map<String, dynamic>? merchantServiceFlags,
+    List<String>? merchantBadges,
+    bool? merchantSupportsChat,
+    bool? merchantSupportsAttachments,
+    bool? merchantSupportsPharmacyWorkflow,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? ownerImageFile,
@@ -62,23 +96,63 @@ class AuthRepoImpl implements AuthRepo {
     final normalizedPhone = _normalizeInput(phone);
     final normalizedPin = _normalizeInput(pin);
     final normalizedMerchantPhone = _normalizeInput(merchantPhone);
+    final payload = <String, dynamic>{
+      'phone': normalizedPhone,
+      'pin': normalizedPin,
+      'merchantName': merchantName.trim(),
+      'merchantType': merchantType.trim(),
+      'merchantActivityType': merchantActivityType.trim(),
+      'merchantDescription': merchantDescription.trim(),
+      'merchantPhone': normalizedMerchantPhone,
+      'analyticsConsentAccepted': analyticsConsentAccepted,
+      'analyticsConsentVersion': analyticsConsentVersion,
+    };
+
+    if (fullName != null && fullName.trim().isNotEmpty) {
+      payload['fullName'] = fullName.trim();
+    }
+    if (block != null && block.trim().isNotEmpty) {
+      payload['block'] = block.trim();
+    }
+    if (buildingNumber != null && buildingNumber.trim().isNotEmpty) {
+      payload['buildingNumber'] = buildingNumber.trim();
+    }
+    if (apartment != null && apartment.trim().isNotEmpty) {
+      payload['apartment'] = apartment.trim();
+    }
+    if (merchantDiscoverySubcategory != null &&
+        merchantDiscoverySubcategory.trim().isNotEmpty) {
+      payload['merchantDiscoverySubcategory'] =
+          merchantDiscoverySubcategory.trim();
+    }
+    if (merchantDiscoverySubcategories != null) {
+      payload['merchantDiscoverySubcategories'] = merchantDiscoverySubcategories;
+    }
+    if (merchantDiscoverySelectAll != null) {
+      payload['merchantDiscoverySelectAll'] = merchantDiscoverySelectAll;
+    }
+    if (merchantImageUrl != null && merchantImageUrl.trim().isNotEmpty) {
+      payload['merchantImageUrl'] = merchantImageUrl.trim();
+    }
+    if (merchantServiceFlags != null) {
+      payload['merchantServiceFlags'] = merchantServiceFlags;
+    }
+    if (merchantBadges != null) {
+      payload['merchantBadges'] = merchantBadges;
+    }
+    if (merchantSupportsChat != null) {
+      payload['merchantSupportsChat'] = merchantSupportsChat;
+    }
+    if (merchantSupportsAttachments != null) {
+      payload['merchantSupportsAttachments'] = merchantSupportsAttachments;
+    }
+    if (merchantSupportsPharmacyWorkflow != null) {
+      payload['merchantSupportsPharmacyWorkflow'] =
+          merchantSupportsPharmacyWorkflow;
+    }
 
     final data = await api.registerOwner(
-      {
-        'fullName': fullName.trim(),
-        'phone': normalizedPhone,
-        'pin': normalizedPin,
-        'block': block.trim(),
-        'buildingNumber': buildingNumber.trim(),
-        'apartment': apartment.trim(),
-        'merchantName': merchantName.trim(),
-        'merchantType': merchantType.trim(),
-        'merchantDescription': merchantDescription.trim(),
-        'merchantPhone': normalizedMerchantPhone,
-        'merchantImageUrl': merchantImageUrl.trim(),
-        'analyticsConsentAccepted': analyticsConsentAccepted,
-        'analyticsConsentVersion': analyticsConsentVersion,
-      },
+      payload,
       ownerImageFile: ownerImageFile,
       merchantImageFile: merchantImageFile,
     );

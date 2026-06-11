@@ -14,18 +14,37 @@ abstract class AuthRepo {
     LocalImageFile? imageFile,
   });
 
+  Future<Map<String, dynamic>> extractResidenceCard({
+    required LocalImageFile cardImageFile,
+  });
+
+  Future<UserModel> registerWithCard({
+    required Map<String, dynamic> payload,
+    LocalImageFile? imageFile,
+    required LocalImageFile cardImageFile,
+  });
+
   Future<UserModel> registerOwner({
-    required String fullName,
+    String? fullName,
     required String phone,
     required String pin,
-    required String block,
-    required String buildingNumber,
-    required String apartment,
+    String? block,
+    String? buildingNumber,
+    String? apartment,
     required String merchantName,
     required String merchantType,
+    required String merchantActivityType,
+    String? merchantDiscoverySubcategory,
+    List<String>? merchantDiscoverySubcategories,
+    bool? merchantDiscoverySelectAll,
     required String merchantDescription,
     required String merchantPhone,
-    required String merchantImageUrl,
+    String? merchantImageUrl,
+    Map<String, dynamic>? merchantServiceFlags,
+    List<String>? merchantBadges,
+    bool? merchantSupportsChat,
+    bool? merchantSupportsAttachments,
+    bool? merchantSupportsPharmacyWorkflow,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? ownerImageFile,

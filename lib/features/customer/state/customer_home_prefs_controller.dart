@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../assistant/state/assistant_controller.dart';
 import '../../auth/state/auth_controller.dart';
 import '../models/customer_home_prefs.dart';
 
@@ -23,25 +22,6 @@ class CustomerHomePrefsController
 
   Future<void> bootstrap({required int userId}) async {
     final local = await _readLocal(userId);
-    if (local != null) {
-      state = AsyncValue.data(local);
-    }
-
-    try {
-      final remotePayload = await ref.read(assistantApiProvider).getProfile();
-      final homeRaw = remotePayload['homePreferences'];
-      if (homeRaw is Map) {
-        final remote = CustomerHomePrefs.fromJson(
-          Map<String, dynamic>.from(homeRaw),
-        );
-        state = AsyncValue.data(remote);
-        await _writeLocal(userId, remote);
-        return;
-      }
-    } catch (_) {
-      // Keep local state if network fails.
-    }
-
     state = AsyncValue.data(local ?? CustomerHomePrefs.empty);
   }
 
@@ -61,37 +41,12 @@ class CustomerHomePrefsController
 
     state = AsyncValue.data(next);
     await _writeLocal(userId, next);
-
-    try {
-      await ref
-          .read(assistantApiProvider)
-          .updateHomePreferences(
-            audience: next.audience,
-            priority: next.priority,
-            interests: next.interests,
-            completed: true,
-          );
-    } catch (_) {
-      // Local save is enough to keep UX smooth if backend is temporarily unavailable.
-    }
   }
 
   Future<void> reset({required int userId}) async {
     state = const AsyncValue.data(CustomerHomePrefs.empty);
     final store = ref.read(secureStoreProvider);
     await store.delete(_key(userId));
-    try {
-      await ref
-          .read(assistantApiProvider)
-          .updateHomePreferences(
-            audience: 'any',
-            priority: 'balanced',
-            interests: const <String>[],
-            completed: false,
-          );
-    } catch (_) {
-      // Ignore network failure on reset.
-    }
   }
 
   Future<void> _writeLocal(int userId, CustomerHomePrefs prefs) async {

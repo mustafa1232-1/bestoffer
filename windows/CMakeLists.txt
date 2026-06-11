@@ -1,10 +1,37 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-project(bestoffer LANGUAGES CXX)
+
+# Prefer the newest installed MSVC v143 toolset. This avoids link failures when
+# prebuilt native SDKs (such as Firebase C++) require newer STL symbols than
+# the older cached toolset chosen by default.
+if(CMAKE_GENERATOR MATCHES "Visual Studio 17 2022" AND NOT DEFINED CMAKE_GENERATOR_TOOLSET)
+  file(GLOB _flutter_msvc_dirs LIST_DIRECTORIES true
+    "C:/Program Files/Microsoft Visual Studio/2022/*/VC/Tools/MSVC/*")
+  set(_flutter_preferred_msvc_version "")
+  foreach(_flutter_msvc_dir ${_flutter_msvc_dirs})
+    if(IS_DIRECTORY "${_flutter_msvc_dir}")
+      get_filename_component(_flutter_msvc_version "${_flutter_msvc_dir}" NAME)
+      if(_flutter_preferred_msvc_version STREQUAL ""
+        OR _flutter_msvc_version VERSION_GREATER _flutter_preferred_msvc_version)
+        set(_flutter_preferred_msvc_version "${_flutter_msvc_version}")
+      endif()
+    endif()
+  endforeach()
+  if(NOT _flutter_preferred_msvc_version STREQUAL "")
+    set(
+      CMAKE_GENERATOR_TOOLSET
+      "v143,version=${_flutter_preferred_msvc_version}"
+      CACHE STRING "Preferred MSVC toolset"
+      FORCE
+    )
+  endif()
+endif()
+
+project(maslaki LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "bestoffer")
+set(BINARY_NAME "maslaki")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.

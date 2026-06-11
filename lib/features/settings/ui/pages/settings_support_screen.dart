@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/i18n/app_strings.dart';
+import '../../../../core/i18n/app_localizations_context.dart';
 
 class SettingsSupportScreen extends ConsumerWidget {
   const SettingsSupportScreen({super.key});
@@ -12,18 +12,18 @@ class SettingsSupportScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final strings = ref.watch(appStringsProvider);
+    final l10n = context.l10n;
 
     Future<void> copy(String value) async {
       await Clipboard.setData(ClipboardData(text: value));
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(strings.t('copied'))));
+      ).showSnackBar(SnackBar(content: Text(l10n.commonCopied)));
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(strings.t('supportAndSystem'))),
+      appBar: AppBar(title: Text(l10n.settingsSupportAndSystem)),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
@@ -32,7 +32,7 @@ class SettingsSupportScreen extends ConsumerWidget {
               children: [
                 ListTile(
                   leading: const Icon(Icons.phone_in_talk_rounded),
-                  title: Text(strings.t('supportNumber')),
+                  title: Text(l10n.commonCall),
                   subtitle: const Text(_supportPhone),
                   trailing: IconButton(
                     icon: const Icon(Icons.copy_rounded),
@@ -42,7 +42,7 @@ class SettingsSupportScreen extends ConsumerWidget {
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.chat_bubble_outline_rounded),
-                  title: Text(strings.t('supportWhatsApp')),
+                  title: const Text('WhatsApp'),
                   subtitle: const Text(_supportWhatsApp),
                   trailing: IconButton(
                     icon: const Icon(Icons.copy_rounded),
@@ -56,7 +56,10 @@ class SettingsSupportScreen extends ConsumerWidget {
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
-              child: Text(strings.t('supportTips'), textAlign: TextAlign.start),
+              child: Text(
+                l10n.settingsSystemHelp,
+                textAlign: TextAlign.start,
+              ),
             ),
           ),
         ],

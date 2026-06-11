@@ -1,15 +1,25 @@
 import 'dart:async';
-import 'dart:convert';
-
-import 'package:bestoffer/features/auth/state/auth_controller.dart';
-import 'package:bestoffer/features/notifications/data/notifications_api.dart';
-import 'package:bestoffer/features/social/data/social_api.dart';
+import 'package:maslaki/features/auth/state/auth_controller.dart';
+import 'package:maslaki/features/notifications/data/notifications_api.dart';
+import 'package:maslaki/features/social/data/social_api.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:permission_handler/permission_handler.dart';
 
+import '../../../core/calls/rtc_call_support.dart';
+import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/notifications/attention_alert_service.dart';
+import '../../../l10n/app_localizations.dart';
+
+/// Purpose: شاشة المكالمات الصوتية لمحادثات السوشال باستخدام WebRTC مع قناتين:
+/// API للحالة الأساسية وSSE للإشارات الفورية.
+/// Used by: `social_chat_thread_screen.dart` ومسارات incoming/outgoing call المرتبطة بالمحادثات.
+/// Depends on: `SocialApi`, `NotificationsApi.streamEvents`, `rtc_call_support.dart`, و`attention_alert_service.dart`.
+/// Critical notes: هذا الملف حساس تشغيلياً؛ أي تعديل في ترتيب الإشارات أو reconnect قد يسبب مكالمات عالقة أو صوتاً صامتاً.
+/// Maintenance notes: عند تعطل المكالمات افحص بالتسلسل صلاحية المايكروفون، `getThreadCallState`, stream channel `social`, ثم ICE recovery.
 final socialCallApiProvider = Provider<SocialApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
   return SocialApi(dio);
@@ -20,6 +30,7 @@ final socialCallLiveApiProvider = Provider<NotificationsApi>((ref) {
   return NotificationsApi(dio);
 });
 
+/// واجهة المكالمة الفعلية بين طرفي thread اجتماعي.
 class SocialCallScreen extends ConsumerStatefulWidget {
   final int threadId;
   final bool isCaller;
@@ -38,19 +49,33 @@ class SocialCallScreen extends ConsumerStatefulWidget {
   ConsumerState<SocialCallScreen> createState() => _SocialCallScreenState();
 }
 
+/// استثناء داخلي يميز فشل إذن الميكروفون عن بقية أخطاء الاتصال.
+class _MicPermissionDenied implements Exception {
+  const _MicPermissionDenied();
+}
+
+enum _SocialCallStatusTone { info, warning, error, success }
+
+/// حالة الشاشة التي تدير دورة حياة WebRTC كاملة:
+/// إنشاء الجلسة، استقبال/إرسال الإشارات، وإعادة الاتصال عند تقطع الشبكة.
 class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   SocialApi get _api => ref.read(socialCallApiProvider);
   NotificationsApi get _liveApi => ref.read(socialCallLiveApiProvider);
+  AttentionAlertService get _alertService =>
+      ref.read(attentionAlertServiceProvider);
 
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
+  MediaStream? _remoteStream;
   StreamSubscription<NotificationLiveEvent>? _streamSub;
   Timer? _ticker;
   Timer? _reconnectTimer;
   Timer? _ringTimer;
   Timer? _iceRecoverTimer;
+  Timer? _stateSyncTimer;
 
   final Set<int> _handledSignalIds = <int>{};
+  final Set<String> _boundRemoteTrackIds = <String>{};
   final List<RTCIceCandidate> _queuedRemoteCandidates = <RTCIceCandidate>[];
 
   int? _sessionId;
@@ -63,19 +88,37 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   bool _disposed = false;
   bool _remoteDescriptionSet = false;
   bool _callEnded = false;
+  bool _stateSyncInFlight = false;
   int _reconnectAttempt = 0;
   int? _lastEventId;
-  String _statusText = 'جاري تهيئة الاتصال...';
+  String? _statusText;
+  _SocialCallStatusTone _statusTone = _SocialCallStatusTone.info;
   DateTime? _connectedAt;
   Map<String, dynamic>? _pendingOfferPayload;
 
+  AppLocalizations get _l10n => context.l10n;
+
+  /// يبدأ bootstrap الكامل للمكالمة.
+  ///
+  /// الترتيب مقصود: تهيئة RTC أولاً، ثم stream الإشارات، ثم state snapshot،
+  /// وبعدها فقط يبدأ caller بإنشاء offer إذا لم تكن session موجودة مسبقاً.
   @override
   void initState() {
     super.initState();
     _sessionId = widget.initialSessionId;
-    unawaited(_bootstrap());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted) return;
+      unawaited(_bootstrap());
+    });
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _statusText ??= _l10n.socialCallInitializing;
+  }
+
+  /// ينظف timers والـ subscriptions وموارد WebRTC لتفادي microphone leaks أو ghost calls.
   @override
   void dispose() {
     _disposed = true;
@@ -84,11 +127,17 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     _reconnectTimer?.cancel();
     _ringTimer?.cancel();
     _iceRecoverTimer?.cancel();
+    _stateSyncTimer?.cancel();
     unawaited(_disposeRtc());
     super.dispose();
   }
 
+  /// يهيئ الاتصال من الصفر ويربط الواجهة بحالة الجلسة الحالية.
   Future<void> _bootstrap() async {
+    if (!widget.isCaller) {
+      _startRinging(incoming: true);
+      _setStatus(_l10n.socialCallIncoming, tone: _SocialCallStatusTone.warning);
+    }
     try {
       await _prepareRtc();
       await _connectSignalStream();
@@ -102,17 +151,23 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
         }
         _startRinging(incoming: false);
         await _createAndSendOffer();
-        _setStatus('جاري الاتصال بالطرف الآخر...');
-      } else if (!widget.isCaller) {
-        _startRinging(incoming: true);
-        _setStatus('مكالمة واردة...');
+        _setStatus(
+          _l10n.socialCallDialingPeer,
+          tone: _SocialCallStatusTone.info,
+        );
       }
 
       _startTicker();
+      _startStateSync();
+    } on _MicPermissionDenied {
+      _setStatus(
+        _l10n.socialCallMicrophonePermissionRequired,
+        tone: _SocialCallStatusTone.error,
+      );
     } on DioException catch (e) {
-      _setStatus(_mapCallError(e));
+      _setStatus(_mapCallError(e), tone: _SocialCallStatusTone.error);
     } catch (_) {
-      _setStatus('تعذر بدء الاتصال داخل التطبيق');
+      _setStatus(_l10n.socialCallStartFailed, tone: _SocialCallStatusTone.error);
     } finally {
       if (!_disposed && mounted) {
         setState(() => _busy = false);
@@ -120,8 +175,40 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     }
   }
 
+  /// يجهز PeerConnection، الميكروفون المحلي، وcallbacks الخاصة بالمسارات الصوتية وICE.
+  ///
+  /// إذا ظهرت مكالمة بدون صوت أو بدون remote track فابدأ التشخيص من هذا الجزء
+  /// ثم تابع إلى `_consumeSignal` و`_bindRemoteTrack`.
   Future<void> _prepareRtc() async {
-    _pc = await createPeerConnection(_buildRtcConfig());
+    await _ensureMicrophonePermission();
+    if (WebRTC.platformIsAndroid) {
+      await Helper.setAndroidAudioConfiguration(
+        AndroidAudioConfiguration.communication,
+      );
+    }
+    if (WebRTC.platformIsIOS) {
+      try {
+        await Helper.setAppleAudioIOMode(
+          AppleAudioIOMode.localAndRemote,
+          preferSpeakerOutput: _speakerOn,
+        );
+      } catch (_) {}
+    }
+    _pc = await createPeerConnection(await resolveRtcCallConfig(_api.dio));
+
+    _pc!.onTrack = (event) {
+      _bindRemoteTrack(event.track);
+      for (final stream in event.streams) {
+        _bindRemoteStream(stream);
+      }
+    };
+
+    _pc!.onAddTrack = (stream, track) {
+      _bindRemoteStream(stream);
+      _bindRemoteTrack(track);
+    };
+
+    _pc!.onAddStream = _bindRemoteStream;
 
     _pc!.onConnectionState = (state) {
       if (!mounted || _disposed) return;
@@ -132,20 +219,26 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
       }
 
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-        _setStatus('انقطع الاتصال، جاري محاولة الاستعادة...');
+        _setStatus(
+          _l10n.socialCallConnectionInterrupted,
+          tone: _SocialCallStatusTone.warning,
+        );
         _scheduleIceRecover();
         return;
       }
 
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        _setStatus('فشل الاتصال، جاري إعادة المحاولة...');
+        _setStatus(
+          _l10n.socialCallReconnectRetrying,
+          tone: _SocialCallStatusTone.error,
+        );
         _scheduleIceRecover(force: true);
         return;
       }
 
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
         _stopRinging();
-        _setStatus('انتهت المكالمة');
+        _setStatus(_l10n.socialCallEnded, tone: _SocialCallStatusTone.info);
       }
     };
 
@@ -177,115 +270,55 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
       );
     };
 
-    _localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': {
-        'channelCount': 1,
-        'sampleRate': 48000,
-        'latency': 0,
-        'echoCancellation': true,
-        'noiseSuppression': true,
-        'autoGainControl': true,
-        'googEchoCancellation': true,
-        'googEchoCancellation2': true,
-        'googNoiseSuppression': true,
-        'googNoiseSuppression2': true,
-        'googAutoGainControl': true,
-        'googAutoGainControl2': true,
-        'googHighpassFilter': true,
-      },
-      'video': false,
-    });
+    _localStream = await navigator.mediaDevices.getUserMedia(
+      buildHighQualityAudioConstraints(),
+    );
 
     for (final track in _localStream!.getAudioTracks()) {
       await _pc!.addTrack(track, _localStream!);
     }
 
-    await Helper.setSpeakerphoneOn(true);
+    await _applyAudioRoute();
   }
 
-  Map<String, dynamic> _buildRtcConfig() {
-    final servers = <Map<String, dynamic>>[
-      {
-        'urls': <String>[
-          'stun:stun.l.google.com:19302',
-          'stun:stun1.l.google.com:19302',
-        ],
-      },
-    ];
-
-    const turnUrl = String.fromEnvironment('RTC_TURN_URL', defaultValue: '');
-    const turnUsername = String.fromEnvironment(
-      'RTC_TURN_USERNAME',
-      defaultValue: '',
-    );
-    const turnCredential = String.fromEnvironment(
-      'RTC_TURN_CREDENTIAL',
-      defaultValue: '',
-    );
-    if (turnUrl.trim().isNotEmpty) {
-      servers.add({
-        'urls': turnUrl.trim(),
-        if (turnUsername.trim().isNotEmpty) 'username': turnUsername.trim(),
-        if (turnCredential.trim().isNotEmpty) 'credential': turnCredential,
-      });
+  /// يتحقق من إذن المايكروفون على Android/iOS ويفتح إعدادات النظام عند الرفض الدائم.
+  Future<void> _ensureMicrophonePermission() async {
+    if (!(WebRTC.platformIsAndroid || WebRTC.platformIsIOS)) return;
+    var status = await Permission.microphone.status;
+    if (!status.isGranted) {
+      status = await Permission.microphone.request();
     }
-
-    servers.addAll(_parseExtraIceServers());
-
-    return {
-      'iceServers': servers,
-      'iceTransportPolicy': 'all',
-      'bundlePolicy': 'max-bundle',
-      'rtcpMuxPolicy': 'require',
-      'sdpSemantics': 'unified-plan',
-    };
-  }
-
-  List<Map<String, dynamic>> _parseExtraIceServers() {
-    const raw = String.fromEnvironment(
-      'RTC_ICE_SERVERS_JSON',
-      defaultValue: '',
-    );
-    final text = raw.trim();
-    if (text.isEmpty) return const [];
-
-    try {
-      final decoded = jsonDecode(text);
-      if (decoded is! List) return const [];
-      final out = <Map<String, dynamic>>[];
-      for (final item in decoded) {
-        if (item is! Map) continue;
-        final map = Map<String, dynamic>.from(item);
-        final urls = map['urls'];
-        final hasUrls =
-            (urls is String && urls.trim().isNotEmpty) ||
-            (urls is List && urls.any((e) => '$e'.trim().isNotEmpty));
-        if (!hasUrls) continue;
-        out.add(map);
+    if (!status.isGranted) {
+      if (status.isPermanentlyDenied || status.isRestricted) {
+        await openAppSettings();
       }
-      return out;
-    } catch (_) {
-      return const [];
+      throw const _MicPermissionDenied();
     }
   }
 
+  /// يشترك في stream الإشعارات الحية لقناة `social` ويحوّل أحداثها إلى تحديثات call session.
+  ///
+  /// الـ SSE هنا هو المصدر الأسرع، بينما `getThreadCallState` يمثل fallback/resync path.
   Future<void> _connectSignalStream() async {
     _streamSub?.cancel();
     _reconnectTimer?.cancel();
     _streamSub = _liveApi
-        .streamEvents(lastEventId: _lastEventId)
+        .streamEvents(lastEventId: _lastEventId, channel: 'social')
         .listen(
           (event) {
-            if (event.eventId != null && event.eventId! > 0) {
-              _lastEventId = event.eventId;
-            }
-
             if (event.event == 'connected' || event.event == 'replayed') {
               _reconnectAttempt = 0;
               return;
             }
 
+            if (event.event == 'resync_required') {
+              _lastEventId = _asInt(event.data['latestEventId']);
+              unawaited(_loadCallState());
+              return;
+            }
+
             if (event.event != 'social_call_update') return;
+            if (!_acceptRealtimeEventId(event.eventId)) return;
             final threadId = _asInt(
               event.data['threadId'] ?? event.data['thread_id'],
             );
@@ -293,16 +326,22 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
             unawaited(_handleCallUpdateEvent(event.data));
           },
           onError: (_) {
-            if (mounted) {
-              setState(
-                () => _statusText = 'تقطّع في الاتصال، جاري الاستعادة...',
-              );
-            }
+            _setStatus(
+              _l10n.socialCallConnectionInterrupted,
+              tone: _SocialCallStatusTone.warning,
+            );
             _scheduleReconnect();
           },
           onDone: _scheduleReconnect,
           cancelOnError: true,
         );
+  }
+
+  bool _acceptRealtimeEventId(int? eventId) {
+    if (eventId == null || eventId <= 0) return true;
+    if (_lastEventId != null && eventId <= _lastEventId!) return false;
+    _lastEventId = eventId;
+    return true;
   }
 
   void _scheduleReconnect() {
@@ -325,17 +364,36 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     });
   }
 
+  /// يسحب snapshot الخادم الحالي للجلسة والإشارات المعلقة لاستعادة التزامن بعد reconnect.
   Future<void> _loadCallState() async {
     final state = await _api.getThreadCallState(threadId: widget.threadId);
     final session = state['session'];
     if (session is Map) {
       _sessionId = _asInt(session['id']) ?? _sessionId;
-      final status = _asString(session['status']);
+      final status = _asString(session['status']) ?? '';
       if (status == 'active') {
         _onConnected();
       } else if (status == 'ringing') {
         _startRinging(incoming: !widget.isCaller);
-        _setStatus(widget.isCaller ? 'جاري الرنين...' : 'مكالمة واردة...');
+        _setStatus(
+          widget.isCaller ? _l10n.socialCallRinging : _l10n.socialCallIncoming,
+          tone: _SocialCallStatusTone.warning,
+        );
+      } else if (status == 'missed') {
+        _setStatus(
+          _l10n.socialCallMissedTimeout,
+          tone: _SocialCallStatusTone.error,
+        );
+        await _remoteEndCall();
+        return;
+      } else if (status == 'declined') {
+        _setStatus(_l10n.socialCallDeclined, tone: _SocialCallStatusTone.error);
+        await _remoteEndCall();
+        return;
+      } else if (status == 'ended') {
+        _setStatus(_l10n.socialCallEnded, tone: _SocialCallStatusTone.info);
+        await _remoteEndCall();
+        return;
       }
     }
 
@@ -348,12 +406,15 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     }
   }
 
+  /// ينشئ offer محسن للصوت ويرسله للطرف الآخر مع دعم ICE restart عند الحاجة.
   Future<void> _createAndSendOffer({bool iceRestart = false}) async {
     if (_pc == null) return;
-    final offer = await _pc!.createOffer({
-      'offerToReceiveAudio': true,
-      if (iceRestart) 'iceRestart': true,
-    });
+    final offer = optimizeVoiceDescription(
+      await _pc!.createOffer({
+        'offerToReceiveAudio': true,
+        if (iceRestart) 'iceRestart': true,
+      }),
+    );
     await _pc!.setLocalDescription(offer);
     await _sendSignal(
       signalType: 'offer',
@@ -365,6 +426,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     );
   }
 
+  /// يغلف إرسال signal إلى الخادم مع تحديث sessionId إذا أعادته الاستجابة.
   Future<void> _sendSignal({
     required String signalType,
     Map<String, dynamic>? signalPayload,
@@ -381,6 +443,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     }
   }
 
+  /// يفسر event الحي القادم من الخادم ويحوّله إلى إجراءات محلية على الجلسة.
   Future<void> _handleCallUpdateEvent(Map<String, dynamic> data) async {
     final session = data['session'];
     if (session is Map) {
@@ -390,11 +453,19 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     final eventType = _asString(data['eventType']) ?? '';
     if (eventType == 'incoming_call') {
       _startRinging(incoming: true);
-      _setStatus('مكالمة واردة...');
+      _setStatus(_l10n.socialCallIncoming, tone: _SocialCallStatusTone.warning);
     }
     if (eventType == 'outgoing_call') {
       _startRinging(incoming: false);
-      _setStatus('جاري الرنين...');
+      _setStatus(_l10n.socialCallRinging, tone: _SocialCallStatusTone.warning);
+    }
+    if (eventType == 'call_missed') {
+      _setStatus(
+        _l10n.socialCallMissedTimeout,
+        tone: _SocialCallStatusTone.error,
+      );
+      await _remoteEndCall();
+      return;
     }
     if (eventType == 'call_ended') {
       await _remoteEndCall();
@@ -407,12 +478,22 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     }
   }
 
+  /// يستهلك signal واحداً مع dedupe حسب signal id وترتيب آمن بين offer/answer/ice.
+  ///
+  /// إذا وصلت ICE قبل تثبيت remote description تُحفظ في queue ثم تُفرغ لاحقاً،
+  /// وهذه النقطة هي أول ما يجب مراجعته عند ظهور `setRemoteDescription` races.
   Future<void> _consumeSignal(Map<String, dynamic> signal) async {
     final signalId = _asInt(signal['id']);
     if (signalId != null && _handledSignalIds.contains(signalId)) return;
     if (signalId != null) _handledSignalIds.add(signalId);
 
     final type = _asString(signal['signalType'] ?? signal['signal_type']);
+    final senderUserId = _asInt(
+      signal['senderUserId'] ?? signal['sender_user_id'],
+    );
+    if (senderUserId != null && senderUserId == _currentUserId()) {
+      return;
+    }
     final payload = signal['signalPayload'] is Map
         ? Map<String, dynamic>.from(signal['signalPayload'] as Map)
         : (signal['signal_payload'] is Map
@@ -421,7 +502,10 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
 
     if (type == 'ringing') {
       _startRinging(incoming: !widget.isCaller);
-      _setStatus(widget.isCaller ? 'جاري الرنين...' : 'مكالمة واردة...');
+      _setStatus(
+        widget.isCaller ? _l10n.socialCallRinging : _l10n.socialCallIncoming,
+        tone: _SocialCallStatusTone.warning,
+      );
       return;
     }
 
@@ -430,7 +514,10 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
         _pendingOfferPayload = payload;
         _pendingIncomingAccept = false;
         _startRinging(incoming: true);
-        _setStatus('مكالمة واردة...');
+        _setStatus(
+          _l10n.socialCallIncoming,
+          tone: _SocialCallStatusTone.warning,
+        );
         if (mounted) setState(() {});
         return;
       }
@@ -450,7 +537,10 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
 
     if (type == 'accept') {
       _stopRinging();
-      _setStatus('تم الرد، جاري تثبيت الصوت...');
+      _setStatus(
+        _l10n.socialCallAnsweredConnectingAudio,
+        tone: _SocialCallStatusTone.info,
+      );
       return;
     }
 
@@ -469,8 +559,11 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     await _pc!.setRemoteDescription(RTCSessionDescription(sdp, type));
     _remoteDescriptionSet = true;
     await _flushQueuedCandidates();
+    await _syncRemoteReceivers();
 
-    final answer = await _pc!.createAnswer({'offerToReceiveAudio': true});
+    final answer = optimizeVoiceDescription(
+      await _pc!.createAnswer({'offerToReceiveAudio': true}),
+    );
     await _pc!.setLocalDescription(answer);
     await _sendSignal(
       signalType: 'answer',
@@ -489,6 +582,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     await _pc!.setRemoteDescription(RTCSessionDescription(sdp, type));
     _remoteDescriptionSet = true;
     await _flushQueuedCandidates();
+    await _syncRemoteReceivers();
     _onConnected();
   }
 
@@ -535,10 +629,13 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     if (_pc == null) return;
     if (!widget.isCaller) return;
     try {
-      _setStatus('جاري إعادة تثبيت المكالمة...');
+      _setStatus(_l10n.socialCallRecovering, tone: _SocialCallStatusTone.info);
       await _createAndSendOffer(iceRestart: true);
     } catch (_) {
-      _setStatus('تعذر استعادة الاتصال حاليًا');
+      _setStatus(
+        _l10n.socialCallRecoverFailed,
+        tone: _SocialCallStatusTone.error,
+      );
     }
   }
 
@@ -554,6 +651,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
       if (pending != null) {
         await _handleOffer(pending);
       }
+      await _applyAudioRoute();
     } finally {
       if (mounted) setState(() => _pendingIncomingAccept = false);
     }
@@ -567,7 +665,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     if (_callEnded) return;
     _callEnded = true;
     _stopRinging();
-    _setStatus('انتهت المكالمة');
+    _setStatus(_l10n.socialCallEnded, tone: _SocialCallStatusTone.info);
     await _disposeRtc();
     if (mounted) {
       Navigator.of(context).pop();
@@ -608,24 +706,42 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
       await _localStream?.dispose();
     } catch (_) {}
     _localStream = null;
+    try {
+      await _remoteStream?.dispose();
+    } catch (_) {}
+    _remoteStream = null;
     _remoteDescriptionSet = false;
+    _boundRemoteTrackIds.clear();
     _queuedRemoteCandidates.clear();
+    if (WebRTC.platformIsAndroid) {
+      try {
+        await Helper.clearAndroidCommunicationDevice();
+      } catch (_) {}
+    }
   }
 
   void _onConnected() {
     _stopRinging();
+    unawaited(_applyAudioRoute());
     if (mounted) {
       setState(() {
         _inCall = true;
         _connectedAt ??= DateTime.now();
-        _statusText = 'المكالمة متصلة';
+        _statusText = _l10n.socialCallConnected;
+        _statusTone = _SocialCallStatusTone.success;
       });
     }
   }
 
-  void _setStatus(String value) {
+  void _setStatus(
+    String value, {
+    _SocialCallStatusTone tone = _SocialCallStatusTone.info,
+  }) {
     if (!mounted) return;
-    setState(() => _statusText = value);
+    setState(() {
+      _statusText = value;
+      _statusTone = tone;
+    });
   }
 
   void _startTicker() {
@@ -638,15 +754,28 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     });
   }
 
+  void _startStateSync() {
+    _stateSyncTimer?.cancel();
+    _stateSyncTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted || _disposed || _callEnded || _stateSyncInFlight) return;
+      _stateSyncInFlight = true;
+      _loadCallState().catchError((_) {}).whenComplete(() {
+        _stateSyncInFlight = false;
+      });
+    });
+  }
+
   void _startRinging({required bool incoming}) {
     if (_inCall) return;
     if (_ringTimer?.isActive == true) return;
     final interval = incoming
         ? const Duration(milliseconds: 1450)
         : const Duration(milliseconds: 1900);
+    unawaited(_alertService.play());
     SystemSound.play(SystemSoundType.alert);
     _ringTimer = Timer.periodic(interval, (_) {
       if (_disposed || _inCall) return;
+      unawaited(_alertService.play());
       SystemSound.play(SystemSoundType.alert);
       if (incoming) {
         HapticFeedback.mediumImpact();
@@ -657,6 +786,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   void _stopRinging() {
     _ringTimer?.cancel();
     _ringTimer = null;
+    unawaited(_alertService.stop());
   }
 
   Future<void> _toggleMute() async {
@@ -665,6 +795,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     final next = !_muted;
     for (final track in local.getAudioTracks()) {
       track.enabled = !next;
+      unawaited(Helper.setMicrophoneMute(next, track).catchError((_) {}));
     }
     if (mounted) {
       setState(() => _muted = next);
@@ -673,10 +804,75 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
 
   Future<void> _toggleSpeaker() async {
     final next = !_speakerOn;
-    await Helper.setSpeakerphoneOn(next);
+    _speakerOn = next;
+    await _applyAudioRoute();
     if (mounted) {
-      setState(() => _speakerOn = next);
+      setState(() {});
     }
+  }
+
+  Future<void> _applyAudioRoute() async {
+    final local = _localStream;
+    if (local != null) {
+      for (final track in local.getAudioTracks()) {
+        track.enabled = !_muted;
+        unawaited(Helper.setMicrophoneMute(_muted, track).catchError((_) {}));
+      }
+    }
+
+    if (WebRTC.platformIsIOS) {
+      try {
+        await Helper.setAppleAudioIOMode(
+          AppleAudioIOMode.localAndRemote,
+          preferSpeakerOutput: _speakerOn,
+        );
+      } catch (_) {}
+    }
+    try {
+      if (_speakerOn) {
+        await Helper.setSpeakerphoneOnButPreferBluetooth();
+      } else {
+        await Helper.setSpeakerphoneOn(false);
+      }
+    } catch (_) {}
+
+    final remote = _remoteStream;
+    if (remote != null) {
+      for (final track in remote.getAudioTracks()) {
+        track.enabled = true;
+        unawaited(Helper.setVolume(1.0, track).catchError((_) {}));
+      }
+    }
+  }
+
+  void _bindRemoteStream(MediaStream stream) {
+    _remoteStream = stream;
+    for (final track in stream.getAudioTracks()) {
+      _bindRemoteTrack(track);
+    }
+  }
+
+  void _bindRemoteTrack(MediaStreamTrack? track) {
+    if (track == null || track.kind != 'audio') return;
+    final normalizedTrackId = track.id?.trim() ?? '';
+    final trackId = normalizedTrackId.isEmpty
+        ? 'audio:${track.hashCode}'
+        : normalizedTrackId;
+    if (!_boundRemoteTrackIds.add(trackId)) return;
+    track.enabled = true;
+    unawaited(_applyAudioRoute());
+    unawaited(Helper.setVolume(1.0, track).catchError((_) {}));
+  }
+
+  Future<void> _syncRemoteReceivers() async {
+    final pc = _pc;
+    if (pc == null) return;
+    try {
+      final receivers = await pc.getReceivers();
+      for (final receiver in receivers) {
+        _bindRemoteTrack(receiver.track);
+      }
+    } catch (_) {}
   }
 
   String _durationText() {
@@ -685,6 +881,11 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$mm:$ss';
+  }
+
+  int? _currentUserId() {
+    final auth = ref.read(authControllerProvider);
+    return auth.user?.id;
   }
 
   int? _asInt(dynamic value) {
@@ -705,44 +906,51 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
       final message = '${data['message'] ?? ''}'.trim();
       switch (message) {
         case 'SOCIAL_CALL_PEER_NOT_AVAILABLE':
-          return 'الطرف الآخر غير متاح حاليًا للاتصال';
+          return _l10n.socialCallPeerUnavailable;
         case 'SOCIAL_CALL_SESSION_NOT_FOUND':
-          return 'جلسة الاتصال غير موجودة أو انتهت';
+          return _l10n.socialCallSessionNotFound;
         case 'SOCIAL_CALL_FORBIDDEN':
-          return 'لا تملك صلاحية الاتصال لهذا المستخدم';
+          return _l10n.socialCallForbidden;
       }
-      if (message.isNotEmpty) return message;
     }
-    return 'تعذر بدء المكالمة، تحقق من الشبكة ثم حاول مرة أخرى';
+    return _l10n.socialCallGenericError;
   }
 
   Color _statusColor() {
-    if (_inCall) return const Color(0xFF63F0B0);
-    if (_statusText.contains('الرنين') || _statusText.contains('واردة')) {
-      return const Color(0xFFFFC766);
+    switch (_statusTone) {
+      case _SocialCallStatusTone.success:
+        return const Color(0xFF63F0B0);
+      case _SocialCallStatusTone.warning:
+        return const Color(0xFFFFC766);
+      case _SocialCallStatusTone.error:
+        return const Color(0xFFFF7C8A);
+      case _SocialCallStatusTone.info:
+        return const Color(0xFF66D4FF);
     }
-    if (_statusText.contains('فشل') || _statusText.contains('تعذر')) {
-      return const Color(0xFFFF7C8A);
-    }
-    return const Color(0xFF66D4FF);
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = _l10n;
     final incomingAwaitingAccept =
         !widget.isCaller && _pendingOfferPayload != null && !_acceptedIncoming;
     final statusColor = _statusColor();
+    final headline = incomingAwaitingAccept
+        ? l10n.socialCallIncomingHeadline(
+            widget.remoteDisplayName ?? l10n.socialCallParticipantFallback,
+          )
+        : (widget.remoteDisplayName ?? l10n.socialCallOtherParticipant);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('مكالمة شخصية'),
+        title: Text(l10n.socialCallTitle),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => _endCall(),
         ),
       ),
       body: Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection: Directionality.of(context),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -783,7 +991,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
                   ),
                   const SizedBox(height: 14),
                   Text(
-                    widget.remoteDisplayName ?? 'الطرف الآخر',
+                    headline,
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
@@ -803,7 +1011,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
                       ),
                     ),
                     child: Text(
-                      _busy ? 'جاري التحميل...' : _statusText,
+                      _busy ? l10n.commonLoading : (_statusText ?? l10n.socialCallInitializing),
                       style: TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w700,
@@ -829,7 +1037,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
                                 ? null
                                 : _declineIncoming,
                             icon: const Icon(Icons.call_end_rounded),
-                            label: const Text('رفض'),
+                            label: Text(l10n.socialCallDecline),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -839,7 +1047,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
                                 ? null
                                 : _acceptIncoming,
                             icon: const Icon(Icons.call_rounded),
-                            label: const Text('رد'),
+                            label: Text(l10n.socialCallAnswer),
                           ),
                         ),
                       ],
@@ -852,19 +1060,23 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
                           icon: _muted
                               ? Icons.mic_off_rounded
                               : Icons.mic_rounded,
-                          label: _muted ? 'إلغاء الكتم' : 'كتم',
+                          label: _muted
+                              ? l10n.socialCallUnmute
+                              : l10n.socialCallMute,
                           onTap: _toggleMute,
                         ),
                         _RoundActionButton(
                           icon: _speakerOn
                               ? Icons.volume_up_rounded
                               : Icons.hearing_disabled_rounded,
-                          label: _speakerOn ? 'السماعة' : 'سماعة الأذن',
+                          label: _speakerOn
+                              ? l10n.socialCallSpeaker
+                              : l10n.socialCallEarpiece,
                           onTap: _toggleSpeaker,
                         ),
                         _RoundActionButton(
                           icon: Icons.call_end_rounded,
-                          label: 'إنهاء',
+                          label: l10n.socialCallHangup,
                           color: Colors.redAccent,
                           onTap: _endCall,
                         ),

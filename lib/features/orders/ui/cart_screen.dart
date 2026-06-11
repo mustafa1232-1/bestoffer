@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/pricing.dart';
+import '../../../core/network/api_error_mapper.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/utils/product_offer_pricing.dart';
 import '../../auth/state/auth_controller.dart';
 import '../state/cart_controller.dart';
 import '../state/delivery_address_controller.dart';
@@ -17,11 +20,24 @@ class CartScreen extends ConsumerStatefulWidget {
 }
 
 class _CartScreenState extends ConsumerState<CartScreen> {
+  final ScrollController _scrollController = ScrollController();
   final noteCtrl = TextEditingController();
   final budgetCtrl = TextEditingController();
+  final couponCtrl = TextEditingController();
+  final GlobalKey _itemsSectionKey = GlobalKey();
+  final GlobalKey _noteBudgetSectionKey = GlobalKey();
+  final GlobalKey _addressSectionKey = GlobalKey();
+  final GlobalKey _couponSectionKey = GlobalKey();
+  final GlobalKey _summarySectionKey = GlobalKey();
   int? budgetCapIqd;
   bool optimizingBudget = false;
   int splitPeople = 1;
+  bool openingFinalReview = false;
+
+  Map<String, dynamic>? _appliedCoupon;
+  int _couponDiscount = 0;
+  bool _checkingCoupon = false;
+  String? _couponError;
 
   @override
   void initState() {
@@ -33,7 +49,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
     }
     noteCtrl.addListener(_persistDraftNote);
     Future.microtask(() async {
+      if (!mounted) return;
       await ref.read(deliveryAddressControllerProvider.notifier).bootstrap();
+      if (!mounted) return;
       await _loadBudgetCap();
     });
   }
@@ -44,23 +62,84 @@ class _CartScreenState extends ConsumerState<CartScreen> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     noteCtrl.removeListener(_persistDraftNote);
     noteCtrl.dispose();
     budgetCtrl.dispose();
+    couponCtrl.dispose();
     super.dispose();
   }
 
+  Future<void> _scrollToSection(GlobalKey sectionKey) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final sectionContext = sectionKey.currentContext;
+      if (sectionContext == null) return;
+      Scrollable.ensureVisible(
+        sectionContext,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+        alignment: 0.05,
+      );
+    });
+  }
+
+  Future<void> _validateCoupon() async {
+    final code = couponCtrl.text.trim();
+    if (code.isEmpty) return;
+    final cart = ref.read(cartControllerProvider);
+    if (cart.isMultiStore) {
+      setState(() {
+        _couponError = 'الكوبون في هذه النسخة متاح للطلبات من متجر واحد فقط.';
+        _appliedCoupon = null;
+        _couponDiscount = 0;
+      });
+      return;
+    }
+    setState(() {
+      _checkingCoupon = true;
+      _couponError = null;
+    });
+    try {
+      final api = ref.read(ordersApiProvider);
+      final result = await api.validateCoupon(
+        code: code,
+        merchantId: cart.merchantId,
+        orderSubtotal: cart.subtotal,
+      );
+      if (!mounted) return;
+      setState(() {
+        _appliedCoupon = result['coupon'] as Map<String, dynamic>?;
+        _couponDiscount = (result['discountAmount'] as num?)?.toInt() ?? 0;
+        _checkingCoupon = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _appliedCoupon = null;
+        _couponDiscount = 0;
+        _couponError = mapAnyError(e, fallback: 'الكوبون غير صالح');
+        _checkingCoupon = false;
+      });
+    }
+  }
+
+  void _removeCoupon() {
+    couponCtrl.clear();
+    setState(() {
+      _appliedCoupon = null;
+      _couponDiscount = 0;
+      _couponError = null;
+    });
+  }
+
   Future<void> _loadBudgetCap() async {
-    final auth = ref.read(authControllerProvider);
-    final userId = auth.user?.id;
+    final userId = ref.read(authControllerProvider).user?.id;
     if (userId == null) return;
     final raw = await ref
         .read(secureStoreProvider)
-        .readString(_budgetCapKey(userId));
-    if (raw == null || raw.trim().isEmpty) return;
-    final parsed = int.tryParse(raw);
-    if (parsed == null || parsed <= 0) return;
-    if (!mounted) return;
+        .readString('cart_budget_cap_iqd:$userId');
+    final parsed = int.tryParse(raw ?? '');
+    if (!mounted || parsed == null || parsed <= 0) return;
     setState(() {
       budgetCapIqd = parsed;
       budgetCtrl.text = '$parsed';
@@ -68,22 +147,18 @@ class _CartScreenState extends ConsumerState<CartScreen> {
   }
 
   Future<void> _saveBudgetCap(int? value) async {
-    final auth = ref.read(authControllerProvider);
-    final userId = auth.user?.id;
+    final userId = ref.read(authControllerProvider).user?.id;
     if (userId == null) return;
     final store = ref.read(secureStoreProvider);
     if (value == null || value <= 0) {
-      await store.delete(_budgetCapKey(userId));
+      await store.delete('cart_budget_cap_iqd:$userId');
       return;
     }
-    await store.writeString(_budgetCapKey(userId), '$value');
+    await store.writeString('cart_budget_cap_iqd:$userId', '$value');
   }
-
-  String _budgetCapKey(int userId) => 'cart_budget_cap_iqd:$userId';
 
   int? _parseBudgetInput(String value) {
     final digits = value.replaceAll(RegExp(r'[^\d]'), '');
-    if (digits.isEmpty) return null;
     final parsed = int.tryParse(digits);
     if (parsed == null || parsed <= 0) return null;
     return parsed;
@@ -93,61 +168,333 @@ class _CartScreenState extends ConsumerState<CartScreen> {
     final cap = budgetCapIqd;
     if (cap == null || cap <= 0 || optimizingBudget) return;
     final notifier = ref.read(cartControllerProvider.notifier);
-    final initial = ref.read(cartControllerProvider);
-    if (initial.items.isEmpty || initial.total <= cap) return;
-
+    if (ref.read(cartControllerProvider).total <= cap) return;
     setState(() => optimizingBudget = true);
     var loops = 0;
     while (loops < 600) {
       loops++;
       final current = ref.read(cartControllerProvider);
       if (current.items.isEmpty || current.total <= cap) break;
-
       final sorted = [...current.items]
         ..sort((a, b) {
-          final aPrice = a.product.discountedPrice ?? a.product.price;
-          final bPrice = b.product.discountedPrice ?? b.product.price;
-          return bPrice.compareTo(aPrice);
+          final pa = a.product.discountedPrice ?? a.product.price;
+          final pb = b.product.discountedPrice ?? b.product.price;
+          return pb.compareTo(pa);
         });
-
-      var reduced = false;
-      for (final item in sorted) {
-        if (item.quantity > 1) {
-          notifier.decrementItem(item.product.id);
-          reduced = true;
-          break;
-        }
-      }
-
-      if (reduced) continue;
-      if (sorted.length > 1) {
+      final withQty = sorted.where((e) => e.quantity > 1).toList();
+      if (withQty.isNotEmpty) {
+        notifier.decrementItem(withQty.first.product.id);
+      } else if (sorted.length > 1) {
         notifier.removeItem(sorted.first.product.id);
       } else {
         break;
       }
     }
-
     if (!mounted) return;
     setState(() => optimizingBudget = false);
-    final finalState = ref.read(cartControllerProvider);
-    final success = finalState.total <= cap;
+    final success = ref.read(cartControllerProvider).total <= cap;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           success
               ? 'تم ضبط السلة ضمن الميزانية (${formatIqd(cap.toDouble())})'
-              : 'تم التقليل قدر الإمكان، لكن أقل إجمالي ما زال أعلى من الميزانية',
+              : 'تم التقليل قدر الإمكان لكن الإجمالي ما زال أعلى من الميزانية',
         ),
       ),
     );
+  }
+
+  Map<String, dynamic> _buildCheckoutPayload({
+    required CartState cart,
+    required int addressId,
+  }) {
+    final cleanedNote = noteCtrl.text.trim();
+    final payload = <String, dynamic>{
+      'note': cleanedNote.isEmpty ? null : cleanedNote,
+      'addressId': addressId,
+    };
+    if (cart.storesCount > 1) {
+      payload['storeOrders'] = cart.storeSections
+          .map(
+            (section) => {
+              'merchantId': section.merchantId,
+              'items': section.items
+                  .map(
+                    (item) => {
+                      'productId': item.product.id,
+                      'quantity': item.quantity,
+                      if (item.selectedModifiers.isNotEmpty)
+                        'selectedModifiers': item.selectedModifiers,
+                    },
+                  )
+                  .toList(),
+            },
+          )
+          .toList();
+    } else {
+      payload['merchantId'] = cart.merchantId;
+      payload['items'] = cart.items
+          .map(
+            (item) => {
+              'productId': item.product.id,
+              'quantity': item.quantity,
+              if (item.selectedModifiers.isNotEmpty)
+                'selectedModifiers': item.selectedModifiers,
+            },
+          )
+          .toList();
+      final couponId = (_appliedCoupon?['id'] as num?)?.toInt();
+      if (couponId != null && couponId > 0) payload['couponId'] = couponId;
+      final couponCode = _appliedCoupon?['code']?.toString().trim();
+      if (couponCode != null && couponCode.isNotEmpty) {
+        payload['couponCode'] = couponCode;
+      }
+    }
+    return payload;
+  }
+
+  Future<bool> _showFinalReviewSheet(Map<String, dynamic> preview) async {
+    final stores = List<Map<String, dynamic>>.from(
+      (preview['stores'] as List? ?? const []).map(
+        (item) => Map<String, dynamic>.from(item as Map),
+      ),
+    );
+    final totals = Map<String, dynamic>.from(
+      (preview['totals'] as Map? ?? const <String, dynamic>{}),
+    );
+    final confirm = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'مراجعة نهائية للطلب',
+                  textDirection: TextDirection.rtl,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                ),
+                if (stores.length > 1) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'الطلب من أكثر من متجر وقد يستغرق وقتًا أطول قليلًا.',
+                    textDirection: TextDirection.rtl,
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      ...stores.map((store) {
+                        final items = List<Map<String, dynamic>>.from(
+                          (store['items'] as List? ?? const []).map(
+                            (entry) => Map<String, dynamic>.from(entry as Map),
+                          ),
+                        );
+                        final pricing = Map<String, dynamic>.from(
+                          (store['pricing'] as Map? ?? const <String, dynamic>{}),
+                        );
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.12),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                '${store['merchantName'] ?? 'متجر'}',
+                                textDirection: TextDirection.rtl,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              ...items.map(
+                                (item) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        formatIqd(
+                                          (item['lineTotal'] as num?)?.toDouble() ?? 0,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Expanded(
+                                        child: Text(
+                                          '${item['productName'] ?? 'منتج'} x ${(item['quantity'] as num?)?.toInt() ?? 0}',
+                                          textAlign: TextAlign.right,
+                                          textDirection: TextDirection.rtl,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const Divider(height: 18),
+                              Row(
+                                children: [
+                                  Text(
+                                    formatIqd(
+                                      (pricing['totalAmount'] as num?)?.toDouble() ?? 0,
+                                    ),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  const Text(
+                                    'إجمالي المتجر',
+                                    textDirection: TextDirection.rtl,
+                                    style: TextStyle(fontWeight: FontWeight.w700),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Column(
+                            children: [
+                              _SummaryRow(
+                                'إجمالي قبل الخصم',
+                                formatIqd(
+                                  (totals['grossSubtotal'] as num?)?.toDouble() ?? 0,
+                                ),
+                              ),
+                              _SummaryRow(
+                                'خصومات المنتجات',
+                                '- ${formatIqd((totals['productDiscountTotal'] as num?)?.toDouble() ?? 0)}',
+                                color: Colors.greenAccent,
+                              ),
+                              _SummaryRow(
+                                'خصم الكوبون',
+                                '- ${formatIqd((totals['couponDiscountTotal'] as num?)?.toDouble() ?? 0)}',
+                                color: Colors.greenAccent,
+                              ),
+                              _SummaryRow(
+                                'رسوم الخدمة',
+                                formatIqd(
+                                  (totals['serviceFeeTotal'] as num?)?.toDouble() ?? 0,
+                                ),
+                              ),
+                              _SummaryRow(
+                                'أجور التوصيل',
+                                formatIqd(
+                                  (totals['deliveryFeeTotal'] as num?)?.toDouble() ?? 0,
+                                ),
+                              ),
+                              const Divider(),
+                              _SummaryRow(
+                                'الإجمالي النهائي',
+                                formatIqd(
+                                  (totals['totalAmount'] as num?)?.toDouble() ?? 0,
+                                ),
+                                bold: true,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(false),
+                        child: const Text('رجوع للتعديل'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => Navigator.of(context).pop(true),
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('تأكيد نهائي'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    return confirm == true;
+  }
+
+  Future<void> _submitCheckout() async {
+    if (openingFinalReview || ref.read(ordersControllerProvider).placingOrder) {
+      return;
+    }
+    final cart = ref.read(cartControllerProvider);
+    final selectedAddress = ref.read(deliveryAddressControllerProvider).selectedAddress;
+    if (selectedAddress == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('الرجاء اختيار عنوان التوصيل أولًا.')),
+      );
+      return;
+    }
+    setState(() => openingFinalReview = true);
+    try {
+      final payload = _buildCheckoutPayload(
+        cart: cart,
+        addressId: selectedAddress.id,
+      );
+      final preview = await ref.read(ordersApiProvider).previewOrder(payload);
+      if (!mounted) return;
+      final confirmed = await _showFinalReviewSheet(preview);
+      if (!mounted || !confirmed) return;
+      final ok = await ref
+          .read(ordersControllerProvider.notifier)
+          .checkout(
+            note: noteCtrl.text,
+            couponId: (_appliedCoupon?['id'] as num?)?.toInt(),
+            couponCode: _appliedCoupon?['code']?.toString(),
+          );
+      if (mounted && ok) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(mapAnyError(e, fallback: 'تعذر مراجعة الطلب الآن'))),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => openingFinalReview = false);
+      } else {
+        openingFinalReview = false;
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final cart = ref.watch(cartControllerProvider);
     final orders = ref.watch(ordersControllerProvider);
-    final addresses = ref.watch(deliveryAddressControllerProvider);
-    final selectedAddress = addresses.selectedAddress;
+    final selectedAddress = ref
+        .watch(deliveryAddressControllerProvider)
+        .selectedAddress;
     final providerDraft = cart.draftNote ?? '';
     if (noteCtrl.text != providerDraft) {
       noteCtrl.value = noteCtrl.value.copyWith(
@@ -157,13 +504,14 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       );
     }
     final budget = budgetCapIqd;
-    final exceedsBudget = budget != null && cart.total > budget;
-    final remainingBudget = budget == null ? null : (budget - cart.total);
+    final budgetOver = budget != null && cart.total > budget;
     final budgetProgress = budget == null || budget <= 0
         ? 0.0
         : (cart.total / budget).clamp(0.0, 1.0);
     final peopleCount = splitPeople <= 0 ? 1 : splitPeople;
-    final perPersonTotal = cart.total / peopleCount;
+    final finalTotal = (cart.total - _couponDiscount)
+        .clamp(0, double.infinity)
+        .toDouble();
 
     ref.listen<OrdersState>(ordersControllerProvider, (prev, next) {
       if (next.error != null && next.error != prev?.error) {
@@ -173,167 +521,365 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       }
     });
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          cart.merchantName == null
-              ? '\u0633\u0644\u0629 \u0627\u0644\u062a\u0633\u0648\u0642'
-              : '\u0633\u0644\u0629 ${cart.merchantName}',
-        ),
-      ),
-      body: cart.items.isEmpty
-          ? const Center(
-              child: Text(
-                '\u0627\u0644\u0633\u0644\u0629 \u0641\u0627\u0631\u063a\u0629',
-              ),
-            )
-          : Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                children: [
-                  Expanded(
-                    child: ListView.separated(
-                      itemCount: cart.items.length,
-                      separatorBuilder: (_, index) =>
-                          const SizedBox(height: 10),
-                      itemBuilder: (_, index) {
-                        final item = cart.items[index];
-                        final price =
-                            item.product.discountedPrice ?? item.product.price;
-                        final total = price * item.quantity;
+    final tokens = context.maslakiTokens;
 
-                        return Card(
-                          child: ListTile(
-                            title: Text(
-                              item.product.name,
-                              textDirection: TextDirection.rtl,
-                            ),
-                            subtitle: Text(
-                              '\u0627\u0644\u0633\u0639\u0631: ${formatIqd(price)} - \u0627\u0644\u0643\u0645\u064a\u0629: ${item.quantity} - \u0627\u0644\u0645\u062c\u0645\u0648\u0639: ${formatIqd(total)}',
-                              textDirection: TextDirection.rtl,
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  onPressed: () => ref
-                                      .read(cartControllerProvider.notifier)
-                                      .decrementItem(item.product.id),
-                                  icon: const Icon(Icons.remove_circle_outline),
-                                ),
-                                IconButton(
-                                  onPressed: () => ref
-                                      .read(cartControllerProvider.notifier)
-                                      .addItem(
-                                        product: item.product,
-                                        merchantId: cart.merchantId!,
-                                        merchantName: cart.merchantName ?? '',
-                                      ),
-                                  icon: const Icon(Icons.add_circle_outline),
-                                ),
-                                IconButton(
-                                  onPressed: () => ref
-                                      .read(cartControllerProvider.notifier)
-                                      .removeItem(item.product.id),
-                                  icon: const Icon(Icons.delete_outline),
-                                ),
-                              ],
+    return Scaffold(
+      appBar: MaslakiTopBar(
+        title: cart.merchantName == null ? 'سلة التسوق' : 'سلة ${cart.merchantName}',
+        subtitle: 'مراجعة الطلب والعنوان والخصومات قبل الإرسال',
+        actions: cart.items.isEmpty
+            ? const []
+            : [
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 8),
+                  child: FilledButton.icon(
+                    onPressed: (orders.placingOrder || openingFinalReview)
+                        ? null
+                        : _submitCheckout,
+                    icon: (orders.placingOrder || openingFinalReview)
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.check_circle_outline_rounded),
+                    label: const Text('مراجعة نهائية'),
+                  ),
+                ),
+              ],
+      ),
+      bottomNavigationBar: cart.items.isEmpty
+          ? null
+          : SafeArea(
+              top: false,
+              minimum: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: MaslakiCard(
+                backgroundColor: tokens.surfacePrimary,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${cart.totalItems} منتج',
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: tokens.textMuted,
+                              fontSize: 12,
                             ),
                           ),
-                        );
-                      },
+                          Text(
+                            formatIqd(finalTotal),
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 17,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  TextField(
-                    controller: noteCtrl,
-                    decoration: const InputDecoration(
-                      labelText:
-                          '\u0645\u0644\u0627\u062d\u0638\u0627\u062a \u0639\u0644\u0649 \u0627\u0644\u0637\u0644\u0628 (\u0627\u062e\u062a\u064a\u0627\u0631\u064a)',
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 160,
+                      child: MaslakiPrimaryButton(
+                        label: 'مراجعة نهائية',
+                        onPressed: (orders.placingOrder || openingFinalReview)
+                            ? null
+                            : _submitCheckout,
+                        icon: Icons.done_all_rounded,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+      body: Directionality(
+        textDirection: TextDirection.rtl,
+        child: cart.items.isEmpty
+            ? const Center(
+                child: MaslakiEmptyState(
+                  icon: Icons.shopping_bag_outlined,
+                  title: 'السلة فارغة',
+                  body: 'ابدأ بإضافة منتجات من المتجر ثم عد هنا لمراجعة الطلب.',
+                ),
+              )
+            : ListView(
+                controller: _scrollController,
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 120),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                children: [
+                  SizedBox(
+                    height: 90,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      reverse: true,
+                      children: [
+                        _CartQuickCard(
+                          icon: Icons.shopping_bag_outlined,
+                          title: 'المنتجات',
+                          subtitle: '${cart.totalItems} عنصر',
+                          onTap: () => _scrollToSection(_itemsSectionKey),
+                        ),
+                        const SizedBox(width: 8),
+                        _CartQuickCard(
+                          icon: Icons.note_alt_outlined,
+                          title: 'ملاحظات',
+                          subtitle: 'و الميزانية',
+                          onTap: () => _scrollToSection(_noteBudgetSectionKey),
+                        ),
+                        const SizedBox(width: 8),
+                        _CartQuickCard(
+                          icon: Icons.place_outlined,
+                          title: 'العنوان',
+                          subtitle: 'تحديد التوصيل',
+                          onTap: () => _scrollToSection(_addressSectionKey),
+                        ),
+                        const SizedBox(width: 8),
+                        _CartQuickCard(
+                          icon: Icons.confirmation_number_outlined,
+                          title: 'الكوبون',
+                          subtitle: 'تطبيق خصم',
+                          onTap: () => _scrollToSection(_couponSectionKey),
+                        ),
+                        const SizedBox(width: 8),
+                        _CartQuickCard(
+                          icon: Icons.receipt_long_outlined,
+                          title: 'الملخص',
+                          subtitle: formatIqd(finalTotal),
+                          onTap: () => _scrollToSection(_summarySectionKey),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 10),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Text(
-                            'حارس الميزانية الذكي',
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                            ),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                          _chip(
+                            Icons.storefront_outlined,
+                            '${cart.storesCount} متجر',
                           ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: budgetCtrl,
-                            keyboardType: TextInputType.number,
-                            textDirection: TextDirection.rtl,
-                            decoration: InputDecoration(
-                              labelText: 'سقف الميزانية (دينار عراقي)',
-                              suffixIcon: Row(
-                                mainAxisSize: MainAxisSize.min,
+                          _chip(
+                            Icons.shopping_bag_outlined,
+                            '${cart.totalItems} منتج',
+                          ),
+                          _chip(
+                            Icons.receipt_outlined,
+                            'قبل الخصم ${formatIqd(cart.grossSubtotal)}',
+                          ),
+                          _chip(
+                            Icons.payments_outlined,
+                            'نهائي ${formatIqd(finalTotal)}',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (cart.isMultiStore) ...[
+                    const SizedBox(height: 10),
+                    Card(
+                      color: Colors.amber.withValues(alpha: 0.12),
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text(
+                          'الطلب يحتوي على أكثر من متجر، وقد يستغرق وقتًا أطول قليلًا في التجهيز والتسليم.',
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  KeyedSubtree(
+                    key: _itemsSectionKey,
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Column(
+                          children: cart.items.map((item) {
+                            final pricing = computeProductOfferPricing(
+                              item.product,
+                              quantity: item.quantity,
+                            );
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                ),
+                              ),
+                              child: Row(
                                 children: [
-                                  IconButton(
-                                    tooltip: 'حفظ',
-                                    onPressed: () async {
-                                      final parsed = _parseBudgetInput(
-                                        budgetCtrl.text,
-                                      );
-                                      setState(() => budgetCapIqd = parsed);
-                                      await _saveBudgetCap(parsed);
-                                    },
-                                    icon: const Icon(Icons.save_outlined),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          item.product.name,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        if (cart.isMultiStore)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 2,
+                                            ),
+                                            child: Text(
+                                              item.merchantName,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.72,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '${formatIqd(pricing.unitPrice)} x ${item.quantity} = ${formatIqd(pricing.lineTotal)}',
+                                        ),
+                                        if (pricing.lineDiscountTotal > 0)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 4,
+                                            ),
+                                            child: Text(
+                                              '\u062e\u0635\u0645 ${formatIqd(pricing.lineDiscountTotal)}${pricing.freeUnits > 0 ? ' \u2022 \u0645\u062c\u0627\u0646\u064a ${pricing.freeUnits}' : ''}',
+                                              style: const TextStyle(
+                                                color: Colors.greenAccent,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        if ((pricing.offerLabel ?? '')
+                                            .trim()
+                                            .isNotEmpty)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 4,
+                                            ),
+                                            child: Text(
+                                              pricing.offerLabel!,
+                                              style: TextStyle(
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.72,
+                                                ),
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ),
                                   IconButton(
-                                    tooltip: 'إزالة',
-                                    onPressed: () async {
-                                      budgetCtrl.clear();
-                                      setState(() => budgetCapIqd = null);
-                                      await _saveBudgetCap(null);
-                                    },
+                                    onPressed: () => ref
+                                        .read(cartControllerProvider.notifier)
+                                        .decrementItem(
+                                          item.product.id,
+                                          merchantId: item.merchantId,
+                                        ),
+                                    icon: const Icon(
+                                      Icons.remove_circle_outline,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    onPressed: () => ref
+                                        .read(cartControllerProvider.notifier)
+                                        .addItem(
+                                          product: item.product,
+                                          merchantId: item.merchantId,
+                                          merchantName: item.merchantName,
+                                        ),
+                                    icon: const Icon(Icons.add_circle_outline),
+                                  ),
+                                  IconButton(
+                                    onPressed: () => ref
+                                        .read(cartControllerProvider.notifier)
+                                        .removeItem(
+                                          item.product.id,
+                                          merchantId: item.merchantId,
+                                        ),
                                     icon: const Icon(Icons.delete_outline),
                                   ),
                                 ],
                               ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  KeyedSubtree(
+                    key: _noteBudgetSectionKey,
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextField(
+                              controller: noteCtrl,
+                              minLines: 2,
+                              maxLines: 4,
+                              decoration: const InputDecoration(
+                                labelText: 'ملاحظات على الطلب (اختياري)',
+                              ),
                             ),
-                            onSubmitted: (value) async {
-                              final parsed = _parseBudgetInput(value);
-                              setState(() => budgetCapIqd = parsed);
-                              await _saveBudgetCap(parsed);
-                            },
-                          ),
-                          if (budget != null) ...[
                             const SizedBox(height: 10),
-                            LinearProgressIndicator(
-                              value: budgetProgress,
-                              minHeight: 7,
-                              backgroundColor: Colors.white.withValues(
-                                alpha: 0.1,
+                            TextField(
+                              controller: budgetCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'سقف الميزانية (دينار عراقي)',
                               ),
-                              color: exceedsBudget
-                                  ? Colors.redAccent
-                                  : Colors.greenAccent,
+                              onSubmitted: (v) async {
+                                final parsed = _parseBudgetInput(v);
+                                setState(() => budgetCapIqd = parsed);
+                                await _saveBudgetCap(parsed);
+                              },
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              exceedsBudget
-                                  ? 'تجاوزت الميزانية بمقدار ${formatIqd((cart.total - budget).toDouble())}'
-                                  : 'المتبقي من الميزانية: ${formatIqd((remainingBudget ?? 0).toDouble())}',
-                              textDirection: TextDirection.rtl,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: exceedsBudget
-                                    ? Colors.red.shade300
-                                    : Colors.green.shade300,
+                            if (budget != null) ...[
+                              const SizedBox(height: 8),
+                              LinearProgressIndicator(
+                                value: budgetProgress,
+                                minHeight: 8,
+                                borderRadius: BorderRadius.circular(999),
+                                backgroundColor: Colors.white.withValues(
+                                  alpha: 0.1,
+                                ),
+                                color: budgetOver
+                                    ? Colors.redAccent
+                                    : Colors.greenAccent,
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: OutlinedButton.icon(
+                              const SizedBox(height: 6),
+                              Text(
+                                budgetOver
+                                    ? 'فوق الميزانية بـ ${formatIqd((cart.total - budget).toDouble())}'
+                                    : 'المتبقي ${formatIqd((budget - cart.total).toDouble())}',
+                                style: TextStyle(
+                                  color: budgetOver
+                                      ? Colors.red.shade300
+                                      : Colors.green.shade300,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              OutlinedButton.icon(
                                 onPressed: optimizingBudget
                                     ? null
                                     : _applyBudgetOptimization,
@@ -348,169 +894,294 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                     : const Icon(Icons.auto_fix_high_rounded),
                                 label: const Text('ضبط السلة ضمن الميزانية'),
                               ),
+                            ],
+                            const Divider(height: 20),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [1, 2, 4, 6, 8]
+                                  .map(
+                                    (count) => ChoiceChip(
+                                      label: Text('$count أشخاص'),
+                                      selected: splitPeople == count,
+                                      onSelected: (_) =>
+                                          setState(() => splitPeople = count),
+                                    ),
+                                  )
+                                  .toList(),
                             ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Text(
-                            'تقسيم الفاتورة الذكي',
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
+                            Slider(
+                              min: 1,
+                              max: 12,
+                              divisions: 11,
+                              value: peopleCount.toDouble(),
+                              onChanged: (v) =>
+                                  setState(() => splitPeople = v.round()),
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'إذا الطلب جماعي، احسب الحصة لكل شخص مباشرة',
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.72),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            alignment: WrapAlignment.end,
-                            children: [1, 2, 4, 6, 8].map((count) {
-                              return ChoiceChip(
-                                label: Text('$count أشخاص'),
-                                selected: splitPeople == count,
-                                onSelected: (_) =>
-                                    setState(() => splitPeople = count),
-                              );
-                            }).toList(),
-                          ),
-                          Slider(
-                            min: 1,
-                            max: 12,
-                            divisions: 11,
-                            value: peopleCount.toDouble(),
-                            label: '$peopleCount',
-                            onChanged: (value) =>
-                                setState(() => splitPeople = value.round()),
-                          ),
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 220),
-                            transitionBuilder: (child, animation) {
-                              return FadeTransition(
-                                opacity: animation,
-                                child: child,
-                              );
-                            },
-                            child: Text(
-                              'حصة الشخص الواحد تقريباً: ${formatIqd(perPersonTotal)}',
-                              key: ValueKey<int>(peopleCount),
-                              textDirection: TextDirection.rtl,
+                            Text(
+                              'حصة الشخص: ${formatIqd(cart.total / peopleCount)}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
-                                fontSize: 15,
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Card(
-                    child: ListTile(
-                      title: const Text(
-                        '\u0639\u0646\u0648\u0627\u0646 \u0627\u0644\u062a\u0648\u0635\u064a\u0644',
-                        textDirection: TextDirection.rtl,
-                      ),
-                      subtitle: Text(
-                        selectedAddress?.shortText ??
-                            '\u0627\u0644\u0631\u062c\u0627\u0621 \u0625\u0636\u0627\u0641\u0629 \u0623\u0648 \u0627\u062e\u062a\u064a\u0627\u0631 \u0639\u0646\u0648\u0627\u0646 \u062a\u0648\u0635\u064a\u0644',
-                        textDirection: TextDirection.rtl,
-                      ),
-                      trailing: IconButton(
-                        tooltip:
-                            '\u0625\u062f\u0627\u0631\u0629 \u0627\u0644\u0639\u0646\u0627\u0648\u064a\u0646',
-                        onPressed: () async {
-                          await Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const DeliveryAddressesScreen(
-                                selectOnTap: true,
+                  KeyedSubtree(
+                    key: _addressSectionKey,
+                    child: Card(
+                      child: ListTile(
+                        title: Text(
+                          selectedAddress?.shortText ??
+                              'الرجاء إضافة أو اختيار عنوان توصيل',
+                        ),
+                        trailing: IconButton.filledTonal(
+                          onPressed: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const DeliveryAddressesScreen(
+                                  selectOnTap: true,
+                                ),
                               ),
-                            ),
-                          );
-                          if (!mounted) return;
-                          await ref
-                              .read(deliveryAddressControllerProvider.notifier)
-                              .bootstrap(silent: true);
-                        },
-                        icon: const Icon(Icons.place_rounded),
+                            );
+                            if (!mounted) return;
+                            await ref
+                                .read(
+                                  deliveryAddressControllerProvider.notifier,
+                                )
+                                .bootstrap(silent: true);
+                          },
+                          icon: const Icon(Icons.edit_location_alt_outlined),
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        children: [
-                          _SummaryRow(
-                            '\u0627\u0644\u0645\u062c\u0645\u0648\u0639 \u0627\u0644\u0641\u0631\u0639\u064a',
-                            formatIqd(cart.subtotal),
-                          ),
-                          _SummaryRow(
-                            '\u0631\u0633\u0648\u0645 \u0627\u0644\u062e\u062f\u0645\u0629 (${formatIqd(serviceFeeIqd)})',
-                            formatIqd(cart.serviceFee),
-                          ),
-                          _SummaryRow(
-                            cart.deliveryFee <= 0
-                                ? '\u0623\u062c\u0648\u0631 \u0627\u0644\u062a\u0648\u0635\u064a\u0644 (\u062a\u0648\u0635\u064a\u0644 \u0645\u062c\u0627\u0646\u064a)'
-                                : '\u0623\u062c\u0648\u0631 \u0627\u0644\u062a\u0648\u0635\u064a\u0644',
-                            formatIqd(cart.deliveryFee),
-                          ),
-                          const Divider(),
-                          _SummaryRow(
-                            '\u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0646\u0647\u0627\u0626\u064a',
-                            formatIqd(cart.total),
-                            bold: true,
-                          ),
-                        ],
+                  KeyedSubtree(
+                    key: _couponSectionKey,
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: cart.isMultiStore
+                            ? const Text(
+                                'الكوبونات متاحة حاليًا للطلبات من متجر واحد فقط.',
+                                textDirection: TextDirection.rtl,
+                              )
+                            : _appliedCoupon == null
+                            ? Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextField(
+                                          controller: couponCtrl,
+                                          textCapitalization:
+                                              TextCapitalization.characters,
+                                          decoration: const InputDecoration(
+                                            hintText: 'أدخل رمز الكوبون',
+                                            isDense: true,
+                                            border: OutlineInputBorder(),
+                                          ),
+                                          onSubmitted: (_) => _validateCoupon(),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      FilledButton(
+                                        onPressed: _checkingCoupon
+                                            ? null
+                                            : _validateCoupon,
+                                        child: _checkingCoupon
+                                            ? const SizedBox(
+                                                width: 16,
+                                                height: 16,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: Colors.white,
+                                                    ),
+                                              )
+                                            : const Text('تطبيق'),
+                                      ),
+                                    ],
+                                  ),
+                                  if (_couponError != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Align(
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          _couponError!,
+                                          style: const TextStyle(
+                                            color: Colors.red,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              )
+                            : Row(
+                                children: [
+                                  const Icon(
+                                    Icons.check_circle,
+                                    color: Colors.greenAccent,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'تم تطبيق "${_appliedCoupon!['code']}" بخصم ${formatIqd(_couponDiscount.toDouble())}',
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: _removeCoupon,
+                                    child: const Text('إزالة'),
+                                  ),
+                                ],
+                              ),
                       ),
                     ),
                   ),
                   const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: orders.placingOrder
-                          ? null
-                          : () async {
-                              final ok = await ref
-                                  .read(ordersControllerProvider.notifier)
-                                  .checkout(note: noteCtrl.text);
-                              if (!context.mounted || !ok) return;
-                              Navigator.of(context).pop(true);
-                            },
-                      child: orders.placingOrder
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text(
-                              '\u0625\u062a\u0645\u0627\u0645 \u0627\u0644\u0637\u0644\u0628',
+                  KeyedSubtree(
+                    key: _summarySectionKey,
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          children: [
+                            _SummaryRow(
+                              '\u0625\u062c\u0645\u0627\u0644\u064a \u0642\u0628\u0644 \u0627\u0644\u062e\u0635\u0645',
+                              formatIqd(cart.grossSubtotal),
                             ),
+                            if (cart.productDiscountTotal > 0)
+                              _SummaryRow(
+                                '\u062e\u0635\u0648\u0645\u0627\u062a \u0627\u0644\u0639\u0631\u0648\u0636',
+                                '- ${formatIqd(cart.productDiscountTotal)}',
+                                color: Colors.greenAccent,
+                              ),
+                            _SummaryRow(
+                              '\u0627\u0644\u0645\u062c\u0645\u0648\u0639 \u0628\u0639\u062f \u0627\u0644\u0639\u0631\u0648\u0636',
+                              formatIqd(cart.subtotal),
+                            ),
+                            _SummaryRow(
+                              'رسوم الخدمة (${formatIqd(serviceFeeIqd)})',
+                              formatIqd(cart.serviceFee),
+                            ),
+                            _SummaryRow(
+                              cart.deliveryFee <= 0
+                                  ? 'أجور التوصيل (توصيل مجاني)'
+                                  : 'أجور التوصيل',
+                              formatIqd(cart.deliveryFee),
+                            ),
+                            if (_couponDiscount > 0)
+                              _SummaryRow(
+                                'خصم الكوبون',
+                                '- ${formatIqd(_couponDiscount.toDouble())}',
+                                color: Colors.greenAccent,
+                              ),
+                            const Divider(),
+                            _SummaryRow(
+                              'الإجمالي النهائي',
+                              formatIqd(finalTotal),
+                              bold: true,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ],
               ),
-            ),
+      ),
+    );
+  }
+
+  Widget _chip(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: Colors.white.withValues(alpha: 0.09),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [Icon(icon, size: 15), const SizedBox(width: 5), Text(text)],
+      ),
+    );
+  }
+}
+
+class _CartQuickCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _CartQuickCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Ink(
+          width: 162,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.42),
+            border: Border.all(color: scheme.primary.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: scheme.primary.withValues(alpha: 0.18),
+                child: Icon(icon, size: 17, color: scheme.primary),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      title,
+                      textDirection: TextDirection.rtl,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      textDirection: TextDirection.rtl,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.onSurface.withValues(alpha: 0.72),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -519,14 +1190,16 @@ class _SummaryRow extends StatelessWidget {
   final String label;
   final String value;
   final bool bold;
+  final Color? color;
 
-  const _SummaryRow(this.label, this.value, {this.bold = false});
+  const _SummaryRow(this.label, this.value, {this.bold = false, this.color});
 
   @override
   Widget build(BuildContext context) {
     final style = TextStyle(
       fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
       fontSize: bold ? 16 : 14,
+      color: color,
     );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -536,12 +1209,7 @@ class _SummaryRow extends StatelessWidget {
             child: Text(value, textAlign: TextAlign.left, style: style),
           ),
           Expanded(
-            child: Text(
-              label,
-              textDirection: TextDirection.rtl,
-              textAlign: TextAlign.right,
-              style: style,
-            ),
+            child: Text(label, textAlign: TextAlign.right, style: style),
           ),
         ],
       ),

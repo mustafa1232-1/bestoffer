@@ -2,6 +2,18 @@ import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+class TaxiRoutePreview {
+  const TaxiRoutePreview({
+    required this.points,
+    required this.distanceMeters,
+    required this.durationSeconds,
+  });
+
+  final List<LatLng> points;
+  final double distanceMeters;
+  final int? durationSeconds;
+}
+
 class TaxiRouteService {
   TaxiRouteService({Dio? dio})
     : _dio =
@@ -10,9 +22,7 @@ class TaxiRouteService {
             BaseOptions(
               connectTimeout: const Duration(seconds: 8),
               receiveTimeout: const Duration(seconds: 8),
-              headers: {
-                'User-Agent': 'ShakakyTaxi/1.0 (support@shakaky.app)',
-              },
+              headers: {'User-Agent': 'MaslakiTaxi/1.0 (support@maslaki.app)'},
             ),
           );
 
@@ -23,10 +33,20 @@ class TaxiRouteService {
     return _distance.as(LengthUnit.Meter, from, to);
   }
 
-  Future<List<LatLng>> fetchDrivingRoute({
+  double polylineDistanceMeters(List<LatLng> points) {
+    if (points.length < 2) return 0;
+    var total = 0.0;
+    for (var i = 1; i < points.length; i++) {
+      total += distanceMeters(points[i - 1], points[i]);
+    }
+    return total;
+  }
+
+  Future<TaxiRoutePreview> fetchDrivingRoutePreview({
     required LatLng from,
     required LatLng to,
   }) async {
+    final fallbackDistance = distanceMeters(from, to);
     final response = await _dio.get(
       'https://router.project-osrm.org/route/v1/driving/'
       '${from.longitude},${from.latitude};${to.longitude},${to.latitude}',
@@ -40,27 +60,47 @@ class TaxiRouteService {
 
     final data = response.data;
     if (data is! Map) {
-      return [from, to];
+      return TaxiRoutePreview(
+        points: [from, to],
+        distanceMeters: fallbackDistance,
+        durationSeconds: null,
+      );
     }
 
     final routes = data['routes'];
     if (routes is! List || routes.isEmpty) {
-      return [from, to];
+      return TaxiRoutePreview(
+        points: [from, to],
+        distanceMeters: fallbackDistance,
+        durationSeconds: null,
+      );
     }
 
     final first = routes.first;
     if (first is! Map) {
-      return [from, to];
+      return TaxiRoutePreview(
+        points: [from, to],
+        distanceMeters: fallbackDistance,
+        durationSeconds: null,
+      );
     }
 
     final geometry = first['geometry'];
     if (geometry is! Map) {
-      return [from, to];
+      return TaxiRoutePreview(
+        points: [from, to],
+        distanceMeters: fallbackDistance,
+        durationSeconds: _toInt(first['duration']),
+      );
     }
 
     final coordinates = geometry['coordinates'];
     if (coordinates is! List) {
-      return [from, to];
+      return TaxiRoutePreview(
+        points: [from, to],
+        distanceMeters: _toDouble(first['distance']) ?? fallbackDistance,
+        durationSeconds: _toInt(first['duration']),
+      );
     }
 
     final points = <LatLng>[];
@@ -72,10 +112,21 @@ class TaxiRouteService {
       points.add(LatLng(lat, lng));
     }
 
-    if (points.length < 2) {
-      return [from, to];
-    }
-    return points;
+    final resolvedPoints = points.length < 2 ? <LatLng>[from, to] : points;
+    return TaxiRoutePreview(
+      points: resolvedPoints,
+      distanceMeters:
+          _toDouble(first['distance']) ?? polylineDistanceMeters(resolvedPoints),
+      durationSeconds: _toInt(first['duration']),
+    );
+  }
+
+  Future<List<LatLng>> fetchDrivingRoute({
+    required LatLng from,
+    required LatLng to,
+  }) async {
+    final preview = await fetchDrivingRoutePreview(from: from, to: to);
+    return preview.points;
   }
 
   Future<void> openWazeNavigation(LatLng destination) async {
@@ -102,5 +153,11 @@ class TaxiRouteService {
   double? _toDouble(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse('$value');
+  }
+
+  int? _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.round();
+    return int.tryParse('$value');
   }
 }

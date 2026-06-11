@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/widgets/app_user_drawer.dart';
-import '../../assistant/ui/assistant_chat_screen.dart';
+import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
+import '../../../core/sections/section_availability_controller.dart';
+import '../../../core/sections/section_availability_models.dart';
+import '../../../core/sections/section_unavailable_screen.dart';
+import '../../../core/widgets/maslaki_user_drawer.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 import '../../behavior/data/behavior_api.dart';
@@ -14,9 +19,8 @@ import '../models/customer_home_prefs.dart';
 import '../models/customer_ad_board_item.dart';
 import '../state/customer_ad_board_controller.dart';
 import '../state/customer_home_prefs_controller.dart';
-import '../../social/ui/basmaya_feed_screen.dart';
-import '../../social/ui/social_chat_threads_screen.dart';
 import 'customer_cars_hub_screen.dart';
+import 'ad_campaign_details_screen.dart';
 import 'customer_electronics_hub_screen.dart';
 import 'customer_food_hub_screen.dart';
 import 'customer_home_shopping_hub_screen.dart';
@@ -24,19 +28,48 @@ import 'customer_main_market_screen.dart';
 import 'customer_personalization_dialog.dart';
 import 'customer_style_hub_screen.dart';
 import '../../merchants/state/merchants_controller.dart';
-import '../../notifications/ui/notifications_bell.dart';
 import '../../orders/state/cart_controller.dart';
 import '../../orders/ui/cart_screen.dart';
 import '../../orders/ui/customer_orders_screen.dart';
-import '../../orders/ui/delivery_addresses_screen.dart';
 import '../../../pages/map_page.dart';
 
+import 'package:maslaki/core/media/cached_app_image.dart';
+
+enum CustomerDiscoveryMode { full, shoppingOnly }
+
 class CustomerDiscoveryScreen extends ConsumerStatefulWidget {
-  const CustomerDiscoveryScreen({super.key});
+  final CustomerDiscoveryMode mode;
+  final String? initialType;
+  final String initialSearchQuery;
+  final String? initialTitle;
+
+  const CustomerDiscoveryScreen({
+    super.key,
+    this.mode = CustomerDiscoveryMode.full,
+    this.initialType,
+    this.initialSearchQuery = '',
+    this.initialTitle,
+  });
 
   @override
   ConsumerState<CustomerDiscoveryScreen> createState() =>
       _CustomerDiscoveryScreenState();
+}
+
+const List<(Color, Color)> _splashGradientPairs = [
+  (Color(0xFF0D1B2A), Color(0xFF11243A)),
+  (Color(0xFF11243A), Color(0xFF14263D)),
+  (Color(0xFF162A42), Color(0xFF0D1B2A)),
+  (Color(0xFF14263D), Color(0xFF162A42)),
+  (Color(0xFF11243A), Color(0xFF0D1B2A)),
+];
+
+(Color, Color) _splashPairForSeed(String seed) {
+  final safeSeed = seed.trim();
+  final idx = safeSeed.isEmpty
+      ? 0
+      : safeSeed.hashCode.abs() % _splashGradientPairs.length;
+  return _splashGradientPairs[idx];
 }
 
 class _CustomerDiscoveryScreenState
@@ -44,12 +77,16 @@ class _CustomerDiscoveryScreenState
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
   final PageController _adController = PageController(viewportFraction: 0.92);
-  Timer? _adTimer;
 
   String _searchQuery = '';
   int _adPage = 0;
   int _adItemsCount = _defaultAdBanners.length;
   bool _didCheckPersonalization = false;
+  bool _didApplyInitialShoppingIntent = false;
+
+  bool get _isShoppingOnly => widget.mode == CustomerDiscoveryMode.shoppingOnly;
+
+  bool get _isEnglish => context.isEnglishLocale;
 
   Future<void> _trackBehaviorEvent({
     required String eventName,
@@ -76,28 +113,60 @@ class _CustomerDiscoveryScreenState
       setState(() => _searchQuery = next);
     });
 
-    Future.microtask(() async {
-      await ref.read(merchantsControllerProvider.notifier).load();
-      await ref.read(customerAdBoardControllerProvider.notifier).load();
-      await _bootstrapPersonalizationIfNeeded();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_bootstrapDiscoveryData());
     });
+  }
 
-    _adTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!mounted || !_adController.hasClients) return;
-      if (_adItemsCount <= 1) return;
-      _adPage = (_adPage + 1) % _adItemsCount;
-      _adController.animateToPage(
-        _adPage,
-        duration: const Duration(milliseconds: 420),
-        curve: Curves.easeOutCubic,
+  Future<void> _bootstrapDiscoveryData() async {
+    final merchantsState = ref.read(merchantsControllerProvider);
+    final needsMerchantsLoad =
+        !merchantsState.hasValue ||
+        (merchantsState.valueOrNull?.isEmpty ?? true);
+    if (needsMerchantsLoad) {
+      await ref.read(merchantsControllerProvider.notifier).load();
+    }
+    if (!mounted) return;
+    if (!_isShoppingOnly) {
+      final adBoardState = ref.read(customerAdBoardControllerProvider);
+      final needsAdBoardLoad =
+          !adBoardState.hasValue || (adBoardState.valueOrNull?.isEmpty ?? true);
+      if (needsAdBoardLoad) {
+        unawaited(ref.read(customerAdBoardControllerProvider.notifier).load());
+      }
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_bootstrapPersonalizationIfNeeded());
+      _applyInitialShoppingIntentIfNeeded();
+    });
+  }
+
+  void _applyInitialShoppingIntentIfNeeded() {
+    if (_didApplyInitialShoppingIntent) return;
+
+    final cleanType = widget.initialType?.trim();
+    final cleanTitle = widget.initialTitle?.trim();
+    final cleanQuery = widget.initialSearchQuery.trim();
+    final hasIntent =
+        (cleanType != null && cleanType.isNotEmpty) ||
+        cleanQuery.isNotEmpty ||
+        (cleanTitle != null && cleanTitle.isNotEmpty);
+    if (!hasIntent) return;
+
+    _didApplyInitialShoppingIntent = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _openSearchResult(
+        type: cleanType == null || cleanType.isEmpty ? null : cleanType,
+        query: cleanQuery,
+        title: cleanTitle == null || cleanTitle.isEmpty ? null : cleanTitle,
       );
-      setState(() {});
     });
   }
 
   @override
   void dispose() {
-    _adTimer?.cancel();
     _adController.dispose();
     _searchFocus.dispose();
     _searchCtrl.dispose();
@@ -116,44 +185,21 @@ class _CustomerDiscoveryScreenState
     ).push(MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()));
   }
 
-  Future<void> _openAddresses() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const DeliveryAddressesScreen(selectOnTap: true),
-      ),
-    );
-  }
-
-  Future<void> _openAssistant() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const AssistantChatScreen()));
-  }
-
   Future<void> _openMapPage() async {
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const MapPage()));
   }
 
-  Future<void> _openBasmayaFeed() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const BasmayaFeedScreen()));
-  }
-
-  Future<void> _openChatThreads() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const SocialChatThreadsScreen()));
-  }
-
   Future<void> _openDiscoveryHub(_DiscoveryHub hub) async {
+    if (_isShoppingOnly && hub.id == 'cars') {
+      return;
+    }
     await _trackBehaviorEvent(
       eventName: 'discovery.hub_open',
       category: 'discovery',
       action: 'open_hub',
-      metadata: {'hubId': hub.id, 'hubTitle': hub.title},
+      metadata: {'hubId': hub.id, 'hubTitle': hub.titleFor(context)},
     );
     if (!mounted) return;
 
@@ -185,6 +231,18 @@ class _CustomerDiscoveryScreenState
       case 'cars':
         await Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const CustomerCarsHubScreen()),
+        );
+        return;
+      case 'pharmacy':
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => MerchantsListScreen(
+              initialType: 'market',
+              initialActivityType: 'pharmacy',
+              overrideTitle: context.l10n.customerDiscoveryHubPharmacyTitle,
+              compactCustomerMode: true,
+            ),
+          ),
         );
         return;
       case 'main_market':
@@ -247,13 +305,14 @@ class _CustomerDiscoveryScreenState
   }
 
   void _openCategory(_DiscoveryCategory category) {
+    final localizedTitle = category.titleFor(context);
     unawaited(
       _trackBehaviorEvent(
         eventName: 'discovery.category_open',
         category: 'discovery',
         action: 'open_category',
         metadata: {
-          'categoryTitle': category.title,
+          'categoryTitle': localizedTitle,
           'merchantType': category.type,
           'seedQuery': category.seedQuery,
         },
@@ -264,8 +323,9 @@ class _CustomerDiscoveryScreenState
         builder: (_) => MerchantsListScreen(
           initialType: category.type,
           initialSearchQuery: category.seedQuery,
-          overrideTitle: category.title,
+          overrideTitle: localizedTitle,
           compactCustomerMode: true,
+          applyInitialSearchQuery: false,
         ),
       ),
     );
@@ -290,7 +350,11 @@ class _CustomerDiscoveryScreenState
         builder: (_) => MerchantsListScreen(
           initialType: type,
           initialSearchQuery: cleanQuery,
-          overrideTitle: title ?? (cleanQuery.isEmpty ? 'المتاجر' : cleanQuery),
+          overrideTitle:
+              title ??
+              (cleanQuery.isEmpty
+                  ? context.l10n.customerDiscoveryMerchants
+                  : cleanQuery),
           compactCustomerMode: true,
         ),
       ),
@@ -311,28 +375,31 @@ class _CustomerDiscoveryScreenState
     final query = text.toLowerCase();
 
     for (final hub in _discoveryHubs) {
-      final bucket = '${hub.title} ${hub.subtitle} ${hub.tags.join(' ')}'
-          .toLowerCase();
-      if (bucket.contains(query)) {
+      if (_isShoppingOnly && hub.id == 'cars') continue;
+      if (hub.searchBucket.contains(query)) {
         _openDiscoveryHub(hub);
         return;
       }
     }
 
     for (final category in _categories) {
-      final bucket =
-          '${category.title} ${category.seedQuery} ${category.tags.join(' ')}'
-              .toLowerCase();
-      if (bucket.contains(query)) {
+      if (category.searchBucket.contains(query)) {
         _openCategory(category);
         return;
       }
     }
 
-    _openSearchResult(query: text, title: 'نتائج "$text"');
+    _openSearchResult(
+      query: text,
+      title: context.l10n.customerDiscoveryResultsFor(text),
+    );
   }
 
   Future<void> _openAdBanner(_DisplayAdBanner banner) async {
+    if (_isShoppingOnly && banner.ctaTargetType == 'taxi') {
+      return;
+    }
+
     unawaited(
       _trackBehaviorEvent(
         eventName: 'discovery.ad_click',
@@ -348,6 +415,27 @@ class _CustomerDiscoveryScreenState
       ),
     );
 
+    if (banner.ctaTargetType == 'internal_campaign_page') {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => AdCampaignDetailsScreen(
+            title: banner.title,
+            subtitle: banner.subtitle,
+            badgeLabel: banner.badgeLabel,
+            imageUrl: banner.imageUrl,
+            merchantName: banner.merchantName,
+            ctaLabel: banner.ctaLabel,
+            onPrimaryAction: () => _openInternalCampaignAction(banner),
+          ),
+        ),
+      );
+      return;
+    }
+
+    await _openStandardAdAction(banner);
+  }
+
+  Future<void> _openStandardAdAction(_DisplayAdBanner banner) async {
     switch (banner.ctaTargetType) {
       case 'merchant':
         final query = (banner.merchantName ?? banner.ctaTargetValue ?? '')
@@ -366,6 +454,16 @@ class _CustomerDiscoveryScreenState
           _openSearchResult(type: value, query: '', title: banner.title);
         }
         return;
+      case 'product':
+        final query = (banner.merchantName ?? '').trim();
+        if (query.isNotEmpty) {
+          _openSearchResult(
+            type: banner.merchantType,
+            query: query,
+            title: banner.merchantName ?? banner.title,
+          );
+        }
+        return;
       case 'taxi':
         await _openMapPage();
         return;
@@ -377,9 +475,9 @@ class _CustomerDiscoveryScreenState
           return;
         }
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('تعذر فتح الرابط')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.commonOpenLinkFailed)),
+        );
         return;
       default:
         if ((banner.merchantName ?? '').trim().isNotEmpty) {
@@ -393,20 +491,45 @@ class _CustomerDiscoveryScreenState
     }
   }
 
+  Future<void> _openInternalCampaignAction(_DisplayAdBanner banner) async {
+    if ((banner.merchantName ?? '').trim().isNotEmpty) {
+      _openSearchResult(
+        type: banner.merchantType,
+        query: banner.merchantName!,
+        title: banner.merchantName ?? banner.title,
+      );
+      return;
+    }
+    final raw = (banner.ctaTargetValue ?? '').trim();
+    if (raw.isEmpty) return;
+    if (raw.toLowerCase() == 'taxi') {
+      await _openMapPage();
+      return;
+    }
+    final uri = Uri.tryParse(raw);
+    if (uri != null && uri.hasScheme && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      return;
+    }
+    _openSearchResult(query: '', type: raw, title: banner.title);
+  }
+
   List<_DisplayAdBanner> _buildDisplayAdBanners(
     List<CustomerAdBoardItem>? items,
   ) {
     if (items == null || items.isEmpty) {
       return _defaultAdBanners
-          .map(
-            (b) => _DisplayAdBanner(
-              title: b.title,
-              subtitle: b.subtitle,
+          .map((b) {
+            final title = b.titleFor(context);
+            final pair = _splashPairForSeed(title);
+            return _DisplayAdBanner(
+              title: title,
+              subtitle: b.subtitleFor(context),
               icon: b.icon,
-              colorA: b.colorA,
-              colorB: b.colorB,
-            ),
-          )
+              colorA: pair.$1,
+              colorB: pair.$2,
+            );
+          })
           .toList(growable: false);
     }
 
@@ -417,6 +540,7 @@ class _CustomerDiscoveryScreenState
           return _DisplayAdBanner(
             title: item.title,
             subtitle: item.subtitle,
+            imageUrl: item.imageUrl,
             badgeLabel: item.badgeLabel,
             ctaLabel: item.ctaLabel,
             ctaTargetType: item.ctaTargetType,
@@ -432,14 +556,90 @@ class _CustomerDiscoveryScreenState
         .toList(growable: false);
   }
 
+  Widget _buildQuickStatActions({
+    required int openCount,
+    required int offersCount,
+    required int restaurantsCount,
+    required int marketsCount,
+  }) {
+    return SizedBox(
+      height: 90,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        reverse: !_isEnglish,
+        children: [
+          _DiscoveryQuickStatCard(
+            icon: Icons.storefront_outlined,
+            title: context.l10n.customerDiscoveryOpenNow,
+            subtitle: context.l10n.customerDiscoveryOpenStores,
+            value: '$openCount',
+            onTap: () => _openSearchResult(
+              query: 'مفتوح الآن',
+              title: context.l10n.customerDiscoveryOpenMerchants,
+            ),
+          ),
+          const SizedBox(width: 8),
+          _DiscoveryQuickStatCard(
+            icon: Icons.local_offer_outlined,
+            title: context.l10n.customerDiscoveryOffers,
+            subtitle: context.l10n.customerDiscoveryCurrentDiscounts,
+            value: '$offersCount',
+            onTap: () => _openSearchResult(
+              query: 'عروض',
+              title: context.l10n.customerDiscoveryTodayOffers,
+            ),
+          ),
+          const SizedBox(width: 8),
+          _DiscoveryQuickStatCard(
+            icon: Icons.restaurant_outlined,
+            title: context.l10n.customerDiscoveryRestaurants,
+            subtitle: context.l10n.customerDiscoveryAllInOnePlace,
+            value: '$restaurantsCount',
+            onTap: () => _openSearchResult(
+              type: 'restaurant',
+              query: '',
+              title: context.l10n.customerDiscoveryRestaurants,
+            ),
+          ),
+          const SizedBox(width: 8),
+          _DiscoveryQuickStatCard(
+            icon: Icons.shopping_cart_outlined,
+            title: context.l10n.customerDiscoveryStores,
+            subtitle: context.l10n.customerDiscoverySupermarketsAndMore,
+            value: '$marketsCount',
+            onTap: () => _openSearchResult(
+              type: 'market',
+              query: '',
+              title: context.l10n.customerDiscoveryStores,
+            ),
+          ),
+          if (!_isShoppingOnly) ...[
+            const SizedBox(width: 8),
+            _DiscoveryQuickStatCard(
+              icon: Icons.local_taxi_outlined,
+              title: context.l10n.customerDiscoveryTaxi,
+              subtitle: context.l10n.customerDiscoveryQuickRequest,
+              value: '',
+              onTap: () => unawaited(_openMapPage()),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   IconData _iconForAdTarget(String ctaType, String? merchantType) {
     switch (ctaType) {
       case 'taxi':
         return Icons.local_taxi_rounded;
       case 'url':
         return Icons.open_in_new_rounded;
+      case 'internal_campaign_page':
+        return Icons.auto_awesome_rounded;
       case 'category':
         return Icons.category_rounded;
+      case 'product':
+        return Icons.inventory_2_rounded;
       case 'merchant':
         if (merchantType == 'restaurant') return Icons.restaurant_rounded;
         return Icons.storefront_rounded;
@@ -450,15 +650,15 @@ class _CustomerDiscoveryScreenState
 
   (Color, Color) _colorsForAd(int priority, String? merchantType) {
     if (merchantType == 'restaurant') {
-      return (const Color(0xFFB15E17), const Color(0xFF6C350E));
+      return (const Color(0xFF14263D), const Color(0xFF11243A));
     }
     if (merchantType == 'market') {
-      return (const Color(0xFF24649A), const Color(0xFF153B62));
+      return (const Color(0xFF11243A), const Color(0xFF162A42));
     }
     if (priority < 20) {
-      return (const Color(0xFF7A1B52), const Color(0xFF4D1234));
+      return (const Color(0xFF162A42), const Color(0xFF11243A));
     }
-    return (const Color(0xFF1E5A8F), const Color(0xFF14375D));
+    return (const Color(0xFF0D1B2A), const Color(0xFF11243A));
   }
 
   List<_DiscoveryHub> _orderedDiscoveryHubs(CustomerHomePrefs prefs) {
@@ -470,7 +670,13 @@ class _CustomerDiscoveryScreenState
     );
 
     if (!prefs.completed) {
-      return [...regularHubs, mainMarket];
+      final defaults = <_DiscoveryHub>[...regularHubs];
+      final pharmacyIndex = defaults.indexWhere((hub) => hub.id == 'pharmacy');
+      if (pharmacyIndex > 0) {
+        final pharmacyHub = defaults.removeAt(pharmacyIndex);
+        defaults.insert(0, pharmacyHub);
+      }
+      return [mainMarket, ...defaults];
     }
 
     final scored = regularHubs
@@ -503,7 +709,11 @@ class _CustomerDiscoveryScreenState
       visible.add(carsHub);
     }
 
-    return [...visible, mainMarket];
+    final pharmacyHub = regularHubs.firstWhere((hub) => hub.id == 'pharmacy');
+    visible.removeWhere((hub) => hub.id == 'pharmacy');
+    visible.insert(0, pharmacyHub);
+
+    return [mainMarket, ...visible];
   }
 
   int _hubScore({
@@ -587,46 +797,63 @@ class _CustomerDiscoveryScreenState
 
   String _appBarGreeting(String? fullName) {
     final first = _firstName(fullName);
-    if (first.isEmpty) return 'هلا بيك';
-    return 'هلا $first';
+    if (first.isEmpty) return context.l10n.customerHomeWelcome;
+    return context.l10n.customerHomeHiName(first);
   }
 
   _TimeGreeting _timeGreeting() {
     final hour = DateTime.now().hour;
     if (hour >= 5 && hour < 11) {
       return const _TimeGreeting(
-        title: 'صباح الخير',
-        tagline: 'شكاكي وياك من الصبح، وكل حاجة بوقتها تنلگاها تربح.',
+        titleAr: 'صباح الخير',
+        titleEn: 'Good morning',
+        taglineAr: 'كلشي حاضر، اطلب اللي يعجبك وخله يوصلك.',
+        taglineEn:
+            'Everything is ready. Order what you like and have it delivered.',
       );
     }
     if (hour >= 11 && hour < 14) {
       return const _TimeGreeting(
-        title: 'ظهر الخير',
-        tagline: 'غداك وترتيب بيتك على كيفك، وشكاكي يسهّلها عليك بدقيقك.',
+        titleAr: 'هلا بالظهر',
+        titleEn: 'Good afternoon',
+        taglineAr: 'إذا جوعان أو محتاج شي، طلبك ينطلب هسه.',
+        taglineEn:
+            'If you are hungry or need something, your order can start right now.',
       );
     }
     if (hour >= 14 && hour < 17) {
       return const _TimeGreeting(
-        title: 'عصر الخير',
-        tagline: 'عصرك أحلى ويه عرض يفتح النفس، من مطعم لسوق والخطوة سلس.',
+        titleAr: 'عصر الخير',
+        titleEn: 'Good afternoon',
+        taglineAr: 'العروض شغالة، وطلبك يوصل بدون لفة.',
+        taglineEn:
+            'Offers are live, and your order arrives without extra delay.',
       );
     }
     if (hour >= 17 && hour < 19) {
       return const _TimeGreeting(
-        title: 'مغرب الخير',
-        tagline: 'من المغيب لليلك، شكاكي يرتب طلبك ويوصلّه لدربك.',
+        titleAr: 'مساء الخير',
+        titleEn: 'Good evening',
+        taglineAr: 'خذ راحتك، واختار اللي تحتاجه لليلية.',
+        taglineEn: 'Take your time and pick what you need for the evening.',
       );
     }
     return const _TimeGreeting(
-      title: 'مساء الخير',
-      tagline: 'مسّاك هدوء وطلبات مضبوطة، شكاكي يجيبها بسرعة ومضبوطة.',
+      titleAr: 'هلا بالليل',
+      titleEn: 'Late night',
+      taglineAr: 'إذا تحتاج طلب متأخر، بعدنا وياك.',
+      taglineEn: 'If you need a late order, we are still with you.',
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final auth = ref.watch(authControllerProvider);
-    final userId = auth.user?.id;
+    final shoppingSection = ref
+        .watch(sectionAvailabilityControllerProvider)
+        .entryFor(AppSectionKeys.shopping, displayName: 'التسوق');
+    if (shoppingSection.isBlocked) {
+      return SectionUnavailableScreen(entry: shoppingSection);
+    }
     final merchantsState = ref.watch(merchantsControllerProvider);
     final adBoardState = ref.watch(customerAdBoardControllerProvider);
     final userFullName = ref.watch(
@@ -640,171 +867,55 @@ class _CustomerDiscoveryScreenState
         ref.watch(customerHomePrefsProvider).valueOrNull ??
         CustomerHomePrefs.empty;
     final personalizedHubs = _orderedDiscoveryHubs(homePrefs);
-
-    final drawerItems = <AppUserDrawerItem>[
-      AppUserDrawerItem(
-        icon: Icons.receipt_long_rounded,
-        label: 'طلباتي',
-        onTap: (_) => _openOrders(),
+    final visibleHubs = _isShoppingOnly
+        ? personalizedHubs
+              .where((hub) => hub.id != 'cars')
+              .toList(growable: false)
+        : personalizedHubs;
+    final bodyContent = merchantsState.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, stackTrace) => _ErrorView(
+        onRetry: () =>
+            ref.read(merchantsControllerProvider.notifier).load(force: true),
       ),
-      AppUserDrawerItem(
-        icon: Icons.shopping_cart_outlined,
-        label: 'السلة',
-        onTap: (_) => _openCart(),
-      ),
-      AppUserDrawerItem(
-        icon: Icons.location_on_outlined,
-        label: 'عناوين التوصيل',
-        onTap: (_) => _openAddresses(),
-      ),
-      AppUserDrawerItem(
-        icon: Icons.smart_toy_outlined,
-        label: 'المساعد الذكي',
-        onTap: (_) => _openAssistant(),
-      ),
-      AppUserDrawerItem(
-        icon: Icons.map_outlined,
-        label: 'الخريطة',
-        onTap: (_) => _openMapPage(),
-      ),
-      AppUserDrawerItem(
-        icon: Icons.newspaper_rounded,
-        label: 'شديصير بسماية',
-        onTap: (_) => _openBasmayaFeed(),
-      ),
-      AppUserDrawerItem(
-        icon: Icons.chat_bubble_outline_rounded,
-        label: 'المحادثات',
-        onTap: (_) => _openChatThreads(),
-      ),
-      AppUserDrawerItem(
-        icon: Icons.refresh_rounded,
-        label: 'تحديث البيانات',
-        onTap: (_) async {
-          await ref.read(merchantsControllerProvider.notifier).load();
-          await ref.read(customerAdBoardControllerProvider.notifier).load();
-        },
-      ),
-      if (userId != null)
-        AppUserDrawerItem(
-          icon: Icons.tune_rounded,
-          label: 'إعادة تخصيص الواجهة',
-          onTap: (_) async {
-            Navigator.of(context).pop();
-            await ref
-                .read(customerHomePrefsProvider.notifier)
-                .reset(userId: userId);
+      data: (merchants) {
+        final displayAds = _isShoppingOnly
+            ? const <_DisplayAdBanner>[]
+            : _buildDisplayAdBanners(adBoardState.valueOrNull);
+        if (!_isShoppingOnly && _adItemsCount != displayAds.length) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            await _showPersonalizationDialog(userId);
-          },
-        ),
-    ];
-
-    return Scaffold(
-      drawer: AppUserDrawer(
-        title: 'Shakaky | شكاكي',
-        subtitle: 'من بسماية لكل احتياجك اليومي: سوق، مطاعم، وتكسي',
-        items: drawerItems,
-      ),
-      appBar: AppBar(
-        title: Text(_appBarGreeting(userFullName)),
-        actions: [
-          IconButton(
-            tooltip: 'المساعد',
-            onPressed: _openAssistant,
-            icon: const Icon(Icons.smart_toy_outlined),
-          ),
-          IconButton(
-            tooltip: 'الطلبات',
-            onPressed: _openOrders,
-            icon: const Icon(Icons.receipt_long_rounded),
-          ),
-          IconButton(
-            tooltip: 'المحادثات',
-            onPressed: _openChatThreads,
-            icon: const Icon(Icons.chat_bubble_outline_rounded),
-          ),
-          Stack(
-            children: [
-              IconButton(
-                tooltip: 'السلة',
-                onPressed: _openCart,
-                icon: const Icon(Icons.shopping_bag_outlined),
-              ),
-              if (cartItems > 0)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      '$cartItems',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const NotificationsBellButton(),
-        ],
-      ),
-      body: merchantsState.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => _ErrorView(
-          onRetry: () => ref.read(merchantsControllerProvider.notifier).load(),
-        ),
-        data: (merchants) {
-          final displayAds = _buildDisplayAdBanners(adBoardState.valueOrNull);
-          if (_adItemsCount != displayAds.length) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              setState(() {
-                _adItemsCount = displayAds.isEmpty ? 1 : displayAds.length;
-                if (_adPage >= _adItemsCount) _adPage = 0;
-              });
+            setState(() {
+              _adItemsCount = displayAds.isEmpty ? 1 : displayAds.length;
+              if (_adPage >= _adItemsCount) _adPage = 0;
             });
-          }
-          final openCount = merchants.where((m) => m.isOpen).length;
-          final offersCount = merchants
-              .where((m) => m.hasDiscountOffer || m.hasFreeDeliveryOffer)
-              .length;
-          final restaurantsCount = merchants
-              .where((m) => m.type == 'restaurant')
-              .length;
-          final marketsCount = merchants
-              .where((m) => m.type == 'market')
-              .length;
+          });
+        }
+        final openCount = merchants.where((m) => m.isOpen).length;
+        final offersCount = merchants
+            .where((m) => m.hasDiscountOffer || m.hasFreeDeliveryOffer)
+            .length;
+        final restaurantsCount = merchants
+            .where((m) => m.type == 'restaurant')
+            .length;
+        final marketsCount = merchants.where((m) => m.type == 'market').length;
 
-          return RefreshIndicator(
-            onRefresh: () async {
-              await ref.read(merchantsControllerProvider.notifier).load();
-              await ref.read(customerAdBoardControllerProvider.notifier).load();
-            },
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-              children: [
-                _HeroWelcomeCard(greeting: timeGreeting),
-                const SizedBox(height: 10),
-                _TaxiServiceSpotlightCard(onTap: _openMapPage),
-                const SizedBox(height: 10),
-                _FuturePulsePanel(
-                  openCount: openCount,
-                  offersCount: offersCount,
-                  restaurantsCount: restaurantsCount,
-                  marketsCount: marketsCount,
-                  totalCount: merchants.length,
-                ),
+        return RefreshIndicator(
+          onRefresh: () async {
+            await ref
+                .read(merchantsControllerProvider.notifier)
+                .load(force: true);
+            if (!_isShoppingOnly) {
+              await ref
+                  .read(customerAdBoardControllerProvider.notifier)
+                  .load(force: true);
+            }
+          },
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+            children: [
+              _HeroWelcomeCard(greeting: timeGreeting),
+              if (!_isShoppingOnly) ...[
                 const SizedBox(height: 10),
                 _AdsCarousel(
                   controller: _adController,
@@ -812,67 +923,190 @@ class _CustomerDiscoveryScreenState
                   banners: displayAds,
                   onTapBanner: _openAdBanner,
                 ),
-                const SizedBox(height: 12),
-                _SearchPanel(
-                  controller: _searchCtrl,
-                  focusNode: _searchFocus,
-                  onSubmit: _onSubmitSearch,
-                  onQuickSearch: (value) {
-                    _searchCtrl.text = value;
-                    _searchCtrl.selection = TextSelection.collapsed(
-                      offset: _searchCtrl.text.length,
-                    );
-                    _onSubmitSearch();
-                  },
-                ),
-                const SizedBox(height: 12),
-                _IntentLauncherStrip(
-                  onTaxi: _openMapPage,
-                  onOffers: () =>
-                      _openSearchResult(query: 'عروض', title: 'عروض اليوم'),
-                  onTopRated: () => _openSearchResult(
-                    query: 'الأعلى تقييمًا',
-                    title: 'الأعلى تقييمًا',
-                  ),
-                  onReorder: _openOrders,
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'التصنيفات الرئيسية',
-                  textDirection: TextDirection.rtl,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                ListView.separated(
-                  itemCount: personalizedHubs.length,
-                  physics: const NeverScrollableScrollPhysics(),
-                  shrinkWrap: true,
-                  itemBuilder: (context, index) {
-                    final hub = personalizedHubs[index];
-                    return _DiscoveryHubCard(
-                      hub: hub,
-                      index: index,
-                      onTap: () => _openDiscoveryHub(hub),
-                    );
-                  },
-                  separatorBuilder: (_, _) => const SizedBox(height: 10),
-                ),
               ],
+              const SizedBox(height: 12),
+              _SearchPanel(
+                controller: _searchCtrl,
+                focusNode: _searchFocus,
+                onSubmit: _onSubmitSearch,
+                onQuickSearch: (value) {
+                  _searchCtrl.text = value;
+                  _searchCtrl.selection = TextSelection.collapsed(
+                    offset: _searchCtrl.text.length,
+                  );
+                  _onSubmitSearch();
+                },
+              ),
+              const SizedBox(height: 14),
+              Text(
+                context.l10n.customerDiscoveryMainCategories,
+                textDirection: context.appTextDirection,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 10),
+              ListView.separated(
+                itemCount: visibleHubs.length,
+                physics: const NeverScrollableScrollPhysics(),
+                shrinkWrap: true,
+                itemBuilder: (context, index) {
+                  final hub = visibleHubs[index];
+                  return _DiscoveryHubCard(
+                    hub: hub,
+                    index: index,
+                    onTap: () => _openDiscoveryHub(hub),
+                  );
+                },
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+              ),
+              if (!_isShoppingOnly) ...[
+                const SizedBox(height: 12),
+                _TaxiServiceSpotlightCard(onTap: _openMapPage),
+              ],
+              const SizedBox(height: 12),
+              _IntentLauncherStrip(
+                onTaxi: _openMapPage,
+                showTaxi: !_isShoppingOnly,
+                onOffers: () => _openSearchResult(
+                  query: context.l10n.customerDiscoverySearchQueryOffers,
+                  title: context.l10n.customerDiscoveryTodayOffers,
+                ),
+                onTopRated: () => _openSearchResult(
+                  query: context.l10n.customerDiscoverySearchQueryTopRated,
+                  title: context.l10n.customerDiscoveryTopRated,
+                ),
+                onReorder: _openOrders,
+              ),
+              const SizedBox(height: 12),
+              _buildQuickStatActions(
+                openCount: openCount,
+                offersCount: offersCount,
+                restaurantsCount: restaurantsCount,
+                marketsCount: marketsCount,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    final canPop = Navigator.of(context).canPop();
+    return Scaffold(
+      endDrawer: const MaslakiUserDrawer(),
+      appBar: MaslakiTopBar(
+        title: _appBarGreeting(userFullName),
+        subtitle: _isShoppingOnly
+            ? context.lt(
+                ar: 'تصفح الفئات والمتاجر والمنتجات بدون تشتيت.',
+                en: 'Browse categories, stores, and products without clutter.',
+              )
+            : context.l10n.customerDiscoveryMarketSubtitle,
+        leading: canPop
+            ? IconButton(
+                tooltip: context.l10n.commonBack,
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back_rounded),
+              )
+            : const MaslakiUserDrawerButton(),
+        actions: [
+          if (canPop) const MaslakiUserDrawerButton(),
+          IconButton(
+            tooltip: context.l10n.customerDiscoveryOrders,
+            onPressed: _openOrders,
+            icon: const Icon(Icons.receipt_long_rounded),
+          ),
+          if (!_isShoppingOnly)
+            IconButton(
+              tooltip: context.l10n.customerDiscoveryTaxi,
+              onPressed: _openMapPage,
+              icon: const Icon(Icons.local_taxi_outlined),
             ),
-          );
-        },
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                tooltip: context.l10n.customerDiscoveryCart,
+                onPressed: _openCart,
+                icon: const Icon(Icons.shopping_bag_outlined),
+              ),
+              if (cartItems > 0)
+                PositionedDirectional(
+                  top: 7,
+                  end: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: context.maslakiTokens.primaryAccent,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '$cartItems',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: context.maslakiTokens.backgroundPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
       ),
+      body: bodyContent,
     );
   }
 }
 
 class _TimeGreeting {
-  final String title;
-  final String tagline;
+  final String titleAr;
+  final String titleEn;
+  final String taglineAr;
+  final String taglineEn;
 
-  const _TimeGreeting({required this.title, required this.tagline});
+  const _TimeGreeting({
+    required this.titleAr,
+    required this.titleEn,
+    required this.taglineAr,
+    required this.taglineEn,
+  });
+
+  String titleFor(BuildContext context) {
+    final l10n = context.l10n;
+    return switch (taglineEn) {
+      'Everything is ready. Order what you like and have it delivered.' =>
+        l10n.customerDiscoveryGreetingMorningTitle,
+      'If you are hungry or need something, your order can start right now.' =>
+        l10n.customerDiscoveryGreetingNoonTitle,
+      'Offers are live, and your order arrives without extra delay.' =>
+        l10n.customerDiscoveryGreetingAfternoonTitle,
+      'Take your time and pick what you need for the evening.' =>
+        l10n.customerDiscoveryGreetingEveningTitle,
+      'If you need a late order, we are still with you.' =>
+        l10n.customerDiscoveryGreetingNightTitle,
+      _ => titleEn,
+    };
+  }
+
+  String taglineFor(BuildContext context) {
+    final l10n = context.l10n;
+    return switch (taglineEn) {
+      'Everything is ready. Order what you like and have it delivered.' =>
+        l10n.customerDiscoveryGreetingMorningTagline,
+      'If you are hungry or need something, your order can start right now.' =>
+        l10n.customerDiscoveryGreetingNoonTagline,
+      'Offers are live, and your order arrives without extra delay.' =>
+        l10n.customerDiscoveryGreetingAfternoonTagline,
+      'Take your time and pick what you need for the evening.' =>
+        l10n.customerDiscoveryGreetingEveningTagline,
+      'If you need a late order, we are still with you.' =>
+        l10n.customerDiscoveryGreetingNightTagline,
+      _ => taglineEn,
+    };
+  }
 }
 
 class _HeroWelcomeCard extends StatefulWidget {
@@ -884,266 +1118,247 @@ class _HeroWelcomeCard extends StatefulWidget {
   State<_HeroWelcomeCard> createState() => _HeroWelcomeCardState();
 }
 
-class _HeroWelcomeCardState extends State<_HeroWelcomeCard>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1900),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
+class _HeroWelcomeCardState extends State<_HeroWelcomeCard> {
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final pulse = 0.90 + (_controller.value * 0.10);
-        final halo = 0.12 + (_controller.value * 0.12);
-        return Card(
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              gradient: const LinearGradient(
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-                colors: [Color(0xFF1A4B7C), Color(0xFF102C4A)],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF59D2FF).withValues(alpha: halo),
-                  blurRadius: 24,
-                  spreadRadius: 1.2,
-                ),
-              ],
+    const pulse = 1.0;
+    const halo = 0.12;
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: const LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [Color(0xFF14263D), Color(0xFF0D1B2A)],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFD4AF37).withValues(alpha: halo),
+              blurRadius: 22,
+              spreadRadius: 0.4,
             ),
-            child: Stack(
-              children: [
-                Positioned(
-                  top: -22,
-                  left: -12,
-                  child: Container(
-                    width: 96,
-                    height: 96,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.06),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: -22,
+              left: -12,
+              child: Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.06),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: -18,
+              right: -8,
+              child: Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.05),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: context.isEnglishLocale
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    widget.greeting.titleFor(context),
+                    textDirection: context.appTextDirection,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white70,
                     ),
                   ),
-                ),
-                Positioned(
-                  bottom: -18,
-                  right: -8,
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.05),
+                  const SizedBox(height: 2),
+                  Text(
+                    widget.greeting.taglineFor(context),
+                    textDirection: context.appTextDirection,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.2,
                     ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  const SizedBox(height: 6),
+                  Wrap(
+                    alignment: context.isEnglishLocale
+                        ? WrapAlignment.start
+                        : WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Text(
-                        '${widget.greeting.title} 👋',
-                        textDirection: TextDirection.rtl,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white70,
-                            ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.greeting.tagline,
-                        textDirection: TextDirection.rtl,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.2,
+                        context.l10n.customerDiscoveryHeroWith,
+                        textDirection: context.appTextDirection,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        alignment: WrapAlignment.end,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            'مع ',
-                            textDirection: TextDirection.rtl,
+                      Transform.scale(
+                        scale: pulse,
+                        child: ShaderMask(
+                          shaderCallback: (bounds) {
+                            return const LinearGradient(
+                              colors: [Color(0xFFE6C98A), Color(0xFFD4AF37)],
+                            ).createShader(bounds);
+                          },
+                          child: const Text(
+                            'Maslaki',
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 17,
                             ),
                           ),
-                          Transform.scale(
-                            scale: pulse,
-                            child: ShaderMask(
-                              shaderCallback: (bounds) {
-                                return const LinearGradient(
-                                  colors: [
-                                    Color(0xFFFFD166),
-                                    Color(0xFFFF7F50),
-                                  ],
-                                ).createShader(bounds);
-                              },
-                              child: const Text(
-                                'Shakaky',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 17,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'لا مثيل إله: كلشي يلكاك، وطلبك بسرعة يوصل لبابك',
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Transform.scale(
-                            scale: pulse,
-                            child: const Icon(
-                              Icons.local_fire_department_rounded,
-                              color: Color(0xFFFF8C42),
-                              size: 19,
-                            ),
-                          ),
-                        ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        context.l10n.customerDiscoveryHeroCloserTagline,
+                        textDirection: context.appTextDirection,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Transform.scale(
+                        scale: pulse,
+                        child: Icon(
+                          Icons.local_fire_department_rounded,
+                          color: scheme.primary,
+                          size: 19,
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 }
 
-class _FuturePulsePanel extends StatelessWidget {
-  final int openCount;
-  final int offersCount;
-  final int restaurantsCount;
-  final int marketsCount;
-  final int totalCount;
+class _DiscoveryQuickStatCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String value;
+  final VoidCallback onTap;
 
-  const _FuturePulsePanel({
-    required this.openCount,
-    required this.offersCount,
-    required this.restaurantsCount,
-    required this.marketsCount,
-    required this.totalCount,
+  const _DiscoveryQuickStatCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final openRatio = totalCount <= 0
-        ? 0.0
-        : (openCount / totalCount).clamp(0.0, 1.0);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        gradient: const LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          colors: [Color(0xFF1F4D7E), Color(0xFF173657)],
-        ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            textDirection: TextDirection.rtl,
-            children: [
-              const Icon(Icons.radar_rounded, size: 20),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  'نبض السوق المباشر',
-                  textDirection: TextDirection.rtl,
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(999),
-                  color: Colors.white.withValues(alpha: 0.14),
-                ),
-                child: Text(
-                  '$openCount/$totalCount',
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              minHeight: 8,
-              value: openRatio,
-              backgroundColor: Colors.white.withValues(alpha: 0.13),
-              valueColor: AlwaysStoppedAnimation<Color>(
-                Color.lerp(
-                      const Color(0xFF4FD2FF),
-                      const Color(0xFF68FFB7),
-                      openRatio,
-                    ) ??
-                    const Color(0xFF4FD2FF),
-              ),
+    final scheme = Theme.of(context).colorScheme;
+    final textDirection = context.appTextDirection;
+    final crossAxisAlignment = context.isEnglishLocale
+        ? CrossAxisAlignment.start
+        : CrossAxisAlignment.end;
+    final rowAlignment = context.isEnglishLocale
+        ? MainAxisAlignment.start
+        : MainAxisAlignment.end;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Ink(
+          width: 168,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              begin: Alignment.topRight,
+              end: Alignment.bottomLeft,
+              colors: [
+                scheme.primary.withValues(alpha: 0.2),
+                scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+              ],
             ),
+            border: Border.all(color: scheme.primary.withValues(alpha: 0.22)),
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            alignment: WrapAlignment.end,
-            spacing: 8,
-            runSpacing: 8,
+          child: Row(
+            textDirection: textDirection,
             children: [
-              _FuturePulseItem(
-                icon: Icons.storefront_rounded,
-                label: 'متاجر مفتوحة',
-                value: '$openCount',
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: scheme.primary.withValues(alpha: 0.18),
+                child: Icon(icon, size: 17, color: scheme.primary),
               ),
-              _FuturePulseItem(
-                icon: Icons.local_offer_rounded,
-                label: 'عروض فعالة',
-                value: '$offersCount',
-              ),
-              _FuturePulseItem(
-                icon: Icons.restaurant_rounded,
-                label: 'مطاعم',
-                value: '$restaurantsCount',
-              ),
-              _FuturePulseItem(
-                icon: Icons.shopping_basket_rounded,
-                label: 'أسواق',
-                value: '$marketsCount',
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: crossAxisAlignment,
+                  children: [
+                    Row(
+                      mainAxisAlignment: rowAlignment,
+                      textDirection: textDirection,
+                      children: [
+                        if (value.isNotEmpty) ...[
+                          Text(
+                            value,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                              color: scheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Flexible(
+                          child: Text(
+                            title,
+                            textDirection: textDirection,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: context.isEnglishLocale
+                                ? TextAlign.start
+                                : TextAlign.end,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      textDirection: textDirection,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.onSurface.withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1159,23 +1374,12 @@ class _TaxiServiceSpotlightCard extends StatefulWidget {
       _TaxiServiceSpotlightCardState();
 }
 
-class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1300),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
+class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final wave = Curves.easeInOut.transform(_controller.value);
+    final scheme = Theme.of(context).colorScheme;
+    const wave = 0.35;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1183,19 +1387,19 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
         gradient: const LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [Color(0xFF1D4F82), Color(0xFF144066)],
+          colors: [Color(0xFF14263D), Color(0xFF0D1B2A)],
         ),
         border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 14,
+            color: const Color(0xFFD4AF37).withValues(alpha: 0.10),
+            blurRadius: 18,
             offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Row(
-        textDirection: TextDirection.rtl,
+        textDirection: context.appTextDirection,
         children: [
           SizedBox(
             width: 74,
@@ -1219,12 +1423,12 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
                     width: 52,
                     height: 52,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF3CC6FF).withValues(alpha: 0.18),
+                      color: scheme.primary.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.local_taxi_rounded,
-                      color: Color(0xFF5CD7FF),
+                      color: scheme.primary,
                       size: 30,
                     ),
                   ),
@@ -1235,8 +1439,8 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
                   child: Container(
                     width: 9,
                     height: 9,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFFCC66),
+                    decoration: BoxDecoration(
+                      color: scheme.secondary,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -1247,11 +1451,13 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
           const SizedBox(width: 12),
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment: context.isEnglishLocale
+                  ? CrossAxisAlignment.start
+                  : CrossAxisAlignment.end,
               children: [
                 Text(
-                  'تكسي شكاكي',
-                  textDirection: TextDirection.rtl,
+                  context.l10n.customerDiscoveryTaxiSpotlightTitle,
+                  textDirection: context.appTextDirection,
                   style: textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: Colors.white,
@@ -1259,8 +1465,8 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'حدد نقطة الانطلاق والوصول، واختر سعرك، والكباتن القريبين يرسلون عروضهم فورًا.',
-                  textDirection: TextDirection.rtl,
+                  context.l10n.customerDiscoveryTaxiSpotlightBody,
+                  textDirection: context.appTextDirection,
                   style: textTheme.bodySmall?.copyWith(
                     color: Colors.white.withValues(alpha: 0.88),
                     fontWeight: FontWeight.w600,
@@ -1271,10 +1477,12 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
                 FilledButton.icon(
                   onPressed: widget.onTap,
                   icon: const Icon(Icons.navigation_rounded),
-                  label: const Text('اطلب تكسي الآن'),
+                  label: Text(
+                    context.l10n.customerDiscoveryTaxiSpotlightAction,
+                  ),
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF59CEFF),
-                    foregroundColor: const Color(0xFF06263A),
+                    backgroundColor: scheme.primary,
+                    foregroundColor: const Color(0xFF0D1B2A),
                     textStyle: const TextStyle(fontWeight: FontWeight.w900),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 14,
@@ -1283,62 +1491,6 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard>
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FuturePulseItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _FuturePulseItem({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 148,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-      ),
-      child: Row(
-        textDirection: TextDirection.rtl,
-        children: [
-          Icon(icon, size: 18, color: Colors.white),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  label,
-                  textDirection: TextDirection.rtl,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.75),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11.5,
-                  ),
-                ),
-                Text(
-                  value,
-                  textDirection: TextDirection.rtl,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
                   ),
                 ),
               ],
@@ -1369,6 +1521,14 @@ class _AdsCarousel extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    final textDirection = context.appTextDirection;
+    final crossAxisAlignment = context.isEnglishLocale
+        ? CrossAxisAlignment.start
+        : CrossAxisAlignment.end;
+    final ctaArrow = context.isEnglishLocale
+        ? Icons.arrow_forward_rounded
+        : Icons.arrow_back_rounded;
+
     return Column(
       children: [
         SizedBox(
@@ -1378,50 +1538,80 @@ class _AdsCarousel extends StatelessWidget {
             itemCount: banners.length,
             itemBuilder: (context, index) {
               final banner = banners[index];
-              final activeDistance = controller.hasClients
-                  ? ((controller.page ?? page.toDouble()) - index).abs()
-                  : (page - index).abs().toDouble();
-              final clamped = activeDistance.clamp(0.0, 1.0);
-              final scale = 1 - (clamped * 0.08);
-              final opacity = 1 - (clamped * 0.32);
+              final pair = _splashPairForSeed(
+                '${banner.title}:${banner.ctaTargetType}:${banner.merchantType ?? ''}',
+              );
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Transform.scale(
-                  scale: scale,
-                  child: Opacity(
-                    opacity: opacity,
-                    child: InkWell(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => onTapBanner(banner),
+                  child: Container(
+                    decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
-                      onTap: () => onTapBanner(banner),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          gradient: LinearGradient(
-                            begin: Alignment.topRight,
-                            end: Alignment.bottomLeft,
-                            colors: [banner.colorA, banner.colorB],
-                          ),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.16),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: banner.colorA.withValues(alpha: 0.30),
-                              blurRadius: 18,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.16),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: pair.$1.withValues(alpha: 0.16),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
-                        child: Padding(
+                      ],
+                    ),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              gradient: LinearGradient(
+                                begin: Alignment.topRight,
+                                end: Alignment.bottomLeft,
+                                colors: [pair.$1, pair.$2],
+                              ),
+                            ),
+                          ),
+                        ),
+                        if ((banner.imageUrl ?? '').trim().isNotEmpty)
+                          Positioned.fill(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: CachedAppImage(
+                                imageUrl: banner.imageUrl!,
+                                fit: BoxFit.cover,
+                                errorWidget: (context, error, stackTrace) =>
+                                    const SizedBox.shrink(),
+                              ),
+                            ),
+                          ),
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.black.withValues(alpha: 0.12),
+                                  Colors.black.withValues(alpha: 0.46),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Padding(
                           padding: const EdgeInsets.all(12),
                           child: Row(
+                            textDirection: textDirection,
                             children: [
                               Icon(banner.icon, size: 26),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  crossAxisAlignment: crossAxisAlignment,
                                   children: [
                                     if ((banner.badgeLabel ?? '')
                                         .trim()
@@ -1445,7 +1635,7 @@ class _AdsCarousel extends StatelessWidget {
                                           ),
                                           child: Text(
                                             banner.badgeLabel!,
-                                            textDirection: TextDirection.rtl,
+                                            textDirection: textDirection,
                                             style: const TextStyle(
                                               fontWeight: FontWeight.w800,
                                               fontSize: 11,
@@ -1455,7 +1645,7 @@ class _AdsCarousel extends StatelessWidget {
                                       ),
                                     Text(
                                       banner.title,
-                                      textDirection: TextDirection.rtl,
+                                      textDirection: textDirection,
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w800,
                                         fontSize: 15,
@@ -1464,7 +1654,7 @@ class _AdsCarousel extends StatelessWidget {
                                     const SizedBox(height: 4),
                                     Text(
                                       banner.subtitle,
-                                      textDirection: TextDirection.rtl,
+                                      textDirection: textDirection,
                                       style: TextStyle(
                                         color: Colors.white.withValues(
                                           alpha: 0.86,
@@ -1476,11 +1666,11 @@ class _AdsCarousel extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(width: 4),
-                              const Icon(Icons.arrow_back_rounded, size: 22),
+                              Icon(ctaArrow, size: 22),
                             ],
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
@@ -1535,10 +1725,10 @@ class _SearchPanel extends StatelessWidget {
             TextField(
               controller: controller,
               focusNode: focusNode,
-              textDirection: TextDirection.rtl,
+              textDirection: context.appTextDirection,
               onSubmitted: (_) => onSubmit(),
               decoration: InputDecoration(
-                hintText: 'ابحث عن مطعم، سوق، أو منتج',
+                hintText: context.l10n.customerDiscoverySearchHint,
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: IconButton(
                   onPressed: onSubmit,
@@ -1551,26 +1741,26 @@ class _SearchPanel extends StatelessWidget {
               height: 34,
               child: ListView(
                 scrollDirection: Axis.horizontal,
-                reverse: true,
+                reverse: !context.isEnglishLocale,
                 children: [
                   _quickChip(
                     icon: Icons.local_offer_rounded,
-                    label: 'عروض اليوم',
+                    label: context.l10n.customerDiscoveryTodayOffers,
                     onTap: () => onQuickSearch('عروض اليوم'),
                   ),
                   _quickChip(
                     icon: Icons.flash_on_rounded,
-                    label: 'الأسرع توصيلًا',
-                    onTap: () => onQuickSearch('الأسرع توصيلاً'),
+                    label: context.l10n.customerDiscoveryFastestDelivery,
+                    onTap: () => onQuickSearch('الأسرع توصيلًا'),
                   ),
                   _quickChip(
                     icon: Icons.star_rounded,
-                    label: 'الأعلى تقييمًا',
+                    label: context.l10n.customerDiscoveryTopRated,
                     onTap: () => onQuickSearch('الأعلى تقييمًا'),
                   ),
                   _quickChip(
                     icon: Icons.currency_exchange_rounded,
-                    label: 'أفضل سعر',
+                    label: context.l10n.customerDiscoveryBestPrice,
                     onTap: () => onQuickSearch('أفضل سعر'),
                   ),
                 ],
@@ -1614,12 +1804,14 @@ class _SearchPanel extends StatelessWidget {
 
 class _IntentLauncherStrip extends StatefulWidget {
   final VoidCallback onTaxi;
+  final bool showTaxi;
   final VoidCallback onOffers;
   final VoidCallback onTopRated;
   final VoidCallback onReorder;
 
   const _IntentLauncherStrip({
     required this.onTaxi,
+    this.showTaxi = true,
     required this.onOffers,
     required this.onTopRated,
     required this.onReorder,
@@ -1629,62 +1821,45 @@ class _IntentLauncherStrip extends StatefulWidget {
   State<_IntentLauncherStrip> createState() => _IntentLauncherStripState();
 }
 
-class _IntentLauncherStripState extends State<_IntentLauncherStrip>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2200),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
+class _IntentLauncherStripState extends State<_IntentLauncherStrip> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       height: 58,
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) {
-          final glow = 0.12 + (0.16 * _controller.value);
-          return ListView(
-            scrollDirection: Axis.horizontal,
-            reverse: true,
-            children: [
-              _intentButton(
-                icon: Icons.local_taxi_rounded,
-                label: 'طلب تكسي',
-                color: const Color(0xFF56D7FF),
-                glow: glow,
-                onTap: widget.onTaxi,
-              ),
-              _intentButton(
-                icon: Icons.local_offer_rounded,
-                label: 'عروض اليوم',
-                color: const Color(0xFFFFBA68),
-                glow: glow,
-                onTap: widget.onOffers,
-              ),
-              _intentButton(
-                icon: Icons.verified_rounded,
-                label: 'الأعلى تقييمًا',
-                color: const Color(0xFF7BFFCE),
-                glow: glow,
-                onTap: widget.onTopRated,
-              ),
-              _intentButton(
-                icon: Icons.history_toggle_off_rounded,
-                label: 'إعادة طلب',
-                color: const Color(0xFFCEB6FF),
-                glow: glow,
-                onTap: widget.onReorder,
-              ),
-            ],
-          );
-        },
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        reverse: !context.isEnglishLocale,
+        children: [
+          if (widget.showTaxi)
+            _intentButton(
+              icon: Icons.local_taxi_rounded,
+              label: context.l10n.customerDiscoveryRequestTaxi,
+              color: const Color(0xFF56D7FF),
+              glow: 0.08,
+              onTap: widget.onTaxi,
+            ),
+          _intentButton(
+            icon: Icons.local_offer_rounded,
+            label: context.l10n.customerDiscoveryTodayOffers,
+            color: const Color(0xFFFFBA68),
+            glow: 0.08,
+            onTap: widget.onOffers,
+          ),
+          _intentButton(
+            icon: Icons.verified_rounded,
+            label: context.l10n.customerDiscoveryTopRated,
+            color: const Color(0xFF7BFFCE),
+            glow: 0.08,
+            onTap: widget.onTopRated,
+          ),
+          _intentButton(
+            icon: Icons.history_toggle_off_rounded,
+            label: context.l10n.customerDiscoveryReorder,
+            color: const Color(0xFFCEB6FF),
+            glow: 0.08,
+            onTap: widget.onReorder,
+          ),
+        ],
       ),
     );
   }
@@ -1748,119 +1923,94 @@ class _DiscoveryHubCard extends StatefulWidget {
   State<_DiscoveryHubCard> createState() => _DiscoveryHubCardState();
 }
 
-class _DiscoveryHubCardState extends State<_DiscoveryHubCard>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: Duration(milliseconds: 1800 + (widget.index * 120)),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
+class _DiscoveryHubCardState extends State<_DiscoveryHubCard> {
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final t = _controller.value;
-        final lift = math.sin(t * math.pi * 2) * 2.0;
-        final glow = 0.14 + (math.sin(t * math.pi * 2).abs() * 0.20);
-        return Transform.translate(
-          offset: Offset(0, -lift),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(18),
-            onTap: widget.onTap,
-            child: Ink(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                gradient: LinearGradient(
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                  colors: [widget.hub.colorA, widget.hub.colorB],
+    final pair = _splashPairForSeed(widget.hub.id);
+    final textDirection = context.appTextDirection;
+    final crossAxisAlignment = context.isEnglishLocale
+        ? CrossAxisAlignment.start
+        : CrossAxisAlignment.end;
+    const t = 0.35;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: widget.onTap,
+      child: Ink(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [pair.$1, pair.$2],
+          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+          boxShadow: [
+            BoxShadow(
+              color: pair.$1.withValues(alpha: 0.18),
+              blurRadius: 10,
+              spreadRadius: 0,
+            ),
+          ],
+        ),
+        child: SizedBox(
+          height: 112,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              textDirection: textDirection,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: Colors.white.withValues(alpha: 0.12),
+                  ),
+                  child: Icon(widget.hub.icon, size: 28),
                 ),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-                boxShadow: [
-                  BoxShadow(
-                    color: widget.hub.colorA.withValues(alpha: 0.34),
-                    blurRadius: 18,
-                    spreadRadius: 0.8,
-                  ),
-                  BoxShadow(
-                    color: Colors.white.withValues(alpha: glow * 0.28),
-                    blurRadius: 20,
-                    spreadRadius: -6,
-                  ),
-                ],
-              ),
-              child: SizedBox(
-                height: 112,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  child: Row(
-                    textDirection: TextDirection.rtl,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: crossAxisAlignment,
                     children: [
-                      Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          color: Colors.white.withValues(alpha: 0.12),
-                        ),
-                        child: Icon(widget.hub.icon, size: 28),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              widget.hub.title,
-                              textDirection: TextDirection.rtl,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 17,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              widget.hub.subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textDirection: TextDirection.rtl,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.90),
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
+                      Text(
+                        widget.hub.titleFor(context),
+                        textDirection: textDirection,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 17,
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      SizedBox(
-                        width: 82,
-                        height: 82,
-                        child: _CategoryShowcaseGlyph(
-                          motion: widget.hub.motion,
-                          progress: t,
+                      const SizedBox(height: 6),
+                      Text(
+                        widget.hub.subtitleFor(context),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textDirection: textDirection,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.90),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 82,
+                  height: 82,
+                  child: _CategoryShowcaseGlyph(
+                    motion: widget.hub.motion,
+                    progress: t,
+                  ),
+                ),
+              ],
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -1880,109 +2030,90 @@ class _CategoryCard extends StatefulWidget {
   State<_CategoryCard> createState() => _CategoryCardState();
 }
 
-class _CategoryCardState extends State<_CategoryCard>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: Duration(milliseconds: 1800 + (widget.index * 120)),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
+class _CategoryCardState extends State<_CategoryCard> {
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final t = _controller.value;
-        final lift = math.sin(t * math.pi * 2) * 2.0;
-        final glow = 0.14 + (math.sin(t * math.pi * 2).abs() * 0.20);
-        return Transform.translate(
-          offset: Offset(0, -lift),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(18),
-            onTap: widget.onTap,
-            child: Ink(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                gradient: LinearGradient(
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                  colors: [widget.category.colorA, widget.category.colorB],
-                ),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-                boxShadow: [
-                  BoxShadow(
-                    color: widget.category.colorA.withValues(alpha: 0.34),
-                    blurRadius: 18,
-                    spreadRadius: 0.8,
-                  ),
-                  BoxShadow(
-                    color: Colors.white.withValues(alpha: glow * 0.28),
-                    blurRadius: 20,
-                    spreadRadius: -6,
+    final pair = _splashPairForSeed(
+      '${widget.category.titleEn}:${widget.category.type}',
+    );
+    final textDirection = context.appTextDirection;
+    final crossAxisAlignment = context.isEnglishLocale
+        ? CrossAxisAlignment.start
+        : CrossAxisAlignment.end;
+    const t = 0.35;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: widget.onTap,
+      child: Ink(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [pair.$1, pair.$2],
+          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+          boxShadow: [
+            BoxShadow(
+              color: pair.$1.withValues(alpha: 0.18),
+              blurRadius: 10,
+              spreadRadius: 0,
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(11),
+          child: Column(
+            crossAxisAlignment: crossAxisAlignment,
+            children: [
+              Row(
+                textDirection: textDirection,
+                children: [
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      color: Colors.white.withValues(alpha: 0.14),
+                    ),
+                    child: Icon(widget.category.icon, size: 16),
                   ),
                 ],
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(11),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Row(
-                      children: [
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(10),
-                            color: Colors.white.withValues(alpha: 0.14),
-                          ),
-                          child: Icon(widget.category.icon, size: 16),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Expanded(
-                      child: Center(
-                        child: _CategoryShowcaseGlyph(
-                          motion: widget.category.motion,
-                          progress: t,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.category.title,
-                      textDirection: TextDirection.rtl,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.category.subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.86),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12.2,
-                      ),
-                    ),
-                  ],
+              const SizedBox(height: 4),
+              Expanded(
+                child: Center(
+                  child: _CategoryShowcaseGlyph(
+                    motion: widget.category.motion,
+                    progress: t,
+                  ),
                 ),
               ),
-            ),
+              const SizedBox(height: 2),
+              Text(
+                widget.category.titleFor(context),
+                textDirection: textDirection,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                widget.category.subtitleFor(context),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textDirection: textDirection,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.86),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12.2,
+                ),
+              ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -2215,21 +2346,21 @@ class _ErrorView extends StatelessWidget {
           children: [
             const Icon(Icons.wifi_off_rounded, size: 36),
             const SizedBox(height: 10),
-            const Text(
-              'تعذر تحميل الواجهة',
-              textDirection: TextDirection.rtl,
-              style: TextStyle(fontWeight: FontWeight.w800),
+            Text(
+              context.l10n.customerDiscoveryLoadFailedTitle,
+              textDirection: context.appTextDirection,
+              style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'تحقق من الاتصال ثم أعد المحاولة.',
-              textDirection: TextDirection.rtl,
+            Text(
+              context.l10n.customerDiscoveryLoadFailedBody,
+              textDirection: context.appTextDirection,
             ),
             const SizedBox(height: 10),
             FilledButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh_rounded),
-              label: const Text('إعادة المحاولة'),
+              label: Text(context.l10n.commonRetry),
             ),
           ],
         ),
@@ -2240,9 +2371,11 @@ class _ErrorView extends StatelessWidget {
 
 class _DiscoveryHub {
   final String id;
-  final String title;
-  final String subtitle;
-  final List<String> tags;
+  final String titleAr;
+  final String titleEn;
+  final String subtitleAr;
+  final String subtitleEn;
+  final List<String> searchTerms;
   final IconData icon;
   final Color colorA;
   final Color colorB;
@@ -2250,59 +2383,176 @@ class _DiscoveryHub {
 
   const _DiscoveryHub({
     required this.id,
-    required this.title,
-    required this.subtitle,
-    required this.tags,
+    required this.titleAr,
+    required this.titleEn,
+    required this.subtitleAr,
+    required this.subtitleEn,
+    required this.searchTerms,
     required this.icon,
     required this.colorA,
     required this.colorB,
     required this.motion,
   });
+
+  String titleFor(BuildContext context) {
+    final l10n = context.l10n;
+    return switch (id) {
+      'style' => l10n.customerDiscoveryHubStyleTitle,
+      'food' => l10n.customerDiscoveryHubFoodTitle,
+      'home' => l10n.customerDiscoveryHubHomeTitle,
+      'electronics' => l10n.customerDiscoveryHubElectronicsTitle,
+      'cars' => l10n.customerDiscoveryHubCarsTitle,
+      'pharmacy' => l10n.customerDiscoveryHubPharmacyTitle,
+      'main_market' => l10n.customerDiscoveryHubMainMarketTitle,
+      _ => titleEn,
+    };
+  }
+
+  String subtitleFor(BuildContext context) {
+    final l10n = context.l10n;
+    return switch (id) {
+      'style' => l10n.customerDiscoveryHubStyleSubtitle,
+      'food' => l10n.customerDiscoveryHubFoodSubtitle,
+      'home' => l10n.customerDiscoveryHubHomeSubtitle,
+      'electronics' => l10n.customerDiscoveryHubElectronicsSubtitle,
+      'cars' => l10n.customerDiscoveryHubCarsSubtitle,
+      'pharmacy' => l10n.customerDiscoveryHubPharmacySubtitle,
+      'main_market' => l10n.customerDiscoveryHubMainMarketSubtitle,
+      _ => subtitleEn,
+    };
+  }
+
+  String get searchBucket =>
+      '$titleAr $titleEn $subtitleAr $subtitleEn ${searchTerms.join(' ')}'
+          .toLowerCase();
 }
 
 class _DiscoveryCategory {
-  final String title;
-  final String subtitle;
+  final String titleAr;
+  final String titleEn;
+  final String subtitleAr;
+  final String subtitleEn;
   final String type;
   final String seedQuery;
-  final List<String> tags;
+  final List<String> searchTerms;
   final IconData icon;
   final Color colorA;
   final Color colorB;
   final _CategoryMotion motion;
 
   const _DiscoveryCategory({
-    required this.title,
-    required this.subtitle,
+    required this.titleAr,
+    required this.titleEn,
+    required this.subtitleAr,
+    required this.subtitleEn,
     required this.type,
     required this.seedQuery,
-    required this.tags,
+    required this.searchTerms,
     required this.icon,
     required this.colorA,
     required this.colorB,
     required this.motion,
   });
+
+  String titleFor(BuildContext context) {
+    final l10n = context.l10n;
+    return switch (titleEn) {
+      'Restaurants' => l10n.customerDiscoveryCategoryRestaurantsTitle,
+      'Women fashion' => l10n.customerDiscoveryCategoryWomenFashionTitle,
+      'Men fashion' => l10n.customerDiscoveryCategoryMenFashionTitle,
+      'Desserts and pastries' => l10n.customerDiscoveryCategoryDessertsTitle,
+      'Markets and cleaning' =>
+        l10n.customerDiscoveryCategoryMarketsCleaningTitle,
+      'Fruit and vegetables' =>
+        l10n.customerDiscoveryCategoryFruitVegetablesTitle,
+      'Meat and poultry' => l10n.customerDiscoveryCategoryMeatPoultryTitle,
+      'Coffee and drinks' => l10n.customerDiscoveryCategoryCoffeeDrinksTitle,
+      'Electrical supplies' =>
+        l10n.customerDiscoveryCategoryElectricalSuppliesTitle,
+      'Home essentials' => l10n.customerDiscoveryCategoryHomeEssentialsTitle,
+      'Personal care' => l10n.customerDiscoveryCategoryPersonalCareTitle,
+      'Stationery and gifts' =>
+        l10n.customerDiscoveryCategoryStationeryGiftsTitle,
+      _ => titleEn,
+    };
+  }
+
+  String subtitleFor(BuildContext context) {
+    final l10n = context.l10n;
+    return switch (titleEn) {
+      'Restaurants' => l10n.customerDiscoveryCategoryRestaurantsSubtitle,
+      'Women fashion' => l10n.customerDiscoveryCategoryWomenFashionSubtitle,
+      'Men fashion' => l10n.customerDiscoveryCategoryMenFashionSubtitle,
+      'Desserts and pastries' => l10n.customerDiscoveryCategoryDessertsSubtitle,
+      'Markets and cleaning' =>
+        l10n.customerDiscoveryCategoryMarketsCleaningSubtitle,
+      'Fruit and vegetables' =>
+        l10n.customerDiscoveryCategoryFruitVegetablesSubtitle,
+      'Meat and poultry' => l10n.customerDiscoveryCategoryMeatPoultrySubtitle,
+      'Coffee and drinks' => l10n.customerDiscoveryCategoryCoffeeDrinksSubtitle,
+      'Electrical supplies' =>
+        l10n.customerDiscoveryCategoryElectricalSuppliesSubtitle,
+      'Home essentials' => l10n.customerDiscoveryCategoryHomeEssentialsSubtitle,
+      'Personal care' => l10n.customerDiscoveryCategoryPersonalCareSubtitle,
+      'Stationery and gifts' =>
+        l10n.customerDiscoveryCategoryStationeryGiftsSubtitle,
+      _ => subtitleEn,
+    };
+  }
+
+  String get searchBucket =>
+      '$titleAr $titleEn $subtitleAr $subtitleEn $seedQuery ${searchTerms.join(' ')}'
+          .toLowerCase();
 }
 
 class _StaticAdBanner {
-  final String title;
-  final String subtitle;
+  final String titleAr;
+  final String titleEn;
+  final String subtitleAr;
+  final String subtitleEn;
   final IconData icon;
   final Color colorA;
   final Color colorB;
 
   const _StaticAdBanner({
-    required this.title,
-    required this.subtitle,
+    required this.titleAr,
+    required this.titleEn,
+    required this.subtitleAr,
+    required this.subtitleEn,
     required this.icon,
     required this.colorA,
     required this.colorB,
   });
+
+  String titleFor(BuildContext context) {
+    final l10n = context.l10n;
+    return switch (titleEn) {
+      'Maslaki brings the offer to you' =>
+        l10n.customerDiscoveryBannerOfferTitle,
+      'A complete market in one place' =>
+        l10n.customerDiscoveryBannerUnifiedMarketTitle,
+      'Maslaki Taxi all day long' => l10n.customerDiscoveryBannerTaxiTitle,
+      _ => titleEn,
+    };
+  }
+
+  String subtitleFor(BuildContext context) {
+    final l10n = context.l10n;
+    return switch (titleEn) {
+      'Maslaki brings the offer to you' =>
+        l10n.customerDiscoveryBannerOfferSubtitle,
+      'A complete market in one place' =>
+        l10n.customerDiscoveryBannerUnifiedMarketSubtitle,
+      'Maslaki Taxi all day long' => l10n.customerDiscoveryBannerTaxiSubtitle,
+      _ => subtitleEn,
+    };
+  }
 }
 
 class _DisplayAdBanner {
   final String title;
   final String subtitle;
+  final String? imageUrl;
   final String? badgeLabel;
   final String? ctaLabel;
   final String ctaTargetType;
@@ -2320,6 +2570,7 @@ class _DisplayAdBanner {
     required this.icon,
     required this.colorA,
     required this.colorB,
+    this.imageUrl,
     this.badgeLabel,
     this.ctaLabel,
     this.ctaTargetType = 'none',
@@ -2344,22 +2595,28 @@ enum _CategoryMotion {
 
 const _defaultAdBanners = <_StaticAdBanner>[
   _StaticAdBanner(
-    title: 'شكاكي وياك.. العرض يلگاگ',
-    subtitle: 'خصومات يومية حقيقية من متاجر ومطاعم بسماية',
+    titleAr: 'مسلكي وياك.. العرض يلكاك',
+    titleEn: 'Maslaki brings the offer to you',
+    subtitleAr: 'خصومات يومية حقيقية من متاجر ومطاعم بسماية',
+    subtitleEn: 'Real daily offers from Basmaya stores and restaurants',
     icon: Icons.local_offer_rounded,
     colorA: Color(0xFF1C4B88),
     colorB: Color(0xFF143766),
   ),
   _StaticAdBanner(
-    title: 'سوق متكامل بلمسة واحدة',
-    subtitle: 'مطاعم، تسوق منزلي، سيارات، وتكسي داخل تطبيق واحد',
+    titleAr: 'سوق متكامل بلمسة واحدة',
+    titleEn: 'A complete market in one place',
+    subtitleAr: 'مطاعم، تسوق منزلي، سيارات، وتكسي داخل تطبيق واحد',
+    subtitleEn: 'Restaurants, home shopping, cars, and taxi in one app',
     icon: Icons.verified_user_rounded,
     colorA: Color(0xFF2B5A8B),
     colorB: Color(0xFF1F3E67),
   ),
   _StaticAdBanner(
-    title: 'تكسي شكاكي على مدار اليوم',
-    subtitle: 'حدّد سعر الرحلة والكابتن يرسل عرضه فورًا',
+    titleAr: 'تكسي مسلكي على مدار اليوم',
+    titleEn: 'Maslaki Taxi all day long',
+    subtitleAr: 'حدد سعر الرحلة والكباتن يرسلون عروضهم فورًا',
+    subtitleEn: 'Set your ride price and captains respond instantly',
     icon: Icons.local_taxi_rounded,
     colorA: Color(0xFF235D7E),
     colorB: Color(0xFF1B4569),
@@ -2369,9 +2626,24 @@ const _defaultAdBanners = <_StaticAdBanner>[
 const _discoveryHubs = <_DiscoveryHub>[
   _DiscoveryHub(
     id: 'style',
-    title: 'سوق الأزياء',
-    subtitle: 'نسائي ورجالي وأحذية وشنط',
-    tags: ['أزياء', 'نسائي', 'رجالي', 'شنط', 'أحذية', 'عناية'],
+    titleAr: 'سوق الأزياء',
+    titleEn: 'Fashion market',
+    subtitleAr: 'نسائي ورجالي وأحذية وشنط',
+    subtitleEn: 'Women, men, shoes, and bags',
+    searchTerms: [
+      'أزياء',
+      'نسائي',
+      'رجالي',
+      'شنط',
+      'أحذية',
+      'عناية',
+      'fashion',
+      'women',
+      'men',
+      'bags',
+      'shoes',
+      'beauty',
+    ],
     icon: Icons.style_rounded,
     colorA: Color(0xFF7A3F8B),
     colorB: Color(0xFF4A2B64),
@@ -2379,9 +2651,23 @@ const _discoveryHubs = <_DiscoveryHub>[
   ),
   _DiscoveryHub(
     id: 'food',
-    title: 'الطعام والمشروبات',
-    subtitle: 'مطاعم وحلويات ومعجنات وقهوة',
-    tags: ['مطاعم', 'حلويات', 'معجنات', 'قهوة', 'مشروبات'],
+    titleAr: 'الطعام والمشروبات',
+    titleEn: 'Food and drinks',
+    subtitleAr: 'مطاعم وحلويات ومعجنات وقهوة',
+    subtitleEn: 'Restaurants, desserts, pastries, and coffee',
+    searchTerms: [
+      'مطاعم',
+      'حلويات',
+      'معجنات',
+      'قهوة',
+      'مشروبات',
+      'food',
+      'restaurant',
+      'desserts',
+      'pastries',
+      'coffee',
+      'drinks',
+    ],
     icon: Icons.restaurant_menu_rounded,
     colorA: Color(0xFF234E8A),
     colorB: Color(0xFF163A66),
@@ -2389,9 +2675,11 @@ const _discoveryHubs = <_DiscoveryHub>[
   ),
   _DiscoveryHub(
     id: 'home',
-    title: 'التسوق المنزلي',
-    subtitle: 'أسواق ولحوم وخضار وتنظيف ومكتبات وهدايا',
-    tags: [
+    titleAr: 'التسوق المنزلي',
+    titleEn: 'Home shopping',
+    subtitleAr: 'أسواق ولحوم وخضار وتنظيف ومكتبات وهدايا',
+    subtitleEn: 'Markets, meats, produce, cleaning, stationery, and gifts',
+    searchTerms: [
       'أسواق',
       'تنظيف',
       'لحوم',
@@ -2402,6 +2690,15 @@ const _discoveryHubs = <_DiscoveryHub>[
       'هدايا',
       'ورد',
       'منزل',
+      'market',
+      'groceries',
+      'cleaning',
+      'meat',
+      'vegetables',
+      'fruit',
+      'stationery',
+      'gifts',
+      'home',
     ],
     icon: Icons.home_work_rounded,
     colorA: Color(0xFF2B5C7E),
@@ -2410,9 +2707,21 @@ const _discoveryHubs = <_DiscoveryHub>[
   ),
   _DiscoveryHub(
     id: 'electronics',
-    title: 'التجهيزات الكهربائية',
-    subtitle: 'أجهزة وملحقات وكهربائيات منزلية',
-    tags: ['كهربائيات', 'أجهزة', 'ملحقات', 'هواتف'],
+    titleAr: 'التجهيزات الكهربائية',
+    titleEn: 'Electrical essentials',
+    subtitleAr: 'أجهزة وملحقات وكهربائيات منزلية',
+    subtitleEn: 'Devices, accessories, and home electrical items',
+    searchTerms: [
+      'كهربائيات',
+      'أجهزة',
+      'ملحقات',
+      'هواتف',
+      'electronics',
+      'devices',
+      'accessories',
+      'electrical',
+      'phones',
+    ],
     icon: Icons.electrical_services_rounded,
     colorA: Color(0xFF31508C),
     colorB: Color(0xFF1D2F57),
@@ -2420,19 +2729,66 @@ const _discoveryHubs = <_DiscoveryHub>[
   ),
   _DiscoveryHub(
     id: 'cars',
-    title: 'سوق السيارات',
-    subtitle: 'جديد ومستعمل حسب الشركة والموديل والسنة',
-    tags: ['سيارات', 'مركبات', 'جديد', 'مستعمل', 'موديل', 'سنة الصنع'],
+    titleAr: 'سوق السيارات',
+    titleEn: 'Cars market',
+    subtitleAr: 'جديد ومستعمل حسب الشركة والموديل والسنة',
+    subtitleEn: 'New and used by make, model, and year',
+    searchTerms: [
+      'سيارات',
+      'مركبات',
+      'جديد',
+      'مستعمل',
+      'موديل',
+      'سنة الصنع',
+      'cars',
+      'vehicles',
+      'new',
+      'used',
+      'model',
+      'year',
+    ],
     icon: Icons.directions_car_rounded,
     colorA: Color(0xFF2E5D86),
     colorB: Color(0xFF1D3E5D),
     motion: _CategoryMotion.car,
   ),
   _DiscoveryHub(
+    id: 'pharmacy',
+    titleAr: 'الصيدليات',
+    titleEn: 'Pharmacies',
+    subtitleAr: 'وصفات ومكملات وأجهزة ومستلزمات طبية',
+    subtitleEn: 'Prescriptions, supplements, and medical supplies',
+    searchTerms: [
+      'صيدلية',
+      'دواء',
+      'وصفة',
+      'فيتامين',
+      'مستلزمات طبية',
+      'pharmacy',
+      'medicine',
+      'prescription',
+      'vitamin',
+      'medical',
+    ],
+    icon: Icons.local_hospital_rounded,
+    colorA: Color(0xFF2A6F97),
+    colorB: Color(0xFF174E70),
+    motion: _CategoryMotion.leaf,
+  ),
+  _DiscoveryHub(
     id: 'main_market',
-    title: 'السوق الرئيسي',
-    subtitle: 'كل الأقسام في مكان واحد',
-    tags: ['السوق', 'كل الأقسام', 'الكل'],
+    titleAr: 'السوق الرئيسي',
+    titleEn: 'Main market',
+    subtitleAr: 'كل الأقسام في مكان واحد',
+    subtitleEn: 'All categories in one place',
+    searchTerms: [
+      'السوق',
+      'كل الأقسام',
+      'الكل',
+      'market',
+      'all categories',
+      'everything',
+    ],
     icon: Icons.storefront_rounded,
     colorA: Color(0xFF275A84),
     colorB: Color(0xFF1A3E5F),
@@ -2442,132 +2798,208 @@ const _discoveryHubs = <_DiscoveryHub>[
 
 const _categories = <_DiscoveryCategory>[
   _DiscoveryCategory(
-    title: 'مطاعم',
-    subtitle: 'وجبات يومية ومطابخ متنوعة',
+    titleAr: 'مطاعم',
+    titleEn: 'Restaurants',
+    subtitleAr: 'وجبات يومية ومطابخ متنوعة',
+    subtitleEn: 'Daily meals and a variety of cuisines',
     type: 'restaurant',
     seedQuery: '',
-    tags: ['برغر', 'مشاوي', 'رز', 'عشاء'],
+    searchTerms: [
+      'برغر',
+      'مشاوي',
+      'رز',
+      'عشاء',
+      'burger',
+      'grill',
+      'rice',
+      'dinner',
+    ],
     icon: Icons.restaurant_menu_rounded,
     colorA: Color(0xFF234E8A),
     colorB: Color(0xFF163A66),
     motion: _CategoryMotion.forkKnife,
   ),
   _DiscoveryCategory(
-    title: 'أزياء نسائية',
-    subtitle: 'ملابس، شنط، عناية وتجميل',
+    titleAr: 'أزياء نسائية',
+    titleEn: 'Women fashion',
+    subtitleAr: 'ملابس، شنط، عناية وتجميل',
+    subtitleEn: 'Clothing, bags, care, and beauty',
     type: 'market',
     seedQuery: 'نسائي',
-    tags: ['نسائي', 'فساتين', 'عبايات', 'شنط', 'مكياج'],
+    searchTerms: [
+      'نسائي',
+      'فساتين',
+      'عبايات',
+      'شنط',
+      'مكياج',
+      'women',
+      'dresses',
+      'abayas',
+      'bags',
+      'makeup',
+    ],
     icon: Icons.style_rounded,
     colorA: Color(0xFF7A3F8B),
     colorB: Color(0xFF4A2B64),
     motion: _CategoryMotion.gift,
   ),
   _DiscoveryCategory(
-    title: 'أزياء رجالية',
-    subtitle: 'ملابس، أحذية، عطور رجالية',
+    titleAr: 'أزياء رجالية',
+    titleEn: 'Men fashion',
+    subtitleAr: 'ملابس، أحذية، عطور رجالية',
+    subtitleEn: 'Clothing, shoes, and men fragrances',
     type: 'market',
     seedQuery: 'رجالي',
-    tags: ['رجالي', 'أحذية', 'دشاديش', 'عطور'],
+    searchTerms: [
+      'رجالي',
+      'أحذية',
+      'دشاديش',
+      'عطور',
+      'men',
+      'shoes',
+      'dishdasha',
+      'fragrance',
+    ],
     icon: Icons.checkroom_rounded,
     colorA: Color(0xFF2A5D8C),
     colorB: Color(0xFF1A3D63),
     motion: _CategoryMotion.bag,
   ),
   _DiscoveryCategory(
-    title: 'حلويات ومعجنات',
-    subtitle: 'كيك، بقلاوة، ومعجنات طازجة',
+    titleAr: 'حلويات ومعجنات',
+    titleEn: 'Desserts and pastries',
+    subtitleAr: 'كيك، بقلاوة، ومعجنات طازجة',
+    subtitleEn: 'Cake, baklava, and fresh pastries',
     type: 'restaurant',
     seedQuery: 'حلويات',
-    tags: ['كيك', 'بقلاوة', 'دونات', 'كرواسون'],
+    searchTerms: [
+      'كيك',
+      'بقلاوة',
+      'دونات',
+      'كرواسون',
+      'cake',
+      'baklava',
+      'donuts',
+      'croissant',
+    ],
     icon: Icons.bakery_dining_rounded,
     colorA: Color(0xFF6A3E8C),
     colorB: Color(0xFF4B2B66),
     motion: _CategoryMotion.cake,
   ),
   _DiscoveryCategory(
-    title: 'أسواق ومواد تنظيف',
-    subtitle: 'مواد غذائية ومنزلية وتنظيف بمكان واحد',
+    titleAr: 'أسواق ومواد تنظيف',
+    titleEn: 'Markets and cleaning',
+    subtitleAr: 'مواد غذائية ومنزلية وتنظيف بمكان واحد',
+    subtitleEn: 'Groceries, home goods, and cleaning in one place',
     type: 'market',
     seedQuery: 'سوق',
-    tags: ['سوبرماركت', 'مواد تنظيف', 'بقالة'],
+    searchTerms: [
+      'سوبرماركت',
+      'مواد تنظيف',
+      'بقالة',
+      'supermarket',
+      'cleaning',
+      'groceries',
+    ],
     icon: Icons.store_mall_directory_rounded,
     colorA: Color(0xFF2B5C7E),
     colorB: Color(0xFF1D4160),
     motion: _CategoryMotion.bag,
   ),
   _DiscoveryCategory(
-    title: 'خضار وفواكه',
-    subtitle: 'منتجات يومية طازجة',
+    titleAr: 'خضار وفواكه',
+    titleEn: 'Fruit and vegetables',
+    subtitleAr: 'منتجات يومية طازجة',
+    subtitleEn: 'Fresh daily produce',
     type: 'market',
     seedQuery: 'خضار',
-    tags: ['فواكه', 'خضار', 'طازج'],
+    searchTerms: ['فواكه', 'خضار', 'طازج', 'fruit', 'vegetables', 'fresh'],
     icon: Icons.local_grocery_store_rounded,
     colorA: Color(0xFF2F7C60),
     colorB: Color(0xFF1F5843),
     motion: _CategoryMotion.leaf,
   ),
   _DiscoveryCategory(
-    title: 'لحوم ودواجن',
-    subtitle: 'ملحمة ودجاج ومجمدات',
+    titleAr: 'لحوم ودواجن',
+    titleEn: 'Meat and poultry',
+    subtitleAr: 'ملحمة ودجاج ومجمدات',
+    subtitleEn: 'Butcher, chicken, and frozen items',
     type: 'market',
     seedQuery: 'لحوم',
-    tags: ['ملحمة', 'دجاج', 'لحم'],
+    searchTerms: ['ملحمة', 'دجاج', 'لحم', 'butcher', 'chicken', 'meat'],
     icon: Icons.set_meal_rounded,
     colorA: Color(0xFF7A3B4A),
     colorB: Color(0xFF522733),
     motion: _CategoryMotion.meat,
   ),
   _DiscoveryCategory(
-    title: 'قهوة ومشروبات',
-    subtitle: 'قهوة باردة وساخنة وعصائر',
+    titleAr: 'قهوة ومشروبات',
+    titleEn: 'Coffee and drinks',
+    subtitleAr: 'قهوة باردة وساخنة وعصائر',
+    subtitleEn: 'Hot and cold coffee with juices',
     type: 'restaurant',
     seedQuery: 'قهوة',
-    tags: ['قهوة', 'عصير', 'مشروب'],
+    searchTerms: ['قهوة', 'عصير', 'مشروب', 'coffee', 'juice', 'drink'],
     icon: Icons.local_cafe_rounded,
     colorA: Color(0xFF7A5A2F),
     colorB: Color(0xFF5A411F),
     motion: _CategoryMotion.coffee,
   ),
   _DiscoveryCategory(
-    title: 'تجهيزات كهربائية',
-    subtitle: 'أجهزة وقطع كهرباء منزلية',
+    titleAr: 'تجهيزات كهربائية',
+    titleEn: 'Electrical supplies',
+    subtitleAr: 'أجهزة وقطع كهرباء منزلية',
+    subtitleEn: 'Devices and home electrical parts',
     type: 'market',
     seedQuery: 'كهربائيات',
-    tags: ['أجهزة', 'كهرباء', 'مفاتيح'],
+    searchTerms: [
+      'أجهزة',
+      'كهرباء',
+      'مفاتيح',
+      'devices',
+      'electric',
+      'switches',
+    ],
     icon: Icons.electrical_services_rounded,
     colorA: Color(0xFF31508C),
     colorB: Color(0xFF1D2F57),
     motion: _CategoryMotion.bolt,
   ),
   _DiscoveryCategory(
-    title: 'أدوات منزلية',
-    subtitle: 'مستلزمات المطبخ والبيت',
+    titleAr: 'أدوات منزلية',
+    titleEn: 'Home essentials',
+    subtitleAr: 'مستلزمات المطبخ والبيت',
+    subtitleEn: 'Kitchen and home essentials',
     type: 'market',
     seedQuery: 'منزلية',
-    tags: ['مطبخ', 'تنظيم', 'منزل'],
+    searchTerms: ['مطبخ', 'تنظيم', 'منزل', 'kitchen', 'organizing', 'home'],
     icon: Icons.home_work_rounded,
     colorA: Color(0xFF3F5E86),
     colorB: Color(0xFF263D5D),
     motion: _CategoryMotion.bag,
   ),
   _DiscoveryCategory(
-    title: 'عناية شخصية',
-    subtitle: 'مستلزمات يومية وعطور',
+    titleAr: 'عناية شخصية',
+    titleEn: 'Personal care',
+    subtitleAr: 'مستلزمات يومية وعطور',
+    subtitleEn: 'Daily essentials and fragrances',
     type: 'market',
     seedQuery: 'عناية',
-    tags: ['عناية', 'شامبو', 'عطور'],
+    searchTerms: ['عناية', 'شامبو', 'عطور', 'care', 'shampoo', 'fragrance'],
     icon: Icons.spa_rounded,
     colorA: Color(0xFF6A4E88),
     colorB: Color(0xFF473363),
     motion: _CategoryMotion.leaf,
   ),
   _DiscoveryCategory(
-    title: 'مكتبات وهدايا',
-    subtitle: 'قرطاسية، تغليف، وهدايا',
+    titleAr: 'مكتبات وهدايا',
+    titleEn: 'Stationery and gifts',
+    subtitleAr: 'قرطاسية، تغليف، وهدايا',
+    subtitleEn: 'Stationery, wrapping, and gifts',
     type: 'market',
     seedQuery: 'هدايا',
-    tags: ['قرطاسية', 'هدايا', 'ورود'],
+    searchTerms: ['قرطاسية', 'هدايا', 'ورود', 'stationery', 'gifts', 'flowers'],
     icon: Icons.card_giftcard_rounded,
     colorA: Color(0xFF6A507C),
     colorB: Color(0xFF443254),
