@@ -1,0 +1,20 @@
+name: core_notifications
+description: Shared notifications bootstrap, routing, and payload contracts.
+publish_to: "none"
+version: 1.0.0
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  dio: ^5.7.0
+  flutter_local_notifications: ^17.2.4
+  firebase_core: ^3.15.2
+  firebase_messaging: ^15.1.6
+  core_networking:
+    path: ../core_networking
+  core_storage:
+    path: ../core_storage

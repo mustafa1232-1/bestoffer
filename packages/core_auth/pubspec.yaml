@@ -1,0 +1,19 @@
+name: core_auth
+description: Shared auth contracts and adapters for Maslaki apps.
+publish_to: "none"
+version: 1.0.0
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  core_localization:
+    path: ../core_localization
+  core_storage:
+    path: ../core_storage
+  core_networking:
+    path: ../core_networking
+  dio: ^5.9.0

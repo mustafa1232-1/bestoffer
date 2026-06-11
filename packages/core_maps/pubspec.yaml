@@ -1,0 +1,13 @@
+name: core_maps
+description: Shared maps primitives, overlays, and geo utility contracts.
+publish_to: "none"
+version: 1.0.0
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  geolocator: ^11.1.0

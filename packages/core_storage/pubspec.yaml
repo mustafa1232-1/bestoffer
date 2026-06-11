@@ -1,0 +1,16 @@
+name: core_storage
+description: Shared secure and local storage abstractions.
+publish_to: "none"
+version: 1.0.0
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.5.3
+  core_design_system:
+    path: ../core_design_system

@@ -1,0 +1,12 @@
+name: core_realtime
+description: Shared realtime primitives, channels, and stream adapters.
+publish_to: "none"
+version: 1.0.0
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+

@@ -1,0 +1,13 @@
+name: core_localization
+description: Shared localization helpers, glossary, and runtime language tools.
+publish_to: "none"
+version: 1.0.0
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter

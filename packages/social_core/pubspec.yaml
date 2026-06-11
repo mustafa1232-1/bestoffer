@@ -1,0 +1,12 @@
+name: social_core
+description: Shared social models, DTOs, API client, and media primitives for Maslaki.
+publish_to: "none"
+version: 1.0.0
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: ^5.7.0
