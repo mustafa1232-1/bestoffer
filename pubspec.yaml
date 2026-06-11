@@ -1,5 +1,5 @@
 name: bestoffer
-description: "Shakaky - Basmaya super-app for shopping, food, and taxi"
+description: "Maslaki - Basmaya super-app for shopping, food, and taxi"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -32,9 +32,12 @@ dependencies:
   # Optional UI helpers (nice to have)
   google_fonts: ^6.2.1
   file_picker: ^8.1.2
+  image_picker: ^1.1.2
   intl: ^0.20.2
   pdf: ^3.11.3
   printing: ^5.14.2
+  esc_pos_utils_plus: ^2.0.4
+  esc_pos_printer_plus: ^0.1.0
   excel: ^4.0.6
   share_plus: ^11.1.0
   flutter_local_notifications: ^17.2.4
@@ -47,19 +50,82 @@ dependencies:
   url_launcher: ^6.3.0
   flutter_webrtc: ^0.14.2
   video_player: ^2.9.5
+  audioplayers: ^6.1.0
+  record: ^6.1.1
+  path_provider: ^2.1.4
+  permission_handler: ^11.3.1
+  device_info_plus: ^11.2.0
+  android_intent_plus: ^5.3.1
+  package_info_plus: ^8.0.2
+  lottie: ^3.3.0
+  sentry_flutter: ^9.0.0
+  image: ^4.3.0
+  cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1
+  crypto: ^3.0.6
+  core_design_system:
+    path: packages/core_design_system
+  core_maps:
+    path: packages/core_maps
+  app_delivery_runtime:
+    path: packages/app_delivery_runtime
+  app_taxi_captain_runtime:
+    path: packages/app_taxi_captain_runtime
+  app_store_runtime:
+    path: packages/app_store_runtime
+  app_company_runtime:
+    path: packages/app_company_runtime
+  social_core:
+    path: packages/social_core
+  social_ui:
+    path: packages/social_ui
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
+  app_user_runtime:
+    path: packages/app_user_runtime
+  core_auth:
+    path: packages/core_auth
+  core_storage:
+    path: packages/core_storage
+
+dependency_overrides:
+  firebase_core:
+    path: third_party/firebase_core
+  jni:
+    path: third_party/jni
 
 flutter:
+  config:
+    enable-swift-package-manager: false
+  generate: true
   uses-material-design: true
+  assets:
+    - assets/audio/attention_alert.wav
+    - assets/brand/
+    - assets/branding/
+    - assets/fonts/
+    - assets/lottie/
 
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: assets/branding/app_icon.png
-  adaptive_icon_background: "#10264D"
-  adaptive_icon_foreground: assets/branding/app_icon.png
+  web:
+    generate: true
+    image_path: assets/branding/maslaki_official_logo.png
+    background_color: "#F5EEE4"
+    theme_color: "#F5EEE4"
+  windows:
+    generate: true
+    image_path: assets/branding/maslaki_official_logo.png
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: assets/branding/maslaki_official_logo.png
+  image_path: assets/branding/maslaki_official_logo.png
+  adaptive_icon_background: "#F5EEE4"
+  adaptive_icon_foreground: assets/branding/maslaki_official_logo.png
+  remove_alpha_ios: true

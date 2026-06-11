@@ -27,11 +27,26 @@ migrate_working_dir/
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.packages
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
 /build/
 /coverage/
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Runner.xcworkspace/xcuserdata/
+ios/Runner.xcodeproj/xcuserdata/
+*.xcuserstate
+!/ios/Podfile
+!/ios/Podfile.lock
+!/ios/Runner/
+!/ios/Flutter/
+!/ios/Runner.xcodeproj/
+!/ios/Runner.xcworkspace/
 
 # Symbolication related
 app.*.symbols
@@ -54,3 +69,13 @@ app.*.map.json
 /android/app/google-services.json
 /ios/Runner/GoogleService-Info.plist
 /backend/deploy/*service-account*.json
+
+# Android signing secrets (do not commit)
+*.jks
+*.keystore
+key.properties
+android/key.properties
+keystores/
+**/key.properties
+**/*.jks
+**/*.keystore
