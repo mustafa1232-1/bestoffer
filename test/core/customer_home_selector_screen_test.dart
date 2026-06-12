@@ -101,6 +101,7 @@ UserModel _user({
     imageUrl: null,
     workTitle: null,
     workCompany: null,
+    preferredLocale: 'ar',
     isSuperAdmin: false,
   );
 }

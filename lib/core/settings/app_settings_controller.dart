@@ -1,7 +1,9 @@
 import 'dart:ui';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../constants/api.dart';
 import '../theme/theme_preset.dart';
 import '../storage/secure_storage.dart';
 
@@ -48,13 +50,15 @@ class AppSettingsState {
 }
 
 final appSettingsControllerProvider =
-    StateNotifierProvider<AppSettingsController, AppSettingsState>(
-      (ref) => AppSettingsController(
-        SecureStore(),
+    StateNotifierProvider<AppSettingsController, AppSettingsState>((ref) {
+      final store = SecureStore();
+      return AppSettingsController(
+        store,
         deviceLocale: PlatformDispatcher.instance.locale,
         storageScope: ref.read(appSettingsStorageScopeProvider),
-      )..bootstrap(),
-    );
+        remoteSync: AppLocaleRemoteSync(store),
+      )..bootstrap();
+    });
 
 /// Prefix used to isolate persisted settings per app runtime.
 /// Example:
@@ -83,14 +87,17 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
   final SecureStore store;
   final Locale? deviceLocale;
   final String storageScope;
+  final AppLocaleRemoteSync remoteSync;
 
   AppSettingsController(
     this.store, {
     this.deviceLocale,
     String storageScope = 'root',
+    AppLocaleRemoteSync? remoteSync,
   }) : storageScope = storageScope.trim().isEmpty
            ? 'root'
            : storageScope.trim().toLowerCase(),
+       remoteSync = remoteSync ?? AppLocaleRemoteSync(store),
        super(AppSettingsState.initial());
 
   String get _keyLocale => '${storageScope}_$_keyLocaleBase';
@@ -132,11 +139,18 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
   }
 
   /// يثبت اللغة المختارة محلياً ويحدث Directionality على مستوى التطبيق.
-  Future<void> setLocale(Locale locale) async {
+  Future<void> setLocale(Locale locale, {bool syncRemote = true}) async {
     final normalized =
         _normalizeLocale(locale.languageCode) ?? const Locale('ar');
-    state = state.copyWith(locale: normalized);
-    await store.writeString(_keyLocale, normalized.languageCode);
+    await _persistLocale(normalized);
+    if (!syncRemote) return;
+    await remoteSync.savePreferredLocale(normalized.languageCode);
+  }
+
+  Future<void> applyRemoteLocale(Locale locale) async {
+    final normalized =
+        _normalizeLocale(locale.languageCode) ?? const Locale('ar');
+    await _persistLocale(normalized);
   }
 
   Future<void> setAnimationsEnabled(bool value) async {
@@ -197,5 +211,48 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
     final scoped = await store.readBool(scopedKey);
     if (scoped != null) return scoped;
     return store.readBool(legacyKey);
+  }
+
+  Future<void> _persistLocale(Locale locale) async {
+    state = state.copyWith(locale: locale);
+    await store.writeString(_keyLocale, locale.languageCode);
+  }
+}
+
+class AppLocaleRemoteSync {
+  final SecureStore store;
+  final Dio _dio;
+
+  AppLocaleRemoteSync(this.store)
+    : _dio = Dio(
+        BaseOptions(
+          baseUrl: Api.baseUrl,
+          connectTimeout: const Duration(seconds: 8),
+          receiveTimeout: const Duration(seconds: 8),
+          headers: const {'Accept': 'application/json; charset=utf-8'},
+        ),
+      );
+
+  Future<void> savePreferredLocale(String languageCode) async {
+    final normalized = languageCode.trim().toLowerCase();
+    if (normalized != 'ar' && normalized != 'en') return;
+
+    final token = await store.readToken();
+    if (token == null || token.isEmpty) return;
+
+    try {
+      await _dio.patch<void>(
+        '/api/users/me',
+        data: {'preferredLocale': normalized},
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $token',
+            'X-Client-Platform': 'flutter',
+          },
+        ),
+      );
+    } catch (_) {
+      // Keep the local language change even if remote sync is unavailable.
+    }
   }
 }

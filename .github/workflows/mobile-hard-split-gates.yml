@@ -1,0 +1,61 @@
+name: mobile-hard-split-gates
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  root-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.6"
+      - name: Root pub get
+        run: flutter pub get
+      - name: Root analyze
+        run: flutter analyze
+      - name: Root test
+        run: flutter test
+
+  split-quality:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - app_user
+          - app_store
+          - app_delivery
+          - app_taxi_captain
+          - app_company
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.6"
+      - name: ${{ matrix.app }} pub get
+        run: flutter pub get
+        working-directory: apps/${{ matrix.app }}
+      - name: ${{ matrix.app }} analyze
+        run: flutter analyze
+        working-directory: apps/${{ matrix.app }}
+      - name: ${{ matrix.app }} test
+        run: flutter test
+        working-directory: apps/${{ matrix.app }}
+
+  split-governance:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.6"
+      - name: Import boundary guard
+        shell: pwsh
+        run: ./scripts/check_import_boundaries.ps1
+      - name: Localization terms guard
+        shell: pwsh
+        run: ./scripts/check_localization_terms.ps1

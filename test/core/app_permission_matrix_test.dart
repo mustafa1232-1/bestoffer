@@ -16,6 +16,7 @@ UserModel _user({required String role, bool isSuperAdmin = false}) {
     imageUrl: null,
     workTitle: null,
     workCompany: null,
+    preferredLocale: 'ar',
     isSuperAdmin: isSuperAdmin,
   );
 }

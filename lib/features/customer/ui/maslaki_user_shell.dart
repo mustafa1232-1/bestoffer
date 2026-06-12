@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:core_design_system/core_design_system.dart';
 
+import '../../../core/i18n/app_localizations_context.dart';
 import '../../orders/ui/customer_orders_screen.dart';
 import '../../social/ui/social_shell_screen.dart';
 import 'customer_account_hub_screen.dart';
@@ -19,12 +20,14 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
   late final List<GlobalKey<NavigatorState>> _navigatorKeys =
       List<GlobalKey<NavigatorState>>.generate(
         5,
-        (index) => GlobalKey<NavigatorState>(debugLabel: 'user_shell_tab_$index'),
+        (index) =>
+            GlobalKey<NavigatorState>(debugLabel: 'user_shell_tab_$index'),
       );
-  late final List<_ShellTabObserver> _observers = List<_ShellTabObserver>.generate(
-    5,
-    (index) => _ShellTabObserver(onChanged: _scheduleRouteSync),
-  );
+  late final List<_ShellTabObserver> _observers =
+      List<_ShellTabObserver>.generate(
+        5,
+        (index) => _ShellTabObserver(onChanged: _scheduleRouteSync),
+      );
   late final List<Widget?> _tabNavigators = List<Widget?>.filled(
     _navigatorKeys.length,
     null,
@@ -75,14 +78,17 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
     }
     setState(() {
       _index = nextIndex;
-      _showBottomBar = !(_navigatorKeys[nextIndex].currentState?.canPop() ?? false);
+      _showBottomBar =
+          !(_navigatorKeys[nextIndex].currentState?.canPop() ?? false);
     });
   }
 
   Route<dynamic> _buildRouteForIndex(int index) {
     switch (index) {
       case 0:
-        return MaterialPageRoute(builder: (_) => const CustomerHomeSelectorScreen());
+        return MaterialPageRoute(
+          builder: (_) => const CustomerHomeSelectorScreen(),
+        );
       case 1:
         return MaterialPageRoute(builder: (_) => const CustomerOrdersScreen());
       case 2:
@@ -101,7 +107,9 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
         );
       case 4:
       default:
-        return MaterialPageRoute(builder: (_) => const CustomerAccountHubScreen());
+        return MaterialPageRoute(
+          builder: (_) => const CustomerAccountHubScreen(),
+        );
     }
   }
 
@@ -115,6 +123,8 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -147,29 +157,29 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
           visible: _showBottomBar,
           currentIndex: _index,
           onTap: _selectTab,
-          items: const [
+          items: [
             MaslakiBottomNavItem(
-              label: 'الرئيسية',
+              label: l10n.customerHomeTitle,
               icon: Icons.home_outlined,
               activeIcon: Icons.home_rounded,
             ),
             MaslakiBottomNavItem(
-              label: 'الطلبات',
+              label: l10n.commonOrders,
               icon: Icons.receipt_long_outlined,
               activeIcon: Icons.receipt_long_rounded,
             ),
             MaslakiBottomNavItem(
-              label: 'المجتمع',
+              label: l10n.socialBasmayaCommunity,
               icon: Icons.groups_outlined,
               activeIcon: Icons.groups_rounded,
             ),
             MaslakiBottomNavItem(
-              label: 'الرسائل',
+              label: l10n.socialShellMessages,
               icon: Icons.chat_bubble_outline_rounded,
               activeIcon: Icons.chat_bubble_rounded,
             ),
             MaslakiBottomNavItem(
-              label: 'حسابي',
+              label: l10n.settingsAccount,
               icon: Icons.person_outline_rounded,
               activeIcon: Icons.person_rounded,
             ),

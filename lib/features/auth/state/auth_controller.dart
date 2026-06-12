@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
@@ -9,6 +11,7 @@ import '../../../core/network/api_error_mapper.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/media/media_cache_service.dart';
 import '../../../core/storage/secure_storage.dart';
+import '../../../core/settings/app_settings_controller.dart';
 import '../data/auth_api.dart';
 import '../data/auth_repo_impl.dart';
 import '../domain/auth_repo.dart';
@@ -162,6 +165,7 @@ class AuthController extends StateNotifier<AuthState> {
 
     try {
       final user = await ref.read(authRepoProvider).me();
+      await _applyPreferredLocale(user);
       state = state.copyWith(
         user: user,
         error: null,
@@ -187,6 +191,7 @@ class AuthController extends StateNotifier<AuthState> {
           .read(authRepoProvider)
           .login(phone: phone, pin: pin);
       final token = await ref.read(secureStoreProvider).readToken();
+      await _applyPreferredLocale(user);
       state = state.copyWith(
         loading: false,
         user: user,
@@ -241,6 +246,7 @@ class AuthController extends StateNotifier<AuthState> {
           );
 
       final token = await ref.read(secureStoreProvider).readToken();
+      await _applyPreferredLocale(user);
       state = state.copyWith(
         loading: false,
         user: user,
@@ -355,6 +361,7 @@ class AuthController extends StateNotifier<AuthState> {
           );
 
       final token = await ref.read(secureStoreProvider).readToken();
+      await _applyPreferredLocale(user);
       state = state.copyWith(
         loading: false,
         user: user,
@@ -478,6 +485,7 @@ class AuthController extends StateNotifier<AuthState> {
             cardImageFile: cardImageFile,
           );
       final token = await ref.read(secureStoreProvider).readToken();
+      await _applyPreferredLocale(user);
       state = state.copyWith(
         loading: false,
         user: user,
@@ -584,6 +592,18 @@ class AuthController extends StateNotifier<AuthState> {
         clearWorkCompany: workCompany == null || workCompany.trim().isEmpty,
       ),
     );
+  }
+
+  Future<void> _applyPreferredLocale(UserModel? user) async {
+    final localeCode = switch (user?.preferredLocale?.trim().toLowerCase()) {
+      'ar' => 'ar',
+      'en' => 'en',
+      _ => null,
+    };
+    if (localeCode == null) return;
+    await ref
+        .read(appSettingsControllerProvider.notifier)
+        .applyRemoteLocale(Locale(localeCode));
   }
 
   String _mapLoginError(DioException e) {

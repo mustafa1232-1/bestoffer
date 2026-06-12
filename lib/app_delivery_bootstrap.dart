@@ -1,0 +1,334 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+
+import 'core/i18n/app_localizations_context.dart';
+import 'core/media/media_cache_service.dart';
+import 'core/notifications/local_notification_service.dart';
+import 'core/notifications/notification_navigation.dart';
+import 'core/notifications/push_notification_service.dart';
+import 'core/settings/app_settings_controller.dart';
+import 'core/theme/app_theme.dart';
+import 'features/auth/presentation/role_login_screen.dart';
+import 'features/auth/state/auth_controller.dart';
+import 'features/delivery/state/delivery_controller.dart';
+import 'features/delivery/ui/delivery_dashboard_screen.dart';
+import 'features/delivery/ui/delivery_offer_overlay_screen.dart';
+import 'l10n/app_localizations.dart';
+
+/// Dedicated bootstrap for the delivery app surface in the root app.
+///
+/// Uses the full delivery feature module (`DeliveryDashboardScreen`) instead of
+/// the lightweight runtime shell.
+void runDeliveryAppBootstrap() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(
+    ProviderScope(
+      overrides: [
+        appSettingsStorageScopeProvider.overrideWithValue('delivery'),
+      ],
+      child: const MaslakiDeliveryApp(),
+    ),
+  );
+}
+
+class MaslakiDeliveryApp extends ConsumerStatefulWidget {
+  const MaslakiDeliveryApp({super.key});
+
+  @override
+  ConsumerState<MaslakiDeliveryApp> createState() => _MaslakiDeliveryAppState();
+}
+
+class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
+    with WidgetsBindingObserver {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  ProviderSubscription<AuthState>? _authStateSub;
+  StreamSubscription<NotificationTapPayload>? _notificationTapSub;
+  StreamSubscription<NotificationTapPayload>? _pushTapSub;
+  NotificationTapPayload? _pendingTapPayload;
+  final Map<int, DateTime> _recentOfferOverlayByOrder = <int, DateTime>{};
+
+  bool _bootstrapped = false;
+  bool _roleMismatchLogoutInFlight = false;
+  bool _pushSyncInFlight = false;
+  bool _offerOverlayInFlight = false;
+  int? _pushSyncedUserId;
+  int? _activeOfferOrderId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _authStateSub = ref.listenManual<AuthState>(authControllerProvider, (
+      previous,
+      next,
+    ) {
+      _handleAuthStateChanged(previous, next);
+    });
+    Future.microtask(() async {
+      await ref.read(mediaCacheServiceProvider).scheduleMaintenance();
+      await ref.read(authControllerProvider.notifier).bootstrap();
+
+      if (!mounted) return;
+      final localNotifications = ref.read(localNotificationsProvider);
+      await localNotifications.initialize();
+      await localNotifications.requestPermissionsIfNeeded();
+      _notificationTapSub = localNotifications.tapStream.listen(
+        _handleNotificationTap,
+      );
+
+      if (!mounted) return;
+      final auth = ref.read(authControllerProvider);
+      if (auth.isAuthed && auth.isDelivery) {
+        await _ensurePushReadyAndSync(auth);
+      }
+      if (!mounted) return;
+      setState(() {
+        _bootstrapped = true;
+      });
+      _consumePendingTapIfAny();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isAuthed || !auth.isDelivery || auth.user == null) return;
+    unawaited(_ensurePushReadyAndSync(auth));
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _authStateSub?.close();
+    _notificationTapSub?.cancel();
+    _pushTapSub?.cancel();
+    super.dispose();
+  }
+
+  void _handleAuthStateChanged(AuthState? previous, AuthState next) {
+    final wasAuthed = previous?.isAuthed ?? false;
+    final isAuthed = next.isAuthed;
+    final previousUserId = previous?.user?.id;
+    final nextUserId = next.user?.id;
+
+    if (wasAuthed && !isAuthed) {
+      _pushSyncedUserId = null;
+      unawaited(ref.read(pushNotificationsProvider).unregisterCurrentToken());
+      return;
+    }
+
+    if (isAuthed &&
+        next.isDelivery &&
+        nextUserId != null &&
+        previousUserId != nextUserId) {
+      unawaited(_ensurePushReadyAndSync(next));
+    }
+
+    if (isAuthed && next.isDelivery) {
+      _consumePendingTapIfAny();
+    }
+  }
+
+  Future<void> _ensurePushReadyAndSync(AuthState auth) async {
+    if (!mounted || !auth.isAuthed || !auth.isDelivery || auth.user == null) {
+      return;
+    }
+
+    final push = ref.read(pushNotificationsProvider);
+    await push.initialize();
+    await push.requestPermissionIfNeeded();
+    if (!mounted) return;
+
+    _pushTapSub ??= push.tapStream.listen(_handleNotificationTap);
+
+    final userId = auth.user!.id;
+    if (_pushSyncInFlight || _pushSyncedUserId == userId) return;
+    _pushSyncInFlight = true;
+    try {
+      await push.syncToken();
+      _pushSyncedUserId = userId;
+    } finally {
+      _pushSyncInFlight = false;
+    }
+  }
+
+  void _consumePendingTapIfAny() {
+    final payload = _pendingTapPayload;
+    if (payload == null) return;
+    _pendingTapPayload = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _handleNotificationTap(payload);
+    });
+  }
+
+  void _handleNotificationTap(NotificationTapPayload payload) {
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isAuthed || !auth.isDelivery) {
+      _pendingTapPayload = payload;
+      return;
+    }
+
+    final quickAction = (payload.quickActionId ?? '').trim().toLowerCase();
+    if (_isDeliveryOfferPayload(payload)) {
+      if (quickAction == 'accept' || quickAction == 'reject') {
+        unawaited(_handleDeliveryQuickAction(payload, quickAction));
+      } else {
+        unawaited(_openDeliveryOfferOverlay(payload));
+      }
+      return;
+    }
+
+    final nav = _navigatorKey.currentState;
+    if (nav == null) {
+      _pendingTapPayload = payload;
+      return;
+    }
+    unawaited(
+      NotificationNavigation.open(navigator: nav, auth: auth, payload: payload),
+    );
+  }
+
+  bool _isDeliveryOfferPayload(NotificationTapPayload payload) {
+    final target = (payload.target ?? '').trim().toLowerCase();
+    final type = (payload.type ?? '').trim().toLowerCase();
+    return payload.orderId != null &&
+        (payload.requiresAction ||
+            target == 'courier_orders_new' ||
+            target == 'delivery_order_offer' ||
+            target == 'courier_order_offer' ||
+            type == 'delivery_order_available' ||
+            type == 'delivery_order_offer' ||
+            type == 'courier_order_offer');
+  }
+
+  bool _shouldSkipOfferOverlay(int orderId) {
+    final last = _recentOfferOverlayByOrder[orderId];
+    if (last == null) return false;
+    return DateTime.now().difference(last) < const Duration(seconds: 6);
+  }
+
+  Future<void> _openDeliveryOfferOverlay(NotificationTapPayload payload) async {
+    final orderId = payload.orderId;
+    if (orderId == null || orderId <= 0) return;
+    if (_activeOfferOrderId == orderId && _offerOverlayInFlight) return;
+    if (_shouldSkipOfferOverlay(orderId)) return;
+    final nav = _navigatorKey.currentState;
+    if (nav == null) {
+      _pendingTapPayload = payload;
+      return;
+    }
+
+    _offerOverlayInFlight = true;
+    _activeOfferOrderId = orderId;
+    _recentOfferOverlayByOrder[orderId] = DateTime.now();
+    try {
+      await nav.push<bool>(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => DeliveryOfferOverlayScreen(
+            orderId: orderId,
+            remoteDisplayName: payload.remoteDisplayName,
+          ),
+        ),
+      );
+    } finally {
+      _offerOverlayInFlight = false;
+      _activeOfferOrderId = null;
+    }
+  }
+
+  Future<void> _handleDeliveryQuickAction(
+    NotificationTapPayload payload,
+    String actionId,
+  ) async {
+    final orderId = payload.orderId;
+    if (orderId == null || orderId <= 0) return;
+    final controller = ref.read(deliveryControllerProvider.notifier);
+    if (actionId == 'accept') {
+      await controller.acceptRequest(orderId);
+    } else if (actionId == 'reject') {
+      await controller.rejectRequest(orderId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = ref.watch(appSettingsControllerProvider);
+    final auth = ref.watch(authControllerProvider);
+    Intl.defaultLocale = settings.locale.languageCode;
+
+    if (auth.isAuthed && !auth.isDelivery && !_roleMismatchLogoutInFlight) {
+      _roleMismatchLogoutInFlight = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        await ref.read(authControllerProvider.notifier).logout();
+        _roleMismatchLogoutInFlight = false;
+      });
+    } else if (!auth.isAuthed || auth.isDelivery) {
+      _roleMismatchLogoutInFlight = false;
+    }
+
+    return MaterialApp(
+      navigatorKey: _navigatorKey,
+      debugShowCheckedModeBanner: false,
+      onGenerateTitle: (ctx) => ctx.l10n.deliveryAppTitle,
+      locale: settings.locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      theme: AppTheme.light(preset: settings.themePreset),
+      darkTheme: AppTheme.dark(preset: settings.themePreset),
+      themeMode: ThemeMode.dark,
+      builder: (ctx, child) {
+        if (child == null) return const SizedBox.shrink();
+        return AppBackdrop(
+          animationsEnabled: settings.animationsEnabled,
+          weatherEffectsEnabled: settings.weatherEffectsEnabled,
+          child: AppResponsiveShell(child: child),
+        );
+      },
+      home: !_bootstrapped
+          ? const _DeliverySplashScreen()
+          : auth.isAuthed && auth.isDelivery
+          ? const DeliveryDashboardScreen()
+          : const RoleLoginScreen(scope: RoleLoginScope.delivery),
+    );
+  }
+}
+
+class _DeliverySplashScreen extends StatelessWidget {
+  const _DeliverySplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.local_shipping_rounded,
+              size: 52,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              context.l10n.deliveryAppTitle,
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            const SizedBox(
+              width: 140,
+              child: LinearProgressIndicator(minHeight: 4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

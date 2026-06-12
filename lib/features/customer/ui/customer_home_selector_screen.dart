@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/sections/section_access_guard.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
@@ -872,12 +873,33 @@ class _CustomerHomeSelectorScreenState
       data: (snapshot) {
         final recentActivity = recentActivityState.valueOrNull;
         final shortcuts = <Widget>[];
+        final bestForYouTitle = switch (snapshot.bestSectionKey) {
+          'services' => context.lt(
+            ar: 'الأفضل لك الآن في الخدمات',
+            en: 'Best for you now in services',
+          ),
+          'taxi' => context.lt(
+            ar: 'الأفضل لك الآن في التكسي',
+            en: 'Best for you now in taxi',
+          ),
+          _ => context.lt(
+            ar: 'الأفضل لك الآن في المتاجر',
+            en: 'Best for you now in stores',
+          ),
+        };
+        final bestForYouSubtitle = context.lt(
+          ar: 'اختصارات وعروض مرتبة حسب نشاطك الفعلي وآخر استخداماتك.',
+          en: 'Shortcuts and offers ranked by your actual activity and recent usage.',
+        );
 
         if (snapshot.homePlace != null) {
           shortcuts.add(
             _HomeSmartShortcutCard(
-              title: 'البيت',
-              subtitle: 'حجز سريع إلى موقعك المحفوظ',
+              title: context.lt(ar: 'البيت', en: 'Home'),
+              subtitle: context.lt(
+                ar: 'حجز سريع إلى موقعك المحفوظ',
+                en: 'Quick ride to your saved home location',
+              ),
               icon: Icons.home_work_outlined,
               onTap: () => _openSavedPlaceShortcut(snapshot.homePlace!),
             ),
@@ -886,8 +908,11 @@ class _CustomerHomeSelectorScreenState
         if (snapshot.workPlace != null) {
           shortcuts.add(
             _HomeSmartShortcutCard(
-              title: 'العمل',
-              subtitle: 'عودة مباشرة إلى وجهة العمل',
+              title: context.lt(ar: 'العمل', en: 'Work'),
+              subtitle: context.lt(
+                ar: 'عودة مباشرة إلى وجهة العمل',
+                en: 'Return directly to your work destination',
+              ),
               icon: Icons.work_history_outlined,
               onTap: () => _openSavedPlaceShortcut(snapshot.workPlace!),
             ),
@@ -896,8 +921,11 @@ class _CustomerHomeSelectorScreenState
         if (snapshot.lastRide != null) {
           shortcuts.add(
             _HomeSmartShortcutCard(
-              title: 'إعادة آخر مشوار',
-              subtitle: 'افتح نفس المسار بضغطة واحدة',
+              title: context.lt(ar: 'إعادة آخر مشوار', en: 'Repeat last ride'),
+              subtitle: context.lt(
+                ar: 'افتح نفس المسار بضغطة واحدة',
+                en: 'Open the same route in one tap',
+              ),
               icon: Icons.local_taxi_outlined,
               onTap: () => _openRideReuseShortcut(snapshot.lastRide!),
             ),
@@ -906,8 +934,8 @@ class _CustomerHomeSelectorScreenState
         if (recentActivity != null) {
           shortcuts.add(
             _HomeSmartShortcutCard(
-              title: 'آخر نشاط',
-              subtitle: recentActivity.title,
+              title: context.lt(ar: 'آخر نشاط', en: 'Recent activity'),
+              subtitle: recentActivity.resolveTitle(context),
               icon: Icons.history_toggle_off_rounded,
               onTap: () => _openRecentActivity(recentActivity),
             ),
@@ -915,8 +943,11 @@ class _CustomerHomeSelectorScreenState
         }
         shortcuts.add(
           _HomeSmartShortcutCard(
-            title: 'المساعد الذكي',
-            subtitle: 'اسأل عن الأفضل لك الآن',
+            title: context.lt(ar: 'المساعد الذكي', en: 'Smart assistant'),
+            subtitle: context.lt(
+              ar: 'اسأل عن الأفضل لك الآن',
+              en: 'Ask for the best option for you now',
+            ),
             icon: Icons.auto_awesome_rounded,
             onTap: _openAssistant,
           ),
@@ -924,16 +955,21 @@ class _CustomerHomeSelectorScreenState
 
         return Column(
           children: [
-            const MaslakiSectionHeader(
-              title: 'اختصاراتك الذكية',
-              subtitle:
-                  'بناءً على أماكنك المحفوظة وآخر مشاويرك ونشاطك الفعلي داخل التطبيق',
+            MaslakiSectionHeader(
+              title: context.lt(
+                ar: 'اختصاراتك الذكية',
+                en: 'Your smart shortcuts',
+              ),
+              subtitle: context.lt(
+                ar: 'بناءً على أماكنك المحفوظة وآخر مشاويرك ونشاطك الفعلي داخل التطبيق',
+                en: 'Based on your saved places, last rides, and actual in-app activity',
+              ),
             ),
             const SizedBox(height: 12),
             MaslakiOfferBanner(
-              title: snapshot.bestForYouTitle,
-              subtitle: snapshot.bestForYouSubtitle,
-              ctaLabel: 'افتح الآن',
+              title: bestForYouTitle,
+              subtitle: bestForYouSubtitle,
+              ctaLabel: context.lt(ar: 'افتح الآن', en: 'Open now'),
               onTap: () => _openBestForYouShortcut(snapshot.bestSectionKey),
             ),
             const SizedBox(height: 12),
@@ -2500,9 +2536,15 @@ class RecentActivitySection extends StatelessWidget {
     } else {
       final activity = state.valueOrNull;
       if (activity == null) {
-        child = const _SimpleEmptyState(
-          title: 'ابدأ رحلتك في مسلكي من الأقسام أعلاه',
-          subtitle: 'سنُظهر هنا آخر ما تصفحته فور استخدامك لأي قسم',
+        child = _SimpleEmptyState(
+          title: context.lt(
+            ar: 'ابدأ رحلتك في مسلكي من الأقسام أعلاه',
+            en: 'Start exploring Maslaki from the sections above',
+          ),
+          subtitle: context.lt(
+            ar: 'سنُظهر هنا آخر ما تصفحته فور استخدامك لأي قسم',
+            en: 'Your latest browsing activity will appear here as soon as you use any section',
+          ),
         );
       } else {
         child = RecentActivityCard(
@@ -2515,7 +2557,9 @@ class RecentActivitySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionTitle(title: 'آخر ما تصفحت'),
+        _SectionTitle(
+          title: context.lt(ar: 'آخر ما تصفحت', en: 'Recently viewed'),
+        ),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(12),
@@ -2597,8 +2641,8 @@ class RecentActivityCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          activity.title,
-                          textDirection: TextDirection.rtl,
+                          activity.resolveTitle(context),
+                          textDirection: Directionality.of(context),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -2609,8 +2653,8 @@ class RecentActivityCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          activity.subtitle,
-                          textDirection: TextDirection.rtl,
+                          activity.resolveSubtitle(context),
+                          textDirection: Directionality.of(context),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(

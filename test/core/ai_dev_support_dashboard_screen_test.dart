@@ -86,10 +86,7 @@ class _FakeAiDevSupportApi extends AiDevSupportApi {
   @override
   Future<Map<String, dynamic>> getSettings() async {
     return {
-      'settings': {
-        'ai_analysis_enabled': true,
-        'sentry_webhook_enabled': true,
-      },
+      'settings': {'ai_analysis_enabled': true, 'sentry_webhook_enabled': true},
     };
   }
 
@@ -111,12 +108,15 @@ UserModel _user({required bool superAdmin}) {
     imageUrl: null,
     workTitle: null,
     workCompany: null,
+    preferredLocale: 'ar',
     isSuperAdmin: superAdmin,
   );
 }
 
 void main() {
-  testWidgets('AI DEV SUPPORT dashboard renders for super admin', (tester) async {
+  testWidgets('AI DEV SUPPORT dashboard renders for super admin', (
+    tester,
+  ) async {
     final fakeApi = _FakeAiDevSupportApi(
       incidentItems: [
         const OpsIncident(
@@ -166,7 +166,9 @@ void main() {
     expect(find.text('Pending Approvals'), findsWidgets);
   });
 
-  testWidgets('AI DEV SUPPORT dashboard blocks non super admin', (tester) async {
+  testWidgets('AI DEV SUPPORT dashboard blocks non super admin', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -187,40 +189,41 @@ void main() {
     expect(find.text('Access denied'), findsOneWidget);
   });
 
-  testWidgets('Pending approvals asks for typed confirmation on critical/high', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          aiDevSupportApiProvider.overrideWithValue(
-            _FakeAiDevSupportApi(
-              pending: const [
-                OpsAction(
-                  id: 1,
-                  incidentId: 10,
-                  actionType: 'rollback_service',
-                  riskLevel: 'critical',
-                  status: 'pending_approval',
-                  input: <String, dynamic>{},
-                  output: <String, dynamic>{},
-                ),
-              ],
+  testWidgets(
+    'Pending approvals asks for typed confirmation on critical/high',
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            aiDevSupportApiProvider.overrideWithValue(
+              _FakeAiDevSupportApi(
+                pending: const [
+                  OpsAction(
+                    id: 1,
+                    incidentId: 10,
+                    actionType: 'rollback_service',
+                    riskLevel: 'critical',
+                    status: 'pending_approval',
+                    input: <String, dynamic>{},
+                    output: <String, dynamic>{},
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
-        child: const MaterialApp(home: PendingApprovalsScreen()),
-      ),
-    );
+          ],
+          child: const MaterialApp(home: PendingApprovalsScreen()),
+        ),
+      );
 
-    await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Approve'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Approve'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Confirm critical action'), findsOneWidget);
-    expect(find.textContaining('Type APPROVE'), findsOneWidget);
-  });
+      expect(find.text('Confirm critical action'), findsOneWidget);
+      expect(find.textContaining('Type APPROVE'), findsOneWidget);
+    },
+  );
 
   testWidgets('AI DEV SUPPORT renders in RTL direction', (tester) async {
     await tester.pumpWidget(

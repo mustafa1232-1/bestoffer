@@ -1,3 +1,6 @@
+import 'package:flutter/widgets.dart';
+
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/parsers.dart';
 
 enum RecentActivityType {
@@ -54,10 +57,8 @@ class RecentActivityModel {
     final title =
         parseNullableString(metadata['recentTitle']) ??
         parseNullableString(metadata['screenLabel']) ??
-        _buildTitle(type, eventName, targetId, metadata);
-    final subtitle =
-        parseNullableString(metadata['recentSubtitle']) ??
-        _buildSubtitle(type, category, eventName, metadata);
+        '';
+    final subtitle = parseNullableString(metadata['recentSubtitle']) ?? '';
     final route = parseNullableString(metadata['route']) ?? _routeForType(type);
 
     return RecentActivityModel(
@@ -76,6 +77,145 @@ class RecentActivityModel {
         event['createdAt'] ?? event['created_at'],
       ),
     );
+  }
+
+  String resolveTitle(BuildContext context) {
+    final merchantName = parseNullableString(
+      metadata['merchantName'] ?? metadata['merchant_name'],
+    );
+    final destination = parseNullableString(
+      metadata['destinationName'] ?? metadata['destination'],
+    );
+    final userName = parseNullableString(
+      metadata['userName'] ?? metadata['username'] ?? metadata['peerName'],
+    );
+    final offeringName = parseNullableString(
+      metadata['offeringName'] ?? metadata['serviceName'],
+    );
+    final merchantLabel = merchantName?.trim() ?? '';
+    final destinationLabel = destination?.trim() ?? '';
+    final userLabel = userName?.trim() ?? '';
+    final offeringLabel = offeringName?.trim() ?? '';
+
+    switch (type) {
+      case RecentActivityType.shopping:
+        if (merchantLabel.isNotEmpty) {
+          return context.lt(
+            ar: 'كنت تتصفح متجر: $merchantLabel',
+            en: 'You were browsing: $merchantLabel',
+          );
+        }
+        if (targetId != null) {
+          return context.lt(
+            ar: 'آخر متجر تصفحته رقم #$targetId',
+            en: 'Last store you viewed #$targetId',
+          );
+        }
+        return context.lt(
+          ar: 'كنت تتصفح قسم التسوق',
+          en: 'You were browsing shopping',
+        );
+      case RecentActivityType.taxi:
+        if (destinationLabel.isNotEmpty) {
+          return context.lt(
+            ar: 'آخر رحلة إلى $destinationLabel',
+            en: 'Last ride to $destinationLabel',
+          );
+        }
+        return context.lt(
+          ar: 'كنت تتابع رحلة مسلكي تكسي',
+          en: 'You were following a Maslaki taxi ride',
+        );
+      case RecentActivityType.community:
+        if (userLabel.isNotEmpty) {
+          return context.lt(
+            ar: 'كنت تتفاعل مع $userLabel',
+            en: 'You were interacting with $userLabel',
+          );
+        }
+        return context.lt(
+          ar: 'كنت تتصفح مجتمع مسلكي',
+          en: 'You were browsing the Maslaki community',
+        );
+      case RecentActivityType.services:
+        if (offeringLabel.isNotEmpty) {
+          return context.lt(
+            ar: 'كنت تشاهد خدمة: $offeringLabel',
+            en: 'You were viewing: $offeringLabel',
+          );
+        }
+        return context.lt(
+          ar: 'كنت تتصفح قسم الخدمات',
+          en: 'You were browsing services',
+        );
+      case RecentActivityType.cars:
+        return targetId == null
+            ? context.lt(
+                ar: 'كنت تتصفح سوق السيارات',
+                en: 'You were browsing cars',
+              )
+            : context.lt(
+                ar: 'آخر سيارة شاهدتها رقم #$targetId',
+                en: 'Last car you viewed #$targetId',
+              );
+      case RecentActivityType.jobs:
+        return targetId == null
+            ? context.lt(ar: 'كنت تتصفح الوظائف', en: 'You were browsing jobs')
+            : context.lt(
+                ar: 'آخر وظيفة شاهدتها رقم #$targetId',
+                en: 'Last job you viewed #$targetId',
+              );
+      case RecentActivityType.realEstate:
+        return targetId == null
+            ? context.lt(
+                ar: 'كنت تتصفح العقارات',
+                en: 'You were browsing real estate',
+              )
+            : context.lt(
+                ar: 'آخر عقار شاهدته رقم #$targetId',
+                en: 'Last property you viewed #$targetId',
+              );
+    }
+  }
+
+  String resolveSubtitle(BuildContext context) {
+    switch (type) {
+      case RecentActivityType.shopping:
+        return context.lt(
+          ar: 'اضغط للعودة إلى التسوق',
+          en: 'Tap to return to shopping',
+        );
+      case RecentActivityType.taxi:
+        return context.lt(
+          ar: 'اضغط للعودة إلى خدمات التكسي',
+          en: 'Tap to return to taxi',
+        );
+      case RecentActivityType.community:
+        return context.lt(
+          ar: 'اضغط للعودة إلى المجتمع',
+          en: 'Tap to return to community',
+        );
+      case RecentActivityType.services:
+        return context.lt(
+          ar: 'اضغط للعودة إلى الخدمات',
+          en: 'Tap to return to services',
+        );
+      case RecentActivityType.cars:
+        return context.lt(
+          ar: 'اضغط للعودة إلى السيارات',
+          en: 'Tap to return to cars',
+        );
+      case RecentActivityType.jobs:
+        return context.lt(
+          ar: 'اضغط للعودة إلى الوظائف',
+          en: 'Tap to return to jobs',
+        );
+      case RecentActivityType.realEstate:
+        return context.lt(
+          ar: 'اضغط للعودة إلى العقارات',
+          en: 'Tap to return to real estate',
+        );
+    }
   }
 
   static RecentActivityType _inferType({
@@ -106,95 +246,6 @@ class RecentActivityModel {
       return RecentActivityType.community;
     }
     return RecentActivityType.shopping;
-  }
-
-  static String _buildTitle(
-    RecentActivityType type,
-    String eventName,
-    int? targetId,
-    Map<String, dynamic> metadata,
-  ) {
-    switch (type) {
-      case RecentActivityType.shopping:
-        final merchantName = parseNullableString(
-          metadata['merchantName'] ?? metadata['merchant_name'],
-        );
-        if ((merchantName ?? '').trim().isNotEmpty) {
-          return 'كنت تتصفح متجر: ${merchantName!.trim()}';
-        }
-        if (targetId != null) {
-          return 'آخر متجر تصفحته رقم #$targetId';
-        }
-        if (eventName.contains('search')) {
-          return 'كنت تبحث في قسم التسوق';
-        }
-        return 'كنت تتصفح قسم التسوق';
-      case RecentActivityType.taxi:
-        final destination = parseNullableString(
-          metadata['destinationName'] ?? metadata['destination'],
-        );
-        if ((destination ?? '').trim().isNotEmpty) {
-          return 'آخر رحلة إلى ${destination!.trim()}';
-        }
-        return 'كنت تتابع رحلة مسلكي تكسي';
-      case RecentActivityType.community:
-        final userName = parseNullableString(
-          metadata['userName'] ?? metadata['username'] ?? metadata['peerName'],
-        );
-        if ((userName ?? '').trim().isNotEmpty) {
-          return 'كنت تتفاعل مع ${userName!.trim()}';
-        }
-        return 'كنت تتصفح مجتمع مسلكي';
-      case RecentActivityType.services:
-        final offeringName = parseNullableString(
-          metadata['offeringName'] ?? metadata['serviceName'],
-        );
-        if ((offeringName ?? '').trim().isNotEmpty) {
-          return 'كنت تشاهد خدمة: ${offeringName!.trim()}';
-        }
-        return 'كنت تتصفح قسم الخدمات';
-      case RecentActivityType.cars:
-        return targetId == null
-            ? 'كنت تتصفح سوق السيارات'
-            : 'آخر سيارة شاهدتها رقم #$targetId';
-      case RecentActivityType.jobs:
-        return targetId == null
-            ? 'كنت تتصفح الوظائف'
-            : 'آخر وظيفة شاهدتها رقم #$targetId';
-      case RecentActivityType.realEstate:
-        return targetId == null
-            ? 'كنت تتصفح العقارات'
-            : 'آخر عقار شاهدته رقم #$targetId';
-    }
-  }
-
-  static String _buildSubtitle(
-    RecentActivityType type,
-    String category,
-    String eventName,
-    Map<String, dynamic> metadata,
-  ) {
-    final route = parseNullableString(metadata['route']);
-    if ((route ?? '').trim().isNotEmpty) {
-      return route!.trim();
-    }
-
-    switch (type) {
-      case RecentActivityType.shopping:
-        return 'اضغط للعودة إلى التسوق';
-      case RecentActivityType.taxi:
-        return 'اضغط للعودة إلى خدمات التكسي';
-      case RecentActivityType.community:
-        return 'اضغط للعودة إلى المجتمع';
-      case RecentActivityType.services:
-        return 'اضغط للعودة إلى الخدمات';
-      case RecentActivityType.cars:
-        return 'اضغط للعودة إلى السيارات';
-      case RecentActivityType.jobs:
-        return 'اضغط للعودة إلى الوظائف';
-      case RecentActivityType.realEstate:
-        return 'اضغط للعودة إلى العقارات';
-    }
   }
 
   static String _routeForType(RecentActivityType type) {

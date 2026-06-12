@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/currency.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 import '../state/orders_controller.dart';
@@ -86,8 +88,14 @@ class _FavoriteProductsScreenState
         _refreshing = false;
         _loadingMore = false;
         _error = reset
-            ? 'تعذر تحميل المفضلة حاليا.'
-            : 'تعذر تحميل المزيد من عناصر المفضلة.';
+            ? context.lt(
+                ar: 'تعذر تحميل المفضلة حاليًا.',
+                en: 'Unable to load favorites right now.',
+              )
+            : context.lt(
+                ar: 'تعذر تحميل المزيد من عناصر المفضلة.',
+                en: 'Unable to load more favorite items.',
+              );
       });
     }
   }
@@ -101,13 +109,27 @@ class _FavoriteProductsScreenState
           .read(ordersControllerProvider.notifier)
           .loadFavoriteProductIds();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('تمت الإزالة من المفضلة.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.lt(
+              ar: 'تمت الإزالة من المفضلة.',
+              en: 'Removed from favorites.',
+            ),
+          ),
+        ),
+      );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذر تحديث المفضلة حاليا.')),
+        SnackBar(
+          content: Text(
+            context.lt(
+              ar: 'تعذر تحديث المفضلة حاليًا.',
+              en: 'Unable to update favorites right now.',
+            ),
+          ),
+        ),
       );
     }
   }
@@ -121,7 +143,10 @@ class _FavoriteProductsScreenState
         builder: (_) => MerchantsListScreen(
           initialType: 'market',
           initialSearchQuery: query,
-          overrideTitle: 'منتجات مفضلة',
+          overrideTitle: context.lt(
+            ar: 'منتجات مفضلة',
+            en: 'Favorite products',
+          ),
           compactCustomerMode: true,
         ),
       ),
@@ -130,12 +155,16 @@ class _FavoriteProductsScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('منتجاتي المفضلة'),
+        title: Text(
+          context.lt(ar: 'منتجاتي المفضلة', en: 'My favorite products'),
+        ),
         actions: [
           IconButton(
-            tooltip: 'تحديث',
+            tooltip: l10n.commonRefresh,
             onPressed: _loading || _refreshing || _loadingMore
                 ? null
                 : () => _load(reset: true, silent: true),
@@ -156,21 +185,24 @@ class _FavoriteProductsScreenState
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(_error!, textDirection: TextDirection.rtl),
+                  Text(_error!, textDirection: Directionality.of(context)),
                   const SizedBox(height: 10),
                   FilledButton.icon(
                     onPressed: () => _load(reset: true),
                     icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('إعادة المحاولة'),
+                    label: Text(l10n.commonRetry),
                   ),
                 ],
               ),
             )
           : _items.isEmpty
-          ? const Center(
+          ? Center(
               child: Text(
-                'ما عندك منتجات مفضلة بعد.',
-                textDirection: TextDirection.rtl,
+                context.lt(
+                  ar: 'ما عندك منتجات مفضلة بعد.',
+                  en: 'You do not have favorite products yet.',
+                ),
+                textDirection: Directionality.of(context),
               ),
             )
           : ListView.separated(
@@ -188,8 +220,8 @@ class _FavoriteProductsScreenState
                   if (_nextOffset == null) {
                     return Center(
                       child: Text(
-                        'انتهت القائمة',
-                        textDirection: TextDirection.rtl,
+                        context.lt(ar: 'انتهت القائمة', en: 'End of list'),
+                        textDirection: Directionality.of(context),
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.72),
                           fontWeight: FontWeight.w700,
@@ -201,7 +233,9 @@ class _FavoriteProductsScreenState
                     child: OutlinedButton.icon(
                       onPressed: () => _load(reset: false),
                       icon: const Icon(Icons.expand_more_rounded),
-                      label: const Text('تحميل المزيد'),
+                      label: Text(
+                        context.lt(ar: 'تحميل المزيد', en: 'Load more'),
+                      ),
                     ),
                   );
                 }
@@ -211,26 +245,29 @@ class _FavoriteProductsScreenState
                 return Card(
                   child: ListTile(
                     leading: _ProductThumb(imageUrl: item.imageUrl),
-                    title: Text(item.name, textDirection: TextDirection.rtl),
+                    title: Text(
+                      item.name,
+                      textDirection: Directionality.of(context),
+                    ),
                     subtitle: Text(
                       [
                         if ((item.merchantName ?? '').isNotEmpty)
-                          'المتجر: ${item.merchantName}',
-                        'السعر: ${formatIqd(effectivePrice)}',
+                          '${context.lt(ar: 'المتجر', en: 'Store')}: ${item.merchantName}',
+                        '${context.lt(ar: 'السعر', en: 'Price')}: ${formatIqd(effectivePrice)}',
                       ].join('\n'),
-                      textDirection: TextDirection.rtl,
+                      textDirection: Directionality.of(context),
                     ),
                     isThreeLine: true,
                     trailing: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         IconButton(
-                          tooltip: 'إزالة',
+                          tooltip: l10n.commonRemove,
                           onPressed: () => _removeFavorite(item),
                           icon: const Icon(Icons.favorite_rounded),
                         ),
                         IconButton(
-                          tooltip: 'بحث',
+                          tooltip: l10n.commonSearch,
                           onPressed: () => _openSearch(item),
                           icon: const Icon(Icons.search_rounded),
                         ),

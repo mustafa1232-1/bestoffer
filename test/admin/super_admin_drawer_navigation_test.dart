@@ -28,6 +28,7 @@ class _FakeAuthController extends AuthController {
         imageUrl: null,
         workTitle: null,
         workCompany: null,
+        preferredLocale: 'ar',
         isSuperAdmin: true,
       ),
     );

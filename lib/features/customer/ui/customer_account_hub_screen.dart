@@ -42,7 +42,9 @@ class CustomerAccountHubScreen extends ConsumerWidget {
     final avatarLabel = profileName.isEmpty ? 'M' : profileName.substring(0, 1);
 
     Future<void> open(Widget page) {
-      return Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+      return Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => page));
     }
 
     Future<void> openSavedPlace(Map<String, dynamic> place) {
@@ -266,6 +268,24 @@ class CustomerAccountHubScreen extends ConsumerWidget {
               loading: () => const SizedBox.shrink(),
               error: (_, _) => const SizedBox.shrink(),
               data: (snapshot) {
+                final bestForYouTitle = switch (snapshot.bestSectionKey) {
+                  'services' => context.lt(
+                    ar: 'الأفضل لك الآن في الخدمات',
+                    en: 'Best for you now in services',
+                  ),
+                  'taxi' => context.lt(
+                    ar: 'الأفضل لك الآن في التكسي',
+                    en: 'Best for you now in taxi',
+                  ),
+                  _ => context.lt(
+                    ar: 'الأفضل لك الآن في المتاجر',
+                    en: 'Best for you now in stores',
+                  ),
+                };
+                final bestForYouSubtitle = context.lt(
+                  ar: 'اختصارات وعروض مرتبة حسب نشاطك الفعلي وآخر استخداماتك.',
+                  en: 'Shortcuts and offers ranked by your actual activity and recent usage.',
+                );
                 final quickRows = <Widget>[
                   if (snapshot.homePlace != null)
                     MaslakiListRowCard(
@@ -289,7 +309,8 @@ class CustomerAccountHubScreen extends ConsumerWidget {
                       leadingIcon: Icons.work_history_outlined,
                       onTap: () => openSavedPlace(snapshot.workPlace!),
                     ),
-                  if ((snapshot.homePlace != null || snapshot.workPlace != null) &&
+                  if ((snapshot.homePlace != null ||
+                          snapshot.workPlace != null) &&
                       snapshot.lastRide != null)
                     const SizedBox(height: MaslakiSpacing.sm),
                   if (snapshot.lastRide != null)
@@ -319,16 +340,14 @@ class CustomerAccountHubScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: MaslakiSpacing.md),
                     MaslakiOfferBanner(
-                      title: snapshot.bestForYouTitle,
-                      subtitle: snapshot.bestForYouSubtitle,
+                      title: bestForYouTitle,
+                      subtitle: bestForYouSubtitle,
                       ctaLabel: context.lt(ar: 'افتح الآن', en: 'Open now'),
                       onTap: () => open(const AssistantChatScreen()),
                     ),
                     if (quickRows.isNotEmpty) ...[
                       const SizedBox(height: MaslakiSpacing.md),
-                      MaslakiCard(
-                        child: Column(children: quickRows),
-                      ),
+                      MaslakiCard(child: Column(children: quickRows)),
                     ],
                     const SizedBox(height: MaslakiSpacing.lg),
                   ],
@@ -407,11 +426,15 @@ class CustomerAccountHubScreen extends ConsumerWidget {
                       en: 'Follow prescriptions, proposed carts, and review requests',
                     ),
                     leadingIcon: Icons.local_pharmacy_outlined,
-                    onTap: () => open(const CustomerPharmacyConversationsScreen()),
+                    onTap: () =>
+                        open(const CustomerPharmacyConversationsScreen()),
                   ),
                   const SizedBox(height: MaslakiSpacing.sm),
                   MaslakiListRowCard(
-                    title: context.lt(ar: 'المساعد الذكي', en: 'Smart assistant'),
+                    title: context.lt(
+                      ar: 'المساعد الذكي',
+                      en: 'Smart assistant',
+                    ),
                     subtitle: context.lt(
                       ar: 'محادثة وبحث واقتراحات مخصصة داخل مسلكي',
                       en: 'Chat, search, and personalized suggestions inside Maslaki',
@@ -450,7 +473,8 @@ class CustomerAccountHubScreen extends ConsumerWidget {
                         en: 'Activate your service activity and start receiving requests',
                       ),
                       leadingIcon: Icons.storefront_outlined,
-                      onTap: () => open(const ServiceProviderOnboardingScreen()),
+                      onTap: () =>
+                          open(const ServiceProviderOnboardingScreen()),
                     ),
                     const SizedBox(height: MaslakiSpacing.sm),
                   ],
@@ -465,7 +489,10 @@ class CustomerAccountHubScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: MaslakiSpacing.sm),
                   MaslakiListRowCard(
-                    title: context.lt(ar: 'الملف الاجتماعي', en: 'Social profile'),
+                    title: context.lt(
+                      ar: 'الملف الاجتماعي',
+                      en: 'Social profile',
+                    ),
                     subtitle: context.lt(
                       ar: 'عرض ملفك العام داخل المجتمع',
                       en: 'Open your public profile inside the community',

@@ -23,6 +23,7 @@ class _FakeAuthController extends AuthController {
         imageUrl: null,
         workTitle: null,
         workCompany: null,
+        preferredLocale: 'ar',
         isSuperAdmin: false,
       ),
     );
@@ -163,19 +164,20 @@ Widget _buildApp(Widget home) {
 }
 
 void main() {
-  testWidgets('services marketplace renders on narrow mobile without overflow', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(393, 851));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets(
+    'services marketplace renders on narrow mobile without overflow',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(393, 851));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(_buildApp(const ServicesMarketplaceScreen()));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(_buildApp(const ServicesMarketplaceScreen()));
+      await tester.pumpAndSettle();
 
-    expect(find.text('قسم الخدمات'), findsOneWidget);
-    expect(find.text('تنظيف شقة'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.text('قسم الخدمات'), findsOneWidget);
+      expect(find.text('تنظيف شقة'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'service provider onboarding renders on narrow mobile without overflow',
@@ -183,7 +185,9 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(393, 851));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(_buildApp(const ServiceProviderOnboardingScreen()));
+      await tester.pumpWidget(
+        _buildApp(const ServiceProviderOnboardingScreen()),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('اشتراك صاحب خدمة'), findsOneWidget);

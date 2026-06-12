@@ -1,0 +1,26 @@
+name: maslaki_delivery
+description: "Maslaki Delivery application"
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  app_delivery_runtime:
+    path: ../../packages/app_delivery_runtime
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_riverpod: ^2.5.1
+  core_auth:
+    path: ../../packages/core_auth
+  core_storage:
+    path: ../../packages/core_storage
+
+flutter:
+  uses-material-design: true

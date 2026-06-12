@@ -154,11 +154,7 @@ class _FakeHttpHeaders implements HttpHeaders {
   final Map<String, List<String>> _values = <String, List<String>>{};
 
   @override
-  void add(
-    String name,
-    Object value, {
-    bool preserveHeaderCase = false,
-  }) {
+  void add(String name, Object value, {bool preserveHeaderCase = false}) {
     _values.putIfAbsent(name.toLowerCase(), () => <String>[]).add('$value');
   }
 
@@ -225,6 +221,7 @@ UserModel _customerUser() {
     imageUrl: null,
     workTitle: null,
     workCompany: null,
+    preferredLocale: 'ar',
     isSuperAdmin: false,
   );
 }

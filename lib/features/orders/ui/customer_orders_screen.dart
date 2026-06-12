@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/notifications/attention_alert_service.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/order_status.dart';
@@ -148,7 +149,7 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('\u0637\u0644\u0628\u0627\u062a\u064a'),
+        title: Text(context.lt(ar: 'طلباتي', en: 'My orders')),
         actions: const [AppBarQuickActions(compact: true)],
       ),
       body: RefreshIndicator(
@@ -158,11 +159,14 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
             ? const Center(child: CircularProgressIndicator())
             : filteredOrders.isEmpty
             ? ListView(
-                children: const [
+                children: [
                   SizedBox(height: 140),
                   Center(
                     child: Text(
-                      '\u0644\u0627 \u062a\u0648\u062c\u062f \u0637\u0644\u0628\u0627\u062a \u062d\u0627\u0644\u064a\u0627\u064b',
+                      context.lt(
+                        ar: 'لا توجد طلبات حاليًا',
+                        en: 'No orders right now',
+                      ),
                     ),
                   ),
                 ],
@@ -471,7 +475,10 @@ class _OrderCard extends StatelessWidget {
                     child: const Text(
                       'طلب صيدلية',
                       textDirection: TextDirection.rtl,
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                 ),

@@ -11,6 +11,7 @@ class UserModel {
   final String? imageUrl;
   final String? workTitle;
   final String? workCompany;
+  final String? preferredLocale;
   final bool isSuperAdmin;
   final bool isTaxiCaptain;
 
@@ -25,6 +26,7 @@ class UserModel {
     required this.imageUrl,
     required this.workTitle,
     required this.workCompany,
+    required this.preferredLocale,
     required this.isSuperAdmin,
     this.isTaxiCaptain = false,
   });
@@ -40,6 +42,9 @@ class UserModel {
     imageUrl: parseNullableString(j['image_url'] ?? j['imageUrl']),
     workTitle: parseNullableString(j['work_title'] ?? j['workTitle']),
     workCompany: parseNullableString(j['work_company'] ?? j['workCompany']),
+    preferredLocale: parseNullableString(
+      j['preferred_locale'] ?? j['preferredLocale'],
+    ),
     isSuperAdmin: parseBool(
       j['is_super_admin'] ?? j['isSuperAdmin'] ?? j['sa'],
       fallback: false,
@@ -60,6 +65,7 @@ class UserModel {
     String? imageUrl,
     String? workTitle,
     String? workCompany,
+    String? preferredLocale,
     bool? isSuperAdmin,
     bool? isTaxiCaptain,
     bool clearImageUrl = false,
@@ -77,6 +83,7 @@ class UserModel {
       imageUrl: clearImageUrl ? null : (imageUrl ?? this.imageUrl),
       workTitle: clearWorkTitle ? null : (workTitle ?? this.workTitle),
       workCompany: clearWorkCompany ? null : (workCompany ?? this.workCompany),
+      preferredLocale: preferredLocale ?? this.preferredLocale,
       isSuperAdmin: isSuperAdmin ?? this.isSuperAdmin,
       isTaxiCaptain: isTaxiCaptain ?? this.isTaxiCaptain,
     );

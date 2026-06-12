@@ -1,0 +1,54 @@
+name: android-release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'release-*'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - app_user
+          - app_store
+          - app_delivery
+          - app_taxi_captain
+          - app_company
+    env:
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.6'
+
+      - name: Decode release keystore (optional)
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/maslaki-upload.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/maslaki-upload.jks" >> "$GITHUB_ENV"
+
+      - name: ${{ matrix.app }} pub get
+        run: flutter pub get
+        working-directory: apps/${{ matrix.app }}
+
+      - name: ${{ matrix.app }} debug apk
+        run: flutter build apk --debug
+        working-directory: apps/${{ matrix.app }}
+
+      - name: ${{ matrix.app }} release appbundle
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+        run: flutter build appbundle --release
+        working-directory: apps/${{ matrix.app }}
+
+      - name: Release signing not configured
+        if: ${{ !(secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '') }}
+        run: echo "Release bundle skipped for ${{ matrix.app }} because signing secrets are missing."

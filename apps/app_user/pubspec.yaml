@@ -1,0 +1,30 @@
+name: maslaki_user
+description: "Maslaki User application"
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  app_user_runtime:
+    path: ../../packages/app_user_runtime
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_riverpod: ^2.5.1
+  core_auth:
+    path: ../../packages/core_auth
+  core_storage:
+    path: ../../packages/core_storage
+
+flutter:
+  uses-material-design: true
+
+dependency_overrides:
+  firebase_core:
+    path: ../../third_party/firebase_core
