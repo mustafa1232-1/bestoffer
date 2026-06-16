@@ -9,6 +9,7 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
+import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../notifications/data/notifications_api.dart';
@@ -33,7 +34,10 @@ const Duration _kThreadsRefreshDebounce = Duration(milliseconds: 300);
 final _socialThreadsLiveNotificationsApiProvider = Provider<NotificationsApi>((
   ref,
 ) {
-  return NotificationsApi(ref.read(socialApiProvider).dio);
+  return NotificationsApi(
+    ref.read(socialApiProvider).dio,
+    realtime: ref.read(maslakiRealtimeServiceProvider),
+  );
 });
 
 /// Purpose: ???? ????? ??????? ??????? ?? ?????? ???????? ?????? ??? unread counts ?????????? ?????.

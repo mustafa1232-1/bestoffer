@@ -12,6 +12,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../../core/calls/rtc_call_support.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/notifications/attention_alert_service.dart';
+import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../../l10n/app_localizations.dart';
 
 /// Purpose: شاشة المكالمات الصوتية لمحادثات السوشال باستخدام WebRTC مع قناتين:
@@ -27,7 +28,10 @@ final socialCallApiProvider = Provider<SocialApi>((ref) {
 
 final socialCallLiveApiProvider = Provider<NotificationsApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
-  return NotificationsApi(dio);
+  return NotificationsApi(
+    dio,
+    realtime: ref.read(maslakiRealtimeServiceProvider),
+  );
 });
 
 /// واجهة المكالمة الفعلية بين طرفي thread اجتماعي.

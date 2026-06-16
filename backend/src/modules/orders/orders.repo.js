@@ -1,27 +1,142 @@
-import { pool, q } from "../../config/db.js";
-import { createManyNotifications } from "../notifications/notifications.repo.js";
+﻿import { pool, q } from "../../config/db.js";
+import {
+  computeOrderFinancialSnapshot,
+  getMerchantBillingProfile,
+} from "../commerce/merchant-financial.logic.js";
+import {
+  calcDiscount,
+  findValidCouponByIdOrCode,
+} from "../coupons/coupons.repo.js";
+import {
+  applyMerchantOfferPricing,
+} from "../owner/merchant-offers.logic.js";
+import {
+  listLatestEligibleOffersByProductIds,
+  markOfferUsageByOrderTx,
+} from "../owner/merchant-offers.repo.js";
+import crypto from "crypto";
+import {
+  consumeCouponRedemptionByOrderTx,
+  syncOrderIncentiveConsumptionForStatusTx,
+} from "./order-incentives.repo.js";
+import { invalidateMerchantCatalogCache } from "../merchants/merchants.repo.js";
 
-const FIXED_SERVICE_FEE = 500;
-const FIXED_DELIVERY_FEE = 1000;
+/**
+ * Purpose:
+ * repository الرئيسي للطلبات. يحتوي SQL والـ transactions المتعلقة بإنشاء
+ * الطلبات، transitions الخاصة بالمالك والدلفري، التقارير، والمفضلات.
+ *
+ * Depends on:
+ * - PostgreSQL عبر `pool/q`
+ * - incentive/coupon/offer logic
+ * - notifications fan-out بعد اكتمال transitions الحساسة
+ *
+ * Critical notes:
+ * - هذا الملف من أكثر الملفات حساسية في المنظومة لأن أي خلل فيه قد يسبب:
+ *   خصم مخزون خاطئ، order status desync، أو إشعارات غير متوافقة مع الحالة.
+ * - العمليات الحرجة يجب أن تبقى داخل transaction واحدة أو contract واضح.
+ *
+ * Maintenance notes:
+ * - عند أعطال الطلبات ابدأ من هنا بعد service/controller، خصوصاً:
+ *   `createOrderWithItems`, `updateOwnerOrderStatus`, `claimDeliveryOrder`.
+ */
 
-function statusText(status) {
-  switch (status) {
-    case "pending":
-      return "قيد الانتظار";
-    case "preparing":
-      return "قيد التحضير";
-    case "ready_for_delivery":
-      return "جاهز للتوصيل";
-    case "on_the_way":
-      return "في الطريق";
-    case "delivered":
-      return "تم التسليم";
-    case "cancelled":
-      return "تم الإلغاء";
-    default:
-      return status;
+// Product reviews
+
+export async function findEligibleOrderForProductReview(
+  customerId,
+  productId,
+  { orderId = null } = {}
+) {
+  const params = [Number(customerId), Number(productId)];
+  let orderFilter = "";
+  if (orderId != null) {
+    params.push(Number(orderId));
+    orderFilter = `AND o.id = $${params.length}`;
   }
+  const r = await q(
+    `SELECT
+       o.id AS order_id,
+       o.merchant_id,
+       o.created_at
+     FROM customer_order o
+     JOIN order_item oi ON oi.order_id = o.id
+     WHERE o.customer_user_id = $1
+       AND oi.product_id = $2
+       AND o.status IN ('delivered', 'completed')
+       ${orderFilter}
+     ORDER BY o.created_at DESC, o.id DESC
+     LIMIT 1`,
+    params
+  );
+  return r.rows[0] || null;
 }
+
+export async function upsertProductReview(customerId, productId, { rating, body, orderId }) {
+  const r = await q(
+    `INSERT INTO product_review (customer_id, product_id, order_id, rating, body)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (product_id, customer_id)
+     DO UPDATE SET rating = EXCLUDED.rating,
+                   body   = EXCLUDED.body,
+                   order_id = COALESCE(EXCLUDED.order_id, product_review.order_id),
+                   updated_at = NOW()
+     RETURNING *`,
+    [customerId, productId, orderId || null, rating, body || null]
+  );
+  return r.rows[0];
+}
+
+export async function listProductReviews(productId, { limit = 20, offset = 0 } = {}) {
+  const r = await q(
+    `SELECT
+       pr.id,
+       pr.rating,
+       pr.body,
+       pr.created_at,
+       pr.updated_at,
+       u.id          AS customer_id,
+       u.full_name   AS customer_name,
+       u.image_url   AS customer_image_url
+     FROM product_review pr
+     JOIN app_user u ON u.id = pr.customer_id
+     WHERE pr.product_id = $1
+     ORDER BY pr.created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [productId, limit, offset]
+  );
+  return r.rows;
+}
+
+export async function getProductRatingSummary(productId) {
+  const r = await q(
+    `SELECT avg_rating, review_count
+     FROM product_rating_summary
+     WHERE product_id = $1`,
+    [productId]
+  );
+  return r.rows[0] || { avg_rating: null, review_count: 0 };
+}
+
+export async function deleteProductReview(customerId, productId) {
+  await q(
+    `DELETE FROM product_review WHERE customer_id = $1 AND product_id = $2`,
+    [customerId, productId]
+  );
+}
+
+// End product reviews
+
+import { createManyNotifications } from "../notifications/notifications.repo.js";
+import { AppError } from "../../shared/utils/errors.js";
+import {
+  assertOwnerTransition,
+  currentStatusRank,
+  isDeliveryCurrentStatus,
+  isOrderChatStatus,
+  isOwnerCurrentStatus,
+  statusText,
+} from "./order-flow.logic.js";
 
 const orderSelect = `
   SELECT
@@ -32,17 +147,82 @@ const orderSelect = `
     c.image_url AS customer_image_url,
     d.id AS delivery_id,
     d.full_name AS delivery_full_name,
-    d.phone AS delivery_phone
+    d.phone AS delivery_phone,
+    cp.driver_type AS delivery_driver_type
   FROM customer_order o
   JOIN merchant m ON m.id = o.merchant_id
   LEFT JOIN app_user c ON c.id = o.customer_user_id
   LEFT JOIN app_user d ON d.id = o.delivery_user_id
+  LEFT JOIN courier_profile cp ON cp.user_id = d.id
 `;
+
+function toNumberOrNull(value) {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function mapCourierPresence(row) {
+  if (!row || row.latitude == null || row.longitude == null) return null;
+  return {
+    courierUserId: Number(row.courier_user_id),
+    currentOrderId: row.current_order_id == null ? null : Number(row.current_order_id),
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+    headingDeg: toNumberOrNull(row.heading_deg),
+    speedKmh: toNumberOrNull(row.speed_kmh),
+    accuracyM: toNumberOrNull(row.accuracy_m),
+    isOnline: row.is_online !== false,
+    recordedAt: row.recorded_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function buildOrderTrackingStage(order) {
+  const status = String(order?.status || "").trim().toLowerCase();
+  const customerConfirmedAt = order?.customer_confirmed_at || order?.customerConfirmedAt;
+  switch (status) {
+    case "pending":
+      return "order_placed";
+    case "approved":
+      return "order_accepted";
+    case "preparing":
+    case "courier_requested":
+    case "courier_assigned":
+      return "being_prepared";
+    case "ready_for_delivery":
+    case "ready_for_pickup":
+      return "ready_for_pickup";
+    case "on_the_way":
+    case "picked_up":
+      return "heading_to_customer";
+    case "arrived":
+      return "near_customer";
+    case "delivered":
+    case "delivered_by_courier":
+    case "received_by_customer":
+    case "completed":
+      return "delivered";
+    case "cancelled":
+    case "cancelled_by_customer":
+    case "cancelled_by_store":
+    case "cancelled_by_admin":
+      return "cancelled";
+    default:
+      return "order_placed";
+  }
+}
+
+function createPublicOrderShareToken() {
+  return `ord_${crypto.randomBytes(24).toString("hex")}`;
+}
 
 function periodStartExpression(period) {
   switch (period) {
     case "day":
       return "DATE_TRUNC('day', NOW())";
+    case "week":
+      return "DATE_TRUNC('week', NOW())";
     case "month":
       return "DATE_TRUNC('month', NOW())";
     case "year":
@@ -52,12 +232,101 @@ function periodStartExpression(period) {
   }
 }
 
+function normalizeAdminOrderOverviewStatus(status) {
+  const normalized = String(status || "all").trim().toLowerCase();
+  switch (normalized) {
+    case "completed":
+    case "cancelled":
+    case "in_progress":
+    case "all":
+      return normalized;
+    default:
+      return "all";
+  }
+}
+
+function normalizeAdminOverviewPeriod(period) {
+  const normalized = String(period || "all").trim().toLowerCase();
+  switch (normalized) {
+    case "all":
+    case "day":
+    case "week":
+    case "month":
+    case "year":
+    case "custom":
+      return normalized;
+    default:
+      return "all";
+  }
+}
+
+function appendAdminOrderDateWindow({
+  clauses,
+  params,
+  alias = "o",
+  period,
+  from,
+  to,
+}) {
+  const normalizedPeriod = normalizeAdminOverviewPeriod(period);
+  if (normalizedPeriod === "all") return;
+
+  if (normalizedPeriod === "custom") {
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+    if (from && (!fromDate || Number.isNaN(fromDate.getTime()))) {
+      throw new AppError("INVALID_FROM_DATE", 400);
+    }
+    if (to && (!toDate || Number.isNaN(toDate.getTime()))) {
+      throw new AppError("INVALID_TO_DATE", 400);
+    }
+    if (fromDate) {
+      params.push(fromDate.toISOString());
+      clauses.push(`${alias}.created_at >= $${params.length}`);
+    }
+    if (toDate) {
+      params.push(toDate.toISOString());
+      clauses.push(`${alias}.created_at <= $${params.length}`);
+    }
+    return;
+  }
+
+  const since = periodStartExpression(normalizedPeriod);
+  if (!since) return;
+  clauses.push(`${alias}.created_at >= ${since}`);
+}
+
+function adminOrderStatusFilterSql(status, alias = "o") {
+  const normalized = normalizeAdminOrderOverviewStatus(status);
+  switch (normalized) {
+    case "completed":
+      return `${alias}.status IN ('delivered', 'delivered_by_courier', 'received_by_customer', 'completed')`;
+    case "cancelled":
+      return `${alias}.status IN ('cancelled', 'cancelled_by_store', 'cancelled_by_admin', 'cancelled_by_customer')`;
+    case "in_progress":
+      return `${alias}.status NOT IN ('delivered', 'delivered_by_courier', 'received_by_customer', 'completed', 'cancelled', 'cancelled_by_store', 'cancelled_by_admin', 'cancelled_by_customer')`;
+    case "all":
+    default:
+      return "1=1";
+  }
+}
+
 async function attachItems(orderRows) {
   if (!orderRows.length) return [];
 
   const ids = orderRows.map((o) => o.id);
   const itemsResult = await q(
-    `SELECT id, order_id, product_id, product_name, unit_price, quantity, line_total
+    `SELECT
+       id,
+       order_id,
+       product_id,
+       product_name,
+       base_unit_price,
+       unit_price,
+       quantity,
+       line_discount_total,
+       line_total,
+       pricing_breakdown_json
      FROM order_item
      WHERE order_id = ANY($1::bigint[])
      ORDER BY id ASC`,
@@ -78,30 +347,649 @@ async function attachItems(orderRows) {
   }));
 }
 
+const tableColumnsCache = new Map();
+
+async function getTableColumnsTx(client, tableName) {
+  const key = String(tableName || "").trim().toLowerCase();
+  if (!key) return new Set();
+  if (tableColumnsCache.has(key)) {
+    return tableColumnsCache.get(key);
+  }
+  const result = await client.query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_name = $1
+       AND table_schema = ANY(current_schemas(false))`,
+    [key]
+  );
+  const out = new Set(
+    result.rows
+      .map((row) => String(row.column_name || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  tableColumnsCache.set(key, out);
+  return out;
+}
+
+function assertRequiredColumns(tableName, availableColumns, requiredColumns) {
+  const missing = (requiredColumns || []).filter(
+    (column) => !availableColumns.has(String(column || "").toLowerCase())
+  );
+  if (missing.length <= 0) return;
+  throw new AppError("ORDER_SCHEMA_INCOMPATIBLE", {
+    status: 500,
+    expose: false,
+    details: {
+      table: tableName,
+      missingColumns: missing,
+    },
+  });
+}
+
+function buildDynamicInsertParts({ availableColumns, candidates }) {
+  const insertColumns = [];
+  const insertValues = [];
+  for (const [column, value] of candidates || []) {
+    if (!availableColumns.has(column)) continue;
+    insertColumns.push(column);
+    insertValues.push(value);
+  }
+  const placeholders = insertValues.map((_, index) => `$${index + 1}`).join(",");
+  return {
+    insertColumns,
+    insertValues,
+    placeholders,
+  };
+}
+
+function queueOrderSideEffect(task) {
+  setImmediate(() => {
+    Promise.resolve()
+      .then(task)
+      .catch((error) => {
+        console.warn("[orders] deferred side effect failed", error?.message || error);
+      });
+  });
+}
+
+async function insertCustomerOrderTx(
+  client,
+  {
+    merchantId,
+    customer,
+    city,
+    block,
+    buildingNumber,
+    apartment,
+    note,
+    imageUrl,
+    orderGroupId,
+    subOrderId,
+    orderScope,
+    storeSequence,
+    grossSubtotal,
+    productDiscountTotal,
+    coupon,
+    couponDiscountTotal,
+    subtotal,
+    serviceFee,
+    deliveryFee,
+    totalAmount,
+    pricingBreakdown,
+    financialSnapshot,
+  }
+) {
+  const columns = await getTableColumnsTx(client, "customer_order");
+  assertRequiredColumns("customer_order", columns, [
+    "merchant_id",
+    "customer_user_id",
+    "status",
+    "customer_full_name",
+    "customer_phone",
+    "customer_block",
+    "customer_building_number",
+    "customer_apartment",
+    "subtotal",
+    "delivery_fee",
+    "total_amount",
+  ]);
+
+  const candidates = [
+    ["merchant_id", Number(merchantId)],
+    ["customer_user_id", Number(customer.id)],
+    ["status", "pending"],
+    ["customer_full_name", customer.full_name],
+    ["customer_phone", customer.phone],
+    ["customer_city", city],
+    ["customer_block", block],
+    ["customer_building_number", buildingNumber],
+    ["customer_apartment", apartment],
+    ["note", note || null],
+    ["image_url", imageUrl || null],
+    [
+      "order_group_id",
+      orderGroupId == null ? null : Number(orderGroupId),
+    ],
+    ["sub_order_id", subOrderId || null],
+    ["order_scope", orderScope === "group_child" ? "group_child" : "single"],
+    ["store_sequence", Number(storeSequence || 1)],
+    ["gross_subtotal", grossSubtotal],
+    ["product_discount_total", productDiscountTotal],
+    ["coupon_id", coupon ? Number(coupon.id) : null],
+    ["coupon_code", coupon?.code || null],
+    ["coupon_discount_total", couponDiscountTotal],
+    ["subtotal", subtotal],
+    ["service_fee", serviceFee],
+    ["delivery_fee", deliveryFee],
+    ["total_amount", totalAmount],
+    ["pricing_breakdown_json", JSON.stringify(pricingBreakdown)],
+    ["financial_profile_version", financialSnapshot.profileVersion],
+    ["financial_config_snapshot_json", JSON.stringify(financialSnapshot)],
+  ];
+
+  const { insertColumns, insertValues, placeholders } = buildDynamicInsertParts({
+    availableColumns: columns,
+    candidates,
+  });
+  const sql = `INSERT INTO customer_order (${insertColumns.join(",")}) VALUES (${placeholders}) RETURNING *`;
+  const result = await client.query(sql, insertValues);
+  return result.rows[0] || null;
+}
+
+async function insertOrderItemTx(client, orderId, item) {
+  const columns = await getTableColumnsTx(client, "order_item");
+  assertRequiredColumns("order_item", columns, [
+    "order_id",
+    "product_id",
+    "product_name",
+    "unit_price",
+    "quantity",
+    "line_total",
+  ]);
+
+  const candidates = [
+    ["order_id", Number(orderId)],
+    ["product_id", Number(item.productId)],
+    ["product_name", item.productName],
+    ["base_unit_price", Number(item.baseUnitPrice || 0)],
+    ["unit_price", Number(item.unitPrice || 0)],
+    ["quantity", Number(item.quantity || 0)],
+    ["selected_modifiers_json", JSON.stringify(item.selectedModifiers || [])],
+    ["modifiers_unit_total", Number(item.modifiersUnitTotal || 0)],
+    ["modifiers_line_total", Number(item.modifiersLineTotal || 0)],
+    ["line_discount_total", Number(item.lineDiscountTotal || 0)],
+    ["line_total", Number(item.lineTotal || 0)],
+    ["pricing_breakdown_json", JSON.stringify(item.pricingBreakdown || {})],
+  ];
+
+  const { insertColumns, insertValues, placeholders } = buildDynamicInsertParts({
+    availableColumns: columns,
+    candidates,
+  });
+  const sql = `INSERT INTO order_item (${insertColumns.join(",")}) VALUES (${placeholders}) RETURNING *`;
+  const result = await client.query(sql, insertValues);
+  return result.rows[0] || null;
+}
+
+export const __ordersRepoTestables = Object.freeze({
+  buildDynamicInsertParts,
+});
+
 export async function listDeliveryAgents() {
   const r = await q(
-    `SELECT id, full_name, phone
-     FROM app_user
-     WHERE role='delivery'
-     ORDER BY id DESC`
+    `SELECT u.id, u.full_name, u.phone
+     FROM app_user u
+     LEFT JOIN courier_profile cp ON cp.user_id = u.id
+     WHERE u.role='delivery'
+       AND u.delivery_account_approved = TRUE
+       AND u.is_account_disabled = FALSE
+       AND COALESCE(cp.driver_type, 'app_driver') = 'app_driver'
+       AND NOT EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       )
+     ORDER BY u.id DESC`
   );
   return r.rows;
 }
 
+async function listNearbyDeliveryAgentsByBlock(block) {
+  const normalizedBlock = String(block || "").trim();
+  if (!normalizedBlock) return [];
+
+  const r = await q(
+    `SELECT u.id, u.full_name, u.phone
+     FROM app_user u
+     LEFT JOIN courier_profile cp ON cp.user_id = u.id
+     WHERE u.role='delivery'
+       AND u.delivery_account_approved = TRUE
+       AND u.is_account_disabled = FALSE
+       AND COALESCE(cp.driver_type, 'app_driver') = 'app_driver'
+       AND u.block IS NOT NULL
+       AND UPPER(TRIM(u.block)) = UPPER(TRIM($1))
+       AND NOT EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       )
+     ORDER BY u.id DESC`,
+    [normalizedBlock]
+  );
+  return r.rows;
+}
+
+async function notifyDeliveryPoolForOrder({
+  orderId,
+  merchantId,
+  merchantName,
+  customerBlock,
+  stage = "new",
+}) {
+  const nearbyCandidates = await listNearbyDeliveryAgentsByBlock(customerBlock);
+  const expandedPool = nearbyCandidates.length === 0;
+  const candidates = expandedPool
+    ? await listDeliveryAgents()
+    : nearbyCandidates;
+  if (!candidates.length) return;
+
+  const requiresAction = stage === "ready";
+  const title =
+    stage === "ready"
+      ? "طلب جاهز للاستلام في منطقتك"
+      : "طلب جديد في منطقتك";
+  const body =
+    stage === "ready"
+      ? `الطلب #${orderId} من ${merchantName} جاهز الآن للاستلام.`
+      : `تم إنشاء طلب جديد #${orderId} من ${merchantName}. تابع تجهيز المتجر.`;
+
+  await createManyNotifications(
+    candidates.map((agent) => ({
+      userId: Number(agent.id),
+      type: "delivery_order_available",
+      title,
+      body,
+      orderId: Number(orderId),
+      merchantId: Number(merchantId),
+      payload: {
+        orderId: Number(orderId),
+        status: stage === "ready" ? "ready_for_delivery" : "pending",
+        source: expandedPool ? "delivery_pool_expanded" : "delivery_pool",
+        expandedPool,
+        block: String(customerBlock || "").trim().toUpperCase(),
+        requiresAction,
+      },
+    }))
+  );
+}
+
+export async function ensureDeliveryAccountApproved(deliveryUserId) {
+  await q(
+    `UPDATE app_user
+     SET delivery_account_approved = TRUE,
+         delivery_approved_by_user_id = NULL,
+         delivery_approved_at = COALESCE(delivery_approved_at, NOW())
+     WHERE id = $1
+       AND role = 'delivery'`,
+    [Number(deliveryUserId)]
+  );
+}
+
+function buildOrderGroupPublicId() {
+  const stamp = Date.now().toString(36).toUpperCase();
+  const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `OG-${stamp}-${randomPart}`;
+}
+
+function summarizeOrderGroupStatus(statuses) {
+  const normalized = (statuses || []).map((value) =>
+    String(value || "").trim().toLowerCase()
+  );
+  if (!normalized.length) return "pending";
+  const allCompleted = normalized.every((status) =>
+    ["completed", "delivered", "delivered_by_courier", "received_by_customer"].includes(
+      status
+    )
+  );
+  if (allCompleted) return "completed";
+  const allCancelled = normalized.every((status) =>
+    [
+      "cancelled",
+      "cancelled_by_store",
+      "cancelled_by_customer",
+      "cancelled_by_admin",
+    ].includes(status)
+  );
+  if (allCancelled) return "cancelled";
+  const anyCancelled = normalized.some((status) =>
+    [
+      "cancelled",
+      "cancelled_by_store",
+      "cancelled_by_customer",
+      "cancelled_by_admin",
+    ].includes(status)
+  );
+  if (anyCancelled) return "partially_completed";
+  if (normalized.some((status) => status === "ready_for_delivery")) {
+    return "ready_for_delivery";
+  }
+  if (normalized.some((status) => status === "preparing")) {
+    return "preparing";
+  }
+  if (normalized.some((status) => status === "approved")) {
+    return "approved";
+  }
+  return "pending";
+}
+
+async function syncOrderGroupStatusTx(client, orderGroupId) {
+  if (!orderGroupId) return null;
+  const statusRows = await client.query(
+    `SELECT id, status, merchant_id, subtotal, delivery_fee, total_amount
+     FROM customer_order
+     WHERE order_group_id = $1
+     ORDER BY store_sequence ASC, id ASC`,
+    [Number(orderGroupId)]
+  );
+  if (!statusRows.rows.length) return null;
+  const nextStatus = summarizeOrderGroupStatus(
+    statusRows.rows.map((row) => row.status)
+  );
+  await client.query(
+    `UPDATE order_group
+     SET status = $2,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [Number(orderGroupId), nextStatus]
+  );
+  for (const row of statusRows.rows) {
+    await client.query(
+      `UPDATE order_group_item_summary
+       SET status = $3,
+           subtotal = $4,
+           delivery_fee = $5,
+           total_amount = $6,
+           updated_at = NOW()
+       WHERE order_group_id = $1
+         AND child_order_id = $2`,
+      [
+        Number(orderGroupId),
+        Number(row.id),
+        String(row.status || ""),
+        Number(row.subtotal || 0),
+        Number(row.delivery_fee || 0),
+        Number(row.total_amount || 0),
+      ]
+    );
+  }
+  return nextStatus;
+}
+
+async function calculateStoreOrderDraft({
+  client,
+  customer,
+  merchantId,
+  normalizedItems,
+  couponId = null,
+  couponCode = null,
+}) {
+  const merchantResult = await client.query(
+    `SELECT id, name, is_open, is_disabled, owner_user_id
+     FROM merchant
+     WHERE id=$1`,
+    [Number(merchantId)]
+  );
+  const merchant = merchantResult.rows[0];
+  if (!merchant) {
+    const err = new Error("MERCHANT_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+  if (!merchant.is_open) {
+    const err = new Error("MERCHANT_CLOSED");
+    err.status = 400;
+    throw err;
+  }
+  if (merchant.is_disabled) {
+    const err = new Error("MERCHANT_DISABLED");
+    err.status = 400;
+    throw err;
+  }
+
+  const inventorySettingsResult = await client.query(
+    `SELECT *
+     FROM inventory_settings
+     WHERE merchant_id = $1
+     LIMIT 1`,
+    [Number(merchantId)]
+  );
+  const inventorySettings = inventorySettingsResult.rows[0] || null;
+  const inventoryEnabled = inventorySettings?.inventory_enabled === true;
+
+  const productIds = normalizedItems.map((x) => Number(x.productId));
+  const productsResult = await client.query(
+    `SELECT
+       p.id,
+       p.merchant_id,
+       p.name,
+       p.price,
+       p.discounted_price,
+       p.free_delivery,
+       p.is_available,
+       si.quantity AS inventory_quantity,
+       si.reorder_threshold AS inventory_reorder_threshold,
+       si.manual_disabled AS inventory_manual_disabled,
+       si.auto_disabled AS inventory_auto_disabled,
+       si.stock_status AS inventory_stock_status
+     FROM product p
+     LEFT JOIN store_inventory_item si
+       ON si.merchant_id = p.merchant_id
+      AND si.product_id = p.id
+     WHERE p.id = ANY($1::bigint[])`,
+    [productIds]
+  );
+
+  const productMap = new Map(productsResult.rows.map((p) => [String(p.id), p]));
+  const activeOffers = await listLatestEligibleOffersByProductIds({
+    client,
+    merchantId: Number(merchantId),
+    productIds,
+  });
+  const activeOfferMap = new Map(
+    activeOffers.map((offer) => [String(offer.product_id), offer])
+  );
+
+  const calculatedItems = [];
+  let grossSubtotal = 0;
+  let subtotal = 0;
+  let productDiscountTotal = 0;
+  let hasFreeDeliveryOffer = false;
+
+  for (const item of normalizedItems) {
+    const product = productMap.get(String(item.productId));
+    if (!product) {
+      const err = new Error("PRODUCT_NOT_FOUND");
+      err.status = 404;
+      throw err;
+    }
+    if (String(product.merchant_id) !== String(merchantId)) {
+      const err = new Error("PRODUCT_MERCHANT_MISMATCH");
+      err.status = 400;
+      throw err;
+    }
+    if (!product.is_available) {
+      const err = new Error("PRODUCT_UNAVAILABLE");
+      err.status = 400;
+      throw err;
+    }
+
+    if (inventoryEnabled && product.inventory_quantity != null) {
+      if (product.inventory_manual_disabled === true) {
+        const err = new Error("PRODUCT_UNAVAILABLE");
+        err.status = 400;
+        throw err;
+      }
+      const currentQuantity = Math.max(0, Number(product.inventory_quantity || 0));
+      if (currentQuantity < Number(item.quantity || 0)) {
+        const err = new Error("PRODUCT_OUT_OF_STOCK");
+        err.status = 400;
+        throw err;
+      }
+    }
+
+    if (product.free_delivery) hasFreeDeliveryOffer = true;
+
+    const activeOffer = activeOfferMap.get(String(item.productId)) || null;
+    const pricing = applyMerchantOfferPricing({
+      baseUnitPrice: Number(product.price),
+      quantity: Number(item.quantity || 0),
+      offer: activeOffer,
+      fallbackDiscountedPrice: product.discounted_price,
+    });
+
+    const selectedModifiers = Array.isArray(item.selectedModifiers)
+      ? item.selectedModifiers
+      : [];
+    const modifiersUnitTotal = selectedModifiers.reduce(
+      (sum, modifier) => sum + Number(modifier?.priceDelta ?? modifier?.price ?? 0),
+      0
+    );
+    const modifiersLineTotal = modifiersUnitTotal * Number(item.quantity || 0);
+
+    const baseUnitPrice = Number(product.price);
+    const unitPrice = Number(pricing.unitPrice) + modifiersUnitTotal;
+    const lineDiscountTotal = Number(pricing.lineDiscountTotal);
+    const grossLineTotal = Number(pricing.grossLineTotal) + modifiersLineTotal;
+    const lineTotal = Number(pricing.lineTotal) + modifiersLineTotal;
+
+    grossSubtotal += grossLineTotal;
+    subtotal += lineTotal;
+    productDiscountTotal += lineDiscountTotal;
+
+    calculatedItems.push({
+      productId: Number(product.id),
+      productName: product.name,
+      offerId: pricing.offerId,
+      offerType: pricing.offerType,
+      offerLabel: pricing.offerLabel,
+      freeUnits: pricing.freeUnits,
+      baseUnitPrice,
+      unitPrice,
+      quantity: Number(item.quantity || 0),
+      lineDiscountTotal,
+      lineTotal,
+      modifiersUnitTotal,
+      modifiersLineTotal,
+      selectedModifiers,
+      pricingBreakdown: {
+        ...pricing.pricingBreakdown,
+        selectedModifiers,
+        modifiersUnitTotal,
+        modifiersLineTotal,
+      },
+    });
+  }
+
+  const coupon = await findValidCouponByIdOrCode(
+    { couponId, code: couponCode },
+    {
+      customerId: Number(customer.id),
+      merchantId: Number(merchantId),
+      orderTotal: subtotal,
+    }
+  );
+  if ((couponId || couponCode) && !coupon) {
+    const err = new Error("COUPON_INVALID_OR_EXPIRED");
+    err.status = 400;
+    throw err;
+  }
+
+  const couponDiscountTotal = coupon ? calcDiscount(coupon, subtotal) : 0;
+  const billingProfile = await getMerchantBillingProfile(Number(merchantId));
+  const financialSnapshot = computeOrderFinancialSnapshot(
+    {
+      subtotal,
+      service_fee: 0,
+      delivery_fee: hasFreeDeliveryOffer ? 0 : null,
+      delivery_type: "delivery",
+      courier_source: "app",
+      has_free_delivery: hasFreeDeliveryOffer,
+      created_at: new Date().toISOString(),
+    },
+    billingProfile
+  );
+  const serviceFee = Number(financialSnapshot.serviceFeeAmount || 0);
+  const deliveryFee = Number(financialSnapshot.deliveryFee || 0);
+  const subtotalAfterAllDiscounts = Math.max(0, subtotal - couponDiscountTotal);
+  const totalAmount = subtotalAfterAllDiscounts + serviceFee + deliveryFee;
+
+  return {
+    merchant,
+    calculatedItems,
+    pricing: {
+      grossSubtotal,
+      productDiscountTotal,
+      subtotalAfterProductDiscounts: subtotal,
+      couponDiscountTotal,
+      subtotalAfterAllDiscounts,
+      serviceFee,
+      deliveryFee,
+      totalAmount,
+      coupon: coupon
+        ? {
+            id: Number(coupon.id),
+            code: coupon.code,
+            discountType: coupon.discount_type,
+            discountValue: Number(coupon.discount_value),
+            discountAmount: couponDiscountTotal,
+            description: coupon.description || null,
+          }
+        : null,
+    },
+    financialSnapshot,
+  };
+}
+
+/**
+ * ينشئ الطلب وكل عناصره والخصومات وحجوزات المخزون داخل transaction واحدة.
+ *
+ * Side effects:
+ * - يقرأ merchant/products/offers/coupons/inventory
+ * - يكتب customer_order وorder_item
+ * - يحدّث المخزون ويستهلك coupon/offer usage
+ * - قد يطلق إشعارات لاحقة خارج transaction
+ *
+ * Critical notes:
+ * - هذا هو root transaction لإنشاء الطلب. أي تعديل يجب أن يحافظ على ترتيب:
+ *   validate merchant -> validate inventory -> calculate pricing -> insert order
+ *   -> insert items -> adjust inventory -> consume incentives -> commit.
+ */
 export async function createOrderWithItems({
   customer,
   deliveryAddress,
   merchantId,
   note,
   imageUrl,
+  couponId = null,
+  couponCode = null,
   normalizedItems,
+  orderGroupId = null,
+  subOrderId = null,
+  orderScope = "single",
+  storeSequence = 1,
+  txClient = null,
+  suppressNotifications = false,
 }) {
-  const client = await pool.connect();
+  const ownsClient = !txClient;
+  const client = txClient || (await pool.connect());
+  const shouldManageTransaction = ownsClient;
   try {
-    await client.query("BEGIN");
+    if (shouldManageTransaction) {
+      await client.query("BEGIN");
+    }
 
     const merchantResult = await client.query(
-      `SELECT id, name, is_open, is_disabled, owner_user_id
+      `SELECT id, name, type, is_open, is_disabled, owner_user_id
        FROM merchant
        WHERE id=$1`,
       [merchantId]
@@ -123,18 +1011,55 @@ export async function createOrderWithItems({
       throw err;
     }
 
+    const inventorySettingsResult = await client.query(
+      `SELECT *
+       FROM inventory_settings
+       WHERE merchant_id = $1
+       LIMIT 1`,
+      [Number(merchantId)]
+    );
+    const inventorySettings = inventorySettingsResult.rows[0] || null;
+    const inventoryEnabled = inventorySettings?.inventory_enabled === true;
+
     const productIds = normalizedItems.map((x) => x.productId);
     const productsResult = await client.query(
-      `SELECT id, merchant_id, name, price, discounted_price, free_delivery, is_available
+      `SELECT
+         p.id,
+         p.merchant_id,
+         p.name,
+         p.price,
+         p.discounted_price,
+         p.free_delivery,
+         p.is_available,
+         si.quantity AS inventory_quantity,
+         si.reorder_threshold AS inventory_reorder_threshold,
+         si.manual_disabled AS inventory_manual_disabled,
+         si.auto_disabled AS inventory_auto_disabled,
+         si.stock_status AS inventory_stock_status
        FROM product
-       WHERE id = ANY($1::bigint[])`,
+       p
+       LEFT JOIN store_inventory_item si
+         ON si.merchant_id = p.merchant_id
+        AND si.product_id = p.id
+       WHERE p.id = ANY($1::bigint[])`,
       [productIds]
     );
 
     const productMap = new Map(productsResult.rows.map((p) => [String(p.id), p]));
+    const activeOffers = await listLatestEligibleOffersByProductIds({
+      client,
+      merchantId: Number(merchantId),
+      productIds,
+    });
+    const activeOfferMap = new Map(
+      activeOffers.map((offer) => [String(offer.product_id), offer])
+    );
     const calculatedItems = [];
+    let grossSubtotal = 0;
     let subtotal = 0;
+    let productDiscountTotal = 0;
     let hasFreeDeliveryOffer = false;
+    const inventoryAdjustments = [];
 
     for (const item of normalizedItems) {
       const product = productMap.get(String(item.productId));
@@ -154,26 +1079,150 @@ export async function createOrderWithItems({
         throw err;
       }
 
+      if (inventoryEnabled && product.inventory_quantity != null) {
+        if (product.inventory_manual_disabled === true) {
+          const err = new Error("PRODUCT_UNAVAILABLE");
+          err.status = 400;
+          throw err;
+        }
+        const currentQuantity = Math.max(0, Number(product.inventory_quantity || 0));
+        if (currentQuantity < Number(item.quantity || 0)) {
+          const err = new Error("PRODUCT_OUT_OF_STOCK");
+          err.status = 400;
+          throw err;
+        }
+      }
+
       if (product.free_delivery) {
         hasFreeDeliveryOffer = true;
       }
 
-      const unitPrice = Number(product.discounted_price ?? product.price);
-      const lineTotal = unitPrice * item.quantity;
+      const activeOffer = activeOfferMap.get(String(item.productId)) || null;
+      const pricing = applyMerchantOfferPricing({
+        baseUnitPrice: Number(product.price),
+        quantity: item.quantity,
+        offer: activeOffer,
+        fallbackDiscountedPrice: product.discounted_price,
+      });
+      const selectedModifiers = Array.isArray(item.selectedModifiers)
+        ? item.selectedModifiers
+        : [];
+      const modifiersUnitTotal = selectedModifiers.reduce(
+        (sum, modifier) => sum + Number(modifier?.priceDelta ?? modifier?.price ?? 0),
+        0
+      );
+      const modifiersLineTotal = modifiersUnitTotal * Number(item.quantity || 0);
+
+      const baseUnitPrice = Number(product.price);
+      const unitPrice = Number(pricing.unitPrice) + modifiersUnitTotal;
+      const lineDiscountTotal = Number(pricing.lineDiscountTotal);
+      const grossLineTotal = Number(pricing.grossLineTotal) + modifiersLineTotal;
+      const lineTotal = Number(pricing.lineTotal) + modifiersLineTotal;
+      grossSubtotal += grossLineTotal;
       subtotal += lineTotal;
+      productDiscountTotal += lineDiscountTotal;
 
       calculatedItems.push({
         productId: product.id,
         productName: product.name,
+        offerId: pricing.offerId,
+        offerType: pricing.offerType,
+        offerLabel: pricing.offerLabel,
+        freeUnits: pricing.freeUnits,
+        baseUnitPrice,
         unitPrice,
         quantity: item.quantity,
+        lineDiscountTotal,
         lineTotal,
+        modifiersUnitTotal,
+        modifiersLineTotal,
+        selectedModifiers,
+        pricingBreakdown: {
+          ...pricing.pricingBreakdown,
+          selectedModifiers,
+          modifiersUnitTotal,
+          modifiersLineTotal,
+        },
       });
+
+      if (inventoryEnabled && product.inventory_quantity != null) {
+        inventoryAdjustments.push({
+          productId: Number(product.id),
+          orderedQuantity: Number(item.quantity || 0),
+          currentQuantity: Math.max(0, Number(product.inventory_quantity || 0)),
+          reorderThreshold:
+            product.inventory_reorder_threshold == null
+              ? Math.max(0, Number(inventorySettings?.low_stock_threshold || 0))
+              : Math.max(0, Number(product.inventory_reorder_threshold || 0)),
+          manualDisabled: product.inventory_manual_disabled === true,
+        });
+      }
     }
 
-    const serviceFee = subtotal > 0 ? FIXED_SERVICE_FEE : 0;
-    const deliveryFee = hasFreeDeliveryOffer ? 0 : FIXED_DELIVERY_FEE;
-    const totalAmount = subtotal + serviceFee + deliveryFee;
+    const coupon = await findValidCouponByIdOrCode(
+      { couponId, code: couponCode },
+      {
+        customerId: Number(customer.id),
+        merchantId: Number(merchantId),
+        orderTotal: subtotal,
+      }
+    );
+    if ((couponId || couponCode) && !coupon) {
+      const err = new Error("COUPON_INVALID_OR_EXPIRED");
+      err.status = 400;
+      throw err;
+    }
+    const couponDiscountTotal = coupon
+      ? calcDiscount(coupon, subtotal)
+      : 0;
+
+    const billingProfile = await getMerchantBillingProfile(Number(merchantId));
+    const financialSnapshot = computeOrderFinancialSnapshot(
+      {
+        subtotal,
+        service_fee: 0,
+        delivery_fee: hasFreeDeliveryOffer ? 0 : null,
+        delivery_type: "delivery",
+        courier_source: "app",
+        has_free_delivery: hasFreeDeliveryOffer,
+        created_at: new Date().toISOString(),
+      },
+      billingProfile
+    );
+    const serviceFee = financialSnapshot.serviceFeeAmount;
+    const deliveryFee = financialSnapshot.deliveryFee;
+    const subtotalAfterAllDiscounts = Math.max(0, subtotal - couponDiscountTotal);
+    const totalAmount =
+      subtotalAfterAllDiscounts + serviceFee + deliveryFee;
+    const pricingBreakdown = {
+      grossSubtotal,
+      productDiscountTotal,
+      subtotalAfterProductDiscounts: subtotal,
+      couponDiscountTotal,
+      subtotalAfterAllDiscounts,
+      serviceFee,
+      deliveryFee,
+      totalAmount,
+      coupon: coupon
+        ? {
+            id: Number(coupon.id),
+            code: coupon.code,
+            discountType: coupon.discount_type,
+            discountValue: Number(coupon.discount_value),
+            discountAmount: couponDiscountTotal,
+            description: coupon.description || null,
+          }
+        : null,
+      items: calculatedItems.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        offerId: item.offerId,
+        offerType: item.offerType,
+        offerLabel: item.offerLabel,
+        freeUnits: item.freeUnits,
+        ...item.pricingBreakdown,
+      })),
+    };
 
     const city = deliveryAddress?.city?.trim() || "مدينة بسماية";
     const block = deliveryAddress?.block?.trim() || customer.block;
@@ -184,115 +1233,583 @@ export async function createOrderWithItems({
       deliveryAddress?.apartment?.trim() ||
       customer.apartment;
 
-    const orderResult = await client.query(
-      `INSERT INTO customer_order
-        (
-          merchant_id,
-          customer_user_id,
-          status,
-          customer_full_name,
-          customer_phone,
-          customer_city,
-          customer_block,
-          customer_building_number,
-          customer_apartment,
-          note,
-          image_url,
-          subtotal,
-          delivery_fee,
-          total_amount
-        )
-       VALUES ($1,$2,'pending',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-       RETURNING *`,
-      [
-        merchantId,
-        customer.id,
-        customer.full_name,
-        customer.phone,
-        city,
-        block,
-        buildingNumber,
-        apartment,
-        note || null,
-        imageUrl || null,
-        subtotal,
-        deliveryFee,
-        totalAmount,
-      ]
-    );
-    const order = orderResult.rows[0];
+    const order = await insertCustomerOrderTx(client, {
+      merchantId,
+      customer,
+      city,
+      block,
+      buildingNumber,
+      apartment,
+      note,
+      imageUrl,
+      orderGroupId,
+      subOrderId,
+      orderScope,
+      storeSequence,
+      grossSubtotal,
+      productDiscountTotal,
+      coupon,
+      couponDiscountTotal,
+      subtotal,
+      serviceFee,
+      deliveryFee,
+      totalAmount,
+      pricingBreakdown,
+      financialSnapshot,
+    });
 
+    const persistedItems = [];
     for (const item of calculatedItems) {
+      const persisted = await insertOrderItemTx(client, order.id, item);
+      if (persisted) persistedItems.push(persisted);
+    }
+
+    const catalogMutated = inventoryEnabled && inventoryAdjustments.length > 0;
+    if (catalogMutated) {
+      for (const item of inventoryAdjustments) {
+        const nextQuantity = Math.max(0, item.currentQuantity - item.orderedQuantity);
+        const nextStatus =
+          item.manualDisabled === true
+            ? "manual_disabled"
+            : nextQuantity <= 0
+              ? "out_of_stock"
+              : nextQuantity <= item.reorderThreshold
+                ? "low_stock"
+                : "in_stock";
+        const autoDisabled =
+          item.manualDisabled === true
+            ? false
+            : nextQuantity <= 0 &&
+              inventorySettings?.daily_update_mode !== "manual_override" &&
+              inventorySettings?.show_all_without_auto_disable !== true &&
+              inventorySettings?.auto_disable_out_of_stock !== false;
+        await client.query(
+          `UPDATE store_inventory_item
+           SET quantity = $3,
+               stock_status = $4,
+               auto_disabled = $5,
+               last_quantity_update_at = NOW(),
+               updated_at = NOW()
+           WHERE merchant_id = $1
+             AND product_id = $2`,
+          [
+            Number(merchantId),
+            Number(item.productId),
+            Number(nextQuantity),
+            nextStatus,
+            autoDisabled,
+          ]
+        );
+
+        if (inventorySettings?.daily_update_mode !== "manual_override") {
+          await client.query(
+            `UPDATE product
+             SET is_available = $2,
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [Number(item.productId), autoDisabled ? false : true]
+          );
+        }
+      }
+
       await client.query(
-        `INSERT INTO order_item
-          (order_id, product_id, product_name, unit_price, quantity, line_total)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [
-          order.id,
-          item.productId,
-          item.productName,
-          item.unitPrice,
-          item.quantity,
-          item.lineTotal,
-        ]
+        `UPDATE inventory_settings
+         SET last_stock_update_at = NOW(),
+             updated_at = NOW()
+         WHERE merchant_id = $1`,
+        [Number(merchantId)]
       );
     }
 
-    await client.query("COMMIT");
+    const offerUsages = [];
+    const offerUsageMap = new Map();
+    for (const item of calculatedItems) {
+      if (!item.offerId || item.lineDiscountTotal <= 0) continue;
+      const current = offerUsageMap.get(String(item.offerId)) || {
+        offerId: Number(item.offerId),
+        discountTotal: 0,
+      };
+      current.discountTotal += Number(item.lineDiscountTotal || 0);
+      offerUsageMap.set(String(item.offerId), current);
+    }
+    for (const usage of offerUsageMap.values()) {
+      offerUsages.push({
+        offerId: usage.offerId,
+        orderId: Number(order.id),
+        merchantId: Number(merchant.id),
+        customerUserId: Number(customer.id),
+        discountTotal: usage.discountTotal,
+      });
+    }
+    if (offerUsages.length) {
+      await markOfferUsageByOrderTx(client, offerUsages);
+    }
 
-    const hydratedResult = await q(
-      `${orderSelect}
-       WHERE o.id=$1`,
-      [order.id]
-    );
+    if (coupon && couponDiscountTotal > 0) {
+      await consumeCouponRedemptionByOrderTx(client, {
+        couponId: Number(coupon.id),
+        customerId: Number(customer.id),
+        orderId: Number(order.id),
+        discountAmount: Number(couponDiscountTotal),
+      });
+    }
 
-    const [hydrated] = await attachItems(hydratedResult.rows);
+    if (shouldManageTransaction) {
+      await client.query("COMMIT");
+    }
+    if (catalogMutated) {
+      await invalidateMerchantCatalogCache(merchantId);
+    }
 
-    await createManyNotifications([
-      {
-        userId: customer.id,
-        type: "order_created",
-        title: "تم إنشاء الطلب",
-        body: `تم إنشاء طلبك لدى ${merchant.name} بنجاح`,
-        orderId: order.id,
-        merchantId: merchant.id,
-        payload: {
-          orderId: order.id,
-          status: order.status,
-        },
-      },
-      merchant.owner_user_id
-        ? {
-            userId: merchant.owner_user_id,
-            type: "owner_new_order",
-            title: "طلب جديد",
-            body: `طلب جديد رقم #${order.id} لدى ${merchant.name}`,
+    const hydrated = {
+      ...order,
+      merchant_name: merchant.name || null,
+      merchant_type: merchant.type || null,
+      owner_user_id:
+        merchant.owner_user_id == null ? null : Number(merchant.owner_user_id),
+      customer_image_url: customer.image_url || null,
+      delivery_id: null,
+      delivery_full_name: null,
+      delivery_phone: null,
+      delivery_driver_type: null,
+      items: persistedItems,
+    };
+
+    if (!suppressNotifications) {
+      queueOrderSideEffect(async () => {
+        await createManyNotifications([
+          {
+            userId: customer.id,
+            type: "order_created",
+            title: "تم إنشاء الطلب",
+            body: `تم إنشاء طلبك لدى ${merchant.name} بنجاح`,
             orderId: order.id,
             merchantId: merchant.id,
             payload: {
               orderId: order.id,
               status: order.status,
             },
-          }
-        : null,
-    ].filter(Boolean));
+          },
+          merchant.owner_user_id
+            ? {
+                userId: merchant.owner_user_id,
+                type: "owner_new_order",
+                title: "طلب جديد",
+                body: `طلب جديد رقم #${order.id} لدى ${merchant.name}`,
+                orderId: order.id,
+                merchantId: merchant.id,
+                payload: {
+                  orderId: order.id,
+                  status: order.status,
+                  requiresAction: true,
+                },
+              }
+            : null,
+        ].filter(Boolean));
+
+        await notifyDeliveryPoolForOrder({
+          orderId: Number(order.id),
+          merchantId: Number(merchant.id),
+          merchantName: merchant.name,
+          customerBlock: block,
+          stage: "new",
+        });
+      });
+    }
 
     return hydrated;
   } catch (e) {
-    await client.query("ROLLBACK");
+    if (shouldManageTransaction) {
+      await client.query("ROLLBACK");
+    }
     throw e;
+  } finally {
+    if (ownsClient) {
+      client.release();
+    }
+  }
+}
+
+export async function previewOrderGroup({
+  customer,
+  deliveryAddress,
+  note = null,
+  paymentMethod = "cash_on_delivery",
+  storeOrders,
+}) {
+  if (!Array.isArray(storeOrders) || storeOrders.length === 0) {
+    throw new AppError("ORDER_ITEMS_REQUIRED", { status: 400 });
+  }
+  if (storeOrders.length > 3) {
+    throw new AppError("MAX_STORES_PER_ORDER_EXCEEDED", { status: 400 });
+  }
+
+  const client = await pool.connect();
+  try {
+    const stores = [];
+    const totals = {
+      grossSubtotal: 0,
+      productDiscountTotal: 0,
+      couponDiscountTotal: 0,
+      serviceFeeTotal: 0,
+      deliveryFeeTotal: 0,
+      totalAmount: 0,
+    };
+
+    for (let index = 0; index < storeOrders.length; index += 1) {
+      const storeOrder = storeOrders[index];
+      const draft = await calculateStoreOrderDraft({
+        client,
+        customer,
+        merchantId: Number(storeOrder.merchantId),
+        normalizedItems: storeOrder.normalizedItems,
+        couponId: storeOrder.couponId ?? null,
+        couponCode: storeOrder.couponCode ?? null,
+      });
+      totals.grossSubtotal += Number(draft.pricing.grossSubtotal || 0);
+      totals.productDiscountTotal += Number(draft.pricing.productDiscountTotal || 0);
+      totals.couponDiscountTotal += Number(draft.pricing.couponDiscountTotal || 0);
+      totals.serviceFeeTotal += Number(draft.pricing.serviceFee || 0);
+      totals.deliveryFeeTotal += Number(draft.pricing.deliveryFee || 0);
+      totals.totalAmount += Number(draft.pricing.totalAmount || 0);
+      stores.push({
+        merchantId: Number(draft.merchant.id),
+        merchantName: draft.merchant.name,
+        note: storeOrder.note || null,
+        items: draft.calculatedItems,
+        pricing: draft.pricing,
+        sequence: index + 1,
+      });
+    }
+
+    return {
+      mode: stores.length > 1 ? "multi_store" : "single_store",
+      storesCount: stores.length,
+      maxStoresAllowed: 3,
+      note: note || null,
+      paymentMethod: paymentMethod || "cash_on_delivery",
+      customerAddress: {
+        city: deliveryAddress?.city?.trim() || "مدينة بسماية",
+        block: deliveryAddress?.block?.trim() || customer.block,
+        buildingNumber:
+          deliveryAddress?.building_number?.trim() || customer.building_number,
+        apartment: deliveryAddress?.apartment?.trim() || customer.apartment,
+      },
+      totals,
+      multiStoreDelayNotice:
+        stores.length > 1
+          ? "الطلب يحتوي على أكثر من متجر، وقد يستغرق وقتًا أطول قليلًا."
+          : null,
+      stores,
+    };
   } finally {
     client.release();
   }
 }
 
-export async function listCustomerOrders(customerUserId) {
-  const r = await q(
-    `${orderSelect}
-     WHERE o.customer_user_id=$1
-     ORDER BY o.id DESC`,
-    [customerUserId]
+export async function createOrderGroupWithItems({
+  customer,
+  deliveryAddress,
+  note = null,
+  paymentMethod = "cash_on_delivery",
+  storeOrders,
+}) {
+  if (!Array.isArray(storeOrders) || storeOrders.length === 0) {
+    throw new AppError("ORDER_ITEMS_REQUIRED", { status: 400 });
+  }
+  if (storeOrders.length > 3) {
+    throw new AppError("MAX_STORES_PER_ORDER_EXCEEDED", { status: 400 });
+  }
+
+  const client = await pool.connect();
+  const customerBlock =
+    deliveryAddress?.block?.trim() || customer.block || null;
+  try {
+    await client.query("BEGIN");
+
+    const groupTotals = {
+      grossSubtotal: 0,
+      productDiscountTotal: 0,
+      couponDiscountTotal: 0,
+      serviceFeeTotal: 0,
+      deliveryFeeTotal: 0,
+      totalAmount: 0,
+    };
+    for (const storeOrder of storeOrders) {
+      const draft = await calculateStoreOrderDraft({
+        client,
+        customer,
+        merchantId: Number(storeOrder.merchantId),
+        normalizedItems: storeOrder.normalizedItems,
+        couponId: storeOrder.couponId ?? null,
+        couponCode: storeOrder.couponCode ?? null,
+      });
+      groupTotals.grossSubtotal += Number(draft.pricing.grossSubtotal || 0);
+      groupTotals.productDiscountTotal += Number(
+        draft.pricing.productDiscountTotal || 0
+      );
+      groupTotals.couponDiscountTotal += Number(
+        draft.pricing.couponDiscountTotal || 0
+      );
+      groupTotals.serviceFeeTotal += Number(draft.pricing.serviceFee || 0);
+      groupTotals.deliveryFeeTotal += Number(draft.pricing.deliveryFee || 0);
+      groupTotals.totalAmount += Number(draft.pricing.totalAmount || 0);
+    }
+    const storesCount = storeOrders.length;
+    const preview = {
+      storesCount,
+      totals: groupTotals,
+      multiStoreDelayNotice:
+        storesCount > 1
+          ? "الطلب يحتوي على أكثر من متجر، وقد يستغرق وقتًا أطول قليلًا."
+          : null,
+    };
+
+    const groupInsert = await client.query(
+      `INSERT INTO order_group
+        (
+          public_id,
+          customer_user_id,
+          status,
+          is_multi_store,
+          stores_count,
+          gross_subtotal,
+          product_discount_total,
+          coupon_discount_total,
+          service_fee_total,
+          delivery_fee_total,
+          total_amount,
+          payment_method,
+          payment_status,
+          notes
+        )
+       VALUES
+        ($1,$2,'pending',$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending_acceptance',$12)
+       RETURNING *`,
+      [
+        buildOrderGroupPublicId(),
+        Number(customer.id),
+        storesCount > 1,
+        storesCount,
+        Number(preview.totals.grossSubtotal || 0),
+        Number(preview.totals.productDiscountTotal || 0),
+        Number(preview.totals.couponDiscountTotal || 0),
+        Number(preview.totals.serviceFeeTotal || 0),
+        Number(preview.totals.deliveryFeeTotal || 0),
+        Number(preview.totals.totalAmount || 0),
+        paymentMethod || "cash_on_delivery",
+        note || null,
+      ]
+    );
+    const orderGroup = groupInsert.rows[0];
+
+    const childOrders = [];
+    for (let index = 0; index < storeOrders.length; index += 1) {
+      const storeOrder = storeOrders[index];
+      const child = await createOrderWithItems({
+        customer,
+        deliveryAddress,
+        merchantId: Number(storeOrder.merchantId),
+        note: storeOrder.note || note || null,
+        imageUrl: storeOrder.imageUrl || null,
+        couponId: storeOrder.couponId ?? null,
+        couponCode: storeOrder.couponCode ?? null,
+        normalizedItems: storeOrder.normalizedItems,
+        orderGroupId: Number(orderGroup.id),
+        subOrderId: `${orderGroup.public_id}-${index + 1}`,
+        orderScope: "group_child",
+        storeSequence: index + 1,
+        txClient: client,
+        suppressNotifications: true,
+      });
+      childOrders.push(child);
+
+      await client.query(
+        `INSERT INTO order_group_item_summary
+          (
+            order_group_id,
+            child_order_id,
+            merchant_id,
+            merchant_name,
+            status,
+            subtotal,
+            delivery_fee,
+            total_amount
+          )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (order_group_id, child_order_id)
+         DO UPDATE SET
+           status = EXCLUDED.status,
+           subtotal = EXCLUDED.subtotal,
+           delivery_fee = EXCLUDED.delivery_fee,
+           total_amount = EXCLUDED.total_amount,
+           updated_at = NOW()`,
+        [
+          Number(orderGroup.id),
+          Number(child.id),
+          Number(child.merchant_id || child.merchantId || 0),
+          String(child.merchant_name || child.merchantName || ""),
+          String(child.status || "pending"),
+          Number(child.subtotal || 0),
+          Number(child.delivery_fee || child.deliveryFee || 0),
+          Number(child.total_amount || child.totalAmount || 0),
+        ]
+      );
+    }
+
+    const status = summarizeOrderGroupStatus(childOrders.map((row) => row.status));
+    await client.query(
+      `UPDATE order_group
+       SET status = $2,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [Number(orderGroup.id), status]
+    );
+
+    await client.query("COMMIT");
+
+    queueOrderSideEffect(async () => {
+      await createManyNotifications(
+        [
+          {
+            userId: Number(customer.id),
+            type: "order_group_created",
+            title: "تم إنشاء الطلب",
+            body:
+              preview.storesCount > 1
+                ? `تم إنشاء طلبك من ${preview.storesCount} متاجر بنجاح`
+                : "تم إنشاء طلبك بنجاح",
+            orderId: Number(childOrders[0]?.id || 0) || undefined,
+            payload: {
+              orderGroupId: Number(orderGroup.id),
+              orderGroupPublicId: String(orderGroup.public_id || ""),
+              status,
+              storesCount: preview.storesCount,
+            },
+          },
+          ...childOrders.flatMap((child) => [
+            Number(child.owner_user_id || 0) > 0
+              ? {
+                  userId: Number(child.owner_user_id),
+                  type: "owner_new_order",
+                  title: "طلب جديد",
+                  body: `طلب جديد رقم #${child.id} لدى ${child.merchant_name || ""}`,
+                  orderId: Number(child.id),
+                  merchantId: Number(child.merchant_id || 0),
+                  payload: {
+                    orderId: Number(child.id),
+                    status: String(child.status || "pending"),
+                    orderGroupId: Number(orderGroup.id),
+                    requiresAction: true,
+                  },
+                }
+              : null,
+          ]),
+        ].filter(Boolean)
+      );
+
+      for (const child of childOrders) {
+        await notifyDeliveryPoolForOrder({
+          orderId: Number(child.id),
+          merchantId: Number(child.merchant_id || 0),
+          merchantName: String(child.merchant_name || ""),
+          customerBlock,
+          stage: "new",
+        });
+      }
+    });
+
+    return {
+      mode: preview.storesCount > 1 ? "multi_store" : "single_store",
+      orderGroup: {
+        ...orderGroup,
+        status,
+      },
+      storesCount: preview.storesCount,
+      multiStoreDelayNotice: preview.multiStoreDelayNotice,
+      children: childOrders,
+      totals: preview.totals,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getCustomerOrderGroupDetails(customerUserId, groupId) {
+  const numericGroupId = Number(groupId);
+  if (!Number.isInteger(numericGroupId) || numericGroupId <= 0) return null;
+
+  const groupResult = await q(
+    `SELECT *
+     FROM order_group
+     WHERE id = $1
+       AND customer_user_id = $2
+     LIMIT 1`,
+    [numericGroupId, Number(customerUserId)]
   );
+  const group = groupResult.rows[0];
+  if (!group) return null;
+
+  const ordersResult = await q(
+    `${orderSelect}
+     WHERE o.customer_user_id = $1
+       AND o.order_group_id = $2
+     ORDER BY o.store_sequence ASC, o.id ASC`,
+    [Number(customerUserId), Number(group.id)]
+  );
+  const children = await attachItems(ordersResult.rows);
+
+  const summariesResult = await q(
+    `SELECT *
+     FROM order_group_item_summary
+     WHERE order_group_id = $1
+     ORDER BY id ASC`,
+    [Number(group.id)]
+  );
+
+  const status = summarizeOrderGroupStatus(children.map((row) => row.status));
+
+  return {
+    ...group,
+    status,
+    children,
+    storeSummaries: summariesResult.rows,
+    totals: {
+      grossSubtotal: Number(group.gross_subtotal || 0),
+      productDiscountTotal: Number(group.product_discount_total || 0),
+      couponDiscountTotal: Number(group.coupon_discount_total || 0),
+      serviceFeeTotal: Number(group.service_fee_total || 0),
+      deliveryFeeTotal: Number(group.delivery_fee_total || 0),
+      totalAmount: Number(group.total_amount || 0),
+    },
+  };
+}
+
+export async function listCustomerOrders(
+  customerUserId,
+  { paginate = false, limit = null, offset = 0 } = {}
+) {
+  const usePagination = paginate === true;
+  const safeLimit =
+    usePagination
+      ? Math.max(1, Math.min(120, Number(limit) || 40))
+      : null;
+  const safeOffset = usePagination ? Math.max(0, Number(offset) || 0) : 0;
+  const sql = usePagination
+    ? `${orderSelect}
+       WHERE o.customer_user_id=$1
+       ORDER BY o.id DESC
+       LIMIT $2 OFFSET $3`
+    : `${orderSelect}
+       WHERE o.customer_user_id=$1
+       ORDER BY o.id DESC`;
+  const params = usePagination
+    ? [customerUserId, safeLimit, safeOffset]
+    : [customerUserId];
+  const r = await q(sql, params);
   return attachItems(r.rows);
 }
 
@@ -305,6 +1822,406 @@ export async function findCustomerOrder(customerUserId, orderId) {
   );
   const rows = await attachItems(r.rows);
   return rows[0] || null;
+}
+
+export async function getLatestCourierPresence(courierUserId) {
+  const r = await q(
+    `SELECT
+       courier_user_id,
+       current_order_id,
+       latitude,
+       longitude,
+       heading_deg,
+       speed_kmh,
+       accuracy_m,
+       is_online,
+       recorded_at,
+       updated_at
+     FROM courier_presence
+     WHERE courier_user_id = $1
+     LIMIT 1`,
+    [Number(courierUserId)]
+  );
+  return mapCourierPresence(r.rows[0]);
+}
+
+export async function getOrderLatestCourierPresence(orderId) {
+  const r = await q(
+    `SELECT
+       cp.courier_user_id,
+       cp.current_order_id,
+       cp.latitude,
+       cp.longitude,
+       cp.heading_deg,
+       cp.speed_kmh,
+       cp.accuracy_m,
+       cp.is_online,
+       cp.recorded_at,
+       cp.updated_at
+     FROM courier_presence cp
+     JOIN customer_order o ON o.delivery_user_id = cp.courier_user_id
+     WHERE o.id = $1
+       AND cp.latitude IS NOT NULL
+       AND cp.longitude IS NOT NULL
+     LIMIT 1`,
+    [Number(orderId)]
+  );
+  return mapCourierPresence(r.rows[0]);
+}
+
+export async function upsertCourierPresence({
+  courierUserId,
+  orderId = null,
+  latitude,
+  longitude,
+  headingDeg = null,
+  speedKmh = null,
+  accuracyM = null,
+  isOnline = true,
+}) {
+  const r = await q(
+    `INSERT INTO courier_presence
+       (
+         courier_user_id,
+         current_order_id,
+         latitude,
+         longitude,
+         heading_deg,
+         speed_kmh,
+         accuracy_m,
+         is_online,
+         recorded_at,
+         updated_at
+       )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())
+     ON CONFLICT (courier_user_id)
+     DO UPDATE SET
+       current_order_id = EXCLUDED.current_order_id,
+       latitude = EXCLUDED.latitude,
+       longitude = EXCLUDED.longitude,
+       heading_deg = EXCLUDED.heading_deg,
+       speed_kmh = EXCLUDED.speed_kmh,
+       accuracy_m = EXCLUDED.accuracy_m,
+       is_online = EXCLUDED.is_online,
+       recorded_at = NOW(),
+       updated_at = NOW()
+     RETURNING
+       courier_user_id,
+       current_order_id,
+       latitude,
+       longitude,
+       heading_deg,
+       speed_kmh,
+       accuracy_m,
+       is_online,
+       recorded_at,
+       updated_at`,
+    [
+      Number(courierUserId),
+      orderId == null ? null : Number(orderId),
+      latitude,
+      longitude,
+      headingDeg,
+      speedKmh,
+      accuracyM,
+      isOnline === false ? false : true,
+    ]
+  );
+  return mapCourierPresence(r.rows[0]);
+}
+
+export async function findCourierTrackableOrder(courierUserId, orderId) {
+  const r = await q(
+    `${orderSelect}
+     WHERE o.id = $1
+       AND o.delivery_user_id = $2
+       AND o.status IN ('ready_for_delivery','on_the_way','arrived','delivered')
+     LIMIT 1`,
+    [Number(orderId), Number(courierUserId)]
+  );
+  const rows = await attachItems(r.rows);
+  return rows[0] || null;
+}
+
+export async function getCustomerOrderTrackingSnapshot(customerUserId, orderId) {
+  const order = await findCustomerOrder(Number(customerUserId), Number(orderId));
+  if (!order) return null;
+  const latestLocation = order.delivery_user_id
+    ? await getLatestCourierPresence(order.delivery_user_id)
+    : null;
+  const activeShareRes = await q(
+    `SELECT share_token, expires_at, revoked_at
+     FROM customer_order_share_token
+     WHERE order_id = $1
+     LIMIT 1`,
+    [Number(orderId)]
+  );
+  const share = activeShareRes.rows[0]
+    ? {
+        token: activeShareRes.rows[0].share_token,
+        expiresAt: activeShareRes.rows[0].expires_at || null,
+        revokedAt: activeShareRes.rows[0].revoked_at || null,
+      }
+    : null;
+
+  return {
+    kind: "delivery",
+    viewerMode: "owner",
+    order,
+    stage: buildOrderTrackingStage(order),
+    latestLocation,
+    courier: order.delivery_user_id
+      ? {
+          userId: Number(order.delivery_user_id),
+          fullName: order.delivery_full_name || null,
+          phone: order.delivery_phone || null,
+          driverType: order.delivery_driver_type || null,
+          courierSource: order.courier_source || null,
+          isMerchantCourier: order.is_merchant_delivery === true,
+        }
+      : null,
+    destination: {
+      city: order.customer_city,
+      block: order.customer_block,
+      buildingNumber: order.customer_building_number,
+      apartment: order.customer_apartment,
+      label: `${order.customer_city} - ${order.customer_block} - ${order.customer_building_number}`,
+    },
+    merchant: {
+      id: Number(order.merchant_id),
+      name: order.merchant_name,
+      type: order.merchant_type || null,
+    },
+    share,
+    lastUpdatedAt:
+      latestLocation?.updatedAt ||
+      order.arrived_at?.toISOString?.() ||
+      order.picked_up_at?.toISOString?.() ||
+      order.prepared_at?.toISOString?.() ||
+      order.preparing_started_at?.toISOString?.() ||
+      order.approved_at?.toISOString?.() ||
+      order.created_at?.toISOString?.() ||
+      null,
+  };
+}
+
+export async function createCustomerOrderShareToken(customerUserId, orderId) {
+  const order = await findCustomerOrder(Number(customerUserId), Number(orderId));
+  if (!order) return null;
+  const token = createPublicOrderShareToken();
+  const r = await q(
+    `INSERT INTO customer_order_share_token
+       (order_id, customer_user_id, share_token, revoked_at, updated_at)
+     VALUES ($1,$2,$3,NULL,NOW())
+     ON CONFLICT (order_id)
+     DO UPDATE SET
+       customer_user_id = EXCLUDED.customer_user_id,
+       share_token = EXCLUDED.share_token,
+       revoked_at = NULL,
+       updated_at = NOW()
+     RETURNING share_token, expires_at, revoked_at`,
+    [Number(orderId), Number(customerUserId), token]
+  );
+  const row = r.rows[0];
+  return row
+    ? {
+        orderId: Number(orderId),
+        token: row.share_token,
+        expiresAt: row.expires_at || null,
+        revokedAt: row.revoked_at || null,
+      }
+    : null;
+}
+
+export async function getPublicOrderTrackingByToken(token) {
+  const shareRes = await q(
+    `SELECT order_id
+     FROM customer_order_share_token
+     WHERE share_token = $1
+       AND revoked_at IS NULL
+       AND (expires_at IS NULL OR expires_at > NOW())
+     LIMIT 1`,
+    [String(token)]
+  );
+  const orderId = shareRes.rows[0]?.order_id;
+  if (!orderId) return null;
+
+  const r = await q(
+    `${orderSelect}
+     WHERE o.id = $1
+     LIMIT 1`,
+    [Number(orderId)]
+  );
+  const rows = await attachItems(r.rows);
+  const order = rows[0];
+  if (!order) return null;
+  const latestLocation = order.delivery_user_id
+    ? await getLatestCourierPresence(order.delivery_user_id)
+    : null;
+  return {
+    kind: "delivery",
+    viewerMode: "publicReadonly",
+    order: {
+      id: Number(order.id),
+      merchantId: Number(order.merchant_id),
+      merchantName: order.merchant_name,
+      status: order.status,
+      totalAmount: order.total_amount,
+      deliveryFee: order.delivery_fee,
+      customerCity: order.customer_city,
+      customerBlock: order.customer_block,
+      customerBuildingNumber: order.customer_building_number,
+      customerApartment: order.customer_apartment,
+      estimatedPrepMinutes: order.estimated_prep_minutes,
+      estimatedDeliveryMinutes: order.estimated_delivery_minutes,
+      createdAt: order.created_at,
+      approvedAt: order.approved_at,
+      preparingStartedAt: order.preparing_started_at,
+      preparedAt: order.prepared_at,
+      pickedUpAt: order.picked_up_at,
+      arrivedAt: order.arrived_at,
+      deliveredAt: order.delivered_at,
+      customerConfirmedAt: order.customer_confirmed_at,
+    },
+    stage: buildOrderTrackingStage(order),
+    latestLocation,
+    courier: order.delivery_user_id
+      ? {
+          fullName: order.delivery_full_name || null,
+          driverType: order.delivery_driver_type || null,
+          courierSource: order.courier_source || null,
+          isMerchantCourier: order.is_merchant_delivery === true,
+        }
+      : null,
+    destination: {
+      city: order.customer_city,
+      block: order.customer_block,
+      buildingNumber: order.customer_building_number,
+      label: `${order.customer_city} - ${order.customer_block} - ${order.customer_building_number}`,
+    },
+    merchant: {
+      id: Number(order.merchant_id),
+      name: order.merchant_name,
+      type: order.merchant_type || null,
+    },
+    lastUpdatedAt:
+      latestLocation?.updatedAt ||
+      order.arrived_at?.toISOString?.() ||
+      order.picked_up_at?.toISOString?.() ||
+      order.prepared_at?.toISOString?.() ||
+      order.preparing_started_at?.toISOString?.() ||
+      order.approved_at?.toISOString?.() ||
+      order.created_at?.toISOString?.() ||
+      null,
+  };
+}
+
+export async function cancelOrderByCustomer({
+  customerUserId,
+  orderId,
+  reasonCode,
+  reasonText = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const updated = await client.query(
+      `UPDATE customer_order
+       SET status = 'cancelled_by_customer'::order_status,
+           cancelled_by_role = 'customer',
+           cancellation_reason_code = $3,
+           cancellation_reason_text = $4,
+           updated_at = NOW()
+       WHERE id = $1
+         AND customer_user_id = $2
+         AND status IN ('pending','approved','preparing','courier_requested')
+       RETURNING id, merchant_id, order_group_id, status`,
+      [Number(orderId), Number(customerUserId), String(reasonCode), reasonText]
+    );
+    const row = updated.rows[0];
+    if (!row) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    await client.query(
+      `INSERT INTO order_action_event
+        (order_id, actor_user_id, actor_scope, action_kind, reason_code, reason_text)
+       VALUES ($1,$2,'customer','cancel',$3,$4)`,
+      [Number(row.id), Number(customerUserId), String(reasonCode), reasonText]
+    );
+
+    await syncOrderIncentiveConsumptionForStatusTx(client, {
+      orderId: Number(row.id),
+      status: "cancelled_by_customer",
+    });
+
+    await syncOrderGroupStatusTx(client, row.order_group_id);
+
+    await client.query("COMMIT");
+    return {
+      ok: true,
+      orderId: Number(row.id),
+      status: String(row.status || "cancelled_by_customer"),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function requestOrderReturnByCustomer({
+  customerUserId,
+  orderId,
+  reasonCode,
+  reasonText = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const updated = await client.query(
+      `UPDATE customer_order
+       SET return_requested_at = NOW(),
+           returned_by_role = 'customer',
+           return_reason_code = $3,
+           return_reason_text = $4,
+           return_window_expires_at = COALESCE(return_window_expires_at, delivered_at + interval '24 hour'),
+           updated_at = NOW()
+       WHERE id = $1
+         AND customer_user_id = $2
+         AND status IN ('delivered','completed','received_by_customer')
+         AND COALESCE(delivered_at, created_at) >= NOW() - interval '24 hour'
+       RETURNING id, merchant_id, order_group_id, status, return_requested_at`,
+      [Number(orderId), Number(customerUserId), String(reasonCode), reasonText]
+    );
+    const row = updated.rows[0];
+    if (!row) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    await client.query(
+      `INSERT INTO order_action_event
+        (order_id, actor_user_id, actor_scope, action_kind, reason_code, reason_text)
+       VALUES ($1,$2,'customer','return',$3,$4)`,
+      [Number(row.id), Number(customerUserId), String(reasonCode), reasonText]
+    );
+
+    await client.query("COMMIT");
+    return {
+      ok: true,
+      orderId: Number(row.id),
+      status: String(row.status || ""),
+      returnRequestedAt: row.return_requested_at,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function confirmOrderDelivered(customerUserId, orderId) {
@@ -366,7 +2283,7 @@ export async function rateDelivery(customerUserId, orderId, rating, review) {
          rated_at=NOW()
      WHERE id=$3
        AND customer_user_id=$4
-       AND status='delivered'
+       AND status IN ('delivered','completed')
        AND delivery_user_id IS NOT NULL
      RETURNING
        id,
@@ -422,7 +2339,7 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
          merchant_rated_at=NOW()
      WHERE id=$3
        AND customer_user_id=$4
-       AND status='delivered'
+       AND status IN ('delivered','completed')
      RETURNING
        id,
        merchant_id,
@@ -431,6 +2348,24 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
   );
   const row = r.rows[0];
   if (!row) return false;
+
+  await q(
+    `INSERT INTO merchant_verified_review
+      (order_id, merchant_id, customer_user_id, rating, review_text, is_verified, metadata_json)
+     VALUES ($1,$2,$3,$4,$5,TRUE,'{}'::jsonb)
+     ON CONFLICT (order_id)
+     DO UPDATE SET
+       rating = EXCLUDED.rating,
+       review_text = EXCLUDED.review_text,
+       updated_at = NOW()`,
+    [
+      Number(row.id),
+      Number(row.merchant_id),
+      Number(customerUserId),
+      Number(rating),
+      review || null,
+    ]
+  );
 
   await createManyNotifications(
     [
@@ -459,11 +2394,18 @@ export async function listOwnerCurrentOrders(ownerUserId) {
     `${orderSelect}
      JOIN merchant mo ON mo.id = o.merchant_id
      WHERE mo.owner_user_id=$1
-       AND o.status IN ('pending','preparing','ready_for_delivery','on_the_way')
+       AND o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')
      ORDER BY o.id DESC`,
     [ownerUserId]
   );
-  return attachItems(r.rows);
+  const rows = await attachItems(r.rows);
+  return rows
+    .filter((row) => isOwnerCurrentStatus(row.status, row.customer_confirmed_at))
+    .sort((a, b) => {
+      const rank = currentStatusRank(a.status) - currentStatusRank(b.status);
+      if (rank !== 0) return rank;
+      return Number(b.id) - Number(a.id);
+    });
 }
 
 export async function listOwnerOrderHistory(ownerUserId, archiveDate) {
@@ -503,6 +2445,208 @@ export async function listAdminOrdersForReport(period) {
   return attachItems(r.rows);
 }
 
+export async function listAdminMerchantOrderOverview({
+  status = "all",
+  period = "all",
+  from = null,
+  to = null,
+  search = null,
+  limit = 60,
+  offset = 0,
+} = {}) {
+  const normalizedStatus = normalizeAdminOrderOverviewStatus(status);
+  const normalizedPeriod = normalizeAdminOverviewPeriod(period);
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 60));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+
+  const summaryParams = [];
+  const summaryClauses = ["1=1"];
+  appendAdminOrderDateWindow({
+    clauses: summaryClauses,
+    params: summaryParams,
+    alias: "o",
+    period: normalizedPeriod,
+    from,
+    to,
+  });
+
+  const summaryResult = await q(
+    `SELECT
+       COUNT(*)::int AS total_orders,
+       COUNT(*) FILTER (
+         WHERE o.status IN ('delivered', 'delivered_by_courier', 'received_by_customer', 'completed')
+       )::int AS completed_orders,
+       COUNT(*) FILTER (WHERE o.status IN ('cancelled', 'cancelled_by_store', 'cancelled_by_admin', 'cancelled_by_customer'))::int AS cancelled_orders,
+       COUNT(*) FILTER (
+         WHERE o.status NOT IN ('delivered', 'delivered_by_courier', 'received_by_customer', 'completed', 'cancelled', 'cancelled_by_store', 'cancelled_by_admin', 'cancelled_by_customer')
+       )::int AS in_progress_orders
+     FROM customer_order o
+     WHERE ${summaryClauses.join(" AND ")}`,
+    summaryParams
+  );
+
+  const merchantParams = [];
+  const merchantClauses = [adminOrderStatusFilterSql(normalizedStatus, "o")];
+  appendAdminOrderDateWindow({
+    clauses: merchantClauses,
+    params: merchantParams,
+    alias: "o",
+    period: normalizedPeriod,
+    from,
+    to,
+  });
+
+  const safeSearch = String(search || "").trim();
+  let merchantSearchSql = "";
+  if (safeSearch) {
+    merchantParams.push(`%${safeSearch}%`);
+    const placeholder = `$${merchantParams.length}`;
+    merchantSearchSql = ` AND (
+      m.name ILIKE ${placeholder}
+      OR COALESCE(m.phone, '') ILIKE ${placeholder}
+      OR COALESCE(u.full_name, '') ILIKE ${placeholder}
+      OR COALESCE(u.phone, '') ILIKE ${placeholder}
+    )`;
+  }
+
+  const merchantRows = await q(
+    `SELECT
+       m.id AS merchant_id,
+       m.name AS merchant_name,
+       m.type AS merchant_type,
+       m.phone AS merchant_phone,
+       u.id AS owner_user_id,
+       u.full_name AS owner_full_name,
+       u.phone AS owner_phone,
+       COUNT(o.id)::int AS orders_count,
+       MAX(o.created_at) AS last_order_at
+     FROM merchant m
+     LEFT JOIN app_user u ON u.id = m.owner_user_id
+     JOIN customer_order o ON o.merchant_id = m.id
+     WHERE ${merchantClauses.join(" AND ")}${merchantSearchSql}
+     GROUP BY m.id, u.id
+     ORDER BY orders_count DESC, last_order_at DESC NULLS LAST, m.id DESC
+     LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    merchantParams
+  );
+
+  const countRows = await q(
+    `SELECT COUNT(*)::int AS total
+     FROM (
+       SELECT m.id
+       FROM merchant m
+       LEFT JOIN app_user u ON u.id = m.owner_user_id
+       JOIN customer_order o ON o.merchant_id = m.id
+       WHERE ${merchantClauses.join(" AND ")}${merchantSearchSql}
+       GROUP BY m.id
+     ) overview`,
+    merchantParams
+  );
+
+  return {
+    summary: summaryResult.rows[0] || {
+      total_orders: 0,
+      completed_orders: 0,
+      cancelled_orders: 0,
+      in_progress_orders: 0,
+    },
+    items: merchantRows.rows,
+    total: Number(countRows.rows[0]?.total || 0),
+    filters: {
+      status: normalizedStatus,
+      period: normalizedPeriod,
+      from,
+      to,
+      search: safeSearch || null,
+      limit: safeLimit,
+      offset: safeOffset,
+    },
+  };
+}
+
+export async function listAdminMerchantOrdersOverview({
+  merchantId,
+  status = "all",
+  period = "all",
+  from = null,
+  to = null,
+  limit = 80,
+  offset = 0,
+} = {}) {
+  const safeMerchantId = Number(merchantId);
+  if (!Number.isInteger(safeMerchantId) || safeMerchantId <= 0) {
+    throw new AppError("INVALID_MERCHANT_ID", 400);
+  }
+
+  const normalizedStatus = normalizeAdminOrderOverviewStatus(status);
+  const normalizedPeriod = normalizeAdminOverviewPeriod(period);
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 80));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+
+  const params = [safeMerchantId];
+  const clauses = [
+    "o.merchant_id = $1",
+    adminOrderStatusFilterSql(normalizedStatus, "o"),
+  ];
+  appendAdminOrderDateWindow({
+    clauses,
+    params,
+    alias: "o",
+    period: normalizedPeriod,
+    from,
+    to,
+  });
+
+  const merchantResult = await q(
+    `SELECT
+       m.id,
+       m.name,
+       m.type,
+       m.phone,
+       u.id AS owner_user_id,
+       u.full_name AS owner_full_name,
+       u.phone AS owner_phone
+     FROM merchant m
+     LEFT JOIN app_user u ON u.id = m.owner_user_id
+     WHERE m.id = $1
+     LIMIT 1`,
+    [safeMerchantId]
+  );
+  const merchant = merchantResult.rows[0];
+  if (!merchant) {
+    throw new AppError("MERCHANT_NOT_FOUND", 404);
+  }
+
+  const rowsResult = await q(
+    `${orderSelect}
+     WHERE ${clauses.join(" AND ")}
+     ORDER BY o.created_at DESC, o.id DESC
+     LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    params
+  );
+
+  const countResult = await q(
+    `SELECT COUNT(*)::int AS total
+     FROM customer_order o
+     WHERE ${clauses.join(" AND ")}`,
+    params
+  );
+
+  return {
+    merchant,
+    items: await attachItems(rowsResult.rows),
+    total: Number(countResult.rows[0]?.total || 0),
+    filters: {
+      status: normalizedStatus,
+      period: normalizedPeriod,
+      from,
+      to,
+      limit: safeLimit,
+      offset: safeOffset,
+    },
+  };
+}
+
 export async function listOwnerOrdersForReport(ownerUserId, period) {
   const since = periodStartExpression(period);
   if (!since) {
@@ -521,24 +2665,25 @@ export async function listOwnerOrdersForReport(ownerUserId, period) {
   return attachItems(r.rows);
 }
 
-async function pickLeastLoadedDeliveryAgent(client) {
-  const r = await client.query(
-    `SELECT
-       u.id,
-       COUNT(o.id)::int AS active_orders
-     FROM app_user u
-     LEFT JOIN customer_order o
-       ON o.delivery_user_id = u.id
-      AND o.status IN ('pending','preparing','ready_for_delivery','on_the_way')
-     WHERE u.role = 'delivery'
-     GROUP BY u.id
-     ORDER BY active_orders ASC, u.id ASC
-     LIMIT 1`
-  );
-
-  return r.rows[0] ? Number(r.rows[0].id) : null;
-}
-
+/**
+ * يطبق transition يدوية من المتجر/المالك على حالة الطلب مع timestamps
+ * والإشعارات ومزامنة incentive state.
+ *
+ * Maintenance notes:
+ * - إذا ظهرت حالة طلب عالقة أو إشعار غير مطابق، ابدأ من:
+ *   `assertOwnerTransition` ثم UPDATE statement ثم createManyNotifications.
+ */
+/**
+ * يحدث حالة الطلب من منظور مالك المتجر مع فرض ownership check واضح.
+ *
+ * Side effects:
+ * - يكتب status timestamps مختلفة بحسب الانتقال
+ * - قد يطلق إشعارات للعميل أو الدليفري حسب الحالة الناتجة
+ *
+ * Critical notes:
+ * - هذه الدالة تفصل بين صلاحية owner وصلاحية delivery؛ لا تخلطها مع
+ *   transitions الخاصة بالمندوب.
+ */
 export async function updateOwnerOrderStatus(
   ownerUserId,
   orderId,
@@ -550,94 +2695,132 @@ export async function updateOwnerOrderStatus(
   try {
     await client.query("BEGIN");
 
+    const currentResult = await client.query(
+       `SELECT
+          o.id,
+          o.merchant_id,
+          o.order_group_id,
+          o.status,
+          o.customer_user_id,
+          o.customer_block,
+          o.delivery_user_id,
+          o.is_merchant_delivery,
+          o.assigned_by_store,
+          m.owner_user_id,
+          m.name AS merchant_name
+        FROM customer_order o
+        JOIN merchant m ON m.id = o.merchant_id
+        WHERE o.id=$1
+         AND m.owner_user_id=$2
+       FOR UPDATE`,
+      [Number(orderId), Number(ownerUserId)]
+    );
+
+    const current = currentResult.rows[0];
+    if (!current) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+
+    const deliveryUserId = current.delivery_user_id
+      ? Number(current.delivery_user_id)
+      : null;
+    const isMerchantDelivery = current.is_merchant_delivery === true;
+    const hasAppDeliveryAssignment = current.assigned_by_store === true;
+
+    assertOwnerTransition({
+      currentStatus: current.status,
+      nextStatus: status,
+      deliveryUserId,
+      isMerchantDelivery,
+      hasAppDeliveryAssignment,
+    });
+
     const updateResult = await client.query(
       `UPDATE customer_order o
        SET status=$1::order_status,
            estimated_prep_minutes=COALESCE($2::int, o.estimated_prep_minutes),
            estimated_delivery_minutes=COALESCE($3::int, o.estimated_delivery_minutes),
            approved_at = CASE
-             WHEN $1::order_status <> 'pending'::order_status
-              AND o.approved_at IS NULL
-             THEN NOW()
+             WHEN $4::boolean THEN COALESCE(o.approved_at, NOW())
              ELSE o.approved_at
            END,
            preparing_started_at = CASE
-             WHEN $1::order_status='preparing'::order_status
-             THEN COALESCE(o.preparing_started_at, NOW())
+             WHEN $5::boolean THEN COALESCE(o.preparing_started_at, NOW())
              ELSE o.preparing_started_at
            END,
            prepared_at = CASE
-             WHEN $1::order_status='ready_for_delivery'::order_status
-             THEN COALESCE(o.prepared_at, NOW())
+             WHEN $6::boolean THEN COALESCE(o.prepared_at, NOW())
              ELSE o.prepared_at
+           END,
+           picked_up_at = CASE
+             WHEN $7::boolean THEN COALESCE(o.picked_up_at, NOW())
+             ELSE o.picked_up_at
+           END,
+           arrived_at = CASE
+             WHEN $8::boolean THEN COALESCE(o.arrived_at, NOW())
+             ELSE o.arrived_at
+           END,
+           delivered_at = CASE
+             WHEN $9::boolean THEN COALESCE(o.delivered_at, NOW())
+             ELSE o.delivered_at
            END
-       FROM merchant m
-       WHERE o.id=$4
-         AND o.merchant_id=m.id
-         AND m.owner_user_id=$5
+       WHERE o.id=$10
        RETURNING
          o.id,
          o.merchant_id,
+         o.order_group_id,
          o.status,
          o.customer_user_id,
          o.delivery_user_id,
-         m.owner_user_id,
-         m.name AS merchant_name`,
-      [status, estimatedPrepMinutes, estimatedDeliveryMinutes, orderId, ownerUserId]
+         o.is_merchant_delivery`,
+      [
+        status,
+        estimatedPrepMinutes,
+        estimatedDeliveryMinutes,
+        ["approved", "preparing", "ready_for_delivery"].includes(status),
+        status === "preparing",
+        status === "ready_for_delivery",
+        status === "on_the_way",
+        status === "arrived",
+        status === "delivered",
+        Number(orderId),
+      ]
     );
 
-    const row = updateResult.rows[0];
-    if (!row) {
-      await client.query("ROLLBACK");
-      return false;
-    }
-
-    let deliveryUserId = row.delivery_user_id ? Number(row.delivery_user_id) : null;
-
-    if (status === "ready_for_delivery" && !deliveryUserId) {
-      const pickedDeliveryUserId = await pickLeastLoadedDeliveryAgent(client);
-      if (pickedDeliveryUserId) {
-        const assignResult = await client.query(
-          `UPDATE customer_order
-           SET delivery_user_id = $2
-           WHERE id = $1
-             AND delivery_user_id IS NULL
-           RETURNING delivery_user_id`,
-          [row.id, pickedDeliveryUserId]
-        );
-
-        if (assignResult.rows[0]?.delivery_user_id) {
-          deliveryUserId = Number(assignResult.rows[0].delivery_user_id);
-        }
-      }
-    }
-
+    const updated = updateResult.rows[0];
+    await syncOrderGroupStatusTx(client, updated.order_group_id);
+    await syncOrderIncentiveConsumptionForStatusTx(client, {
+      orderId: Number(orderId),
+      nextStatus: String(status),
+      reason: `owner_status_transition:${String(status || "").trim() || "updated"}`,
+    });
     await client.query("COMMIT");
 
     await createManyNotifications(
       [
         {
-          userId: row.customer_user_id,
+          userId: current.customer_user_id,
           type: "customer_order_status",
           title: "تحديث حالة الطلب",
-          body: `حالة الطلب #${row.id}: ${statusText(status)}`,
-          orderId: row.id,
-          merchantId: row.merchant_id,
+          body: `حالة الطلب #${updated.id}: ${statusText(status)}`,
+          orderId: updated.id,
+          merchantId: updated.merchant_id,
           payload: {
-            orderId: row.id,
+            orderId: updated.id,
             status,
           },
         },
-        status === "cancelled" && deliveryUserId
+        status === "preparing" && deliveryUserId
           ? {
               userId: deliveryUserId,
-              type: "delivery_order_cancelled",
-              title: "تم إلغاء طلب",
-              body: `تم إلغاء الطلب #${row.id}`,
-              orderId: row.id,
-              merchantId: row.merchant_id,
+              type: "delivery_order_preparing",
+              title: "بدأ تجهيز الطلب",
+              body: `المتجر بدأ تجهيز الطلب #${updated.id}`,
+              orderId: updated.id,
+              merchantId: updated.merchant_id,
               payload: {
-                orderId: row.id,
+                orderId: updated.id,
                 status,
               },
             }
@@ -646,12 +2829,27 @@ export async function updateOwnerOrderStatus(
           ? {
               userId: deliveryUserId,
               type: "delivery_order_ready",
-              title: "طلب جاهز للتوصيل",
-              body: `الطلب #${row.id} من ${row.merchant_name} جاهز للتوصيل`,
-              orderId: row.id,
-              merchantId: row.merchant_id,
+              title: "الطلب جاهز للاستلام",
+              body: `الطلب #${updated.id} من ${current.merchant_name} جاهز للاستلام الآن.`,
+              orderId: updated.id,
+              merchantId: updated.merchant_id,
               payload: {
-                orderId: row.id,
+                orderId: updated.id,
+                status,
+                requiresAction: true,
+              },
+            }
+          : null,
+        status === "cancelled" && deliveryUserId
+          ? {
+              userId: deliveryUserId,
+              type: "delivery_order_cancelled",
+              title: "تم إلغاء الطلب",
+              body: `تم إلغاء الطلب #${updated.id}`,
+              orderId: updated.id,
+              merchantId: updated.merchant_id,
+              payload: {
+                orderId: updated.id,
                 status,
               },
             }
@@ -659,7 +2857,21 @@ export async function updateOwnerOrderStatus(
       ].filter(Boolean)
     );
 
-    return true;
+    if (
+      status === "ready_for_delivery" &&
+      !deliveryUserId &&
+      !isMerchantDelivery
+    ) {
+      await notifyDeliveryPoolForOrder({
+        orderId: Number(updated.id),
+        merchantId: Number(updated.merchant_id),
+        merchantName: current.merchant_name,
+        customerBlock: current.customer_block || null,
+        stage: "ready",
+      });
+    }
+
+    return updated;
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;
@@ -668,74 +2880,187 @@ export async function updateOwnerOrderStatus(
   }
 }
 
-export async function assignDeliveryToOwnerOrder(ownerUserId, orderId, deliveryUserId) {
-  const deliveryCheck = await q(
-    `SELECT id
-     FROM app_user
-     WHERE id=$1 AND role='delivery'`,
-    [deliveryUserId]
-  );
-  if (!deliveryCheck.rows[0]) {
-    const err = new Error("DELIVERY_NOT_FOUND");
-    err.status = 404;
-    throw err;
+export async function assignDeliveryToOwnerOrder(
+  ownerUserId,
+  orderId,
+  deliveryUserId,
+  { assignmentMode = "platform_delivery" } = {}
+) {
+  const normalizedMode =
+    assignmentMode === "merchant_delivery"
+      ? "merchant_delivery"
+      : "platform_delivery";
+
+  if (normalizedMode === "platform_delivery") {
+    const deliveryCheck = await q(
+      `SELECT u.id
+       FROM app_user u
+       LEFT JOIN courier_profile cp ON cp.user_id = u.id
+       WHERE u.id = $1
+         AND u.role = 'delivery'
+         AND u.delivery_account_approved = TRUE
+         AND u.is_account_disabled = FALSE
+         AND COALESCE(cp.driver_type, 'app_driver') = 'app_driver'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM taxi_captain_profile tcp
+           WHERE tcp.user_id = u.id
+         )
+       LIMIT 1`,
+      [Number(deliveryUserId)]
+    );
+    if (!deliveryCheck.rows[0]) {
+      const err = new Error("DELIVERY_NOT_AVAILABLE");
+      err.status = 404;
+      throw err;
+    }
   }
 
-  const r = await q(
-    `UPDATE customer_order o
-     SET delivery_user_id=$1
-     FROM merchant m
-     WHERE o.id=$2
-       AND o.merchant_id=m.id
-       AND m.owner_user_id=$3
-     RETURNING
-       o.id,
-       o.customer_user_id,
-       o.merchant_id,
-       m.name AS merchant_name`,
-    [deliveryUserId, orderId, ownerUserId]
-  );
-  const row = r.rows[0];
-  if (!row) return false;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
 
-  await createManyNotifications([
-    {
-      userId: Number(deliveryUserId),
-      type: "delivery_assigned_by_owner",
-      title: "إسناد طلب جديد",
-      body: `تم إسناد الطلب #${row.id} من ${row.merchant_name} إليك`,
-      orderId: row.id,
-      merchantId: row.merchant_id,
-      payload: {
-        orderId: row.id,
-        assignedBy: "owner",
-      },
-    },
-    {
-      userId: row.customer_user_id,
-      type: "customer_delivery_assigned",
-      title: "تم تعيين الدلفري",
-      body: `تم تعيين دلفري على طلبك #${row.id}`,
-      orderId: row.id,
-      merchantId: row.merchant_id,
-      payload: {
-        orderId: row.id,
-      },
-    },
-  ]);
+    const currentResult = await client.query(
+      `SELECT
+         o.id,
+         o.merchant_id,
+         o.status,
+         o.customer_user_id,
+         m.name AS merchant_name
+       FROM customer_order o
+       JOIN merchant m ON m.id = o.merchant_id
+       WHERE o.id=$1
+         AND m.owner_user_id=$2
+       FOR UPDATE`,
+      [Number(orderId), Number(ownerUserId)]
+    );
 
-  return true;
+    const current = currentResult.rows[0];
+    if (!current) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+
+    if (!["approved", "preparing", "ready_for_delivery"].includes(current.status)) {
+      throw new AppError(
+        "Delivery can be assigned only after approval and before completion.",
+        { status: 400 }
+      );
+    }
+
+    if (normalizedMode === "merchant_delivery") {
+      if (deliveryUserId == null) {
+        await client.query(
+          `UPDATE customer_order
+           SET delivery_user_id = NULL,
+               is_merchant_delivery = TRUE,
+               courier_source = 'merchant',
+               updated_at = NOW()
+           WHERE id = $1`,
+          [Number(orderId)]
+        );
+      } else {
+        await client.query(
+          `UPDATE customer_order
+           SET delivery_user_id = $1,
+               is_merchant_delivery = TRUE,
+               courier_source = 'merchant',
+               updated_at = NOW()
+           WHERE id = $2`,
+          [Number(deliveryUserId), Number(orderId)]
+        );
+      }
+    } else {
+      await client.query(
+        `UPDATE customer_order
+         SET delivery_user_id = $1,
+             is_merchant_delivery = FALSE,
+             courier_source = 'app',
+             updated_at = NOW()
+         WHERE id = $2`,
+        [Number(deliveryUserId), Number(orderId)]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    await createManyNotifications([
+      normalizedMode === "platform_delivery"
+        ? {
+            userId: Number(deliveryUserId),
+            type: "delivery_assigned_by_owner",
+            title: "تم إسناد طلب جديد إليك",
+            body: `تم إسناد الطلب #${current.id} من ${current.merchant_name} إليك.`,
+            orderId: current.id,
+            merchantId: current.merchant_id,
+            payload: {
+              orderId: current.id,
+              assignedBy: "owner",
+              assignmentMode: normalizedMode,
+              requiresAction: current.status === "ready_for_delivery",
+            },
+          }
+        : null,
+      {
+        userId: current.customer_user_id,
+        type: "customer_delivery_assigned",
+        title: "تم تعيين التوصيل",
+        body:
+          normalizedMode === "merchant_delivery"
+            ? `تم تعيين دلفري المطعم للطلب #${current.id}.`
+            : `تم تعيين دلفري التطبيق للطلب #${current.id}.`,
+        orderId: current.id,
+        merchantId: current.merchant_id,
+        payload: {
+          orderId: current.id,
+          assignmentMode: normalizedMode,
+        },
+      },
+    ].filter(Boolean));
+
+    return current;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export async function listDeliveryCurrentOrders(deliveryUserId) {
   const r = await q(
     `${orderSelect}
-     WHERE (o.delivery_user_id=$1 AND o.status IN ('pending','preparing','ready_for_delivery','on_the_way'))
-        OR (o.delivery_user_id IS NULL AND o.status='ready_for_delivery')
+     JOIN app_user du ON du.id = $1
+     LEFT JOIN courier_profile ducp ON ducp.user_id = du.id
+     WHERE (
+         o.delivery_user_id = $1
+         OR (
+           o.delivery_user_id IS NULL
+           AND o.status = 'ready_for_delivery'
+           AND COALESCE(o.is_merchant_delivery, FALSE) = FALSE
+           AND COALESCE(ducp.driver_type, 'app_driver') = 'app_driver'
+           AND (
+             (
+               du.block IS NOT NULL
+               AND o.customer_block IS NOT NULL
+               AND UPPER(TRIM(du.block)) = UPPER(TRIM(o.customer_block))
+             )
+             OR COALESCE(o.prepared_at, o.updated_at, o.created_at) <= NOW() - INTERVAL '7 minutes'
+           )
+         )
+       )
+       AND o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')
      ORDER BY o.id DESC`,
-    [deliveryUserId]
+    [Number(deliveryUserId)]
   );
-  return attachItems(r.rows);
+  const rows = await attachItems(r.rows);
+  return rows
+    .filter((row) => isDeliveryCurrentStatus(row.status, row.customer_confirmed_at))
+    .sort((a, b) => {
+      const rank = currentStatusRank(a.status) - currentStatusRank(b.status);
+      if (rank !== 0) return rank;
+      return Number(b.id) - Number(a.id);
+    });
 }
 
 export async function listDeliveryHistory(deliveryUserId, archiveDate) {
@@ -757,14 +3082,62 @@ export async function listDeliveryHistory(deliveryUserId, archiveDate) {
   return attachItems(r.rows);
 }
 
-export async function claimDeliveryOrder(deliveryUserId, orderId) {
+/**
+ * يسمح لمندوب دلفري معتمد بالاستحواذ على طلب جاهز للتسليم إذا كان ضمن
+ * النطاق المسموح ولا يوجد تعارض مع تعيين قائم.
+ *
+ * Failure modes:
+ * - 0 rows updated تعني غالباً status غير صحيح، أو mismatch في block،
+ *   أو الحساب غير معتمد/غير صالح كسائق app_driver.
+ */
+/**
+ * يربط طلباً متاحاً بمندوب توصيل واحد داخل transaction مع locking صريح.
+ *
+ * Return value:
+ * - كود حالة business مثل `ORDER_NOT_FOUND`, `ORDER_ALREADY_CLAIMED`, `OK`.
+ *
+ * Maintenance notes:
+ * - عند تكرار شكاوى "طلب اختفى من شاشة المندوب" افحص هذه الدالة مع
+ *   شروط الحالة والـ `FOR UPDATE` والحقول `delivery_user_id/status`.
+ */
+export async function claimDeliveryOrder(deliveryUserId, orderId, estimatedDeliveryMinutes) {
   const r = await q(
     `UPDATE customer_order o
-     SET delivery_user_id=$1
+     SET delivery_user_id = $3,
+         is_merchant_delivery = FALSE,
+         courier_source = 'app',
+         status='on_the_way',
+         picked_up_at=COALESCE(picked_up_at, NOW()),
+         estimated_delivery_minutes=COALESCE($1, o.estimated_delivery_minutes)
      FROM merchant m
+     JOIN app_user du ON du.id = $3
+     LEFT JOIN courier_profile cp ON cp.user_id = du.id
      WHERE o.id=$2
        AND o.status='ready_for_delivery'
-       AND o.delivery_user_id IS NULL
+       AND COALESCE(o.is_merchant_delivery, FALSE) = FALSE
+       AND du.role = 'delivery'
+       AND du.delivery_account_approved = TRUE
+       AND du.is_account_disabled = FALSE
+       AND COALESCE(cp.driver_type, 'app_driver') = 'app_driver'
+       AND NOT EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = du.id
+       )
+       AND (
+         o.delivery_user_id = $3
+         OR (
+           o.delivery_user_id IS NULL
+           AND (
+             (
+               du.block IS NOT NULL
+               AND o.customer_block IS NOT NULL
+               AND UPPER(TRIM(du.block)) = UPPER(TRIM(o.customer_block))
+             )
+             OR COALESCE(o.prepared_at, o.updated_at, o.created_at) <= NOW() - INTERVAL '7 minutes'
+           )
+         )
+       )
        AND o.merchant_id = m.id
      RETURNING
        o.id,
@@ -772,7 +3145,7 @@ export async function claimDeliveryOrder(deliveryUserId, orderId) {
        o.merchant_id,
        m.owner_user_id,
        m.name AS merchant_name`,
-    [deliveryUserId, orderId]
+    [estimatedDeliveryMinutes, Number(orderId), Number(deliveryUserId)]
   );
   const row = r.rows[0];
   if (!row) return false;
@@ -782,61 +3155,22 @@ export async function claimDeliveryOrder(deliveryUserId, orderId) {
       row.owner_user_id
         ? {
             userId: row.owner_user_id,
-            type: "owner_delivery_claimed",
-            title: "تم استلام الطلب من الدلفري",
-            body: `الدلفري استلم الطلب #${row.id} من ${row.merchant_name}`,
+            type: "owner_delivery_picked_up",
+            title: "تم استلام الطلب من المتجر",
+            body: `الدلفري استلم الطلب #${row.id} من ${row.merchant_name}.`,
             orderId: row.id,
             merchantId: row.merchant_id,
             payload: {
               orderId: row.id,
+              status: "on_the_way",
             },
           }
         : null,
       {
         userId: row.customer_user_id,
-        type: "customer_delivery_claimed",
-        title: "الدلفري استلم الطلب",
-        body: `تم استلام طلبك #${row.id} من قبل الدلفري`,
-        orderId: row.id,
-        merchantId: row.merchant_id,
-        payload: {
-          orderId: row.id,
-        },
-      },
-    ].filter(Boolean)
-  );
-
-  return true;
-}
-
-export async function markOrderOnTheWay(deliveryUserId, orderId, estimatedDeliveryMinutes) {
-  const r = await q(
-    `UPDATE customer_order o
-     SET status='on_the_way',
-         picked_up_at=COALESCE(picked_up_at, NOW()),
-         estimated_delivery_minutes=COALESCE($1, o.estimated_delivery_minutes)
-     FROM merchant m
-     WHERE o.id=$2
-       AND o.delivery_user_id=$3
-       AND o.status IN ('ready_for_delivery', 'on_the_way')
-       AND o.merchant_id = m.id
-     RETURNING
-       o.id,
-       o.customer_user_id,
-       o.merchant_id,
-       m.owner_user_id`,
-    [estimatedDeliveryMinutes, orderId, deliveryUserId]
-  );
-  const row = r.rows[0];
-  if (!row) return false;
-
-  await createManyNotifications(
-    [
-      {
-        userId: row.customer_user_id,
         type: "customer_order_on_the_way",
-        title: "الطلب في الطريق",
-        body: `الطلب #${row.id} أصبح في الطريق إليك`,
+        title: "طلبك أصبح في الطريق",
+        body: `الدلفري استلم الطلب #${row.id} وهو الآن في الطريق إليك.`,
         orderId: row.id,
         merchantId: row.merchant_id,
         payload: {
@@ -846,28 +3180,85 @@ export async function markOrderOnTheWay(deliveryUserId, orderId, estimatedDelive
           etaMaxMinutes: 10,
         },
       },
+    ].filter(Boolean)
+  );
+
+  return row;
+}
+
+/**
+ * ينقل الطلب من on_the_way إلى arrived ويبلغ العميل والمالك.
+ */
+/**
+ * يثبت أن المندوب وصل إلى موقع التسليم دون إنهاء الطلب بعد.
+ *
+ * السبب:
+ * - الفصل بين `arrived` و`delivered` مهم للإشعارات وواجهة تتبع العميل.
+ */
+export async function markOrderArrived(deliveryUserId, orderId) {
+  const r = await q(
+    `UPDATE customer_order o
+     SET status='arrived',
+         arrived_at=COALESCE(arrived_at, NOW())
+     FROM merchant m
+     WHERE o.id=$1
+       AND o.delivery_user_id=$2
+       AND o.status='on_the_way'
+       AND o.merchant_id = m.id
+     RETURNING
+       o.id,
+       o.customer_user_id,
+       o.merchant_id,
+       m.owner_user_id`,
+    [Number(orderId), Number(deliveryUserId)]
+  );
+  const row = r.rows[0];
+  if (!row) return false;
+
+  await createManyNotifications(
+    [
+      {
+        userId: row.customer_user_id,
+        type: "customer_order_arrived",
+        title: "الدلفري وصل إلى موقعك",
+        body: `الدلفري وصل الآن بالطلب #${row.id}.`,
+        orderId: row.id,
+        merchantId: row.merchant_id,
+        payload: {
+          orderId: row.id,
+          status: "arrived",
+        },
+      },
       row.owner_user_id
         ? {
             userId: row.owner_user_id,
-            type: "owner_order_on_the_way",
-            title: "تم استلام الطلب للتوصيل",
-            body: `الطلب #${row.id} خرج للتوصيل`,
+            type: "owner_order_arrived",
+            title: "الدلفري وصل إلى الزبون",
+            body: `الدلفري وصل لتسليم الطلب #${row.id}.`,
             orderId: row.id,
             merchantId: row.merchant_id,
             payload: {
               orderId: row.id,
-              status: "on_the_way",
-              etaMinMinutes: 7,
-              etaMaxMinutes: 10,
+              status: "arrived",
             },
           }
         : null,
     ].filter(Boolean)
   );
 
-  return true;
+  return row;
 }
 
+/**
+ * يثبت أن الدلفري سلّم الطلب فعلياً ويبقي خطوة تأكيد العميل لاحقة منفصلة.
+ */
+/**
+ * ينهي دورة الطلب من جانب الدليفري ويضع timestamps التسليم النهائية.
+ *
+ * Critical notes:
+ * - يجب أن تبقى هذه النهاية idempotent بقدر الإمكان من ناحية الواجهة،
+ *   لكن قاعدة البيانات ما زالت تمنع التكرار عبر status guard.
+ */
 export async function markOrderDelivered(deliveryUserId, orderId) {
   const r = await q(
     `UPDATE customer_order o
@@ -876,14 +3267,14 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
      FROM merchant m
      WHERE o.id=$1
        AND o.delivery_user_id=$2
-       AND o.status IN ('on_the_way','ready_for_delivery')
+       AND o.status='arrived'
        AND o.merchant_id = m.id
      RETURNING
        o.id,
        o.customer_user_id,
        o.merchant_id,
        m.owner_user_id`,
-    [orderId, deliveryUserId]
+    [Number(orderId), Number(deliveryUserId)]
   );
   const row = r.rows[0];
   if (!row) return false;
@@ -893,21 +3284,22 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
       {
         userId: row.customer_user_id,
         type: "customer_order_delivered",
-        title: "تم توصيل الطلب",
-        body: `تم توصيل الطلب #${row.id}، يرجى تأكيد الاستلام`,
+        title: "تم تسليم الطلب وبانتظار تأكيدك",
+        body: `تم تسليم الطلب #${row.id}. يرجى الضغط على استلمت الطلب لتأكيد الاستلام.`,
         orderId: row.id,
         merchantId: row.merchant_id,
         payload: {
           orderId: row.id,
           status: "delivered",
+          requiresAction: true,
         },
       },
       row.owner_user_id
         ? {
             userId: row.owner_user_id,
             type: "owner_order_delivered",
-            title: "تم توصيل طلب",
-            body: `تم توصيل الطلب #${row.id} بنجاح`,
+            title: "تم تسليم الطلب للزبون",
+            body: `تم تسليم الطلب #${row.id} وبانتظار تأكيد الزبون.`,
             orderId: row.id,
             merchantId: row.merchant_id,
             payload: {
@@ -919,42 +3311,190 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
     ].filter(Boolean)
   );
 
-  return true;
+  return row;
 }
-
 export async function endDeliveryDay(deliveryUserId, archiveDate) {
   const date = archiveDate || new Date().toISOString().slice(0, 10);
+  const client = await pool.connect();
+  let notifyPayload = null;
+  let archivedOrdersCount = 0;
+  let archivedTotalAmount = 0;
 
-  const deliveredRows = await q(
-    `UPDATE customer_order
-     SET archived_by_delivery=TRUE,
-         archived_by_delivery_at=NOW()
-     WHERE delivery_user_id=$1
-       AND status='delivered'
-       AND archived_by_delivery=FALSE
-       AND DATE(delivered_at)=$2
-     RETURNING total_amount`,
-    [deliveryUserId, date]
-  );
+  try {
+    await client.query("BEGIN");
 
-  const ordersCount = deliveredRows.rows.length;
-  const totalAmount = deliveredRows.rows.reduce(
-    (sum, row) => sum + Number(row.total_amount || 0),
-    0
-  );
+    const merchantScope = await client.query(
+      `SELECT
+         mda.merchant_id,
+         m.owner_user_id
+       FROM merchant_delivery_agent mda
+       JOIN merchant m ON m.id = mda.merchant_id
+       WHERE mda.delivery_user_id = $1
+         AND mda.is_active = TRUE
+       ORDER BY mda.updated_at DESC, mda.created_at DESC
+       LIMIT 1`,
+      [Number(deliveryUserId)]
+    );
 
-  await q(
-    `INSERT INTO delivery_day_archive
-      (delivery_user_id, archive_date, orders_count, total_amount)
-     VALUES ($1,$2,$3,$4)
-     ON CONFLICT (delivery_user_id, archive_date)
-     DO UPDATE
-     SET orders_count = delivery_day_archive.orders_count + EXCLUDED.orders_count,
-         total_amount = delivery_day_archive.total_amount + EXCLUDED.total_amount`,
-    [deliveryUserId, date, ordersCount, totalAmount]
-  );
+    const merchantId = merchantScope.rows[0]?.merchant_id
+      ? Number(merchantScope.rows[0].merchant_id)
+      : null;
+    const ownerUserId = merchantScope.rows[0]?.owner_user_id
+      ? Number(merchantScope.rows[0].owner_user_id)
+      : null;
 
-  return { archiveDate: date, ordersCount, totalAmount };
+    const deliveredRows = await client.query(
+      `UPDATE customer_order
+       SET archived_by_delivery=TRUE,
+           archived_by_delivery_at=NOW()
+       WHERE delivery_user_id=$1
+         AND status='delivered'
+         AND archived_by_delivery=FALSE
+         AND DATE(delivered_at)=$2
+         AND ($3::bigint IS NULL OR merchant_id = $3)
+       RETURNING total_amount`,
+      [Number(deliveryUserId), date, merchantId]
+    );
+
+    const ordersCount = deliveredRows.rows.length;
+    const totalAmount = deliveredRows.rows.reduce(
+      (sum, row) => sum + Number(row.total_amount || 0),
+      0
+    );
+    archivedOrdersCount = ordersCount;
+    archivedTotalAmount = totalAmount;
+
+    await client.query(
+      `INSERT INTO delivery_day_archive
+        (delivery_user_id, archive_date, orders_count, total_amount)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (delivery_user_id, archive_date)
+       DO UPDATE
+       SET orders_count = delivery_day_archive.orders_count + EXCLUDED.orders_count,
+           total_amount = delivery_day_archive.total_amount + EXCLUDED.total_amount`,
+      [Number(deliveryUserId), date, ordersCount, totalAmount]
+    );
+
+    let pendingSettlementId = null;
+    if (merchantId && ordersCount > 0 && totalAmount > 0) {
+      const pending = await client.query(
+        `SELECT id
+         FROM delivery_cash_settlement
+         WHERE merchant_id = $1
+           AND delivery_user_id = $2
+           AND archive_date = $3
+           AND status = 'pending'
+         ORDER BY id DESC
+         LIMIT 1
+         FOR UPDATE`,
+        [merchantId, Number(deliveryUserId), date]
+      );
+
+      if (pending.rows[0]?.id) {
+        const updated = await client.query(
+          `UPDATE delivery_cash_settlement
+           SET orders_count = orders_count + $2,
+               total_amount = total_amount + $3,
+               updated_at = NOW()
+           WHERE id = $1
+           RETURNING id`,
+          [Number(pending.rows[0].id), ordersCount, totalAmount]
+        );
+        pendingSettlementId = Number(updated.rows[0]?.id || pending.rows[0].id);
+      } else {
+        const inserted = await client.query(
+          `INSERT INTO delivery_cash_settlement
+            (
+              merchant_id,
+              delivery_user_id,
+              archive_date,
+              orders_count,
+              total_amount,
+              status,
+              requested_at,
+              created_at,
+              updated_at
+            )
+           VALUES ($1,$2,$3,$4,$5,'pending',NOW(),NOW(),NOW())
+           RETURNING id`,
+          [merchantId, Number(deliveryUserId), date, ordersCount, totalAmount]
+        );
+        pendingSettlementId = Number(inserted.rows[0]?.id || 0);
+      }
+
+      const recipients = await client.query(
+        `SELECT accountant_user_id
+         FROM merchant_accountant
+         WHERE merchant_id = $1
+           AND is_active = TRUE`,
+        [merchantId]
+      );
+
+      notifyPayload = {
+        merchantId,
+        ownerUserId,
+        deliveryUserId: Number(deliveryUserId),
+        archiveDate: date,
+        ordersCount,
+        totalAmount,
+        pendingSettlementId,
+        accountantUserIds: recipients.rows.map((row) => Number(row.accountant_user_id)),
+      };
+    }
+
+    await client.query("COMMIT");
+
+    if (notifyPayload) {
+      const notifications = [
+        ...notifyPayload.accountantUserIds.map((accountantUserId) => ({
+          userId: accountantUserId,
+          type: "accountant_delivery_settlement_pending",
+          title: "ذمة دلفري بانتظار الاستلام",
+          body: `يوجد مبلغ ${Number(notifyPayload.totalAmount || 0).toFixed(0)} د.ع بانتظار التأكيد.`,
+          payload: {
+            settlementId: notifyPayload.pendingSettlementId,
+            merchantId: notifyPayload.merchantId,
+            deliveryUserId: notifyPayload.deliveryUserId,
+            archiveDate: notifyPayload.archiveDate,
+            target: "accountant_dashboard",
+          },
+        })),
+      ];
+
+      if (notifyPayload.ownerUserId) {
+        notifications.push({
+          userId: notifyPayload.ownerUserId,
+          type: "owner_delivery_settlement_pending",
+          title: "ذمة دلفري جديدة",
+          body: `الدلفري أنهى يومه بمبلغ ${Number(notifyPayload.totalAmount || 0).toFixed(0)} د.ع.`,
+          payload: {
+            settlementId: notifyPayload.pendingSettlementId,
+            merchantId: notifyPayload.merchantId,
+            deliveryUserId: notifyPayload.deliveryUserId,
+            archiveDate: notifyPayload.archiveDate,
+            target: "owner_dashboard",
+          },
+        });
+      }
+
+      if (notifications.length) {
+        await createManyNotifications(notifications);
+      }
+    }
+
+    return {
+      archiveDate: date,
+      ordersCount: archivedOrdersCount,
+      totalAmount: archivedTotalAmount,
+      merchantId: notifyPayload?.merchantId || null,
+      pendingSettlementId: notifyPayload?.pendingSettlementId || null,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function listFavoriteProductIds(customerUserId) {
@@ -968,14 +3508,24 @@ export async function listFavoriteProductIds(customerUserId) {
   return r.rows.map((row) => Number(row.product_id));
 }
 
-export async function listFavoriteProducts(customerUserId, merchantId) {
+export async function listFavoriteProducts(
+  customerUserId,
+  { merchantId = null, limit = 40, offset = 0 } = {}
+) {
+  const safeLimit = Math.max(1, Math.min(120, Number(limit) || 40));
+  const safeOffset = Math.max(0, Math.min(100000, Number(offset) || 0));
+
   const params = [Number(customerUserId)];
   let merchantWhere = "";
-
   if (merchantId) {
     params.push(Number(merchantId));
-    merchantWhere = "AND p.merchant_id = $2";
+    merchantWhere = `AND p.merchant_id = $${params.length}`;
   }
+
+  params.push(safeLimit + 1);
+  const limitIndex = params.length;
+  params.push(safeOffset);
+  const offsetIndex = params.length;
 
   const r = await q(
     `SELECT
@@ -990,11 +3540,20 @@ export async function listFavoriteProducts(customerUserId, merchantId) {
        AND m.is_approved = TRUE
        AND m.is_disabled = FALSE
        ${merchantWhere}
-     ORDER BY f.created_at DESC`,
+     ORDER BY f.created_at DESC, p.id DESC
+     LIMIT $${limitIndex}
+     OFFSET $${offsetIndex}`,
     params
   );
 
-  return r.rows;
+  const hasMore = r.rows.length > safeLimit;
+  const items = hasMore ? r.rows.slice(0, safeLimit) : r.rows;
+  return {
+    items,
+    nextOffset: hasMore ? safeOffset + safeLimit : null,
+    limit: safeLimit,
+    offset: safeOffset,
+  };
 }
 
 export async function addFavoriteProduct(customerUserId, productId) {
@@ -1051,7 +3610,7 @@ export async function getOrderForReorder(customerUserId, orderId) {
      FROM customer_order
      WHERE id = $1
        AND customer_user_id = $2
-       AND status <> 'cancelled'`,
+       AND status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')`,
     [Number(orderId), Number(customerUserId)]
   );
 
@@ -1083,3 +3642,5 @@ export async function getOrderForReorder(customerUserId, orderId) {
     })),
   };
 }
+
+

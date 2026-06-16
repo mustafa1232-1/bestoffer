@@ -1,15 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-const defaultUploadsDir =
-  process.env.NODE_ENV === "production" ? "/data/uploads" : "uploads";
-const uploadsDirFromEnv = String(
-  process.env.UPLOADS_DIR || defaultUploadsDir
-).trim();
-
-export const uploadsDir = path.isAbsolute(uploadsDirFromEnv)
-  ? uploadsDirFromEnv
-  : path.resolve(process.cwd(), uploadsDirFromEnv || "uploads");
+export const uploadsDir = path.resolve(process.cwd(), "uploads");
 
 export const missingImagePng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO0LxYQAAAAASUVORK5CYII=",

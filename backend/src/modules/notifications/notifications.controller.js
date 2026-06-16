@@ -7,6 +7,20 @@ import {
   writeSseEvent,
 } from "../../shared/realtime/live-events.js";
 
+/**
+ * Purpose:
+ * controllers صندوق الإشعارات والـ SSE stream الخاصة بها.
+ *
+ * Used by:
+ * - `notifications.routes.js`
+ *
+ * Maintenance notes:
+ * - عند مشاكل inbox أو stream handshakes ابدأ هنا ثم انزل إلى service/repo.
+ */
+
+/**
+ * يعيد قائمة الإشعارات للمستخدم الحالي.
+ */
 export async function list(req, res, next) {
   try {
     const data = await service.listUserNotifications(req.userId, req.query);
@@ -16,6 +30,9 @@ export async function list(req, res, next) {
   }
 }
 
+/**
+ * يعيد العداد الحالي للإشعارات غير المقروءة.
+ */
 export async function unreadCount(req, res, next) {
   try {
     const out = await service.unreadCount(req.userId);
@@ -25,6 +42,9 @@ export async function unreadCount(req, res, next) {
   }
 }
 
+/**
+ * يعلّم إشعاراً واحداً كمقروء.
+ */
 export async function markRead(req, res, next) {
   try {
     await service.markRead(req.userId, req.params.notificationId);
@@ -34,6 +54,9 @@ export async function markRead(req, res, next) {
   }
 }
 
+/**
+ * يعلّم كل إشعارات المستخدم كمقروءة دفعة واحدة.
+ */
 export async function markAllRead(req, res, next) {
   try {
     const out = await service.markAllRead(req.userId);
@@ -70,6 +93,21 @@ export async function pushStatus(req, res, next) {
   }
 }
 
+export async function trackAction(req, res, next) {
+  try {
+    const out = await service.trackAction(req.userId, req.body || {});
+    res.status(201).json({ item: out });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/**
+ * يبدأ stream SSE للمستخدم الحالي مع replay اختياري وheartbeat دوري.
+ *
+ * Critical notes:
+ * - هذا المسار حساس لتعدد الاتصالات والتزامن بين replay وlive events.
+ */
 export function stream(req, res, next) {
   try {
     res.status(200);
@@ -86,25 +124,40 @@ export function stream(req, res, next) {
         ? Math.floor(lastEventId)
         : 0;
 
-    addUserStream(req.userId, res);
+    const requestedChannel =
+      String(req.query?.channel || "").trim().toLowerCase() === "social"
+        ? "social"
+        : "notifications";
+
+    addUserStream(req.userId, res, { channel: requestedChannel });
     writeSseEvent(
       res,
       "connected",
       {
         at: new Date().toISOString(),
+        channel: requestedChannel,
         lastEventId: safeLastEventId || null,
       },
-      { id: getLatestUserEventId(req.userId) }
+      { retry: 3000 }
     );
 
     if (safeLastEventId > 0) {
       const replay = replayUserEvents(req.userId, res, {
         afterEventId: safeLastEventId,
         maxEvents: 1000,
+        channel: requestedChannel,
       });
 
-      if (replay.replayed > 0) {
+      if (replay.resyncRequired) {
+        writeSseEvent(res, "resync_required", {
+          channel: requestedChannel,
+          reason: replay.reason,
+          latestEventId: replay.latestEventId || null,
+          oldestEventId: replay.oldestEventId || null,
+        });
+      } else if (replay.replayed > 0) {
         writeSseEvent(res, "replayed", {
+          channel: requestedChannel,
           replayed: replay.replayed,
           lastEventId: replay.lastEventId,
         });
@@ -115,8 +168,13 @@ export function stream(req, res, next) {
       writeSseEvent(
         res,
         "heartbeat",
-        { at: new Date().toISOString() },
-        { id: getLatestUserEventId(req.userId) }
+        {
+          at: new Date().toISOString(),
+          channel: requestedChannel,
+          latestEventId: getLatestUserEventId(req.userId, {
+            channel: requestedChannel,
+          }),
+        }
       );
     }, 20000);
 

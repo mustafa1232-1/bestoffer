@@ -1,10 +1,16 @@
 import * as service from "./delivery.service.js";
-import {
-  validateDeliveryRegister,
-  validateStartDelivery,
-} from "./delivery.validators.js";
+import { validateDeliveryRegister } from "./delivery.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 
+/**
+ * Purpose:
+ * controllers الدليفري. تطبع ملفات التسجيل وترسل الطلبات إلى service
+ * بصيغة HTTP موحدة لشاشات المندوب.
+ */
+
+/**
+ * ينفذ تسجيل حساب الدليفري مع صور اختيارية للملف والمركبة.
+ */
 export async function register(req, res, next) {
   try {
     const files = req.files || {};
@@ -36,6 +42,9 @@ export async function register(req, res, next) {
   }
 }
 
+/**
+ * يعيد الطلبات الحالية للمندوب الحالي.
+ */
 export async function currentOrders(req, res, next) {
   try {
     const data = await service.currentOrders(req.userId);
@@ -54,6 +63,9 @@ export async function history(req, res, next) {
   }
 }
 
+/**
+ * يحاول claim لطلب توصيل جديد.
+ */
 export async function claimOrder(req, res, next) {
   try {
     await service.claimOrder(req.userId, req.params.orderId);
@@ -65,22 +77,28 @@ export async function claimOrder(req, res, next) {
 
 export async function startOrder(req, res, next) {
   try {
-    const v = validateStartDelivery(req.body);
-    if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
-    }
-
-    await service.startOrder(
-      req.userId,
-      req.params.orderId,
-      req.body.estimatedDeliveryMinutes
-    );
+    await service.startOrder(req.userId, req.params.orderId);
     res.status(204).send();
   } catch (e) {
     next(e);
   }
 }
 
+/**
+ * يعلن وصول المندوب إلى موقع التسليم.
+ */
+export async function markArrived(req, res, next) {
+  try {
+    await service.markArrived(req.userId, req.params.orderId);
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
+}
+
+/**
+ * ينهي الطلب من جهة المندوب.
+ */
 export async function markDelivered(req, res, next) {
   try {
     await service.markDelivered(req.userId, req.params.orderId);
@@ -99,6 +117,9 @@ export async function endDay(req, res, next) {
   }
 }
 
+/**
+ * يعيد analytics خاصة بالمندوب الحالي.
+ */
 export async function analytics(req, res, next) {
   try {
     const out = await service.analytics(req.userId);

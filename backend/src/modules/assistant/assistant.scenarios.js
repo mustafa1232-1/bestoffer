@@ -184,6 +184,108 @@ const TRACK_QUESTIONS = {
   },
 };
 
+const TRACK_FOLLOWUPS = {
+  cuisine: {
+    ar: [
+      "تفضّل نركز على مطاعم مضمونة ومجربة لو تحب نجرب مكان جديد؟",
+      "تريد الطعم التقليدي العراقي لو نروح لشي مختلف اليوم؟",
+      "تحب الأكل يكون ثقيل ومشبع لو خفيف وسريع؟",
+      "نختار حسب الطعم أولًا لو حسب التقييم أولًا؟",
+    ],
+    en: [
+      "Do you want trusted places or to try somewhere new?",
+      "Should we optimize for familiar taste or a new experience?",
+      "Do you want a heavy satisfying meal or a lighter one?",
+      "Should we rank by taste first or ratings first?",
+    ],
+  },
+  budget: {
+    ar: [
+      "تريدني أضبط لك خيار اقتصادي قوي حتى لو الخيارات أقل؟",
+      "أفضّل أراعي السعر الكلي مع التوصيل حتى ما يصير فرق بعد الدفع.",
+      "تحب نثبت سقف واضح للسلة حتى ما نتجاوزه؟",
+      "نوازن بين السعر والجودة لو نركز على الأرخص فقط؟",
+    ],
+    en: [
+      "Should I optimize for strict budget even with fewer options?",
+      "I can include delivery cost in the total to avoid surprises, okay?",
+      "Do you want a hard basket limit so we do not exceed it?",
+      "Do we balance cost and quality or focus on lowest price only?",
+    ],
+  },
+  speed: {
+    ar: [
+      "الآن الوقت يهمك أكثر لو الجودة حتى لو تتأخر شوي؟",
+      "أرتب لك الخيارات الأقرب أولًا حتى يوصل الطلب أسرع.",
+      "تحب أوصل لك أسرع نتيجة الآن وبعدها نفلتر بهدوء؟",
+      "إذا التأخير زاد، أبدله مباشرة بخيار أسرع؟",
+    ],
+    en: [
+      "Is speed more important now than quality?",
+      "I can rank nearby options first for faster delivery.",
+      "Do you want the fastest shortlist now then refine?",
+      "If ETA increases, should I auto-switch to a faster option?",
+    ],
+  },
+  meal: {
+    ar: [
+      "تريد وجبة كاملة مع إضافات لو شيء بسيط وسريع؟",
+      "تحب أضيف مشروب/حلو بشكل ذكي حسب الاختيار؟",
+      "هل الأهم التشبّع لو الطعم الخفيف اليوم؟",
+      "نمشي بوجبة فردية لو عرض عائلي إذا أوفر؟",
+    ],
+    en: [
+      "Do you want a full meal with extras or something quick?",
+      "Should I smart-add drink/dessert suggestions?",
+      "Is fullness or light taste more important today?",
+      "Single meal or family combo if value is better?",
+    ],
+  },
+  audience: {
+    ar: [
+      "بناءً على عدد الأشخاص أقدر أضبط الكمية بدون هدر.",
+      "تحب صواني مشاركة لو كل شخص له وجبته؟",
+      "عدكم أطفال؟ حتى أراعي الخيارات المناسبة إلهم.",
+      "ننوع أكثر لو نختار طبقين مضمونين للكل؟",
+    ],
+    en: [
+      "Based on headcount, I can size portions with less waste.",
+      "Do you prefer sharing platters or individual meals?",
+      "Any kids in the group so I tailor kid-friendly choices?",
+      "More variety or fewer but safer crowd-pleasers?",
+    ],
+  },
+  dietary: {
+    ar: [
+      "أأكد عليك: أكو مكونات لازم نمنعها نهائيًا؟",
+      "تريد خيارات صحية أكثر حتى لو أغلى شوي؟",
+      "أضيف فلتر خالٍ من مسببات الحساسية بشكل صارم؟",
+      "نختار خيارات قليلة سعرات أو نركز على الطعم؟",
+    ],
+    en: [
+      "Let me confirm: any ingredients to avoid strictly?",
+      "Do you want healthier options even if slightly pricier?",
+      "Should I apply strict allergy-safe filtering?",
+      "Do we optimize for lower calories or taste?",
+    ],
+  },
+};
+
+const RESPONSE_STYLE_HINTS = {
+  ar: [
+    "أجاوبك بشكل واضح ومباشر بدون تعقيد.",
+    "أعطيك ترشيح مبني على التقييم والطلبات والمراجعات.",
+    "إذا ما كانت الصورة كاملة، أسألك سؤال توضيحي قبل القرار.",
+    "أذكر لك السبب وراء كل ترشيح حتى تكون واثق بالاختيار.",
+  ],
+  en: [
+    "I answer clearly and directly.",
+    "I recommend based on ratings, order trends, and reviews.",
+    "If data is incomplete, I ask a clarifying question first.",
+    "I explain why each recommendation was selected.",
+  ],
+};
+
 function simpleHash(value) {
   const text = String(value || "");
   let hash = 0;
@@ -263,5 +365,18 @@ export function pickScenarioQuestion(slotKey, lang = "ar", seed = "") {
   const entry = TRACK_QUESTIONS[slotKey] || TRACK_QUESTIONS.cuisine;
   const items = lang === "en" ? entry.en : entry.ar;
   const index = simpleHash(`${slotKey}|${seed}|${lang}`) % items.length;
+  return items[index];
+}
+
+export function pickScenarioFollowUp(slotKey, lang = "ar", seed = "") {
+  const entry = TRACK_FOLLOWUPS[slotKey] || TRACK_FOLLOWUPS.cuisine;
+  const items = lang === "en" ? entry.en : entry.ar;
+  const index = simpleHash(`followup|${slotKey}|${seed}|${lang}`) % items.length;
+  return items[index];
+}
+
+export function pickScenarioResponseHint(lang = "ar", seed = "") {
+  const items = lang === "en" ? RESPONSE_STYLE_HINTS.en : RESPONSE_STYLE_HINTS.ar;
+  const index = simpleHash(`response_hint|${seed}|${lang}`) % items.length;
   return items[index];
 }

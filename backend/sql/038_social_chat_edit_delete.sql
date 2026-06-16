@@ -1,0 +1,9 @@
+BEGIN;
+
+ALTER TABLE social_chat_message
+  ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+
+ALTER TABLE social_chat_message
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+COMMIT;

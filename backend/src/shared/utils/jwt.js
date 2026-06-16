@@ -19,6 +19,7 @@ export function signAccessToken(user, session = {}) {
     sub: user.id,
     role: user.role,
     sa: user.isSuperAdmin === true,
+    tc: user.isTaxiCaptain === true,
   };
   if (session.sessionId != null) payload.sid = Number(session.sessionId);
   if (session.tokenJti) payload.jti = String(session.tokenJti);

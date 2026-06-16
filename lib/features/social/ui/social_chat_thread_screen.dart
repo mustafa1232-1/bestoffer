@@ -18,6 +18,7 @@ import '../../../core/media/media_cache_models.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/notifications/active_chat_context_registry.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
+import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../notifications/data/notifications_api.dart';
 import '../../notifications/state/notifications_controller.dart';
@@ -40,7 +41,10 @@ import 'package:maslaki/core/media/cached_app_image.dart';
 
 final _liveNotificationsApiProvider = Provider<NotificationsApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
-  return NotificationsApi(dio);
+  return NotificationsApi(
+    dio,
+    realtime: ref.read(maslakiRealtimeServiceProvider),
+  );
 });
 
 enum _ChatRealtimeStatus { connecting, connected, reconnecting, offline }
@@ -498,7 +502,10 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     );
     _liveSub?.cancel();
     _liveSub = _liveApi
-        .streamEvents(lastEventId: _lastEventId, channel: 'social')
+        .streamThreadEvents(
+          threadId: widget.threadId,
+          lastEventId: _lastEventId,
+        )
         .listen(
           (event) {
             _reconnectAttempt = 0;

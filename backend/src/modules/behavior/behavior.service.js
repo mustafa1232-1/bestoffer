@@ -178,7 +178,14 @@ export async function trackAutomaticEvent({
 
 export async function listMyActivityEvents(userId, query) {
   const limit = clampInt(query?.limit, 1, 200, 80);
-  return repo.listUserActivityEvents(userId, { limit });
+  const beforeId = clampInt(query?.beforeId, 1, Number.MAX_SAFE_INTEGER, null);
+  const items = await repo.listUserActivityEvents(userId, { limit, beforeId });
+  const nextCursor = items.length >= limit ? Number(items[items.length - 1]?.id || 0) : null;
+  return {
+    items,
+    nextCursor: nextCursor && nextCursor > 0 ? nextCursor : null,
+    limit,
+  };
 }
 
 function toNumber(value, fallback = 0) {
@@ -259,7 +266,7 @@ function extractTopCarSignals(rows = []) {
   };
 }
 
-const profileDomains = ["food", "style", "home", "electronics", "cars", "assistant"];
+const profileDomains = ["food", "style", "home", "electronics", "cars"];
 
 const profileDomainLabels = {
   food: "المطاعم والطعام",
@@ -267,7 +274,6 @@ const profileDomainLabels = {
   home: "التسوق المنزلي",
   electronics: "الإلكترونيات",
   cars: "السيارات",
-  assistant: "المساعد الذكي",
 };
 
 const domainKeywordMap = {
@@ -571,7 +577,6 @@ function buildAffinityProfile({
   orderCategories = [],
   searchSignals = null,
   socialTextSignals = null,
-  aiPreferenceJson = null,
 }) {
   const score = {
     food: 0,
@@ -579,7 +584,6 @@ function buildAffinityProfile({
     home: 0,
     electronics: 0,
     cars: 0,
-    assistant: 0,
   };
 
   const boostByText = (text, amount = 1) => {
@@ -603,7 +607,6 @@ function buildAffinityProfile({
     const category = trimOrNull(row.category)?.toLowerCase();
     const c = toNumber(row.events_count, 0);
     if (!category) continue;
-    if (category === "assistant") score.assistant += c * 5;
     if (category === "cars") score.cars += c * 6;
     if (category === "orders") {
       score.food += c * 2;
@@ -616,9 +619,6 @@ function buildAffinityProfile({
     const name = trimOrNull(row.event_name)?.toLowerCase();
     const category = trimOrNull(row.category)?.toLowerCase();
     const c = toNumber(row.events_count, 0);
-    if (name?.includes("assistant") || category === "assistant") {
-      score.assistant += c * 2;
-    }
     if (name?.includes("cars") || category === "cars") score.cars += c * 2;
     boostByText(`${name || ""} ${category || ""}`, c * 2);
   }
@@ -644,16 +644,6 @@ function buildAffinityProfile({
     const topic = trimOrNull(row.topic)?.toLowerCase();
     const c = toNumber(row.count, 0);
     if (topic && score[topic] !== undefined) score[topic] += c * 3;
-  }
-
-  const homePrefs = aiPreferenceJson?.homePreferences;
-  const interests = Array.isArray(homePrefs?.interests)
-    ? homePrefs.interests.map((v) => String(v || "").toLowerCase())
-    : [];
-  if (interests.length) {
-    for (const key of interests) {
-      boostByText(key, 8);
-    }
   }
 
   const maxValue = Math.max(...Object.values(score), 1);
@@ -845,14 +835,13 @@ export async function getCustomerFullInsight(customerUserId) {
         repo.getCustomerActivitySummary(customerUserId),
         repo.getCustomerHourlyActivity(customerUserId),
         repo.getCustomerEventsForAnalysis(customerUserId),
-        repo.getCustomerAiPreferenceProfile(customerUserId),
         repo.getCustomerLastEvents(customerUserId, { limit: 60 }),
         repo.getCustomerSocialSummary(customerUserId),
         repo.getCustomerSocialEngagement(customerUserId),
         repo.getCustomerTopReviewedMerchants(customerUserId, { limit: 10 }),
         repo.getCustomerRecentSocialTexts(customerUserId, { limit: 260 }),
       ])
-    : [[], [], [], null, [], [], null, [], null, null, [], []];
+    : [[], [], [], null, [], [], [], null, null, [], []];
 
   const [
     topCategories,
@@ -861,7 +850,6 @@ export async function getCustomerFullInsight(customerUserId) {
     activitySummary,
     hourlyActivity,
     eventsForAnalysis,
-    aiProfile,
     lastEvents,
     socialSummaryRaw,
     socialEngagementRaw,
@@ -872,7 +860,6 @@ export async function getCustomerFullInsight(customerUserId) {
   const safeTopCategories = consentGranted ? topCategories : [];
   const safeTopActions = consentGranted ? topActions : [];
   const safeEventsForAnalysis = consentGranted ? eventsForAnalysis : [];
-  const safeAiProfile = consentGranted ? aiProfile : null;
   const safeLastEvents = consentGranted ? lastEvents : [];
   const safeCarSignalsRows = consentGranted ? carSignalsRows : [];
   const safeHourlyActivity = consentGranted ? hourlyActivity : [];
@@ -891,7 +878,6 @@ export async function getCustomerFullInsight(customerUserId) {
     orderCategories: topOrderCategoriesRows,
     searchSignals,
     socialTextSignals,
-    aiPreferenceJson: safeAiProfile?.preference_json || null,
   });
   const activityPattern = buildActivityPattern(safeActivitySummary, safeHourlyActivity);
   const favoritesSummary = mapFavoriteSummary(favorites);
@@ -946,7 +932,6 @@ export async function getCustomerFullInsight(customerUserId) {
         version: base.analytics_consent_version || null,
         grantedAt: base.analytics_consent_granted_at || null,
       },
-      profileLastUpdatedAt: toCompactDateTime(safeAiProfile?.updated_at),
       consentNotice,
     },
     orderProfile: {
@@ -980,15 +965,6 @@ export async function getCustomerFullInsight(customerUserId) {
       favoritesSummary,
       persona,
       socialInsights,
-      aiProfile: {
-        hasProfile: !!safeAiProfile,
-        lastSummary: safeAiProfile?.last_summary || null,
-        homePreferences:
-          safeAiProfile?.preference_json &&
-          typeof safeAiProfile.preference_json === "object"
-            ? safeAiProfile.preference_json.homePreferences || null
-            : null,
-      },
       carSignals: extractTopCarSignals(safeCarSignalsRows),
       consentRestricted: !consentGranted,
       lastEvents: (safeLastEvents || []).map((row) => ({

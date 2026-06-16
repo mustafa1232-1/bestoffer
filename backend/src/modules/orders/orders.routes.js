@@ -6,15 +6,58 @@ import { imageUpload } from "../../shared/utils/upload.js";
 
 export const ordersRouter = Router();
 
-ordersRouter.use(requireAuth, requireCustomer);
+ordersRouter.get("/public/track/:token", c.publicTrack);
+ordersRouter.get("/public/track/:token/stream", c.publicTrackStream);
 
-ordersRouter.post("/", imageUpload.single("imageFile"), c.create);
-ordersRouter.get("/my", c.listMyOrders);
-ordersRouter.get("/favorites/ids", c.listFavoriteProductIds);
-ordersRouter.get("/favorites", c.listFavoriteProducts);
-ordersRouter.post("/favorites/:productId", c.addFavoriteProduct);
-ordersRouter.delete("/favorites/:productId", c.removeFavoriteProduct);
-ordersRouter.post("/:orderId/reorder", c.reorder);
-ordersRouter.post("/:orderId/confirm-delivered", c.confirmDelivered);
-ordersRouter.post("/:orderId/rate-delivery", c.rateDelivery);
-ordersRouter.post("/:orderId/rate-merchant", c.rateMerchant);
+ordersRouter.use(requireAuth);
+
+ordersRouter.post(
+  "/preview",
+  requireCustomer,
+  imageUpload.single("imageFile"),
+  c.preview
+);
+ordersRouter.post("/", requireCustomer, imageUpload.single("imageFile"), c.create);
+ordersRouter.get("/my", requireCustomer, c.listMyOrders);
+ordersRouter.get("/action-reasons", c.listActionReasons);
+ordersRouter.get("/groups/:groupId", requireCustomer, c.getOrderGroupDetails);
+ordersRouter.get("/favorites/ids", requireCustomer, c.listFavoriteProductIds);
+ordersRouter.get("/favorites", requireCustomer, c.listFavoriteProducts);
+ordersRouter.post("/favorites/:productId", requireCustomer, c.addFavoriteProduct);
+ordersRouter.delete(
+  "/favorites/:productId",
+  requireCustomer,
+  c.removeFavoriteProduct
+);
+ordersRouter.post("/:orderId/cancel", requireCustomer, c.cancelByCustomer);
+ordersRouter.post(
+  "/:orderId/request-return",
+  requireCustomer,
+  c.requestReturnByCustomer
+);
+ordersRouter.post("/:orderId/reorder", requireCustomer, c.reorder);
+ordersRouter.get("/:orderId/tracking", requireCustomer, c.getTrackingSnapshot);
+ordersRouter.post("/:orderId/share-token", requireCustomer, c.createShareToken);
+ordersRouter.post(
+  "/:orderId/confirm-delivered",
+  requireCustomer,
+  c.confirmDelivered
+);
+ordersRouter.post("/:orderId/rate-delivery", requireCustomer, c.rateDelivery);
+ordersRouter.post("/:orderId/rate-merchant", requireCustomer, c.rateMerchant);
+
+ordersRouter.get(
+  "/products/:productId/reviews",
+  requireCustomer,
+  c.listProductReviews
+);
+ordersRouter.post(
+  "/products/:productId/reviews",
+  requireCustomer,
+  c.submitProductReview
+);
+ordersRouter.delete(
+  "/products/:productId/reviews",
+  requireCustomer,
+  c.deleteProductReview
+);

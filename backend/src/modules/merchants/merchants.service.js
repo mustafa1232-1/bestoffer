@@ -1,5 +1,37 @@
 import { hashPin } from "../../shared/utils/hash.js";
+import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
 import * as repo from "./merchants.repo.js";
+import {
+  applyMerchantOfferPricing,
+} from "../owner/merchant-offers.logic.js";
+import {
+  listLatestEligibleOffersByProductIds,
+} from "../owner/merchant-offers.repo.js";
+import { AppError } from "../../shared/utils/errors.js";
+import { env } from "../../config/env.js";
+import {
+  buildMerchantCapabilities,
+  inferActivityTypeFromMerchantType,
+  listActivityRegistry,
+  listDiscoveryOptions as listActivityDiscoveryOptions,
+  normalizeActivityType as normalizeRegistryActivityType,
+  normalizeDiscoverySubcategoryList as normalizeRegistryDiscoverySubcategoryList,
+  normalizeDiscoverySubcategory as normalizeRegistryDiscoverySubcategory,
+  requireActivityConfig,
+  requireValidDiscoverySelection,
+} from "./store-activity.registry.js";
+
+const merchantBrowseInflight = new Map();
+
+/**
+ * Purpose:
+ * منطق المتاجر العام من منظور التصفح والإدارة العامة: إنشاء متجر، عرض
+ * المتاجر العامة، المنتجات، ولوحة الإعلانات.
+ *
+ * Used by:
+ * - `merchants.controller.js`
+ * - شاشات التصفح والـ hubs في Flutter
+ */
 
 function normalizeOptional(v) {
   if (v === undefined || v === null) return null;
@@ -14,6 +46,69 @@ function toPositiveIntOrNull(v) {
   return n;
 }
 
+function merchantBrowseInflightKey({
+  type,
+  search,
+  activityType,
+  discoverySubcategory,
+}) {
+  return JSON.stringify([
+    String(type || "all"),
+    String(search || ""),
+    String(activityType || ""),
+    String(discoverySubcategory || ""),
+  ]);
+}
+
+async function runMerchantBrowseSingleFlight(cacheContext, loader) {
+  const key = merchantBrowseInflightKey(cacheContext);
+  const existing = merchantBrowseInflight.get(key);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    try {
+      return await loader();
+    } finally {
+      merchantBrowseInflight.delete(key);
+    }
+  })();
+  merchantBrowseInflight.set(key, promise);
+  return promise;
+}
+
+function toBrowseMerchantPayload(row) {
+  return {
+    id: Number(row.id || 0),
+    name: String(row.name || ""),
+    type: normalizePublicMerchantType(row.type) || "market",
+    activityType:
+      normalizeRegistryActivityType(row.activityType ?? row.activity_type) ||
+      "market",
+    description: normalizeOptional(row.description),
+    phone: normalizeOptional(row.phone),
+    imageUrl: normalizeOptional(row.imageUrl ?? row.image_url),
+    tagline: normalizeOptional(row.tagline),
+    workingHours: normalizeOptional(row.workingHours ?? row.working_hours),
+    avgMerchantRating: Number(row.avgMerchantRating ?? row.avg_merchant_rating ?? 0),
+    ratingCount: Math.max(0, Number(row.ratingCount ?? row.rating_count ?? 0)),
+    isOpen: row.isOpen === true || row.is_open === true,
+    hasDiscountOffer:
+      row.hasDiscountOffer === true || row.has_discount_offer === true,
+    hasFreeDeliveryOffer:
+      row.hasFreeDeliveryOffer === true || row.has_free_delivery_offer === true,
+    supportsPharmacyWorkflow:
+      row.supportsPharmacyWorkflow === true ||
+      row.supports_pharmacy_workflow === true,
+    smartRankScore: Number(row.smartRankScore ?? row.smart_rank_score ?? 0),
+  };
+}
+
+/**
+ * ينشئ متجراً جديداً إما بربطه بمالك موجود أو بإنشاء مالك جديد معه.
+ *
+ * Critical notes:
+ * - هذه الدالة حساسة لتعارضات phone/owner uniqueness.
+ */
 export async function createMerchant(dto, approvedByUserId) {
   const ownerUserId = toPositiveIntOrNull(dto.ownerUserId);
   const hasOwnerUserId = ownerUserId !== null;
@@ -31,37 +126,97 @@ export async function createMerchant(dto, approvedByUserId) {
     throw err;
   }
 
+  const requestedActivityType = normalizeRegistryActivityType(
+    dto.activityType,
+    inferActivityTypeFromMerchantType(dto.type)
+  );
+  const activityConfig = await requireActivityConfig(requestedActivityType);
+  if (String(activityConfig.baseType || "").trim() !== String(dto.type || "").trim()) {
+    throw new AppError("VALIDATION_ERROR", {
+      status: 400,
+      details: { fields: { type: "INVALID_ACTIVITY_BASE_TYPE" } },
+    });
+  }
+
+  const discoverySelection = await requireValidDiscoverySelection(
+    activityConfig.activityType,
+    {
+      discoverySubcategory: dto.discoverySubcategory,
+      discoverySubcategories: dto.discoverySubcategories,
+      discoverySelectAll: dto.discoverySelectAll === true,
+    }
+  );
+  const capabilities = buildMerchantCapabilities(activityConfig, {
+    serviceFlags: dto.serviceFlags,
+    badges: dto.badges,
+    supportsChat: dto.supportsChat,
+    supportsAttachments: dto.supportsAttachments,
+    supportsPharmacyWorkflow: dto.supportsPharmacyWorkflow,
+  });
+
   const merchant = {
     name: dto.name.trim(),
     type: dto.type,
+    activityType: activityConfig.activityType,
+    discoverySubcategory: discoverySelection.legacyDiscoverySubcategory || null,
+    discoverySubcategories: discoverySelection.discoverySubcategories,
+    discoverySelectAll: discoverySelection.discoverySelectAll === true,
     description: normalizeOptional(dto.description),
     phone: normalizeOptional(dto.phone),
     imageUrl: normalizeOptional(dto.imageUrl),
+    serviceFlags: capabilities.serviceFlags,
+    badges: capabilities.badges,
+    supportsChat: capabilities.supportsChat,
+    supportsAttachments: capabilities.supportsAttachments,
+    supportsPharmacyWorkflow: capabilities.supportsPharmacyWorkflow,
   };
 
   let ownerToCreate = null;
   let ownerPinHash = null;
-
-  if (!hasOwnerUserId && hasOwnerObject) {
-    ownerToCreate = {
-      fullName: dto.owner.fullName.trim(),
-      phone: dto.owner.phone.trim(),
-      block: dto.owner.block.trim(),
-      buildingNumber: dto.owner.buildingNumber.trim(),
-      apartment: dto.owner.apartment.trim(),
-      imageUrl: normalizeOptional(dto.owner.imageUrl),
-    };
-    ownerPinHash = await hashPin(dto.owner.pin);
-  }
-
-  try {
-    return await repo.createMerchantWithOwnerLink({
+  let createMerchantOperation = () =>
+    repo.createMerchantWithOwnerLink({
       merchant,
       approvedByUserId,
       ownerUserId,
       ownerToCreate,
       ownerPinHash,
     });
+
+  if (!hasOwnerUserId && hasOwnerObject) {
+    const ownerFullName = dto.owner.fullName.trim();
+    const ownerPhone = dto.owner.phone.trim();
+    ownerToCreate = {
+      fullName: ownerFullName,
+      username: null,
+      phone: ownerPhone,
+      block: dto.owner.block.trim(),
+      buildingNumber: dto.owner.buildingNumber.trim(),
+      apartment: dto.owner.apartment.trim(),
+      imageUrl: normalizeOptional(dto.owner.imageUrl),
+    };
+    ownerPinHash = await hashPin(dto.owner.pin);
+    createMerchantOperation = () =>
+      runWithGeneratedAppUserUsername({
+        fullName: ownerFullName,
+        phone: ownerPhone,
+        execute: (username) =>
+          repo.createMerchantWithOwnerLink({
+            merchant,
+            approvedByUserId,
+            ownerUserId,
+            ownerToCreate: {
+              ...ownerToCreate,
+              username,
+            },
+            ownerPinHash,
+          }),
+      });
+  }
+
+  try {
+    const created = await createMerchantOperation();
+    await repo.ensureMerchantDefaultInternalCategories(created.id);
+    return created;
   } catch (e) {
     if (e?.code === "23505") {
       const constraint = String(e.constraint || "");
@@ -80,18 +235,272 @@ export async function createMerchant(dto, approvedByUserId) {
   }
 }
 
-export async function listMerchants(type) {
-  return repo.getAllMerchants(type);
+/**
+ * يعيد قائمة المتاجر العامة مع تطبيع نوع التاجر المعروض للواجهة.
+ */
+export async function listMerchants(type, search, options = {}) {
+  const requestedType = normalizePublicMerchantType(type);
+  const requestedActivityType = normalizeRegistryActivityType(options.activityType);
+  const requestedDiscoverySubcategory = normalizeRegistryDiscoverySubcategory(
+    options.discoverySubcategory
+  );
+  const cacheContext = {
+    type: requestedType,
+    search:
+      typeof search === "string" && search.trim().length ? search.trim() : null,
+    activityType: requestedActivityType,
+    discoverySubcategory: requestedDiscoverySubcategory,
+  };
+  const cached = await repo.getCachedMerchantBrowseList(cacheContext);
+  if (Array.isArray(cached)) {
+    return cached;
+  }
+  return runMerchantBrowseSingleFlight(cacheContext, async () => {
+    const recached = await repo.getCachedMerchantBrowseList(cacheContext);
+    if (Array.isArray(recached)) {
+      return recached;
+    }
+
+    const rows = await repo.getAllMerchants(requestedType, search, {
+      activityType: requestedActivityType,
+      discoverySubcategory: requestedDiscoverySubcategory,
+    });
+
+    const mapped = rows.map((row) => ({
+      ...row,
+      type: normalizePublicMerchantType(row.type) || "market",
+      activityType: normalizeRegistryActivityType(row.activity_type) || "market",
+      discoverySubcategory: normalizeRegistryDiscoverySubcategory(
+        row.discovery_subcategory
+      ),
+      discoverySubcategories: normalizeRegistryDiscoverySubcategoryList(
+        row.discovery_subcategories
+      ),
+      discoverySelectAll: row.discovery_select_all === true,
+      serviceFlags:
+        row.service_flags_json && typeof row.service_flags_json === "object"
+          ? row.service_flags_json
+          : {},
+      badges: Array.isArray(row.badges_json) ? row.badges_json : [],
+      supportsChat: row.supports_chat === true,
+      supportsAttachments: row.supports_attachments === true,
+      supportsPharmacyWorkflow: row.supports_pharmacy_workflow === true,
+    }));
+
+    if (mapped.length <= 1) {
+      const payload = mapped.map(toBrowseMerchantPayload);
+      await repo.setCachedMerchantBrowseList(cacheContext, payload);
+      return payload;
+    }
+
+    const prices = mapped
+      .map((row) => Number(row.avg_menu_price || 0))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const minPrice = prices.length ? Math.min(...prices) : 0;
+    const maxPrice = prices.length ? Math.max(...prices) : 0;
+    const priceRange = Math.max(1, maxPrice - minPrice);
+    const globalRatingValues = mapped
+      .map((row) => Number(row.avg_merchant_rating || 0))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const globalRating =
+      globalRatingValues.length > 0
+        ? globalRatingValues.reduce((sum, value) => sum + value, 0) /
+          globalRatingValues.length
+        : 3.8;
+
+    const ranked = mapped
+      .map((row) => {
+        const ratingCount = Math.max(0, Number(row.rating_count || 0));
+        const avgRating = Math.max(
+          0,
+          Math.min(5, Number(row.avg_merchant_rating || 0))
+        );
+        const avgPrice = Math.max(0, Number(row.avg_menu_price || 0));
+        const completedOrders = Math.max(
+          0,
+          Number(row.completed_orders_count || 0)
+        );
+
+        const bayesianRating =
+          (avgRating * ratingCount + globalRating * 8) /
+          Math.max(1, ratingCount + 8);
+        const qualityScore = bayesianRating / 5;
+        const affordabilityScore =
+          avgPrice > 0 && maxPrice > minPrice
+            ? Math.max(0, Math.min(1, 1 - (avgPrice - minPrice) / priceRange))
+            : 0.5;
+        const reliabilityScore = Math.max(
+          0,
+          Math.min(1, Math.log1p(completedOrders) / Math.log1p(240))
+        );
+
+        const smartScore =
+          qualityScore * 0.55 +
+          affordabilityScore * 0.30 +
+          reliabilityScore * 0.15;
+        return {
+          ...row,
+          smart_rank_score: Number(smartScore.toFixed(6)),
+        };
+      })
+      .sort((a, b) => {
+        const scoreDiff =
+          Number(b.smart_rank_score || 0) - Number(a.smart_rank_score || 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        const ratingDiff =
+          Number(b.avg_merchant_rating || 0) -
+          Number(a.avg_merchant_rating || 0);
+        if (ratingDiff !== 0) return ratingDiff;
+        const priceDiff =
+          Number(a.avg_menu_price || 0) - Number(b.avg_menu_price || 0);
+        if (priceDiff !== 0) return priceDiff;
+        return Number(b.id || 0) - Number(a.id || 0);
+      });
+    const payload = ranked.map(toBrowseMerchantPayload);
+    await repo.setCachedMerchantBrowseList(cacheContext, payload);
+    return payload;
+  });
 }
 
-export async function listMerchantProducts(merchantId) {
-  return repo.getPublicMerchantProducts(merchantId);
+/**
+ * يعيد المنتجات العامة لمتجر واحد مع دمج العروض النشطة في السعر الظاهر.
+ */
+export async function listMerchantProducts(merchantId, { limit, offset } = {}) {
+  const rows = await repo.getPublicMerchantProducts(merchantId, { limit, offset });
+  if (!rows.length) return rows;
+  const activeOffers = await listLatestEligibleOffersByProductIds({
+    merchantId: Number(merchantId),
+    productIds: rows.map((row) => Number(row.id)),
+  });
+  const offerMap = new Map(
+    activeOffers.map((offer) => [String(offer.product_id), offer])
+  );
+
+  return rows.map((row) => {
+    const activeOffer = offerMap.get(String(row.id)) || null;
+    if (!activeOffer) return row;
+
+    const pricing = applyMerchantOfferPricing({
+      baseUnitPrice: Number(row.price),
+      quantity: 1,
+      offer: activeOffer,
+      fallbackDiscountedPrice: null,
+    });
+
+    return {
+      ...row,
+      discounted_price:
+        activeOffer.offer_type === "buy_x_get_y"
+          ? null
+          : pricing.displayDiscountedUnitPrice,
+      offer_label: pricing.offerLabel,
+      active_offer_id: Number(activeOffer.id),
+      active_offer_type: activeOffer.offer_type,
+      active_offer_title: activeOffer.title,
+      active_offer_discount_value:
+        activeOffer.discount_value == null
+          ? null
+          : Number(activeOffer.discount_value),
+      active_offer_buy_quantity:
+        activeOffer.buy_quantity == null
+          ? null
+          : Number(activeOffer.buy_quantity),
+      active_offer_get_quantity:
+        activeOffer.get_quantity == null
+          ? null
+          : Number(activeOffer.get_quantity),
+    };
+  });
 }
 
 export async function listMerchantCategories(merchantId) {
   return repo.getPublicMerchantCategories(merchantId);
 }
 
+function mapPublicMerchantRow(row) {
+  return {
+    ...row,
+    id: Number(row.id),
+    type: normalizePublicMerchantType(row.type) || "market",
+    activityType: normalizeRegistryActivityType(row.activity_type) || "market",
+    discoverySubcategory: normalizeRegistryDiscoverySubcategory(
+      row.discovery_subcategory
+    ),
+    discoverySubcategories: normalizeRegistryDiscoverySubcategoryList(
+      row.discovery_subcategories
+    ),
+    discoverySelectAll: row.discovery_select_all === true,
+    serviceFlags:
+      row.service_flags_json && typeof row.service_flags_json === "object"
+        ? row.service_flags_json
+        : {},
+    badges: Array.isArray(row.badges_json) ? row.badges_json : [],
+    supportsChat: row.supports_chat === true,
+    supportsAttachments: row.supports_attachments === true,
+    supportsPharmacyWorkflow: row.supports_pharmacy_workflow === true,
+    hasDiscountOffer: row.has_discount_offer === true,
+    hasFreeDeliveryOffer: row.has_free_delivery_offer === true,
+    avgMerchantRating: Number(row.avg_merchant_rating || 0),
+    ratingCount: Number(row.rating_count || 0),
+    latitude:
+      row.latitude === null || row.latitude === undefined
+        ? null
+        : Number(row.latitude),
+    longitude:
+      row.longitude === null || row.longitude === undefined
+        ? null
+        : Number(row.longitude),
+    distanceKm:
+      row.distance_km === null || row.distance_km === undefined
+        ? null
+        : Number(row.distance_km),
+  };
+}
+
+export async function getPublicMerchantSummary(merchantId) {
+  const row = await repo.getPublicMerchantById(merchantId);
+  if (!row) {
+    throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
+  }
+  return mapPublicMerchantRow(row);
+}
+
+export async function listNearbyMerchants({
+  latitude,
+  longitude,
+  radiusKm,
+  limit,
+  type,
+}) {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+    throw new AppError("LATITUDE_INVALID", { status: 400 });
+  }
+  if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+    throw new AppError("LONGITUDE_INVALID", { status: 400 });
+  }
+
+  const radius = Number.isFinite(Number(radiusKm))
+    ? Number(radiusKm)
+    : Number(env.nearbyStoresRadiusKmDefault || 10);
+  const maxItems = Number.isFinite(Number(limit))
+    ? Math.trunc(Number(limit))
+    : Number(env.nearbyStoresLimitDefault || 40);
+
+  const rows = await repo.getNearbyPublicMerchants({
+    latitude: lat,
+    longitude: lng,
+    radiusKm: radius,
+    limit: maxItems,
+    type: normalizePublicMerchantType(type),
+  });
+  return rows.map(mapPublicMerchantRow);
+}
+
+/**
+ * يعيد بطاقات لوحة الإعلانات العامة المعروضة في الواجهة.
+ */
 export async function listPublicAdBoard(type) {
   const normalizedType = normalizeType(type);
   const rows = await repo.getPublicAdBoardItems({ type: normalizedType });
@@ -102,6 +511,16 @@ export async function listPublicAdBoard(type) {
     imageUrl: row.image_url || row.merchant_image_url || null,
     badgeLabel: row.badge_label || null,
     ctaLabel: row.cta_label || null,
+    type: row.cta_target_type || "none",
+    targetId: row.target_id
+      ? Number(row.target_id)
+      : row.merchant_id
+      ? Number(row.merchant_id)
+      : null,
+    targetRoute: row.target_route || null,
+    promoCode: row.promo_code || null,
+    category: row.category || null,
+    externalLink: row.external_link || null,
     ctaTargetType: row.cta_target_type || "none",
     ctaTargetValue: row.cta_target_value || null,
     merchantId: row.merchant_id ? Number(row.merchant_id) : null,
@@ -111,6 +530,36 @@ export async function listPublicAdBoard(type) {
     priority: Number(row.priority || 0),
     startsAt: row.starts_at ? new Date(row.starts_at).toISOString() : null,
     endsAt: row.ends_at ? new Date(row.ends_at).toISOString() : null,
+  }));
+}
+
+export async function listStoreActivities() {
+  const rows = await listActivityRegistry({ includeInactive: false });
+  return rows.map((item) => ({
+    activityType: item.activityType,
+    baseType: item.baseType,
+    displayNameEn: item.displayNameEn,
+    displayNameAr: item.displayNameAr,
+    hasDiscoverySubcategories: item.hasDiscoverySubcategories,
+    supportsChat: item.supportsChat,
+    supportsAttachments: item.supportsAttachments,
+    supportsPharmacyWorkflow: item.supportsPharmacyWorkflow,
+    internalCategoryMode: item.internalCategoryMode,
+    defaultServiceFlags: item.defaultServiceFlags,
+    defaultBadges: item.defaultBadges,
+  }));
+}
+
+export async function listStoreDiscoveryOptions(activityType) {
+  const options = await listActivityDiscoveryOptions(activityType);
+  return options.map((item) => ({
+    id: item.id,
+    activityType: item.activityType,
+    code: item.code,
+    labelEn: item.labelEn,
+    labelAr: item.labelAr,
+    orderIndex: item.orderIndex,
+    metadata: item.metadata,
   }));
 }
 
@@ -222,6 +671,53 @@ function normalizeType(type) {
   return out;
 }
 
+function normalizePublicMerchantType(type) {
+  if (type == null) return null;
+  const raw = String(type).trim().toLowerCase();
+  if (!raw) return null;
+
+  if (raw === "restaurant") return "restaurant";
+  if (raw === "market") return "market";
+
+  if (
+    [
+      "restaurants",
+      "food",
+      "foods",
+      "sweets",
+      "dessert",
+      "cafe",
+      "coffee",
+      "bakery",
+      "pastry",
+    ].includes(raw)
+  ) {
+    return "restaurant";
+  }
+
+  if (
+    [
+      "store",
+      "stores",
+      "shop",
+      "shops",
+      "grocery",
+      "supermarket",
+      "pharmacy",
+      "electronics",
+      "home",
+      "fashion",
+      "cars",
+      "car",
+      "automotive",
+    ].includes(raw)
+  ) {
+    return "market";
+  }
+
+  return null;
+}
+
 function buildMerchantInsights(baseRows, selectedType) {
   if (!baseRows.length) return [];
 
@@ -303,9 +799,28 @@ function buildMerchantInsights(baseRows, selectedType) {
       merchantId,
       name: row.name,
       type: row.type,
+      activityType: normalizeRegistryActivityType(row.activity_type) || "market",
+      discoverySubcategory: normalizeRegistryDiscoverySubcategory(
+        row.discovery_subcategory
+      ),
+      discoverySubcategories: normalizeRegistryDiscoverySubcategoryList(
+        row.discovery_subcategories
+      ),
+      discoverySelectAll: row.discovery_select_all === true,
       description: row.description || null,
       phone: row.phone || null,
       imageUrl: row.image_url || null,
+      tagline: row.tagline || null,
+      workingHours: row.working_hours || null,
+      serviceAreaNote: row.service_area_note || null,
+      serviceFlags:
+        row.service_flags_json && typeof row.service_flags_json === "object"
+          ? row.service_flags_json
+          : {},
+      badges: Array.isArray(row.badges_json) ? row.badges_json : [],
+      supportsChat: row.supports_chat === true,
+      supportsAttachments: row.supports_attachments === true,
+      supportsPharmacyWorkflow: row.supports_pharmacy_workflow === true,
       isOpen: Boolean(row.is_open),
       hasDiscountOffer: Boolean(row.has_discount_offer),
       hasFreeDeliveryOffer: Boolean(row.has_free_delivery_offer),
@@ -443,12 +958,18 @@ function buildCustomerProfile(profileSignals, insights) {
   };
 }
 
-export async function getCustomerDiscovery(customerUserId, type) {
+export async function getCustomerDiscovery(customerUserId, type, options = {}) {
   const normalizedType = normalizeType(type);
+  const activityType = normalizeRegistryActivityType(options.activityType);
+  const discoverySubcategory = normalizeRegistryDiscoverySubcategory(
+    options.discoverySubcategory
+  );
   const [baseRows, profileSignals] = await Promise.all([
     repo.getMerchantsDiscoveryBase({
       type: normalizedType,
       customerUserId,
+      activityType,
+      discoverySubcategory,
     }),
     repo.getCustomerProfileSignals({
       type: normalizedType,
@@ -463,6 +984,8 @@ export async function getCustomerDiscovery(customerUserId, type) {
   return {
     generatedAt: new Date().toISOString(),
     type: normalizedType,
+    activityType,
+    discoverySubcategory,
     ranking,
     profile,
     algorithm: {

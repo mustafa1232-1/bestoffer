@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/files/local_image_file.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/notifications/local_notification_service.dart';
+import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/orders_api.dart';
 import '../models/order_model.dart';
@@ -14,7 +15,10 @@ import 'delivery_address_controller.dart';
 
 final ordersApiProvider = Provider<OrdersApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
-  return OrdersApi(dio);
+  return OrdersApi(
+    dio,
+    realtime: ref.read(maslakiRealtimeServiceProvider),
+  );
 });
 
 final ordersControllerProvider =

@@ -1,7 +1,8 @@
 ﻿import { createNotification } from "../notifications/notifications.repo.js";
-import { emitToUser } from "../../shared/realtime/live-events.js";
+import { emitRealtimeToUser } from "../../shared/realtime/realtime-gateway.js";
 import { AppError } from "../../shared/utils/errors.js";
 import * as repo from "./taxi.repo.js";
+import * as loyaltyRepo from "./taxi.loyalty.repo.js";
 
 const FIRST_SEARCH_RADIUS_M = 2000;
 const EXPANDED_SEARCH_RADIUS_M = 4000;
@@ -12,6 +13,8 @@ const CAPTAIN_SUBSCRIPTION_MONTHLY_FEE_IQD = 10000;
 
 let lifecycleWorker = null;
 let lifecycleRunning = false;
+let lastLifecycleSweepAt = 0;
+const LIFECYCLE_MIN_INTERVAL_MS = 4000;
 
 function addDays(dateInput, days) {
   const d = new Date(dateInput);
@@ -104,7 +107,8 @@ function asInt(value) {
 }
 
 function isCaptainRole(role) {
-  return role === "delivery";
+  const normalized = String(role || "").trim().toLowerCase();
+  return normalized === "delivery" || normalized === "taxi_captain";
 }
 
 function ensureRideAccess({ ride, userId, role, isSuperAdmin }) {
@@ -164,12 +168,71 @@ function buildCompactRidePayload(ride) {
     assignedCaptainUserId: ride.assignedCaptainUserId,
     searchPhase: ride.searchPhase,
     searchRadiusM: ride.searchRadiusM,
+    rejectedCaptainsCount: ride.rejectedCaptainsCount ?? 0,
+    priceRaiseRecommended: ride.priceRaiseRecommended === true,
+    priceRaisePromptedAt: ride.priceRaisePromptedAt ?? null,
+    finalAcceptanceDeadlineAt: ride.finalAcceptanceDeadlineAt ?? null,
     captainRating: ride.captainRating ?? null,
     captainReview: ride.captainReview ?? null,
     captainRatedAt: ride.captainRatedAt ?? null,
     createdAt: ride.createdAt,
     updatedAt: ride.updatedAt,
   };
+}
+
+function shouldRecommendRidePriceRaise(ride) {
+  if (!ride || ride.status !== "searching") return false;
+  const rejectedCaptainsCount = Number(ride.rejectedCaptainsCount || 0);
+  const deadlineMs = ride.finalAcceptanceDeadlineAt
+    ? new Date(ride.finalAcceptanceDeadlineAt).getTime()
+    : null;
+  const deadlineExpired = deadlineMs != null && deadlineMs <= Date.now();
+  return rejectedCaptainsCount >= 3 || deadlineExpired;
+}
+
+async function maybePromptRidePriceRaise(ride) {
+  if (!ride) return { recommended: false, prompted: false };
+
+  const recommended = shouldRecommendRidePriceRaise(ride);
+  ride.priceRaiseRecommended = recommended;
+  if (!recommended) return { recommended: false, prompted: false };
+
+  if (ride.priceRaisePromptedAt) {
+    return { recommended: true, prompted: false };
+  }
+
+  const mark = await repo.markRidePriceRaisePrompted(ride.id);
+  if (!mark.updated) {
+    return { recommended: true, prompted: false };
+  }
+
+  ride.priceRaisePromptedAt = new Date().toISOString();
+  try {
+    await createNotification({
+      userId: ride.customerUserId,
+      type: "taxi.ride.price_raise_recommended",
+      title: "ننصح برفع السعر",
+      body: "تم رفض الطلب عدة مرات أو انتهت مهلة القبول. رفع السعر يزيد فرص القبول.",
+      payload: {
+        rideId: ride.id,
+        rejectedCaptainsCount: Number(ride.rejectedCaptainsCount || 0),
+        finalAcceptanceDeadlineAt: ride.finalAcceptanceDeadlineAt || null,
+      },
+    });
+  } catch (error) {
+    console.warn(
+      "[taxi] price raise notification queue failed",
+      error?.message || error
+    );
+  }
+
+  void emitRealtimeToUser(ride.customerUserId, "taxi_ride_update", {
+    eventType: "price_raise_recommended",
+    ride: buildCompactRidePayload(ride),
+    rejectedCaptainsCount: Number(ride.rejectedCaptainsCount || 0),
+  });
+
+  return { recommended: true, prompted: true };
 }
 
 function sortBidQueueByCreatedAt(bids) {
@@ -302,9 +365,9 @@ async function emitRideUpdate(ride, eventType, extra = {}) {
     ...extra,
   };
 
-  emitToUser(ride.customerUserId, "taxi_ride_update", payload);
+  void emitRealtimeToUser(ride.customerUserId, "taxi_ride_update", payload);
   if (ride.assignedCaptainUserId) {
-    emitToUser(ride.assignedCaptainUserId, "taxi_ride_update", payload);
+    void emitRealtimeToUser(ride.assignedCaptainUserId, "taxi_ride_update", payload);
   }
 }
 
@@ -319,7 +382,7 @@ async function notifyCaptainsNearRide(ride) {
   });
 
   for (const captain of nearbyCaptains) {
-    emitToUser(captain.captainUserId, "taxi_new_request", {
+    void emitRealtimeToUser(captain.captainUserId, "taxi_new_request", {
       ride: buildCompactRidePayload(ride),
       distanceM: captain.distanceM,
     });
@@ -378,7 +441,7 @@ async function processNegotiationTimeoutsAndEmit() {
       },
     });
 
-    emitToUser(ride.customerUserId, "taxi_bid_update", {
+    void emitRealtimeToUser(ride.customerUserId, "taxi_bid_update", {
       eventType: "bid_timeout_switched",
       rideId: ride.id,
       bidQueue,
@@ -387,7 +450,7 @@ async function processNegotiationTimeoutsAndEmit() {
     });
 
     if (timedOut.timedOutBid?.captainUserId) {
-      emitToUser(timedOut.timedOutBid.captainUserId, "taxi_bid_update", {
+      void emitRealtimeToUser(timedOut.timedOutBid.captainUserId, "taxi_bid_update", {
         eventType: "bid_timeout",
         rideId: ride.id,
         bidId: timedOut.timedOutBid.id,
@@ -406,7 +469,7 @@ async function processNegotiationTimeoutsAndEmit() {
     }
 
     if (timedOut.nextBid?.captainUserId) {
-      emitToUser(timedOut.nextBid.captainUserId, "taxi_bid_update", {
+      void emitRealtimeToUser(timedOut.nextBid.captainUserId, "taxi_bid_update", {
         eventType: "you_are_current_bid",
         rideId: ride.id,
         bidId: timedOut.nextBid.id,
@@ -472,8 +535,8 @@ async function processRingingCallTimeoutsAndEmit() {
       signal,
     };
 
-    emitToUser(ended.initiatorUserId, "taxi_call_update", payload);
-    emitToUser(ended.receiverUserId, "taxi_call_update", payload);
+    void emitRealtimeToUser(ended.initiatorUserId, "taxi_call_update", payload);
+    void emitRealtimeToUser(ended.receiverUserId, "taxi_call_update", payload);
 
     queueNotification({
       userId: ended.initiatorUserId,
@@ -488,9 +551,17 @@ async function processRingingCallTimeoutsAndEmit() {
   }
 }
 
-async function processSearchingLifecycleAndEmit() {
+async function processSearchingLifecycleAndEmit({ force = false } = {}) {
   if (lifecycleRunning) return;
+  if (
+    force !== true &&
+    lastLifecycleSweepAt > 0 &&
+    Date.now() - lastLifecycleSweepAt < LIFECYCLE_MIN_INTERVAL_MS
+  ) {
+    return;
+  }
   lifecycleRunning = true;
+  lastLifecycleSweepAt = Date.now();
 
   try {
     await processRingingCallTimeoutsAndEmit();
@@ -586,6 +657,7 @@ async function processSearchingLifecycleAndEmit() {
     console.warn("[taxi] lifecycle processing failed", error?.message || error);
   } finally {
     lifecycleRunning = false;
+    lastLifecycleSweepAt = Date.now();
   }
 }
 
@@ -593,13 +665,13 @@ export function startTaxiLifecycleWorker({ intervalMs = 5000 } = {}) {
   if (lifecycleWorker) return;
 
   lifecycleWorker = setInterval(() => {
-    processSearchingLifecycleAndEmit().catch((error) => {
+    processSearchingLifecycleAndEmit({ force: true }).catch((error) => {
       console.warn("[taxi] worker tick failed", error?.message || error);
     });
   }, Math.max(5000, Number(intervalMs) || 20000));
 
   lifecycleWorker.unref?.();
-  void processSearchingLifecycleAndEmit();
+  void processSearchingLifecycleAndEmit({ force: true });
 }
 
 export async function createRideRequest(customerUserId, dto) {
@@ -608,6 +680,19 @@ export async function createRideRequest(customerUserId, dto) {
   const current = await repo.getCustomerCurrentRide(customerUserId);
   if (current) {
     throw new AppError("TAXI_ACTIVE_RIDE_EXISTS", { status: 409 });
+  }
+
+  let couponPreview = null;
+  if (dto.couponCode) {
+    const preview = await loyaltyRepo.getCouponPreviewForUser({
+      userId: customerUserId,
+      couponCode: dto.couponCode,
+      proposedFareIqd: dto.proposedFareIqd,
+    });
+    if (preview.code !== "OK") {
+      throw new AppError(preview.code, { status: 409 });
+    }
+    couponPreview = preview;
   }
 
   const ride = await repo.createRideRequest({
@@ -621,6 +706,18 @@ export async function createRideRequest(customerUserId, dto) {
     proposedFareIqd: dto.proposedFareIqd,
     searchRadiusM: FIRST_SEARCH_RADIUS_M,
     note: dto.note,
+    scheduleMode: dto.scheduleMode,
+    scheduledRideId: dto.scheduledRideId,
+    scheduledFor: dto.scheduledFor,
+    couponId: couponPreview?.coupon?.id ?? null,
+    couponCodeSnapshot: couponPreview?.coupon?.code ?? dto.couponCode ?? null,
+    couponUseIndex: couponPreview?.useIndex ?? null,
+    fareBeforeDiscountIqd:
+      couponPreview?.fareBeforeDiscountIqd ?? Number(dto.proposedFareIqd),
+    couponDiscountIqd: couponPreview?.discountIqd ?? 0,
+    fareAfterDiscountIqd:
+      couponPreview?.fareAfterDiscountIqd ?? Number(dto.proposedFareIqd),
+    couponSettlementState: couponPreview ? "reserved" : "none",
   });
 
   await repo.createRideEvent({
@@ -633,6 +730,12 @@ export async function createRideRequest(customerUserId, dto) {
       searchRadiusM: ride.searchRadiusM,
       searchPhase: ride.searchPhase,
       windowMinutes: SEARCH_STAGE_MINUTES,
+      scheduleMode: ride.scheduleMode,
+      scheduledFor: ride.scheduledFor,
+      couponCode: ride.couponCodeSnapshot,
+      couponDiscountIqd: ride.couponDiscountIqd,
+      fareBeforeDiscountIqd: ride.fareBeforeDiscountIqd,
+      fareAfterDiscountIqd: ride.fareAfterDiscountIqd,
     },
   });
 
@@ -730,6 +833,103 @@ function sanitizeCaptainProfileEditChanges(input = {}) {
   return out;
 }
 
+function mapCaptainProfileEditRequest(row) {
+  const requestedChanges =
+    row?.requested_changes && typeof row.requested_changes === "object"
+      ? row.requested_changes
+      : {};
+
+  const currentProfile = {
+    fullName: row?.full_name || null,
+    phone: row?.phone || null,
+    block: row?.block || null,
+    buildingNumber: row?.building_number || null,
+    apartment: row?.apartment || null,
+    profileImageUrl: row?.profile_image_url || null,
+    carImageUrl: row?.car_image_url || null,
+    vehicleType: row?.vehicle_type || null,
+    carMake: row?.car_make || null,
+    carModel: row?.car_model || null,
+    carYear: row?.car_year == null ? null : Number(row.car_year),
+    carColor: row?.car_color || null,
+    plateNumber: row?.plate_number || null,
+  };
+
+  return {
+    id: Number(row?.id || 0),
+    captainUserId: Number(row?.captain_user_id || 0),
+    fullName: row?.full_name || null,
+    phone: row?.phone || null,
+    block: row?.block || null,
+    buildingNumber: row?.building_number || null,
+    apartment: row?.apartment || null,
+    captainNote: row?.captain_note || null,
+    requestedAt: row?.requested_at || null,
+    reviewedAt: row?.reviewed_at || null,
+    adminNote: row?.admin_note || null,
+    status: String(row?.status || "pending").trim().toLowerCase(),
+    requestedChanges,
+    currentProfile,
+  };
+}
+
+export async function listCustomerRideHistory(customerUserId, query = {}) {
+  return repo.listCustomerRideHistoryByPeriod(customerUserId, query);
+}
+
+export async function rebookRideByCustomer({ customerUserId, rideId }) {
+  await processSearchingLifecycleAndEmit();
+
+  const current = await repo.getCustomerCurrentRide(customerUserId);
+  if (current) {
+    throw new AppError("TAXI_ACTIVE_RIDE_EXISTS", { status: 409 });
+  }
+
+  const sourceRide = await repo.getRideByIdForCustomer(rideId, customerUserId);
+  if (!sourceRide) {
+    throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+  }
+  if (!["completed", "cancelled", "expired"].includes(String(sourceRide.status || ""))) {
+    throw new AppError("TAXI_REBOOK_ONLY_CLOSED_RIDES", { status: 409 });
+  }
+
+  const result = await createRideRequest(customerUserId, {
+    pickupLatitude: Number(sourceRide.pickup?.latitude),
+    pickupLongitude: Number(sourceRide.pickup?.longitude),
+    dropoffLatitude: Number(sourceRide.dropoff?.latitude),
+    dropoffLongitude: Number(sourceRide.dropoff?.longitude),
+    pickupLabel: String(sourceRide.pickup?.label || "").trim(),
+    dropoffLabel: String(sourceRide.dropoff?.label || "").trim(),
+    proposedFareIqd:
+      Number(
+        sourceRide.agreedFareIqd ||
+          sourceRide.fareAfterDiscountIqd ||
+          sourceRide.proposedFareIqd
+      ) || 0,
+    note: "rebook_from_previous_ride",
+    couponCode: null,
+    scheduleMode: "now",
+    scheduledRideId: null,
+    scheduledFor: null,
+  });
+
+  await repo.createRideEvent({
+    rideRequestId: result.ride.id,
+    actorUserId: customerUserId,
+    eventType: "ride_rebooked",
+    message: "تمت إعادة طلب المشوار من رحلة سابقة.",
+    payload: {
+      sourceRideId: Number(sourceRide.id),
+      sourceRideStatus: sourceRide.status,
+    },
+  });
+
+  return {
+    ...result,
+    sourceRideId: Number(sourceRide.id),
+  };
+}
+
 async function loadCaptainSubscriptionContext(captainUserId) {
   const profileRow = await repo.getCaptainProfile(captainUserId);
   if (!profileRow) {
@@ -794,6 +994,7 @@ export async function getCurrentRideForCustomer(customerUserId) {
       ride.currentBidId = ensured.id;
     }
   }
+  await maybePromptRidePriceRaise(ride);
 
   const [bids, latestLocation, events, chatMessages, callState] = await Promise.all([
     repo.listRideBids(ride.id),
@@ -941,7 +1142,7 @@ export async function sendRideChatMessage({
   }
 
   for (const targetUserId of targetUsers) {
-    emitToUser(targetUserId, "taxi_chat_update", {
+    void emitRealtimeToUser(targetUserId, "taxi_chat_update", {
       eventType: "chat_message",
       rideId: ride.id,
       message,
@@ -1062,8 +1263,8 @@ export async function startRideCall({
     session: buildCallSessionPayload(session),
     signal,
   };
-  emitToUser(peerUserId, "taxi_call_update", payload);
-  emitToUser(userId, "taxi_call_update", {
+  void emitRealtimeToUser(peerUserId, "taxi_call_update", payload);
+  void emitRealtimeToUser(userId, "taxi_call_update", {
     eventType: "outgoing_call",
     rideId: ride.id,
     session: buildCallSessionPayload(session),
@@ -1155,8 +1356,8 @@ export async function sendRideCallSignal({
     signal,
   };
 
-  emitToUser(peerUserId, "taxi_call_update", updatePayload);
-  emitToUser(userId, "taxi_call_update", updatePayload);
+  void emitRealtimeToUser(peerUserId, "taxi_call_update", updatePayload);
+  void emitRealtimeToUser(userId, "taxi_call_update", updatePayload);
 
   if (dto.signalType === "decline" || dto.signalType === "hangup") {
     queueNotification({
@@ -1230,8 +1431,8 @@ export async function endRideCall({
     session: buildCallSessionPayload(ended || active),
     signal,
   };
-  emitToUser(peerUserId, "taxi_call_update", payload);
-  emitToUser(userId, "taxi_call_update", payload);
+  void emitRealtimeToUser(peerUserId, "taxi_call_update", payload);
+  void emitRealtimeToUser(userId, "taxi_call_update", payload);
 
   return {
     rideId: ride.id,
@@ -1264,6 +1465,24 @@ export async function updateCaptainPresence(captainUserId, dto) {
   return {
     presence,
     nearbyRequests,
+  };
+}
+
+export async function listNearbyCaptainsForCustomer(customerUserId, query) {
+  await processSearchingLifecycleAndEmit();
+  const current = await repo.getCustomerCurrentRide(customerUserId);
+  const forceFocusRide = current?.id || null;
+  const items = await repo.listNearbyCaptainMarkers({
+    latitude: query.latitude,
+    longitude: query.longitude,
+    radiusM: query.radiusM,
+    limit: query.limit,
+  });
+
+  return {
+    items,
+    total: items.length,
+    focusedRideId: forceFocusRide,
   };
 }
 
@@ -1345,7 +1564,7 @@ export async function submitBid({ captainUserId, rideId, dto }) {
     },
   });
 
-  emitToUser(ride.customerUserId, "taxi_bid_update", {
+  void emitRealtimeToUser(ride.customerUserId, "taxi_bid_update", {
     eventType: isCurrentBid ? "bid_submitted_current" : "bid_submitted_waiting",
     rideId: ride.id,
     bid,
@@ -1385,7 +1604,7 @@ export async function submitBid({ captainUserId, rideId, dto }) {
       },
     });
   } else {
-    emitToUser(captainUserId, "taxi_bid_update", {
+    void emitRealtimeToUser(captainUserId, "taxi_bid_update", {
       eventType: "you_are_current_bid",
       rideId: ride.id,
       bid,
@@ -1400,6 +1619,51 @@ export async function submitBid({ captainUserId, rideId, dto }) {
     isCurrentBid,
   };
 }
+
+export async function declineRideRequestByCaptain({ captainUserId, rideId }) {
+  await assertCaptainSubscriptionAccess(captainUserId);
+  await processSearchingLifecycleAndEmit();
+
+  const result = await repo.declineRideByCaptain({
+    rideId,
+    captainUserId,
+  });
+
+  if (result.code === "RIDE_NOT_FOUND") {
+    throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+  }
+  if (result.code === "RIDE_NOT_SEARCHING") {
+    throw new AppError("TAXI_RIDE_NOT_ACCEPTING_BIDS", { status: 409 });
+  }
+
+  const ride = result.ride;
+  const priceRaise = await maybePromptRidePriceRaise(ride);
+
+  await repo.createRideEvent({
+    rideRequestId: ride.id,
+    actorUserId: captainUserId,
+    eventType: "ride_declined_by_captain",
+    message: "الكابتن رفض الطلب.",
+    payload: {
+      rejectedCaptainsCount: Number(ride.rejectedCaptainsCount || 0),
+      priceRaiseRecommended: priceRaise.recommended === true,
+    },
+  });
+
+  void emitRealtimeToUser(ride.customerUserId, "taxi_ride_update", {
+    eventType: "ride_declined_by_captain",
+    ride: buildCompactRidePayload(ride),
+    rejectedCaptainsCount: Number(ride.rejectedCaptainsCount || 0),
+    priceRaiseRecommended: priceRaise.recommended === true,
+  });
+
+  return {
+    rideId: ride.id,
+    rejectedCaptainsCount: Number(ride.rejectedCaptainsCount || 0),
+    priceRaiseRecommended: priceRaise.recommended === true,
+  };
+}
+
 export async function acceptBid({ customerUserId, rideId, bidId }) {
   const result = await repo.acceptRideBid({
     rideId,
@@ -1516,7 +1780,7 @@ export async function rejectCurrentBid({ customerUserId, rideId }) {
   });
 
   if (result.rejectedBid?.captainUserId) {
-    emitToUser(result.rejectedBid.captainUserId, "taxi_bid_update", {
+    void emitRealtimeToUser(result.rejectedBid.captainUserId, "taxi_bid_update", {
       eventType: "bid_rejected_by_customer",
       rideId: ride.id,
       bidId: result.rejectedBid.id,
@@ -1534,7 +1798,7 @@ export async function rejectCurrentBid({ customerUserId, rideId }) {
   }
 
   if (result.nextBid?.captainUserId) {
-    emitToUser(result.nextBid.captainUserId, "taxi_bid_update", {
+    void emitRealtimeToUser(result.nextBid.captainUserId, "taxi_bid_update", {
       eventType: "you_are_current_bid",
       rideId: ride.id,
       bidId: result.nextBid.id,
@@ -1560,7 +1824,7 @@ export async function rejectCurrentBid({ customerUserId, rideId }) {
     });
   }
 
-  emitToUser(ride.customerUserId, "taxi_bid_update", {
+  void emitRealtimeToUser(ride.customerUserId, "taxi_bid_update", {
     eventType: "bid_rejected_by_customer",
     rideId: ride.id,
     bidQueue,
@@ -1640,7 +1904,7 @@ export async function counterOfferCurrentBid({
   });
 
   if (previousCaptainUserId) {
-    emitToUser(previousCaptainUserId, "taxi_bid_update", {
+    void emitRealtimeToUser(previousCaptainUserId, "taxi_bid_update", {
       eventType:
         result.code === "COUNTER_LIMIT_REACHED"
           ? "counter_offer_limit_reached"
@@ -1669,7 +1933,7 @@ export async function counterOfferCurrentBid({
   }
 
   if (result.nextBid?.captainUserId && Number(result.nextBid.captainUserId) !== Number(previousCaptainUserId || 0)) {
-    emitToUser(result.nextBid.captainUserId, "taxi_bid_update", {
+    void emitRealtimeToUser(result.nextBid.captainUserId, "taxi_bid_update", {
       eventType: "you_are_current_bid",
       rideId: ride.id,
       bidId: result.nextBid.id,
@@ -1689,14 +1953,14 @@ export async function counterOfferCurrentBid({
     currentCaptainUserId &&
     Number(currentCaptainUserId) !== Number(previousCaptainUserId || 0)
   ) {
-    emitToUser(currentCaptainUserId, "taxi_bid_update", {
+    void emitRealtimeToUser(currentCaptainUserId, "taxi_bid_update", {
       eventType: "you_are_current_bid",
       rideId: ride.id,
       bidQueue,
     });
   }
 
-  emitToUser(ride.customerUserId, "taxi_bid_update", {
+  void emitRealtimeToUser(ride.customerUserId, "taxi_bid_update", {
     eventType:
       result.code === "COUNTER_LIMIT_REACHED"
         ? "counter_offer_limit_reached"
@@ -1943,14 +2207,14 @@ export async function updateRideLocation({ captainUserId, rideId, dto }) {
 
   const ride = await repo.getRideById(rideId);
   if (ride) {
-    emitToUser(ride.customerUserId, "taxi_location_update", {
+    void emitRealtimeToUser(ride.customerUserId, "taxi_location_update", {
       rideId: ride.id,
       status: ride.status,
       location: result.location,
     });
 
     if (ride.assignedCaptainUserId) {
-      emitToUser(ride.assignedCaptainUserId, "taxi_location_update", {
+      void emitRealtimeToUser(ride.assignedCaptainUserId, "taxi_location_update", {
         rideId: ride.id,
         status: ride.status,
         location: result.location,
@@ -1991,6 +2255,106 @@ export async function createShareToken({ customerUserId, rideId }) {
     ...out,
     publicPath: `/api/taxi/public/track/${out.token}`,
     wazeLink,
+  };
+}
+
+export async function listRideSharedFriends({ customerUserId, rideId }) {
+  const ride = await repo.getRideByIdForCustomer(rideId, customerUserId);
+  if (!ride) {
+    throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+  }
+
+  const items = await repo.listRideFriendShares({
+    rideId: ride.id,
+    customerUserId,
+  });
+  return {
+    rideId: ride.id,
+    items,
+    total: items.length,
+  };
+}
+
+export async function shareRideWithFriends({
+  customerUserId,
+  rideId,
+  friendUserIds = [],
+}) {
+  const ride = await repo.getRideByIdForCustomer(rideId, customerUserId);
+  if (!ride) {
+    throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+  }
+
+  const uniqueFriendIds = [...new Set((friendUserIds || []).map((v) => Number(v)))]
+    .filter((v) => Number.isInteger(v) && v > 0)
+    .filter((v) => Number(v) !== Number(customerUserId));
+  if (uniqueFriendIds.length === 0) {
+    throw new AppError("VALIDATION_ERROR", {
+      status: 400,
+      details: { fields: ["friendUserIds"] },
+    });
+  }
+
+  const items = [];
+  for (const friendUserId of uniqueFriendIds) {
+    const item = await repo.upsertRideFriendShare({
+      rideId: ride.id,
+      customerUserId,
+      friendUserId,
+    });
+    if (item) items.push(item);
+  }
+
+  await repo.createRideEvent({
+    rideRequestId: ride.id,
+    actorUserId: customerUserId,
+    eventType: "ride_shared_with_friends",
+    message: "تمت مشاركة الرحلة مع أصدقاء.",
+    payload: {
+      total: items.length,
+      friendUserIds: items.map((item) => Number(item.friendUserId)),
+    },
+  });
+
+  for (const item of items) {
+    queueNotification({
+      userId: Number(item.friendUserId),
+      type: "taxi.ride.shared",
+      title: "تمت مشاركة رحلة تكسي معك",
+      body: "يمكنك متابعة الرحلة مباشرة.",
+      payload: {
+        rideId: ride.id,
+        customerUserId: Number(customerUserId),
+      },
+    });
+    void emitRealtimeToUser(Number(item.friendUserId), "taxi_ride_shared", {
+      rideId: ride.id,
+      customerUserId: Number(customerUserId),
+      friendUserId: Number(item.friendUserId),
+      status: ride.status,
+    });
+  }
+
+  return {
+    rideId: ride.id,
+    items,
+    total: items.length,
+  };
+}
+
+export async function getSharedRideTrackForFriend({ friendUserId, rideId }) {
+  const data = await repo.getSharedRideTrackForFriend({ friendUserId, rideId });
+  if (!data) {
+    throw new AppError("TAXI_TRACK_NOT_FOUND", { status: 404 });
+  }
+
+  const events = await repo.listRideEvents(data.ride.id, { limit: 50 });
+
+  return {
+    ride: data.ride,
+    latestLocation: data.location,
+    share: data.share,
+    events: [...events].reverse(),
   };
 }
 
@@ -2046,11 +2410,19 @@ export async function requestCaptainProfileEdit({ captainUserId, dto }) {
     });
   }
 
-  const request = await repo.createCaptainProfileEditRequest({
-    captainUserId,
-    requestedChanges: changes,
-    captainNote: dto?.captainNote || null,
-  });
+  let request;
+  try {
+    request = await repo.createCaptainProfileEditRequest({
+      captainUserId,
+      requestedChanges: changes,
+      captainNote: dto?.captainNote || null,
+    });
+  } catch (error) {
+    if (String(error?.code || "").toUpperCase() === "42P01") {
+      throw new AppError("TAXI_PROFILE_EDIT_NOT_AVAILABLE", { status: 503 });
+    }
+    throw error;
+  }
 
   const backofficeUsers = await repo.listBackofficeUsers();
   queueNotifications(
@@ -2068,6 +2440,70 @@ export async function requestCaptainProfileEdit({ captainUserId, dto }) {
 
   return {
     request,
+  };
+}
+
+export async function listPendingCaptainProfileEditRequests({ limit = 100 } = {}) {
+  try {
+    const rows = await repo.listPendingCaptainProfileEditRequests({ limit });
+    return rows.map(mapCaptainProfileEditRequest);
+  } catch (error) {
+    if (String(error?.code || "").toUpperCase() === "42P01") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function reviewCaptainProfileEditRequestByAdmin({
+  requestId,
+  decision,
+  adminUserId,
+  adminNote = null,
+}) {
+  const normalizedDecision = String(decision || "").trim().toLowerCase();
+  if (!["approved", "rejected"].includes(normalizedDecision)) {
+    throw new AppError("VALIDATION_ERROR", {
+      status: 400,
+      details: { fields: ["decision"] },
+    });
+  }
+
+  let reviewed;
+  try {
+    reviewed = await repo.reviewCaptainProfileEditRequestByAdmin({
+      requestId: Number(requestId),
+      decision: normalizedDecision,
+      adminUserId: Number(adminUserId?.userId || adminUserId),
+      adminNote,
+    });
+  } catch (error) {
+    if (String(error?.code || "").toUpperCase() === "42P01") {
+      throw new AppError("TAXI_PROFILE_EDIT_NOT_AVAILABLE", { status: 503 });
+    }
+    throw error;
+  }
+
+  if (!reviewed) {
+    throw new AppError("TAXI_PROFILE_EDIT_REQUEST_NOT_FOUND", { status: 404 });
+  }
+  if (reviewed.alreadyReviewed === true) {
+    throw new AppError("TAXI_PROFILE_EDIT_ALREADY_REVIEWED", { status: 409 });
+  }
+
+  const request = reviewed.request || {};
+  return {
+    id: Number(request.id || requestId),
+    captainUserId: Number(request.captain_user_id || 0),
+    status: String(request.status || normalizedDecision).trim().toLowerCase(),
+    adminNote: request.admin_note || null,
+    requestedAt: request.requested_at || null,
+    reviewedAt: request.reviewed_at || null,
+    requestedChanges:
+      request.requested_changes && typeof request.requested_changes === "object"
+        ? request.requested_changes
+        : {},
+    captain: mapCaptainProfile(reviewed.captain),
   };
 }
 

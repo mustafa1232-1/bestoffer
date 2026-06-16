@@ -15,6 +15,7 @@ import {
   revokeAllUserSessions,
   revokeUserSession,
   setCustomerDefaultAddress,
+  isUsernameTaken,
   updateCustomerAddress,
   updateUserAccount,
 } from "./auth.repo.js";
@@ -22,6 +23,17 @@ import { hashPin, verifyPin } from "../../shared/utils/hash.js";
 import { signAccessToken } from "../../shared/utils/jwt.js";
 import { env } from "../../config/env.js";
 import crypto from "crypto";
+import {
+  invalidateSessionAccessCacheForSession,
+  invalidateSessionAccessCacheForUser,
+  markSessionRevoked,
+  markUserSessionsRevokedAfter,
+} from "../../shared/middleware/access-auth.js";
+
+const APP_USER_USERNAME_MAX_LENGTH = 24;
+const USERNAME_SUFFIX_LENGTH = 4;
+const APP_USER_USERNAME_MIN_LENGTH = 4;
+const APP_USER_USERNAME_FORMAT_RE = /^[a-z0-9](?:[a-z0-9._]{2,22})[a-z0-9]$/;
 
 function normalizeDigits(value) {
   return String(value || "")
@@ -38,6 +50,99 @@ function normalizePin(value) {
   return normalizeDigits(value).replace(/[^\d]/g, "");
 }
 
+function normalizeUsernameBase(fullName, phone) {
+  const fullNamePart = String(fullName || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const phoneDigits = normalizePhone(phone || "");
+  const phoneTail = phoneDigits.length >= 4 ? phoneDigits.slice(-4) : "";
+  const fallback = "user";
+  const base = fullNamePart || fallback;
+  const withPhone = phoneTail ? `${base}_${phoneTail}` : base;
+  return withPhone.slice(0, APP_USER_USERNAME_MAX_LENGTH);
+}
+
+function randomUsernameSuffix() {
+  return crypto.randomBytes(2).toString("hex");
+}
+
+function normalizeUsernameForConstraint(value) {
+  let out = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._]+/g, "_")
+    .replace(/\.{2,}/g, ".")
+    .replace(/_{2,}/g, "_");
+
+  if (out.length > APP_USER_USERNAME_MAX_LENGTH) {
+    out = out.slice(0, APP_USER_USERNAME_MAX_LENGTH);
+  }
+
+  out = out.replace(/^[._]+/, "").replace(/[._]+$/, "");
+
+  if (!out) out = "user";
+  if (!/^[a-z0-9]/.test(out)) out = `u${out}`;
+  if (!/[a-z0-9]$/.test(out)) out = `${out}0`;
+
+  if (out.length < APP_USER_USERNAME_MIN_LENGTH) {
+    out = `${out}${"0".repeat(APP_USER_USERNAME_MIN_LENGTH)}`.slice(
+      0,
+      APP_USER_USERNAME_MIN_LENGTH
+    );
+  }
+
+  if (out.length > APP_USER_USERNAME_MAX_LENGTH) {
+    out = out.slice(0, APP_USER_USERNAME_MAX_LENGTH);
+    out = out.replace(/[._]+$/, "");
+    if (out.length < APP_USER_USERNAME_MIN_LENGTH) {
+      out = `${out}${"0".repeat(APP_USER_USERNAME_MIN_LENGTH)}`.slice(
+        0,
+        APP_USER_USERNAME_MIN_LENGTH
+      );
+    }
+  }
+
+  if (!APP_USER_USERNAME_FORMAT_RE.test(out) || out.includes("..") || out.includes("__")) {
+    out = out
+      .replace(/\.{2,}/g, ".")
+      .replace(/_{2,}/g, "_")
+      .replace(/^[^a-z0-9]+/, "u")
+      .replace(/[^a-z0-9]+$/, "0");
+    if (out.length < APP_USER_USERNAME_MIN_LENGTH) {
+      out = `${out}0000`.slice(0, APP_USER_USERNAME_MIN_LENGTH);
+    }
+    if (out.length > APP_USER_USERNAME_MAX_LENGTH) {
+      out = out.slice(0, APP_USER_USERNAME_MAX_LENGTH).replace(/[._]+$/, "0");
+    }
+  }
+
+  return out;
+}
+
+function buildUsernameCandidate(fullName, phone) {
+  const maxBaseLength = Math.max(
+    1,
+    APP_USER_USERNAME_MAX_LENGTH - USERNAME_SUFFIX_LENGTH - 1
+  );
+  const base = normalizeUsernameForConstraint(
+    normalizeUsernameBase(fullName, phone).slice(0, maxBaseLength)
+  ).replace(/[._]+$/, "");
+  const suffix = randomUsernameSuffix();
+  return normalizeUsernameForConstraint(
+    `${base || "user"}_${suffix}`.slice(0, APP_USER_USERNAME_MAX_LENGTH)
+  );
+}
+
+function isDuplicateUsernameError(error) {
+  if (!error) return false;
+  const code = String(error.code || "");
+  if (code !== "23505") return false;
+  const constraint = String(error.constraint || "").toLowerCase();
+  return constraint.includes("username");
+}
+
 function normalizeConsentAccepted(value) {
   if (value === true) return true;
   if (typeof value !== "string") return false;
@@ -45,13 +150,32 @@ function normalizeConsentAccepted(value) {
   return normalized === "true" || normalized === "1" || normalized === "yes";
 }
 
+function normalizeEnvPhone(value) {
+  return String(value || "").replace(/[^\d]/g, "");
+}
+
+function resolveSuperAdmin(user) {
+  if (!user) return false;
+  if (user.is_super_admin === true) return true;
+
+  const envUserId = Number(env.superAdminUserId || 0);
+  if (Number.isFinite(envUserId) && envUserId > 0 && Number(user.id) === envUserId) {
+    return true;
+  }
+
+  const envPhone = normalizeEnvPhone(env.superAdminPhone);
+  const userPhone = normalizeEnvPhone(user.phone);
+  return envPhone.length > 0 && userPhone === envPhone;
+}
+
 function mapUser(u) {
   return {
     id: u.id,
     fullName: u.full_name,
     phone: u.phone,
+    preferredLocale: u.preferred_locale || "ar",
     role: u.role,
-    isSuperAdmin: u.is_super_admin === true,
+    isSuperAdmin: resolveSuperAdmin(u),
     block: u.block,
     buildingNumber: u.building_number,
     apartment: u.apartment,
@@ -110,7 +234,7 @@ async function issueSessionToken(user, deviceContext = {}) {
     {
       id: user.id,
       role: user.role || "user",
-      isSuperAdmin: user.is_super_admin === true,
+      isSuperAdmin: resolveSuperAdmin(user),
     },
     {
       sessionId: session?.id || null,
@@ -119,9 +243,16 @@ async function issueSessionToken(user, deviceContext = {}) {
     }
   );
 
-  await pruneUserSessions(user.id, {
+  const pruned = await pruneUserSessions(user.id, {
     maxActive: env.authMaxActiveSessionsPerUser,
   });
+  if (Array.isArray(pruned?.revokedSessionIds) && pruned.revokedSessionIds.length > 0) {
+    await Promise.all(
+      pruned.revokedSessionIds.map((revokedSessionId) =>
+        markSessionRevoked(revokedSessionId)
+      )
+    );
+  }
 
   return {
     token,
@@ -132,6 +263,7 @@ async function issueSessionToken(user, deviceContext = {}) {
 export async function register(dto, deviceContext = {}) {
   const phone = normalizePhone(dto.phone);
   const pin = normalizePin(dto.pin);
+  const fullName = String(dto.fullName || "").trim();
   const analyticsConsentAccepted = normalizeConsentAccepted(
     dto.analyticsConsentAccepted
   );
@@ -155,9 +287,14 @@ export async function register(dto, deviceContext = {}) {
   }
 
   const pinHash = await hashPin(pin);
+  const username = await allocateRegistrationUsername({
+    fullName,
+    phone,
+  });
 
   const created = await createUser({
-    fullName: dto.fullName.trim(),
+    fullName,
+    username,
     phone,
     pinHash,
     block: dto.block.trim(),
@@ -167,6 +304,15 @@ export async function register(dto, deviceContext = {}) {
     analyticsConsentGranted: true,
     analyticsConsentVersion,
     analyticsConsentGrantedAt: new Date(),
+  });
+
+  await createCustomerAddress(created.id, {
+    label: "home",
+    city: "Basmaya",
+    block: dto.block.trim(),
+    buildingNumber: dto.buildingNumber.trim(),
+    apartment: dto.apartment.trim(),
+    isDefault: true,
   });
 
   const session = await issueSessionToken(created, deviceContext);
@@ -183,6 +329,16 @@ export async function login({ phone, pin }, deviceContext = {}) {
     await applyCredentialFailureDelay();
     const err = new Error("INVALID_CREDENTIALS");
     err.status = 401;
+    throw err;
+  }
+
+  if (user.is_account_disabled === true) {
+    const err = new Error("ACCOUNT_DISABLED");
+    err.status = 403;
+    const note = String(user.account_disabled_note || "").trim();
+    err.details = {
+      note: note || null,
+    };
     throw err;
   }
 
@@ -225,7 +381,7 @@ export async function login({ phone, pin }, deviceContext = {}) {
       fullName: user.full_name,
       phone: user.phone,
       role: user.role,
-      isSuperAdmin: user.is_super_admin === true,
+      isSuperAdmin: resolveSuperAdmin(user),
       block: user.block,
       buildingNumber: user.building_number,
       apartment: user.apartment,
@@ -295,6 +451,11 @@ export async function updateAccount(userId, dto, { currentSessionId = null } = {
       exceptSessionId: currentSessionId,
       reason: "pin_changed",
     });
+    await markUserSessionsRevokedAfter(user.id);
+    invalidateSessionAccessCacheForUser({
+      userId: user.id,
+      exceptSessionId: currentSessionId,
+    });
   }
 
   return { user: mapUser(updated || user) };
@@ -307,6 +468,10 @@ export async function logout(userId, sessionId) {
     sessionId,
     reason: "logout",
   });
+  if (revoked) {
+    await markSessionRevoked(sessionId);
+    invalidateSessionAccessCacheForSession({ userId, sessionId });
+  }
   return { revoked: !!revoked };
 }
 
@@ -315,6 +480,11 @@ export async function logoutAll(userId, currentSessionId = null) {
     userId,
     exceptSessionId: currentSessionId,
     reason: "logout_all",
+  });
+  await markUserSessionsRevokedAfter(userId);
+  invalidateSessionAccessCacheForUser({
+    userId,
+    exceptSessionId: currentSessionId,
   });
   return { revokedCount };
 }
@@ -430,4 +600,60 @@ export async function resolveOrderAddress(userId, addressId) {
   }
 
   return getCustomerDefaultAddress(userId);
+}
+
+export async function runWithGeneratedAppUserUsername({
+  fullName,
+  phone,
+  execute,
+  maxAttempts = 8,
+}) {
+  if (typeof execute !== "function") {
+    const err = new Error("USERNAME_EXECUTOR_REQUIRED");
+    err.status = 500;
+    throw err;
+  }
+
+  const attempts = Math.max(1, Number(maxAttempts) || 1);
+  let lastError = null;
+  for (let index = 0; index < attempts; index += 1) {
+    const username = buildUsernameCandidate(fullName, phone);
+    try {
+      return await execute(username);
+    } catch (error) {
+      lastError = error;
+      if (isDuplicateUsernameError(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError || new Error("USERNAME_GENERATION_FAILED");
+}
+
+export async function allocateRegistrationUsername({
+  fullName,
+  phone,
+  maxAttempts = 12,
+}) {
+  const attempts = Math.max(1, Number(maxAttempts) || 1);
+  for (let index = 0; index < attempts; index += 1) {
+    const candidate = buildUsernameCandidate(fullName, phone);
+    const taken = await isUsernameTaken(candidate);
+    if (!taken) return candidate;
+  }
+
+  const fallbackBase = normalizeUsernameBase(fullName, phone);
+  const fallbackSuffix = Date.now().toString(36).slice(-4);
+  const maxBaseLength = Math.max(
+    1,
+    APP_USER_USERNAME_MAX_LENGTH - fallbackSuffix.length - 1
+  );
+  return normalizeUsernameForConstraint(
+    `${fallbackBase.slice(0, maxBaseLength)}_${fallbackSuffix}`.slice(
+      0,
+      APP_USER_USERNAME_MAX_LENGTH
+    )
+  );
 }

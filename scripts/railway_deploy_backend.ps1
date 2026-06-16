@@ -69,6 +69,7 @@ New-Item -ItemType Directory -Path $bundleBackend -Force | Out-Null
 $itemsToCopy = @(
   "src",
   "sql",
+  "sql_supabase",
   "deploy",
   "package.json",
   "package-lock.json",

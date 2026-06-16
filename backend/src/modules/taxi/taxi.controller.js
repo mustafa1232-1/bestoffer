@@ -1,4 +1,4 @@
-﻿import {
+import {
   addUserStream,
   getLatestUserEventId,
   replayUserEvents,
@@ -13,6 +13,7 @@ import {
   validateCounterOffer,
   validateCreateBid,
   validateCreateRide,
+  validateFriendRideShareBody,
   validateRideRating,
   validateRideChatMessage,
   validateRideChatQuery,
@@ -21,11 +22,23 @@ import {
   validateRideCallStateQuery,
   validateHistoryQuery,
   validateLocationUpdate,
+  validateNearbyCaptainsQuery,
   validateNearbyQuery,
   validateRideId,
-  validateShareToken,
 } from "./taxi.validators.js";
 
+/**
+ * Purpose:
+ * controllers التاكسي. تطبق validation وتطبع المدخلات ثم تمرر التنفيذ إلى
+ * `taxi.service.js` مع response shape موحد.
+ *
+ * Used by:
+ * - `taxi.routes.js`
+ */
+
+/**
+ * helper موحد لرد validation error بصيغة متسقة.
+ */
 function badRequest(res, fields) {
   return res.status(400).json({
     message: "VALIDATION_ERROR",
@@ -33,6 +46,9 @@ function badRequest(res, fields) {
   });
 }
 
+/**
+ * يقرأ `rideId` من params ويتأكد من صلاحيته قبل المرور إلى service.
+ */
 function requireRideId(req, res) {
   const v = validateRideId(req.params.rideId);
   if (!v.ok) {
@@ -42,6 +58,17 @@ function requireRideId(req, res) {
   return v.value;
 }
 
+function validateShareTokenParam(token) {
+  const value = String(token || "").trim();
+  if (value.length < 8 || value.length > 160) {
+    return { ok: false, errors: ["token"] };
+  }
+  return { ok: true, value };
+}
+
+/**
+ * ينشئ طلب رحلة جديداً للعميل الحالي.
+ */
 export async function createRide(req, res, next) {
   try {
     const v = validateCreateRide(req.body || {});
@@ -54,10 +81,37 @@ export async function createRide(req, res, next) {
   }
 }
 
+/**
+ * يجلب الرحلة الحالية للعميل إذا كانت موجودة.
+ */
 export async function getCurrentRideForCustomer(req, res, next) {
   try {
     const out = await service.getCurrentRideForCustomer(req.userId);
     return res.json({ ride: out });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listMyRideHistory(req, res, next) {
+  try {
+    const v = validateHistoryQuery(req.query || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const items = await service.listCustomerRideHistory(req.userId, v.value);
+    return res.json({ items });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listNearbyCaptains(req, res, next) {
+  try {
+    const v = validateNearbyCaptainsQuery(req.query || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.listNearbyCaptainsForCustomer(req.userId, v.value);
+    return res.json(out);
   } catch (error) {
     return next(error);
   }
@@ -101,6 +155,21 @@ export async function cancelRide(req, res, next) {
     });
 
     return res.json({ ride: out });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function rebookRide(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const out = await service.rebookRideByCustomer({
+      customerUserId: req.userId,
+      rideId,
+    });
+    return res.status(201).json(out);
   } catch (error) {
     return next(error);
   }
@@ -182,6 +251,9 @@ export async function counterOfferCurrentBid(req, res, next) {
   }
 }
 
+/**
+ * ينفذ bid جديد من جهة الكابتن.
+ */
 export async function createBid(req, res, next) {
   try {
     const rideId = requireRideId(req, res);
@@ -202,6 +274,25 @@ export async function createBid(req, res, next) {
   }
 }
 
+export async function declineRideByCaptain(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const out = await service.declineRideRequestByCaptain({
+      captainUserId: req.userId,
+      rideId,
+    });
+
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/**
+ * يحدث presence وموقع الكابتن الحالي.
+ */
 export async function upsertPresence(req, res, next) {
   try {
     const v = validateCaptainPresence(req.body || {});
@@ -434,10 +525,131 @@ export async function endRideCall(req, res, next) {
 
 export async function publicTrack(req, res, next) {
   try {
-    const v = validateShareToken(req.params.token);
+    const v = validateShareTokenParam(req.params.token);
     if (!v.ok) return badRequest(res, v.errors);
 
     const out = await service.getPublicTrack(v.value);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function publicTrackStream(req, res, next) {
+  try {
+    const v = validateShareTokenParam(req.params.token);
+    if (!v.ok) return badRequest(res, v.errors);
+
+    res.status(200);
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    const token = v.value;
+    let lastSerialized = "";
+
+    const pushSnapshot = async () => {
+      const snapshot = await service.getPublicTrack(token);
+      const serialized = JSON.stringify(snapshot || null);
+      if (!snapshot) {
+        writeSseEvent(res, "closed", {
+          module: "taxi",
+          reason: "TRACKING_NOT_FOUND",
+          token,
+        });
+        return false;
+      }
+      if (serialized !== lastSerialized) {
+        lastSerialized = serialized;
+        writeSseEvent(res, "taxi_location_update", snapshot);
+      }
+      return true;
+    };
+
+    const initialOk = await pushSnapshot();
+    if (!initialOk) {
+      res.end();
+      return;
+    }
+
+    const heartbeat = setInterval(() => {
+      writeSseEvent(res, "heartbeat", {
+        at: new Date().toISOString(),
+        module: "taxi",
+        token,
+      });
+    }, 20000);
+
+    const poller = setInterval(async () => {
+      try {
+        const keepOpen = await pushSnapshot();
+        if (!keepOpen) {
+          clearInterval(heartbeat);
+          clearInterval(poller);
+          res.end();
+        }
+      } catch (_) {
+        writeSseEvent(res, "resync_required", {
+          module: "taxi",
+          token,
+        });
+      }
+    }, 3000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      clearInterval(poller);
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listRideSharedFriends(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const out = await service.listRideSharedFriends({
+      customerUserId: req.userId,
+      rideId,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function shareRideWithFriends(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateFriendRideShareBody(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.shareRideWithFriends({
+      customerUserId: req.userId,
+      rideId,
+      friendUserIds: v.value.friendUserIds,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getSharedRideTrack(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const out = await service.getSharedRideTrackForFriend({
+      friendUserId: req.userId,
+      rideId,
+    });
     return res.json(out);
   } catch (error) {
     return next(error);
@@ -526,7 +738,7 @@ export function stream(req, res, next) {
         ? Math.floor(lastEventId)
         : 0;
 
-    addUserStream(req.userId, res);
+    addUserStream(req.userId, res, { channel: "taxi" });
     writeSseEvent(
       res,
       "connected",
@@ -535,15 +747,23 @@ export function stream(req, res, next) {
         module: "taxi",
         lastEventId: safeLastEventId || null,
       },
-      { id: getLatestUserEventId(req.userId) }
+      { retry: 3000 }
     );
 
     if (safeLastEventId > 0) {
       const replay = replayUserEvents(req.userId, res, {
         afterEventId: safeLastEventId,
         maxEvents: 1000,
+        channel: "taxi",
       });
-      if (replay.replayed > 0) {
+      if (replay.resyncRequired) {
+        writeSseEvent(res, "resync_required", {
+          module: "taxi",
+          reason: replay.reason,
+          latestEventId: replay.latestEventId || null,
+          oldestEventId: replay.oldestEventId || null,
+        });
+      } else if (replay.replayed > 0) {
         writeSseEvent(res, "replayed", {
           replayed: replay.replayed,
           lastEventId: replay.lastEventId,
@@ -556,8 +776,11 @@ export function stream(req, res, next) {
       writeSseEvent(
         res,
         "heartbeat",
-        { at: new Date().toISOString(), module: "taxi" },
-        { id: getLatestUserEventId(req.userId) }
+        {
+          at: new Date().toISOString(),
+          module: "taxi",
+          latestEventId: getLatestUserEventId(req.userId, { channel: "taxi" }),
+        }
       );
     }, 20000);
 
@@ -569,5 +792,3 @@ export function stream(req, res, next) {
     next(error);
   }
 }
-
-

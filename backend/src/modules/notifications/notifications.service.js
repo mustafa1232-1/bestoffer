@@ -1,5 +1,14 @@
 import * as repo from "./notifications.repo.js";
 
+/**
+ * Purpose:
+ * منطق الخدمة الخفيف لطبقة الإشعارات. يبقي controllers نظيفة ويعزل
+ * parsing/query normalization عن repository.
+ *
+ * Critical notes:
+ * - source of truth للسياسات البسيطة مثل unreadOnly/limit والتحقق من token.
+ * - الارسال الفعلي وتخزين الإشعارات يحصل في `notifications.repo.js`.
+ */
 export async function listUserNotifications(userId, query) {
   const unreadOnly =
     query?.unreadOnly === true ||
@@ -13,11 +22,17 @@ export async function listUserNotifications(userId, query) {
   });
 }
 
+/**
+ * يعيد unread badge count كما تستهلكه الواجهة والـ pollers.
+ */
 export async function unreadCount(userId) {
   const unreadCount = await repo.countUnreadNotifications(userId);
   return { unreadCount };
 }
 
+/**
+ * يعلم إشعاراً واحداً كمقروء ويتأكد من ملكية المستخدم له.
+ */
 export async function markRead(userId, notificationId) {
   const ok = await repo.markNotificationRead(userId, notificationId);
   if (!ok) {
@@ -31,6 +46,9 @@ export async function markAllRead(userId) {
   return repo.markAllNotificationsRead(userId);
 }
 
+/**
+ * يسجل push token الحالي للجهاز كي يمكن fan-out عبر FCM/APNs لاحقاً.
+ */
 export async function registerPushToken(userId, body) {
   const token = String(body?.token || "").trim();
   if (!token) {
@@ -45,9 +63,13 @@ export async function registerPushToken(userId, body) {
     platform: body?.platform || null,
     appVersion: body?.appVersion || null,
     deviceModel: body?.deviceModel || null,
+    locale: body?.locale || null,
   });
 }
 
+/**
+ * يلغي تفعيل token على الجهاز الحالي عند logout أو تبديل الجهاز.
+ */
 export async function unregisterPushToken(userId, body) {
   const token = String(body?.token || "").trim();
   if (!token) {
@@ -59,6 +81,9 @@ export async function unregisterPushToken(userId, body) {
   await repo.deactivatePushToken(userId, token);
 }
 
+/**
+ * يعرض status مختصر يفيد شاشة الدعم أو التشخيص لمعرفة هل push مهيأ.
+ */
 export async function pushStatus(userId) {
   const base = repo.getPushConfigStatus();
   const activeTokens = await repo.listActivePushTokens(userId);
@@ -66,4 +91,37 @@ export async function pushStatus(userId) {
     ...base,
     activeTokens: activeTokens.length,
   };
+}
+
+export async function trackAction(userId, body) {
+  const actionId = String(body?.actionId || body?.action || "").trim();
+  if (!actionId) {
+    const err = new Error("ACTION_ID_REQUIRED");
+    err.status = 400;
+    throw err;
+  }
+
+  const notificationId =
+    body?.notificationId == null
+      ? null
+      : Number.parseInt(String(body.notificationId), 10);
+  const entityId =
+    body?.entityId == null ? null : Number.parseInt(String(body.entityId), 10);
+  const requestState = String(body?.requestState || "opened")
+    .trim()
+    .toLowerCase();
+
+  return repo.createNotificationActionEvent({
+    notificationId:
+      Number.isInteger(notificationId) && notificationId > 0
+        ? notificationId
+        : null,
+    userId,
+    actionId,
+    target: body?.target || null,
+    entityType: body?.entityType || null,
+    entityId: Number.isInteger(entityId) && entityId > 0 ? entityId : null,
+    requestState,
+    payload: body?.payload && typeof body.payload === "object" ? body.payload : {},
+  });
 }

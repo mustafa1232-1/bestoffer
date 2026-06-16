@@ -105,7 +105,10 @@ class _TaxiLiveTrackingScreenState
     _streamSub?.cancel();
     final stream = _isPublic
         ? _taxiApi.streamPublicTrackByToken(widget.publicToken!)
-        : _taxiApi.streamEvents(lastEventId: _lastEventId);
+        : _taxiApi.streamRideEvents(
+            rideId: widget.rideId,
+            lastEventId: _lastEventId,
+          );
     _streamSub = stream.listen((event) {
       if (event.eventId != null) {
         _lastEventId = event.eventId;

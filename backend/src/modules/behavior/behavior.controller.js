@@ -12,7 +12,16 @@ export async function track(req, res, next) {
 export async function myEvents(req, res, next) {
   try {
     const out = await service.listMyActivityEvents(req.userId, req.query || {});
-    res.json({ items: out });
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function myInsights(req, res, next) {
+  try {
+    const out = await service.getCustomerFullInsight(Number(req.userId));
+    res.json(out);
   } catch (error) {
     next(error);
   }

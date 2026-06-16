@@ -19,6 +19,7 @@ import 'core/media/media_cache_service.dart';
 import 'core/notifications/local_notification_service.dart';
 import 'core/notifications/notification_navigation.dart';
 import 'core/notifications/push_notification_service.dart';
+import 'core/realtime/maslaki_realtime_service.dart';
 import 'core/sections/section_availability_controller.dart';
 import 'core/settings/app_settings_controller.dart';
 import 'core/storage/secure_storage.dart';
@@ -340,6 +341,8 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       if (!mounted) return;
       final auth = ref.read(authControllerProvider);
       if (auth.isAuthed) {
+        await ref.read(maslakiRealtimeServiceProvider).bindAuthenticatedSession();
+        if (!mounted) return;
         await _ensurePushReadyAndSync(auth);
       }
     });
@@ -435,7 +438,11 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) return;
+    if (state != AppLifecycleState.resumed) {
+      unawaited(ref.read(maslakiRealtimeServiceProvider).setAppActive(false));
+      return;
+    }
+    unawaited(ref.read(maslakiRealtimeServiceProvider).setAppActive(true));
     unawaited(
       ref.read(sectionAvailabilityControllerProvider.notifier).refresh(
             silent: true,
@@ -484,6 +491,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     if (wasAuthed && !isAuthed) {
       _pushSyncedUserId = null;
       unawaited(ref.read(pushNotificationsProvider).unregisterCurrentToken());
+      unawaited(ref.read(maslakiRealtimeServiceProvider).clearSession());
       unawaited(_syncCallLiveStreams(next));
       _redirectToLogin();
       return;
@@ -502,6 +510,10 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       if (startup.isReady) {
         _redirectToHome(next);
       }
+    }
+
+    if (isAuthed) {
+      unawaited(ref.read(maslakiRealtimeServiceProvider).bindAuthenticatedSession());
     }
 
     if (isAuthed && nextUserId != null && previousUserId != nextUserId) {
@@ -627,7 +639,10 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   void _connectSocialCallStream() {
     _socialCallSub?.cancel();
     _socialCallReconnectTimer?.cancel();
-    final api = NotificationsApi(ref.read(dioClientProvider).dio);
+    final api = NotificationsApi(
+      ref.read(dioClientProvider).dio,
+      realtime: ref.read(maslakiRealtimeServiceProvider),
+    );
     _socialCallSub = api
         .streamEvents(lastEventId: _socialCallLastEventId, channel: 'social')
         .listen(

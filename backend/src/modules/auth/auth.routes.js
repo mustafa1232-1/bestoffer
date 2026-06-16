@@ -1,15 +1,48 @@
 import { Router } from "express";
 import * as c from "./auth.controller.js";
-import { imageUpload } from "../../shared/utils/upload.js";
+import {
+  imageUpload,
+  registerWithCardUpload,
+  residenceCardUpload,
+} from "../../shared/utils/upload.js";
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 
+/**
+ * Purpose:
+ * جميع مسارات المصادقة الأساسية للمستخدم النهائي: التسجيل، تسجيل الدخول،
+ * الجلسات، تحديث الحساب، وعناوين التوصيل.
+ *
+ * Critical notes:
+ * - هذه المسارات أول نقطة دخول لكل الأدوار تقريباً.
+ * - ترتبط مباشرةً بالواجهة في شاشات auth/account/address management.
+ *
+ * Maintenance notes:
+ * - أعطال auth الشائعة تُفحص هنا بالترتيب:
+ *   upload/validation -> controller -> auth.service -> auth.repo -> JWT/session.
+ */
 export const authRouter = Router();
 
+// التسجيل الأساسي للمستخدم مع صورة اختيارية.
 authRouter.post("/register", imageUpload.single("imageFile"), c.register);
+// OCR بطاقة السكن يستخدم قبل التسجيل المساعد بالبطاقة.
+authRouter.post(
+  "/ocr/extract-residence-card",
+  residenceCardUpload.single("cardImageFile"),
+  c.extractResidenceCard
+);
+authRouter.post(
+  "/register-with-card",
+  registerWithCardUpload.fields([
+    { name: "imageFile", maxCount: 1 },
+    { name: "cardImageFile", maxCount: 1 },
+  ]),
+  c.registerWithCard
+);
 authRouter.post("/login", c.login);
 authRouter.post("/logout", requireAuth, c.logout);
 authRouter.post("/logout-all", requireAuth, c.logoutAll);
 authRouter.get("/sessions", requireAuth, c.listSessions);
+// إدارة بيانات الحساب والعناوين تستخدم لاحقاً في checkout والطلبات.
 authRouter.patch("/account", requireAuth, c.updateAccount);
 authRouter.get("/account/addresses", requireAuth, c.listAddresses);
 authRouter.post("/account/addresses", requireAuth, c.createAddress);

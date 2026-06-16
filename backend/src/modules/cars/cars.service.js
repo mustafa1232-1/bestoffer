@@ -7,6 +7,18 @@ import {
   normalizeKey,
   profileKey,
 } from "./cars.catalog.js";
+import { AppError } from "../../shared/utils/errors.js";
+import * as repo from "./cars.repo.js";
+
+/**
+ * Purpose:
+ * منطق السيارات العام: التوصيات الذكية، browse catalog، وإدارة إعلانات
+ * السيارات المنشورة من المستخدمين.
+ *
+ * Used by:
+ * - `cars.controller.js`
+ * - شاشات browse/smart-search/workspace في Flutter
+ */
 
 const profileMap = new Map(
   modelProfiles.map((item) => [profileKey(item.brand, item.model), item])
@@ -449,6 +461,9 @@ function relaxedCriteria(criteria) {
   };
 }
 
+/**
+ * يبني توصيات السيارات بناءً على الميزانية والأولوية ونوع الاستخدام.
+ */
 export function smartSearch(criteria) {
   let items = scoreCandidates(criteria);
   let usedRelaxedCriteria = false;
@@ -476,4 +491,51 @@ export function smartSearch(criteria) {
     recommendations: items.slice(0, limit),
     totalCandidates: items.length,
   };
+}
+
+/**
+ * يعيد الإعلانات العامة للسيارات.
+ */
+export async function listListings(query) {
+  return repo.listPublicListings(query);
+}
+
+/**
+ * يعيد إعلان سيارة واحداً مع مراعاة viewer context إن وجد.
+ */
+export async function getListing(listingId, viewerUserId = null) {
+  return repo.getListingById(listingId, { viewerUserId });
+}
+
+export async function getWorkspace(userId) {
+  return repo.getWorkspace(userId);
+}
+
+/**
+ * ينشئ إعلان سيارة جديداً داخل مساحة المستخدم.
+ */
+export async function createListing(userId, dto, files) {
+  return repo.createListing(userId, dto, files);
+}
+
+export async function updateListing(userId, listingId, dto, files) {
+  const listing = await repo.updateListing(userId, listingId, dto, files);
+  if (!listing) {
+    throw new AppError("CAR_LISTING_NOT_FOUND", {
+      status: 404,
+      expose: true,
+    });
+  }
+  return listing;
+}
+
+export async function markStatus(userId, listingId, dto) {
+  const listing = await repo.markListingStatus(userId, listingId, dto.nextStatus);
+  if (!listing) {
+    throw new AppError("CAR_LISTING_NOT_FOUND", {
+      status: 404,
+      expose: true,
+    });
+  }
+  return listing;
 }

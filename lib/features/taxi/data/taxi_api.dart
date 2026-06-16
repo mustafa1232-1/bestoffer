@@ -1,13 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../auth/state/auth_controller.dart';
 
 final taxiApiProvider = Provider<TaxiApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
-  return TaxiApi(dio);
+  return TaxiApi(dio, realtime: ref.read(maslakiRealtimeServiceProvider));
 });
 
 /// نموذج event حي قادم من SSE أو قناة التاكسي الحية.
@@ -26,8 +28,9 @@ class TaxiLiveEvent {
 /// - منطق الانتقالات والتحقق من الصلاحيات يبقى في backend وفي controllers.
 class TaxiApi {
   final Dio dio;
+  final MaslakiRealtimeClient? realtime;
 
-  TaxiApi(this.dio);
+  TaxiApi(this.dio, {this.realtime});
 
   /// يجلب الرحلة الحالية للعميل إن وجدت.
   Future<Map<String, dynamic>?> getCurrentRideForCustomer() async {
@@ -164,7 +167,8 @@ class TaxiApi {
           'scheduleMode': 'now',
         if (scheduledRideId != null && scheduledRideId > 0)
           'scheduledRideId': scheduledRideId,
-        if (scheduledFor != null) 'scheduledFor': scheduledFor.toIso8601String(),
+        if (scheduledFor != null)
+          'scheduledFor': scheduledFor.toIso8601String(),
         'note': note,
       },
     );
@@ -243,9 +247,7 @@ class TaxiApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> declineRideRequest({
-    required int rideId,
-  }) async {
+  Future<Map<String, dynamic>> declineRideRequest({required int rideId}) async {
     final response = await dio.post('/api/taxi/rides/$rideId/decline');
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -522,7 +524,9 @@ class TaxiApi {
         .toList();
   }
 
-  Future<Map<String, dynamic>> createSavedPlace(Map<String, dynamic> payload) async {
+  Future<Map<String, dynamic>> createSavedPlace(
+    Map<String, dynamic> payload,
+  ) async {
     final response = await dio.post('/api/taxi/saved-places', data: payload);
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -531,7 +535,10 @@ class TaxiApi {
     required int id,
     required Map<String, dynamic> payload,
   }) async {
-    final response = await dio.patch('/api/taxi/saved-places/$id', data: payload);
+    final response = await dio.patch(
+      '/api/taxi/saved-places/$id',
+      data: payload,
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -540,7 +547,9 @@ class TaxiApi {
   }
 
   Future<Map<String, dynamic>> importSavedPlacesFromDeliveryAddresses() async {
-    final response = await dio.post('/api/taxi/saved-places/import-default-addresses');
+    final response = await dio.post(
+      '/api/taxi/saved-places/import-default-addresses',
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -555,7 +564,9 @@ class TaxiApi {
         .toList();
   }
 
-  Future<Map<String, dynamic>> createFavoriteTrip(Map<String, dynamic> payload) async {
+  Future<Map<String, dynamic>> createFavoriteTrip(
+    Map<String, dynamic> payload,
+  ) async {
     final response = await dio.post('/api/taxi/favorite-trips', data: payload);
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -564,7 +575,10 @@ class TaxiApi {
     required int id,
     required Map<String, dynamic> payload,
   }) async {
-    final response = await dio.patch('/api/taxi/favorite-trips/$id', data: payload);
+    final response = await dio.patch(
+      '/api/taxi/favorite-trips/$id',
+      data: payload,
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -643,7 +657,9 @@ class TaxiApi {
   }
 
   Future<Map<String, dynamic>> complaintEligibility(int rideId) async {
-    final response = await dio.get('/api/taxi/rides/$rideId/complaint-eligibility');
+    final response = await dio.get(
+      '/api/taxi/rides/$rideId/complaint-eligibility',
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -674,7 +690,8 @@ class TaxiApi {
         'tripId': tripId,
         'category': category,
         'reason': reason,
-        if (details != null && details.trim().isNotEmpty) 'details': details.trim(),
+        if (details != null && details.trim().isNotEmpty)
+          'details': details.trim(),
         if (attachmentUrl != null && attachmentUrl.trim().isNotEmpty)
           'attachmentUrl': attachmentUrl.trim(),
       },
@@ -692,14 +709,17 @@ class TaxiApi {
       '/api/taxi/rides/$rideId/rider-rating',
       data: {
         'rating': rating,
-        if (category != null && category.trim().isNotEmpty) 'category': category.trim(),
+        if (category != null && category.trim().isNotEmpty)
+          'category': category.trim(),
         if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
       },
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> getCaptainSubscriptionLedger({int limit = 80}) async {
+  Future<Map<String, dynamic>> getCaptainSubscriptionLedger({
+    int limit = 80,
+  }) async {
     final response = await dio.get(
       '/api/taxi/captain/subscription/ledger',
       queryParameters: {'limit': limit},
@@ -772,8 +792,12 @@ class TaxiApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> adminTaxiCaptainDetails(int captainUserId) async {
-    final response = await dio.get('/api/admin/taxi/captains/$captainUserId/details');
+  Future<Map<String, dynamic>> adminTaxiCaptainDetails(
+    int captainUserId,
+  ) async {
+    final response = await dio.get(
+      '/api/admin/taxi/captains/$captainUserId/details',
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -837,7 +861,9 @@ class TaxiApi {
   }
 
   Future<Map<String, dynamic>> finalizeAdminTaxiContest(int contestId) async {
-    final response = await dio.post('/api/admin/taxi/contests/$contestId/finalize');
+    final response = await dio.post(
+      '/api/admin/taxi/contests/$contestId/finalize',
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -878,7 +904,9 @@ class TaxiApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> adminTaxiKpiOverview({String period = 'month'}) async {
+  Future<Map<String, dynamic>> adminTaxiKpiOverview({
+    String period = 'month',
+  }) async {
     final response = await dio.get(
       '/api/admin/taxi/kpi/overview',
       queryParameters: {'period': period},
@@ -897,7 +925,96 @@ class TaxiApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Stream<TaxiLiveEvent> streamEvents({int? lastEventId}) async* {
+  Stream<TaxiLiveEvent> streamEvents({int? lastEventId}) {
+    return _streamSupabaseFirst(
+      openRealtime: () async => await realtime?.subscribeUserChannel('taxi'),
+      fallback: () => _streamEventsViaSse(lastEventId: lastEventId),
+    );
+  }
+
+  Stream<TaxiLiveEvent> streamRideEvents({
+    required int rideId,
+    int? lastEventId,
+  }) {
+    return _streamSupabaseFirst(
+      openRealtime: () async => await realtime?.subscribeUserChannel('taxi'),
+      fallback: () => _streamEventsViaSse(lastEventId: lastEventId).where(
+        (event) =>
+            event.event == 'resync_required' ||
+            _matchesRideEvent(event.data, rideId),
+      ),
+    ).where(
+      (event) =>
+          event.event == 'connected' ||
+          event.event == 'resync_required' ||
+          _matchesRideEvent(event.data, rideId),
+    );
+  }
+
+  Stream<TaxiLiveEvent> _streamSupabaseFirst({
+    required Future<Stream<MaslakiRealtimeEvent>?> Function() openRealtime,
+    required Stream<TaxiLiveEvent> Function() fallback,
+  }) {
+    late final StreamController<TaxiLiveEvent> controller;
+    StreamSubscription<dynamic>? activeSubscription;
+    var usingFallback = false;
+
+    Future<void> attachFallback() async {
+      if (usingFallback || controller.isClosed) return;
+      usingFallback = true;
+      await activeSubscription?.cancel();
+      activeSubscription = fallback().listen(
+        controller.add,
+        onError: controller.addError,
+        onDone: () {
+          if (!controller.isClosed) {
+            controller.close();
+          }
+        },
+      );
+    }
+
+    Future<void> bootstrap() async {
+      try {
+        final realtimeStream = await openRealtime();
+        if (realtimeStream == null) {
+          await attachFallback();
+          return;
+        }
+        controller.add(
+          const TaxiLiveEvent(event: 'connected', data: <String, dynamic>{}),
+        );
+        activeSubscription = realtimeStream.listen(
+          (event) {
+            controller.add(
+              TaxiLiveEvent(
+                event: event.event,
+                data: event.data,
+                eventId: event.eventId,
+              ),
+            );
+          },
+          onError: (_) => unawaited(attachFallback()),
+          onDone: () => unawaited(attachFallback()),
+          cancelOnError: false,
+        );
+      } catch (_) {
+        await attachFallback();
+      }
+    }
+
+    controller = StreamController<TaxiLiveEvent>(
+      onListen: () {
+        unawaited(bootstrap());
+      },
+      onCancel: () async {
+        await activeSubscription?.cancel();
+      },
+    );
+    return controller.stream;
+  }
+
+  Stream<TaxiLiveEvent> _streamEventsViaSse({int? lastEventId}) async* {
     final response = await dio.get<ResponseBody>(
       '/api/taxi/stream',
       queryParameters: {
@@ -965,6 +1082,14 @@ class TaxiApi {
       dataBuffer = '';
       parsedEventId = null;
     }
+  }
+
+  bool _matchesRideEvent(Map<String, dynamic> data, int rideId) {
+    final rawRideId =
+        data['rideId'] ??
+        data['ride_id'] ??
+        (data['ride'] is Map ? (data['ride'] as Map)['id'] : null);
+    return int.tryParse('$rawRideId') == rideId;
   }
 
   Map<String, dynamic> _parseSsePayload(String raw) {

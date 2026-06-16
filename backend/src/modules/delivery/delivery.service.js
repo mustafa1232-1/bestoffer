@@ -1,9 +1,12 @@
 import { hashPin } from "../../shared/utils/hash.js";
-import { q } from "../../config/db.js";
-import * as analyticsRepo from "../analytics/analytics.repo.js";
+import { validateBasmayaAddress } from "../../shared/utils/basmaya-address.js";
+import * as analyticsRepo from "../../shared/analytics/commerce-analytics.repo.js";
 import { createUser, findUserByPhone } from "../auth/auth.repo.js";
-import * as ordersRepo from "../orders/orders.repo.js";
+import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
+import * as ordersRepo from "../orders/orders.repo.js";
+import { invalidateOrderListCacheForUser } from "../orders/orders.service.js";
+import * as repo from "./delivery.repo.js";
 
 function normalizeConsentAccepted(value) {
   if (value === true) return true;
@@ -12,7 +15,23 @@ function normalizeConsentAccepted(value) {
   return normalized === "true" || normalized === "1" || normalized === "yes";
 }
 
+function assertValidBasmayaAddress(address) {
+  const validation = validateBasmayaAddress(address);
+  if (!validation.ok) {
+    const err = new Error("INVALID_BASMAYA_ADDRESS");
+    err.status = 400;
+    err.fields = validation.errors;
+    throw err;
+  }
+  return validation.normalized;
+}
+
 export async function registerDelivery(dto) {
+  const address = assertValidBasmayaAddress({
+    block: dto.block,
+    buildingNumber: dto.buildingNumber,
+    apartment: dto.apartment,
+  });
   const analyticsConsentAccepted = normalizeConsentAccepted(
     dto.analyticsConsentAccepted
   );
@@ -35,82 +54,56 @@ export async function registerDelivery(dto) {
     throw err;
   }
 
+  const fullName = dto.fullName.trim();
+  const phone = dto.phone.trim();
   const pinHash = await hashPin(dto.pin);
 
-  const user = await createUser({
-    fullName: dto.fullName.trim(),
-    phone: dto.phone.trim(),
-    pinHash,
-    block: dto.block.trim(),
-    buildingNumber: dto.buildingNumber.trim(),
-    apartment: dto.apartment.trim(),
-    imageUrl: dto.profileImageUrl || dto.imageUrl || null,
-    role: "delivery",
-    analyticsConsentGranted: true,
-    analyticsConsentVersion,
-    analyticsConsentGrantedAt: new Date(),
-  });
+  let user = null;
+  try {
+    user = await runWithGeneratedAppUserUsername({
+      fullName,
+      phone,
+      execute: (username) =>
+        createUser({
+          fullName,
+          username,
+          phone,
+          pinHash,
+          block: address.block,
+          buildingNumber: address.buildingNumber,
+          apartment: address.apartment,
+          imageUrl: dto.profileImageUrl || dto.imageUrl || null,
+          role: "taxi_captain",
+          analyticsConsentGranted: true,
+          analyticsConsentVersion,
+          analyticsConsentGrantedAt: new Date(),
+          chatQualityReviewConsent: true,
+        }),
+    });
 
-  await q(
-    `UPDATE app_user
-     SET delivery_account_approved = FALSE,
-         delivery_approved_by_user_id = NULL,
-         delivery_approved_at = NULL
-     WHERE id = $1`,
-    [Number(user.id)]
-  );
+    await repo.setDeliveryAccountPendingApproval(Number(user.id));
+    await repo.createDeliveryCaptainProfile({
+      userId: Number(user.id),
+      profileImageUrl: dto.profileImageUrl || dto.imageUrl || null,
+      carImageUrl: dto.carImageUrl || null,
+      vehicleType: dto.vehicleType || "sedan",
+      carMake: dto.carMake,
+      carModel: dto.carModel,
+      carYear: dto.carYear,
+      carColor: dto.carColor,
+      plateNumber: dto.plateNumber,
+    });
+  } catch (error) {
+    if (user?.id) {
+      await repo.deleteUserById(Number(user.id)).catch(() => {});
+    }
+    throw error;
+  }
 
-  await q(
-    `INSERT INTO taxi_captain_profile
-      (
-        user_id,
-        profile_image_url,
-        car_image_url,
-        vehicle_type,
-        car_make,
-        car_model,
-        car_year,
-        car_color,
-        plate_number,
-        is_active,
-        updated_at
-      )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,NOW())
-     ON CONFLICT (user_id)
-     DO UPDATE SET
-       profile_image_url = EXCLUDED.profile_image_url,
-       car_image_url = EXCLUDED.car_image_url,
-       vehicle_type = EXCLUDED.vehicle_type,
-       car_make = EXCLUDED.car_make,
-       car_model = EXCLUDED.car_model,
-       car_year = EXCLUDED.car_year,
-       car_color = EXCLUDED.car_color,
-       plate_number = EXCLUDED.plate_number,
-       is_active = TRUE,
-       updated_at = NOW()`,
-    [
-      Number(user.id),
-      dto.profileImageUrl || null,
-      dto.carImageUrl || null,
-      String(dto.vehicleType || "").trim().toLowerCase(),
-      String(dto.carMake || "").trim(),
-      String(dto.carModel || "").trim(),
-      Number(dto.carYear),
-      dto.carColor ? String(dto.carColor).trim() : null,
-      String(dto.plateNumber || "").trim().toUpperCase(),
-    ]
-  );
-
-  const approversResult = await q(
-    `SELECT DISTINCT id
-     FROM app_user
-     WHERE role IN ('admin', 'deputy_admin')
-        OR is_super_admin = TRUE`
-  );
-
+  const approvers = await repo.listDeliveryApproverUserIds();
   await createManyNotifications(
-    approversResult.rows.map((row) => ({
-      userId: Number(row.id),
+    approvers.map((approverId) => ({
+      userId: Number(approverId),
       type: "admin_delivery_pending_approval",
       title: "حساب كابتن بانتظار الموافقة",
       body: `يوجد طلب كابتن جديد: ${dto.fullName.trim()} (${dto.phone.trim()})`,
@@ -128,6 +121,7 @@ export async function registerDelivery(dto) {
       fullName: user.full_name,
       phone: user.phone,
       role: user.role,
+      isTaxiCaptain: true,
       deliveryAccountApproved: false,
     },
   };
@@ -142,35 +136,47 @@ export async function history(deliveryUserId, date) {
 }
 
 export async function claimOrder(deliveryUserId, orderId) {
-  const ok = await ordersRepo.claimDeliveryOrder(deliveryUserId, Number(orderId));
-  if (!ok) {
-    const err = new Error("ORDER_NOT_AVAILABLE");
-    err.status = 404;
-    throw err;
-  }
-}
-
-export async function startOrder(deliveryUserId, orderId, estimatedDeliveryMinutes) {
-  const fixedEtaMaxMinutes = 10;
-  const ok = await ordersRepo.markOrderOnTheWay(
+  const updated = await ordersRepo.claimDeliveryOrder(
     deliveryUserId,
     Number(orderId),
-    fixedEtaMaxMinutes
+    10
   );
-  if (!ok) {
+  if (!updated) {
     const err = new Error("ORDER_NOT_AVAILABLE");
     err.status = 404;
     throw err;
   }
+  invalidateOrderListCacheForUser(updated.customer_user_id);
+}
+
+export async function startOrder(deliveryUserId, orderId) {
+  const updated = await ordersRepo.markOrderArrived(deliveryUserId, Number(orderId));
+  if (!updated) {
+    const err = new Error("ORDER_NOT_AVAILABLE");
+    err.status = 404;
+    throw err;
+  }
+  invalidateOrderListCacheForUser(updated.customer_user_id);
+}
+
+export async function markArrived(deliveryUserId, orderId) {
+  const updated = await ordersRepo.markOrderArrived(deliveryUserId, Number(orderId));
+  if (!updated) {
+    const err = new Error("ORDER_NOT_AVAILABLE");
+    err.status = 404;
+    throw err;
+  }
+  invalidateOrderListCacheForUser(updated.customer_user_id);
 }
 
 export async function markDelivered(deliveryUserId, orderId) {
-  const ok = await ordersRepo.markOrderDelivered(deliveryUserId, Number(orderId));
-  if (!ok) {
+  const updated = await ordersRepo.markOrderDelivered(deliveryUserId, Number(orderId));
+  if (!updated) {
     const err = new Error("ORDER_NOT_AVAILABLE");
     err.status = 404;
     throw err;
   }
+  invalidateOrderListCacheForUser(updated.customer_user_id);
 }
 
 export async function endDay(deliveryUserId, date) {

@@ -1,3 +1,5 @@
+import { validateBasmayaAddress } from "../../shared/utils/basmaya-address.js";
+
 function isNonEmptyString(v, max = 200) {
   return typeof v === "string" && v.trim().length > 0 && v.trim().length <= max;
 }
@@ -28,6 +30,8 @@ export function validateRegister(body) {
   if (!isNonEmptyString(body.block, 20)) errors.push("block");
   if (!isNonEmptyString(body.buildingNumber, 20)) errors.push("buildingNumber");
   if (!isNonEmptyString(body.apartment, 20)) errors.push("apartment");
+  if (!isOptionalString(body.workTitle, 160)) errors.push("workTitle");
+  if (!isOptionalString(body.workCompany, 180)) errors.push("workCompany");
   if (!isOptionalString(body.imageUrl, 1000)) errors.push("imageUrl");
   if (!isExplicitTrue(body.analyticsConsentAccepted)) {
     errors.push("analyticsConsentAccepted");
@@ -36,7 +40,21 @@ export function validateRegister(body) {
     errors.push("analyticsConsentVersion");
   }
 
-  // PIN: نخليه 4-8 أرقام (تقدر تغير)
+  if (
+    isNonEmptyString(body.block, 20) &&
+    isNonEmptyString(body.buildingNumber, 20) &&
+    isNonEmptyString(body.apartment, 20)
+  ) {
+    const addressValidation = validateBasmayaAddress({
+      block: body.block,
+      buildingNumber: body.buildingNumber,
+      apartment: body.apartment,
+    });
+    if (!addressValidation.ok) {
+      errors.push(...addressValidation.errors);
+    }
+  }
+
   const pinStr = normalizeDigits(body.pin).replace(/[^\d]/g, "");
   if (!/^\d{4,8}$/.test(pinStr)) errors.push("pin_format");
 
@@ -92,6 +110,21 @@ export function validateAddressCreate(body) {
     errors.push("isDefault");
   }
 
+  if (
+    isNonEmptyString(body.block, 20) &&
+    isNonEmptyString(body.buildingNumber, 20) &&
+    isNonEmptyString(body.apartment, 20)
+  ) {
+    const addressValidation = validateBasmayaAddress({
+      block: body.block,
+      buildingNumber: body.buildingNumber,
+      apartment: body.apartment,
+    });
+    if (!addressValidation.ok) {
+      errors.push(...addressValidation.errors);
+    }
+  }
+
   return { ok: errors.length === 0, errors };
 }
 
@@ -118,6 +151,73 @@ export function validateAddressUpdate(body) {
   }
   if (body.isDefault !== undefined && typeof body.isDefault !== "boolean") {
     errors.push("isDefault");
+  }
+
+  if (
+    isNonEmptyString(body.block, 20) &&
+    isNonEmptyString(body.buildingNumber, 20) &&
+    isNonEmptyString(body.apartment, 20)
+  ) {
+    const addressValidation = validateBasmayaAddress({
+      block: body.block,
+      buildingNumber: body.buildingNumber,
+      apartment: body.apartment,
+    });
+    if (!addressValidation.ok) {
+      errors.push(...addressValidation.errors);
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+function isOptionalNumericString(v, minLen = 1, maxLen = 40) {
+  if (v === undefined || v === null || v === "") return true;
+  const out = normalizeDigits(v).replace(/[^\d]/g, "");
+  return out.length >= minLen && out.length <= maxLen;
+}
+
+function isOptionalTown(v) {
+  if (v === undefined || v === null || v === "") return true;
+  return /^[A-Za-z]$/.test(String(v).trim());
+}
+
+function isOptionalIsoOrDmyDate(v) {
+  if (v === undefined || v === null || v === "") return true;
+  const text = normalizeDigits(String(v).trim());
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) || /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4}$/.test(text);
+}
+
+export function validateRegisterWithCard(body) {
+  const base = validateRegister(body || {});
+  const errors = [...base.errors];
+
+  if (!isOptionalString(body.documentType, 40)) errors.push("documentType");
+  if (!isOptionalString(body.full_name ?? body.fullName, 180)) errors.push("full_name");
+  if (!isOptionalTown(body.town)) errors.push("town");
+  if (!isOptionalNumericString(body.building_number ?? body.buildingNumber, 1, 24)) {
+    errors.push("building_number");
+  }
+  if (!isOptionalIsoOrDmyDate(body.issue_date ?? body.issueDate)) errors.push("issue_date");
+  if (!isOptionalNumericString(body.contract_number ?? body.contractNumber, 3, 40)) {
+    errors.push("contract_number");
+  }
+  if (!isOptionalNumericString(body.floor_number ?? body.floorNumber, 1, 24)) {
+    errors.push("floor_number");
+  }
+  if (!isOptionalNumericString(body.apartment_number ?? body.apartmentNumber, 1, 24)) {
+    errors.push("apartment_number");
+  }
+  if (!isOptionalNumericString(body.visible_id_number ?? body.visibleIdNumber, 2, 40)) {
+    errors.push("visible_id_number");
+  }
+  if (!isOptionalString(body.cardImageUrl, 1000)) errors.push("cardImageUrl");
+  if (
+    body.extractionConfidence !== undefined &&
+    body.extractionConfidence !== null &&
+    !Number.isFinite(Number(body.extractionConfidence))
+  ) {
+    errors.push("extractionConfidence");
   }
 
   return { ok: errors.length === 0, errors };

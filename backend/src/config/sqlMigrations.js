@@ -6,6 +6,12 @@ import { pool, q } from "./db.js";
 
 const migrationsDir = path.resolve(process.cwd(), "sql");
 const migrationTable = "schema_migration";
+const migrationLockKey = 719_244_381;
+const migrationSplitMarker = /^\s*--\s*@SPLIT\s*$/gim;
+const migrationQueryOptions = {
+  query_timeout: 120_000,
+  statement_timeout: 120_000,
+};
 
 function asSqlIdentifier(identifier) {
   const normalized = String(identifier || "").trim();
@@ -27,7 +33,21 @@ async function ensureMigrationTable() {
   `);
 }
 
+function splitMigrationSql(sql) {
+  return String(sql || "")
+    .split(migrationSplitMarker)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+}
+
 export async function runSqlMigrations({ force = false } = {}) {
+  const shouldSkipForcedRailwayScriptRun =
+    force &&
+    env.externalRailwayScriptRuntime &&
+    !["1", "true", "yes", "on"].includes(
+      String(process.env.E2E_FORCE_SQL_MIGRATIONS || "").trim().toLowerCase()
+    );
+  if (shouldSkipForcedRailwayScriptRun) return;
   if (!force && !env.runSqlMigrations) return;
 
   await ensureMigrationTable();
@@ -50,29 +70,75 @@ export async function runSqlMigrations({ force = false } = {}) {
       })
     );
 
-  for (const fileName of files) {
-    const alreadyApplied = await q(
-      `SELECT 1 FROM ${migrationTableId} WHERE name = $1`,
-      [fileName]
-    );
-    if (alreadyApplied.rowCount > 0) continue;
+  const client = await pool.connect();
+  let migrationError = null;
+  try {
+    await client.query({
+      text: "SELECT pg_advisory_lock($1)",
+      values: [migrationLockKey],
+      ...migrationQueryOptions,
+    });
 
-    const fullPath = path.join(migrationsDir, fileName);
-    const sql = (await fs.readFile(fullPath, "utf8")).trim();
+    for (const fileName of files) {
+      const alreadyApplied = await client.query({
+        text: `SELECT 1 FROM ${migrationTableId} WHERE name = $1`,
+        values: [fileName],
+        ...migrationQueryOptions,
+      });
+      if (alreadyApplied.rowCount > 0) continue;
 
-    if (!sql) {
-      await q(`INSERT INTO ${migrationTableId} (name) VALUES ($1)`, [fileName]);
-      console.log(`[migrate] skipped empty file ${fileName}`);
-      continue;
-    }
+      const fullPath = path.join(migrationsDir, fileName);
+      const sql = (await fs.readFile(fullPath, "utf8")).trim();
 
-    const client = await pool.connect();
-    try {
-      await client.query(sql);
-      await client.query(`INSERT INTO ${migrationTableId} (name) VALUES ($1)`, [
-        fileName,
-      ]);
+      if (!sql) {
+        await client.query({
+          text: `INSERT INTO ${migrationTableId} (name)
+           VALUES ($1)
+           ON CONFLICT (name) DO NOTHING`,
+          values: [fileName],
+          ...migrationQueryOptions,
+        });
+        console.log(`[migrate] skipped empty file ${fileName}`);
+        continue;
+      }
+
+      const statements = splitMigrationSql(sql);
+      for (const statement of statements) {
+        await client.query({
+          text: statement,
+          ...migrationQueryOptions,
+        });
+      }
+      await client.query({
+        text: `INSERT INTO ${migrationTableId} (name)
+         VALUES ($1)
+         ON CONFLICT (name) DO NOTHING`,
+        values: [fileName],
+        ...migrationQueryOptions,
+      });
       console.log(`[migrate] applied ${fileName}`);
+    }
+  } catch (error) {
+    migrationError = error;
+    try {
+      await client.query({
+        text: "ROLLBACK",
+        ...migrationQueryOptions,
+      });
+    } catch {
+      // Ignore rollback failures; we want the original migration error.
+    }
+    throw error;
+  } finally {
+    try {
+      await client.query({
+        text: "SELECT pg_advisory_unlock($1)",
+        values: [migrationLockKey],
+        ...migrationQueryOptions,
+      });
+    } catch (unlockError) {
+      if (!migrationError) throw unlockError;
+      console.error("[migrate] advisory unlock skipped after migration failure:", unlockError);
     } finally {
       client.release();
     }

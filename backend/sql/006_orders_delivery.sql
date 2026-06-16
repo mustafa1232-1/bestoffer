@@ -1,3 +1,16 @@
+-- Purpose:
+-- يؤسس دورة الطلبات والتوصيل الأساسية: نوع حالات الطلب، جداول الطلب
+-- والعناصر، الحقول الزمنية، والفهارس التي تعتمد عليها واجهات العميل
+-- والمتجر والدليفري.
+--
+-- Critical notes:
+-- هذه migration حجر أساس لكل تدفقات `orders` و`delivery`. أي تعديل لاحق
+-- على الحالات أو الأعمدة الزمنية يجب أن يحافظ على التوافق مع
+-- `orders.repo.js` وواجهات التتبع والإشعارات.
+--
+-- Maintenance notes:
+-- عند أعطال إنشاء الطلب أو انتقالاته افحص هذه الجداول أولاً، خصوصاً
+-- القيود والفهارس وحقول status/timestamps التي تعتمد عليها الـ workers.
 BEGIN;
 
 DO $$
@@ -21,9 +34,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'order_status') THEN
     CREATE TYPE order_status AS ENUM (
       'pending',
+      'approved',
       'preparing',
       'ready_for_delivery',
       'on_the_way',
+      'arrived',
       'delivered',
       'cancelled'
     );
@@ -50,6 +65,7 @@ CREATE TABLE IF NOT EXISTS customer_order (
   estimated_delivery_minutes  INTEGER,
   prepared_at                 TIMESTAMPTZ,
   picked_up_at                TIMESTAMPTZ,
+  arrived_at                  TIMESTAMPTZ,
   delivered_at                TIMESTAMPTZ,
   customer_confirmed_at       TIMESTAMPTZ,
   archived_by_delivery        BOOLEAN NOT NULL DEFAULT FALSE,

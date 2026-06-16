@@ -8,27 +8,50 @@ function toSafeInt(value) {
   return Math.trunc(parsed);
 }
 
+function isAdminLikeRole(role) {
+  const normalized = String(role || "").trim().toLowerCase();
+  return normalized === "admin" || normalized === "super_admin";
+}
+
+function normalizeDigits(value) {
+  return String(value || "")
+    .replace(/[\u0660-\u0669]/g, (digit) =>
+      String(digit.charCodeAt(0) - 0x0660)
+    )
+    .replace(/[\u06F0-\u06F9]/g, (digit) =>
+      String(digit.charCodeAt(0) - 0x06f0)
+    );
+}
+
+function normalizePhone(value) {
+  return normalizeDigits(value).replace(/[^\d]/g, "");
+}
+
 export async function requireSuperAdmin(req, res, next) {
   if (req.userIsSuperAdmin === true) {
-    if (String(req.userRole || "") !== "admin") {
+    if (!isAdminLikeRole(req.userRole)) {
       return next(new AppError("FORBIDDEN_ADMIN_ONLY", { status: 403 }));
     }
     return next();
   }
 
   const currentUserId = toSafeInt(req.userId);
-  const currentRole = String(req.userRole || "");
+  const currentRole = String(req.userRole || "").trim().toLowerCase();
 
-  if (currentUserId > 0 && currentRole === "admin") {
+  if (currentUserId > 0 && isAdminLikeRole(currentRole)) {
     try {
       const r = await q(
-        `SELECT is_super_admin
+        `SELECT is_super_admin, phone
          FROM app_user
          WHERE id = $1
          LIMIT 1`,
         [currentUserId]
       );
-      if (r.rows[0]?.is_super_admin === true) {
+      const row = r.rows[0];
+      const phoneMatches =
+        normalizePhone(row?.phone) !== "" &&
+        normalizePhone(row?.phone) === normalizePhone(env.superAdminPhone);
+      if (row?.is_super_admin === true || phoneMatches) {
         req.userIsSuperAdmin = true;
         return next();
       }
@@ -43,7 +66,7 @@ export async function requireSuperAdmin(req, res, next) {
     return next(new AppError("FORBIDDEN_SUPER_ADMIN_ONLY", { status: 403 }));
   }
 
-  if (currentRole !== "admin") {
+  if (!isAdminLikeRole(currentRole)) {
     return next(new AppError("FORBIDDEN_ADMIN_ONLY", { status: 403 }));
   }
 

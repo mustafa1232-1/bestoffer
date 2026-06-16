@@ -15,6 +15,7 @@ import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/realtime/maslaki_realtime_service.dart';
 import 'package:core_maps/core_maps.dart';
 import '../../../core/utils/parsers.dart';
 import '../../../core/widgets/app_user_drawer.dart';
@@ -28,7 +29,10 @@ import 'taxi_captain_loyalty_screen.dart';
 
 final taxiCaptainApiProvider = Provider<TaxiApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
-  return TaxiApi(dio);
+  return TaxiApi(
+    dio,
+    realtime: ref.read(maslakiRealtimeServiceProvider),
+  );
 });
 
 final taxiCaptainRouteServiceProvider = Provider<TaxiRouteService>((ref) {

@@ -1,15 +1,19 @@
 import crypto from "crypto";
 
+import { getAddresses as getCustomerAddresses } from "../auth/auth.service.js";
+import {
+  computeOrderFinancialSnapshot,
+  getMerchantBillingProfile,
+} from "../commerce/merchant-financial.logic.js";
 import { createOrder } from "../orders/orders.service.js";
 import * as repo from "./assistant.repo.js";
+import * as assistantAiService from "./assistant.ai.service.js";
 import {
   getScenarioLibrarySize,
   pickScenarioBlueprint,
   pickScenarioQuestion,
 } from "./assistant.scenarios.js";
 
-const FIXED_SERVICE_FEE = 500;
-const FIXED_DELIVERY_FEE = 1000;
 const OPENAI_ENABLED = readBooleanEnv("OPENAI_ENABLED", true);
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "").trim();
 const OPENAI_BASE_URL = String(
@@ -37,7 +41,7 @@ const OPENAI_TEMPERATURE = clampNumber(
   process.env.OPENAI_TEMPERATURE,
   0,
   1.2,
-  0.55
+  0.3
 );
 const OPENAI_TOP_P = clampNumber(process.env.OPENAI_TOP_P, 0.1, 1, 0.95);
 const OPENAI_MAX_TOKENS = clampInteger(
@@ -69,11 +73,44 @@ const OPENAI_SYSTEM_PROMPT_AR = String(
 const OPENAI_SYSTEM_PROMPT_EN = String(
   process.env.OPENAI_SYSTEM_PROMPT_EN || ""
 ).trim();
+const OPENAI_ANALYTIC_MODE = readBooleanEnv("OPENAI_ANALYTIC_MODE", true);
+const OPENAI_ANALYTIC_MIN_CONFIDENCE = clampNumber(
+  process.env.OPENAI_ANALYTIC_MIN_CONFIDENCE,
+  0,
+  1,
+  0.45
+);
+const ASSISTANT_WEB_ASSIST_ENABLED = readBooleanEnv(
+  "ASSISTANT_WEB_ASSIST_ENABLED",
+  true
+);
+const ASSISTANT_WEB_ASSIST_ON_LOW_CONFIDENCE = clampNumber(
+  process.env.ASSISTANT_WEB_ASSIST_ON_LOW_CONFIDENCE,
+  0,
+  1,
+  0.55
+);
 const OFF_TOPIC_REDIRECT_THRESHOLD = clampInteger(
   process.env.ASSISTANT_OFF_TOPIC_REDIRECT_AFTER,
   5,
   100,
   20
+);
+const ASSISTANT_MEMORY_DIRECT_MIN_CONFIDENCE = clampNumber(
+  process.env.ASSISTANT_MEMORY_DIRECT_MIN_CONFIDENCE,
+  0.4,
+  0.99,
+  0.86
+);
+const ASSISTANT_MEMORY_CHAT_MIN_CONFIDENCE = clampNumber(
+  process.env.ASSISTANT_MEMORY_CHAT_MIN_CONFIDENCE,
+  0.4,
+  0.99,
+  0.93
+);
+const ASSISTANT_KNOWLEDGE_RETRIEVAL_ENABLED = readBooleanEnv(
+  "ASSISTANT_KNOWLEDGE_RETRIEVAL_ENABLED",
+  true
 );
 const HOME_AUDIENCES = new Set(["women", "men", "family", "mixed", "any"]);
 const HOME_PRIORITIES = new Set(["offers", "price", "speed", "rating", "balanced"]);
@@ -244,6 +281,7 @@ const GREETING_KEYWORDS = [
   'hello',
   'hi',
   'hey',
+  '\u0647\u0644\u0648',
   '\u0647\u0644\u0627',
   '\u0627\u0644\u0633\u0644\u0627\u0645 \u0639\u0644\u064a\u0643\u0645',
   '\u0634\u0644\u0648\u0646\u0643',
@@ -260,10 +298,16 @@ const THANKS_KEYWORDS = [
 
 const CHITCHAT_KEYWORDS = [
   'who are you',
+  'who are u',
+  'what are you',
   'joke',
   '\u0634\u0646\u0648 \u0627\u0644\u0627\u062e\u0628\u0627\u0631',
   '\u0634\u0644\u0648\u0646 \u0627\u0644\u062c\u0648',
   '\u0645\u0646\u0648 \u0627\u0646\u062a',
+  '\u0645\u0646 \u0627\u0646\u062a',
+  '\u0645\u0646 \u0623\u0646\u062a',
+  '\u0645\u0646 \u0627\u0646\u062a\u064a',
+  '\u0645\u0646 \u0623\u0646\u062a\u064a',
   '\u0633\u0624\u0627\u0644',
   '\u0646\u0643\u062a\u0629',
   '\u0636\u062d\u0643\u0646\u064a',
@@ -288,6 +332,112 @@ const ORDER_DOMAIN_KEYWORDS = [
   '\u062f\u064a\u0646\u0627\u0631',
   '\u062e\u0635\u0645',
   '\u0645\u0646\u062a\u062c',
+];
+
+const JOBS_ASSIST_KEYWORDS = [
+  "job",
+  "jobs",
+  "career",
+  "cv",
+  "resume",
+  "interview",
+  "salary",
+  "\u0648\u0638\u064a\u0641\u0629",
+  "\u0648\u0638\u0627\u0626\u0641",
+  "\u062a\u0648\u0638\u064a\u0641",
+  "\u062a\u0642\u062f\u064a\u0645",
+  "\u0633\u064a\u0631\u0629 \u0630\u0627\u062a\u064a\u0629",
+  "\u0631\u0627\u062a\u0628",
+  "\u0645\u0642\u0627\u0628\u0644\u0629",
+  "\u062a\u0639\u064a\u064a\u0646",
+];
+
+const TAXI_ASSIST_KEYWORDS = [
+  "taxi",
+  "ride",
+  "trip",
+  "captain",
+  "\u062a\u0643\u0633\u064a",
+  "\u0634\u0643\u0627\u0643\u064a",
+  "\u0645\u0634\u0648\u0627\u0631",
+  "\u0631\u062d\u0644\u0629",
+  "\u0643\u0627\u0628\u062a\u0646",
+  "\u062a\u0641\u0627\u0648\u0636",
+];
+
+const COMMUNITY_ASSIST_KEYWORDS = [
+  "community",
+  "post",
+  "story",
+  "stories",
+  "reel",
+  "reels",
+  "group",
+  "chat",
+  "social",
+  "\u0645\u062c\u062a\u0645\u0639",
+  "\u0645\u0646\u0634\u0648\u0631",
+  "\u0633\u062a\u0648\u0631\u064a",
+  "\u0631\u064a\u0644\u0632",
+  "\u0645\u062c\u0645\u0639",
+  "\u0639\u0645\u0627\u0631\u0629",
+  "\u0628\u0644\u0648\u0643",
+  "\u062a\u0628\u0644\u064a\u063a",
+];
+
+const APP_HELP_KEYWORDS = [
+  "how to",
+  "where",
+  "settings",
+  "setting",
+  "profile",
+  "account",
+  "password",
+  "notification",
+  "notifications",
+  "help",
+  "support",
+  "app",
+  "\u0627\u0639\u062f\u0627\u062f\u0627\u062a",
+  "\u0627\u0644\u0627\u0639\u062f\u0627\u062f\u0627\u062a",
+  "\u062d\u0633\u0627\u0628",
+  "\u0645\u0644\u0641\u064a",
+  "\u0631\u0645\u0632",
+  "\u0627\u0634\u0639\u0627\u0631",
+  "\u0625\u0634\u0639\u0627\u0631",
+  "\u0627\u0644\u0627\u0634\u0639\u0627\u0631\u0627\u062a",
+  "\u0645\u0633\u0627\u0639\u062f\u0629",
+  "\u0634\u0631\u062d",
+  "\u0627\u0644\u062a\u0637\u0628\u064a\u0642",
+];
+
+const RESTAURANT_DISCOVERY_KEYWORDS = [
+  "restaurant",
+  "restaurants",
+  "food",
+  "meal",
+  "\u0645\u0637\u0639\u0645",
+  "\u0645\u0637\u0627\u0639\u0645",
+  "\u0623\u0643\u0644",
+  "\u0627\u0643\u0644",
+  "\u0648\u062c\u0628\u0629",
+];
+
+const SHOPPING_DISCOVERY_KEYWORDS = [
+  "shopping",
+  "shop",
+  "store",
+  "market",
+  "product",
+  "products",
+  "\u062a\u0633\u0648\u0642",
+  "\u0645\u062a\u062c\u0631",
+  "\u0645\u062a\u0627\u062c\u0631",
+  "\u0633\u0648\u0642",
+  "\u0627\u0633\u0648\u0627\u0642",
+  "\u0623\u0633\u0648\u0627\u0642",
+  "\u0645\u0646\u062a\u062c",
+  "\u0645\u0646\u062a\u062c\u0627\u062a",
 ];
 
 const GROUP_ORDER_KEYWORDS = [
@@ -328,8 +478,15 @@ const JOKE_CHITCHAT_KEYWORDS = [
 
 const BOT_IDENTITY_KEYWORDS = [
   'who are you',
+  'who are u',
+  'what are you',
+  'who r u',
   'what can you do',
   '\u0645\u0646\u0648 \u0627\u0646\u062a',
+  '\u0645\u0646 \u0627\u0646\u062a',
+  '\u0645\u0646 \u0623\u0646\u062a',
+  '\u0645\u0646 \u0627\u0646\u062a\u064a',
+  '\u0645\u0646 \u0623\u0646\u062a\u064a',
   '\u0634\u062a\u0643\u062f\u0631',
 ];
 
@@ -381,7 +538,12 @@ const OFFERS_KEYWORDS = [
 
 const RECOMMEND_KEYWORDS = [
   'recommend',
+  'what do you recommend',
   '\u0627\u0646\u0635\u062d\u0646\u064a',
+  '\u062a\u0646\u0635\u062d',
+  '\u062a\u0646\u0635\u062d\u0646\u064a',
+  '\u0645\u0627 \u0627\u0644\u0630\u064a \u062a\u0646\u0635\u062d',
+  '\u0645\u0627\u0630\u0627 \u062a\u0646\u0635\u062d',
   '\u0631\u0634\u062d\u0644\u064a',
   '\u0627\u0642\u062a\u0631\u062d',
   '\u0634\u0646\u0648 \u062a\u0646\u0635\u062d',
@@ -655,7 +817,13 @@ function detectCategoryHints(normalizedText) {
 
 function detectSmallTalkType(normalizedText) {
   if (!normalizedText) return "none";
-  if (containsAny(normalizedText, GREETING_KEYWORDS)) return "greeting";
+  if (
+    containsAny(normalizedText, GREETING_KEYWORDS) ||
+    /^(?:\u0647\u0644\u0648+|\u0647\u0644\u0627+|hi+|hello+)\b/iu.test(normalizedText) ||
+    /\b(?:\u0634\u0644\u0648\u0646\u0643|\u0634\u0644\u0648\u0646\u062c|\u0634\u062e\u0628\u0627\u0631\u0643)\b/iu.test(normalizedText)
+  ) {
+    return "greeting";
+  }
   if (containsAny(normalizedText, THANKS_KEYWORDS)) return "thanks";
   if (containsAny(normalizedText, CHITCHAT_KEYWORDS)) return "chitchat";
   return "none";
@@ -914,6 +1082,15 @@ function nextMissingSlot(model) {
 }
 
 function decideConversationMode({ intent, model }) {
+  if (intent?.explicitServiceIntent !== true) {
+    return {
+      mode: "open_chat",
+      ready: false,
+      missingSlot: null,
+      filled: conversationCoreFilledCount(model),
+    };
+  }
+
   const directIntentTypes = new Set(["OFFERS", "DISCOVER_NEW", "EVALUATE", "SUPPORT"]);
   if (intent.supportIntent || directIntentTypes.has(intent.primaryIntent) || intent.comparisonIntent) {
     return { mode: "specialized", ready: true };
@@ -942,6 +1119,52 @@ function detectPrimaryIntent(normalizedText, supportIntent) {
   if (containsAny(normalizedText, RECOMMEND_KEYWORDS)) return "RECOMMEND";
   if (containsAny(normalizedText, ORDER_KEYWORDS)) return "ORDER_DIRECT";
   return "BROWSE";
+}
+
+function detectAssistDomain(flags) {
+  if (flags.jobsIntent) return "jobs";
+  if (flags.taxiIntent) return "taxi";
+  if (flags.communityIntent) return "community";
+  if (flags.appHelpIntent) return "app_help";
+  if (flags.commerceAssistIntent) return "commerce";
+  if (flags.orderIntent) return "orders";
+  return "general";
+}
+
+function isExplicitServiceIntent({
+  primaryIntent,
+  orderIntent,
+  confirmIntent,
+  cancelIntent,
+  comparisonIntent,
+  supportIntent,
+  jobsIntent,
+  taxiIntent,
+  communityIntent,
+  appHelpIntent,
+  commerceAssistIntent,
+  restaurantDiscoveryIntent,
+  shoppingDiscoveryIntent,
+  recommendationToneIntent,
+  hasDomainTerms,
+  wantsCheap,
+  wantsTopRated,
+  wantsFreeDelivery,
+  wantsFast,
+}) {
+  if (supportIntent || comparisonIntent) return true;
+  if (orderIntent || confirmIntent || cancelIntent) return true;
+  if (jobsIntent || taxiIntent || communityIntent || appHelpIntent) return true;
+  if (commerceAssistIntent || restaurantDiscoveryIntent || shoppingDiscoveryIntent) return true;
+  if (wantsCheap || wantsTopRated || wantsFreeDelivery || wantsFast) return true;
+  if (["ORDER_DIRECT", "SUPPORT"].includes(primaryIntent)) return true;
+  if (
+    ["RECOMMEND", "MOOD_BASED", "OFFERS", "DISCOVER_NEW", "EVALUATE"].includes(primaryIntent) &&
+    (recommendationToneIntent || hasDomainTerms)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function extractCityAreaHints(normalizedText) {
@@ -986,15 +1209,53 @@ function detectIntent(message) {
   const spiceLevel = detectSpiceLevel(normalized);
   const style = detectConversationStyle(normalized);
   const languageSwitch = detectLanguageSwitch(normalized);
+  const jobsIntent = containsAny(normalized, JOBS_ASSIST_KEYWORDS);
+  const taxiIntent = containsAny(normalized, TAXI_ASSIST_KEYWORDS);
+  const communityIntent = containsAny(normalized, COMMUNITY_ASSIST_KEYWORDS);
+  const appHelpIntent = containsAny(normalized, APP_HELP_KEYWORDS);
+  const restaurantDiscoveryIntent = containsAny(
+    normalized,
+    RESTAURANT_DISCOVERY_KEYWORDS
+  );
+  const shoppingDiscoveryIntent = containsAny(
+    normalized,
+    SHOPPING_DISCOVERY_KEYWORDS
+  );
+  const recommendationToneIntent =
+    containsAny(normalized, RECOMMEND_KEYWORDS) ||
+    containsAny(normalized, DISCOVER_NEW_KEYWORDS) ||
+    containsAny(normalized, OFFERS_KEYWORDS);
+  const commerceAssistIntent =
+    !jobsIntent &&
+    !taxiIntent &&
+    !communityIntent &&
+    !orderIntent &&
+    !supportIntent &&
+    (restaurantDiscoveryIntent ||
+      shoppingDiscoveryIntent ||
+      (recommendationToneIntent && containsAny(normalized, ORDER_DOMAIN_KEYWORDS)));
   const inferredLanguage = languageSwitch || detectTextLanguage(rawMessage);
   const cityAreaHints = extractCityAreaHints(normalized);
   const peopleCount = extractPeopleCount(normalized, audienceType);
+  const assistDomain = detectAssistDomain({
+    jobsIntent,
+    taxiIntent,
+    communityIntent,
+    appHelpIntent,
+    commerceAssistIntent,
+    orderIntent,
+  });
 
   const hasDomainTerms =
     containsAny(normalized, ORDER_DOMAIN_KEYWORDS) ||
     categoryHints.length > 0 ||
     budgetIqd != null ||
-    supportIntent;
+    supportIntent ||
+    jobsIntent ||
+    taxiIntent ||
+    communityIntent ||
+    appHelpIntent ||
+    commerceAssistIntent;
 
   const hardOrderSignals =
     orderIntent ||
@@ -1005,13 +1266,45 @@ function detectIntent(message) {
     wantsFreeDelivery ||
     wantsFast;
 
+  const primaryIntent = detectPrimaryIntent(normalized, supportIntent);
+  const hasStructuredIntent =
+    primaryIntent !== "BROWSE" ||
+    comparisonIntent ||
+    supportIntent ||
+    jobsIntent ||
+    taxiIntent ||
+    communityIntent ||
+    appHelpIntent ||
+    commerceAssistIntent ||
+    recommendationToneIntent;
   const offTopicIntent =
+    !hasStructuredIntent &&
     !hardOrderSignals &&
     !hasDomainTerms &&
     tokens.length > 0 &&
     smallTalkType !== "greeting";
   const offTopicTheme = offTopicIntent ? detectOffTopicTheme(normalized) : "none";
-  const primaryIntent = detectPrimaryIntent(normalized, supportIntent);
+  const explicitServiceIntent = isExplicitServiceIntent({
+    primaryIntent,
+    orderIntent,
+    confirmIntent,
+    cancelIntent,
+    comparisonIntent,
+    supportIntent,
+    jobsIntent,
+    taxiIntent,
+    communityIntent,
+    appHelpIntent,
+    commerceAssistIntent,
+    restaurantDiscoveryIntent,
+    shoppingDiscoveryIntent,
+    recommendationToneIntent,
+    hasDomainTerms,
+    wantsCheap,
+    wantsTopRated,
+    wantsFreeDelivery,
+    wantsFast,
+  });
 
   return {
     normalizedText: normalized,
@@ -1029,6 +1322,7 @@ function detectIntent(message) {
     supportType,
     offTopicIntent,
     offTopicTheme,
+    explicitServiceIntent,
     smallTalkType,
     audienceType,
     budgetIqd,
@@ -1040,6 +1334,14 @@ function detectIntent(message) {
     inferredLanguage,
     explicitLanguageSwitch: languageSwitch,
     primaryIntent,
+    assistDomain,
+    jobsIntent,
+    taxiIntent,
+    communityIntent,
+    appHelpIntent,
+    commerceAssistIntent,
+    restaurantDiscoveryIntent,
+    shoppingDiscoveryIntent,
     cityHint: cityAreaHints.city,
     areaHint: cityAreaHints.area,
     requestedQuantity: extractRequestedQuantity(normalized),
@@ -1619,7 +1921,7 @@ function buildProductSuggestions(scoredProducts) {
   }));
 }
 
-function buildDraftCandidate(
+async function buildDraftCandidate(
   scoredProducts,
   requestedQuantity = 1,
   audienceType = "unknown"
@@ -1664,9 +1966,22 @@ function buildDraftCandidate(
   }));
 
   const subtotal = withQuantities.reduce((sum, item) => sum + item.lineTotal, 0);
-  const serviceFee = subtotal > 0 ? FIXED_SERVICE_FEE : 0;
   const hasFreeDelivery = withQuantities.some((item) => item.freeDelivery);
-  const deliveryFee = hasFreeDelivery ? 0 : FIXED_DELIVERY_FEE;
+  const billingProfile = await getMerchantBillingProfile(selectedMerchantId);
+  const snapshot = computeOrderFinancialSnapshot(
+    {
+      subtotal,
+      service_fee: 0,
+      delivery_fee: hasFreeDelivery ? 0 : null,
+      delivery_type: "delivery",
+      courier_source: "app",
+      has_free_delivery: hasFreeDelivery,
+      created_at: new Date().toISOString(),
+    },
+    billingProfile
+  );
+  const serviceFee = snapshot.serviceFeeAmount;
+  const deliveryFee = snapshot.deliveryFee;
   const totalAmount = subtotal + serviceFee + deliveryFee;
 
   return {
@@ -1802,7 +2117,7 @@ function formatEtaText(avgDeliveryMinutes, lang) {
 
 function formatDeliveryFeeText(hasFreeDelivery, lang) {
   if (hasFreeDelivery) return tr(lang, "مجاني", "free");
-  return formatIqd(FIXED_DELIVERY_FEE);
+  return tr(lang, "يُحتسب حسب سياسة المتجر", "Calculated by merchant policy");
 }
 
 function merchantReason(intent, merchant, lang) {
@@ -1941,8 +2256,8 @@ function buildOffTopicFollowUp(intent, lang, profile) {
     ],
     general: [
       "\u0627\u062d\u0686\u064a\u0644\u064a \u0627\u0644\u0644\u064a \u0628\u0628\u0627\u0644\u0643 \u0648\u0623\u0646\u0627 \u0648\u064a\u0627\u0643.",
-      "\u062a\u0643\u062f\u0631 \u062a\u0643\u0645\u0644 \u062f\u0631\u062f\u0634\u0629\u060c \u0623\u0646\u0627 \u0645\u062a\u0627\u0628\u0639 \u0648\u064a\u0627\u0643.",
-      "\u062a\u0645\u0627\u0645\u060c \u0627\u062d\u0686\u064a \u0628\u0631\u0627\u062d\u062a\u0643.",
+      "\u0627\u0645\u0631 \u0648\u062a\u062f\u0644\u0644\u060c \u0623\u0646\u0637\u064a\u0643 \u0627\u0644\u062c\u0648\u0627\u0628 \u0628\u0634\u0643\u0644 \u0645\u0628\u0627\u0634\u0631.",
+      "\u062a\u0645\u0627\u0645\u060c \u0642\u0644\u064a \u0634\u062a\u0631\u064a\u062f \u0628\u0627\u0644\u0636\u0628\u0637 \u0648\u0623\u0631\u062a\u0628\u0647 \u0648\u064a\u0627\u0643.",
     ],
   };
   const followEn = {
@@ -1962,8 +2277,8 @@ function buildOffTopicFollowUp(intent, lang, profile) {
     mood: ["How is your day going so far?", "What mood are you in today?"],
     general: [
       "Tell me what is on your mind.",
-      "We can keep chatting, I am listening.",
-      "Sure, go ahead.",
+      "Sure, tell me exactly what you need and I will organize it with you.",
+      "Go ahead, I am with you.",
     ],
   };
 
@@ -2000,8 +2315,8 @@ function buildOffTopicSnippet(intent, lang) {
       "\u062a\u0645\u0627\u0645 \u0627\u0644\u062d\u0645\u062f \u0644\u0644\u0647\u060c \u0623\u0646\u062a \u0634\u0644\u0648\u0646\u0643 \u0627\u0644\u064a\u0648\u0645\u061f",
     general: [
       "\u0645\u0645\u062a\u0627\u0632\u060c \u0627\u062d\u0686\u064a \u0628\u0631\u0627\u062d\u062a\u0643 \u0648\u0623\u0646\u0627 \u0648\u064a\u0627\u0643.",
-      "\u062d\u0644\u0648\u060c \u0623\u062d\u0628 \u0627\u0644\u062f\u0631\u062f\u0634\u0629 \u0627\u0644\u0637\u0628\u064a\u0639\u064a\u0629.",
-      "\u062a\u0645\u0627\u0645\u060c \u062e\u0630 \u0631\u0627\u062d\u062a\u0643 \u0628\u0627\u0644\u0643\u0644\u0627\u0645.",
+      "\u062a\u0645\u0627\u0645\u060c \u0642\u0644\u064a \u0628\u0627\u0644\u0636\u0628\u0637 \u0634\u0646\u0648 \u062a\u0631\u064a\u062f \u0648\u0623\u0631\u062f \u0639\u0644\u064a\u0643 \u0628\u062f\u0642\u0629.",
+      "\u0623\u0646\u0627 \u0648\u064a\u0627\u0643 \u062e\u0637\u0648\u0629 \u0628\u062e\u0637\u0648\u0629\u060c \u0627\u062d\u0686\u064a \u0648\u0646\u0643\u0645\u0644.",
     ],
   };
   const en = {
@@ -2042,6 +2357,9 @@ function buildSmallTalkReply({
   lang,
 }) {
   const model = normalizeConversationModel(conversationModel || profile?.conversationModel);
+  const normalizedText = String(intent?.normalizedText || "");
+  const isIdentityQuestion =
+    intent?.offTopicTheme === "bot_identity" || containsAny(normalizedText, BOT_IDENTITY_KEYWORDS);
   let intro = tr(
     lang,
     "\u0647\u0644\u0627 \u0628\u064a\u0643 \ud83c\udf1f",
@@ -2058,6 +2376,12 @@ function buildSmallTalkReply({
       lang,
       "\u062a\u062f\u0644\u0644 \ud83d\ude4f",
       "You are welcome"
+    );
+  } else if (isIdentityQuestion) {
+    intro = tr(
+      lang,
+      "\u0623\u0646\u0627 \u0645\u0633\u0627\u0639\u062f \u0645\u0633\u0644\u0643\u064a \u0627\u0644\u0630\u0643\u064a\u060c \u0623\u0633\u0627\u0639\u062f\u0643 \u0628\u0627\u0644\u0637\u0644\u0628\u064a\u0627\u062a \u0648\u0627\u0644\u0645\u0637\u0627\u0639\u0645 \u0648\u0627\u0644\u0648\u0638\u0627\u0626\u0641 \u0648\u0627\u0644\u0645\u062c\u062a\u0645\u0639 \u0648\u0634\u0631\u062d \u0627\u0644\u062a\u0637\u0628\u064a\u0642.",
+      "I am Maslaki's AI assistant. I can help with orders, restaurants, jobs, community, and app guidance."
     );
   } else if (intent.smallTalkType === "chitchat" || intent.offTopicIntent) {
     intro = buildOffTopicSnippet(intent, lang);
@@ -2153,8 +2477,57 @@ function buildHistoricalMemoryContext(historyMessages, intent, lang) {
   return { line, snippets };
 }
 
+function buildTrainingMemoryContextLine(trainingMemoryEntries, lang) {
+  const entries = Array.isArray(trainingMemoryEntries)
+    ? trainingMemoryEntries.filter(Boolean)
+    : [];
+  if (!entries.length) return { line: null, snippets: [] };
+
+  const snippets = entries
+    .map((entry) => {
+      const question = String(entry.question || "").trim();
+      const answer = String(entry.answer || "").trim();
+      if (!question || !answer) return null;
+      return `${question.slice(0, 80)} => ${answer.slice(0, 80)}`;
+    })
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (!snippets.length) return { line: null, snippets: [] };
+  return {
+    line: tr(
+      lang,
+      `معرفة سابقة معتمدة: ${snippets.slice(0, 2).join(" | ")}`,
+      `Approved memory context: ${snippets.slice(0, 2).join(" | ")}`
+    ),
+    snippets,
+  };
+}
+
 function escapeRegExp(text) {
   return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseJsonSafe(value, fallback = null) {
+  if (value == null) return fallback;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(String(value));
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function parseFirstJsonObject(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const direct = parseJsonSafe(raw, null);
+  if (direct && typeof direct === "object") return direct;
+
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+  if (first < 0 || last <= first) return null;
+  return parseJsonSafe(raw.slice(first, last + 1), null);
 }
 
 function tokenSetSimilarity(leftText, rightText) {
@@ -2260,6 +2633,60 @@ function sanitizeAssistantOutput(text, { intent = null, recentAssistantReplies =
   return cleaned.slice(0, 1800);
 }
 
+function extractCoreUserTerms(text) {
+  const normalized = normalizeForNlp(text);
+  if (!normalized) return [];
+  const ignored = new Set([
+    "what",
+    "how",
+    "why",
+    "where",
+    "when",
+    "which",
+    "can",
+    "could",
+    "please",
+    "need",
+    "want",
+    "help",
+    "\u0645\u0645\u0643\u0646",
+    "\u0634\u0646\u0648",
+    "\u0634\u0644\u0648\u0646",
+    "\u0644\u064a\u0634",
+    "\u0648\u064a\u0646",
+    "\u0627\u0631\u064a\u062f",
+    "\u0627\u0628\u064a",
+    "\u0627\u0628\u063a\u0649",
+  ]);
+  const out = [];
+  for (const token of tokenize(normalized)) {
+    if (!token || token.length < 3) continue;
+    if (STOPWORDS.has(token) || ignored.has(token)) continue;
+    out.push(token);
+    if (out.length >= 10) break;
+  }
+  return Array.from(new Set(out));
+}
+
+function isResponseGroundedToUserQuestion(responseText, userText) {
+  const response = normalizeForNlp(responseText);
+  const user = normalizeForNlp(userText);
+  if (!response) return false;
+  if (!user) return true;
+
+  const coreTerms = extractCoreUserTerms(user);
+  if (!coreTerms.length) {
+    return tokenSetSimilarity(response, user) >= 0.08;
+  }
+
+  let hits = 0;
+  for (const term of coreTerms) {
+    if (response.includes(term)) hits += 1;
+  }
+  if (hits >= 1) return true;
+  return tokenSetSimilarity(response, user) >= 0.18;
+}
+
 function compactLlmMerchant(merchant) {
   return {
     name: merchant.merchantName,
@@ -2293,31 +2720,148 @@ function buildLlmSystemPrompt(lang) {
 
   if (lang === "en") {
     return [
-      `You are ${OPENAI_ASSISTANT_NAME}, in-app ordering assistant for Bismayah.`,
-      "Reply naturally, warmly, and practically.",
-      "Use app data only. Never invent unavailable restaurants, offers, ETA, or ratings.",
-      "Never quote or repeat the user's message verbatim.",
-      "When data is missing, ask one smart follow-up question only.",
-      "Allow free small talk naturally. Do not force ordering too early.",
-      "If off-topic count is below 20, keep the conversation natural without hard redirection.",
-      "If off-topic count reaches 20 or more, gently steer back to ordering.",
-      "Vary openings and avoid repetitive wording.",
-      "Keep answer concise (2-6 lines), no markdown.",
+      `You are ${OPENAI_ASSISTANT_NAME}, a production-grade in-app assistant for Maslaki.`,
+      "Default mode is OPEN_CONVERSATION. Keep natural chat unless the user explicitly asks for an in-app action.",
+      "Switch to ACTION_MODE only for clear intent: order food/shopping, taxi request, jobs request, app-help workflow, or explicit comparisons.",
+      "Do not push restaurants, products, or taxi suggestions if intent is not explicit.",
+      "Use Iraqi Arabic-friendly tone when user is Arabic/Iraqi; use English only when requested.",
+      "Answer the exact question in the first sentence, then provide practical details.",
+      "Use known memory only when available and never claim memory if missing.",
+      "Do not hallucinate merchants, jobs, offers, ratings, ETA, fees, or policies.",
+      "Use only available app context and explicitly say when data is unavailable.",
+      "If the request is ambiguous, ask exactly one precise follow-up question.",
+      "When recommending options, keep it to 1-3 strong options with short reasons.",
+      "Keep style concise, clear, and human; avoid generic filler and robotic language.",
+      "Avoid repetitive greetings or repeated boilerplate.",
+      "Do not repeat the user message verbatim and do not expose chain-of-thought.",
+      "Output plain text only, no markdown tables.",
     ].join(" ");
   }
 
   return [
-    `\u0623\u0646\u062a ${OPENAI_ASSISTANT_NAME} \u062f\u0627\u062e\u0644 \u062a\u0637\u0628\u064a\u0642 \u0633\u0648\u0642\u064a \u0641\u064a \u0628\u0633\u0645\u0627\u064a\u0629.`,
-    "\u0631\u062f\u0643 \u064a\u0643\u0648\u0646 \u0637\u0628\u064a\u0639\u064a \u0648\u0644\u0647\u062c\u0629 \u0639\u0631\u0627\u0642\u064a\u0629 \u0628\u0633\u064a\u0637\u0629 \u0648\u0645\u0631\u064a\u062d\u0629.",
-    "\u0644\u0627 \u062a\u062e\u062a\u0631\u0639 \u0628\u064a\u0627\u0646\u0627\u062a \u063a\u064a\u0631 \u0645\u0648\u062c\u0648\u062f\u0629 \u0641\u064a \u0627\u0644\u062a\u0637\u0628\u064a\u0642.",
-    "\u0645\u0645\u0646\u0648\u0639 \u062a\u0643\u0631\u0627\u0631 \u0646\u0635 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645 \u062d\u0631\u0641\u064a\u0627\u064b \u0641\u064a \u0627\u0644\u0631\u062f.",
-    "\u0625\u0630\u0627 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0646\u0627\u0642\u0635\u0629 \u0627\u0633\u0623\u0644 \u0633\u0624\u0627\u0644 \u0648\u0627\u062d\u062f \u0630\u0643\u064a \u0641\u0642\u0637.",
-    "\u062e\u0644\u064a \u0627\u0644\u062f\u0631\u062f\u0634\u0629 \u062d\u0631\u0629 \u0648\u0637\u0628\u064a\u0639\u064a\u0629\u060c \u0648\u0644\u0627 \u062a\u062f\u0641\u0639 \u0644\u0644\u0637\u0644\u0628 \u0628\u0633\u0631\u0639\u0629.",
-    "\u0627\u0630\u0627 \u0639\u062f\u062f \u0631\u0633\u0627\u0626\u0644 \u062e\u0627\u0631\u062c \u0627\u0644\u0637\u0644\u0628 \u0627\u0642\u0644 \u0645\u0646 20\u060c \u0643\u0645\u0644 \u0627\u0644\u062f\u0631\u062f\u0634\u0629 \u0628\u0634\u0643\u0644 \u0637\u0628\u064a\u0639\u064a.",
-    "\u0627\u0630\u0627 \u0648\u0635\u0644\u062a 20 \u0631\u0633\u0627\u0644\u0629 \u062e\u0627\u0631\u062c \u0627\u0644\u0637\u0644\u0628\u060c \u0627\u0631\u062c\u0639 \u0628\u0644\u0637\u0641 \u0644\u0645\u0648\u0636\u0648\u0639 \u0627\u0644\u0637\u0644\u0628.",
-    "\u062c\u0646\u0628 \u0627\u0644\u062a\u0643\u0631\u0627\u0631 \u0648\u063a\u064a\u0631 \u0628\u062f\u0627\u064a\u0629 \u0627\u0644\u062c\u0645\u0644\u0629 \u0641\u064a \u0643\u0644 \u0631\u062f.",
-    "\u0627\u0644\u0625\u062c\u0627\u0628\u0629 \u0642\u0635\u064a\u0631\u0629 \u0648\u0648\u0627\u0636\u062d\u0629 \u0645\u0646 2 \u0627\u0644\u0649 6 \u0627\u0633\u0637\u0631 \u0648\u0628\u062f\u0648\u0646 markdown.",
+    `You are ${OPENAI_ASSISTANT_NAME}, a production-grade in-app assistant for Maslaki.`,
+    "الوضع الافتراضي هو دردشة مفتوحة طبيعية. لا تحول الحديث لطلبات مطاعم/تسوق/تكسي إلا إذا طلب المستخدم ذلك بشكل واضح.",
+    "حوّل إلى وضع تنفيذ خدمة فقط عند نية صريحة: أريد أطلب/أريد تكسي/أريد وظيفة/أريد مساعدة داخل التطبيق.",
+    "Respond in natural Iraqi Arabic unless the user explicitly asks English.",
+    "Answer the exact user question in the first sentence, then provide practical details.",
+    "استخدم ذاكرة المستخدم فقط إذا كانت موجودة ومسموح بها، ولا تدّعي التذكر إذا غير متوفر.",
+    "Do not hallucinate unavailable data; be explicit when data is missing.",
+    "If ambiguous, ask exactly one short clarification question.",
+    "لا تكرر نفس التحية أو نفس الردود بشكل آلي.",
+    "Avoid repeating the user message verbatim and avoid generic filler.",
+    "Output plain text only and keep the response concise and actionable.",
   ].join(" ");
+}
+
+function isKnowledgeLikeQuery(intent) {
+  const text = normalizeForNlp(intent?.originalText || "");
+  if (!text) return false;
+  const knowledgeKeywords = [
+    "what",
+    "how",
+    "why",
+    "where",
+    "when",
+    "which",
+    "explain",
+    "compare",
+    "review",
+    "iq",
+    "iraq",
+    "google",
+    "wiki",
+    "\u0634\u0646\u0648",
+    "\u0645\u0627\u0630\u0627",
+    "\u0643\u064a\u0641",
+    "\u0644\u064a\u0634",
+    "\u0648\u064a\u0646",
+    "\u0634\u0631\u062d",
+    "\u0642\u0627\u0631\u0646",
+    "\u0627\u0644\u0639\u0631\u0627\u0642",
+    "\u0645\u0639\u0644\u0648\u0645\u0627\u062a",
+    "\u0628\u062d\u062b",
+    "\u0643\u0648\u0643\u0644",
+  ];
+  return knowledgeKeywords.some((item) => text.includes(item));
+}
+
+function buildClarificationQuestion(lang) {
+  return tr(
+    lang,
+    "\u0645\u0645\u0643\u0646 \u062a\u0648\u0636\u062d \u0633\u0624\u0627\u0644\u0643 \u0634\u0648\u064a \u0623\u0643\u062b\u0631\u061f \u0623\u0643\u062f\u0631 \u0623\u062c\u064a\u0628\u0643 \u0628\u062f\u0642\u0629 \u0623\u062d\u0633\u0646 \u0644\u0645\u0627 \u062a\u0641\u0635\u0644 \u0627\u0644\u0645\u0642\u0635\u0648\u062f.",
+    "Can you clarify your question a bit more? I can answer more accurately when the intent is clearer."
+  );
+}
+
+function shouldTriggerWebAssist({ intent, llmReply }) {
+  if (!ASSISTANT_WEB_ASSIST_ENABLED) return false;
+  if (!isKnowledgeLikeQuery(intent)) return false;
+  if (!llmReply) return true;
+  if (llmReply.needsFollowUp === true) return true;
+  const confidence = Number(llmReply.confidence || 0);
+  return confidence > 0 && confidence < ASSISTANT_WEB_ASSIST_ON_LOW_CONFIDENCE;
+}
+
+function isRecallRequestMessage(text) {
+  const normalized = normalizeForNlp(text || "");
+  if (!normalized) return false;
+  return (
+    /(?:البارحة|أمس|امس|قبل شوي|شنو حكينا|ماذا تحدثنا|آخر محادثة|last time|yesterday|what did we talk)/iu.test(
+      normalized
+    ) === true
+  );
+}
+
+function shouldUseDirectMemoryAnswer({
+  intent,
+  memoryAnswer,
+  knowledgeAnswer,
+  recallContext,
+}) {
+  if (recallContext?.recallAnswerCandidate) return true;
+  if (knowledgeAnswer?.ok === true) return true;
+  if (!memoryAnswer || memoryAnswer.ok !== true) return false;
+
+  const confidence = Number(memoryAnswer.confidence || 0);
+  const isSmallTalk = intent?.smallTalkType && intent.smallTalkType !== "none";
+  const isOffTopic = intent?.offTopicIntent === true;
+  const isRecall = isRecallRequestMessage(intent?.originalText || "");
+  const explicitService = intent?.explicitServiceIntent === true;
+  const knowledgeLike = isKnowledgeLikeQuery(intent);
+
+  if (isRecall) return confidence >= 0.72;
+  if (isSmallTalk || isOffTopic) return false;
+
+  if (explicitService || knowledgeLike) {
+    return confidence >= ASSISTANT_MEMORY_DIRECT_MIN_CONFIDENCE;
+  }
+
+  return confidence >= ASSISTANT_MEMORY_CHAT_MIN_CONFIDENCE;
+}
+
+function shouldPersistRuntimeMemory({
+  intent,
+  assistantText,
+  llmReply,
+  memoryAnswer,
+  knowledgeAnswer,
+  webAssist,
+}) {
+  if (!assistantText || String(assistantText).trim().length < 12) return false;
+  if (!intent) return false;
+  if (intent.smallTalkType && intent.smallTalkType !== "none") return false;
+  if (intent.offTopicIntent === true) return false;
+  if (memoryAnswer?.ok === true || knowledgeAnswer?.ok === true) return false;
+
+  const explicitService = intent.explicitServiceIntent === true;
+  const knowledgeLike = isKnowledgeLikeQuery(intent);
+  const llmConfidence = Number(llmReply?.confidence || 0);
+  const webUsed = webAssist?.ok === true;
+
+  if (explicitService) return true;
+  if (knowledgeLike && (webUsed || llmConfidence >= 0.7)) return true;
+  if (llmConfidence >= 0.82) return true;
+  return false;
 }
 
 async function maybeBuildOpenAiReply({
@@ -2326,12 +2870,16 @@ async function maybeBuildOpenAiReply({
   lang,
   recentContext,
   historicalMemory,
+  trainingMemory,
+  conversationRecall,
+  adaptiveLearning,
   merchants,
   products,
   conversationDecision,
   recentAssistantReplies = [],
   draft,
   createdOrder,
+  domainRecommendations = null,
 }) {
   if (!OPENAI_ENABLED || !OPENAI_API_KEY) return null;
 
@@ -2340,6 +2888,7 @@ async function maybeBuildOpenAiReply({
     language: lang,
     intent: {
       primary: intent.primaryIntent,
+      domain: intent.assistDomain || "general",
       support: intent.supportIntent,
       offTopic: intent.offTopicIntent,
       comparison: intent.comparisonIntent,
@@ -2365,6 +2914,48 @@ async function maybeBuildOpenAiReply({
     },
     recentContext,
     historicalMemory: historicalMemory?.snippets || [],
+    trainingMemory: trainingMemory?.snippets || [],
+    conversationRecall:
+      conversationRecall && typeof conversationRecall === "object"
+        ? {
+            line: conversationRecall.line || null,
+            snippets: Array.isArray(conversationRecall.snippets)
+              ? conversationRecall.snippets.slice(0, 5)
+              : [],
+            topics: Array.isArray(conversationRecall.topics)
+              ? conversationRecall.topics.slice(0, 10)
+              : [],
+            hasHistory: conversationRecall.hasHistory === true,
+          }
+        : null,
+    adaptiveLearning:
+      adaptiveLearning && typeof adaptiveLearning === "object"
+        ? {
+            line: adaptiveLearning.line || null,
+            snippets: Array.isArray(adaptiveLearning.snippets)
+              ? adaptiveLearning.snippets.slice(0, 8)
+              : [],
+            profile:
+              adaptiveLearning.profile && typeof adaptiveLearning.profile === "object"
+                ? {
+                    confidence: Number(adaptiveLearning.profile.confidence || 0),
+                    samplesCount: Number(adaptiveLearning.profile.samples_count || 0),
+                    summary: String(adaptiveLearning.profile.summary || "").slice(0, 600),
+                    intents: adaptiveLearning.profile.intents_json || {},
+                    topics: adaptiveLearning.profile.topics_json || {},
+                  }
+                : null,
+            topFacts: Array.isArray(adaptiveLearning.facts)
+              ? adaptiveLearning.facts.slice(0, 12).map((fact) => ({
+                  key: fact.fact_key,
+                  value: fact.fact_value,
+                  type: fact.fact_type,
+                  confidence: Number(fact.confidence || 0),
+                  occurrences: Number(fact.occurrences || 0),
+                }))
+              : [],
+          }
+        : null,
     recentAssistantReplies: (recentAssistantReplies || []).slice(-3),
     merchants: (merchants || []).slice(0, OPENAI_MAX_PROMPT_ITEMS).map(compactLlmMerchant),
     products: (products || []).slice(0, OPENAI_MAX_PROMPT_ITEMS).map(compactLlmProduct),
@@ -2387,11 +2978,28 @@ async function maybeBuildOpenAiReply({
           totalAmount: Number(createdOrder.totalAmount || 0),
         }
       : null,
+    domainRecommendations:
+      domainRecommendations && typeof domainRecommendations === "object"
+        ? {
+            type: domainRecommendations.type || null,
+            summary: domainRecommendations.summary || null,
+            confidence: Number(domainRecommendations.confidence || 0),
+            model: domainRecommendations.model || null,
+            items: Array.isArray(domainRecommendations.items)
+              ? domainRecommendations.items.slice(0, 5)
+              : [],
+          }
+        : null,
   };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
   try {
+    const analyticInstructionEn =
+      "Return strict JSON only: {answer:string, confidence:number(0..1), needsFollowUp:boolean, followUpQuestion:string|null, reasoningSummary:string, tone:string}. First sentence must directly answer user intent. If uncertain, set needsFollowUp=true with one precise follow-up question. Never expose chain-of-thought.";
+    const analyticInstructionAr =
+      "ارجع JSON فقط بهذا الشكل: {answer:string, confidence:number بين 0 و1, needsFollowUp:boolean, followUpQuestion:string|null, reasoningSummary:string, tone:string}. اجعل الجواب دقيق وعملي ومختصر ولا تعرض سلسلة التفكير الداخلية.";
+
     const messages = [
       { role: "system", content: buildLlmSystemPrompt(lang) },
       {
@@ -2408,6 +3016,22 @@ async function maybeBuildOpenAiReply({
           Number(profile?.conversation?.offTopicCount || 0) >= OFF_TOPIC_REDIRECT_THRESHOLD
             ? "User has many off-topic turns; answer naturally then gently steer back to ordering."
             : "Keep small talk natural and do not force ordering immediately.",
+      },
+      {
+        role: "system",
+        content:
+          OPENAI_ANALYTIC_MODE === true
+            ? lang === "en"
+              ? analyticInstructionEn
+              : analyticInstructionAr
+            : lang === "en"
+            ? "Prioritize correctness and concise practical answers."
+            : "قدّم إجابة دقيقة ومختصرة وعملية.",
+      },
+      {
+        role: "system",
+        content:
+          "If domainRecommendations are available, treat them as the primary factual context and build the answer from them.",
       },
       { role: "user", content: JSON.stringify(payload) },
     ];
@@ -2433,6 +3057,7 @@ async function maybeBuildOpenAiReply({
             frequency_penalty: OPENAI_FREQUENCY_PENALTY,
             max_tokens: OPENAI_MAX_TOKENS,
             messages,
+            ...(OPENAI_ANALYTIC_MODE ? { response_format: { type: "json_object" } } : {}),
           }),
           signal: controller.signal,
         });
@@ -2441,13 +3066,62 @@ async function maybeBuildOpenAiReply({
         const json = await response.json();
         const content = String(json?.choices?.[0]?.message?.content || "").trim();
         if (!content) continue;
-        const cleaned = sanitizeAssistantOutput(content, {
-          intent,
-          recentAssistantReplies,
-        });
+
+        if (OPENAI_ANALYTIC_MODE) {
+          const parsed = parseFirstJsonObject(content);
+          if (parsed && typeof parsed === "object") {
+            const answerText = sanitizeAssistantOutput(
+              String(parsed.answer || parsed.response || ""),
+              {
+                intent,
+                recentAssistantReplies,
+              }
+            );
+            const fallbackQuestion = sanitizeAssistantOutput(
+              String(parsed.followUpQuestion || ""),
+              {
+                intent,
+                recentAssistantReplies,
+              }
+            );
+            const finalText = answerText || fallbackQuestion;
+            if (finalText) {
+              if (!isResponseGroundedToUserQuestion(finalText, intent.originalText)) {
+                continue;
+              }
+              const confidence = clampNumber(parsed.confidence, 0, 1, 0.7);
+              if (confidence < OPENAI_ANALYTIC_MIN_CONFIDENCE && answerText) {
+                // low confidence answer still usable, but force concise fallback style.
+                return {
+                  text: answerText.slice(0, 420),
+                  model,
+                  confidence,
+                  needsFollowUp: parsed.needsFollowUp === true,
+                  reasoningSummary: String(parsed.reasoningSummary || "").slice(0, 240),
+                };
+              }
+              return {
+                text: finalText.slice(0, 1800),
+                model,
+                confidence,
+                needsFollowUp: parsed.needsFollowUp === true,
+                reasoningSummary: String(parsed.reasoningSummary || "").slice(0, 320),
+              };
+            }
+          }
+        }
+
+        const cleaned = sanitizeAssistantOutput(content, { intent, recentAssistantReplies });
         if (!cleaned) continue;
+        if (!isResponseGroundedToUserQuestion(cleaned, intent.originalText)) continue;
         if (isNearDuplicateReply(cleaned, recentAssistantReplies)) continue;
-        return cleaned.slice(0, 1800);
+        return {
+          text: cleaned.slice(0, 1800),
+          model,
+          confidence: 0.62,
+          needsFollowUp: false,
+          reasoningSummary: null,
+        };
       }
     }
 
@@ -2457,6 +3131,173 @@ async function maybeBuildOpenAiReply({
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function collectDomainRecommendations(customerUserId, intent) {
+  try {
+    if (intent?.jobsIntent) {
+      const out = await assistantAiService.recommendJobsForCustomer(customerUserId, {
+        query: intent.originalText,
+        limit: 5,
+      });
+      return {
+        type: "jobs",
+        items: Array.isArray(out?.items) ? out.items.slice(0, 5) : [],
+        summary: out?.summary || null,
+        confidence: Number(out?.confidence || 0),
+        model: out?.model || null,
+      };
+    }
+
+    if (intent?.commerceAssistIntent) {
+      const kind = intent.restaurantDiscoveryIntent ? "restaurants" : "shopping";
+      const out = await assistantAiService.recommendCommerceForCustomer(customerUserId, {
+        kind,
+        query: intent.originalText,
+        limit: 6,
+      });
+      return {
+        type: "commerce",
+        kind,
+        items: Array.isArray(out?.items) ? out.items.slice(0, 6) : [],
+        summary: out?.summary || null,
+        confidence: Number(out?.confidence || 0),
+        model: out?.model || null,
+      };
+    }
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
+
+function formatSalaryLine(job, lang) {
+  const min = Number(job?.salaryMin || 0);
+  const max = Number(job?.salaryMax || 0);
+  if (min > 0 && max > 0) {
+    return tr(
+      lang,
+      `${formatIqd(min)} - ${formatIqd(max)} \u0634\u0647\u0631\u064a\u0627`,
+      `${formatIqd(min)} - ${formatIqd(max)} monthly`
+    );
+  }
+  if (min > 0) {
+    return tr(
+      lang,
+      `\u064a\u0628\u062f\u0623 \u0645\u0646 ${formatIqd(min)} \u0634\u0647\u0631\u064a\u0627`,
+      `starts from ${formatIqd(min)} monthly`
+    );
+  }
+  return tr(
+    lang,
+    "\u0627\u0644\u0631\u0627\u062a\u0628 \u063a\u064a\u0631 \u0645\u0639\u0644\u0646",
+    "salary not disclosed"
+  );
+}
+
+function buildJobsAssistReply({ domainRecommendations, lang }) {
+  const items = Array.isArray(domainRecommendations?.items)
+    ? domainRecommendations.items.slice(0, 3)
+    : [];
+  if (!items.length) {
+    return tr(
+      lang,
+      "\u0645\u0627 \u0644\u0642\u064a\u062a \u0648\u0638\u0627\u0626\u0641 \u0645\u0637\u0627\u0628\u0642\u0629 \u062d\u0627\u0644\u064a\u0627\u064b. \u0643\u062a\u0628 \u0627\u0644\u0627\u062e\u062a\u0635\u0627\u0635 \u0623\u0648 \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0630\u064a \u062a\u0631\u064a\u062f\u0647 \u0648\u0623\u0631\u062a\u0628\u0647\u0627 \u0644\u0643 \u062f\u0642\u064a\u0642\u0627\u064b.",
+      "No matching jobs right now. Tell me your specialty or department and I will refine immediately."
+    );
+  }
+
+  const lines = items.map((job, index) => {
+    const title = String(job?.title || "").trim() || tr(lang, "\u0648\u0638\u064a\u0641\u0629", "Job");
+    const company =
+      String(job?.companyName || "").trim() ||
+      tr(lang, "\u062c\u0647\u0629 \u063a\u064a\u0631 \u0645\u0639\u0644\u0646\u0629", "Undisclosed company");
+    const area = String(job?.area || job?.city || "").trim();
+    const salary = formatSalaryLine(job, lang);
+    return `${index + 1}) ${title} - ${company}${area ? ` - ${area}` : ""} - ${salary}`;
+  });
+
+  const summary =
+    String(domainRecommendations?.summary || "").trim() ||
+    tr(
+      lang,
+      "\u0647\u0630\u064a \u0623\u0641\u0636\u0644 \u0641\u0631\u0635 \u0627\u0644\u064a\u0648\u0645 \u062d\u0633\u0628 \u0637\u0644\u0628\u0643.",
+      "These are the strongest opportunities for your query today."
+    );
+  return `${summary}\n${lines.join("\n")}\n${tr(
+    lang,
+    "\u0625\u0630\u0627 \u062a\u0631\u064a\u062f\u060c \u0623\u0631\u0634\u062d\u0644\u0643 \u0648\u0638\u064a\u0641\u0629 \u0648\u0627\u062d\u062f\u0629 \u0628\u0627\u0644\u0636\u0628\u0637 \u062d\u0633\u0628 \u062e\u0628\u0631\u062a\u0643.",
+    "If you want, I can pick one exact job for your experience level."
+  )}`;
+}
+
+function buildCommerceAssistReply({ domainRecommendations, lang }) {
+  const items = Array.isArray(domainRecommendations?.items)
+    ? domainRecommendations.items.slice(0, 3)
+    : [];
+  const kind = domainRecommendations?.kind === "restaurants" ? "restaurants" : "shopping";
+  if (!items.length) {
+    return kind === "restaurants"
+      ? tr(
+          lang,
+          "\u0645\u0627 \u0644\u0642\u064a\u062a \u0645\u0637\u0627\u0639\u0645 \u0645\u0637\u0627\u0628\u0642\u0629 \u0628\u0634\u0643\u0644 \u0642\u0648\u064a. \u0627\u0643\u062a\u0628 \u0646\u0648\u0639 \u0627\u0644\u0623\u0643\u0644 \u0623\u0648 \u0627\u0644\u0645\u064a\u0632\u0627\u0646\u064a\u0629 \u0648\u0623\u0631\u062a\u0628 \u0644\u0643 \u062e\u064a\u0627\u0631\u0627\u062a \u0623\u062f\u0642.",
+          "I could not find strong restaurant matches. Tell me cuisine or budget and I will refine better."
+        )
+      : tr(
+          lang,
+          "\u0645\u0627 \u0644\u0642\u064a\u062a \u0645\u0646\u062a\u062c\u0627\u062a \u0645\u0637\u0627\u0628\u0642\u0629 \u0628\u0642\u0648\u0629. \u0627\u0643\u062a\u0628 \u0646\u0648\u0639 \u0627\u0644\u0645\u0646\u062a\u062c \u0648\u0623\u0631\u062a\u0628\u0644\u0643 \u0627\u0644\u0623\u0641\u0636\u0644.",
+          "I could not find strong product matches. Tell me product type and I will rank the best options."
+        );
+  }
+
+  const lines = items.map((item, index) => {
+    const productName = String(item?.productName || "").trim() || tr(lang, "\u0645\u0646\u062a\u062c", "Product");
+    const merchantName =
+      String(item?.merchantName || "").trim() ||
+      tr(lang, "\u0645\u062a\u062c\u0631", "Store");
+    const price = formatIqd(Number(item?.effectivePrice || item?.basePrice || 0));
+    const rating = Number(item?.avgRating || 0);
+    return `${index + 1}) ${productName} - ${merchantName} - ${price}${
+      rating > 0 ? ` - \u2b50 ${rating.toFixed(1)}` : ""
+    }`;
+  });
+
+  const summary =
+    String(domainRecommendations?.summary || "").trim() ||
+    tr(
+      lang,
+      "\u0631\u062a\u0628\u062a \u0644\u0643 \u0623\u0641\u0636\u0644 \u0627\u0644\u062e\u064a\u0627\u0631\u0627\u062a \u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629 \u0644\u0637\u0644\u0628\u0643.",
+      "I ranked the strongest options matching your request."
+    );
+  return `${summary}\n${lines.join("\n")}\n${tr(
+    lang,
+    "\u0625\u0630\u0627 \u062a\u0631\u064a\u062f\u060c \u0623\u0636\u0628\u0637\u0647\u0627 \u0623\u0643\u062b\u0631 \u0639\u0644\u0649 \u0627\u0644\u0633\u0639\u0631 \u0623\u0648 \u0627\u0644\u062a\u0642\u064a\u064a\u0645 \u0623\u0648 \u0633\u0631\u0639\u0629 \u0627\u0644\u062a\u0648\u0635\u064a\u0644.",
+    "If you want, I can optimize them more for price, rating, or delivery speed."
+  )}`;
+}
+
+function buildTaxiAssistReply(lang) {
+  return tr(
+    lang,
+    "\u0623\u0642\u062f\u0631 \u0623\u0633\u0627\u0639\u062f\u0643 \u0628\u0637\u0644\u0628 \u0627\u0644\u062a\u0643\u0633\u064a \u0645\u0646 \u0634\u0643\u0627\u0643\u064a: \u062d\u062f\u062f \u0646\u0642\u0637\u0629 \u0627\u0644\u0627\u0646\u0637\u0644\u0627\u0642 \u0648\u0627\u0644\u0648\u062c\u0647\u0629 \u0648\u0633\u0623\u0631\u062a\u0628 \u0644\u0643 \u0643\u0627\u0628\u062a\u0646 \u0645\u0646\u0627\u0633\u0628 \u0645\u0639 \u0625\u0645\u0643\u0627\u0646\u064a\u0629 \u0627\u0644\u062a\u0641\u0627\u0648\u0636.",
+    "I can help with a Shakaky taxi request: share pickup and destination, and I will guide the best captain flow with price negotiation."
+  );
+}
+
+function buildCommunityAssistReply(lang) {
+  return tr(
+    lang,
+    "\u0625\u0630\u0627 \u062a\u0631\u064a\u062f \u0645\u0633\u0627\u0639\u062f\u0629 \u0641\u064a \u0645\u062c\u062a\u0645\u0639 \u0628\u0633\u0645\u0627\u064a\u0629\u060c \u0642\u0644\u064a \u0647\u0644 \u062a\u0631\u064a\u062f \u0646\u0634\u0631 \u0645\u0646\u0634\u0648\u0631\u060c \u0633\u062a\u0648\u0631\u064a\u060c \u0623\u0648 \u0627\u0644\u062f\u062e\u0648\u0644 \u0644\u0628\u0644\u0648\u0643/\u0645\u062c\u0645\u0639/\u0639\u0645\u0627\u0631\u0629 \u0645\u0639\u064a\u0646\u0629.",
+    "For Basmaya community help, tell me if you want to publish a post/story or navigate to a specific block/complex/building feed."
+  );
+}
+
+function buildAppHelpReply(lang) {
+  return tr(
+    lang,
+    "\u0623\u0643\u062f\u0631 \u0623\u0633\u0627\u0639\u062f\u0643 \u0628\u0627\u0644\u062a\u0637\u0628\u064a\u0642 \u062e\u0637\u0648\u0629 \u0628\u062e\u0637\u0648\u0629: \u0627\u0643\u062a\u0628 \u0628\u0627\u0644\u0636\u0628\u0637 \u0627\u0644\u0635\u0641\u062d\u0629 \u0623\u0648 \u0627\u0644\u0645\u0634\u0643\u0644\u0629 (\u0625\u0634\u0639\u0627\u0631\u0627\u062a\u060c \u062d\u0633\u0627\u0628\u060c \u0631\u0633\u0627\u0626\u0644\u060c \u0637\u0644\u0628\u0627\u062a) \u0648\u0623\u0639\u0637\u064a\u0643 \u0627\u0644\u062d\u0644 \u0627\u0644\u0645\u0628\u0627\u0634\u0631.",
+    "I can guide you through the app step by step. Tell me the exact page or issue (notifications, account, chats, orders) and I will give direct steps."
+  );
 }
 
 function buildRecommendationLines(merchants, intent, lang) {
@@ -2759,11 +3600,14 @@ function buildIntentAwareReply({
   profile,
   recentContext,
   historicalMemoryLine = null,
+  trainingMemoryLine = null,
   merchantCatalog = [],
   conversationModel = null,
   conversationDecision = null,
+  domainRecommendations = null,
   lang,
 }) {
+  const memoryLine = trainingMemoryLine || historicalMemoryLine || recentContext || null;
   if (createdOrder && confirmFromDraft) {
     return tr(
       lang,
@@ -2784,30 +3628,25 @@ function buildIntentAwareReply({
     )} ${pickSmartQuestion(intent, profile, lang)}`;
   }
 
+  if (intent.jobsIntent) {
+    return buildJobsAssistReply({ domainRecommendations, lang });
+  }
+  if (intent.commerceAssistIntent) {
+    return buildCommerceAssistReply({ domainRecommendations, lang });
+  }
+  if (intent.taxiIntent) {
+    return buildTaxiAssistReply(lang);
+  }
+  if (intent.communityIntent) {
+    return buildCommunityAssistReply(lang);
+  }
+  if (intent.appHelpIntent) {
+    return buildAppHelpReply(lang);
+  }
+
   if (intent.supportIntent || intent.primaryIntent === "SUPPORT") {
-    return buildSupportReply(intent, lang);
-  }
-
-  if (intent.offTopicIntent || intent.smallTalkType !== "none") {
-    return buildSmallTalkReply({
-      intent,
-      profile,
-      merchants,
-      products,
-      conversationModel,
-      conversationDecision,
-      lang,
-    });
-  }
-
-  if (conversationDecision?.mode === "discovery") {
-    return buildDiscoveryReply({
-      intent,
-      profile,
-      conversationModel,
-      missingSlot: conversationDecision.missingSlot,
-      lang,
-    });
+    const supportText = buildSupportReply(intent, lang);
+    return memoryLine ? `${supportText}\n${memoryLine}` : supportText;
   }
 
   if (intent.primaryIntent === "OFFERS") {
@@ -2827,6 +3666,39 @@ function buildIntentAwareReply({
     return buildEvaluateReply({ intent, merchantCatalog, lang });
   }
 
+  if (
+    (intent.offTopicIntent || intent.smallTalkType !== "none") &&
+    intent.primaryIntent === "BROWSE"
+  ) {
+    return buildSmallTalkReply({
+      intent,
+      profile,
+      merchants,
+      products,
+      conversationModel,
+      conversationDecision,
+      lang,
+    });
+  }
+
+  if (conversationDecision?.mode === "open_chat") {
+    return tr(
+      lang,
+      "أكيد، نكدر نحچي براحتنا. إذا تريد أنفذ أي خدمة داخل التطبيق كلّي بشكل مباشر وأنا حاضر.",
+      "Sure, we can keep chatting naturally. If you want any in-app action, tell me clearly and I will do it."
+    );
+  }
+
+  if (conversationDecision?.mode === "discovery") {
+    return buildDiscoveryReply({
+      intent,
+      profile,
+      conversationModel,
+      missingSlot: conversationDecision.missingSlot,
+      lang,
+    });
+  }
+
   if (intent.comparisonIntent) {
     return buildComparisonReply({ merchants, intent, profile, lang });
   }
@@ -2844,7 +3716,7 @@ function buildIntentAwareReply({
   }
 
   if (!products.length || !merchants.length) {
-    return `${tr(
+    const base = `${tr(
       lang,
       "ما حصلت مطابقة قوية هسه. إذا تحددلي النوع أو الميزانية أضبطها بسرعة.",
       "I could not find strong matches yet. I can improve results fast if you set budget or food type."
@@ -2854,6 +3726,7 @@ function buildIntentAwareReply({
       lang,
       conversationModel
     )}`;
+    return memoryLine ? `${base}\n${memoryLine}` : base;
   }
   const lines = buildRecommendationLines(merchants, intent, lang);
   const intro = tr(lang, "رتبتلك أفضل 3 خيارات:", "I ranked the top 3 options for your request:");
@@ -3160,7 +4033,7 @@ async function buildSessionPayload(customerUserId, sessionId, profile) {
   const [messages, pendingDraft, addresses] = await Promise.all([
     repo.listMessages(sessionId, 50),
     repo.getLatestPendingDraft(customerUserId, sessionId),
-    repo.listCustomerAddresses(customerUserId),
+    getCustomerAddresses(customerUserId),
   ]);
 
   return {
@@ -3172,9 +4045,9 @@ async function buildSessionPayload(customerUserId, sessionId, profile) {
       label: a.label,
       city: a.city,
       block: a.block,
-      buildingNumber: a.building_number,
+      buildingNumber: a.buildingNumber,
       apartment: a.apartment,
-      isDefault: a.is_default === true,
+      isDefault: a.isDefault === true,
     })),
     profile: mapProfileForApi(profile),
   };
@@ -3354,6 +4227,22 @@ export async function confirmDraft(customerUserId, token, options = {}) {
   });
 
   const payload = await buildSessionPayload(customerUserId, session.id, updatedProfile);
+  await assistantAiService.recordChatObservation({
+    sessionId: session.id,
+    customerUserId,
+    userMessage: options?.note || "[draft_confirmed]",
+    assistantReply: assistantText,
+    detectedIntent: "confirm_draft",
+    conversationMode: "checkout",
+    language: lang,
+    styleSignature: updatedProfile?.personalityStyle || null,
+    modelName: "rules_only",
+    metadata: {
+      draftToken: draft.token,
+      orderId: Number(createdOrder.id),
+      source: "confirm_draft",
+    },
+  });
   return {
     ...payload,
     assistantMessage,
@@ -3440,6 +4329,20 @@ export async function chat(customerUserId, dto) {
     });
 
     const payload = await buildSessionPayload(customerUserId, session.id, updatedProfile);
+    await assistantAiService.recordChatObservation({
+      sessionId: session.id,
+      customerUserId,
+      userMessage: message || "[cancel_draft]",
+      assistantReply: cancelText,
+      detectedIntent: "cancel_draft",
+      conversationMode: "discovery",
+      language: lang,
+      styleSignature: updatedProfile?.personalityStyle || null,
+      modelName: "rules_only",
+      metadata: {
+        source: "cancel_flow",
+      },
+    });
     return {
       ...payload,
       assistantMessage: cancelMessage,
@@ -3463,13 +4366,64 @@ export async function chat(customerUserId, dto) {
     pool,
     recentMessages,
     historicalMessages,
+    promptMemoryEntries,
+    adaptiveLearningContext,
+    conversationRecallContext,
+    domainRecommendations,
+    knowledgeAnswerCandidate,
+    memoryAnswerCandidate,
   ] = await Promise.all([
     repo.getProfile(customerUserId),
     repo.getHistorySignals(customerUserId),
     repo.getGlobalSignals(),
-    repo.listRecommendationPool(customerUserId, 900),
+    intent.explicitServiceIntent !== true ||
+    intent.jobsIntent ||
+    intent.taxiIntent ||
+    intent.communityIntent ||
+    intent.appHelpIntent
+      ? Promise.resolve([])
+      : repo.listRecommendationPool(customerUserId, 900),
     repo.listMessages(session.id, 12),
     repo.listRecentMessagesAcrossSessions(customerUserId, 120),
+    assistantAiService.buildPromptMemoryContext({
+      customerUserId,
+      queryText: message,
+      limit: 6,
+    }).catch(() => []),
+    assistantAiService.buildAdaptiveLearningContext({
+      customerUserId,
+      queryText: message,
+      factLimit: 14,
+    }).catch(() => ({ line: null, snippets: [], facts: [], profile: null })),
+    assistantAiService.buildConversationRecallContext({
+      customerUserId,
+      queryText: message,
+      limit: 5,
+    }).catch(() => ({
+      line: null,
+      snippets: [],
+      topics: [],
+      hasHistory: false,
+      recallAnswerCandidate: null,
+    })),
+    collectDomainRecommendations(customerUserId, intent),
+    ASSISTANT_KNOWLEDGE_RETRIEVAL_ENABLED
+      ? assistantAiService.resolveKnowledgeAnswer({
+          queryText: message,
+          language: intent?.inferredLanguage || "ar",
+          dialect: "iraqi",
+          intentCluster: intent.assistDomain || "general",
+          lexicalLimit: 60,
+          semanticCandidatesLimit: 500,
+          similarityThreshold: 0.58,
+        }).catch(() => null)
+      : Promise.resolve(null),
+    assistantAiService.resolveStoredQaAnswer({
+      customerUserId,
+      queryText: message,
+      limit: 80,
+      similarThreshold: 0.5,
+    }).catch(() => null),
   ]);
 
   const profile = mergeProfileSignals(parseProfile(rawProfile), intent);
@@ -3506,6 +4460,7 @@ export async function chat(customerUserId, dto) {
     intent.wantsFast ||
     intent.primaryIntent === "ORDER_DIRECT";
   const shouldForceDiscoveryOnFreshSession =
+    intent.explicitServiceIntent === true &&
     sessionUserTurns <= 1 &&
     !hasStrongOrderStart &&
     !intent.supportIntent &&
@@ -3525,6 +4480,11 @@ export async function chat(customerUserId, dto) {
     intent,
     lang
   );
+  const trainingMemory = buildTrainingMemoryContextLine(promptMemoryEntries, lang);
+  const adaptiveLearningLine =
+    adaptiveLearningContext && adaptiveLearningContext.line
+      ? adaptiveLearningContext.line
+      : null;
 
   const merchantSuggestions = buildMerchantSuggestions(ranked);
   const productSuggestions = buildProductSuggestions(ranked);
@@ -3539,10 +4499,11 @@ export async function chat(customerUserId, dto) {
     intent.tokens.length >= 3;
   const shouldDraft =
     (dto.createDraft === true || (intent.orderIntent && hasEnoughOrderSignals)) &&
+    intent.explicitServiceIntent === true &&
     !intent.offTopicIntent &&
     conversationDecision.mode === "recommendation";
   if (shouldDraft && ranked.length) {
-    const draftCandidate = buildDraftCandidate(
+    const draftCandidate = await buildDraftCandidate(
       ranked,
       intent.requestedQuantity,
       intent.audienceType
@@ -3585,11 +4546,14 @@ export async function chat(customerUserId, dto) {
   }
 
   const canRecommendNow =
-    conversationDecision.mode === "recommendation" ||
-    (conversationDecision.mode === "specialized" && !intent.supportIntent);
+    intent.explicitServiceIntent === true &&
+    (conversationDecision.mode === "recommendation" ||
+      (conversationDecision.mode === "specialized" && !intent.supportIntent));
   const visibleMerchants = canRecommendNow ? merchantSuggestions : [];
   const visibleProducts = canRecommendNow ? productSuggestions : [];
-  if (conversationDecision.mode === "discovery") {
+  if (conversationDecision.mode === "open_chat") {
+    profile.conversationModel.phase = "understanding";
+  } else if (conversationDecision.mode === "discovery") {
     profile.conversationModel.phase = "understanding";
     profile.conversationModel.clarificationTurns += 1;
     profile.conversationModel.lastQuestionSlot = conversationDecision.missingSlot || null;
@@ -3611,17 +4575,46 @@ export async function chat(customerUserId, dto) {
     confirmFromDraft: false,
     profile,
     recentContext,
-    historicalMemoryLine: historicalMemory.line,
-    merchantCatalog: merchantSuggestions,
-    conversationModel: profile.conversationModel,
-    conversationDecision,
+    historicalMemoryLine:
+      [historicalMemory.line, conversationRecallContext?.line || null]
+        .filter(Boolean)
+        .join(" | ") || null,
+    trainingMemoryLine:
+      [trainingMemory.line, adaptiveLearningLine].filter(Boolean).join(" | ") || null,
+      merchantCatalog: merchantSuggestions,
+      conversationModel: profile.conversationModel,
+      conversationDecision,
+      domainRecommendations,
     lang,
   });
 
+  const recallDirectAnswer =
+    conversationRecallContext?.recallAnswerCandidate &&
+    String(conversationRecallContext.recallAnswerCandidate).trim().length > 0
+      ? {
+          ok: true,
+          foundBy: "conversation_recall",
+          memoryId: null,
+          answer: String(conversationRecallContext.recallAnswerCandidate).trim(),
+          confidence: 0.88,
+          source: "conversation_history",
+        }
+      : null;
+  const knowledgeAnswer = knowledgeAnswerCandidate?.ok === true ? knowledgeAnswerCandidate : null;
+  const storedMemoryAnswer =
+    memoryAnswerCandidate?.ok === true ? memoryAnswerCandidate : null;
+  const prioritizedMemoryAnswer = recallDirectAnswer || knowledgeAnswer || storedMemoryAnswer;
+  const memoryAnswer = shouldUseDirectMemoryAnswer({
+    intent,
+    memoryAnswer: storedMemoryAnswer,
+    knowledgeAnswer,
+    recallContext: conversationRecallContext,
+  })
+    ? prioritizedMemoryAnswer
+    : null;
+
   const shouldBypassLlmForNaturalFlow =
-    (conversationDecision.mode === "discovery" && sessionUserTurns <= 2) ||
-    ((intent.offTopicIntent || intent.smallTalkType !== "none") &&
-      Number(profile?.conversation?.offTopicCount || 0) < OFF_TOPIC_REDIRECT_THRESHOLD);
+    !OPENAI_ENABLED || !OPENAI_API_KEY || memoryAnswer != null;
   const llmReply = shouldBypassLlmForNaturalFlow
     ? null
     : await maybeBuildOpenAiReply({
@@ -3630,17 +4623,43 @@ export async function chat(customerUserId, dto) {
         lang,
         recentContext,
         historicalMemory,
+        trainingMemory,
+        conversationRecall: conversationRecallContext,
+        adaptiveLearning: adaptiveLearningContext,
         merchants: visibleMerchants,
         products: visibleProducts,
         conversationDecision,
         recentAssistantReplies,
         draft: createdDraft,
         createdOrder: null,
+        domainRecommendations,
       });
-  const rawAssistantText = llmReply || ruleBasedReply;
+
+  let webAssist = null;
+  if (!memoryAnswer && shouldTriggerWebAssist({ intent, llmReply })) {
+    webAssist = await assistantAiService.buildWebGroundedAnswer({
+      query: intent.originalText,
+      language: lang,
+      context: {
+        source: "assistant_chat",
+        conversationMode: conversationDecision.mode,
+        llmConfidence: llmReply ? Number(llmReply.confidence || 0) : null,
+      },
+      persistToMemory: true,
+    });
+  }
+
+  const rawAssistantText =
+    memoryAnswer?.answer ||
+    (webAssist?.ok === true
+      ? webAssist.answer
+      : llmReply?.text ||
+        (llmReply?.needsFollowUp === true ? buildClarificationQuestion(lang) : null) ||
+        ruleBasedReply);
   const assistantText =
     sanitizeAssistantOutput(rawAssistantText, { intent, recentAssistantReplies }) ||
     sanitizeAssistantOutput(ruleBasedReply, { intent, recentAssistantReplies }) ||
+    (llmReply?.needsFollowUp === true ? buildClarificationQuestion(lang) : null) ||
     tr(
       lang,
       "\u062d\u0627\u0636\u0631 \u0648\u064a\u0627\u0643. \u0625\u0630\u0627 \u062a\u0631\u064a\u062f \u0646\u0643\u0645\u0644 \u0627\u0644\u062f\u0631\u062f\u0634\u0629 \u0623\u0648 \u0646\u0628\u062f\u0623 \u0627\u0644\u0637\u0644\u0628\u060c \u0623\u0646\u0627 \u062c\u0627\u0647\u0632.",
@@ -3700,9 +4719,28 @@ export async function chat(customerUserId, dto) {
     draftToken: createdDraft?.token || null,
     merchantsCount: visibleMerchants.length,
     productsCount: visibleProducts.length,
+    assistDomain: intent.assistDomain || "general",
+    domainRecommendationsType: domainRecommendations?.type || null,
+    domainRecommendationsCount: Array.isArray(domainRecommendations?.items)
+      ? domainRecommendations.items.length
+      : 0,
     conversationPhase: profile.conversationModel?.phase || "discovery",
     conversationMode: conversationDecision.mode,
     llmUsed: llmReply != null,
+    llmConfidence: llmReply ? Number(llmReply.confidence || 0) : null,
+    llmNeedsFollowUp: llmReply ? llmReply.needsFollowUp === true : null,
+    memoryAnswerUsed: memoryAnswer != null,
+    memoryAnswerFoundBy: memoryAnswer?.foundBy || null,
+    memoryAnswerConfidence: memoryAnswer ? Number(memoryAnswer.confidence || 0) : null,
+    memoryAnswerId: memoryAnswer ? Number(memoryAnswer.memoryId || 0) : null,
+    knowledgeAnswerUsed: memoryAnswer?.foundBy?.startsWith?.("knowledge_") === true,
+    knowledgeAnswerId:
+      memoryAnswer && Number(memoryAnswer.knowledgeId || 0) > 0
+        ? Number(memoryAnswer.knowledgeId)
+        : null,
+    webAssistUsed: webAssist?.ok === true,
+    webAssistProvider: webAssist?.provider || null,
+    webAssistConfidence: webAssist?.ok === true ? Number(webAssist.confidence || 0) : null,
     scenarioLibrarySize: getScenarioLibrarySize(),
     language: lang,
     CUSTOMER_PROFILE_UPDATE: artifacts.customerProfileUpdate,
@@ -3710,6 +4748,124 @@ export async function chat(customerUserId, dto) {
   });
 
   const payload = await buildSessionPayload(customerUserId, session.id, updatedProfile);
+  await assistantAiService.recordChatObservation({
+    sessionId: session.id,
+    customerUserId,
+    userMessage: message,
+    assistantReply: assistantText,
+    detectedIntent: intent.primaryIntent || "unknown",
+    conversationMode: conversationDecision.mode,
+    language: lang,
+    styleSignature: updatedProfile?.personalityStyle || null,
+    modelName: llmReply != null ? llmReply.model || OPENAI_MODEL : "rules_only",
+    metadata: {
+      llmUsed: llmReply != null,
+      llmConfidence: llmReply ? Number(llmReply.confidence || 0) : null,
+      llmNeedsFollowUp: llmReply ? llmReply.needsFollowUp === true : null,
+      llmReasoningSummary: llmReply?.reasoningSummary || null,
+      memoryAnswerUsed: memoryAnswer != null,
+      memoryAnswerFoundBy: memoryAnswer?.foundBy || null,
+      memoryAnswerConfidence: memoryAnswer ? Number(memoryAnswer.confidence || 0) : null,
+      memoryAnswerId: memoryAnswer ? Number(memoryAnswer.memoryId || 0) : null,
+      knowledgeAnswerUsed: memoryAnswer?.foundBy?.startsWith?.("knowledge_") === true,
+      knowledgeAnswerId:
+        memoryAnswer && Number(memoryAnswer.knowledgeId || 0) > 0
+          ? Number(memoryAnswer.knowledgeId)
+          : null,
+      webAssistUsed: webAssist?.ok === true,
+      webAssistProvider: webAssist?.provider || null,
+      webAssistConfidence: webAssist?.ok === true ? Number(webAssist.confidence || 0) : null,
+      webAssistSources:
+        webAssist?.ok === true && Array.isArray(webAssist.results)
+          ? webAssist.results.slice(0, 5).map((item) => ({
+              title: item.title,
+              url: item.url,
+            }))
+          : [],
+      draftToken: createdDraft?.token || null,
+      merchantsCount: visibleMerchants.length,
+      productsCount: visibleProducts.length,
+      assistDomain: intent.assistDomain || "general",
+      domainRecommendationsType: domainRecommendations?.type || null,
+      domainRecommendationsCount: Array.isArray(domainRecommendations?.items)
+        ? domainRecommendations.items.length
+        : 0,
+      offTopicCount: Number(updatedProfile?.conversation?.offTopicCount || 0),
+      supportIntent: intent.supportIntent === true,
+      comparisonIntent: intent.comparisonIntent === true,
+    },
+  });
+
+  try {
+    const autoQuality =
+      memoryAnswer != null
+        ? clampNumber(memoryAnswer.confidence, 0.7, 1, 0.9)
+        : webAssist?.ok === true
+        ? clampNumber(webAssist.confidence, 0.65, 0.95, 0.82)
+        : llmReply != null
+        ? clampNumber(llmReply.confidence, 0.62, 0.95, 0.8)
+        : 0.76;
+
+    const shouldStoreRuntimeMemory = shouldPersistRuntimeMemory({
+      intent,
+      assistantText,
+      llmReply,
+      memoryAnswer,
+      knowledgeAnswer,
+      webAssist,
+    });
+
+    if (shouldStoreRuntimeMemory) {
+      await assistantAiService.storeAnsweredQaPair({
+        customerUserId,
+        question: message,
+        answer: assistantText,
+        source:
+          webAssist?.ok === true
+            ? "web_assist"
+            : llmReply != null
+            ? "openai_chat"
+            : "rules_chat",
+        qualityScore: autoQuality,
+        tags: [
+          "chat_auto_memory",
+          intent.primaryIntent || "unknown",
+          intent.assistDomain || "general",
+          lang === "en" ? "lang_en" : "lang_ar",
+          conversationDecision.mode || "unknown_mode",
+        ],
+      });
+    }
+
+    if (
+      ASSISTANT_KNOWLEDGE_RETRIEVAL_ENABLED &&
+      isKnowledgeLikeQuery(intent) &&
+      assistantText &&
+      String(assistantText).trim().length >= 24 &&
+      (webAssist?.ok === true || llmReply != null)
+    ) {
+      await assistantAiService.upsertKnowledgeEntryWithEmbedding({
+        sourceType: webAssist?.ok === true ? "web_assist" : "chat_runtime",
+        intentCluster: intent.assistDomain || "general",
+        language: lang,
+        dialect: lang === "ar" ? "iraqi" : null,
+        queryText: message,
+        answerText: assistantText,
+        tags: [
+          "auto_learned",
+          intent.primaryIntent || "unknown",
+          webAssist?.ok === true ? "with_web" : "no_web",
+        ],
+        retrievalWeight: webAssist?.ok === true ? 1.35 : 1.05,
+        isActive: true,
+      });
+    }
+  } catch (error) {
+    console.error("[assistant] failed to store answered QA pair", {
+      customerUserId,
+      error: String(error?.message || error),
+    });
+  }
 
   return {
     ...payload,
@@ -3721,5 +4877,6 @@ export async function chat(customerUserId, dto) {
     createdOrder: null,
   };
 }
+
 
 

@@ -8,6 +8,7 @@ import '../../../core/notifications/active_chat_context_registry.dart';
 import '../../../core/notifications/attention_alert_service.dart';
 import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
+import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../delivery/state/delivery_controller.dart';
 import '../../owner/state/owner_controller.dart';
@@ -17,7 +18,10 @@ import '../models/app_notification_model.dart';
 
 final notificationsApiProvider = Provider<NotificationsApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
-  return NotificationsApi(dio);
+  return NotificationsApi(
+    dio,
+    realtime: ref.read(maslakiRealtimeServiceProvider),
+  );
 });
 
 final notificationsControllerProvider =

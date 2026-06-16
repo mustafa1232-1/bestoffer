@@ -247,46 +247,6 @@ function inferEvent(req) {
     };
   }
 
-  if (path.startsWith("/api/assistant/chat") && method === "POST") {
-    return {
-      eventName: "assistant.chat",
-      category: "assistant",
-      action: "chat",
-      metadata: {
-        messageLength: trimOrNull(req.body?.message)?.length || null,
-      },
-    };
-  }
-
-  if (path.startsWith("/api/assistant/session/new") && method === "POST") {
-    return {
-      eventName: "assistant.session_new",
-      category: "assistant",
-      action: "session_new",
-    };
-  }
-
-  if (path.startsWith("/api/assistant/session") && method === "GET") {
-    return {
-      eventName: "assistant.session_view",
-      category: "assistant",
-      action: "session_view",
-    };
-  }
-
-  if (path.startsWith("/api/assistant/profile/home") && method === "POST") {
-    return {
-      eventName: "assistant.home_profile_update",
-      category: "assistant",
-      action: "profile_update",
-      metadata: {
-        audience: trimOrNull(req.body?.audience),
-        priority: trimOrNull(req.body?.priority),
-        interestsCount: countArray(req.body?.interests),
-      },
-    };
-  }
-
   if (path.startsWith("/api/auth/account/addresses") && method === "GET") {
     return {
       eventName: "addresses.list",

@@ -1,0 +1,16 @@
+BEGIN;
+
+ALTER TABLE company
+  ADD COLUMN IF NOT EXISTS summary TEXT,
+  ADD COLUMN IF NOT EXISTS business_type VARCHAR(80),
+  ADD COLUMN IF NOT EXISTS headquarters_address VARCHAR(240),
+  ADD COLUMN IF NOT EXISTS primary_contact_name VARCHAR(180),
+  ADD COLUMN IF NOT EXISTS support_phone VARCHAR(30),
+  ADD COLUMN IF NOT EXISTS website_url TEXT,
+  ADD COLUMN IF NOT EXISTS registration_number VARCHAR(80),
+  ADD COLUMN IF NOT EXISTS tax_number VARCHAR(80);
+
+CREATE INDEX IF NOT EXISTS idx_company_code_lower
+ON company(LOWER(code));
+
+COMMIT;

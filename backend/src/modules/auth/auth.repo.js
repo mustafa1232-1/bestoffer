@@ -1,34 +1,59 @@
 import { pool, q } from "../../config/db.js";
+import { getRedisClient } from "../../config/redis.js";
+
+const USER_PUBLIC_TTL = 300; // 5 minutes
+
+async function cachedGet(key, ttlSec, fetcher) {
+  const redis = await getRedisClient().catch(() => null);
+  if (redis) {
+    try {
+      const hit = await redis.get(key);
+      if (hit !== null) return JSON.parse(hit);
+    } catch (_) { /* cache miss — fall through */ }
+  }
+  const value = await fetcher();
+  if (redis && value !== null && value !== undefined) {
+    redis.set(key, JSON.stringify(value), "EX", ttlSec).catch(() => {});
+  }
+  return value;
+}
+
+export async function invalidateUserPublicCache(userId) {
+  const redis = await getRedisClient().catch(() => null);
+  if (redis) redis.del(`user:pub:${userId}`).catch(() => {});
+}
 
 export async function findUserByPhone(phone) {
   const r = await q(
     `SELECT
-       id,
-       full_name,
-       phone,
-       pin_hash,
-       role,
-       block,
-       building_number,
-       apartment,
-       image_url,
-       is_super_admin,
-       delivery_account_approved,
-       failed_login_attempts,
-       locked_until,
-       last_failed_login_at,
-       last_login_at
-     FROM app_user
-     WHERE regexp_replace(
-       translate(
-         phone,
-         '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
-         '01234567890123456789'
-       ),
-       '[^0-9]',
-       '',
-       'g'
-     ) = $1
+       u.id,
+       u.username,
+       u.full_name,
+       u.phone,
+       u.preferred_locale,
+       u.pin_hash,
+       u.role,
+       u.block,
+       u.building_number,
+       u.apartment,
+       u.image_url,
+       u.work_title,
+       u.work_company,
+       u.is_super_admin,
+       u.is_account_disabled,
+       u.account_disabled_note,
+       u.delivery_account_approved,
+       u.failed_login_attempts,
+       u.locked_until,
+       u.last_failed_login_at,
+       u.last_login_at,
+       EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       ) AS is_taxi_captain
+     FROM app_user u
+     WHERE u.phone_normalized = $1
      LIMIT 1`,
     [phone]
   );
@@ -39,23 +64,34 @@ export async function findUserByPhone(phone) {
 export async function findUserByIdWithAuthFields(id) {
   const r = await q(
     `SELECT
-       id,
-       full_name,
-       phone,
-       pin_hash,
-       role,
-       block,
-       building_number,
-       apartment,
-       image_url,
-       is_super_admin,
-       delivery_account_approved,
-       failed_login_attempts,
-       locked_until,
-       last_failed_login_at,
-       last_login_at
-     FROM app_user
-     WHERE id = $1
+       u.id,
+       u.username,
+       u.full_name,
+       u.phone,
+       u.preferred_locale,
+       u.pin_hash,
+       u.role,
+       u.block,
+       u.building_number,
+       u.apartment,
+       u.image_url,
+       u.work_title,
+       u.work_company,
+       u.is_super_admin,
+       u.is_account_disabled,
+       u.account_disabled_note,
+       u.delivery_account_approved,
+       u.failed_login_attempts,
+       u.locked_until,
+       u.last_failed_login_at,
+       u.last_login_at,
+       EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       ) AS is_taxi_captain
+     FROM app_user u
+     WHERE u.id = $1
      LIMIT 1`,
     [id]
   );
@@ -65,61 +101,175 @@ export async function findUserByIdWithAuthFields(id) {
 
 export async function createUser({
   fullName,
+  username,
   phone,
   pinHash,
   block,
   buildingNumber,
   apartment,
   imageUrl = null,
+  workTitle = null,
+  workCompany = null,
   role = "user",
   analyticsConsentGranted = false,
   analyticsConsentVersion = null,
   analyticsConsentGrantedAt = null,
+  chatQualityReviewConsent = false,
 }) {
   const r = await q(
     `INSERT INTO app_user
       (
         full_name,
+        username,
         phone,
         pin_hash,
         block,
         building_number,
         apartment,
         image_url,
+        work_title,
+        work_company,
         role,
         analytics_consent_granted,
         analytics_consent_version,
-        analytics_consent_granted_at
+        analytics_consent_granted_at,
+        chat_quality_review_consent
       )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-     RETURNING id, full_name, phone, role, block, building_number, apartment, image_url, is_super_admin`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+     RETURNING id, username, full_name, phone, preferred_locale, role, block, building_number, apartment, image_url, work_title, work_company, is_super_admin`,
     [
       fullName,
+      username,
       phone,
       pinHash,
       block,
       buildingNumber,
       apartment,
       imageUrl,
+      workTitle,
+      workCompany,
       role,
       analyticsConsentGranted === true,
       analyticsConsentVersion,
       analyticsConsentGrantedAt,
+      chatQualityReviewConsent === true,
     ]
   );
 
   return r.rows[0];
 }
 
-export async function getUserPublicById(id) {
+export async function isUsernameTaken(username) {
+  const normalized = String(username || "").trim().toLowerCase();
+  if (!normalized) return false;
   const r = await q(
-    `SELECT id, full_name, phone, role, block, building_number, apartment, image_url, is_super_admin
+    `SELECT 1
      FROM app_user
-     WHERE id=$1`,
-    [id]
+     WHERE LOWER(username) = $1
+     LIMIT 1`,
+    [normalized]
+  );
+  return Boolean(r.rows[0]);
+}
+
+export async function upsertUserResidenceInfo({
+  userId,
+  documentType = "residence_card",
+  fullName = null,
+  town = null,
+  buildingNumber = null,
+  issueDate = null,
+  contractNumber = null,
+  floorNumber = null,
+  apartmentNumber = null,
+  visibleIdNumber = null,
+  imageUrl = null,
+  extractionConfidence = 0,
+  extractedPayload = {},
+}) {
+  const r = await q(
+    `INSERT INTO user_residence_info
+      (
+        user_id,
+        document_type,
+        full_name,
+        town,
+        building_number,
+        issue_date,
+        contract_number,
+        floor_number,
+        apartment_number,
+        visible_id_number,
+        image_url,
+        extraction_confidence,
+        extracted_payload,
+        created_at,
+        updated_at
+      )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       document_type = EXCLUDED.document_type,
+       full_name = EXCLUDED.full_name,
+       town = EXCLUDED.town,
+       building_number = EXCLUDED.building_number,
+       issue_date = EXCLUDED.issue_date,
+       contract_number = EXCLUDED.contract_number,
+       floor_number = EXCLUDED.floor_number,
+       apartment_number = EXCLUDED.apartment_number,
+       visible_id_number = EXCLUDED.visible_id_number,
+       image_url = EXCLUDED.image_url,
+       extraction_confidence = EXCLUDED.extraction_confidence,
+       extracted_payload = EXCLUDED.extracted_payload,
+       updated_at = NOW()
+     RETURNING *`,
+    [
+      Number(userId),
+      String(documentType || "residence_card").slice(0, 40),
+      fullName,
+      town,
+      buildingNumber,
+      issueDate,
+      contractNumber,
+      floorNumber,
+      apartmentNumber,
+      visibleIdNumber,
+      imageUrl,
+      Number(extractionConfidence) || 0,
+      extractedPayload || {},
+    ]
   );
 
   return r.rows[0] || null;
+}
+
+export async function getUserPublicById(id) {
+  return cachedGet(`user:pub:${id}`, USER_PUBLIC_TTL, async () => {
+    const r = await q(
+      `SELECT
+         u.id,
+         u.username,
+         u.full_name,
+         u.phone,
+         u.role,
+         u.block,
+         u.building_number,
+         u.apartment,
+         u.image_url,
+         u.work_title,
+         u.work_company,
+         u.is_super_admin,
+         EXISTS (
+           SELECT 1
+           FROM taxi_captain_profile tcp
+           WHERE tcp.user_id = u.id
+         ) AS is_taxi_captain
+       FROM app_user u
+       WHERE u.id = $1`,
+      [id]
+    );
+    return r.rows[0] || null;
+  });
 }
 
 export async function updateUserAccount({ id, phone, pinHash }) {
@@ -139,12 +289,14 @@ export async function updateUserAccount({ id, phone, pinHash }) {
 
   if (fields.length === 0) return getUserPublicById(id);
 
+  invalidateUserPublicCache(id);
+
   values.push(id);
   const r = await q(
     `UPDATE app_user
      SET ${fields.join(", ")}
      WHERE id = $${idx}
-     RETURNING id, full_name, phone, role, block, building_number, apartment, image_url, is_super_admin`,
+     RETURNING id, full_name, phone, preferred_locale, role, block, building_number, apartment, image_url, work_title, work_company, is_super_admin`,
     values
   );
 
@@ -237,9 +389,19 @@ export async function pruneUserSessions(userId, { maxActive }) {
     [Number(userId)]
   );
 
-  if (rows.rowCount <= cap) return 0;
+  if (rows.rowCount <= cap) {
+    return {
+      revokedCount: 0,
+      revokedSessionIds: [],
+    };
+  }
   const staleIds = rows.rows.slice(cap).map((row) => Number(row.id));
-  if (staleIds.length === 0) return 0;
+  if (staleIds.length === 0) {
+    return {
+      revokedCount: 0,
+      revokedSessionIds: [],
+    };
+  }
 
   const out = await q(
     `UPDATE user_session
@@ -250,7 +412,10 @@ export async function pruneUserSessions(userId, { maxActive }) {
      WHERE id = ANY($1::bigint[])`,
     [staleIds]
   );
-  return out.rowCount || 0;
+  return {
+    revokedCount: out.rowCount || 0,
+    revokedSessionIds: staleIds,
+  };
 }
 
 export async function getActiveSessionByAccess({
@@ -260,20 +425,22 @@ export async function getActiveSessionByAccess({
 }) {
   const r = await q(
     `SELECT
-       id,
-       user_id,
-       token_jti,
-       device_fingerprint,
-       expires_at,
-       access_expires_at,
-       is_revoked,
-       revoked_at
-     FROM user_session
-     WHERE id = $1
-       AND user_id = $2
-       AND is_revoked = FALSE
-       AND expires_at > NOW()
-       AND (token_jti IS NULL OR token_jti = $3)
+       s.id,
+       s.user_id,
+       s.token_jti,
+       s.device_fingerprint,
+       s.expires_at,
+       s.access_expires_at,
+       s.is_revoked,
+       s.revoked_at
+     FROM user_session s
+     JOIN app_user u ON u.id = s.user_id
+     WHERE s.id = $1
+       AND s.user_id = $2
+       AND s.is_revoked = FALSE
+       AND s.expires_at > NOW()
+       AND COALESCE(u.is_account_disabled, FALSE) = FALSE
+       AND (s.token_jti IS NULL OR s.token_jti = $3)
      LIMIT 1`,
     [Number(sessionId), Number(userId), tokenJti || null]
   );

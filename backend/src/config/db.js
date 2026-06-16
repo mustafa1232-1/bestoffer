@@ -1,16 +1,44 @@
 import pg from "pg";
 import { env } from "./env.js";
 
+function resolvePoolMax() {
+  if (env.dbPoolMax > 0) return env.dbPoolMax;
+  const workers = Math.max(1, Number(env.appWorkersTotal) || 1);
+  return Math.max(4, Math.ceil(env.dbPoolTotalMax / workers));
+}
+
+const poolMax = resolvePoolMax();
+const poolMin = Math.max(0, Math.min(env.dbPoolMin, poolMax));
+
 export const pool = new pg.Pool({
   connectionString: env.databaseUrl,
-  max: 20,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
+  max: poolMax,
+  min: poolMin,
+  idleTimeoutMillis: env.dbIdleTimeoutMs,
+  connectionTimeoutMillis: env.dbConnectionTimeoutMs,
+  statement_timeout: env.dbStatementTimeoutMs,
+  query_timeout: env.dbQueryTimeoutMs,
+  keepAlive: true,
+  application_name: `maslaki-backend:w${env.appWorkerSlot || 0}:pid${process.pid}`,
   ssl: env.isProduction ? { rejectUnauthorized: false } : false,
+});
+
+pool.on("error", (err) => {
+  console.error("[pool] unexpected error on idle client:", err?.message || err);
 });
 
 export async function q(text, params) {
   return pool.query(text, params);
+}
+
+export function getDbFailoverState() {
+  return {
+    configured: Boolean(env.databaseUrl),
+    strategy: "single",
+    writeTarget: "primary",
+    readTarget: "primary",
+    failoverEnabled: false,
+  };
 }
 
 let ensureSchemaPromise = null;
@@ -61,6 +89,16 @@ export async function ensureSchema() {
               AND e.enumlabel = 'call_center'
           ) THEN
             ALTER TYPE user_role ADD VALUE 'call_center';
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_type t
+            JOIN pg_enum e ON t.oid = e.enumtypid
+            WHERE t.typname = 'user_role'
+              AND e.enumlabel = 'service_provider'
+          ) THEN
+            ALTER TYPE user_role ADD VALUE 'service_provider';
           END IF;
         END IF;
       END
@@ -316,14 +354,22 @@ export async function ensureSchema() {
     `);
 
     await q(`
-      DROP TRIGGER IF EXISTS trg_merchant_category_updated ON merchant_category;
-    `);
-
-    await q(`
-      CREATE TRIGGER trg_merchant_category_updated
-      BEFORE UPDATE ON merchant_category
-      FOR EACH ROW
-      EXECUTE FUNCTION set_merchant_category_updated_at();
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgname = 'trg_merchant_category_updated'
+            AND tgrelid = 'merchant_category'::regclass
+            AND NOT tgisinternal
+        ) THEN
+          CREATE TRIGGER trg_merchant_category_updated
+          BEFORE UPDATE ON merchant_category
+          FOR EACH ROW
+          EXECUTE FUNCTION set_merchant_category_updated_at();
+        END IF;
+      END
+      $$;
     `);
 
     await q(`
@@ -563,14 +609,22 @@ export async function ensureSchema() {
     `);
 
     await q(`
-      DROP TRIGGER IF EXISTS trg_customer_address_updated ON customer_address;
-    `);
-
-    await q(`
-      CREATE TRIGGER trg_customer_address_updated
-      BEFORE UPDATE ON customer_address
-      FOR EACH ROW
-      EXECUTE FUNCTION set_customer_address_updated_at();
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgname = 'trg_customer_address_updated'
+            AND tgrelid = 'customer_address'::regclass
+            AND NOT tgisinternal
+        ) THEN
+          CREATE TRIGGER trg_customer_address_updated
+          BEFORE UPDATE ON customer_address
+          FOR EACH ROW
+          EXECUTE FUNCTION set_customer_address_updated_at();
+        END IF;
+      END
+      $$;
     `);
 
     await q(`
@@ -706,14 +760,22 @@ export async function ensureSchema() {
     `);
 
     await q(`
-      DROP TRIGGER IF EXISTS trg_ai_chat_session_updated ON ai_chat_session;
-    `);
-
-    await q(`
-      CREATE TRIGGER trg_ai_chat_session_updated
-      BEFORE UPDATE ON ai_chat_session
-      FOR EACH ROW
-      EXECUTE FUNCTION set_ai_chat_session_updated_at();
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgname = 'trg_ai_chat_session_updated'
+            AND tgrelid = 'ai_chat_session'::regclass
+            AND NOT tgisinternal
+        ) THEN
+          CREATE TRIGGER trg_ai_chat_session_updated
+          BEFORE UPDATE ON ai_chat_session
+          FOR EACH ROW
+          EXECUTE FUNCTION set_ai_chat_session_updated_at();
+        END IF;
+      END
+      $$;
     `);
 
     await q(`
@@ -727,14 +789,22 @@ export async function ensureSchema() {
     `);
 
     await q(`
-      DROP TRIGGER IF EXISTS trg_ai_customer_profile_updated ON ai_customer_profile;
-    `);
-
-    await q(`
-      CREATE TRIGGER trg_ai_customer_profile_updated
-      BEFORE UPDATE ON ai_customer_profile
-      FOR EACH ROW
-      EXECUTE FUNCTION set_ai_customer_profile_updated_at();
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgname = 'trg_ai_customer_profile_updated'
+            AND tgrelid = 'ai_customer_profile'::regclass
+            AND NOT tgisinternal
+        ) THEN
+          CREATE TRIGGER trg_ai_customer_profile_updated
+          BEFORE UPDATE ON ai_customer_profile
+          FOR EACH ROW
+          EXECUTE FUNCTION set_ai_customer_profile_updated_at();
+        END IF;
+      END
+      $$;
     `);
 
     await q(`
@@ -748,14 +818,22 @@ export async function ensureSchema() {
     `);
 
     await q(`
-      DROP TRIGGER IF EXISTS trg_ai_order_draft_updated ON ai_order_draft;
-    `);
-
-    await q(`
-      CREATE TRIGGER trg_ai_order_draft_updated
-      BEFORE UPDATE ON ai_order_draft
-      FOR EACH ROW
-      EXECUTE FUNCTION set_ai_order_draft_updated_at();
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgname = 'trg_ai_order_draft_updated'
+            AND tgrelid = 'ai_order_draft'::regclass
+            AND NOT tgisinternal
+        ) THEN
+          CREATE TRIGGER trg_ai_order_draft_updated
+          BEFORE UPDATE ON ai_order_draft
+          FOR EACH ROW
+          EXECUTE FUNCTION set_ai_order_draft_updated_at();
+        END IF;
+      END
+      $$;
     `);
 
     await q(`

@@ -47,7 +47,13 @@ export async function insertActivityEvent(payload) {
   );
 }
 
-export async function listUserActivityEvents(userId, { limit = 100 } = {}) {
+export async function listUserActivityEvents(
+  userId,
+  { limit = 100, beforeId = null } = {}
+) {
+  const before = Number.isInteger(Number(beforeId)) && Number(beforeId) > 0
+    ? Number(beforeId)
+    : null;
   const r = await q(
     `SELECT
        id,
@@ -64,9 +70,10 @@ export async function listUserActivityEvents(userId, { limit = 100 } = {}) {
        created_at
      FROM user_activity_event
      WHERE user_id = $1
+       AND ($2::bigint IS NULL OR id < $2)
      ORDER BY id DESC
-     LIMIT $2`,
-    [Number(userId), Number(limit)]
+     LIMIT $3`,
+    [Number(userId), before, Number(limit)]
   );
   return r.rows;
 }
@@ -451,20 +458,6 @@ export async function getCustomerEventsForAnalysis(customerUserId, { limit = 260
     [Number(customerUserId), Number(limit)]
   );
   return r.rows;
-}
-
-export async function getCustomerAiPreferenceProfile(customerUserId) {
-  const r = await q(
-    `SELECT
-       preference_json,
-       last_summary,
-       updated_at
-     FROM ai_customer_profile
-     WHERE customer_user_id = $1
-     LIMIT 1`,
-    [Number(customerUserId)]
-  );
-  return r.rows[0] || null;
 }
 
 export async function getCustomerSocialSummary(customerUserId) {

@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:maslaki/core/constants/api.dart';
 import 'package:maslaki/core/i18n/locale_text.dart';
-import 'package:maslaki/features/notifications/data/notifications_api.dart';
-import 'package:maslaki/features/notifications/state/notifications_controller.dart';
 import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -39,9 +37,9 @@ class _DeliveryLiveTrackingScreenState
   bool _loading = true;
   String? _error;
   Timer? _pollTimer;
-  StreamSubscription<NotificationLiveEvent>? _liveSub;
+  StreamSubscription<OrderTrackingLiveEvent>? _liveSub;
   StreamSubscription<OrderTrackingLiveEvent>? _publicSub;
-  int? _lastNotificationEventId;
+  int? _lastTrackingEventId;
 
   bool get _isPublic => widget.publicToken != null;
 
@@ -56,7 +54,7 @@ class _DeliveryLiveTrackingScreenState
         (_) => unawaited(_load(silent: true)),
       );
     } else {
-      _connectNotifications();
+      _connectTrackingStream();
       _pollTimer = Timer.periodic(
         const Duration(seconds: 6),
         (_) => unawaited(_load(silent: true)),
@@ -103,28 +101,20 @@ class _DeliveryLiveTrackingScreenState
     }
   }
 
-  void _connectNotifications() {
+  void _connectTrackingStream() {
     _liveSub?.cancel();
     _liveSub = ref
-        .read(notificationsApiProvider)
-        .streamEvents(
-          lastEventId: _lastNotificationEventId,
-          channel: 'notifications',
+        .read(ordersApiProvider)
+        .streamTrackingEvents(
+          orderId: widget.orderId!,
+          lastEventId: _lastTrackingEventId,
         )
         .listen((event) {
           if (event.eventId != null) {
-            _lastNotificationEventId = event.eventId;
+            _lastTrackingEventId = event.eventId;
           }
-          final eventOrderId = _readInt(
-            event.data['orderId'] ??
-                event.data['order_id'] ??
-                (event.data['payload'] is Map
-                    ? (event.data['payload'] as Map)['orderId']
-                    : null),
-          );
-          if (eventOrderId != widget.orderId) return;
-          if (event.event == 'notification' ||
-              event.event == 'order_tracking_update' ||
+          if (event.event == 'order_tracking_update' ||
+              event.event == 'notification' ||
               event.event == 'resync_required') {
             unawaited(_load(silent: true));
           }

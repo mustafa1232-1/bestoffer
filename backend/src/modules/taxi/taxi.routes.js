@@ -2,14 +2,16 @@
 
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireCustomer } from "../../shared/middleware/customer.middleware.js";
-import { requireDelivery } from "../../shared/middleware/delivery.middleware.js";
+import { requireTaxiCaptain } from "../../shared/middleware/taxi-captain.middleware.js";
 import { imageUpload } from "../../shared/utils/upload.js";
 import * as deliveryController from "../delivery/delivery.controller.js";
 import * as c from "./taxi.controller.js";
+import * as loyalty from "./taxi.loyalty.controller.js";
 
 export const taxiRouter = Router();
 
 taxiRouter.get("/public/track/:token", c.publicTrack);
+taxiRouter.get("/public/track/:token/stream", c.publicTrackStream);
 taxiRouter.post(
   "/captain/register",
   imageUpload.fields([
@@ -24,7 +26,10 @@ taxiRouter.use(requireAuth);
 taxiRouter.get("/stream", c.stream);
 
 taxiRouter.get("/rides/current", requireCustomer, c.getCurrentRideForCustomer);
+taxiRouter.get("/rides/history/me", requireCustomer, c.listMyRideHistory);
 taxiRouter.post("/rides", requireCustomer, c.createRide);
+taxiRouter.post("/rides/:rideId/rebook", requireCustomer, c.rebookRide);
+taxiRouter.get("/captains/nearby", requireCustomer, c.listNearbyCaptains);
 taxiRouter.get("/rides/:rideId", c.getRideDetails);
 taxiRouter.post("/rides/:rideId/cancel", requireCustomer, c.cancelRide);
 taxiRouter.post("/rides/:rideId/rate", requireCustomer, c.rateRide);
@@ -44,37 +49,123 @@ taxiRouter.post(
   c.counterOfferCurrentBid
 );
 taxiRouter.post("/rides/:rideId/share-token", requireCustomer, c.createShareToken);
+taxiRouter.get(
+  "/rides/:rideId/share/friends",
+  requireCustomer,
+  c.listRideSharedFriends
+);
+taxiRouter.post(
+  "/rides/:rideId/share/friends",
+  requireCustomer,
+  c.shareRideWithFriends
+);
+taxiRouter.get("/rides/:rideId/shared-track", c.getSharedRideTrack);
 taxiRouter.get("/rides/:rideId/chat", c.listRideChat);
 taxiRouter.post("/rides/:rideId/chat", c.sendRideChat);
 taxiRouter.get("/rides/:rideId/call", c.getRideCallState);
 taxiRouter.post("/rides/:rideId/call/start", c.startRideCall);
 taxiRouter.post("/rides/:rideId/call/signal", c.sendRideCallSignal);
 taxiRouter.post("/rides/:rideId/call/end", c.endRideCall);
+taxiRouter.get("/saved-places", requireCustomer, loyalty.listSavedPlaces);
+taxiRouter.post("/saved-places", requireCustomer, loyalty.createSavedPlace);
+taxiRouter.patch(
+  "/saved-places/:id",
+  requireCustomer,
+  loyalty.updateSavedPlace
+);
+taxiRouter.delete(
+  "/saved-places/:id",
+  requireCustomer,
+  loyalty.deleteSavedPlace
+);
+taxiRouter.post(
+  "/saved-places/import-default-addresses",
+  requireCustomer,
+  loyalty.importSavedPlaces
+);
+taxiRouter.get("/favorite-trips", requireCustomer, loyalty.listFavoriteTrips);
+taxiRouter.post("/favorite-trips", requireCustomer, loyalty.createFavoriteTrip);
+taxiRouter.patch(
+  "/favorite-trips/:id",
+  requireCustomer,
+  loyalty.updateFavoriteTrip
+);
+taxiRouter.delete(
+  "/favorite-trips/:id",
+  requireCustomer,
+  loyalty.deleteFavoriteTrip
+);
+taxiRouter.get("/scheduled-rides", requireCustomer, loyalty.listScheduledRides);
+taxiRouter.post(
+  "/scheduled-rides",
+  requireCustomer,
+  loyalty.createScheduledRide
+);
+taxiRouter.post(
+  "/scheduled-rides/:id/cancel",
+  requireCustomer,
+  loyalty.cancelScheduledRide
+);
+taxiRouter.get("/coupons/mine", requireCustomer, loyalty.listMyCoupons);
+taxiRouter.post("/coupons/preview", requireCustomer, loyalty.previewCoupon);
+taxiRouter.get(
+  "/rides/:rideId/complaint-eligibility",
+  requireCustomer,
+  loyalty.getRideComplaintEligibility
+);
+taxiRouter.get("/complaints", requireCustomer, loyalty.listMyComplaints);
+taxiRouter.post("/complaints", requireCustomer, loyalty.createComplaint);
 
-taxiRouter.post("/captain/presence", requireDelivery, c.upsertPresence);
+taxiRouter.post("/captain/presence", requireTaxiCaptain, c.upsertPresence);
 taxiRouter.get(
   "/captain/nearby-requests",
-  requireDelivery,
+  requireTaxiCaptain,
   c.listNearbyRequests
 );
-taxiRouter.get("/captain/current-ride", requireDelivery, c.getCurrentRideForCaptain);
-taxiRouter.get("/captain/history", requireDelivery, c.listCaptainHistory);
-taxiRouter.get("/captain/dashboard", requireDelivery, c.getCaptainDashboard);
-taxiRouter.get("/captain/profile", requireDelivery, c.getCaptainProfile);
-taxiRouter.get("/captain/subscription", requireDelivery, c.getCaptainSubscription);
+taxiRouter.get(
+  "/captain/current-ride",
+  requireTaxiCaptain,
+  c.getCurrentRideForCaptain
+);
+taxiRouter.get("/captain/history", requireTaxiCaptain, c.listCaptainHistory);
+taxiRouter.get("/captain/dashboard", requireTaxiCaptain, c.getCaptainDashboard);
+taxiRouter.get("/captain/profile", requireTaxiCaptain, c.getCaptainProfile);
+taxiRouter.get(
+  "/captain/subscription",
+  requireTaxiCaptain,
+  c.getCaptainSubscription
+);
 taxiRouter.post(
   "/captain/subscription/request-cash-payment",
-  requireDelivery,
+  requireTaxiCaptain,
   c.requestCaptainCashPayment
 );
 taxiRouter.post(
   "/captain/profile-edit-requests",
-  requireDelivery,
+  requireTaxiCaptain,
   c.requestCaptainProfileEdit
 );
 
-taxiRouter.post("/rides/:rideId/bids", requireDelivery, c.createBid);
-taxiRouter.post("/rides/:rideId/arrive", requireDelivery, c.markArrived);
-taxiRouter.post("/rides/:rideId/start", requireDelivery, c.startRide);
-taxiRouter.post("/rides/:rideId/complete", requireDelivery, c.completeRide);
-taxiRouter.post("/rides/:rideId/location", requireDelivery, c.updateLocation);
+taxiRouter.post("/rides/:rideId/bids", requireTaxiCaptain, c.createBid);
+taxiRouter.post("/rides/:rideId/decline", requireTaxiCaptain, c.declineRideByCaptain);
+taxiRouter.post("/rides/:rideId/arrive", requireTaxiCaptain, c.markArrived);
+taxiRouter.post("/rides/:rideId/start", requireTaxiCaptain, c.startRide);
+taxiRouter.post("/rides/:rideId/complete", requireTaxiCaptain, c.completeRide);
+taxiRouter.post("/rides/:rideId/location", requireTaxiCaptain, c.updateLocation);
+taxiRouter.post(
+  "/rides/:rideId/rider-rating",
+  requireTaxiCaptain,
+  loyalty.rateRiderByCaptain
+);
+taxiRouter.get(
+  "/captain/subscription/ledger",
+  requireTaxiCaptain,
+  loyalty.captainSubscriptionLedger
+);
+taxiRouter.get("/captain/contests", requireTaxiCaptain, loyalty.captainContests);
+taxiRouter.get("/captain/rewards", requireTaxiCaptain, loyalty.captainRewards);
+taxiRouter.get(
+  "/captain/status",
+  requireTaxiCaptain,
+  loyalty.captainGovernanceStatus
+);

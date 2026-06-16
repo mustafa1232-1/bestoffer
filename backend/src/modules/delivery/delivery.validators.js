@@ -1,3 +1,5 @@
+import { validateBasmayaAddress } from "../../shared/utils/basmaya-address.js";
+
 function isNonEmptyString(v, max = 200) {
   return typeof v === "string" && v.trim().length > 0 && v.trim().length <= max;
 }
@@ -31,6 +33,19 @@ export function validateDeliveryRegister(body) {
   if (!isNonEmptyString(body.plateNumber, 40)) errors.push("plateNumber");
   if (!isExplicitTrue(body.analyticsConsentAccepted)) errors.push("analyticsConsentAccepted");
   if (!isOptionalString(body.analyticsConsentVersion, 32)) errors.push("analyticsConsentVersion");
+
+  if (
+    isNonEmptyString(body.block, 20) &&
+    isNonEmptyString(body.buildingNumber, 20) &&
+    isNonEmptyString(body.apartment, 20)
+  ) {
+    const addressValidation = validateBasmayaAddress({
+      block: body.block,
+      buildingNumber: body.buildingNumber,
+      apartment: body.apartment,
+    });
+    if (!addressValidation.ok) errors.push(...addressValidation.errors);
+  }
 
   const carYear = Number(body.carYear);
   if (!Number.isInteger(carYear) || carYear < 1980 || carYear > 2035) {

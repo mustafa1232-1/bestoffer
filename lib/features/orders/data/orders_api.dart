@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
 import '../../../core/files/local_image_file.dart';
+import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../models/product_review_model.dart';
+import '../../notifications/data/notifications_api.dart';
 
 class OrderActionReasonOption {
   final String actorScope;
@@ -36,8 +39,13 @@ class OrderActionReasonOption {
 class OrderTrackingLiveEvent {
   final String event;
   final Map<String, dynamic> data;
+  final int? eventId;
 
-  const OrderTrackingLiveEvent({required this.event, required this.data});
+  const OrderTrackingLiveEvent({
+    required this.event,
+    required this.data,
+    this.eventId,
+  });
 }
 
 /// عميل API الخاص بطلبات العميل والعناوين والمفضلة والتقييمات.
@@ -47,8 +55,9 @@ class OrderTrackingLiveEvent {
 ///   business validation معقدة هنا.
 class OrdersApi {
   final Dio dio;
+  final MaslakiRealtimeClient? realtime;
 
-  OrdersApi(this.dio);
+  OrdersApi(this.dio, {this.realtime});
 
   /// ينشئ طلباً جديداً، ويدعم رفع صورة مرفقة اختيارية عبر multipart.
   Future<Map<String, dynamic>> createOrder(
@@ -101,7 +110,9 @@ class OrdersApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Stream<OrderTrackingLiveEvent> streamPublicTrackingByToken(String token) async* {
+  Stream<OrderTrackingLiveEvent> streamPublicTrackingByToken(
+    String token,
+  ) async* {
     final response = await dio.get<ResponseBody>(
       '/api/orders/public/track/$token/stream',
       options: Options(
@@ -147,6 +158,124 @@ class OrdersApi {
       eventName = 'message';
       dataBuffer = '';
     }
+  }
+
+  Stream<OrderTrackingLiveEvent> streamTrackingEvents({
+    required int orderId,
+    int? lastEventId,
+  }) {
+    return _streamSupabaseFirst(
+      openRealtime: () async => await realtime?.subscribeDefaultUserChannel(),
+      fallback: () => NotificationsApi(dio)
+          .streamEvents(lastEventId: lastEventId, channel: 'notifications')
+          .where(
+            (event) =>
+                _matchesOrderTrackingEvent(event.event, event.data, orderId),
+          )
+          .map(
+            (event) => OrderTrackingLiveEvent(
+              event: event.event,
+              data: event.data,
+              eventId: event.eventId,
+            ),
+          ),
+    ).where(
+      (event) =>
+          event.event == 'connected' ||
+          event.event == 'resync_required' ||
+          _matchesOrderTrackingEvent(event.event, event.data, orderId),
+    );
+  }
+
+  Stream<OrderTrackingLiveEvent> _streamSupabaseFirst({
+    required Future<Stream<MaslakiRealtimeEvent>?> Function() openRealtime,
+    required Stream<OrderTrackingLiveEvent> Function() fallback,
+  }) {
+    late final StreamController<OrderTrackingLiveEvent> controller;
+    StreamSubscription<dynamic>? activeSubscription;
+    var usingFallback = false;
+
+    Future<void> attachFallback() async {
+      if (usingFallback || controller.isClosed) return;
+      usingFallback = true;
+      await activeSubscription?.cancel();
+      activeSubscription = fallback().listen(
+        controller.add,
+        onError: controller.addError,
+        onDone: () {
+          if (!controller.isClosed) {
+            controller.close();
+          }
+        },
+      );
+    }
+
+    Future<void> bootstrap() async {
+      try {
+        final realtimeStream = await openRealtime();
+        if (realtimeStream == null) {
+          await attachFallback();
+          return;
+        }
+        controller.add(
+          const OrderTrackingLiveEvent(
+            event: 'connected',
+            data: <String, dynamic>{},
+          ),
+        );
+        activeSubscription = realtimeStream.listen(
+          (event) {
+            controller.add(
+              OrderTrackingLiveEvent(
+                event: event.event,
+                data: event.data,
+                eventId: event.eventId,
+              ),
+            );
+          },
+          onError: (_) => unawaited(attachFallback()),
+          onDone: () => unawaited(attachFallback()),
+          cancelOnError: false,
+        );
+      } catch (_) {
+        await attachFallback();
+      }
+    }
+
+    controller = StreamController<OrderTrackingLiveEvent>(
+      onListen: () {
+        unawaited(bootstrap());
+      },
+      onCancel: () async {
+        await activeSubscription?.cancel();
+      },
+    );
+    return controller.stream;
+  }
+
+  bool _matchesOrderTrackingEvent(
+    String eventName,
+    Map<String, dynamic> data,
+    int orderId,
+  ) {
+    if (eventName == 'resync_required') {
+      return true;
+    }
+    final rawOrderId =
+        data['orderId'] ??
+        data['order_id'] ??
+        (data['payload'] is Map ? (data['payload'] as Map)['orderId'] : null) ??
+        (data['payload'] is Map
+            ? (data['payload'] as Map)['order_id']
+            : null) ??
+        (data['order'] is Map ? (data['order'] as Map)['id'] : null) ??
+        (data['notification'] is Map
+            ? (data['notification'] as Map)['order_id']
+            : null) ??
+        (data['notification'] is Map
+            ? (data['notification'] as Map)['orderId']
+            : null);
+    return int.tryParse('$rawOrderId') == orderId;
   }
 
   /// يحاول المسار الحديث لتأكيد الاستلام، ثم يعود إلى المسار القديم
@@ -241,17 +370,16 @@ class OrdersApi {
   }) async {
     final response = await dio.get(
       '/api/orders/action-reasons',
-      queryParameters: {
-        'actorScope': actorScope,
-        'actionKind': actionKind,
-      },
+      queryParameters: {'actorScope': actorScope, 'actionKind': actionKind},
     );
     final map = Map<String, dynamic>.from(response.data as Map? ?? const {});
     final items = List<dynamic>.from(map['items'] as List? ?? const []);
     return items
-        .map((entry) => OrderActionReasonOption.fromMap(
-              Map<String, dynamic>.from(entry as Map),
-            ))
+        .map(
+          (entry) => OrderActionReasonOption.fromMap(
+            Map<String, dynamic>.from(entry as Map),
+          ),
+        )
         .where((entry) => entry.reasonCode.isNotEmpty)
         .toList(growable: false);
   }

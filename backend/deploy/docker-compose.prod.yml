@@ -15,6 +15,21 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: bestoffer-redis
+    restart: unless-stopped
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     build:
       context: ..
@@ -24,20 +39,68 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      NODE_ENV: production
-      PORT: 3000
-      HOST: 0.0.0.0
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3000}
+      HOST: ${HOST:-0.0.0.0}
       DATABASE_URL: postgresql://${POSTGRES_USER:-bestoffer}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bestoffer}
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
-      RUN_SQL_MIGRATIONS: "true"
-      DEV_SEED_ADMIN: "false"
+      RUN_SQL_MIGRATIONS: ${RUN_SQL_MIGRATIONS:-true}
+      DEV_SEED_ADMIN: ${DEV_SEED_ADMIN:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
-    volumes:
-      - uploads_data:/app/uploads
+      LOG_HTTP_REQUESTS: ${LOG_HTTP_REQUESTS:-true}
+      CF_ACCOUNT_ID: ${CF_ACCOUNT_ID}
+      CF_R2_ACCESS_KEY_ID: ${CF_R2_ACCESS_KEY_ID}
+      CF_R2_SECRET_ACCESS_KEY: ${CF_R2_SECRET_ACCESS_KEY}
+      CF_R2_BUCKET: ${CF_R2_BUCKET}
+      CF_R2_ENDPOINT: ${CF_R2_ENDPOINT}
+      CF_R2_PUBLIC_BASE_URL: ${CF_R2_PUBLIC_BASE_URL}
+      CF_R2_UPLOAD_PREFIX: ${CF_R2_UPLOAD_PREFIX:-uploads}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL:-}
+      FIREBASE_SERVICE_ACCOUNT_BASE64: ${FIREBASE_SERVICE_ACCOUNT_BASE64:-}
+      RTC_TURN_PROVIDER: ${RTC_TURN_PROVIDER:-}
+      RTC_TURN_ENABLED: ${RTC_TURN_ENABLED:-false}
+      RTC_TURN_URLS: ${RTC_TURN_URLS:-}
+      RTC_TURN_SECRET: ${RTC_TURN_SECRET:-}
+      RTC_TURN_CREDENTIAL_TTL_SEC: ${RTC_TURN_CREDENTIAL_TTL_SEC:-21600}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_NTS_TTL_SEC: ${TWILIO_NTS_TTL_SEC:-3600}
+      RESIDENCE_CARD_OCR_PROVIDER: ${RESIDENCE_CARD_OCR_PROVIDER:-tesseract}
+      RESIDENCE_CARD_OCR_MIN_CONFIDENCE: ${RESIDENCE_CARD_OCR_MIN_CONFIDENCE:-0.55}
+      GOOGLE_VISION_API_KEY: ${GOOGLE_VISION_API_KEY:-}
+      GOOGLE_VISION_API_URL: ${GOOGLE_VISION_API_URL:-https://vision.googleapis.com/v1/images:annotate}
+      SUPER_ADMIN_NAME: ${SUPER_ADMIN_NAME:-Super Admin}
+      SUPER_ADMIN_PHONE: ${SUPER_ADMIN_PHONE}
+      SUPER_ADMIN_PIN: ${SUPER_ADMIN_PIN}
     ports:
       - "3000:3000"
 
+  turn:
+    build:
+      context: ../..
+      dockerfile: turn/Dockerfile
+    container_name: bestoffer-turn
+    restart: unless-stopped
+    environment:
+      TURN_AUTH_SECRET: ${TURN_AUTH_SECRET}
+      TURN_REALM: ${TURN_REALM:-maslaki.local}
+      TURN_PUBLIC_IP: ${TURN_PUBLIC_IP:-}
+      TURN_PUBLIC_HOST: ${TURN_PUBLIC_HOST:-}
+      TURN_PORT: ${TURN_PORT:-3478}
+      TURN_MIN_PORT: ${TURN_MIN_PORT:-49160}
+      TURN_MAX_PORT: ${TURN_MAX_PORT:-49200}
+      TURN_DISABLE_UDP: ${TURN_DISABLE_UDP:-false}
+    ports:
+      - "${TURN_PORT:-3478}:${TURN_PORT:-3478}/tcp"
+      - "${TURN_PORT:-3478}:${TURN_PORT:-3478}/udp"
+      - "${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/tcp"
+      - "${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp"
+
 volumes:
   postgres_data:
-  uploads_data:
+  redis_data:

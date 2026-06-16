@@ -11,14 +11,46 @@ function isPositiveInt(v) {
   return Number.isInteger(n) && n > 0;
 }
 
+function isOptionalBool(v) {
+  return v === undefined || v === null || typeof v === "boolean";
+}
+
+function isOptionalObject(v) {
+  return v === undefined || v === null || (typeof v === "object" && !Array.isArray(v));
+}
+
+function isOptionalStringArray(v, maxItems = 24, maxItemLength = 80) {
+  if (v === undefined || v === null) return true;
+  if (!Array.isArray(v)) return false;
+  if (v.length > maxItems) return false;
+  return v.every((item) => typeof item === "string" && item.trim().length <= maxItemLength);
+}
+
 export function validateCreateMerchant(body) {
   const errors = [];
 
   if (!isNonEmptyString(body.name, 150)) errors.push("name");
   if (!["restaurant", "market"].includes(body.type)) errors.push("type");
+  if (!isOptionalString(body.activityType, 80)) errors.push("activityType");
+  if (!isOptionalString(body.discoverySubcategory, 120)) {
+    errors.push("discoverySubcategory");
+  }
+  if (!isOptionalStringArray(body.discoverySubcategories, 40, 120)) {
+    errors.push("discoverySubcategories");
+  }
+  if (!isOptionalBool(body.discoverySelectAll)) {
+    errors.push("discoverySelectAll");
+  }
   if (!isOptionalString(body.description, 1000)) errors.push("description");
   if (!isOptionalString(body.phone, 20)) errors.push("phone");
   if (!isOptionalString(body.imageUrl, 1000)) errors.push("imageUrl");
+  if (!isOptionalObject(body.serviceFlags)) errors.push("serviceFlags");
+  if (!isOptionalStringArray(body.badges, 30, 80)) errors.push("badges");
+  if (!isOptionalBool(body.supportsChat)) errors.push("supportsChat");
+  if (!isOptionalBool(body.supportsAttachments)) errors.push("supportsAttachments");
+  if (!isOptionalBool(body.supportsPharmacyWorkflow)) {
+    errors.push("supportsPharmacyWorkflow");
+  }
 
   const hasOwnerUserId = body.ownerUserId !== undefined && body.ownerUserId !== null && body.ownerUserId !== "";
   const hasOwnerObject = body.owner !== undefined && body.owner !== null;

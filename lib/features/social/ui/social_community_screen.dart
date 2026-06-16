@@ -14,6 +14,7 @@ import '../../../core/files/media_picker_service.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/notifications/active_chat_context_registry.dart';
+import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../auth/ui/merchants_list_screen.dart';
@@ -44,7 +45,10 @@ final _communityLiveNotificationsApiProvider = Provider<NotificationsApi>((
   ref,
 ) {
   final dio = ref.read(dioClientProvider).dio;
-  return NotificationsApi(dio);
+  return NotificationsApi(
+    dio,
+    realtime: ref.read(maslakiRealtimeServiceProvider),
+  );
 });
 
 enum _CommunityChatComposerAttachmentAction { image, video, file, location }

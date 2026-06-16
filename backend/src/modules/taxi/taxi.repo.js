@@ -1,6 +1,20 @@
 ﻿import crypto from "crypto";
 
+import { env } from "../../config/env.js";
 import { pool, q } from "../../config/db.js";
+import {
+  normalizeBid,
+  normalizeCallSession,
+  normalizeCallSignal,
+  normalizeChatMessage,
+  normalizeEvent,
+  normalizeLocation,
+  normalizePresence,
+  normalizeRide,
+  normalizeRideFriendShare,
+  toIntOrNull,
+  toNumberOrNull,
+} from "./taxi.mappers.js";
 
 const ACTIVE_RIDE_STATUSES = [
   "searching",
@@ -8,6 +22,10 @@ const ACTIVE_RIDE_STATUSES = [
   "captain_arriving",
   "ride_started",
 ];
+const TAXI_STATUS_TRANSITION_QUERY_OPTIONS = {
+  query_timeout: Math.max(Number(env.dbQueryTimeoutMs || 25_000), 60_000),
+  statement_timeout: Math.max(Number(env.dbStatementTimeoutMs || 20_000), 60_000),
+};
 
 const RIDE_SELECT = `
   SELECT
@@ -32,226 +50,6 @@ const RIDE_SELECT = `
   LEFT JOIN taxi_captain_profile cp ON cp.user_id = r.assigned_captain_user_id
 `;
 
-function toNumberOrNull(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
-function toIntOrNull(value) {
-  const n = Number(value);
-  return Number.isInteger(n) ? n : null;
-}
-
-function normalizeRide(row) {
-  if (!row) return null;
-  return {
-    id: Number(row.id),
-    customerUserId: Number(row.customer_user_id),
-    assignedCaptainUserId: toIntOrNull(row.assigned_captain_user_id),
-    currentBidId: toIntOrNull(row.current_bid_id),
-    pickup: {
-      latitude: Number(row.pickup_latitude),
-      longitude: Number(row.pickup_longitude),
-      label: row.pickup_label,
-    },
-    dropoff: {
-      latitude: Number(row.dropoff_latitude),
-      longitude: Number(row.dropoff_longitude),
-      label: row.dropoff_label,
-    },
-    proposedFareIqd: Number(row.proposed_fare_iqd),
-    agreedFareIqd: toIntOrNull(row.agreed_fare_iqd),
-    searchRadiusM: Number(row.search_radius_m),
-    note: row.note || null,
-    status: row.status,
-    shareToken: row.share_token || null,
-    acceptedBidId: toIntOrNull(row.accepted_bid_id),
-    expiresAt: row.expires_at,
-    searchPhase: toIntOrNull(row.search_phase) || 1,
-    nextEscalationAt: row.next_escalation_at || null,
-    noCaptainNotifiedAt: row.no_captain_notified_at || null,
-    acceptedAt: row.accepted_at,
-    captainArrivingAt: row.captain_arriving_at,
-    startedAt: row.started_at,
-    completedAt: row.completed_at,
-    cancelledAt: row.cancelled_at,
-    captainRating: toIntOrNull(row.captain_rating),
-    captainReview: row.captain_review || null,
-    captainRatedAt: row.captain_rated_at || null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    distanceM: toNumberOrNull(row.distance_m),
-    myBid: row.my_bid_id
-      ? {
-          id: Number(row.my_bid_id),
-          offeredFareIqd: Number(row.my_offered_fare_iqd),
-          etaMinutes: toIntOrNull(row.my_eta_minutes),
-          status: row.my_bid_status,
-          counterOfferCount: toIntOrNull(row.my_counter_offer_count) || 0,
-          lastOfferIqd: toIntOrNull(row.my_last_offer_iqd),
-          lastOfferBy: row.my_last_offer_by || null,
-          createdAt: row.my_bid_created_at || null,
-          updatedAt: row.my_bid_updated_at || null,
-        }
-      : null,
-    customer: row.customer_full_name
-      ? {
-          id: Number(row.customer_user_id),
-          fullName: row.customer_full_name,
-          phone: row.customer_phone || null,
-        }
-      : null,
-    captain: row.captain_full_name
-      ? {
-          id: toIntOrNull(row.assigned_captain_user_id),
-          fullName: row.captain_full_name,
-          phone: row.captain_phone || null,
-          profileImageUrl: row.captain_profile_image_url || null,
-          carImageUrl: row.captain_car_image_url || null,
-          vehicleType: row.captain_vehicle_type || null,
-          carMake: row.captain_car_make || null,
-          carModel: row.captain_car_model || null,
-          carYear: toIntOrNull(row.captain_car_year),
-          carColor: row.captain_car_color || null,
-          plateNumber: row.captain_plate_number || null,
-          ratingAvg: toNumberOrNull(row.captain_rating_avg),
-          ridesCount: toIntOrNull(row.captain_rides_count) || 0,
-        }
-      : null,
-  };
-}
-
-function normalizeBid(row) {
-  if (!row) return null;
-  return {
-    id: Number(row.id),
-    rideRequestId: Number(row.ride_request_id),
-    captainUserId: Number(row.captain_user_id),
-    offeredFareIqd: Number(row.offered_fare_iqd),
-    etaMinutes: toIntOrNull(row.eta_minutes),
-    note: row.note || null,
-    status: row.status,
-    counterOfferCount: toIntOrNull(row.counter_offer_count) || 0,
-    lastOfferIqd: toIntOrNull(row.last_offer_iqd),
-    lastOfferBy: row.last_offer_by || null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    captain: row.captain_full_name
-      ? {
-          id: Number(row.captain_user_id),
-          fullName: row.captain_full_name,
-          phone: row.captain_phone || null,
-          profileImageUrl: row.captain_profile_image_url || null,
-          carImageUrl: row.captain_car_image_url || null,
-          vehicleType: row.captain_vehicle_type || null,
-          carMake: row.captain_car_make || null,
-          carModel: row.captain_car_model || null,
-          carYear: toIntOrNull(row.captain_car_year),
-          carColor: row.captain_car_color || null,
-          plateNumber: row.captain_plate_number || null,
-          ratingAvg: toNumberOrNull(row.captain_rating_avg),
-          ridesCount: toIntOrNull(row.captain_rides_count) || 0,
-        }
-      : null,
-  };
-}
-
-function normalizeChatMessage(row) {
-  if (!row) return null;
-  return {
-    id: Number(row.id),
-    rideRequestId: Number(row.ride_request_id),
-    senderUserId: Number(row.sender_user_id),
-    senderRole: row.sender_role,
-    messageType: row.message_type,
-    messageText: row.message_text || null,
-    offeredFareIqd: toIntOrNull(row.offered_fare_iqd),
-    createdAt: row.created_at,
-    sender: row.sender_full_name
-      ? {
-          id: Number(row.sender_user_id),
-          fullName: row.sender_full_name,
-          phone: row.sender_phone || null,
-          imageUrl: row.sender_image_url || null,
-        }
-      : null,
-  };
-}
-
-function normalizeCallSession(row) {
-  if (!row) return null;
-  return {
-    id: Number(row.id),
-    rideRequestId: Number(row.ride_request_id),
-    initiatorUserId: Number(row.initiator_user_id),
-    receiverUserId: Number(row.receiver_user_id),
-    status: row.status,
-    startedAt: row.started_at,
-    answeredAt: row.answered_at || null,
-    endedAt: row.ended_at || null,
-    endedByUserId: toIntOrNull(row.ended_by_user_id),
-    endReason: row.end_reason || null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function normalizeCallSignal(row) {
-  if (!row) return null;
-  return {
-    id: Number(row.id),
-    callSessionId: Number(row.call_session_id),
-    rideRequestId: Number(row.ride_request_id),
-    senderUserId: Number(row.sender_user_id),
-    signalType: row.signal_type,
-    signalPayload: row.signal_payload || null,
-    createdAt: row.created_at,
-  };
-}
-
-function normalizePresence(row) {
-  if (!row) return null;
-  return {
-    captainUserId: Number(row.captain_user_id),
-    isOnline: row.is_online === true,
-    latitude: toNumberOrNull(row.latitude),
-    longitude: toNumberOrNull(row.longitude),
-    headingDeg: toNumberOrNull(row.heading_deg),
-    speedKmh: toNumberOrNull(row.speed_kmh),
-    accuracyM: toNumberOrNull(row.accuracy_m),
-    lastSeenAt: row.last_seen_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function normalizeLocation(row) {
-  if (!row) return null;
-  return {
-    id: Number(row.id),
-    rideRequestId: Number(row.ride_request_id),
-    captainUserId: Number(row.captain_user_id),
-    latitude: Number(row.latitude),
-    longitude: Number(row.longitude),
-    headingDeg: toNumberOrNull(row.heading_deg),
-    speedKmh: toNumberOrNull(row.speed_kmh),
-    accuracyM: toNumberOrNull(row.accuracy_m),
-    source: row.source,
-    createdAt: row.created_at,
-  };
-}
-
-function normalizeEvent(row) {
-  if (!row) return null;
-  return {
-    id: Number(row.id),
-    rideRequestId: Number(row.ride_request_id),
-    actorUserId: toIntOrNull(row.actor_user_id),
-    eventType: row.event_type,
-    message: row.message || null,
-    payload: row.payload || null,
-    createdAt: row.created_at,
-  };
-}
 
 function distanceSql(latExpr, lngExpr, latParam, lngParam) {
   return `(
@@ -269,13 +67,14 @@ function distanceSql(latExpr, lngExpr, latParam, lngParam) {
   )`;
 }
 
-async function queryRideById(client, rideId) {
-  const r = await client.query(
-    `${RIDE_SELECT}
+async function queryRideById(client, rideId, queryOptions = null) {
+  const r = await client.query({
+    text: `${RIDE_SELECT}
      WHERE r.id = $1
      LIMIT 1`,
-    [Number(rideId)]
-  );
+    values: [Number(rideId)],
+    ...(queryOptions || {}),
+  });
   return normalizeRide(r.rows[0]);
 }
 
@@ -373,7 +172,7 @@ export async function listNearbyCaptainsForPickup({
      FROM taxi_captain_presence p
      JOIN app_user u ON u.id = p.captain_user_id
      WHERE p.is_online = TRUE
-       AND u.role = 'delivery'
+       AND u.role IN ('delivery', 'taxi_captain')
        AND p.latitude IS NOT NULL
        AND p.longitude IS NOT NULL
        AND p.last_seen_at >= NOW() - INTERVAL '3 minutes'
@@ -394,6 +193,52 @@ export async function listNearbyCaptainsForPickup({
   }));
 }
 
+export async function listNearbyCaptainMarkers({
+  latitude,
+  longitude,
+  radiusM,
+  limit = 80,
+}) {
+  const distanceExpr = distanceSql("p.latitude", "p.longitude", "$1", "$2");
+
+  const r = await q(
+    `SELECT
+       p.captain_user_id,
+       p.latitude,
+       p.longitude,
+       p.heading_deg,
+       p.speed_kmh,
+       p.last_seen_at,
+       ${distanceExpr} AS distance_m
+     FROM taxi_captain_presence p
+     JOIN app_user u ON u.id = p.captain_user_id
+     WHERE p.is_online = TRUE
+       AND u.role IN ('delivery', 'taxi_captain')
+       AND p.latitude IS NOT NULL
+       AND p.longitude IS NOT NULL
+       AND p.last_seen_at >= NOW() - INTERVAL '3 minutes'
+       AND ${distanceExpr} <= $3
+     ORDER BY distance_m ASC, p.last_seen_at DESC
+     LIMIT $4`,
+    [
+      Number(latitude),
+      Number(longitude),
+      Number(radiusM),
+      Math.max(1, Math.min(200, Number(limit) || 80)),
+    ]
+  );
+
+  return r.rows.map((row) => ({
+    captainUserId: Number(row.captain_user_id),
+    latitude: toNumberOrNull(row.latitude),
+    longitude: toNumberOrNull(row.longitude),
+    headingDeg: toNumberOrNull(row.heading_deg),
+    speedKmh: toNumberOrNull(row.speed_kmh),
+    lastSeenAt: row.last_seen_at || null,
+    distanceM: toNumberOrNull(row.distance_m),
+  }));
+}
+
 export async function createRideRequest({
   customerUserId,
   pickupLatitude,
@@ -405,6 +250,16 @@ export async function createRideRequest({
   proposedFareIqd,
   searchRadiusM,
   note,
+  scheduleMode = "now",
+  scheduledRideId = null,
+  scheduledFor = null,
+  couponId = null,
+  couponCodeSnapshot = null,
+  couponUseIndex = null,
+  fareBeforeDiscountIqd = null,
+  couponDiscountIqd = null,
+  fareAfterDiscountIqd = null,
+  couponSettlementState = "none",
 }) {
   const r = await q(
     `INSERT INTO taxi_ride_request
@@ -420,11 +275,22 @@ export async function createRideRequest({
         search_radius_m,
         search_phase,
         next_escalation_at,
+        final_acceptance_deadline_at,
         note,
-        status
+        status,
+        schedule_mode,
+        scheduled_ride_id,
+        scheduled_for,
+        coupon_id,
+        coupon_code_snapshot,
+        coupon_use_index,
+        fare_before_discount_iqd,
+        coupon_discount_iqd,
+        fare_after_discount_iqd,
+        coupon_settlement_state
       )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,NOW() + INTERVAL '5 minutes',$10,'searching')
-     RETURNING id`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,NOW() + INTERVAL '5 minutes',NOW() + INTERVAL '5 minutes',$10,'searching',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+     RETURNING *`,
     [
       Number(customerUserId),
       Number(pickupLatitude),
@@ -436,10 +302,20 @@ export async function createRideRequest({
       Number(proposedFareIqd),
       Number(searchRadiusM),
       note || null,
+      scheduleMode === "scheduled" ? "scheduled" : "now",
+      scheduledRideId == null ? null : Number(scheduledRideId),
+      scheduledFor || null,
+      couponId == null ? null : Number(couponId),
+      couponCodeSnapshot || null,
+      couponUseIndex == null ? null : Number(couponUseIndex),
+      fareBeforeDiscountIqd == null ? null : Number(fareBeforeDiscountIqd),
+      couponDiscountIqd == null ? 0 : Number(couponDiscountIqd),
+      fareAfterDiscountIqd == null ? null : Number(fareAfterDiscountIqd),
+      couponSettlementState || "none",
     ]
   );
 
-  return getRideById(r.rows[0]?.id);
+  return normalizeRide(r.rows[0]);
 }
 
 export async function getRideById(rideId) {
@@ -1203,16 +1079,18 @@ export async function rateCompletedRideByCustomer({
 
 export async function transitionRideStatus({ rideId, captainUserId, nextStatus }) {
   const client = await pool.connect();
+  let committed = false;
   try {
     await client.query("BEGIN");
 
-    const lock = await client.query(
-      `SELECT *
+    const lock = await client.query({
+      text: `SELECT *
        FROM taxi_ride_request
        WHERE id = $1
        FOR UPDATE`,
-      [Number(rideId)]
-    );
+      values: [Number(rideId)],
+      ...TAXI_STATUS_TRANSITION_QUERY_OPTIONS,
+    });
 
     const ride = lock.rows[0];
     if (!ride) {
@@ -1255,19 +1133,30 @@ export async function transitionRideStatus({ rideId, captainUserId, nextStatus }
       setParts.push("captain_arriving_at = COALESCE(captain_arriving_at, NOW())");
     }
 
-    await client.query(
-      `UPDATE taxi_ride_request
+    await client.query({
+      text: `UPDATE taxi_ride_request
        SET ${setParts.join(", ")}
        WHERE id = $1`,
-      params
-    );
-
-    const full = await queryRideById(client, rideId);
+      values: params,
+      ...TAXI_STATUS_TRANSITION_QUERY_OPTIONS,
+    });
 
     await client.query("COMMIT");
+    committed = true;
+    const full = await queryRideById(
+      pool,
+      rideId,
+      TAXI_STATUS_TRANSITION_QUERY_OPTIONS
+    );
     return { code: "OK", ride: full, previousStatus: current };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!committed) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Ignore rollback failures after upstream query timeouts.
+      }
+    }
     throw error;
   } finally {
     client.release();
@@ -1737,7 +1626,11 @@ export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 3
      LEFT JOIN taxi_ride_bid mb
        ON mb.ride_request_id = r.id
       AND mb.captain_user_id = $3
+     LEFT JOIN taxi_ride_decline td
+       ON td.ride_request_id = r.id
+      AND td.captain_user_id = $3
      WHERE r.status = 'searching'
+       AND td.id IS NULL
        AND ${distanceExpr} <= r.search_radius_m
        AND ${distanceExpr} <= $4
      ORDER BY distance_m ASC, r.created_at DESC
@@ -1752,6 +1645,82 @@ export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 3
   );
 
   return r.rows.map(normalizeRide);
+}
+
+export async function declineRideByCaptain({ rideId, captainUserId }) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const rideLock = await client.query(
+      `SELECT id, status
+       FROM taxi_ride_request
+       WHERE id = $1
+       FOR UPDATE`,
+      [Number(rideId)]
+    );
+    const ride = rideLock.rows[0];
+    if (!ride) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_FOUND" };
+    }
+    if (ride.status !== "searching") {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_SEARCHING", currentStatus: ride.status };
+    }
+
+    const insertDecline = await client.query(
+      `INSERT INTO taxi_ride_decline (ride_request_id, captain_user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (ride_request_id, captain_user_id) DO NOTHING
+       RETURNING id`,
+      [Number(rideId), Number(captainUserId)]
+    );
+
+    if (insertDecline.rows[0]) {
+      await client.query(
+        `UPDATE taxi_ride_request
+         SET rejected_captains_count = (
+           SELECT COUNT(*)::int
+           FROM taxi_ride_decline
+           WHERE ride_request_id = $1
+         ),
+             updated_at = NOW()
+         WHERE id = $1`,
+        [Number(rideId)]
+      );
+    }
+
+    const fullRide = await queryRideById(client, rideId);
+    await client.query("COMMIT");
+    return {
+      code: "OK",
+      ride: fullRide,
+      inserted: !!insertDecline.rows[0],
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function markRidePriceRaisePrompted(rideId) {
+  const r = await q(
+    `UPDATE taxi_ride_request
+     SET price_raise_prompted_at = COALESCE(price_raise_prompted_at, NOW()),
+         updated_at = NOW()
+     WHERE id = $1
+       AND price_raise_prompted_at IS NULL
+     RETURNING id, customer_user_id`,
+    [Number(rideId)]
+  );
+  if (!r.rows[0]) return { updated: false, customerUserId: null };
+  return {
+    updated: true,
+    customerUserId: Number(r.rows[0].customer_user_id),
+  };
 }
 
 export async function listRidesReadyForSearchProgression({ limit = 80 } = {}) {
@@ -2002,6 +1971,36 @@ export async function listCaptainRideHistory(captainUserId, { limit = 20 } = {})
   return r.rows.map(normalizeRide);
 }
 
+export async function listCustomerRideHistoryByPeriod(
+  customerUserId,
+  { period = "month", limit = 40 } = {}
+) {
+  const normalizedPeriod = ["day", "week", "month", "all"].includes(String(period || "").toLowerCase())
+    ? String(period || "").toLowerCase()
+    : "month";
+
+  const r = await q(
+    `${RIDE_SELECT}
+     WHERE r.customer_user_id = $1
+       AND r.status IN ('completed', 'cancelled', 'expired')
+       AND (
+         $3::text = 'all'
+         OR ($3::text = 'day' AND r.created_at >= DATE_TRUNC('day', NOW()))
+         OR ($3::text = 'week' AND r.created_at >= DATE_TRUNC('week', NOW()))
+         OR ($3::text = 'month' AND r.created_at >= DATE_TRUNC('month', NOW()))
+       )
+     ORDER BY COALESCE(r.completed_at, r.cancelled_at, r.updated_at, r.created_at) DESC
+     LIMIT $2`,
+    [
+      Number(customerUserId),
+      Math.max(1, Math.min(300, Number(limit) || 40)),
+      normalizedPeriod,
+    ]
+  );
+
+  return r.rows.map(normalizeRide);
+}
+
 export async function ensureCaptainSubscription(captainUserId) {
   await q(
     `INSERT INTO taxi_captain_subscription (captain_user_id)
@@ -2132,7 +2131,7 @@ export async function getCaptainProfile(captainUserId) {
      LEFT JOIN taxi_captain_profile p
        ON p.user_id = u.id
      WHERE u.id = $1
-       AND u.role = 'delivery'
+       AND u.role IN ('delivery', 'taxi_captain')
      LIMIT 1`,
     [Number(captainUserId)]
   );
@@ -2196,7 +2195,7 @@ export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
      FROM taxi_captain_subscription s
      JOIN app_user u
        ON u.id = s.captain_user_id
-      AND u.role = 'delivery'
+      AND u.role IN ('delivery', 'taxi_captain')
      LEFT JOIN taxi_captain_profile p
        ON p.user_id = s.captain_user_id
      WHERE s.cash_payment_pending = TRUE
@@ -2379,6 +2378,104 @@ export async function getPublicTrackByToken(token) {
   };
 }
 
+export async function upsertRideFriendShare({
+  rideId,
+  customerUserId,
+  friendUserId,
+}) {
+  const r = await q(
+    `WITH upserted AS (
+       INSERT INTO taxi_ride_friend_share
+         (
+           ride_request_id,
+           customer_user_id,
+           friend_user_id,
+           status,
+           shared_at,
+           revoked_at,
+           updated_at
+         )
+       VALUES ($1, $2, $3, 'active', NOW(), NULL, NOW())
+       ON CONFLICT (ride_request_id, friend_user_id)
+       DO UPDATE SET
+         customer_user_id = EXCLUDED.customer_user_id,
+         status = 'active',
+         shared_at = NOW(),
+         revoked_at = NULL,
+         updated_at = NOW()
+       RETURNING *
+     )
+     SELECT
+       u.*,
+       f.full_name AS friend_full_name,
+       f.phone AS friend_phone
+     FROM upserted u
+     JOIN app_user f ON f.id = u.friend_user_id
+     LIMIT 1`,
+    [Number(rideId), Number(customerUserId), Number(friendUserId)]
+  );
+  return normalizeRideFriendShare(r.rows[0]);
+}
+
+export async function listRideFriendShares({ rideId, customerUserId }) {
+  const r = await q(
+    `SELECT
+       s.*,
+       f.full_name AS friend_full_name,
+       f.phone AS friend_phone
+     FROM taxi_ride_friend_share s
+     JOIN app_user f ON f.id = s.friend_user_id
+     WHERE s.ride_request_id = $1
+       AND s.customer_user_id = $2
+       AND s.status = 'active'
+     ORDER BY s.shared_at DESC, s.id DESC`,
+    [Number(rideId), Number(customerUserId)]
+  );
+  return r.rows.map(normalizeRideFriendShare);
+}
+
+export async function getSharedRideTrackForFriend({ rideId, friendUserId }) {
+  const shareRes = await q(
+    `SELECT
+       s.*,
+       f.full_name AS friend_full_name,
+       f.phone AS friend_phone
+     FROM taxi_ride_friend_share s
+     JOIN app_user f ON f.id = s.friend_user_id
+     WHERE s.ride_request_id = $1
+       AND s.friend_user_id = $2
+       AND s.status = 'active'
+     LIMIT 1`,
+    [Number(rideId), Number(friendUserId)]
+  );
+  const share = normalizeRideFriendShare(shareRes.rows[0]);
+  if (!share) return null;
+
+  const [ride, location] = await Promise.all([
+    getRideById(rideId),
+    getLatestRideLocation(rideId),
+  ]);
+  if (!ride) return null;
+  if (!["captain_assigned", "captain_arriving", "ride_started"].includes(String(ride.status || ""))) {
+    await q(
+      `UPDATE taxi_ride_friend_share
+       SET status = 'expired',
+           updated_at = NOW()
+       WHERE ride_request_id = $1
+         AND friend_user_id = $2
+         AND status = 'active'`,
+      [Number(rideId), Number(friendUserId)]
+    );
+    return null;
+  }
+
+  return {
+    share,
+    ride,
+    location,
+  };
+}
+
 export async function assertCaptainRole(userId) {
   const r = await q(
     `SELECT role
@@ -2388,5 +2485,221 @@ export async function assertCaptainRole(userId) {
     [Number(userId)]
   );
   const role = r.rows[0]?.role;
-  return role === "delivery";
+  return role === "delivery" || role === "taxi_captain";
+}
+
+export async function listPendingCaptainProfileEditRequests({ limit = 100 } = {}) {
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 100));
+  const r = await q(
+    `SELECT
+       req.id,
+       req.captain_user_id,
+       req.requested_changes,
+       req.captain_note,
+       req.status,
+       req.admin_note,
+       req.reviewed_by_user_id,
+       req.requested_at,
+       req.reviewed_at,
+       u.full_name,
+       u.phone,
+       u.block,
+       u.building_number,
+       u.apartment,
+       p.profile_image_url,
+       p.car_image_url,
+       p.vehicle_type,
+       p.car_make,
+       p.car_model,
+       p.car_year,
+       p.car_color,
+       p.plate_number
+     FROM taxi_captain_profile_edit_request req
+     JOIN app_user u
+       ON u.id = req.captain_user_id
+     LEFT JOIN taxi_captain_profile p
+       ON p.user_id = req.captain_user_id
+     WHERE req.status = 'pending'
+     ORDER BY req.requested_at ASC, req.id ASC
+     LIMIT $1`,
+    [safeLimit]
+  );
+  return r.rows;
+}
+
+export async function reviewCaptainProfileEditRequestByAdmin({
+  requestId,
+  decision,
+  adminUserId,
+  adminNote = null,
+}) {
+  const safeDecision = String(decision || "").trim().toLowerCase();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const reqResult = await client.query(
+      `SELECT
+         req.*,
+         u.full_name,
+         u.phone,
+         u.block,
+         u.building_number,
+         u.apartment,
+         p.profile_image_url,
+         p.car_image_url,
+         p.vehicle_type,
+         p.car_make,
+         p.car_model,
+         p.car_year,
+         p.car_color,
+         p.plate_number
+       FROM taxi_captain_profile_edit_request req
+       JOIN app_user u
+         ON u.id = req.captain_user_id
+       LEFT JOIN taxi_captain_profile p
+         ON p.user_id = req.captain_user_id
+       WHERE req.id = $1
+       FOR UPDATE`,
+      [Number(requestId)]
+    );
+    const request = reqResult.rows[0] || null;
+    if (!request) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    if (String(request.status || "").trim().toLowerCase() !== "pending") {
+      await client.query("ROLLBACK");
+      return {
+        request,
+        captain: null,
+        alreadyReviewed: true,
+      };
+    }
+
+    const requestedChanges =
+      request.requested_changes && typeof request.requested_changes === "object"
+        ? request.requested_changes
+        : {};
+
+    if (safeDecision === "approved") {
+      const appUserUpdates = [];
+      const appUserParams = [Number(request.captain_user_id)];
+
+      const pushAppUserChange = (jsonKey, columnName) => {
+        if (!(jsonKey in requestedChanges)) return;
+        const raw = requestedChanges[jsonKey];
+        if (raw == null) return;
+        const value = String(raw).trim();
+        if (!value) return;
+        appUserParams.push(value);
+        appUserUpdates.push(`${columnName} = $${appUserParams.length}`);
+      };
+
+      pushAppUserChange("fullName", "full_name");
+      pushAppUserChange("phone", "phone");
+      pushAppUserChange("block", "block");
+      pushAppUserChange("buildingNumber", "building_number");
+      pushAppUserChange("apartment", "apartment");
+
+      if (appUserUpdates.length > 0) {
+        await client.query(
+          `UPDATE app_user
+           SET ${appUserUpdates.join(", ")},
+               updated_at = NOW()
+           WHERE id = $1`,
+          appUserParams
+        );
+      }
+
+      const profileUpdates = [];
+      const profileParams = [Number(request.captain_user_id)];
+
+      const pushProfileChange = (jsonKey, columnName, mapper = null) => {
+        if (!(jsonKey in requestedChanges)) return;
+        const raw = requestedChanges[jsonKey];
+        if (raw == null) return;
+        const mapped = mapper ? mapper(raw) : String(raw).trim();
+        if (mapped == null || mapped === "") return;
+        profileParams.push(mapped);
+        profileUpdates.push(`${columnName} = $${profileParams.length}`);
+      };
+
+      pushProfileChange("profileImageUrl", "profile_image_url");
+      pushProfileChange("carImageUrl", "car_image_url");
+      pushProfileChange("vehicleType", "vehicle_type");
+      pushProfileChange("carMake", "car_make");
+      pushProfileChange("carModel", "car_model");
+      pushProfileChange("carColor", "car_color");
+      pushProfileChange("plateNumber", "plate_number");
+      pushProfileChange("carYear", "car_year", (value) => {
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 1950 || n > 2100) return null;
+        return n;
+      });
+
+      if (profileUpdates.length > 0) {
+        await client.query(
+          `UPDATE taxi_captain_profile
+           SET ${profileUpdates.join(", ")},
+               updated_at = NOW()
+           WHERE user_id = $1`,
+          profileParams
+        );
+      }
+    }
+
+    const updatedReqResult = await client.query(
+      `UPDATE taxi_captain_profile_edit_request
+       SET status = $2,
+           admin_note = $3,
+           reviewed_by_user_id = $4,
+           reviewed_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [
+        Number(requestId),
+        safeDecision,
+        adminNote == null ? null : String(adminNote).trim() || null,
+        Number(adminUserId),
+      ]
+    );
+
+    const captainResult = await client.query(
+      `SELECT
+         u.id,
+         u.full_name,
+         u.phone,
+         u.block,
+         u.building_number,
+         u.apartment,
+         u.image_url,
+         p.profile_image_url,
+         p.car_image_url,
+         p.vehicle_type,
+         p.car_make,
+         p.car_model,
+         p.car_year,
+         p.car_color,
+         p.plate_number
+       FROM app_user u
+       LEFT JOIN taxi_captain_profile p
+         ON p.user_id = u.id
+       WHERE u.id = $1
+       LIMIT 1`,
+      [Number(request.captain_user_id)]
+    );
+
+    await client.query("COMMIT");
+    return {
+      request: updatedReqResult.rows[0] || request,
+      captain: captainResult.rows[0] || null,
+      alreadyReviewed: false,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }

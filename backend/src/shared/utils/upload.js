@@ -10,8 +10,30 @@ import {
 } from "./cloudflare-r2.js";
 import { ensureUploadsDir, uploadsDir } from "./uploads.js";
 
+/**
+ * Purpose:
+ * تعريف سياسات رفع الملفات في النظام كله: الصور العامة، وسائط السوشال،
+ * مرفقات الشات، مرفقات الوظائف، وبطاقات السكن.
+ *
+ * Used by:
+ * - auth/company/feed/jobs/taxi وأي route يستخدم multer
+ *
+ * Depends on:
+ * - `cloudflare-r2.js` للتخزين الإنتاجي
+ * - `uploads.js` للفولدر المحلي fallback
+ * - `env.js` لتحديد ما إذا كان local fallback مسموحاً
+ *
+ * Critical notes:
+ * - هذا الملف حساس أمنياً وتشغيلياً لأنه يحدد MIME policy وأحجام الملفات.
+ * - في production يجب ألا يعتمد workflow على local disk إلا أثناء fallback
+ *   التطويري غير الإنتاجي.
+ *
+ * Maintenance notes:
+ * - عند فشل upload افحص: نوع الملف، الحجم، R2 health، ثم صلاحية البناء
+ *   المحلي للفولدر المؤقت.
+ */
 const useR2Storage = isR2UploadsEnabled();
-const r2MinFileSizeBytes = Number(env.cfR2MinFileSizeBytes || 0);
+const allowLocalUploadFallback = !env.isProduction;
 ensureUploadsDir();
 let lastR2UploadError = null;
 let lastR2UploadAt = null;
@@ -30,6 +52,76 @@ const allowedMediaMimeTypes = new Set([
   "video/webm",
   "video/x-matroska",
   "video/3gpp",
+]);
+
+const allowedChatAttachmentMimeTypes = new Set([
+  ...allowedMediaMimeTypes,
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/ogg",
+  "audio/webm",
+  "audio/opus",
+  "application/pdf",
+  "text/plain",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/zip",
+  "application/x-rar-compressed",
+  "application/vnd.rar",
+  "application/octet-stream",
+]);
+
+const allowedResidenceCardMimeTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+const allowedJobApplicationAttachmentMimeTypes = new Set([
+  ...allowedMimeTypes,
+  "application/pdf",
+]);
+
+const allowedJobApplicationAttachmentExtensions = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".pdf",
+]);
+
+const allowedChatAttachmentExtensions = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".mp4",
+  ".mov",
+  ".webm",
+  ".mkv",
+  ".3gp",
+  ".m4a",
+  ".aac",
+  ".mp3",
+  ".wav",
+  ".ogg",
+  ".opus",
+  ".pdf",
+  ".txt",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".zip",
+  ".rar",
 ]);
 
 function sanitizeBaseName(originalName = "image", ext = "") {
@@ -119,6 +211,13 @@ const r2Storage = {
         }
       }
 
+      if (!allowLocalUploadFallback) {
+        const storageError = new Error("R2_UPLOADS_REQUIRED");
+        storageError.status = 503;
+        done(storageError);
+        return;
+      }
+
       done(null, {
         destination: uploadsDir,
         filename,
@@ -183,6 +282,98 @@ export const mediaUpload = multer({
   },
 });
 
+function residenceCardFilter(req, file, cb) {
+  if (allowedResidenceCardMimeTypes.has(file.mimetype)) {
+    cb(null, true);
+    return;
+  }
+
+  const err = new Error("INVALID_RESIDENCE_CARD_IMAGE_TYPE");
+  err.status = 400;
+  cb(err);
+}
+
+export const residenceCardUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: residenceCardFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
+});
+
+function registerWithCardFilter(req, file, cb) {
+  const field = String(file.fieldname || "").trim();
+  if (field === "cardImageFile") {
+    return residenceCardFilter(req, file, cb);
+  }
+  return imageFilter(req, file, cb);
+}
+
+export const registerWithCardUpload = multer({
+  storage,
+  fileFilter: registerWithCardFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
+});
+
+function chatAttachmentFilter(req, file, cb) {
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  const mime = String(file.mimetype || "").toLowerCase();
+
+  const mimeAllowed = allowedChatAttachmentMimeTypes.has(mime);
+  const extAllowed = allowedChatAttachmentExtensions.has(ext);
+
+  if (mimeAllowed && (mime !== "application/octet-stream" || extAllowed)) {
+    cb(null, true);
+    return;
+  }
+
+  const err = new Error("INVALID_CHAT_ATTACHMENT_TYPE");
+  err.status = 400;
+  cb(err);
+}
+
+export const chatAttachmentUpload = multer({
+  storage,
+  fileFilter: chatAttachmentFilter,
+  limits: {
+    fileSize: 32 * 1024 * 1024,
+  },
+});
+
+function jobApplicationAttachmentFilter(req, file, cb) {
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  const mime = String(file.mimetype || "").toLowerCase();
+
+  const mimeAllowed = allowedJobApplicationAttachmentMimeTypes.has(mime);
+  const extAllowed = allowedJobApplicationAttachmentExtensions.has(ext);
+
+  if (mimeAllowed && (mime !== "application/octet-stream" || extAllowed)) {
+    cb(null, true);
+    return;
+  }
+
+  const err = new Error("INVALID_JOB_APPLICATION_ATTACHMENT_TYPE");
+  err.status = 400;
+  cb(err);
+}
+
+export const jobApplicationAttachmentUpload = multer({
+  storage,
+  fileFilter: jobApplicationAttachmentFilter,
+  limits: {
+    fileSize: 20 * 1024 * 1024,
+  },
+});
+
+/**
+ * يحول ناتج multer إلى URL عام مستقر للواجهة.
+ *
+ * Return value:
+ * - رابط R2 مباشر إن كان الرفع على R2
+ * - رابط `/uploads/...` محلي في بيئات fallback المحلية
+ */
 export function buildUploadedFileUrl(req, file) {
   if (!file) return null;
   if (typeof file.location === "string" && file.location.trim()) {
@@ -191,10 +382,14 @@ export function buildUploadedFileUrl(req, file) {
   return `${req.protocol}://${req.get("host")}/uploads/${file.filename}`;
 }
 
+/**
+ * يعرض حالة runtime الحالية لطبقة الرفع لتظهر في `/health`.
+ */
 export function getUploadRuntimeStatus() {
   return {
+    provider: useR2Storage ? "r2" : "local",
     r2Enabled: useR2Storage,
-    r2MinFileSizeBytes,
+    localFallbackAllowed: allowLocalUploadFallback,
     lastR2UploadError,
     lastR2UploadAt,
   };

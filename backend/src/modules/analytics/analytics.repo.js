@@ -7,7 +7,7 @@ function periodStart(range) {
   return "DATE_TRUNC('year', NOW())";
 }
 
-async function queryTotals(whereSql, whereParams, timeColumn = "created_at") {
+async function queryTotals(whereSql, whereParams, timeColumn = "o.created_at") {
   const ranges = ["day", "month", "year"];
   const out = {};
 
@@ -15,19 +15,20 @@ async function queryTotals(whereSql, whereParams, timeColumn = "created_at") {
     const r = await q(
       `SELECT
          COUNT(*)::int AS orders_count,
-         COUNT(*) FILTER (WHERE status = 'delivered')::int AS delivered_orders_count,
-         COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled_orders_count,
-         COALESCE(SUM(delivery_fee) FILTER (WHERE status <> 'cancelled'), 0) AS delivery_fees,
-         COALESCE(SUM(total_amount) FILTER (WHERE status <> 'cancelled'), 0) AS total_amount,
-         COALESCE(SUM(total_amount - subtotal) FILTER (WHERE status <> 'cancelled'), 0) AS app_fees,
-         COALESCE(AVG(delivery_rating) FILTER (WHERE status = 'delivered'), 0) AS avg_delivery_rating,
-         COALESCE(AVG(merchant_rating) FILTER (WHERE status = 'delivered'), 0) AS avg_merchant_rating,
+         COUNT(*) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed'))::int AS delivered_orders_count,
+         COUNT(*) FILTER (WHERE o.status IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin'))::int AS cancelled_orders_count,
+         COALESCE(SUM(o.delivery_fee) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS delivery_fees,
+         COALESCE(SUM(o.total_amount) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS total_amount,
+         COALESCE(SUM(COALESCE(inv.app_receivable_amount, 0)) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS app_fees,
+         COALESCE(AVG(o.delivery_rating) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS avg_delivery_rating,
+         COALESCE(AVG(o.merchant_rating) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS avg_merchant_rating,
          COALESCE(
-           AVG(EXTRACT(EPOCH FROM (delivered_at - picked_up_at)) / 60)
-             FILTER (WHERE delivered_at IS NOT NULL AND picked_up_at IS NOT NULL),
+           AVG(EXTRACT(EPOCH FROM (o.delivered_at - o.picked_up_at)) / 60)
+             FILTER (WHERE o.delivered_at IS NOT NULL AND o.picked_up_at IS NOT NULL),
            0
          ) AS avg_delivery_minutes
-       FROM customer_order
+       FROM customer_order o
+       LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
        WHERE ${whereSql}
          AND ${timeColumn} >= ${periodStart(range)}`,
       whereParams
@@ -49,15 +50,16 @@ export async function getOwnerAnalytics(ownerUserId) {
     const r = await q(
       `SELECT
          COUNT(*)::int AS orders_count,
-         COUNT(*) FILTER (WHERE o.status = 'delivered')::int AS delivered_orders_count,
-         COUNT(*) FILTER (WHERE o.status = 'cancelled')::int AS cancelled_orders_count,
-         COALESCE(SUM(o.delivery_fee) FILTER (WHERE o.status <> 'cancelled'), 0) AS delivery_fees,
-         COALESCE(SUM(o.total_amount) FILTER (WHERE o.status <> 'cancelled'), 0) AS total_amount,
-         COALESCE(SUM(o.total_amount - o.subtotal) FILTER (WHERE o.status <> 'cancelled'), 0) AS app_fees,
-         COALESCE(AVG(o.merchant_rating) FILTER (WHERE o.status = 'delivered'), 0) AS avg_merchant_rating,
-         COALESCE(AVG(o.delivery_rating) FILTER (WHERE o.status = 'delivered'), 0) AS avg_delivery_rating
+         COUNT(*) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed'))::int AS delivered_orders_count,
+         COUNT(*) FILTER (WHERE o.status IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin'))::int AS cancelled_orders_count,
+         COALESCE(SUM(o.delivery_fee) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS delivery_fees,
+         COALESCE(SUM(o.total_amount) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS total_amount,
+         COALESCE(SUM(COALESCE(inv.app_receivable_amount, 0)) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS app_fees,
+         COALESCE(AVG(o.merchant_rating) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS avg_merchant_rating,
+         COALESCE(AVG(o.delivery_rating) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS avg_delivery_rating
        FROM customer_order o
        JOIN merchant m ON m.id = o.merchant_id
+       LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
        WHERE m.owner_user_id = $1
          AND o.created_at >= ${periodStart(range)}`,
       [ownerUserId]
@@ -72,7 +74,7 @@ export async function getOwnerAnalytics(ownerUserId) {
      FROM customer_order o
      JOIN merchant m ON m.id = o.merchant_id
      WHERE m.owner_user_id = $1
-       AND o.status <> 'cancelled'
+       AND o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')
        AND o.created_at >= DATE_TRUNC('day', NOW())
      GROUP BY o.customer_block
      ORDER BY orders_count DESC`,
@@ -88,7 +90,7 @@ export async function getOwnerAnalytics(ownerUserId) {
      JOIN customer_order o ON o.id = oi.order_id
      JOIN merchant m ON m.id = o.merchant_id
      WHERE m.owner_user_id = $1
-       AND o.status <> 'cancelled'
+       AND o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')
        AND o.created_at >= DATE_TRUNC('day', NOW())
      GROUP BY oi.product_id, oi.product_name
      ORDER BY total_qty DESC, oi.product_name ASC
@@ -165,13 +167,15 @@ export async function listPendingMerchants() {
        m.type,
        m.phone,
        m.description,
+       m.approval_status,
        m.created_at,
        u.id AS owner_user_id,
        u.full_name AS owner_full_name,
        u.phone AS owner_phone
      FROM merchant m
      LEFT JOIN app_user u ON u.id = m.owner_user_id
-     WHERE m.is_approved = FALSE
+     WHERE COALESCE(m.approval_status, CASE WHEN m.is_approved THEN 'approved' ELSE 'pending_admin_review' END)
+           IN ('pending_admin_review', 'rejected')
      ORDER BY m.id DESC`
   );
   return r.rows;
@@ -236,17 +240,18 @@ export async function getOwnerOutstanding(ownerUserId) {
   const dueR = await q(
     `SELECT
        m.id AS merchant_id,
-       COALESCE(SUM(o.total_amount - o.subtotal), 0) AS outstanding_amount,
+       COALESCE(SUM(COALESCE(inv.app_receivable_amount, 0)), 0) AS outstanding_amount,
        COUNT(*)::int AS orders_count,
-       MAX(o.delivered_at) AS cutoff_delivered_at
-     FROM merchant m
-     LEFT JOIN customer_order o
-       ON o.merchant_id = m.id
-      AND o.status = 'delivered'
-      AND o.delivered_at IS NOT NULL
-      AND ($2::timestamptz IS NULL OR o.delivered_at > $2::timestamptz)
-     WHERE m.owner_user_id = $1
-     GROUP BY m.id`,
+       MAX(COALESCE(o.completed_at, o.delivered_at)) AS cutoff_delivered_at
+      FROM merchant m
+      LEFT JOIN customer_order o
+        ON o.merchant_id = m.id
+       AND o.status IN ('delivered', 'delivered_by_courier', 'received_by_customer', 'completed')
+       AND COALESCE(o.completed_at, o.delivered_at) IS NOT NULL
+       AND ($2::timestamptz IS NULL OR COALESCE(o.completed_at, o.delivered_at) > $2::timestamptz)
+      LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
+      WHERE m.owner_user_id = $1
+      GROUP BY m.id`,
     [ownerUserId, cutoff]
   );
 
@@ -371,3 +376,4 @@ export async function approveSettlement(settlementId, approvedByUserId, adminNot
 
   return true;
 }
+

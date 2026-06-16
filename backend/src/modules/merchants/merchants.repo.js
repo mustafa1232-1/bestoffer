@@ -1,10 +1,187 @@
 import { pool, q } from "../../config/db.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
+import { getRedisClient } from "../../config/redis.js";
+
+const MERCHANT_PRODUCTS_TTL = 120; // 2 minutes
+const MERCHANT_CATEGORIES_TTL = 300; // 5 minutes
+const MERCHANT_CATALOG_VERSION_TTL = 7 * 24 * 60 * 60; // 7 days
+const MERCHANT_BROWSE_TTL = 120; // 2 minutes
+const MERCHANT_BROWSE_VERSION_TTL = 7 * 24 * 60 * 60; // 7 days
+const MERCHANT_BROWSE_VERSION_KEY = "merchant:browse:ver";
+const MERCHANT_BROWSE_SCHEMA_VERSION = "2";
+
+function merchantCatalogVersionKey(merchantId) {
+  return `merchant:catalog:ver:${Number(merchantId)}`;
+}
+
+function merchantBrowseCacheKey({
+  version,
+  type,
+  search,
+  activityType,
+  discoverySubcategory,
+}) {
+  const normalizedType = String(type || "all").trim().toLowerCase() || "all";
+  const normalizedSearch = String(search || "").trim().toLowerCase() || "none";
+  const normalizedActivityType =
+    String(activityType || "").trim().toLowerCase() || "none";
+  const normalizedDiscovery =
+    String(discoverySubcategory || "").trim().toLowerCase() || "none";
+  return [
+    "merchant:browse:list",
+    `schema:${MERCHANT_BROWSE_SCHEMA_VERSION}`,
+    `v${String(version || "1")}`,
+    `type:${encodeURIComponent(normalizedType)}`,
+    `q:${encodeURIComponent(normalizedSearch)}`,
+    `activity:${encodeURIComponent(normalizedActivityType)}`,
+    `discovery:${encodeURIComponent(normalizedDiscovery)}`,
+  ].join(":");
+}
+
+async function getMerchantCatalogVersion(redis, merchantId) {
+  if (!redis) return "1";
+  const key = merchantCatalogVersionKey(merchantId);
+  let version = "1";
+  try {
+    const hit = await redis.get(key);
+    if (hit != null) {
+      version = String(hit);
+    } else {
+      await redis.set(key, "1", "EX", MERCHANT_CATALOG_VERSION_TTL, "NX");
+    }
+  } catch (_) {
+    return "1";
+  }
+  return version;
+}
+
+async function getMerchantBrowseVersion(redis) {
+  if (!redis) return "1";
+  let version = "1";
+  try {
+    const hit = await redis.get(MERCHANT_BROWSE_VERSION_KEY);
+    if (hit != null) {
+      version = String(hit);
+    } else {
+      await redis.set(
+        MERCHANT_BROWSE_VERSION_KEY,
+        "1",
+        "EX",
+        MERCHANT_BROWSE_VERSION_TTL,
+        "NX"
+      );
+    }
+  } catch (_) {
+    return "1";
+  }
+  return version;
+}
+
+export async function invalidateMerchantBrowseCache() {
+  const redis = await getRedisClient().catch(() => null);
+  if (!redis) return;
+  await Promise.all([
+    redis.incr(MERCHANT_BROWSE_VERSION_KEY).catch(() => {}),
+    redis.expire(MERCHANT_BROWSE_VERSION_KEY, MERCHANT_BROWSE_VERSION_TTL).catch(() => {}),
+  ]);
+}
+
+export async function getCachedMerchantBrowseList({
+  type,
+  search,
+  activityType,
+  discoverySubcategory,
+}) {
+  const redis = await getRedisClient().catch(() => null);
+  if (!redis) return null;
+  const version = await getMerchantBrowseVersion(redis);
+  const key = merchantBrowseCacheKey({
+    version,
+    type,
+    search,
+    activityType,
+    discoverySubcategory,
+  });
+  try {
+    const hit = await redis.get(key);
+    if (hit == null) return null;
+    return JSON.parse(hit);
+  } catch (_) {
+    return null;
+  }
+}
+
+export async function setCachedMerchantBrowseList(
+  { type, search, activityType, discoverySubcategory },
+  payload
+) {
+  const redis = await getRedisClient().catch(() => null);
+  if (!redis) return;
+  const version = await getMerchantBrowseVersion(redis);
+  const key = merchantBrowseCacheKey({
+    version,
+    type,
+    search,
+    activityType,
+    discoverySubcategory,
+  });
+  redis
+    .set(key, JSON.stringify(payload), "EX", MERCHANT_BROWSE_TTL)
+    .catch(() => {});
+}
+
+export async function invalidateMerchantCatalogCache(merchantId) {
+  const redis = await getRedisClient().catch(() => null);
+  if (!redis) return;
+  const merchantIdNum = Number(merchantId);
+  if (!Number.isInteger(merchantIdNum) || merchantIdNum <= 0) return;
+  const versionKey = merchantCatalogVersionKey(merchantIdNum);
+  await Promise.all([
+    // Legacy keys cleanup (pre-versioned caching)
+    redis.del(`merchant:products:${merchantIdNum}`).catch(() => {}),
+    redis.del(`merchant:categories:${merchantIdNum}`).catch(() => {}),
+    // Version bump invalidates all paginated keys for this merchant atomically.
+    redis.incr(versionKey).catch(() => {}),
+    redis.expire(versionKey, MERCHANT_CATALOG_VERSION_TTL).catch(() => {}),
+    redis.incr(MERCHANT_BROWSE_VERSION_KEY).catch(() => {}),
+    redis.expire(MERCHANT_BROWSE_VERSION_KEY, MERCHANT_BROWSE_VERSION_TTL).catch(() => {}),
+  ]);
+}
+
+function normalizeDiscoveryCodes(values) {
+  if (!Array.isArray(values)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (value == null) continue;
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
 
 function appError(message, status) {
   const err = new Error(message);
   err.status = status;
   return err;
+}
+
+function haversineDistanceSql(latExpr, lngExpr, latParam, lngParam) {
+  return `(
+    6371 * acos(
+      LEAST(
+        1,
+        GREATEST(
+          -1,
+          cos(radians(${latParam})) * cos(radians(${latExpr})) *
+            cos(radians(${lngExpr}) - radians(${lngParam})) +
+          sin(radians(${latParam})) * sin(radians(${latExpr}))
+        )
+      )
+    )
+  )`;
 }
 
 export async function createMerchantWithOwnerLink({
@@ -50,11 +227,12 @@ export async function createMerchantWithOwnerLink({
 
       const ownerInsertResult = await client.query(
         `INSERT INTO app_user
-          (full_name, phone, pin_hash, block, building_number, apartment, image_url, role)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'owner')
+          (full_name, username, phone, pin_hash, block, building_number, apartment, image_url, role)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'owner')
          RETURNING id, full_name, phone, role, image_url`,
         [
           ownerToCreate.fullName,
+          ownerToCreate.username,
           ownerToCreate.phone,
           ownerPinHash,
           ownerToCreate.block,
@@ -79,22 +257,79 @@ export async function createMerchantWithOwnerLink({
       throw appError("OWNER_ALREADY_HAS_MERCHANT", 409);
     }
 
+    const discoverySelectAll = merchant.discoverySelectAll === true;
+    const discoveryCodes = normalizeDiscoveryCodes(
+      merchant.discoverySubcategories
+    );
+
     const merchantResult = await client.query(
       `INSERT INTO merchant
-        (name, type, description, phone, image_url, owner_user_id, is_approved, approved_by_user_id, approved_at)
-       VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,NOW())
-       RETURNING *`,
+        (
+          name,
+          type,
+          activity_type,
+          discovery_subcategory,
+          discovery_select_all,
+          description,
+          phone,
+          image_url,
+          owner_user_id,
+          is_approved,
+          approved_by_user_id,
+          approved_at,
+          service_flags_json,
+          supports_chat,
+          supports_attachments,
+          supports_pharmacy_workflow,
+          badges_json
+        )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,$10,NOW(),$11::jsonb,$12,$13,$14,$15::jsonb)
+       RETURNING id`,
       [
         merchant.name,
         merchant.type,
+        merchant.activityType,
+        merchant.discoverySubcategory,
+        discoverySelectAll,
         merchant.description,
         merchant.phone || owner.phone,
         merchant.imageUrl,
         owner.id,
         approvedByUserId || null,
+        JSON.stringify(merchant.serviceFlags || {}),
+        merchant.supportsChat === true,
+        merchant.supportsAttachments === true,
+        merchant.supportsPharmacyWorkflow === true,
+        JSON.stringify(Array.isArray(merchant.badges) ? merchant.badges : []),
       ]
     );
-    const createdMerchant = merchantResult.rows[0];
+    const merchantId = Number(merchantResult.rows[0]?.id);
+    if (Number.isInteger(merchantId) && merchantId > 0 && discoveryCodes.length) {
+      await client.query(
+        `INSERT INTO merchant_discovery_subcategory (merchant_id, discovery_code)
+         SELECT $1::bigint, code
+         FROM UNNEST($2::text[]) AS t(code)
+         ON CONFLICT (merchant_id, discovery_code) DO NOTHING`,
+        [merchantId, discoveryCodes]
+      );
+    }
+
+    const hydratedResult = await client.query(
+      `SELECT m.*,
+              COALESCE(
+                (
+                  SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
+                  FROM merchant_discovery_subcategory mds
+                  WHERE mds.merchant_id = m.id
+                ),
+                ARRAY[]::text[]
+              ) AS discovery_subcategories
+       FROM merchant m
+       WHERE m.id = $1
+       LIMIT 1`,
+      [merchantId]
+    );
+    const createdMerchant = hydratedResult.rows[0];
 
     await client.query("COMMIT");
 
@@ -111,6 +346,8 @@ export async function createMerchantWithOwnerLink({
       },
     ]);
 
+    await invalidateMerchantBrowseCache();
+
     return createdMerchant;
   } catch (e) {
     await client.query("ROLLBACK");
@@ -120,45 +357,105 @@ export async function createMerchantWithOwnerLink({
   }
 }
 
-export async function getAllMerchants(type) {
+export async function getAllMerchants(type, search, options = {}) {
+  const values = [];
+  const where = ["m.is_approved=TRUE", "m.is_disabled=FALSE"];
+  const activityType =
+    typeof options.activityType === "string" ? options.activityType.trim() : "";
+  const discoverySubcategory =
+    typeof options.discoverySubcategory === "string"
+      ? options.discoverySubcategory.trim()
+      : "";
+
   if (type) {
-    const r = await q(
-      `SELECT
-         m.*,
-         EXISTS (
-           SELECT 1
-           FROM product p
-           WHERE p.merchant_id = m.id
-             AND p.is_available = TRUE
-             AND p.discounted_price IS NOT NULL
-             AND p.discounted_price < p.price
-         ) AS has_discount_offer,
-         EXISTS (
-           SELECT 1
-           FROM product p
-           WHERE p.merchant_id = m.id
-             AND p.is_available = TRUE
-             AND p.free_delivery = TRUE
-         ) AS has_free_delivery_offer
-       FROM merchant m
-       WHERE m.type=$1
-         AND m.is_approved=TRUE
-         AND m.is_disabled=FALSE`,
-      [type]
+    values.push(type);
+    where.push(`m.type=$${values.length}`);
+  }
+
+  if (activityType) {
+    values.push(activityType);
+    where.push(`m.activity_type = $${values.length}`);
+  }
+
+  if (discoverySubcategory) {
+    values.push(discoverySubcategory);
+    where.push(
+      `(
+        (
+          m.discovery_select_all = TRUE
+          AND EXISTS (
+            SELECT 1
+            FROM store_activity_discovery_option sado
+            WHERE sado.activity_type = m.activity_type
+              AND sado.code = $${values.length}
+              AND sado.is_active = TRUE
+          )
+        )
+        OR m.discovery_subcategory = $${values.length}
+        OR EXISTS (
+          SELECT 1
+          FROM merchant_discovery_subcategory mds
+          WHERE mds.merchant_id = m.id
+            AND mds.discovery_code = $${values.length}
+        )
+      )`
     );
-    return r.rows;
+  }
+
+  const normalizedSearch = typeof search === "string" ? search.trim() : "";
+  if (normalizedSearch) {
+    values.push(`%${normalizedSearch}%`);
+    const idx = values.length;
+    where.push(
+      `(
+        m.name ILIKE $${idx}
+        OR COALESCE(m.description, '') ILIKE $${idx}
+        OR COALESCE(m.tagline, '') ILIKE $${idx}
+        OR COALESCE(m.phone, '') ILIKE $${idx}
+        OR EXISTS (
+          SELECT 1
+          FROM product p
+          LEFT JOIN merchant_category c ON c.id = p.category_id
+          WHERE p.merchant_id = m.id
+            AND (
+              p.name ILIKE $${idx}
+              OR COALESCE(p.description, '') ILIKE $${idx}
+              OR COALESCE(c.name, '') ILIKE $${idx}
+            )
+        )
+      )`
+    );
   }
 
   const r = await q(
     `SELECT
        m.*,
+       COALESCE(
+         (
+           SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
+           FROM merchant_discovery_subcategory mds
+           WHERE mds.merchant_id = m.id
+         ),
+         ARRAY[]::text[]
+       ) AS discovery_subcategories,
        EXISTS (
          SELECT 1
          FROM product p
          WHERE p.merchant_id = m.id
            AND p.is_available = TRUE
-           AND p.discounted_price IS NOT NULL
-           AND p.discounted_price < p.price
+           AND (
+             (p.discounted_price IS NOT NULL AND p.discounted_price < p.price)
+             OR EXISTS (
+               SELECT 1
+               FROM merchant_offer_product mop
+               JOIN merchant_offer mo ON mo.id = mop.offer_id
+               WHERE mop.product_id = p.id
+                 AND mo.merchant_id = m.id
+                 AND mo.status NOT IN ('draft', 'disabled', 'expired')
+                 AND (mo.starts_at IS NULL OR mo.starts_at <= NOW())
+                 AND (mo.ends_at IS NULL OR mo.ends_at >= NOW())
+             )
+           )
        ) AS has_discount_offer,
        EXISTS (
          SELECT 1
@@ -166,54 +463,363 @@ export async function getAllMerchants(type) {
          WHERE p.merchant_id = m.id
            AND p.is_available = TRUE
            AND p.free_delivery = TRUE
-       ) AS has_free_delivery_offer
+       ) AS has_free_delivery_offer,
+       COALESCE(
+         (
+           SELECT AVG(o.merchant_rating)
+           FROM customer_order o
+           WHERE o.merchant_id = m.id
+             AND o.merchant_rating IS NOT NULL
+             AND o.status IN ('completed', 'delivered', 'received_by_customer')
+         ),
+         0
+       )::numeric(6,3) AS avg_merchant_rating,
+       COALESCE(
+         (
+           SELECT COUNT(o.merchant_rating)
+           FROM customer_order o
+           WHERE o.merchant_id = m.id
+             AND o.merchant_rating IS NOT NULL
+             AND o.status IN ('completed', 'delivered', 'received_by_customer')
+         ),
+         0
+       )::int AS rating_count,
+       COALESCE(
+         (
+           SELECT AVG(
+             CASE
+               WHEN p.discounted_price IS NOT NULL AND p.discounted_price > 0
+                 THEN p.discounted_price
+               ELSE p.price
+             END
+           )
+           FROM product p
+           WHERE p.merchant_id = m.id
+             AND p.is_available = TRUE
+         ),
+         0
+       )::numeric(12,2) AS avg_menu_price,
+       COALESCE(
+         (
+           SELECT COUNT(*)
+           FROM customer_order o
+           WHERE o.merchant_id = m.id
+             AND o.status IN ('completed', 'delivered', 'received_by_customer')
+         ),
+         0
+       )::int AS completed_orders_count
      FROM merchant m
-     WHERE m.is_approved=TRUE
-       AND m.is_disabled=FALSE`
+     WHERE ${where.join(" AND ")}`,
+    values
   );
   return r.rows;
 }
 
-export async function getPublicMerchantProducts(merchantId) {
+export async function getPublicMerchantProducts(merchantId, { limit = 200, offset = 0 } = {}) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 200));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+
+  const redis = await getRedisClient().catch(() => null);
+  const cacheVersion = await getMerchantCatalogVersion(redis, merchantId);
+  const cacheKey = `merchant:products:${Number(merchantId)}:v${cacheVersion}:${safeOffset}:${safeLimit}`;
+  if (redis) {
+    try {
+      const hit = await redis.get(cacheKey);
+      if (hit !== null) return JSON.parse(hit);
+    } catch (_) { /* fall through */ }
+  }
   const r = await q(
     `SELECT
        p.*,
+       CASE
+         WHEN s.inventory_enabled = TRUE
+           AND s.daily_update_mode <> 'manual_override'
+           AND s.show_all_without_auto_disable = FALSE
+         THEN CASE
+           WHEN COALESCE(si.manual_disabled, FALSE) = TRUE THEN FALSE
+           WHEN COALESCE(si.auto_disabled, FALSE) = TRUE THEN FALSE
+           WHEN COALESCE(si.stock_status, 'in_stock') = 'manual_disabled' THEN FALSE
+           WHEN COALESCE(si.stock_status, 'in_stock') = 'out_of_stock'
+             AND s.auto_disable_out_of_stock = TRUE THEN FALSE
+           ELSE p.is_available
+         END
+         ELSE p.is_available
+       END AS is_available,
+       COALESCE(si.quantity, NULL) AS inventory_quantity,
+       COALESCE(si.stock_status, NULL) AS inventory_stock_status,
        c.name AS category_name,
-       c.sort_order AS category_sort_order
+       c.sort_order AS category_sort_order,
+       c.order_index AS category_order_index
      FROM product p
      JOIN merchant m ON m.id = p.merchant_id
      LEFT JOIN merchant_category c ON c.id = p.category_id
+     LEFT JOIN inventory_settings s ON s.merchant_id = p.merchant_id
+     LEFT JOIN store_inventory_item si
+       ON si.merchant_id = p.merchant_id
+      AND si.product_id = p.id
      WHERE p.merchant_id=$1
-       AND p.is_available=true
        AND m.is_approved=TRUE
        AND m.is_disabled=FALSE
-     ORDER BY COALESCE(c.sort_order, 999999), COALESCE(c.id, 0), p.sort_order ASC, p.id DESC`,
-    [merchantId]
+     ORDER BY
+       COALESCE(c.order_index, c.sort_order, 999999),
+       COALESCE(c.sort_order, 999999),
+       COALESCE(c.id, 0),
+       p.sort_order ASC,
+       p.id DESC
+     LIMIT $2 OFFSET $3`,
+    [merchantId, safeLimit, safeOffset]
   );
+  if (redis) redis.set(cacheKey, JSON.stringify(r.rows), "EX", MERCHANT_PRODUCTS_TTL).catch(() => {});
   return r.rows;
 }
 
 export async function getPublicMerchantCategories(merchantId) {
+  const redis = await getRedisClient().catch(() => null);
+  const cacheVersion = await getMerchantCatalogVersion(redis, merchantId);
+  const cacheKey = `merchant:categories:${Number(merchantId)}:v${cacheVersion}`;
+  if (redis) {
+    try {
+      const hit = await redis.get(cacheKey);
+      if (hit !== null) return JSON.parse(hit);
+    } catch (_) { /* fall through */ }
+  }
   const r = await q(
     `SELECT
        c.id,
        c.merchant_id,
        c.name,
        c.sort_order,
+       c.order_index,
+       c.icon,
+       c.is_active,
+       c.source,
        c.created_at,
        c.updated_at,
-       COUNT(p.id)::int AS available_products_count
+       COUNT(p.id) FILTER (
+         WHERE CASE
+           WHEN s.inventory_enabled = TRUE
+             AND s.daily_update_mode <> 'manual_override'
+             AND s.show_all_without_auto_disable = FALSE
+           THEN CASE
+             WHEN COALESCE(si.manual_disabled, FALSE) = TRUE THEN FALSE
+             WHEN COALESCE(si.auto_disabled, FALSE) = TRUE THEN FALSE
+             WHEN COALESCE(si.stock_status, 'in_stock') = 'manual_disabled' THEN FALSE
+             WHEN COALESCE(si.stock_status, 'in_stock') = 'out_of_stock'
+               AND s.auto_disable_out_of_stock = TRUE THEN FALSE
+             ELSE p.is_available
+           END
+           ELSE p.is_available
+         END
+       )::int AS available_products_count
      FROM merchant_category c
      JOIN merchant m ON m.id = c.merchant_id
+     LEFT JOIN inventory_settings s ON s.merchant_id = c.merchant_id
      LEFT JOIN product p
        ON p.category_id = c.id
-      AND p.is_available = TRUE
+     LEFT JOIN store_inventory_item si
+       ON si.merchant_id = p.merchant_id
+      AND si.product_id = p.id
      WHERE c.merchant_id = $1
        AND m.is_approved = TRUE
        AND m.is_disabled = FALSE
+       AND c.is_active = TRUE
      GROUP BY c.id
-     ORDER BY c.sort_order ASC, c.id ASC`,
+     ORDER BY COALESCE(c.order_index, c.sort_order, 999999) ASC, c.id ASC`,
     [merchantId]
+  );
+  if (redis) {
+    redis
+      .set(cacheKey, JSON.stringify(r.rows), "EX", MERCHANT_CATEGORIES_TTL)
+      .catch(() => {});
+  }
+  return r.rows;
+}
+
+export async function getPublicMerchantById(merchantId) {
+  const id = Number(merchantId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw appError("MERCHANT_ID_INVALID", 400);
+  }
+
+  const r = await q(
+    `SELECT
+       m.*,
+       COALESCE(
+         (
+           SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
+           FROM merchant_discovery_subcategory mds
+           WHERE mds.merchant_id = m.id
+         ),
+         ARRAY[]::text[]
+       ) AS discovery_subcategories,
+       EXISTS (
+         SELECT 1
+         FROM product p
+         WHERE p.merchant_id = m.id
+           AND p.is_available = TRUE
+           AND (
+             (p.discounted_price IS NOT NULL AND p.discounted_price < p.price)
+             OR EXISTS (
+               SELECT 1
+               FROM merchant_offer_product mop
+               JOIN merchant_offer mo ON mo.id = mop.offer_id
+               WHERE mop.product_id = p.id
+                 AND mo.merchant_id = m.id
+                 AND mo.status NOT IN ('draft', 'disabled', 'expired')
+                 AND (mo.starts_at IS NULL OR mo.starts_at <= NOW())
+                 AND (mo.ends_at IS NULL OR mo.ends_at >= NOW())
+             )
+           )
+       ) AS has_discount_offer,
+       EXISTS (
+         SELECT 1
+         FROM product p
+         WHERE p.merchant_id = m.id
+           AND p.is_available = TRUE
+           AND p.free_delivery = TRUE
+       ) AS has_free_delivery_offer,
+       COALESCE(
+         (
+           SELECT AVG(o.merchant_rating)
+           FROM customer_order o
+           WHERE o.merchant_id = m.id
+             AND o.merchant_rating IS NOT NULL
+             AND o.status IN ('completed', 'delivered', 'received_by_customer')
+         ),
+         0
+       )::numeric(6,3) AS avg_merchant_rating,
+       COALESCE(
+         (
+           SELECT COUNT(o.merchant_rating)
+           FROM customer_order o
+           WHERE o.merchant_id = m.id
+             AND o.merchant_rating IS NOT NULL
+             AND o.status IN ('completed', 'delivered', 'received_by_customer')
+         ),
+         0
+       )::int AS rating_count
+     FROM merchant m
+     WHERE m.id = $1
+       AND m.is_approved = TRUE
+       AND COALESCE(m.is_disabled, FALSE) = FALSE
+     LIMIT 1`,
+    [id]
+  );
+
+  return r.rows[0] || null;
+}
+
+export async function getNearbyPublicMerchants({
+  latitude,
+  longitude,
+  radiusKm = 10,
+  limit = 40,
+  type = null,
+}) {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+    throw appError("LATITUDE_INVALID", 400);
+  }
+  if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+    throw appError("LONGITUDE_INVALID", 400);
+  }
+
+  const safeRadius = Math.max(0.5, Math.min(50, Number(radiusKm) || 10));
+  const safeLimit = Math.max(
+    1,
+    Math.min(120, Math.trunc(Number(limit) || 40))
+  );
+  const normalizedType =
+    typeof type === "string" && type.trim().length ? type.trim() : null;
+
+  const latDelta = safeRadius / 111.32;
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  const lngDelta =
+    Math.abs(cosLat) < 0.000001
+      ? 180
+      : safeRadius / (111.32 * Math.abs(cosLat));
+
+  const minLat = Math.max(-90, lat - latDelta);
+  const maxLat = Math.min(90, lat + latDelta);
+  const minLng = Math.max(-180, lng - lngDelta);
+  const maxLng = Math.min(180, lng + lngDelta);
+
+  const distanceExpr = haversineDistanceSql("m.latitude", "m.longitude", "$1", "$2");
+  const r = await q(
+    `WITH candidates AS (
+       SELECT
+         m.*,
+         COALESCE(
+           (
+             SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
+             FROM merchant_discovery_subcategory mds
+             WHERE mds.merchant_id = m.id
+           ),
+           ARRAY[]::text[]
+         ) AS discovery_subcategories,
+         EXISTS (
+           SELECT 1
+           FROM product p
+           WHERE p.merchant_id = m.id
+             AND p.is_available = TRUE
+             AND (
+               (p.discounted_price IS NOT NULL AND p.discounted_price < p.price)
+               OR EXISTS (
+                 SELECT 1
+                 FROM merchant_offer_product mop
+                 JOIN merchant_offer mo ON mo.id = mop.offer_id
+                 WHERE mop.product_id = p.id
+                   AND mo.merchant_id = m.id
+                   AND mo.status NOT IN ('draft', 'disabled', 'expired')
+                   AND (mo.starts_at IS NULL OR mo.starts_at <= NOW())
+                   AND (mo.ends_at IS NULL OR mo.ends_at >= NOW())
+               )
+             )
+         ) AS has_discount_offer,
+         EXISTS (
+           SELECT 1
+           FROM product p
+           WHERE p.merchant_id = m.id
+             AND p.is_available = TRUE
+             AND p.free_delivery = TRUE
+         ) AS has_free_delivery_offer,
+         COALESCE(
+           (
+             SELECT AVG(o.merchant_rating)
+             FROM customer_order o
+             WHERE o.merchant_id = m.id
+               AND o.merchant_rating IS NOT NULL
+               AND o.status IN ('completed', 'delivered', 'received_by_customer')
+           ),
+           0
+         )::numeric(6,3) AS avg_merchant_rating,
+         COALESCE(
+           (
+             SELECT COUNT(o.merchant_rating)
+             FROM customer_order o
+             WHERE o.merchant_id = m.id
+               AND o.merchant_rating IS NOT NULL
+               AND o.status IN ('completed', 'delivered', 'received_by_customer')
+           ),
+           0
+         )::int AS rating_count,
+         ${distanceExpr} AS distance_km
+       FROM merchant m
+       WHERE m.is_approved = TRUE
+         AND COALESCE(m.is_disabled, FALSE) = FALSE
+         AND m.latitude IS NOT NULL
+         AND m.longitude IS NOT NULL
+         AND m.latitude BETWEEN $3 AND $4
+         AND m.longitude BETWEEN $5 AND $6
+         AND ($9::text IS NULL OR m.type::text = $9::text)
+     )
+     SELECT *
+     FROM candidates
+     WHERE distance_km <= $7
+     ORDER BY distance_km ASC, id DESC
+     LIMIT $8`,
+    [lat, lng, minLat, maxLat, minLng, maxLng, safeRadius, safeLimit, normalizedType]
   );
   return r.rows;
 }
@@ -229,10 +835,16 @@ export async function getPublicAdBoardItems({ type }) {
        a.cta_label,
        a.cta_target_type,
        a.cta_target_value,
+       a.target_id,
+       a.target_route,
+       a.promo_code,
+       a.category,
+       a.external_link,
        a.merchant_id,
        a.priority,
        a.starts_at,
        a.ends_at,
+       a.created_at,
        m.name AS merchant_name,
        m.type::text AS merchant_type,
        m.image_url AS merchant_image_url,
@@ -254,14 +866,27 @@ export async function getPublicAdBoardItems({ type }) {
          OR a.merchant_id IS NULL
          OR m.type::text = $1::text
        )
-     ORDER BY a.priority ASC, a.id DESC
-     LIMIT 12`,
+     ORDER BY a.priority ASC, a.created_at DESC, a.id DESC
+     LIMIT 60`,
     [type || null]
   );
   return r.rows;
 }
 
-export async function getMerchantsDiscoveryBase({ type, customerUserId }) {
+export async function getMerchantsDiscoveryBase({
+  type,
+  customerUserId,
+  activityType = null,
+  discoverySubcategory = null,
+}) {
+  const normalizedActivityType =
+    typeof activityType === "string" && activityType.trim().length
+      ? activityType.trim()
+      : null;
+  const normalizedDiscoverySubcategory =
+    typeof discoverySubcategory === "string" && discoverySubcategory.trim().length
+      ? discoverySubcategory.trim()
+      : null;
   const r = await q(
     `WITH order_stats AS (
        SELECT
@@ -387,9 +1012,28 @@ export async function getMerchantsDiscoveryBase({ type, customerUserId }) {
        m.id AS merchant_id,
        m.name,
        m.type::text AS type,
+       m.activity_type,
+       m.discovery_subcategory,
+       m.discovery_select_all,
+       COALESCE(
+         (
+           SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
+           FROM merchant_discovery_subcategory mds
+           WHERE mds.merchant_id = m.id
+         ),
+         ARRAY[]::text[]
+       ) AS discovery_subcategories,
        m.description,
        m.phone,
        m.image_url,
+       m.tagline,
+       m.working_hours,
+       m.service_area_note,
+       m.supports_chat,
+       m.supports_attachments,
+       m.supports_pharmacy_workflow,
+       m.service_flags_json,
+       m.badges_json,
        m.is_open,
        EXISTS (
          SELECT 1
@@ -433,8 +1077,34 @@ export async function getMerchantsDiscoveryBase({ type, customerUserId }) {
      WHERE m.is_approved = TRUE
        AND m.is_disabled = FALSE
        AND ($1::text IS NULL OR m.type::text = $1::text)
+       AND ($3::text IS NULL OR m.activity_type = $3::text)
+        AND (
+          $4::text IS NULL
+          OR (
+            m.discovery_select_all = TRUE
+            AND EXISTS (
+              SELECT 1
+              FROM store_activity_discovery_option sado
+              WHERE sado.activity_type = m.activity_type
+                AND sado.code = $4::text
+                AND sado.is_active = TRUE
+            )
+          )
+          OR m.discovery_subcategory = $4::text
+          OR EXISTS (
+            SELECT 1
+            FROM merchant_discovery_subcategory mds
+            WHERE mds.merchant_id = m.id
+              AND mds.discovery_code = $4::text
+         )
+       )
      ORDER BY m.id ASC`,
-    [type || null, Number(customerUserId)]
+    [
+      type || null,
+      Number(customerUserId),
+      normalizedActivityType,
+      normalizedDiscoverySubcategory,
+    ]
   );
   return r.rows;
 }
@@ -550,4 +1220,125 @@ export async function getCustomerProfileSignals({ customerUserId, type }) {
     typeMix: typeMixResult.rows,
     spendingBenchmarks: spendingBenchmarksResult.rows[0] || null,
   };
+}
+
+export async function listStoreActivities({ includeInactive = false } = {}) {
+  const r = await q(
+    `SELECT
+       activity_type,
+       base_type::text AS base_type,
+       display_name_en,
+       display_name_ar,
+       has_discovery_subcategories,
+       supports_chat,
+       supports_attachments,
+       supports_pharmacy_workflow,
+       internal_category_mode,
+       default_service_flags_json,
+       default_badges_json,
+       is_active
+     FROM store_activity_definition
+     WHERE ($1::boolean = TRUE OR is_active = TRUE)
+     ORDER BY display_name_en ASC`,
+    [includeInactive === true]
+  );
+  return r.rows;
+}
+
+export async function getStoreActivityByCode(activityType) {
+  const r = await q(
+    `SELECT
+       activity_type,
+       base_type::text AS base_type,
+       display_name_en,
+       display_name_ar,
+       has_discovery_subcategories,
+       supports_chat,
+       supports_attachments,
+       supports_pharmacy_workflow,
+       internal_category_mode,
+       default_service_flags_json,
+       default_badges_json,
+       is_active
+     FROM store_activity_definition
+     WHERE activity_type = $1
+     LIMIT 1`,
+    [String(activityType || "").trim()]
+  );
+  return r.rows[0] || null;
+}
+
+export async function listStoreActivityDiscoveryOptions(activityType) {
+  const r = await q(
+    `SELECT
+       id,
+       activity_type,
+       code,
+       label_en,
+       label_ar,
+       order_index,
+       is_active,
+       metadata_json
+     FROM store_activity_discovery_option
+     WHERE activity_type = $1
+       AND is_active = TRUE
+     ORDER BY order_index ASC, id ASC`,
+    [String(activityType || "").trim()]
+  );
+  return r.rows;
+}
+
+export async function listStoreActivityInternalTemplates(activityType) {
+  const r = await q(
+    `SELECT
+       id,
+       activity_type,
+       code,
+       name_en,
+       name_ar,
+       icon,
+       order_index,
+       is_active,
+       metadata_json
+     FROM store_activity_internal_category_template
+     WHERE activity_type = $1
+       AND is_active = TRUE
+     ORDER BY order_index ASC, id ASC`,
+    [String(activityType || "").trim()]
+  );
+  return r.rows;
+}
+
+export async function ensureMerchantDefaultInternalCategories(merchantId) {
+  await q(
+    `WITH target AS (
+       SELECT m.id AS merchant_id, m.activity_type
+       FROM merchant m
+       WHERE m.id = $1
+     ),
+     has_categories AS (
+       SELECT EXISTS (
+         SELECT 1
+         FROM merchant_category c
+         WHERE c.merchant_id = $1
+       ) AS has_any
+     )
+     INSERT INTO merchant_category
+       (merchant_id, name, sort_order, order_index, icon, is_active, source)
+     SELECT
+       t.merchant_id,
+       tpl.name_ar,
+       tpl.order_index,
+       tpl.order_index,
+       tpl.icon,
+       TRUE,
+       'template'
+     FROM target t
+     JOIN has_categories hc ON hc.has_any = FALSE
+     JOIN store_activity_internal_category_template tpl
+       ON tpl.activity_type = t.activity_type
+      AND tpl.is_active = TRUE
+     ON CONFLICT (merchant_id, name) DO NOTHING`,
+    [Number(merchantId)]
+  );
 }

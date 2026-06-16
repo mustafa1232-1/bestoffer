@@ -1,3 +1,4 @@
+.git
 node_modules
 npm-debug.log
 .env
@@ -5,3 +6,8 @@ uploads
 coverage
 .idea
 .vscode
+.qa_pg
+.qa_run
+tmp_*
+*.log
+0

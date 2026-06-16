@@ -1,12 +1,320 @@
 import { pool, q } from "../../config/db.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 
+function normalizeDiscoveryCodes(values) {
+  if (!Array.isArray(values)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (value == null) continue;
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
 export async function findMerchantByOwnerUserId(ownerUserId) {
   const r = await q(
-    `SELECT id, name, type, description, phone, image_url, is_open, is_approved, approved_by_user_id, approved_at, owner_user_id, created_at, updated_at
+    `SELECT id, name, type, activity_type, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
+            COALESCE(
+              (
+                SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
+                FROM merchant_discovery_subcategory mds
+                WHERE mds.merchant_id = merchant.id
+              ),
+              ARRAY[]::text[]
+            ) AS discovery_subcategories
      FROM merchant
      WHERE owner_user_id=$1`,
     [ownerUserId]
+  );
+  return r.rows[0] || null;
+}
+
+export async function listOwnerDeliveryAgents(ownerUserId) {
+  const r = await q(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.phone,
+       u.image_url,
+       mda.created_at
+     FROM merchant_delivery_agent mda
+     JOIN merchant m
+       ON m.id = mda.merchant_id
+     JOIN app_user u
+       ON u.id = mda.delivery_user_id
+     WHERE m.owner_user_id = $1
+       AND mda.is_active = TRUE
+       AND u.role = 'delivery'
+       AND u.is_account_disabled = FALSE
+       AND NOT EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       )
+     ORDER BY u.full_name ASC, u.id DESC`,
+    [Number(ownerUserId)]
+  );
+  return r.rows;
+}
+
+export async function listOwnerAccountants(ownerUserId) {
+  const r = await q(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.phone,
+       u.image_url,
+       ma.created_at
+     FROM merchant_accountant ma
+     JOIN merchant m
+       ON m.id = ma.merchant_id
+     JOIN app_user u
+       ON u.id = ma.accountant_user_id
+     WHERE m.owner_user_id = $1
+       AND ma.is_active = TRUE
+       AND u.role = 'accountant'
+       AND u.is_account_disabled = FALSE
+       AND NOT EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       )
+     ORDER BY u.full_name ASC, u.id DESC`,
+    [Number(ownerUserId)]
+  );
+  return r.rows;
+}
+
+export async function listOwnerHrStaff(ownerUserId) {
+  const r = await q(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.phone,
+       u.image_url,
+       hs.created_at
+     FROM merchant_hr_staff hs
+     JOIN merchant m
+       ON m.id = hs.merchant_id
+     JOIN app_user u
+       ON u.id = hs.hr_user_id
+     WHERE m.owner_user_id = $1
+       AND hs.is_active = TRUE
+       AND u.role = 'hr'
+       AND u.is_account_disabled = FALSE
+       AND NOT EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       )
+     ORDER BY u.full_name ASC, u.id DESC`,
+    [Number(ownerUserId)]
+  );
+  return r.rows;
+}
+
+export async function linkDeliveryAgentToMerchant({
+  merchantId,
+  deliveryUserId,
+  createdByUserId,
+  source = "owner",
+}) {
+  const r = await q(
+    `INSERT INTO merchant_delivery_agent
+      (
+        merchant_id,
+        delivery_user_id,
+        created_by_user_id,
+        source,
+        is_active,
+        created_at,
+        updated_at
+      )
+     VALUES ($1,$2,$3,$4,TRUE,NOW(),NOW())
+     ON CONFLICT (merchant_id, delivery_user_id)
+     DO UPDATE SET
+       is_active = TRUE,
+       source = EXCLUDED.source,
+       created_by_user_id = COALESCE(EXCLUDED.created_by_user_id, merchant_delivery_agent.created_by_user_id),
+       updated_at = NOW()
+     RETURNING merchant_id, delivery_user_id`,
+    [
+      Number(merchantId),
+      Number(deliveryUserId),
+      Number(createdByUserId) || null,
+      String(source || "owner").slice(0, 20),
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function linkAccountantToMerchant({
+  merchantId,
+  accountantUserId,
+  createdByUserId,
+  source = "owner",
+}) {
+  const r = await q(
+    `INSERT INTO merchant_accountant
+      (
+        merchant_id,
+        accountant_user_id,
+        created_by_user_id,
+        source,
+        is_active,
+        created_at,
+        updated_at
+      )
+     VALUES ($1,$2,$3,$4,TRUE,NOW(),NOW())
+     ON CONFLICT (merchant_id, accountant_user_id)
+     DO UPDATE SET
+       is_active = TRUE,
+       source = EXCLUDED.source,
+       created_by_user_id = COALESCE(EXCLUDED.created_by_user_id, merchant_accountant.created_by_user_id),
+       updated_at = NOW()
+     RETURNING merchant_id, accountant_user_id`,
+    [
+      Number(merchantId),
+      Number(accountantUserId),
+      Number(createdByUserId) || null,
+      String(source || "owner").slice(0, 20),
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function linkHrToMerchant({
+  merchantId,
+  hrUserId,
+  createdByUserId,
+  source = "owner",
+}) {
+  const r = await q(
+    `INSERT INTO merchant_hr_staff
+      (
+        merchant_id,
+        hr_user_id,
+        created_by_user_id,
+        source,
+        is_active,
+        created_at,
+        updated_at
+      )
+     VALUES ($1,$2,$3,$4,TRUE,NOW(),NOW())
+     ON CONFLICT (merchant_id, hr_user_id)
+     DO UPDATE SET
+       is_active = TRUE,
+       source = EXCLUDED.source,
+       created_by_user_id = COALESCE(EXCLUDED.created_by_user_id, merchant_hr_staff.created_by_user_id),
+       updated_at = NOW()
+     RETURNING merchant_id, hr_user_id`,
+    [
+      Number(merchantId),
+      Number(hrUserId),
+      Number(createdByUserId) || null,
+      String(source || "owner").slice(0, 20),
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function searchUsersForStaff(ownerUserId, { search = "", limit = 100 }) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 100));
+  const normalizedSearch = String(search || "").trim();
+
+  const whereSearch =
+    normalizedSearch.length > 0
+      ? `AND (
+          u.full_name ILIKE $2
+          OR regexp_replace(
+            translate(
+              u.phone,
+              '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
+              '01234567890123456789'
+            ),
+            '[^0-9]',
+            '',
+            'g'
+          ) ILIKE $2
+        )`
+      : "";
+
+  const params = [Number(ownerUserId)];
+  if (normalizedSearch.length > 0) {
+    params.push(`%${normalizedSearch}%`);
+  }
+  params.push(safeLimit);
+
+  const limitIndex = params.length;
+
+  const r = await q(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.phone,
+       u.role,
+       u.image_url,
+       u.is_account_disabled,
+       EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       ) AS is_taxi_captain
+     FROM app_user u
+     WHERE u.is_account_disabled = FALSE
+       AND u.id <> $1
+       AND u.role IN ('user', 'delivery', 'accountant', 'hr')
+       AND u.id NOT IN (
+         SELECT m.owner_user_id
+         FROM merchant m
+         WHERE m.owner_user_id IS NOT NULL
+       )
+       ${whereSearch}
+     ORDER BY u.full_name ASC, u.id DESC
+     LIMIT $${limitIndex}`,
+    params
+  );
+
+  return r.rows;
+}
+
+export async function findUserForStaffById(userId) {
+  const r = await q(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.phone,
+       u.role,
+       u.image_url,
+       u.is_account_disabled,
+       u.delivery_account_approved,
+       u.block,
+       u.building_number,
+       u.apartment,
+       EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       ) AS is_taxi_captain
+     FROM app_user u
+     WHERE u.id = $1
+     LIMIT 1`,
+    [Number(userId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function setUserRole(userId, role) {
+  const r = await q(
+    `UPDATE app_user
+     SET role = $2
+     WHERE id = $1
+     RETURNING id, full_name, phone, role, image_url`,
+    [Number(userId), String(role || "user")]
   );
   return r.rows[0] || null;
 }
@@ -21,6 +329,7 @@ export async function createOwnerWithMerchant(data) {
       `INSERT INTO app_user
         (
           full_name,
+          username,
           phone,
           pin_hash,
           block,
@@ -30,12 +339,14 @@ export async function createOwnerWithMerchant(data) {
           role,
           analytics_consent_granted,
           analytics_consent_version,
-          analytics_consent_granted_at
+          analytics_consent_granted_at,
+          chat_quality_review_consent
         )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       RETURNING id, full_name, phone, role, is_super_admin, block, building_number, apartment, image_url`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       RETURNING id, username, full_name, phone, role, is_super_admin, block, building_number, apartment, image_url`,
       [
         data.fullName,
+        data.username,
         data.phone,
         data.pinHash,
         data.block,
@@ -46,27 +357,89 @@ export async function createOwnerWithMerchant(data) {
         data.analyticsConsentGranted === true,
         data.analyticsConsentVersion || null,
         data.analyticsConsentGrantedAt || null,
+        data.chatQualityReviewConsent === true,
       ]
     );
 
     const user = userResult.rows[0];
+    const discoverySelectAll = data.merchantDiscoverySelectAll === true;
+    const discoveryCodes = normalizeDiscoveryCodes(
+      data.merchantDiscoverySubcategories
+    );
 
     const merchantResult = await client.query(
       `INSERT INTO merchant
-        (name, type, description, phone, image_url, owner_user_id, is_approved)
-       VALUES ($1,$2,$3,$4,$5,$6,FALSE)
-       RETURNING id, name, type, description, phone, image_url, is_open, is_approved, approved_by_user_id, approved_at, owner_user_id, created_at, updated_at`,
+        (
+          name,
+          type,
+          activity_type,
+          discovery_subcategory,
+          discovery_select_all,
+          description,
+          phone,
+          image_url,
+          owner_user_id,
+          is_approved,
+          tagline,
+          working_hours,
+          service_area_note,
+          service_flags_json,
+          supports_chat,
+          supports_attachments,
+          supports_pharmacy_workflow,
+          badges_json
+        )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,FALSE,$10,$11,$12,$13::jsonb,$14,$15,$16,$17::jsonb)
+       RETURNING id`,
       [
         data.merchantName,
         data.merchantType,
+        data.merchantActivityType || null,
+        data.merchantDiscoverySubcategory || null,
+        discoverySelectAll,
         data.merchantDescription,
         data.merchantPhone,
         data.merchantImageUrl,
         user.id,
+        data.merchantTagline || null,
+        data.merchantWorkingHours || null,
+        data.merchantServiceAreaNote || null,
+        JSON.stringify(data.merchantServiceFlags || {}),
+        data.merchantSupportsChat === true,
+        data.merchantSupportsAttachments === true,
+        data.merchantSupportsPharmacyWorkflow === true,
+        JSON.stringify(Array.isArray(data.merchantBadges) ? data.merchantBadges : []),
       ]
     );
 
-    const merchant = merchantResult.rows[0];
+    const merchantId = Number(merchantResult.rows[0]?.id);
+
+    if (Number.isInteger(merchantId) && merchantId > 0 && discoveryCodes.length) {
+      await client.query(
+        `INSERT INTO merchant_discovery_subcategory (merchant_id, discovery_code)
+         SELECT $1::bigint, code
+         FROM UNNEST($2::text[]) AS t(code)
+         ON CONFLICT (merchant_id, discovery_code) DO NOTHING`,
+        [merchantId, discoveryCodes]
+      );
+    }
+
+    const merchantQuery = await client.query(
+      `SELECT id, name, type, activity_type, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
+              COALESCE(
+                (
+                  SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
+                  FROM merchant_discovery_subcategory mds
+                  WHERE mds.merchant_id = merchant.id
+                ),
+                ARRAY[]::text[]
+              ) AS discovery_subcategories
+       FROM merchant
+       WHERE id = $1
+       LIMIT 1`,
+      [merchantId]
+    );
+    const merchant = merchantQuery.rows[0];
 
     await client.query("COMMIT");
 
@@ -117,10 +490,21 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
   const map = {
     name: "name",
     type: "type",
+    activityType: "activity_type",
+    discoverySubcategory: "discovery_subcategory",
+    discoverySelectAll: "discovery_select_all",
     description: "description",
     phone: "phone",
     imageUrl: "image_url",
     isOpen: "is_open",
+    tagline: "tagline",
+    workingHours: "working_hours",
+    serviceAreaNote: "service_area_note",
+    serviceFlags: "service_flags_json",
+    supportsChat: "supports_chat",
+    supportsAttachments: "supports_attachments",
+    supportsPharmacyWorkflow: "supports_pharmacy_workflow",
+    badges: "badges_json",
   };
 
   const values = [];
@@ -144,11 +528,58 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
     `UPDATE merchant
      SET ${sets.join(", ")}
      WHERE owner_user_id=$${idx}
-     RETURNING id, name, type, description, phone, image_url, is_open, is_approved, approved_by_user_id, approved_at, owner_user_id, created_at, updated_at`,
+     RETURNING id, name, type, activity_type, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note`,
     values
   );
 
-  return r.rows[0] || null;
+  const row = r.rows[0] || null;
+  if (!row) return null;
+  const hydrated = await q(
+    `SELECT id, name, type, activity_type, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
+            COALESCE(
+              (
+                SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
+                FROM merchant_discovery_subcategory mds
+                WHERE mds.merchant_id = merchant.id
+              ),
+              ARRAY[]::text[]
+            ) AS discovery_subcategories
+     FROM merchant
+     WHERE id = $1
+     LIMIT 1`,
+    [Number(row.id)]
+  );
+  return hydrated.rows[0] || row;
+}
+
+export async function replaceMerchantDiscoverySubcategories(
+  merchantId,
+  discoveryCodes
+) {
+  const normalizedCodes = normalizeDiscoveryCodes(discoveryCodes);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `DELETE FROM merchant_discovery_subcategory WHERE merchant_id = $1`,
+      [Number(merchantId)]
+    );
+    if (normalizedCodes.length) {
+      await client.query(
+        `INSERT INTO merchant_discovery_subcategory (merchant_id, discovery_code)
+         SELECT $1::bigint, code
+         FROM UNNEST($2::text[]) AS t(code)
+         ON CONFLICT (merchant_id, discovery_code) DO NOTHING`,
+        [Number(merchantId), normalizedCodes]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function listOwnerCategories(ownerUserId) {
@@ -185,6 +616,18 @@ export async function findOwnerCategoryById(ownerUserId, categoryId) {
     [categoryId, ownerUserId]
   );
   return r.rows[0] || null;
+}
+
+export async function countOwnerProductsByCategory(ownerUserId, categoryId) {
+  const r = await q(
+    `SELECT COUNT(*)::int AS count
+     FROM product p
+     JOIN merchant m ON m.id = p.merchant_id
+     WHERE m.owner_user_id = $1
+       AND p.category_id = $2`,
+    [ownerUserId, categoryId]
+  );
+  return Number(r.rows[0]?.count || 0);
 }
 
 export async function updateOwnerCategory(ownerUserId, categoryId, dto) {
@@ -271,9 +714,11 @@ export async function createOwnerProduct(ownerUserId, dto) {
         free_delivery,
         offer_label,
         is_available,
+        requires_prescription,
+        requires_review,
         sort_order
       )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      RETURNING *`,
     [
       merchant.id,
@@ -286,6 +731,8 @@ export async function createOwnerProduct(ownerUserId, dto) {
       dto.freeDelivery,
       dto.offerLabel,
       dto.isAvailable,
+      dto.requiresPrescription === true,
+      dto.requiresReview === true,
       dto.sortOrder,
     ]
   );
@@ -320,6 +767,8 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
     freeDelivery: "free_delivery",
     offerLabel: "offer_label",
     isAvailable: "is_available",
+    requiresPrescription: "requires_prescription",
+    requiresReview: "requires_review",
     sortOrder: "sort_order",
   };
 
@@ -366,4 +815,57 @@ export async function deleteOwnerProduct(ownerUserId, productId) {
   );
 
   return !!r.rows[0];
+}
+
+export async function markOrderedProductUnavailable(ownerUserId, orderId, productId) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const targetResult = await client.query(
+      `SELECT
+         o.id AS order_id,
+         o.customer_user_id,
+         o.merchant_id,
+         m.name AS merchant_name,
+         oi.product_id,
+         oi.product_name
+       FROM customer_order o
+       JOIN merchant m
+         ON m.id = o.merchant_id
+       JOIN order_item oi
+         ON oi.order_id = o.id
+       JOIN product p
+         ON p.id = oi.product_id
+        AND p.merchant_id = m.id
+       WHERE o.id = $1
+         AND m.owner_user_id = $2
+         AND oi.product_id = $3
+       LIMIT 1`,
+      [Number(orderId), Number(ownerUserId), Number(productId)]
+    );
+
+    const target = targetResult.rows[0];
+    if (!target) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    await client.query(
+      `UPDATE product
+       SET is_available = FALSE,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [Number(productId)]
+    );
+
+    await client.query("COMMIT");
+    return target;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }

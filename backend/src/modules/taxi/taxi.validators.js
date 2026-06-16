@@ -1,4 +1,4 @@
-﻿function toNumber(value) {
+function toNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -47,6 +47,8 @@ function resolveNestedCoordinate(body, nestedKey, keys = []) {
   return null;
 }
 
+const MIN_RIDE_FARE_IQD = 1500;
+
 export function validateRideId(paramValue) {
   const rideId = toInt(paramValue);
   if (!rideId || rideId <= 0) {
@@ -64,7 +66,7 @@ export function validateBidId(paramValue) {
 }
 
 export function validateCreateRide(body) {
-  const errors = [];
+  const errors = {};
 
   const pickupLatitude =
     resolveCoordinate(body, ["pickupLatitude", "pickupLat"]) ??
@@ -96,35 +98,60 @@ export function validateCreateRide(body) {
 
   const proposedFareIqd = toInt(body?.proposedFareIqd);
   const searchRadiusM = toInt(body?.searchRadiusM ?? 2000);
+  const couponCodeRaw =
+    body?.couponCode == null ? "" : String(body.couponCode).trim().toUpperCase();
+  const scheduleModeRaw = String(body?.scheduleMode || "now")
+    .trim()
+    .toLowerCase();
+  const scheduleMode = scheduleModeRaw === "scheduled" ? "scheduled" : "now";
+  const scheduledRideId =
+    body?.scheduledRideId == null ? null : toInt(body?.scheduledRideId);
+  const scheduledForRaw = body?.scheduledFor;
+  const scheduledForDate = scheduledForRaw ? new Date(scheduledForRaw) : null;
 
   if (pickupLatitude == null || pickupLatitude < -90 || pickupLatitude > 90) {
-    errors.push("pickupLatitude");
+    errors.pickupLatitude = "SELECT_LOCATION";
   }
   if (pickupLongitude == null || pickupLongitude < -180 || pickupLongitude > 180) {
-    errors.push("pickupLongitude");
+    errors.pickupLongitude = "SELECT_LOCATION";
   }
   if (dropoffLatitude == null || dropoffLatitude < -90 || dropoffLatitude > 90) {
-    errors.push("dropoffLatitude");
+    errors.dropoffLatitude = "SELECT_LOCATION";
   }
   if (dropoffLongitude == null || dropoffLongitude < -180 || dropoffLongitude > 180) {
-    errors.push("dropoffLongitude");
+    errors.dropoffLongitude = "SELECT_LOCATION";
   }
 
-  if (!hasText(pickupLabel, 240)) errors.push("pickupLabel");
-  if (!hasText(dropoffLabel, 240)) errors.push("dropoffLabel");
+  if (!hasText(pickupLabel, 240)) errors.pickupLabel = "REQUIRED";
+  if (!hasText(dropoffLabel, 240)) errors.dropoffLabel = "REQUIRED";
 
-  if (proposedFareIqd == null || proposedFareIqd < 0 || proposedFareIqd > 5000000) {
-    errors.push("proposedFareIqd");
+  if (
+    proposedFareIqd == null ||
+    proposedFareIqd < MIN_RIDE_FARE_IQD ||
+    proposedFareIqd > 5000000
+  ) {
+    errors.proposedFareIqd = "INVALID_NUMBER";
   }
 
   if (searchRadiusM == null || searchRadiusM < 500 || searchRadiusM > 10000) {
-    errors.push("searchRadiusM");
+    errors.searchRadiusM = "INVALID_NUMBER";
   }
 
-  if (!optionalText(body?.note, 1000)) errors.push("note");
+  if (!optionalText(body?.note, 1000)) errors.note = "TOO_LONG";
+  if (couponCodeRaw && !hasText(couponCodeRaw, 64)) errors.couponCode = "INVALID_FORMAT";
+  if (body?.scheduledRideId != null && (!scheduledRideId || scheduledRideId <= 0)) {
+    errors.scheduledRideId = "INVALID_NUMBER";
+  }
+  if (scheduleMode === "scheduled") {
+    if (!scheduledForDate || Number.isNaN(scheduledForDate.getTime())) {
+      errors.scheduledFor = "INVALID_DATE";
+    } else if (scheduledForDate.getTime() <= Date.now()) {
+      errors.scheduledFor = "TIME_IN_PAST";
+    }
+  }
 
   return {
-    ok: errors.length === 0,
+    ok: Object.keys(errors).length === 0,
     errors,
     value: {
       pickupLatitude,
@@ -136,6 +163,13 @@ export function validateCreateRide(body) {
       proposedFareIqd,
       searchRadiusM,
       note: body?.note == null ? null : String(body.note).trim(),
+      couponCode: couponCodeRaw || null,
+      scheduleMode,
+      scheduledRideId,
+      scheduledFor:
+        scheduleMode === "scheduled" && scheduledForDate
+          ? scheduledForDate.toISOString()
+          : null,
     },
   };
 }
@@ -198,23 +232,55 @@ export function validateNearbyQuery(query) {
   };
 }
 
+export function validateNearbyCaptainsQuery(query) {
+  const errors = {};
+  const latitude = toNumber(query?.latitude ?? query?.lat);
+  const longitude = toNumber(query?.longitude ?? query?.lng ?? query?.lon);
+  const radiusM = toInt(query?.radiusM ?? 3500);
+  const limit = toInt(query?.limit ?? 60);
+
+  if (latitude == null || latitude < -90 || latitude > 90) {
+    errors.latitude = "SELECT_LOCATION";
+  }
+  if (longitude == null || longitude < -180 || longitude > 180) {
+    errors.longitude = "SELECT_LOCATION";
+  }
+  if (radiusM == null || radiusM < 500 || radiusM > 10000) {
+    errors.radiusM = "INVALID_NUMBER";
+  }
+  if (limit == null || limit < 1 || limit > 200) {
+    errors.limit = "INVALID_NUMBER";
+  }
+
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: {
+      latitude,
+      longitude,
+      radiusM,
+      limit,
+    },
+  };
+}
+
 export function validateCreateBid(body) {
-  const errors = [];
+  const errors = {};
   const offeredFareIqd = toInt(body?.offeredFareIqd);
   const etaMinutes = body?.etaMinutes == null ? null : toInt(body?.etaMinutes);
 
-  if (offeredFareIqd == null || offeredFareIqd < 0 || offeredFareIqd > 5000000) {
-    errors.push("offeredFareIqd");
+  if (offeredFareIqd == null || offeredFareIqd <= 0 || offeredFareIqd > 5000000) {
+    errors.offeredFareIqd = "INVALID_NUMBER";
   }
 
   if (etaMinutes != null && (etaMinutes < 1 || etaMinutes > 180)) {
-    errors.push("etaMinutes");
+    errors.etaMinutes = "INVALID_NUMBER";
   }
 
-  if (!optionalText(body?.note, 500)) errors.push("note");
+  if (!optionalText(body?.note, 500)) errors.note = "TOO_LONG";
 
   return {
-    ok: errors.length === 0,
+    ok: Object.keys(errors).length === 0,
     errors,
     value: {
       offeredFareIqd,
@@ -276,7 +342,7 @@ export function validateHistoryQuery(query) {
 }
 
 export function validateCaptainProfileEditRequest(body) {
-  const errors = [];
+  const errors = {};
   const requestedChanges =
     body?.requestedChanges && typeof body.requestedChanges === "object"
       ? body.requestedChanges
@@ -288,9 +354,9 @@ export function validateCaptainProfileEditRequest(body) {
     typeof requestedChanges !== "object" ||
     Array.isArray(requestedChanges)
   ) {
-    errors.push("requestedChanges");
+    errors.requestedChanges = "REQUIRED";
   } else if (Object.keys(requestedChanges).length === 0) {
-    errors.push("requestedChanges");
+    errors.requestedChanges = "REQUIRED";
   }
 
   if (
@@ -298,11 +364,11 @@ export function validateCaptainProfileEditRequest(body) {
     captainNote !== null &&
     (typeof captainNote !== "string" || captainNote.trim().length > 1200)
   ) {
-    errors.push("captainNote");
+    errors.captainNote = "TOO_LONG";
   }
 
   return {
-    ok: errors.length === 0,
+    ok: Object.keys(errors).length === 0,
     errors,
     value: {
       requestedChanges,
@@ -312,27 +378,39 @@ export function validateCaptainProfileEditRequest(body) {
   };
 }
 
-export function validateShareToken(token) {
-  const value = String(token || "").trim();
-  if (!value || value.length < 10 || value.length > 120) {
-    return { ok: false, errors: ["token"] };
+export function validateFriendRideShareBody(body) {
+  const raw = Array.isArray(body?.friendUserIds) ? body.friendUserIds : null;
+  if (!raw || raw.length > 30) {
+    return { ok: false, errors: ["friendUserIds"] };
   }
-  return { ok: true, errors: [], value };
-}
 
-export function validateCounterOffer(body) {
-  const errors = [];
-  const offeredFareIqd = toInt(body?.offeredFareIqd);
-
-  if (offeredFareIqd == null || offeredFareIqd < 0 || offeredFareIqd > 5000000) {
-    errors.push("offeredFareIqd");
-  }
-  if (!optionalText(body?.note, 500)) {
-    errors.push("note");
+  const ids = [...new Set(raw.map((item) => toInt(item)).filter((item) => item && item > 0))];
+  if (ids.length !== raw.length) {
+    return { ok: false, errors: ["friendUserIds"] };
   }
 
   return {
-    ok: errors.length === 0,
+    ok: true,
+    errors: [],
+    value: {
+      friendUserIds: ids,
+    },
+  };
+}
+
+export function validateCounterOffer(body) {
+  const errors = {};
+  const offeredFareIqd = toInt(body?.offeredFareIqd);
+
+  if (offeredFareIqd == null || offeredFareIqd <= 0 || offeredFareIqd > 5000000) {
+    errors.offeredFareIqd = "INVALID_NUMBER";
+  }
+  if (!optionalText(body?.note, 500)) {
+    errors.note = "TOO_LONG";
+  }
+
+  return {
+    ok: Object.keys(errors).length === 0,
     errors,
     value: {
       offeredFareIqd,
@@ -342,12 +420,12 @@ export function validateCounterOffer(body) {
 }
 
 export function validateRideRating(body) {
-  const errors = [];
+  const errors = {};
   const rating = toInt(body?.rating);
   const review = body?.review;
 
   if (rating == null || rating < 1 || rating > 5) {
-    errors.push("rating");
+    errors.rating = "SELECT_OPTION";
   }
 
   if (
@@ -355,11 +433,11 @@ export function validateRideRating(body) {
     review !== null &&
     (typeof review !== "string" || review.trim().length > 1000)
   ) {
-    errors.push("review");
+    errors.review = "TOO_LONG";
   }
 
   return {
-    ok: errors.length === 0,
+    ok: Object.keys(errors).length === 0,
     errors,
     value: {
       rating,
@@ -369,15 +447,17 @@ export function validateRideRating(body) {
 }
 
 export function validateRideChatMessage(body) {
-  const errors = [];
+  const errors = {};
   const messageText = typeof body?.messageText === "string" ? body.messageText.trim() : "";
 
-  if (!messageText || messageText.length > 1200) {
-    errors.push("messageText");
+  if (!messageText) {
+    errors.messageText = "MESSAGE_REQUIRED";
+  } else if (messageText.length > 1200) {
+    errors.messageText = "TOO_LONG";
   }
 
   return {
-    ok: errors.length === 0,
+    ok: Object.keys(errors).length === 0,
     errors,
     value: { messageText },
   };

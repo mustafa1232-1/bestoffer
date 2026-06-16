@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+
+import '../../../core/realtime/maslaki_realtime_service.dart';
 
 class NotificationLiveEvent {
   final String event;
@@ -16,8 +19,9 @@ class NotificationLiveEvent {
 
 class NotificationsApi {
   final Dio dio;
+  final MaslakiRealtimeClient? realtime;
 
-  NotificationsApi(this.dio);
+  NotificationsApi(this.dio, {this.realtime});
 
   Future<List<dynamic>> list({bool unreadOnly = false, int limit = 50}) async {
     final response = await dio.get(
@@ -96,15 +100,118 @@ class NotificationsApi {
   Stream<NotificationLiveEvent> streamEvents({
     int? lastEventId,
     String channel = 'notifications',
-  }) async* {
+  }) {
     final normalizedChannel = switch (channel.trim().toLowerCase()) {
       'social' => 'social',
       _ => 'notifications',
     };
+    return _streamSupabaseFirst(
+      openRealtime: () async =>
+          await realtime?.subscribeUserChannel(normalizedChannel),
+      fallback: () => _streamEventsViaSse(
+        lastEventId: lastEventId,
+        channel: normalizedChannel,
+      ),
+    );
+  }
+
+  Stream<NotificationLiveEvent> streamThreadEvents({
+    required int threadId,
+    int? lastEventId,
+  }) {
+    return _streamSupabaseFirst(
+      openRealtime: () async => await realtime?.subscribeUserChannel('social'),
+      fallback: () =>
+          _streamEventsViaSse(
+            lastEventId: lastEventId,
+            channel: 'social',
+          ).where(
+            (event) =>
+                event.event == 'resync_required' ||
+                _matchesThreadEvent(event.data, threadId),
+          ),
+    ).where(
+      (event) =>
+          event.event == 'connected' ||
+          event.event == 'resync_required' ||
+          _matchesThreadEvent(event.data, threadId),
+    );
+  }
+
+  Stream<NotificationLiveEvent> _streamSupabaseFirst({
+    required Future<Stream<MaslakiRealtimeEvent>?> Function() openRealtime,
+    required Stream<NotificationLiveEvent> Function() fallback,
+  }) {
+    late final StreamController<NotificationLiveEvent> controller;
+    StreamSubscription<dynamic>? activeSubscription;
+    var usingFallback = false;
+
+    Future<void> attachFallback() async {
+      if (usingFallback || controller.isClosed) return;
+      usingFallback = true;
+      await activeSubscription?.cancel();
+      activeSubscription = fallback().listen(
+        controller.add,
+        onError: controller.addError,
+        onDone: () {
+          if (!controller.isClosed) {
+            controller.close();
+          }
+        },
+      );
+    }
+
+    Future<void> bootstrap() async {
+      try {
+        final realtimeStream = await openRealtime();
+        if (realtimeStream == null) {
+          await attachFallback();
+          return;
+        }
+        controller.add(
+          const NotificationLiveEvent(
+            event: 'connected',
+            data: <String, dynamic>{},
+          ),
+        );
+        activeSubscription = realtimeStream.listen(
+          (event) {
+            controller.add(
+              NotificationLiveEvent(
+                event: event.event,
+                data: event.data,
+                eventId: event.eventId,
+              ),
+            );
+          },
+          onError: (_) => unawaited(attachFallback()),
+          onDone: () => unawaited(attachFallback()),
+          cancelOnError: false,
+        );
+      } catch (_) {
+        await attachFallback();
+      }
+    }
+
+    controller = StreamController<NotificationLiveEvent>(
+      onListen: () {
+        unawaited(bootstrap());
+      },
+      onCancel: () async {
+        await activeSubscription?.cancel();
+      },
+    );
+    return controller.stream;
+  }
+
+  Stream<NotificationLiveEvent> _streamEventsViaSse({
+    int? lastEventId,
+    required String channel,
+  }) async* {
     final response = await dio.get<ResponseBody>(
       '/api/notifications/stream',
       queryParameters: {
-        'channel': normalizedChannel,
+        'channel': channel,
         if (lastEventId != null && lastEventId > 0) 'lastEventId': lastEventId,
       },
       options: Options(
@@ -113,7 +220,7 @@ class NotificationsApi {
         receiveTimeout: const Duration(hours: 1),
         headers: {
           'Accept': 'text/event-stream',
-          'X-Realtime-Channel': normalizedChannel,
+          'X-Realtime-Channel': channel,
           if (lastEventId != null && lastEventId > 0)
             'Last-Event-ID': '$lastEventId',
         },
@@ -169,6 +276,17 @@ class NotificationsApi {
       dataBuffer = '';
       parsedEventId = null;
     }
+  }
+
+  bool _matchesThreadEvent(Map<String, dynamic> data, int threadId) {
+    final rawThreadId =
+        data['threadId'] ??
+        data['thread_id'] ??
+        (data['message'] is Map
+            ? (data['message'] as Map)['threadId']
+            : null) ??
+        (data['message'] is Map ? (data['message'] as Map)['thread_id'] : null);
+    return int.tryParse('$rawThreadId') == threadId;
   }
 
   Map<String, dynamic> _parseSsePayload(String raw) {

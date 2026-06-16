@@ -6,12 +6,14 @@ export async function attachOptionalAuth(req, res, next) {
     req.authUserId = auth?.userId || null;
     req.authUserRole = auth?.role || null;
     req.authUserIsSuperAdmin = auth?.isSuperAdmin === true;
+    req.authUserIsTaxiCaptain = auth?.isTaxiCaptain === true;
     req.authSessionId = auth?.sessionId || null;
     req.authDeviceContext = auth?.deviceContext || null;
   } catch (_) {
     req.authUserId = null;
     req.authUserRole = null;
     req.authUserIsSuperAdmin = false;
+    req.authUserIsTaxiCaptain = false;
     req.authSessionId = null;
     req.authDeviceContext = null;
   }

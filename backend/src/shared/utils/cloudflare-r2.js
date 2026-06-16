@@ -2,7 +2,12 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { PassThrough } from "stream";
 
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  HeadBucketCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 
 import { env } from "../../config/env.js";
 
@@ -44,7 +49,7 @@ function normalizePublicBaseUrl(value) {
   return raw.replace(/\/+$/, "");
 }
 
-function isR2Configured() {
+export function isR2Configured() {
   return Boolean(
     env.cfR2Bucket &&
       env.cfR2Endpoint &&
@@ -89,6 +94,47 @@ function getR2Client() {
 
 export function isR2UploadsEnabled() {
   return Boolean(getR2Client());
+}
+
+export async function r2HealthSnapshot() {
+  const configured = isR2Configured();
+  const required = env.isProduction;
+
+  if (!configured) {
+    return {
+      configured: false,
+      required,
+      ok: !required,
+      error: required ? "R2_NOT_CONFIGURED" : null,
+    };
+  }
+
+  const client = getR2Client();
+  const startedAt = Date.now();
+  try {
+    await client.send(
+      new HeadBucketCommand({
+        Bucket: env.cfR2Bucket,
+      })
+    );
+
+    return {
+      configured: true,
+      required,
+      ok: true,
+      responseMs: Date.now() - startedAt,
+      bucket: env.cfR2Bucket,
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      required,
+      ok: false,
+      responseMs: Date.now() - startedAt,
+      bucket: env.cfR2Bucket,
+      error: String(error?.name || error?.message || "R2_HEALTH_FAILED"),
+    };
+  }
 }
 
 export function buildR2ObjectKey({ originalName, mimeType, prefix = null }) {
