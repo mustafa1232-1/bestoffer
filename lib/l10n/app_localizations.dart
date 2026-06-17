@@ -26810,6 +26810,195 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Unable to unmute the chat.'**
   String get socialChatThreadsUnmuteFailed;
+
+  /// No description provided for @socialCreatorTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Maslaki camera creator'**
+  String get socialCreatorTitle;
+
+  /// No description provided for @socialCreatorUseCamera.
+  ///
+  /// In en, this message translates to:
+  /// **'Use camera'**
+  String get socialCreatorUseCamera;
+
+  /// No description provided for @socialCreatorCameraStoryBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Capture a fresh story clip with filters and Maslaki styling.'**
+  String get socialCreatorCameraStoryBody;
+
+  /// No description provided for @socialCreatorStoryMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Story camera'**
+  String get socialCreatorStoryMode;
+
+  /// No description provided for @socialCreatorReelMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Reel camera'**
+  String get socialCreatorReelMode;
+
+  /// No description provided for @socialCreatorSwitchCamera.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch camera'**
+  String get socialCreatorSwitchCamera;
+
+  /// No description provided for @socialCreatorFlash.
+  ///
+  /// In en, this message translates to:
+  /// **'Flash'**
+  String get socialCreatorFlash;
+
+  /// No description provided for @socialCreatorCameraUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The camera is not available on this device right now.'**
+  String get socialCreatorCameraUnavailable;
+
+  /// No description provided for @socialCreatorNoEffect.
+  ///
+  /// In en, this message translates to:
+  /// **'No effect'**
+  String get socialCreatorNoEffect;
+
+  /// No description provided for @socialCreatorEffectsPhotoOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Face effects are available for photo stories now. Video publishing keeps filters only.'**
+  String get socialCreatorEffectsPhotoOnly;
+
+  /// No description provided for @socialCreatorPhotoHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap once to capture a story photo with the selected look.'**
+  String get socialCreatorPhotoHint;
+
+  /// No description provided for @socialCreatorVideoHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Record, review, then continue into publishing with the processed clip.'**
+  String get socialCreatorVideoHint;
+
+  /// No description provided for @socialCreatorPreviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview'**
+  String get socialCreatorPreviewTitle;
+
+  /// No description provided for @socialCreatorCoverFrame.
+  ///
+  /// In en, this message translates to:
+  /// **'Cover frame'**
+  String get socialCreatorCoverFrame;
+
+  /// No description provided for @socialCreatorRetake.
+  ///
+  /// In en, this message translates to:
+  /// **'Retake'**
+  String get socialCreatorRetake;
+
+  /// No description provided for @socialCreatorPermissionsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera and microphone access is required'**
+  String get socialCreatorPermissionsTitle;
+
+  /// No description provided for @socialCreatorPermissionsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow camera and microphone access to record stories and reels.'**
+  String get socialCreatorPermissionsBody;
+
+  /// No description provided for @socialCreatorPermissionsPermanentlyDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera or microphone access is blocked. Open system settings, enable the permissions, then return to continue.'**
+  String get socialCreatorPermissionsPermanentlyDenied;
+
+  /// No description provided for @socialCreatorFaceNotFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No face was detected for the selected effect.'**
+  String get socialCreatorFaceNotFound;
+
+  /// No description provided for @socialCreatorStorySegmentsMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'This video needs valid story segments before publishing.'**
+  String get socialCreatorStorySegmentsMissing;
+
+  /// No description provided for @socialCreatorPhotoMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Photo'**
+  String get socialCreatorPhotoMode;
+
+  /// No description provided for @socialCreatorStorySegments.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0 {No story segments yet} =1 {1 story segment} other {{count} story segments}}'**
+  String socialCreatorStorySegments(int count);
+
+  /// No description provided for @socialCreatorTimeMood.
+  ///
+  /// In en, this message translates to:
+  /// **'Time Mood'**
+  String get socialCreatorTimeMood;
+
+  /// No description provided for @socialCreatorTimeMoodMorning.
+  String get socialCreatorTimeMoodMorning;
+
+  /// No description provided for @socialCreatorTimeMoodForenoon.
+  String get socialCreatorTimeMoodForenoon;
+
+  /// No description provided for @socialCreatorTimeMoodNoon.
+  String get socialCreatorTimeMoodNoon;
+
+  /// No description provided for @socialCreatorTimeMoodAfternoon.
+  String get socialCreatorTimeMoodAfternoon;
+
+  /// No description provided for @socialCreatorTimeMoodSunset.
+  String get socialCreatorTimeMoodSunset;
+
+  /// No description provided for @socialCreatorTimeMoodEvening.
+  String get socialCreatorTimeMoodEvening;
+
+  /// No description provided for @socialCreatorTimeMoodNight.
+  String get socialCreatorTimeMoodNight;
+
+  /// No description provided for @socialCreatorTimeMoodLateNight.
+  String get socialCreatorTimeMoodLateNight;
+
+  /// No description provided for @socialCreatorPlacePulse.
+  ///
+  /// In en, this message translates to:
+  /// **'Place Pulse'**
+  String get socialCreatorPlacePulse;
+
+  /// No description provided for @socialCreatorPlacePulseHint.
+  String get socialCreatorPlacePulseHint;
+
+  /// No description provided for @socialCreatorPlacePulseLocating.
+  String get socialCreatorPlacePulseLocating;
+
+  /// No description provided for @socialCreatorPlacePulseError.
+  String get socialCreatorPlacePulseError;
+
+  /// No description provided for @socialCreatorPlacePulseSave.
+  String get socialCreatorPlacePulseSave;
+
+  /// No description provided for @socialCreatorMaslakiSeal.
+  ///
+  /// In en, this message translates to:
+  /// **'Maslaki Seal'**
+  String get socialCreatorMaslakiSeal;
+
+  /// No description provided for @socialCreatorMaslakiSealOn.
+  String get socialCreatorMaslakiSealOn;
 }
 
 class _AppLocalizationsDelegate

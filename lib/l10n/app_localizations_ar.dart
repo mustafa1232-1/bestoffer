@@ -14583,4 +14583,140 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get socialChatThreadsUnmuteFailed => 'تعذر إلغاء كتم المحادثة.';
+
+  @override
+  String get socialCreatorTitle => 'كاميرا مسلكي';
+
+  @override
+  String get socialCreatorUseCamera => 'استخدم الكاميرا';
+
+  @override
+  String get socialCreatorCameraStoryBody =>
+      'التقط قصة جديدة مباشرة مع الفلاتر وهوية مسلكي.';
+
+  @override
+  String get socialCreatorStoryMode => 'كاميرا القصص';
+
+  @override
+  String get socialCreatorReelMode => 'كاميرا الريلز';
+
+  @override
+  String get socialCreatorSwitchCamera => 'تبديل الكاميرا';
+
+  @override
+  String get socialCreatorFlash => 'الفلاش';
+
+  @override
+  String get socialCreatorCameraUnavailable =>
+      'الكاميرا غير متاحة على هذا الجهاز حاليًا.';
+
+  @override
+  String get socialCreatorNoEffect => 'بدون تأثير';
+
+  @override
+  String get socialCreatorEffectsPhotoOnly =>
+      'تأثيرات الوجه متاحة الآن لصور القصص فقط، أما الفيديو فينشر بالفلاتر فقط.';
+
+  @override
+  String get socialCreatorPhotoHint =>
+      'اضغط مرة واحدة لالتقاط صورة قصة بالمظهر المحدد.';
+
+  @override
+  String get socialCreatorVideoHint =>
+      'سجّل ثم راجع ثم انتقل إلى النشر بالمقطع المعالج.';
+
+  @override
+  String get socialCreatorPreviewTitle => 'المعاينة';
+
+  @override
+  String get socialCreatorCoverFrame => 'إطار الغلاف';
+
+  @override
+  String get socialCreatorRetake => 'إعادة الالتقاط';
+
+  @override
+  String get socialCreatorPermissionsTitle =>
+      'نحتاج إلى إذن الكاميرا والمايكروفون';
+
+  @override
+  String get socialCreatorPermissionsBody =>
+      'اسمح بالوصول إلى الكاميرا والمايكروفون لتسجيل القصص والريلز.';
+
+  @override
+  String get socialCreatorPermissionsPermanentlyDenied =>
+      'تم حظر إذن الكاميرا أو المايكروفون. افتح إعدادات النظام وفعّل الأذونات ثم ارجع للمتابعة.';
+
+  @override
+  String get socialCreatorFaceNotFound =>
+      'لم يتم العثور على وجه للتأثير المحدد.';
+
+  @override
+  String get socialCreatorStorySegmentsMissing =>
+      'هذا الفيديو يحتاج إلى تقسيمات قصص صالحة قبل النشر.';
+
+  @override
+  String get socialCreatorPhotoMode => 'صورة';
+
+  @override
+  String socialCreatorStorySegments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count تقسيم قصة',
+      many: '$count تقسيمًا للقصة',
+      few: '$count تقسيمات للقصة',
+      two: 'تقسيمان للقصة',
+      one: 'تقسيم قصة واحد',
+      zero: 'لا توجد تقسيمات قصة بعد',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get socialCreatorTimeMood => 'مزاج الوقت';
+
+  @override
+  String get socialCreatorTimeMoodMorning => 'مزاج الفجر';
+
+  @override
+  String get socialCreatorTimeMoodForenoon => 'مزاج الصباح';
+
+  @override
+  String get socialCreatorTimeMoodNoon => 'مزاج الظهر';
+
+  @override
+  String get socialCreatorTimeMoodAfternoon => 'مزاج العصر';
+
+  @override
+  String get socialCreatorTimeMoodSunset => 'مزاج المغرب';
+
+  @override
+  String get socialCreatorTimeMoodEvening => 'مزاج المساء';
+
+  @override
+  String get socialCreatorTimeMoodNight => 'مزاج الليل';
+
+  @override
+  String get socialCreatorTimeMoodLateNight => 'مزاج منتصف الليل';
+
+  @override
+  String get socialCreatorPlacePulse => 'مضغطة المكان';
+
+  @override
+  String get socialCreatorPlacePulseHint => 'أضف موقعًا لقصتك';
+
+  @override
+  String get socialCreatorPlacePulseLocating => 'جارٍ تحديد الموقع…';
+
+  @override
+  String get socialCreatorPlacePulseError => 'الموقع غير متاح';
+
+  @override
+  String get socialCreatorPlacePulseSave => 'أضف الموقع';
+
+  @override
+  String get socialCreatorMaslakiSeal => 'ختم مسلكي';
+
+  @override
+  String get socialCreatorMaslakiSealOn => 'الختم مفعّل';
 }

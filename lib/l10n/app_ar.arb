@@ -6016,7 +6016,52 @@
   "socialChatThreadsMuteAction": "كتم المحادثة",
   "socialChatThreadsUnmuteAction": "إلغاء كتم المحادثة",
   "socialChatThreadsMuteFailed": "تعذر كتم المحادثة.",
-  "socialChatThreadsUnmuteFailed": "تعذر إلغاء كتم المحادثة."
+  "socialChatThreadsUnmuteFailed": "تعذر إلغاء كتم المحادثة.",
+  "socialCreatorTitle": "كاميرا مسلكي",
+  "socialCreatorUseCamera": "استخدم الكاميرا",
+  "socialCreatorCameraStoryBody": "التقط قصة جديدة مباشرة مع الفلاتر وهوية مسلكي.",
+  "socialCreatorStoryMode": "كاميرا القصص",
+  "socialCreatorReelMode": "كاميرا الريلز",
+  "socialCreatorSwitchCamera": "تبديل الكاميرا",
+  "socialCreatorFlash": "الفلاش",
+  "socialCreatorCameraUnavailable": "الكاميرا غير متاحة على هذا الجهاز حاليًا.",
+  "socialCreatorNoEffect": "بدون تأثير",
+  "socialCreatorEffectsPhotoOnly": "تأثيرات الوجه متاحة الآن لصور القصص فقط، أما الفيديو فينشر بالفلاتر فقط.",
+  "socialCreatorPhotoHint": "اضغط مرة واحدة لالتقاط صورة قصة بالمظهر المحدد.",
+  "socialCreatorVideoHint": "سجّل ثم راجع ثم انتقل إلى النشر بالمقطع المعالج.",
+  "socialCreatorPreviewTitle": "المعاينة",
+  "socialCreatorCoverFrame": "إطار الغلاف",
+  "socialCreatorRetake": "إعادة الالتقاط",
+  "socialCreatorPermissionsTitle": "نحتاج إلى إذن الكاميرا والمايكروفون",
+  "socialCreatorPermissionsBody": "اسمح بالوصول إلى الكاميرا والمايكروفون لتسجيل القصص والريلز.",
+  "socialCreatorPermissionsPermanentlyDenied": "تم حظر إذن الكاميرا أو المايكروفون. افتح إعدادات النظام وفعّل الأذونات ثم ارجع للمتابعة.",
+  "socialCreatorFaceNotFound": "لم يتم العثور على وجه للتأثير المحدد.",
+  "socialCreatorStorySegmentsMissing": "هذا الفيديو يحتاج إلى تقسيمات قصص صالحة قبل النشر.",
+  "socialCreatorPhotoMode": "صورة",
+  "socialCreatorStorySegments": "{count, plural, =0 {لا توجد تقسيمات قصة بعد} =1 {تقسيم قصة واحد} =2 {تقسيمان للقصة} few {{count} تقسيمات للقصة} many {{count} تقسيمًا للقصة} other {{count} تقسيم قصة}}",
+  "@socialCreatorStorySegments": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "socialCreatorTimeMood": "مزاج الوقت",
+  "socialCreatorTimeMoodMorning": "مزاج الفجر",
+  "socialCreatorTimeMoodForenoon": "مزاج الصباح",
+  "socialCreatorTimeMoodNoon": "مزاج الظهر",
+  "socialCreatorTimeMoodAfternoon": "مزاج العصر",
+  "socialCreatorTimeMoodSunset": "مزاج المغرب",
+  "socialCreatorTimeMoodEvening": "مزاج المساء",
+  "socialCreatorTimeMoodNight": "مزاج الليل",
+  "socialCreatorTimeMoodLateNight": "مزاج منتصف الليل",
+  "socialCreatorPlacePulse": "مضغطة المكان",
+  "socialCreatorPlacePulseHint": "أضف موقعًا لقصتك",
+  "socialCreatorPlacePulseLocating": "جارٍ تحديد الموقع…",
+  "socialCreatorPlacePulseError": "الموقع غير متاح",
+  "socialCreatorPlacePulseSave": "أضف الموقع",
+  "socialCreatorMaslakiSeal": "ختم مسلكي",
+  "socialCreatorMaslakiSealOn": "الختم مفعّل"
 }
 
 

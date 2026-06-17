@@ -14827,4 +14827,137 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get socialChatThreadsUnmuteFailed => 'Unable to unmute the chat.';
+
+  @override
+  String get socialCreatorTitle => 'Maslaki camera creator';
+
+  @override
+  String get socialCreatorUseCamera => 'Use camera';
+
+  @override
+  String get socialCreatorCameraStoryBody =>
+      'Capture a fresh story clip with filters and Maslaki styling.';
+
+  @override
+  String get socialCreatorStoryMode => 'Story camera';
+
+  @override
+  String get socialCreatorReelMode => 'Reel camera';
+
+  @override
+  String get socialCreatorSwitchCamera => 'Switch camera';
+
+  @override
+  String get socialCreatorFlash => 'Flash';
+
+  @override
+  String get socialCreatorCameraUnavailable =>
+      'The camera is not available on this device right now.';
+
+  @override
+  String get socialCreatorNoEffect => 'No effect';
+
+  @override
+  String get socialCreatorEffectsPhotoOnly =>
+      'Face effects are available for photo stories now. Video publishing keeps filters only.';
+
+  @override
+  String get socialCreatorPhotoHint =>
+      'Tap once to capture a story photo with the selected look.';
+
+  @override
+  String get socialCreatorVideoHint =>
+      'Record, review, then continue into publishing with the processed clip.';
+
+  @override
+  String get socialCreatorPreviewTitle => 'Preview';
+
+  @override
+  String get socialCreatorCoverFrame => 'Cover frame';
+
+  @override
+  String get socialCreatorRetake => 'Retake';
+
+  @override
+  String get socialCreatorPermissionsTitle =>
+      'Camera and microphone access is required';
+
+  @override
+  String get socialCreatorPermissionsBody =>
+      'Allow camera and microphone access to record stories and reels.';
+
+  @override
+  String get socialCreatorPermissionsPermanentlyDenied =>
+      'Camera or microphone access is blocked. Open system settings, enable the permissions, then return to continue.';
+
+  @override
+  String get socialCreatorFaceNotFound =>
+      'No face was detected for the selected effect.';
+
+  @override
+  String get socialCreatorStorySegmentsMissing =>
+      'This video needs valid story segments before publishing.';
+
+  @override
+  String get socialCreatorPhotoMode => 'Photo';
+
+  @override
+  String socialCreatorStorySegments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count story segments',
+      one: '1 story segment',
+      zero: 'No story segments yet',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get socialCreatorTimeMood => 'Time Mood';
+
+  @override
+  String get socialCreatorTimeMoodMorning => 'Dawn mood';
+
+  @override
+  String get socialCreatorTimeMoodForenoon => 'Morning mood';
+
+  @override
+  String get socialCreatorTimeMoodNoon => 'Noon mood';
+
+  @override
+  String get socialCreatorTimeMoodAfternoon => 'Afternoon mood';
+
+  @override
+  String get socialCreatorTimeMoodSunset => 'Sunset mood';
+
+  @override
+  String get socialCreatorTimeMoodEvening => 'Evening mood';
+
+  @override
+  String get socialCreatorTimeMoodNight => 'Night mood';
+
+  @override
+  String get socialCreatorTimeMoodLateNight => 'Late-night mood';
+
+  @override
+  String get socialCreatorPlacePulse => 'Place Pulse';
+
+  @override
+  String get socialCreatorPlacePulseHint => 'Tag a location to your story';
+
+  @override
+  String get socialCreatorPlacePulseLocating => 'Finding location…';
+
+  @override
+  String get socialCreatorPlacePulseError => 'Location unavailable';
+
+  @override
+  String get socialCreatorPlacePulseSave => 'Add location';
+
+  @override
+  String get socialCreatorMaslakiSeal => 'Maslaki Seal';
+
+  @override
+  String get socialCreatorMaslakiSealOn => 'Seal on';
 }

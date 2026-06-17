@@ -316,9 +316,17 @@ class SocialStoryDraft {
   final String? mediaPath;
   final String? mediaName;
   final String? mediaMimeType;
+  final String? filterId;
+  final String? effectId;
+  final String? captureSource;
   final SocialStoryBackground background;
   final SocialStoryAttachment? attachment;
   final List<SocialStoryLayer> layers;
+
+  // ── Maslaki unique feature metadata ──────────────────────────────────────
+  final String? timeMoodKey;
+  final String? placePulseLabel;
+  final bool hasMaslakiSeal;
 
   const SocialStoryDraft({
     required this.draftId,
@@ -328,22 +336,31 @@ class SocialStoryDraft {
     required this.mediaPath,
     required this.mediaName,
     required this.mediaMimeType,
+    required this.filterId,
+    required this.effectId,
+    required this.captureSource,
     required this.background,
     required this.attachment,
     required this.layers,
+    this.timeMoodKey,
+    this.placePulseLabel,
+    this.hasMaslakiSeal = false,
   });
 
   factory SocialStoryDraft.initialText() => SocialStoryDraft(
     draftId: DateTime.now().microsecondsSinceEpoch.toString(),
     version: 2,
     mode: SocialStoryComposerMode.text,
-    caption: '',
-    mediaPath: null,
-    mediaName: null,
-    mediaMimeType: null,
-    background: const SocialStoryBackground(
-      type: SocialStoryBackgroundType.gradient,
-      primaryColor: '#1E3A8A',
+      caption: '',
+      mediaPath: null,
+      mediaName: null,
+      mediaMimeType: null,
+      filterId: null,
+      effectId: null,
+      captureSource: null,
+      background: const SocialStoryBackground(
+        type: SocialStoryBackgroundType.gradient,
+        primaryColor: '#1E3A8A',
       secondaryColor: '#0F766E',
       imageUrl: null,
     ),
@@ -365,6 +382,20 @@ class SocialStoryDraft {
       mediaName: parseNullableString(json['mediaName'] ?? json['media_name']),
       mediaMimeType: parseNullableString(
         json['mediaMimeType'] ?? json['media_mime_type'],
+      ),
+      filterId: parseNullableString(json['filterId'] ?? json['filter_id']),
+      effectId: parseNullableString(json['effectId'] ?? json['effect_id']),
+      captureSource: parseNullableString(
+        json['captureSource'] ?? json['capture_source'],
+      ),
+      timeMoodKey: parseNullableString(
+        json['timeMoodKey'] ?? json['time_mood_key'],
+      ),
+      placePulseLabel: parseNullableString(
+        json['placePulseLabel'] ?? json['place_pulse_label'],
+      ),
+      hasMaslakiSeal: parseBool(
+        json['hasMaslakiSeal'] ?? json['has_maslaki_seal'],
       ),
       background: SocialStoryBackground.fromJson(
         Map<String, dynamic>.from(json['background'] as Map? ?? const {}),
@@ -415,6 +446,11 @@ class SocialStoryDraft {
       mediaPath: null,
       mediaName: null,
       mediaMimeType: story.mediaKind,
+      filterId: parseNullableString(raw['filterId'] ?? raw['filter_id']),
+      effectId: parseNullableString(raw['effectId'] ?? raw['effect_id']),
+      captureSource: parseNullableString(
+        raw['captureSource'] ?? raw['capture_source'],
+      ),
       background: SocialStoryBackground(
         type: SocialStoryBackgroundType.solid,
         primaryColor: story.style.backgroundColor,
@@ -455,6 +491,12 @@ class SocialStoryDraft {
     if (mediaPath != null) 'mediaPath': mediaPath,
     if (mediaName != null) 'mediaName': mediaName,
     if (mediaMimeType != null) 'mediaMimeType': mediaMimeType,
+    if (filterId != null) 'filterId': filterId,
+    if (effectId != null) 'effectId': effectId,
+    if (captureSource != null) 'captureSource': captureSource,
+    if ((timeMoodKey ?? '').trim().isNotEmpty) 'timeMoodKey': timeMoodKey,
+    if ((placePulseLabel ?? '').trim().isNotEmpty) 'placePulseLabel': placePulseLabel,
+    if (hasMaslakiSeal) 'hasMaslakiSeal': true,
     'background': background.toJson(),
     if (attachment != null) 'attachment': attachment!.toJson(),
     'layers': layers.map((layer) => layer.toJson()).toList(growable: false),
@@ -468,10 +510,16 @@ class SocialStoryDraft {
     String? mediaPath,
     String? mediaName,
     String? mediaMimeType,
+    String? filterId,
+    String? effectId,
+    String? captureSource,
     SocialStoryBackground? background,
     SocialStoryAttachment? attachment,
     bool clearAttachment = false,
     List<SocialStoryLayer>? layers,
+    String? timeMoodKey,
+    String? placePulseLabel,
+    bool? hasMaslakiSeal,
   }) {
     return SocialStoryDraft(
       draftId: draftId,
@@ -481,9 +529,15 @@ class SocialStoryDraft {
       mediaPath: mediaPath ?? this.mediaPath,
       mediaName: mediaName ?? this.mediaName,
       mediaMimeType: mediaMimeType ?? this.mediaMimeType,
+      filterId: filterId ?? this.filterId,
+      effectId: effectId ?? this.effectId,
+      captureSource: captureSource ?? this.captureSource,
       background: background ?? this.background,
       attachment: clearAttachment ? null : (attachment ?? this.attachment),
       layers: layers ?? this.layers,
+      timeMoodKey: timeMoodKey ?? this.timeMoodKey,
+      placePulseLabel: placePulseLabel ?? this.placePulseLabel,
+      hasMaslakiSeal: hasMaslakiSeal ?? this.hasMaslakiSeal,
     );
   }
 

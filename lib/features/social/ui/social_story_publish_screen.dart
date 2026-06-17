@@ -1,12 +1,10 @@
-import 'dart:io';
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_player/video_player.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../creator/creator_models.dart';
+import '../creator/story_segmentation_service.dart';
 import '../models/social_story_document.dart';
 import '../state/social_controller.dart';
 import '../state/social_story_draft_controller.dart';
@@ -23,24 +21,15 @@ class SocialStoryPublishScreen extends ConsumerStatefulWidget {
 class _SocialStoryPublishScreenState
     extends ConsumerState<SocialStoryPublishScreen> {
   bool _publishing = false;
+  bool _loadingSegments = false;
   String? _error;
+  List<StorySegmentDraft> _segments = const <StorySegmentDraft>[];
 
-  Future<double?> _resolveVideoDurationSeconds(String path) async {
-    VideoPlayerController? controller;
-    try {
-      controller = VideoPlayerController.file(File(path));
-      await controller.initialize();
-      final duration = controller.value.duration;
-      if (duration <= Duration.zero) return null;
-      return duration.inMilliseconds / 1000.0;
-    } catch (_) {
-      return null;
-    } finally {
-      await controller?.dispose();
-    }
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_loadSegments);
   }
-
-  double _roundSeconds(double value) => double.parse(value.toStringAsFixed(3));
 
   String _publishCaption() {
     final l10n = context.l10n;
@@ -62,6 +51,29 @@ class _SocialStoryPublishScreenState
     return '';
   }
 
+  Future<void> _loadSegments() async {
+    final draft = ref.read(socialStoryDraftControllerProvider).draft;
+    final media = draft.buildLocalMediaFile();
+    if (media == null || !media.isVideo) return;
+    setState(() => _loadingSegments = true);
+    try {
+      final segments = await StorySegmentationService().buildSegments(media);
+      if (!mounted) return;
+      setState(() => _segments = segments);
+    } finally {
+      if (mounted) {
+        setState(() => _loadingSegments = false);
+      }
+    }
+  }
+
+  void _removeSegment(int index) {
+    if (index < 0 || index >= _segments.length) return;
+    setState(() {
+      _segments = List<StorySegmentDraft>.from(_segments)..removeAt(index);
+    });
+  }
+
   Future<void> _publish() async {
     if (_publishing) return;
     final l10n = context.l10n;
@@ -74,40 +86,74 @@ class _SocialStoryPublishScreenState
       });
       return;
     }
+    if (media != null && media.isVideo && _segments.isEmpty && !_loadingSegments) {
+      final computed = await StorySegmentationService().buildSegments(media);
+      if (computed.isNotEmpty && mounted) {
+        setState(() => _segments = computed);
+      }
+    }
+    if (media != null && media.isVideo && _segments.isEmpty) {
+      setState(() {
+        _error = l10n.socialCreatorStorySegmentsMissing;
+      });
+      return;
+    }
     setState(() {
       _publishing = true;
       _error = null;
     });
     try {
       final api = ref.read(socialApiProvider);
-      final baseStyle = draft.toStoryStyleJson();
-      if (media != null &&
-          media.isVideo &&
-          (media.path ?? '').trim().isNotEmpty) {
-        final total = await _resolveVideoDurationSeconds(media.path!);
-        if (total != null && total > 60) {
-          final chunks = (total / 60.0).ceil();
-          for (var index = 0; index < chunks; index++) {
-            final start = index * 60.0;
-            final remaining = total - start;
-            if (remaining <= 0) break;
-            final clip = math.min(60.0, remaining);
-            final storyStyle = Map<String, dynamic>.from(baseStyle)
-              ..['clipStartSec'] = _roundSeconds(start)
-              ..['clipDurationSec'] = _roundSeconds(clip);
-            await api.createStory(
-              caption: index == 0 ? caption : '',
-              mediaFile: media,
-              storyStyle: storyStyle,
-            );
-          }
-        } else {
+      final baseStyle = Map<String, dynamic>.from(draft.toStoryStyleJson())
+        ..remove('clipStartSec')
+        ..remove('clipDurationSec');
+      if ((draft.filterId ?? '').trim().isNotEmpty) {
+        baseStyle['filterId'] = draft.filterId;
+      }
+      if ((draft.effectId ?? '').trim().isNotEmpty) {
+        baseStyle['effectId'] = draft.effectId;
+      }
+      if ((draft.captureSource ?? '').trim().isNotEmpty) {
+        baseStyle['captureSource'] = draft.captureSource;
+      }
+      if ((draft.timeMoodKey ?? '').trim().isNotEmpty) {
+        baseStyle['timeMoodKey'] = draft.timeMoodKey;
+      }
+      if ((draft.placePulseLabel ?? '').trim().isNotEmpty) {
+        baseStyle['placePulseLabel'] = draft.placePulseLabel;
+      }
+      if (draft.hasMaslakiSeal) {
+        baseStyle['hasMaslakiSeal'] = true;
+      }
+      if (media != null && media.isVideo && _segments.length > 1) {
+        final sequenceId =
+            '${draft.draftId}-${DateTime.now().microsecondsSinceEpoch}';
+        for (var index = 0; index < _segments.length; index++) {
+          final segment = _segments[index];
+          final storyStyle = Map<String, dynamic>.from(baseStyle)
+            ..['clipStartSec'] = segment.startSec
+            ..['clipDurationSec'] = segment.durationSec
+            ..['sequenceId'] = sequenceId
+            ..['segmentIndex'] = index
+            ..['segmentCount'] = _segments.length;
           await api.createStory(
-            caption: caption,
+            caption: index == 0 ? caption : '',
             mediaFile: media,
-            storyStyle: baseStyle,
+            storyStyle: storyStyle,
           );
         }
+      } else if (media != null &&
+          media.isVideo &&
+          _segments.length == 1) {
+        final onlySegment = _segments.first;
+        final storyStyle = Map<String, dynamic>.from(baseStyle)
+          ..['clipStartSec'] = onlySegment.startSec
+          ..['clipDurationSec'] = onlySegment.durationSec;
+        await api.createStory(
+          caption: caption,
+          mediaFile: media,
+          storyStyle: storyStyle,
+        );
       } else {
         await api.createStory(
           caption: caption,
@@ -139,6 +185,8 @@ class _SocialStoryPublishScreenState
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final draft = ref.watch(socialStoryDraftControllerProvider).draft;
+    final media = draft.buildLocalMediaFile();
+    final showSegments = media != null && media.isVideo;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.socialStoryPublishTitle)),
       body: SafeArea(
@@ -167,6 +215,52 @@ class _SocialStoryPublishScreenState
                 ),
                 child: Text(l10n.socialStoryPublishSharingBody),
               ),
+              if (showSegments) ...[
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        l10n.socialCreatorStorySegments(_segments.length),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    if (_loadingSegments)
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (_segments.isEmpty && !_loadingSegments)
+                  Text(
+                    l10n.socialCreatorStorySegmentsMissing,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  )
+                else
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: List<Widget>.generate(_segments.length, (index) {
+                      final segment = _segments[index];
+                      return InputChip(
+                        onDeleted: _segments.length > 1
+                            ? () => _removeSegment(index)
+                            : null,
+                        label: Text(
+                          '${index + 1}: ${segment.startSec.toStringAsFixed(0)}s - ${(segment.startSec + segment.durationSec).toStringAsFixed(0)}s',
+                        ),
+                      );
+                    }),
+                  ),
+              ],
               if ((_error ?? '').trim().isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(
