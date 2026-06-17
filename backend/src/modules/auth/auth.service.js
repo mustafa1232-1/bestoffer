@@ -19,7 +19,10 @@ import {
   updateCustomerAddress,
   updateUserAccount,
 } from "./auth.repo.js";
-import { hashPin, verifyPin } from "../../shared/utils/hash.js";
+import {
+  hashPin,
+  verifyPinDetailed,
+} from "../../shared/utils/hash.js";
 import { signAccessToken } from "../../shared/utils/jwt.js";
 import { env } from "../../config/env.js";
 import crypto from "crypto";
@@ -349,8 +352,8 @@ export async function login({ phone, pin }, deviceContext = {}) {
     throw err;
   }
 
-  const ok = await verifyPin(normalizedPin, user.pin_hash);
-  if (!ok) {
+  const pinVerification = await verifyPinDetailed(normalizedPin, user.pin_hash);
+  if (!pinVerification.ok) {
     await registerFailedLoginAttempt(user.id, {
       maxAttempts: env.authMaxFailedAttempts,
       lockMinutes: env.authLockMinutes,
@@ -359,6 +362,14 @@ export async function login({ phone, pin }, deviceContext = {}) {
     const err = new Error("INVALID_CREDENTIALS");
     err.status = 401;
     throw err;
+  }
+
+  if (pinVerification.needsUpgrade) {
+    const upgradedPinHash = await hashPin(normalizedPin);
+    await updateUserAccount({
+      id: user.id,
+      pinHash: upgradedPinHash,
+    }).catch(() => null);
   }
 
   if (
@@ -399,8 +410,8 @@ export async function updateAccount(userId, dto, { currentSessionId = null } = {
   }
 
   const currentPin = normalizePin(dto.currentPin);
-  const currentOk = await verifyPin(currentPin, user.pin_hash);
-  if (!currentOk) {
+  const currentPinVerification = await verifyPinDetailed(currentPin, user.pin_hash);
+  if (!currentPinVerification.ok) {
     const err = new Error("INVALID_CURRENT_PIN");
     err.status = 401;
     throw err;
@@ -438,7 +449,11 @@ export async function updateAccount(userId, dto, { currentSessionId = null } = {
     throw err;
   }
 
-  const pinHash = nextPin ? await hashPin(nextPin) : null;
+  const pinHash = nextPin
+    ? await hashPin(nextPin)
+    : currentPinVerification.needsUpgrade
+      ? await hashPin(currentPin)
+      : null;
   const updated = await updateUserAccount({
     id: user.id,
     phone: nextPhone && nextPhone !== normalizedCurrentPhone ? nextPhone : null,

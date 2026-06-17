@@ -9,13 +9,16 @@ async function startServer() {
   });
 }
 
-test("POST realtime token routes require auth on api and api v1", async () => {
+test("POST signing material routes require auth on api and api v1", async () => {
   const server = await startServer();
   const address = server.address();
   const base = `http://127.0.0.1:${address.port}`;
 
   try {
-    for (const path of ["/api/realtime/token", "/api/v1/realtime/token"]) {
+    for (const path of [
+      "/api/security/signing-material",
+      "/api/v1/security/signing-material",
+    ]) {
       const response = await fetch(`${base}${path}`, {
         method: "POST",
       });

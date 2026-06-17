@@ -1,14 +1,36 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../network/auth_session_token_cache.dart';
+import '../network/request_signing.dart';
 
 class SecureStore {
   static const _storage = FlutterSecureStorage();
   static const _tokenKey = 'access_token';
+  static const _authScopedKeys = <String>{
+    _tokenKey,
+    requestSigningKeyIdStorageKey,
+    requestSigningSecretStorageKey,
+    requestSigningIssuedAtStorageKey,
+    requestSigningExpiresAtStorageKey,
+    requestSigningAlgorithmStorageKey,
+    requestSigningRefreshWindowStorageKey,
+  };
   static final Map<String, String> _volatileValues = {};
   static String? _volatileToken;
 
   Future<void> saveToken(String token) async {
+    final previousToken =
+        _volatileToken ?? _volatileValues[_tokenKey] ?? AuthSessionTokenCache.currentToken;
+    if (previousToken != null && previousToken != token) {
+      for (final key in _authScopedKeys.where((key) => key != _tokenKey)) {
+        _volatileValues.remove(key);
+        try {
+          await _storage.delete(key: key);
+        } catch (_) {
+          // Ignore secure storage cleanup failures.
+        }
+      }
+    }
     _volatileValues[_tokenKey] = token;
     _volatileToken = token;
     AuthSessionTokenCache.setToken(token);
@@ -35,13 +57,17 @@ class SecureStore {
   }
 
   Future<void> clear() async {
-    _volatileValues.remove(_tokenKey);
+    for (final key in _authScopedKeys) {
+      _volatileValues.remove(key);
+    }
     _volatileToken = null;
     AuthSessionTokenCache.clear();
-    try {
-      await _storage.delete(key: _tokenKey);
-    } catch (_) {
-      // Ignore clear failures in secure storage.
+    for (final key in _authScopedKeys) {
+      try {
+        await _storage.delete(key: key);
+      } catch (_) {
+        // Ignore clear failures in secure storage.
+      }
     }
   }
 

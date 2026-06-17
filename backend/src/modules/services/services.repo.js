@@ -3261,6 +3261,21 @@ export async function getProviderSubscriptionRequestForProvisioning(requestId) {
   return r.rows[0] || null;
 }
 
+export async function updateProviderSubscriptionRequestPinHash(requestId, pinHash) {
+  const rid = toInt(requestId);
+  const normalizedPinHash = String(pinHash || "").trim();
+  if (!rid || !normalizedPinHash) return null;
+  const result = await q(
+    `UPDATE service_provider_subscription_requests
+     SET pin_hash = $2,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, pin_hash`,
+    [rid, normalizedPinHash]
+  );
+  return result.rows[0] || null;
+}
+
 export async function listProviderSubscriptionRequestsForAdmin({
   status = null,
   limit = 60,

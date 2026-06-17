@@ -1,5 +1,5 @@
 ﻿import { AppError } from '../../shared/utils/errors.js';
-import { hashPin, verifyPin } from '../../shared/utils/hash.js';
+import { hashPin, verifyPinDetailed } from '../../shared/utils/hash.js';
 import {
   createUser,
   findUserByPhone,
@@ -273,9 +273,18 @@ export async function getProviderSubscriptionStatus({ phone, pin }) {
     });
   }
 
-  const pinOk = await verifyPin(normalizedPin, authRow.pin_hash || '');
-  if (!pinOk) {
+  const pinVerification = await verifyPinDetailed(
+    normalizedPin,
+    authRow.pin_hash || ''
+  );
+  if (!pinVerification.ok) {
     throw new AppError('INVALID_CREDENTIALS', { status: 401 });
+  }
+  if (pinVerification.needsUpgrade) {
+    await repo.updateProviderSubscriptionRequestPinHash(
+      authRow.id,
+      await hashPin(normalizedPin)
+    ).catch(() => null);
   }
 
   const request = await repo.getProviderSubscriptionRequestById(authRow.id);
@@ -317,9 +326,18 @@ export async function respondProviderSubscriptionOffer({
   if (String(authRow.phone || '') !== normalizedPhone) {
     throw new AppError('INVALID_CREDENTIALS', { status: 401 });
   }
-  const pinOk = await verifyPin(normalizedPin, authRow.pin_hash || '');
-  if (!pinOk) {
+  const pinVerification = await verifyPinDetailed(
+    normalizedPin,
+    authRow.pin_hash || ''
+  );
+  if (!pinVerification.ok) {
     throw new AppError('INVALID_CREDENTIALS', { status: 401 });
+  }
+  if (pinVerification.needsUpgrade) {
+    await repo.updateProviderSubscriptionRequestPinHash(
+      authRow.id,
+      await hashPin(normalizedPin)
+    ).catch(() => null);
   }
 
   const responded = await repo.providerRespondToSubscriptionOffer({

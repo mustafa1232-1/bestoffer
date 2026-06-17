@@ -18,6 +18,9 @@ const ENV_KEYS = [
   "SUPABASE_ANON_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
   "SUPABASE_JWT_SECRET",
+  "SECURITY_REQUEST_SIGNING_ENABLED",
+  "SECURITY_REQUEST_SIGNING_TTL_SEC",
+  "SECURITY_REQUEST_SIGNING_REFRESH_WINDOW_SEC",
 ];
 
 async function withEnv(overrides, run) {
@@ -273,6 +276,28 @@ test("validateRuntimeEnv accepts sse_only mode without supabase keys", async () 
     async () => {
       const mod = await loadEnvModule();
       assert.doesNotThrow(() => mod.validateRuntimeEnv());
+    }
+  );
+});
+
+test("validateRuntimeEnv rejects request signing refresh window greater than ttl", async () => {
+  await withEnv(
+    {
+      NODE_ENV: "production",
+      DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+      JWT_SECRET: "x".repeat(32),
+      CORS_ORIGINS: "https://example.com",
+      AUTH_ALLOW_LEGACY_TOKENS: "false",
+      SECURITY_REQUEST_SIGNING_ENABLED: "true",
+      SECURITY_REQUEST_SIGNING_TTL_SEC: "120",
+      SECURITY_REQUEST_SIGNING_REFRESH_WINDOW_SEC: "240",
+    },
+    async () => {
+      const mod = await loadEnvModule();
+      assert.throws(
+        () => mod.validateRuntimeEnv(),
+        /SECURITY_REQUEST_SIGNING_REFRESH_WINDOW_SEC must be lower than SECURITY_REQUEST_SIGNING_TTL_SEC/
+      );
     }
   );
 });

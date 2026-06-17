@@ -5,8 +5,10 @@ import { requireOwner } from "../../shared/middleware/owner.middleware.js";
 import { requireDeliveryAgent } from "../../shared/middleware/delivery-agent.middleware.js";
 import { requireCustomer } from "../../shared/middleware/customer.middleware.js";
 import { requireBackoffice } from "../../shared/middleware/backoffice.middleware.js";
+import { requireSignedRequest } from "../../shared/middleware/request-signing.middleware.js";
 
 export const commerceRouter = Router();
+const requireSensitiveWriteSignature = requireSignedRequest();
 
 commerceRouter.use(requireAuth);
 
@@ -140,21 +142,25 @@ commerceRouter.get(
 commerceRouter.post(
   "/merchant/payment-requests",
   requireOwner,
+  requireSensitiveWriteSignature,
   c.merchantCreatePaymentRequest
 );
 commerceRouter.patch(
   "/merchant/payment-requests/:paymentRequestId",
   requireOwner,
+  requireSensitiveWriteSignature,
   c.merchantPatchPaymentRequest
 );
 commerceRouter.post(
   "/merchant/payment-requests/:paymentRequestId/confirm-received",
   requireOwner,
+  requireSensitiveWriteSignature,
   c.merchantConfirmPaymentRequestReceived
 );
 commerceRouter.post(
   "/merchant/payment-requests/:paymentRequestId/report-issue",
   requireOwner,
+  requireSensitiveWriteSignature,
   c.merchantReportPaymentRequestIssue
 );
 
@@ -172,11 +178,13 @@ commerceRouter.get(
 commerceRouter.patch(
   "/admin/merchants/:merchantId/billing-profile",
   requireBackoffice,
+  requireSensitiveWriteSignature,
   c.adminPatchMerchantBillingProfile
 );
 commerceRouter.post(
   "/admin/payment-requests/:paymentRequestId/mark-received",
   requireBackoffice,
+  requireSensitiveWriteSignature,
   c.adminMarkPaymentReceived
 );
 commerceRouter.get(
@@ -187,31 +195,37 @@ commerceRouter.get(
 commerceRouter.post(
   "/admin/payment-requests/:paymentRequestId/approve",
   requireBackoffice,
+  requireSensitiveWriteSignature,
   c.adminApprovePaymentRequest
 );
 commerceRouter.post(
   "/admin/payment-requests/:paymentRequestId/assign",
   requireBackoffice,
+  requireSensitiveWriteSignature,
   c.adminAssignPaymentRequest
 );
 commerceRouter.post(
   "/admin/payment-requests/:paymentRequestId/mark-paid",
   requireBackoffice,
+  requireSensitiveWriteSignature,
   c.adminMarkPaymentRequestPaid
 );
 commerceRouter.post(
   "/admin/payment-requests/:paymentRequestId/return-for-revision",
   requireBackoffice,
+  requireSensitiveWriteSignature,
   c.adminReturnPaymentRequestForRevision
 );
 commerceRouter.post(
   "/admin/payment-requests/:paymentRequestId/reject",
   requireBackoffice,
+  requireSensitiveWriteSignature,
   c.adminRejectPayment
 );
 commerceRouter.post(
   "/admin/merchants/:merchantId/app-payables/adjustment",
   requireBackoffice,
+  requireSensitiveWriteSignature,
   c.adminCreateAppPayablesAdjustment
 );
 
@@ -229,6 +243,7 @@ commerceRouter.get(
 commerceRouter.put(
   "/admin/customer-reliability/policy",
   requireBackoffice,
+  requireSensitiveWriteSignature,
   c.adminUpdateCustomerReliabilityPolicy
 );
 commerceRouter.get(
@@ -239,6 +254,7 @@ commerceRouter.get(
 commerceRouter.put(
   "/admin/delivery-dispatch/policy",
   requireBackoffice,
+  requireSensitiveWriteSignature,
   c.adminUpdateDeliveryDispatchPolicy
 );
 commerceRouter.get(

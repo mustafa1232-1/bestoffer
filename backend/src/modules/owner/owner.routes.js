@@ -2,9 +2,11 @@ import { Router } from "express";
 import * as c from "./owner.controller.js";
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireOwner } from "../../shared/middleware/owner.middleware.js";
+import { requireSignedRequest } from "../../shared/middleware/request-signing.middleware.js";
 import { imageUpload } from "../../shared/utils/upload.js";
 
 export const ownerRouter = Router();
+const requireSensitiveWriteSignature = requireSignedRequest();
 
 ownerRouter.post(
   "/register",
@@ -62,4 +64,8 @@ ownerRouter.patch("/orders/:orderId/items/:productId/unavailable", c.markOrderIt
 ownerRouter.get("/analytics", c.analytics);
 ownerRouter.get("/orders/print-report", c.printOrdersReport);
 ownerRouter.get("/settlements/summary", c.settlementSummary);
-ownerRouter.post("/settlements/request", c.requestSettlement);
+ownerRouter.post(
+  "/settlements/request",
+  requireSensitiveWriteSignature,
+  c.requestSettlement
+);

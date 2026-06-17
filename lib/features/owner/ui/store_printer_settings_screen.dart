@@ -9,6 +9,7 @@ import 'package:printing/printing.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/platform/ipos_printer_bridge.dart';
+import '../../../core/platform/print_capabilities.dart';
 import '../../../core/utils/store_printer_settings.dart';
 import '../printing/receipt_printer_service.dart';
 import '../printing/ui/receipt_preview_dialog.dart';
@@ -38,6 +39,9 @@ class _StorePrinterSettingsScreenState
   String? _selectedSystemPrinterUrl;
   String? _savedSystemPrinterUrl;
 
+  AppPrintCapabilities get _printCapabilities =>
+      resolveAppPrintCapabilities(printingInfo: _printingInfo);
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +64,7 @@ class _StorePrinterSettingsScreenState
       final cfg = await StorePrinterSettings.readConfig();
       final info = await Printing.info();
       final printers = await Printing.listPrinters();
+      final printCapabilities = resolveAppPrintCapabilities(printingInfo: info);
       final ipos = Platform.isAndroid
           ? await IposPrinterBridge.getStatus()
           : null;
@@ -71,12 +76,13 @@ class _StorePrinterSettingsScreenState
       _portController.text = '${cfg.networkPort}';
 
       if (_mode == StorePrinterMode.system &&
-          !info.canListPrinters &&
+          !printCapabilities.supportsSystemPrint &&
           cfg.systemPrinter == null &&
+          printCapabilities.supportsInternalBluetoothEscPos &&
           ipos?.bondedIposFound == true) {
         _mode = StorePrinterMode.iposBluetooth;
       } else if (_mode == StorePrinterMode.system &&
-          !info.canListPrinters &&
+          !printCapabilities.supportsSystemPrint &&
           cfg.systemPrinter == null) {
         _mode = StorePrinterMode.networkEscPos;
       }
@@ -345,15 +351,16 @@ class _StorePrinterSettingsScreenState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      RadioListTile<StorePrinterMode>(
-                        value: StorePrinterMode.system,
-                        groupValue: _mode,
-                        title: Text(l10n.ownerPrinterModeSystem),
-                        onChanged: (v) {
-                          if (v == null) return;
-                          setState(() => _mode = v);
-                        },
-                      ),
+                      if (_printCapabilities.supportsSystemPrint)
+                        RadioListTile<StorePrinterMode>(
+                          value: StorePrinterMode.system,
+                          groupValue: _mode,
+                          title: Text(l10n.ownerPrinterModeSystem),
+                          onChanged: (v) {
+                            if (v == null) return;
+                            setState(() => _mode = v);
+                          },
+                        ),
                       RadioListTile<StorePrinterMode>(
                         value: StorePrinterMode.networkEscPos,
                         groupValue: _mode,
@@ -363,7 +370,7 @@ class _StorePrinterSettingsScreenState
                           setState(() => _mode = v);
                         },
                       ),
-                      if (Platform.isAndroid)
+                      if (_printCapabilities.supportsInternalBluetoothEscPos)
                         RadioListTile<StorePrinterMode>(
                           value: StorePrinterMode.iposBluetooth,
                           groupValue: _mode,
@@ -385,7 +392,7 @@ class _StorePrinterSettingsScreenState
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          'directPrint: ${_printingInfo!.directPrint} | canListPrinters: ${_printingInfo!.canListPrinters}',
+                          'directPrint: ${_printingInfo!.directPrint} | canListPrinters: ${_printingInfo!.canListPrinters} | systemPrint: ${_printCapabilities.supportsSystemPrint}',
                         ),
                         if (Platform.isAndroid) ...[
                           const SizedBox(height: 8),

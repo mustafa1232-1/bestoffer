@@ -6,6 +6,7 @@ import {
   residenceCardUpload,
 } from "../../shared/utils/upload.js";
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
+import { requireSignedRequest } from "../../shared/middleware/request-signing.middleware.js";
 
 /**
  * Purpose:
@@ -21,6 +22,7 @@ import { requireAuth } from "../../shared/middleware/auth.middleware.js";
  *   upload/validation -> controller -> auth.service -> auth.repo -> JWT/session.
  */
 export const authRouter = Router();
+const requireSensitiveWriteSignature = requireSignedRequest();
 
 // التسجيل الأساسي للمستخدم مع صورة اختيارية.
 authRouter.post("/register", imageUpload.single("imageFile"), c.register);
@@ -43,7 +45,12 @@ authRouter.post("/logout", requireAuth, c.logout);
 authRouter.post("/logout-all", requireAuth, c.logoutAll);
 authRouter.get("/sessions", requireAuth, c.listSessions);
 // إدارة بيانات الحساب والعناوين تستخدم لاحقاً في checkout والطلبات.
-authRouter.patch("/account", requireAuth, c.updateAccount);
+authRouter.patch(
+  "/account",
+  requireAuth,
+  requireSensitiveWriteSignature,
+  c.updateAccount
+);
 authRouter.get("/account/addresses", requireAuth, c.listAddresses);
 authRouter.post("/account/addresses", requireAuth, c.createAddress);
 authRouter.put("/account/addresses/:addressId", requireAuth, c.updateAddress);

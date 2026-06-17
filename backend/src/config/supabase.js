@@ -339,11 +339,13 @@ export async function getSupabaseRealtimeReadiness() {
     dualModeRequested &&
     (!status.configured ||
       railwaySchemaStatus.ok !== true ||
+      sharedTopicStatus.ok !== true ||
       tokenStatus.ok !== true ||
       outboxPumpEnabled !== true);
   const coreReady =
     status.configured &&
     railwaySchemaStatus.ok === true &&
+    sharedTopicStatus.ok === true &&
     tokenStatus.ok === true &&
     outboxPumpEnabled === true;
 

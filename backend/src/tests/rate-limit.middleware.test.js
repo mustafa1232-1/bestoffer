@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildRateLimitKey } from "../shared/middleware/rate-limit.middleware.js";
+import { env } from "../config/env.js";
+import { createRateLimiter, buildRateLimitKey } from "../shared/middleware/rate-limit.middleware.js";
 
 function buildReq({
   ip = "10.0.0.1",
@@ -118,4 +119,39 @@ test("buildRateLimitKey uses auth identity hint for anonymous auth requests", ()
   assert.match(keyA, /^rl:auth:3\.3\.3\.3:anon-id:[a-f0-9]{16}$/);
   assert.notEqual(keyA, keyB);
   assert.equal(keyA, keyC);
+});
+
+test("createRateLimiter fails closed when redis is required but unavailable", async () => {
+  const redisUrlSnapshot = env.redisUrl;
+  env.redisUrl = "";
+  const req = buildReq({
+    ip: "4.4.4.4",
+    userId: 12,
+    authSessionId: 99,
+  });
+  const headers = {};
+  const res = {
+    setHeader(name, value) {
+      headers[name] = value;
+    },
+  };
+  const middleware = createRateLimiter({
+    keyPrefix: "sensitive",
+    maxRequests: 1,
+    windowMs: 1000,
+    requireRedis: true,
+  });
+
+  let nextError = null;
+  try {
+    await middleware(req, res, (error) => {
+      nextError = error;
+    });
+
+    assert.equal(nextError?.message, "RATE_LIMIT_BACKEND_UNAVAILABLE");
+    assert.equal(nextError?.status, 503);
+    assert.equal(headers["X-RateLimit-Mode"], undefined);
+  } finally {
+    env.redisUrl = redisUrlSnapshot;
+  }
 });

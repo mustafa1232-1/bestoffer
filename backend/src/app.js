@@ -3,8 +3,9 @@ import cors from "cors";
 import express from "express";
 import fs from "fs";
 
-import { q } from "./config/db.js";
+import { getDbFailoverState, q } from "./config/db.js";
 import { env } from "./config/env.js";
+import { redisHealthSnapshot } from "./config/redis.js";
 import { getSupabaseRealtimeReadiness } from "./config/supabase.js";
 import { adminRouter } from "./modules/admin/admin.routes.js";
 import { assistantRouter } from "./modules/assistant/assistant.routes.js";
@@ -34,6 +35,7 @@ import {
 } from "./modules/paid-upgrades/paid-upgrades.routes.js";
 import { pharmacyRouter } from "./modules/pharmacy/pharmacy.routes.js";
 import { realtimeRouter } from "./modules/realtime/realtime.routes.js";
+import { securityRouter } from "./modules/security/security.routes.js";
 import {
   realEstateAdminRouter,
   realEstateRouter,
@@ -70,6 +72,7 @@ import { attachOptionalAuth } from "./shared/middleware/optional-auth.middleware
 import { firewallGuard } from "./shared/middleware/firewall.middleware.js";
 import { securityHeaders } from "./shared/middleware/security.middleware.js";
 import { activityAuditMiddleware } from "./shared/middleware/activity-audit.middleware.js";
+import { getRequestSigningRuntimeStatus } from "./modules/security/security.service.js";
 import { getUploadRuntimeStatus } from "./shared/utils/upload.js";
 import {
   missingImagePng,
@@ -82,6 +85,10 @@ export const app = express();
 function normalizeRateLimitPath(req) {
   const raw = String(req.originalUrl || req.url || req.path || "").trim();
   const withoutQuery = raw.split("?")[0] || "";
+  if (withoutQuery.startsWith("/api/v1/")) {
+    return withoutQuery.replace(/^\/api\/v1\//, "/api/");
+  }
+  if (withoutQuery === "/api/v1") return "/api";
   if (withoutQuery.startsWith("/api/")) return withoutQuery;
   if (withoutQuery.startsWith("/")) return `/api${withoutQuery}`;
   return `/api/${withoutQuery}`;
@@ -120,6 +127,77 @@ function setUploadResponseHeaders(res, filePath) {
 function setNoStoreHeaders(res) {
   res.setHeader("Cache-Control", "no-store, private");
   res.setHeader("Pragma", "no-cache");
+}
+
+function registerPublicCatalogRoutes(prefix = "/api") {
+  app.get(`${prefix}/merchants`, merchantsController.list);
+  app.get(`${prefix}/merchants/activities`, merchantsController.listActivities);
+  app.get(
+    `${prefix}/merchants/discovery/options`,
+    merchantsController.listActivityDiscoveryOptions
+  );
+  app.get(`${prefix}/merchants/:merchantId(\\d+)`, merchantsController.getById);
+  app.get(
+    `${prefix}/merchants/:merchantId(\\d+)/products`,
+    merchantsController.listProducts
+  );
+  app.get(
+    `${prefix}/merchants/:merchantId(\\d+)/categories`,
+    merchantsController.listCategories
+  );
+}
+
+function mountApiSurface(prefix = "/api") {
+  app.use(`${prefix}/auth`, authRouter);
+  app.use(`${prefix}/users`, usersRouter);
+  app.use(`${prefix}/admin`, adminRouter);
+  app.use(`${prefix}/merchants`, merchantsRouter);
+  app.use(`${prefix}/owner`, ownerRouter);
+  app.use(`${prefix}/orders`, ordersRouter);
+  app.use(`${prefix}/delivery`, deliveryRouter);
+  app.use(`${prefix}/notifications`, notificationsRouter);
+  app.use(`${prefix}/paid-upgrades`, paidUpgradesRouter);
+  app.use(`${prefix}/coupons`, couponsRouter);
+  app.use(`${prefix}/assistant`, assistantRouter);
+  app.use(`${prefix}/cars`, carsRouter);
+  app.use(`${prefix}/behavior`, behaviorRouter);
+  app.use(`${prefix}/taxi`, taxiRouter);
+  app.use(`${prefix}/real-estate`, realEstateRouter);
+  app.use(`${prefix}/sections`, sectionAvailabilityPublicRouter);
+  app.use(`${prefix}/services/public`, servicesPublicRouter);
+  app.use(`${prefix}/services/provider`, servicesProviderRouter);
+  app.use(`${prefix}/services/requests`, servicesRequestsRouter);
+  app.use(`${prefix}/services/reviews`, servicesReviewsRouter);
+  app.use(`${prefix}/pharmacy`, pharmacyRouter);
+  app.use(`${prefix}/realtime`, realtimeRouter);
+  app.use(`${prefix}/security`, securityRouter);
+  app.use(`${prefix}/feed`, feedRouter);
+  app.use(`${prefix}/jobs`, jobsRouter);
+  app.use(`${prefix}/company`, companyRouter);
+  app.use(`${prefix}/hr`, hrRouter);
+  app.use(`${prefix}/accountant`, accountantRouter);
+  app.post(`${prefix}/system/crash-events`, adminOpsController.reportCrashEvent);
+  app.use(prefix, commerceRouter);
+  app.use(`${prefix}/admin/paid-upgrades`, paidUpgradesAdminRouter);
+  app.use(`${prefix}/admin/real-estate`, realEstateAdminRouter);
+  app.use(`${prefix}/admin/services`, servicesAdminRouter);
+  app.use(`${prefix}/admin/sections`, sectionAvailabilityAdminRouter);
+  app.get(`${prefix}/me`, requireAuth, async (req, res, next) => {
+    try {
+      const user = await getUserPublicById(req.userId);
+      res.json({ user });
+    } catch (e) {
+      next(e);
+    }
+  });
+  app.get(`${prefix}/users/me`, requireAuth, async (req, res, next) => {
+    try {
+      const user = await getUserPublicById(req.userId);
+      res.json({ user });
+    } catch (e) {
+      next(e);
+    }
+  });
 }
 
 app.set("trust proxy", true);
@@ -165,24 +243,15 @@ app.use(
       "X-Client-Platform",
       "X-App-Version",
       "X-Device-Model",
+      "X-Request-Timestamp",
+      "X-Request-Nonce",
+      "X-Request-Signature",
+      "X-Request-Key-Id",
     ],
   })
 );
-app.get("/api/merchants", merchantsController.list);
-app.get("/api/merchants/activities", merchantsController.listActivities);
-app.get(
-  "/api/merchants/discovery/options",
-  merchantsController.listActivityDiscoveryOptions
-);
-app.get("/api/merchants/:merchantId(\\d+)", merchantsController.getById);
-app.get(
-  "/api/merchants/:merchantId(\\d+)/products",
-  merchantsController.listProducts
-);
-app.get(
-  "/api/merchants/:merchantId(\\d+)/categories",
-  merchantsController.listCategories
-);
+registerPublicCatalogRoutes("/api");
+registerPublicCatalogRoutes("/api/v1");
 app.use(
   createRateLimiter({
     windowMs: env.rateLimitWindowMs,
@@ -246,11 +315,24 @@ app.get("/health", async (req, res, next) => {
   try {
     const startedAt = Date.now();
     await q("SELECT 1");
+    const [redis, realtime, requestSigning] = await Promise.all([
+      redisHealthSnapshot(),
+      getSupabaseRealtimeReadiness(),
+      getRequestSigningRuntimeStatus(),
+    ]);
     res.json({
       status: "ok",
-      service: "shakaky-api",
+      service: "maslaki-api",
       uptimeSec: Math.round(process.uptime()),
-      db: "ok",
+      db: {
+        ok: true,
+        topology: getDbFailoverState(),
+      },
+      redis,
+      security: {
+        requestSigning,
+      },
+      realtime,
       uploads: getUploadRuntimeStatus(),
       responseMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
@@ -262,18 +344,56 @@ app.get("/health", async (req, res, next) => {
 
 app.get("/ready", async (req, res, next) => {
   try {
-    const realtime = await getSupabaseRealtimeReadiness();
+    const startedAt = Date.now();
+    await q("SELECT 1");
+    const [redis, realtime, requestSigning] = await Promise.all([
+      redisHealthSnapshot(),
+      getSupabaseRealtimeReadiness(),
+      getRequestSigningRuntimeStatus(),
+    ]);
+    const reasons = [];
     if (realtime.releaseBlocking) {
+      reasons.push(realtime.reason || "realtime_blocked");
+    }
+    if (env.securityRequestSigningEnabled === true && requestSigning.ok !== true) {
+      reasons.push(requestSigning.reason || "request_signing_unavailable");
+    }
+    if (env.securityRequestSigningEnabled === true && redis.ok !== true) {
+      reasons.push(redis.error || "redis_unavailable");
+    }
+
+    if (reasons.length > 0) {
       return res.status(503).json({
         status: "not_ready",
-        reason: realtime.reason,
+        reason: reasons[0],
+        reasons,
+        db: {
+          ok: true,
+          topology: getDbFailoverState(),
+        },
+        redis,
+        security: {
+          requestSigning,
+        },
         realtime,
+        uploads: getUploadRuntimeStatus(),
+        responseMs: Date.now() - startedAt,
         timestamp: new Date().toISOString(),
       });
     }
     return res.json({
       status: "ready",
+      db: {
+        ok: true,
+        topology: getDbFailoverState(),
+      },
+      redis,
+      security: {
+        requestSigning,
+      },
       realtime,
+      uploads: getUploadRuntimeStatus(),
+      responseMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -290,60 +410,14 @@ app.get("/version", (req, res) => {
   });
 });
 
-app.use("/api/auth", authRouter);
-app.use("/api/users", usersRouter);
-app.use("/api/admin", adminRouter);
-app.use("/api/merchants", merchantsRouter);
-app.use("/api/owner", ownerRouter);
-app.use("/api/orders", ordersRouter);
-app.use("/api/delivery", deliveryRouter);
-app.use("/api/notifications", notificationsRouter);
-app.use("/api/paid-upgrades", paidUpgradesRouter);
-app.use("/api/coupons", couponsRouter);
-app.use("/api/assistant", assistantRouter);
-app.use("/api/cars", carsRouter);
-app.use("/api/behavior", behaviorRouter);
-app.use("/api/taxi", taxiRouter);
-app.use("/api/real-estate", realEstateRouter);
-app.use("/api/sections", sectionAvailabilityPublicRouter);
-app.use("/api/services/public", servicesPublicRouter);
-app.use("/api/services/provider", servicesProviderRouter);
-app.use("/api/services/requests", servicesRequestsRouter);
-app.use("/api/services/reviews", servicesReviewsRouter);
-app.use("/api/pharmacy", pharmacyRouter);
-app.use("/api/realtime", realtimeRouter);
-app.use("/api/feed", feedRouter);
-app.use("/api/jobs", jobsRouter);
-app.use("/api/company", companyRouter);
-app.use("/api/hr", hrRouter);
-app.use("/api/accountant", accountantRouter);
-app.post("/api/system/crash-events", adminOpsController.reportCrashEvent);
-app.use("/api", commerceRouter);
-app.use("/api/admin/paid-upgrades", paidUpgradesAdminRouter);
-app.use("/api/admin/real-estate", realEstateAdminRouter);
-app.use("/api/admin/services", servicesAdminRouter);
-app.use("/api/admin/sections", sectionAvailabilityAdminRouter);
+mountApiSurface("/api");
+mountApiSurface("/api/v1");
 app.use("/ops", createOpsRouter());
 app.use("/ops/webhooks", createOpsWebhooksRouter());
 app.use("/api/admin/ops", createOpsRouter());
 app.use("/api/admin/ops/webhooks", createOpsWebhooksRouter());
-
-app.get("/api/me", requireAuth, async (req, res, next) => {
-  try {
-    const user = await getUserPublicById(req.userId);
-    res.json({ user });
-  } catch (e) {
-    next(e);
-  }
-});
-app.get("/api/users/me", requireAuth, async (req, res, next) => {
-  try {
-    const user = await getUserPublicById(req.userId);
-    res.json({ user });
-  } catch (e) {
-    next(e);
-  }
-});
+app.use("/api/v1/admin/ops", createOpsRouter());
+app.use("/api/v1/admin/ops/webhooks", createOpsWebhooksRouter());
 
 app.use(notFoundHandler);
 app.use(errorHandler);

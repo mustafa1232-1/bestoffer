@@ -172,8 +172,8 @@ test("getSupabaseRealtimeReadiness reports degraded shared topics when supabase 
   }));
 
   const readiness = await getSupabaseRealtimeReadiness();
-  assert.equal(readiness.ok, true);
-  assert.equal(readiness.releaseBlocking, false);
+  assert.equal(readiness.ok, false);
+  assert.equal(readiness.releaseBlocking, true);
   assert.equal(readiness.reason, "shared_topics_degraded");
   assert.deepEqual(readiness.missingObjects, ["realtime_channel_audit"]);
   assert.equal(readiness.checks.sharedTopicAuthorizationTables, false);
@@ -212,8 +212,8 @@ test("getSupabaseRealtimeReadiness reports degraded shared topics when membershi
   }));
 
   const readiness = await getSupabaseRealtimeReadiness();
-  assert.equal(readiness.ok, true);
-  assert.equal(readiness.releaseBlocking, false);
+  assert.equal(readiness.ok, false);
+  assert.equal(readiness.releaseBlocking, true);
   assert.equal(readiness.reason, "shared_topics_degraded");
   assert.deepEqual(readiness.missingObjects, ["realtime_channel_member"]);
   assert.equal(readiness.checks.sharedTopicAuthorizationTables, false);

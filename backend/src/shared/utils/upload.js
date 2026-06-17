@@ -124,6 +124,190 @@ const allowedChatAttachmentExtensions = new Set([
   ".rar",
 ]);
 
+const UPLOAD_VALIDATION_PROFILES = Object.freeze({
+  image: {
+    allowedMimeTypes,
+    allowedExtensions: new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]),
+    errorCode: "INVALID_IMAGE_TYPE",
+  },
+  media: {
+    allowedMimeTypes: allowedMediaMimeTypes,
+    allowedExtensions: new Set([
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".webp",
+      ".gif",
+      ".mp4",
+      ".mov",
+      ".webm",
+      ".mkv",
+      ".3gp",
+    ]),
+    errorCode: "INVALID_MEDIA_TYPE",
+  },
+  residence_card: {
+    allowedMimeTypes: allowedResidenceCardMimeTypes,
+    allowedExtensions: new Set([".jpg", ".jpeg", ".png", ".webp"]),
+    errorCode: "INVALID_RESIDENCE_CARD_IMAGE_TYPE",
+  },
+  chat_attachment: {
+    allowedMimeTypes: allowedChatAttachmentMimeTypes,
+    allowedExtensions: allowedChatAttachmentExtensions,
+    errorCode: "INVALID_CHAT_ATTACHMENT_TYPE",
+  },
+  job_application_attachment: {
+    allowedMimeTypes: allowedJobApplicationAttachmentMimeTypes,
+    allowedExtensions: allowedJobApplicationAttachmentExtensions,
+    errorCode: "INVALID_JOB_APPLICATION_ATTACHMENT_TYPE",
+  },
+});
+
+const MAGIC_SNIFF_LIMIT_BYTES = 4096;
+
+function isAsciiText(buffer) {
+  if (!buffer || buffer.length === 0) return false;
+  let printable = 0;
+  for (const byte of buffer) {
+    if (byte === 9 || byte === 10 || byte === 13) {
+      printable += 1;
+      continue;
+    }
+    if (byte >= 32 && byte <= 126) {
+      printable += 1;
+    }
+  }
+  return printable / buffer.length >= 0.92;
+}
+
+function detectMimeFromMagicBytes(buffer, originalName = "") {
+  if (!buffer || buffer.length === 0) return null;
+  const ext = path.extname(originalName || "").toLowerCase();
+  const safeSlice = (start, end) => buffer.subarray(start, end).toString("ascii");
+  const safeHex = (start, end) => buffer.subarray(start, end).toString("hex");
+
+  if (safeHex(0, 3) === "ffd8ff") return "image/jpeg";
+  if (safeHex(0, 8) === "89504e470d0a1a0a") return "image/png";
+  if (safeSlice(0, 6) === "GIF87a" || safeSlice(0, 6) === "GIF89a") {
+    return "image/gif";
+  }
+  if (safeSlice(0, 4) === "RIFF" && safeSlice(8, 12) === "WEBP") {
+    return "image/webp";
+  }
+  if (safeSlice(0, 5) === "%PDF-") return "application/pdf";
+  if (
+    safeHex(0, 8) === "d0cf11e0a1b11ae1" &&
+    [".doc", ".xls"].includes(ext)
+  ) {
+    return ext === ".doc" ? "application/msword" : "application/vnd.ms-excel";
+  }
+  if (safeSlice(0, 4) === "PK\u0003\u0004" || safeSlice(0, 4) === "PK\u0005\u0006") {
+    if (ext === ".docx") {
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    }
+    if (ext === ".xlsx") {
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    }
+    return "application/zip";
+  }
+  if (safeSlice(0, 4) === "Rar!") {
+    return "application/x-rar-compressed";
+  }
+  if (safeHex(0, 4).startsWith("494433") || (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0)) {
+    return "audio/mpeg";
+  }
+  if (safeSlice(0, 4) === "RIFF" && safeSlice(8, 12) === "WAVE") {
+    return "audio/wav";
+  }
+  if (safeSlice(0, 4) === "OggS") {
+    const ascii = buffer.toString("ascii");
+    if (ascii.includes("OpusHead")) return "audio/opus";
+    return ext === ".oga" ? "audio/ogg" : "audio/ogg";
+  }
+  if (buffer.length >= 12 && safeSlice(4, 8) === "ftyp") {
+    const brand = safeSlice(8, 12).trim().toLowerCase();
+    if (brand.startsWith("m4a")) return "audio/x-m4a";
+    if (brand.startsWith("qt")) return "video/quicktime";
+    if (brand.startsWith("3g")) return "video/3gpp";
+    if (["mp4", "mp41", "mp42", "isom", "iso2", "avc1"].some((x) => brand.startsWith(x))) {
+      return ext === ".m4a" ? "audio/mp4" : "video/mp4";
+    }
+  }
+  if (safeHex(0, 4) === "1a45dfa3") {
+    if (ext === ".webm") return "video/webm";
+    if (ext === ".mka") return "audio/webm";
+    return "video/x-matroska";
+  }
+  if (isAsciiText(buffer)) {
+    return "text/plain";
+  }
+  return null;
+}
+
+function normalizeMimeAlias(mime, originalName = "") {
+  const normalized = String(mime || "").trim().toLowerCase();
+  const ext = path.extname(originalName || "").toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "application/octet-stream") {
+    if (ext === ".docx") {
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    }
+    if (ext === ".xlsx") {
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    }
+    if (ext === ".doc") return "application/msword";
+    if (ext === ".xls") return "application/vnd.ms-excel";
+    if (ext === ".rar") return "application/x-rar-compressed";
+  }
+  if (normalized === "audio/mp4" && ext === ".m4a") return "audio/x-m4a";
+  if (normalized === "audio/x-wav") return "audio/wav";
+  if (normalized === "application/vnd.rar") return "application/x-rar-compressed";
+  return normalized;
+}
+
+function validateSignatureProfile(profileKey, file) {
+  const profile = UPLOAD_VALIDATION_PROFILES[profileKey];
+  if (!profile) return { ok: true, detectedMime: null };
+  const buffer = Buffer.isBuffer(file?.buffer)
+    ? file.buffer
+    : Buffer.from(file?.buffer || []);
+  const detectedMime = normalizeMimeAlias(
+    detectMimeFromMagicBytes(buffer, file?.originalname || ""),
+    file?.originalname || ""
+  );
+  const ext = path.extname(file?.originalname || "").toLowerCase();
+  const detectedAllowed =
+    detectedMime &&
+    profile.allowedMimeTypes.has(detectedMime) &&
+    (!profile.allowedExtensions || profile.allowedExtensions.has(ext));
+  const fallbackExtAllowed =
+    detectedMime === "application/zip" &&
+    profile.allowedExtensions?.has(ext) === true &&
+    [".zip", ".docx", ".xlsx"].includes(ext);
+
+  if (detectedAllowed || fallbackExtAllowed) {
+    return { ok: true, detectedMime: detectedMime || null };
+  }
+
+  return {
+    ok: false,
+    detectedMime: detectedMime || null,
+    errorCode: profile.errorCode,
+  };
+}
+
+export function assertUploadedFileSignature(file, profileKey) {
+  const result = validateSignatureProfile(profileKey, file);
+  if (result.ok) return result;
+  const error = new Error(result.errorCode || "INVALID_UPLOAD_SIGNATURE");
+  error.status = 400;
+  error.details = {
+    detectedMime: result.detectedMime,
+    profile: profileKey,
+  };
+  throw error;
+}
+
 function sanitizeBaseName(originalName = "image", ext = "") {
   return path
     .basename(originalName || "image", ext)
@@ -154,6 +338,8 @@ const r2Storage = {
     const out = fs.createWriteStream(localPath);
     let size = 0;
     let settled = false;
+    const sniffChunks = [];
+    let sniffBytesCollected = 0;
 
     const done = (error, info) => {
       if (settled) return;
@@ -170,9 +356,34 @@ const r2Storage = {
     file.stream.on("error", (error) => done(error));
     file.stream.on("data", (chunk) => {
       size += chunk.length;
+      if (sniffBytesCollected < MAGIC_SNIFF_LIMIT_BYTES) {
+        const remaining = MAGIC_SNIFF_LIMIT_BYTES - sniffBytesCollected;
+        const slice =
+          chunk.length <= remaining ? chunk : chunk.subarray(0, remaining);
+        sniffChunks.push(slice);
+        sniffBytesCollected += slice.length;
+      }
     });
 
     out.on("finish", async () => {
+      const signatureProbe = {
+        originalname: file.originalname || filename,
+        buffer: Buffer.concat(sniffChunks),
+      };
+      try {
+        const validation = assertUploadedFileSignature(
+          signatureProbe,
+          file._validationProfile
+        );
+        if (validation?.detectedMime) {
+          file.mimetype = validation.detectedMime;
+        }
+      } catch (error) {
+        safeUnlink(localPath);
+        done(error);
+        return;
+      }
+
       if (useR2Storage) {
         try {
           const readStream = fs.createReadStream(localPath);
@@ -245,7 +456,14 @@ const r2Storage = {
 const storage = r2Storage;
 
 function imageFilter(req, file, cb) {
-  if (allowedMimeTypes.has(file.mimetype)) {
+  file._validationProfile = "image";
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  const mime = normalizeMimeAlias(file.mimetype, file.originalname || "");
+  if (
+    allowedMimeTypes.has(mime) ||
+    (mime === "application/octet-stream" &&
+      UPLOAD_VALIDATION_PROFILES.image.allowedExtensions.has(ext))
+  ) {
     cb(null, true);
     return;
   }
@@ -264,7 +482,14 @@ export const imageUpload = multer({
 });
 
 function mediaFilter(req, file, cb) {
-  if (allowedMediaMimeTypes.has(file.mimetype)) {
+  file._validationProfile = "media";
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  const mime = normalizeMimeAlias(file.mimetype, file.originalname || "");
+  if (
+    allowedMediaMimeTypes.has(mime) ||
+    (mime === "application/octet-stream" &&
+      UPLOAD_VALIDATION_PROFILES.media.allowedExtensions.has(ext))
+  ) {
     cb(null, true);
     return;
   }
@@ -283,7 +508,14 @@ export const mediaUpload = multer({
 });
 
 function residenceCardFilter(req, file, cb) {
-  if (allowedResidenceCardMimeTypes.has(file.mimetype)) {
+  file._validationProfile = "residence_card";
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  const mime = normalizeMimeAlias(file.mimetype, file.originalname || "");
+  if (
+    allowedResidenceCardMimeTypes.has(mime) ||
+    (mime === "application/octet-stream" &&
+      UPLOAD_VALIDATION_PROFILES.residence_card.allowedExtensions.has(ext))
+  ) {
     cb(null, true);
     return;
   }
@@ -319,7 +551,8 @@ export const registerWithCardUpload = multer({
 
 function chatAttachmentFilter(req, file, cb) {
   const ext = path.extname(file.originalname || "").toLowerCase();
-  const mime = String(file.mimetype || "").toLowerCase();
+  const mime = normalizeMimeAlias(file.mimetype, file.originalname || "");
+  file._validationProfile = "chat_attachment";
 
   const mimeAllowed = allowedChatAttachmentMimeTypes.has(mime);
   const extAllowed = allowedChatAttachmentExtensions.has(ext);
@@ -344,7 +577,8 @@ export const chatAttachmentUpload = multer({
 
 function jobApplicationAttachmentFilter(req, file, cb) {
   const ext = path.extname(file.originalname || "").toLowerCase();
-  const mime = String(file.mimetype || "").toLowerCase();
+  const mime = normalizeMimeAlias(file.mimetype, file.originalname || "");
+  file._validationProfile = "job_application_attachment";
 
   const mimeAllowed = allowedJobApplicationAttachmentMimeTypes.has(mime);
   const extAllowed = allowedJobApplicationAttachmentExtensions.has(ext);
@@ -390,6 +624,7 @@ export function getUploadRuntimeStatus() {
     provider: useR2Storage ? "r2" : "local",
     r2Enabled: useR2Storage,
     localFallbackAllowed: allowLocalUploadFallback,
+    contentValidation: "magic-bytes",
     lastR2UploadError,
     lastR2UploadAt,
   };

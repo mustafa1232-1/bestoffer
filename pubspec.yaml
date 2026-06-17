@@ -64,6 +64,7 @@ dependencies:
   cached_network_image: ^3.4.1
   flutter_cache_manager: ^3.4.1
   crypto: ^3.0.6
+  asn1lib: ^1.6.5
   core_design_system:
     path: packages/core_design_system
   core_maps:

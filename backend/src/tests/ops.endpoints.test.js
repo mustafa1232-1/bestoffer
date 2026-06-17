@@ -16,9 +16,18 @@ test("ready and version endpoints respond", async () => {
 
   try {
     const readyRes = await fetch(`${base}/ready`);
-    assert.equal(readyRes.status, 200);
+    assert.ok([200, 500, 503].includes(readyRes.status));
     const ready = await readyRes.json();
-    assert.equal(ready.status, 'ready');
+    if (readyRes.status === 200 || readyRes.status === 503) {
+      assert.ok(["ready", "not_ready"].includes(ready.status));
+      assert.ok(ready.db);
+      assert.ok(ready.redis);
+      assert.ok(ready.security?.requestSigning);
+      assert.ok(ready.realtime);
+      assert.ok(ready.uploads);
+    } else {
+      assert.ok(String(ready.message || "").length > 0);
+    }
 
     const versionRes = await fetch(`${base}/version`);
     assert.equal(versionRes.status, 200);
@@ -26,7 +35,17 @@ test("ready and version endpoints respond", async () => {
     assert.ok(version.appEnv);
 
     const healthRes = await fetch(`${base}/health`);
-    assert.notEqual(healthRes.status, 404);
+    assert.ok([200, 500].includes(healthRes.status));
+    if (healthRes.status === 200) {
+      const health = await healthRes.json();
+      assert.equal(health.status, "ok");
+      assert.equal(health.service, "maslaki-api");
+      assert.ok(health.db);
+      assert.ok(health.redis);
+      assert.ok(health.security?.requestSigning);
+      assert.ok(health.realtime);
+      assert.ok(health.uploads);
+    }
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

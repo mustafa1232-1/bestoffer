@@ -7,7 +7,10 @@ import {
   validateRegisterWithCard,
   validateUpdateAccount,
 } from "./auth.validators.js";
-import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
+import {
+  assertUploadedFileSignature,
+  buildUploadedFileUrl,
+} from "../../shared/utils/upload.js";
 import { extractDeviceContext } from "../../shared/utils/device-fingerprint.js";
 
 /**
@@ -69,6 +72,7 @@ export async function extractResidenceCard(req, res, next) {
         fields: ["cardImageFile"],
       });
     }
+    assertUploadedFileSignature(req.file, "residence_card");
 
     const out = await service.extractResidenceCard({
       imageBuffer: req.file.buffer,

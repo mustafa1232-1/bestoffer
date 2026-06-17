@@ -126,6 +126,7 @@ export function createRateLimiter({
   maxRequests = 120,
   keyPrefix = "global",
   skip = null,
+  requireRedis = false,
 } = {}) {
   return async function rateLimit(req, res, next) {
     if (typeof skip === "function" && skip(req) === true) {
@@ -133,17 +134,34 @@ export function createRateLimiter({
     }
     const key = buildRateLimitKey(req, keyPrefix);
     let state;
+    let mode = "local-fallback";
 
     try {
       const redis = await getRedisClient();
       if (redis) {
         state = await consumeBucketRedis(redis, key, windowMs);
+        mode = "redis";
       } else {
+        if (requireRedis) {
+          return next(
+            new AppError("RATE_LIMIT_BACKEND_UNAVAILABLE", {
+              status: 503,
+              details: { keyPrefix },
+            })
+          );
+        }
         cleanupBuckets();
         state = consumeBucketLocal({ key, windowMs });
       }
     } catch (_) {
-      // Redis failure: fall back to in-memory so the app keeps running
+      if (requireRedis) {
+        return next(
+          new AppError("RATE_LIMIT_BACKEND_UNAVAILABLE", {
+            status: 503,
+            details: { keyPrefix },
+          })
+        );
+      }
       cleanupBuckets();
       state = consumeBucketLocal({ key, windowMs });
     }
@@ -154,6 +172,7 @@ export function createRateLimiter({
     res.setHeader("X-RateLimit-Limit", String(maxRequests));
     res.setHeader("X-RateLimit-Remaining", String(remaining));
     res.setHeader("X-RateLimit-Reset", String(Math.floor(state.resetAt / 1000)));
+    res.setHeader("X-RateLimit-Mode", mode);
 
     if (state.count > maxRequests) {
       res.setHeader("Retry-After", String(retryAfter));

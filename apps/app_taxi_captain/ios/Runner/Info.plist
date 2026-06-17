@@ -56,6 +56,25 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Location access is required to receive nearby rides and navigate riders accurately.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Background location keeps ride tracking and dispatch accurate while the app is minimized.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Background location keeps ride tracking and dispatch accurate while the app is minimized.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Camera access is required for profile verification and ride media attachments.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Microphone access is required for calls and voice communication.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Photo access is required to attach media from your library.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Photo access is required when saving ride proof from the app.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>remote-notification</string>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>

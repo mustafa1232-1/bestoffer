@@ -356,6 +356,42 @@ export const env = {
     min: 10,
     max: 600,
   }),
+  securityRequestSigningEnabled: readBoolean(
+    "SECURITY_REQUEST_SIGNING_ENABLED",
+    readString("NODE_ENV", "development") === "production"
+  ),
+  securityRequestSigningTtlSec: readNumber(
+    "SECURITY_REQUEST_SIGNING_TTL_SEC",
+    15 * 60,
+    {
+      min: 60,
+      max: 24 * 60 * 60,
+    }
+  ),
+  securityRequestSigningRefreshWindowSec: readNumber(
+    "SECURITY_REQUEST_SIGNING_REFRESH_WINDOW_SEC",
+    2 * 60,
+    {
+      min: 15,
+      max: 60 * 60,
+    }
+  ),
+  securityRequestSigningMaxClockSkewSec: readNumber(
+    "SECURITY_REQUEST_SIGNING_MAX_CLOCK_SKEW_SEC",
+    5 * 60,
+    {
+      min: 30,
+      max: 30 * 60,
+    }
+  ),
+  securityRequestSigningNonceTtlSec: readNumber(
+    "SECURITY_REQUEST_SIGNING_NONCE_TTL_SEC",
+    20 * 60,
+    {
+      min: 60,
+      max: 24 * 60 * 60,
+    }
+  ),
   sentryDsn: readString("SENTRY_DSN", ""),
   sentryAuthToken: readString("SENTRY_AUTH_TOKEN", ""),
   sentryOrg: readString("SENTRY_ORG", ""),
@@ -431,6 +467,14 @@ export function validateRuntimeEnv() {
   }
   if (!env.jwtAccessTtl) {
     errors.push("JWT_ACCESS_TTL must not be empty");
+  }
+  if (
+    env.securityRequestSigningRefreshWindowSec >=
+    env.securityRequestSigningTtlSec
+  ) {
+    errors.push(
+      "SECURITY_REQUEST_SIGNING_REFRESH_WINDOW_SEC must be lower than SECURITY_REQUEST_SIGNING_TTL_SEC"
+    );
   }
   if (!validSupabaseModes.has(normalizedSupabaseMode)) {
     errors.push(

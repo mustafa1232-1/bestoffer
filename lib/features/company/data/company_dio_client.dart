@@ -3,6 +3,9 @@ import 'dart:math';
 import 'package:dio/dio.dart';
 
 import '../../../core/constants/api.dart';
+import '../../../core/network/secure_networking_config.dart';
+import '../../../core/network/secure_http_adapter_stub.dart'
+    if (dart.library.io) '../../../core/network/secure_http_adapter_io.dart';
 import 'company_secure_store.dart';
 
 class CompanyDioClient {
@@ -19,6 +22,7 @@ class CompanyDioClient {
           headers: {'Accept': 'application/json; charset=utf-8'},
         ),
       ) {
+    configureSecureHttpAdapter(dio, SecureNetworkingConfig.current());
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
