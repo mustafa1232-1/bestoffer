@@ -202,9 +202,9 @@ class _TextToolPanelState extends State<_TextToolPanel> {
             ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
           ),
           Slider(
-            value: (widget.selectedLayer?.fontScale ?? 1.0).clamp(0.8, 2.0),
-            min: 0.8,
-            max: 2.0,
+            value: (widget.selectedLayer?.fontScale ?? 1.0).clamp(0.5, 3.0),
+            min: 0.5,
+            max: 3.0,
             onChanged: widget.onFontScaleChanged,
           ),
         ],

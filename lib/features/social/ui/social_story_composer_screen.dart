@@ -145,7 +145,7 @@ class _SocialStoryComposerScreenState
             Expanded(
               child: Center(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
                   child: SocialStoryCanvas(
                     draft: draft,
                     selectedLayerId: state.selectedLayerId,

@@ -64,7 +64,9 @@ class _SocialStoryLayerWidgetState extends State<SocialStoryLayerWidget> {
                   widget.layer.copyWith(
                     x: nextX.clamp(0.08, 0.92),
                     y: nextY.clamp(0.08, 0.92),
-                    scale: (_startScale * details.scale).clamp(0.55, 2.4),
+                    // Wider range so pinch-to-resize feels real (tiny → large).
+                    // Capped at 4.0 to match the backend storyStyle validator.
+                    scale: (_startScale * details.scale).clamp(0.3, 4.0),
                     rotation: _startRotation + details.rotation,
                   ),
                 );
