@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/storage/secure_storage.dart';
 import '../../auth/state/auth_controller.dart';
@@ -62,6 +63,16 @@ final appStartupInitialDoneProvider = Provider<bool?>((ref) => null);
 
 class AppStartupController extends StateNotifier<AppStartupState> {
   static const firstLaunchDoneStorageKey = 'app_first_launch_done_v2';
+  static const legacyFirstLaunchDoneStorageKeys = <String>[
+    'app_first_launch_done',
+    'firstLaunchDone',
+    'hasSeenOnboarding',
+    'onboarding_done',
+    'bestoffer_first_launch_done',
+    'bestoffer_has_seen_onboarding',
+    'shakaky_first_launch_done',
+    'shakaky_has_seen_onboarding',
+  ];
 
   final SecureStore store;
   final Dio dio;
@@ -85,7 +96,7 @@ class AppStartupController extends StateNotifier<AppStartupState> {
     if (state.initialized) return;
     state = state.copyWith(initialized: true);
 
-    final done = await store.readBool(firstLaunchDoneStorageKey) ?? false;
+    final done = await _readFirstLaunchDone();
     if (done) {
       state = state.copyWith(phase: AppStartupPhase.ready, clearError: true);
       return;
@@ -135,8 +146,50 @@ class AppStartupController extends StateNotifier<AppStartupState> {
   }
 
   Future<void> completeFirstLaunch() async {
-    await store.writeBool(firstLaunchDoneStorageKey, true);
+    await _writeFirstLaunchDone(true);
     state = state.copyWith(phase: AppStartupPhase.ready, clearError: true);
+  }
+
+  Future<bool> _readFirstLaunchDone() async {
+    final prefs = await _prefsOrNull();
+    if (prefs != null) {
+      final scopedKey = firstLaunchDoneStorageKey;
+      final value = prefs.getBool(scopedKey);
+      if (value != null) return value;
+      for (final legacyKey in legacyFirstLaunchDoneStorageKeys) {
+        final legacyValue = prefs.getBool(legacyKey);
+        if (legacyValue != null) {
+          await prefs.setBool(scopedKey, legacyValue);
+          return legacyValue;
+        }
+      }
+    }
+
+    final secureValue = await store.readBool(firstLaunchDoneStorageKey);
+    if (secureValue != null) {
+      await _writeFirstLaunchDone(secureValue);
+      return secureValue;
+    }
+    return false;
+  }
+
+  Future<void> _writeFirstLaunchDone(bool value) async {
+    final prefs = await _prefsOrNull();
+    if (prefs != null) {
+      await prefs.setBool(firstLaunchDoneStorageKey, value);
+      for (final legacyKey in legacyFirstLaunchDoneStorageKeys) {
+        await prefs.setBool(legacyKey, value);
+      }
+    }
+    await store.writeBool(firstLaunchDoneStorageKey, value);
+  }
+
+  Future<SharedPreferences?> _prefsOrNull() async {
+    try {
+      return await SharedPreferences.getInstance();
+    } catch (_) {
+      return null;
+    }
   }
 
   String _readServerError(DioException error) {

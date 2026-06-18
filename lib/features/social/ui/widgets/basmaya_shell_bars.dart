@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/i18n/app_localizations_context.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/maslaki_back_button.dart';
 import '../../../../core/widgets/maslaki_user_drawer.dart';
 import '../../../../core/widgets/appbar_quick_actions.dart';
 import '../../../auth/state/auth_controller.dart';
+import '../../../customer/ui/maslaki_user_shell.dart';
 import '../../../notifications/state/notifications_controller.dart';
 import '../../../notifications/ui/notifications_bell.dart';
 import '../../models/social_models.dart';
@@ -47,11 +49,7 @@ class BasmayaTopAppBar extends StatelessWidget implements PreferredSizeWidget {
         toolbarHeight: 50,
         automaticallyImplyLeading: false,
         leading: canPop
-            ? IconButton(
-                tooltip: l10n.commonBack,
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back_rounded),
-              )
+            ? const MaslakiBackButton(fallbackTabIndex: 2)
             : null,
         leadingWidth: canPop ? 44 : null,
         centerTitle: false,
@@ -378,6 +376,13 @@ class MaslakiBasmayaDrawer extends ConsumerWidget {
       await Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
     }
 
+    Future<void> goToShellTab(int index) async {
+      if (!embedded) {
+        Navigator.of(context).pop();
+      }
+      await MaslakiHomeNavigator.goToTab(context, index, resetStack: true);
+    }
+
     Future<void> openCommunity({
       required String scopeType,
       required String scopeCode,
@@ -406,14 +411,12 @@ class MaslakiBasmayaDrawer extends ConsumerWidget {
       MaslakiDrawerEntry(
         icon: Icons.home_outlined,
         label: l10n.customerDiscoveryBasmayaFeed,
-        onTap: () =>
-            open(const SocialShellScreen(initialTab: SocialShellTab.home)),
+        onTap: () => goToShellTab(2),
       ),
       MaslakiDrawerEntry(
         icon: Icons.chat_bubble_outline_rounded,
         label: l10n.socialShellMessages,
-        onTap: () =>
-            open(const SocialShellScreen(initialTab: SocialShellTab.messages)),
+        onTap: () => goToShellTab(3),
       ),
       MaslakiDrawerEntry(
         icon: Icons.favorite_border_rounded,
@@ -498,9 +501,7 @@ class BasmayaBottomNavBar extends ConsumerWidget {
       icon: Icons.home_outlined,
       onTap: () {
         if (current == BasmayaNavKey.home) return;
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(builder: (_) => const SocialShellScreen()),
-        );
+        MaslakiHomeNavigator.goToTab(context, 2, resetStack: true);
       },
     );
     final blockAction = _BasmayaNavAction(
@@ -556,12 +557,7 @@ class BasmayaBottomNavBar extends ConsumerWidget {
       badgeCount: chatUnreadCount,
       onTap: () {
         if (current == BasmayaNavKey.messages) return;
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(
-            builder: (_) =>
-                const SocialShellScreen(initialTab: SocialShellTab.messages),
-          ),
-        );
+        MaslakiHomeNavigator.goToTab(context, 3, resetStack: true);
       },
     );
     final profileAction = _BasmayaNavAction(

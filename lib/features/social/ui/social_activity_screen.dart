@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/notifications/notification_navigation.dart';
+import '../../../core/widgets/maslaki_back_button.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../notifications/models/app_notification_model.dart';
@@ -115,11 +116,7 @@ class _SocialActivityScreenState extends ConsumerState<SocialActivityScreen> {
           en: 'Notifications, interactions, and message requests in one screen.',
         ),
         leading: canPop
-            ? IconButton(
-                tooltip: l10n.commonBack,
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back_rounded),
-              )
+            ? const MaslakiBackButton(fallbackTabIndex: 2)
             : const MaslakiUserDrawerButton(openStartDrawer: true),
         actions: [
           if (canPop) const MaslakiUserDrawerButton(openStartDrawer: true),

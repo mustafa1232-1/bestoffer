@@ -6,13 +6,13 @@ import '../../features/assistant/ui/assistant_chat_screen.dart';
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/auth/ui/merchants_list_screen.dart';
 import '../../features/coupons/ui/customer_coupons_hub_screen.dart';
-import '../../features/customer/ui/customer_account_hub_screen.dart';
 import '../../features/customer/ui/customer_cars_hub_screen.dart';
 import '../../features/customer/ui/customer_discovery_screen.dart';
 import '../../features/customer/ui/customer_electronics_hub_screen.dart';
 import '../../features/customer/ui/customer_food_hub_screen.dart';
 import '../../features/customer/ui/customer_home_shopping_hub_screen.dart';
 import '../../features/customer/ui/customer_main_market_screen.dart';
+import '../../features/customer/ui/maslaki_user_shell.dart';
 import '../../features/customer/ui/customer_style_hub_screen.dart';
 import '../../features/jobs/ui/jobs_hub_screen.dart';
 import '../../features/orders/ui/delivery_addresses_screen.dart';
@@ -71,8 +71,32 @@ class MaslakiUserDrawer extends ConsumerWidget {
       await Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
     }
 
+    Future<void> goHome() async {
+      if (!embedded) {
+        Navigator.of(context).pop();
+      }
+      await MaslakiHomeNavigator.goHome(context, resetStack: true);
+    }
+
+    Future<void> goToTab(int index) async {
+      if (!embedded) {
+        Navigator.of(context).pop();
+      }
+      await MaslakiHomeNavigator.goToTab(context, index, resetStack: true);
+    }
+
     final sections = <MaslakiDrawerSection>[
       ...extraSections,
+      MaslakiDrawerSection(
+        title: context.l10n.customerHomeTitle,
+        entries: [
+          MaslakiDrawerEntry(
+            icon: Icons.home_rounded,
+            label: context.l10n.customerHomeTitle,
+            onTap: goHome,
+          ),
+        ],
+      ),
       MaslakiDrawerSection(
         title: context.lt(ar: 'الخدمات', en: 'Services'),
         entries: [
@@ -191,7 +215,7 @@ class MaslakiUserDrawer extends ConsumerWidget {
           MaslakiDrawerEntry(
             icon: Icons.person_outline_rounded,
             label: context.lt(ar: 'حسابي', en: 'My account'),
-            onTap: () => open(const CustomerAccountHubScreen()),
+            onTap: () => goToTab(4),
           ),
           MaslakiDrawerEntry(
             icon: Icons.settings_outlined,

@@ -325,6 +325,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     });
     Future.microtask(() async {
       if (!mounted) return;
+      final authBootstrap = ref.read(authControllerProvider.notifier).bootstrap();
       await ref.read(mediaCacheServiceProvider).scheduleMaintenance();
       if (!mounted) return;
       await ref.read(appStartupControllerProvider.notifier).bootstrap();
@@ -337,7 +338,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       _notificationTapSub = localNotifications.tapStream.listen(
         _handleNotificationTap,
       );
-      await ref.read(authControllerProvider.notifier).bootstrap();
+      await authBootstrap;
       if (!mounted) return;
       final auth = ref.read(authControllerProvider);
       if (auth.isAuthed) {
@@ -813,9 +814,16 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       }
     }
 
-    final appHome = startup.isReady
-        ? (auth.isAuthed ? _homeForAuth(auth) : const LoginScreen())
-        : const AppFirstLaunchScreen();
+    final appHome = switch (startup.phase) {
+      AppStartupPhase.onboarding => const AppFirstLaunchScreen(),
+      AppStartupPhase.ready => auth.loading
+          ? const AppFirstLaunchScreen()
+          : (auth.isAuthed ? _homeForAuth(auth) : const LoginScreen()),
+      AppStartupPhase.idle ||
+      AppStartupPhase.checkingServer ||
+      AppStartupPhase.serverCheckFailed =>
+        const AppFirstLaunchScreen(),
+    };
     Intl.defaultLocale = settings.locale.languageCode;
 
     return MaterialApp(

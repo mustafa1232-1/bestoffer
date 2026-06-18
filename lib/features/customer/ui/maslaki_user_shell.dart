@@ -10,10 +10,26 @@ import 'customer_account_hub_screen.dart';
 import 'customer_home_selector_screen.dart';
 
 class MaslakiUserShell extends ConsumerStatefulWidget {
-  const MaslakiUserShell({super.key});
+  final int initialIndex;
+
+  const MaslakiUserShell({super.key, this.initialIndex = 0});
 
   @override
   ConsumerState<MaslakiUserShell> createState() => _MaslakiUserShellState();
+}
+
+class MaslakiUserShellController {
+  final int currentIndex;
+  final bool Function() popCurrentNavigator;
+  final void Function({bool resetStack}) goHome;
+  final void Function(int tabIndex, {bool resetStack}) goToTab;
+
+  const MaslakiUserShellController({
+    required this.currentIndex,
+    required this.popCurrentNavigator,
+    required this.goHome,
+    required this.goToTab,
+  });
 }
 
 class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
@@ -37,6 +53,8 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
   bool _showBottomBar = true;
   bool _routeSyncScheduled = false;
 
+  int get currentIndex => _index;
+
   void _scheduleRouteSync() {
     if (!mounted || _routeSyncScheduled) return;
     _routeSyncScheduled = true;
@@ -59,29 +77,53 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
   }
 
   bool _handleBackNavigation() {
-    final currentNavigator = _navigatorKeys[_index].currentState;
-    if (currentNavigator?.canPop() ?? false) {
-      currentNavigator!.pop();
+    if (_popCurrentNavigator()) return false;
+    if (_index != 0) {
+      _goToTab(0, resetStack: true);
       return false;
     }
     return true;
   }
 
-  void _selectTab(int nextIndex) {
-    if (_index == nextIndex) {
-      final navigator = _navigatorKeys[nextIndex].currentState;
-      while (navigator?.canPop() ?? false) {
-        navigator!.pop();
-      }
+  bool _popCurrentNavigator() {
+    final currentNavigator = _navigatorKeys[_index].currentState;
+    if (currentNavigator?.canPop() ?? false) {
+      currentNavigator!.pop();
+      _scheduleRouteSync();
+      return true;
+    }
+    return false;
+  }
+
+  void _resetTabStack(int index) {
+    final navigator = _navigatorKeys[index].currentState;
+    while (navigator?.canPop() ?? false) {
+      navigator!.pop();
+    }
+  }
+
+  void _goToTab(int nextIndex, {bool resetStack = false}) {
+    final resolvedIndex = nextIndex.clamp(0, _navigatorKeys.length - 1);
+    if (resetStack) {
+      _resetTabStack(resolvedIndex);
+    }
+    if (_index == resolvedIndex) {
       _scheduleRouteSync();
       return;
     }
     setState(() {
-      _index = nextIndex;
+      _index = resolvedIndex;
       _showBottomBar =
-          !(_navigatorKeys[nextIndex].currentState?.canPop() ?? false);
+          !(_navigatorKeys[resolvedIndex].currentState?.canPop() ?? false);
     });
   }
+
+  void _selectTab(int nextIndex) => _goToTab(nextIndex, resetStack: true);
+
+  void goHome({bool resetStack = true}) => _goToTab(0, resetStack: resetStack);
+
+  void goToTab(int tabIndex, {bool resetStack = false}) =>
+      _goToTab(tabIndex, resetStack: resetStack);
 
   Route<dynamic> _buildRouteForIndex(int index) {
     switch (index) {
@@ -122,71 +164,155 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _index = widget.initialIndex.clamp(0, _navigatorKeys.length - 1);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final shellController = MaslakiUserShellController(
+      currentIndex: _index,
+      popCurrentNavigator: _popCurrentNavigator,
+      goHome: ({bool resetStack = true}) =>
+          goHome(resetStack: resetStack),
+      goToTab: (int tabIndex, {bool resetStack = false}) =>
+          goToTab(tabIndex, resetStack: resetStack),
+    );
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        final shouldExit = _handleBackNavigation();
-        if (shouldExit) {
-          Navigator.of(context).maybePop();
-        }
-      },
-      child: Scaffold(
-        extendBody: true,
-        backgroundColor: Colors.transparent,
-        body: Stack(
-          children: List<Widget>.generate(_navigatorKeys.length, (index) {
-            final isActive = index == _index;
-            final navigator = _tabNavigators[index];
-            if (!isActive && navigator == null) {
-              return const SizedBox.shrink();
-            }
-            return Offstage(
-              offstage: !isActive,
-              child: TickerMode(
-                enabled: isActive,
-                child: _navigatorForIndex(index),
+    return MaslakiUserShellScope(
+      controller: shellController,
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          final shouldExit = _handleBackNavigation();
+          if (shouldExit) {
+            Navigator.of(context).maybePop();
+          }
+        },
+        child: Scaffold(
+          extendBody: true,
+          backgroundColor: Colors.transparent,
+          body: Stack(
+            children: List<Widget>.generate(_navigatorKeys.length, (index) {
+              final isActive = index == _index;
+              final navigator = _tabNavigators[index];
+              if (!isActive && navigator == null) {
+                return const SizedBox.shrink();
+              }
+              return Offstage(
+                offstage: !isActive,
+                child: TickerMode(
+                  enabled: isActive,
+                  child: _navigatorForIndex(index),
+                ),
+              );
+            }),
+          ),
+          bottomNavigationBar: MaslakiBottomNavShell(
+            visible: _showBottomBar,
+            currentIndex: _index,
+            onTap: _selectTab,
+            items: [
+              MaslakiBottomNavItem(
+                label: l10n.customerHomeTitle,
+                icon: Icons.home_outlined,
+                activeIcon: Icons.home_rounded,
               ),
-            );
-          }),
-        ),
-        bottomNavigationBar: MaslakiBottomNavShell(
-          visible: _showBottomBar,
-          currentIndex: _index,
-          onTap: _selectTab,
-          items: [
-            MaslakiBottomNavItem(
-              label: l10n.customerHomeTitle,
-              icon: Icons.home_outlined,
-              activeIcon: Icons.home_rounded,
-            ),
-            MaslakiBottomNavItem(
-              label: l10n.commonOrders,
-              icon: Icons.receipt_long_outlined,
-              activeIcon: Icons.receipt_long_rounded,
-            ),
-            MaslakiBottomNavItem(
-              label: l10n.socialBasmayaCommunity,
-              icon: Icons.groups_outlined,
-              activeIcon: Icons.groups_rounded,
-            ),
-            MaslakiBottomNavItem(
-              label: l10n.socialShellMessages,
-              icon: Icons.chat_bubble_outline_rounded,
-              activeIcon: Icons.chat_bubble_rounded,
-            ),
-            MaslakiBottomNavItem(
-              label: l10n.settingsAccount,
-              icon: Icons.person_outline_rounded,
-              activeIcon: Icons.person_rounded,
-            ),
-          ],
+              MaslakiBottomNavItem(
+                label: l10n.commonOrders,
+                icon: Icons.receipt_long_outlined,
+                activeIcon: Icons.receipt_long_rounded,
+              ),
+              MaslakiBottomNavItem(
+                label: l10n.socialBasmayaCommunity,
+                icon: Icons.groups_outlined,
+                activeIcon: Icons.groups_rounded,
+              ),
+              MaslakiBottomNavItem(
+                label: l10n.socialShellMessages,
+                icon: Icons.chat_bubble_outline_rounded,
+                activeIcon: Icons.chat_bubble_rounded,
+              ),
+              MaslakiBottomNavItem(
+                label: l10n.settingsAccount,
+                icon: Icons.person_outline_rounded,
+                activeIcon: Icons.person_rounded,
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+}
+
+class MaslakiUserShellScope extends InheritedWidget {
+  final MaslakiUserShellController controller;
+
+  const MaslakiUserShellScope({
+    super.key,
+    required this.controller,
+    required super.child,
+  });
+
+  static MaslakiUserShellScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<MaslakiUserShellScope>();
+  }
+
+  @override
+  bool updateShouldNotify(MaslakiUserShellScope oldWidget) {
+    return oldWidget.controller.currentIndex != controller.currentIndex;
+  }
+}
+
+class MaslakiHomeNavigator {
+  static Future<void> goHome(
+    BuildContext context, {
+    bool resetStack = true,
+  }) {
+    return goToTab(context, 0, resetStack: resetStack);
+  }
+
+  static Future<void> goToTab(
+    BuildContext context,
+    int tabIndex, {
+    bool resetStack = false,
+  }) async {
+    final shellScope = MaslakiUserShellScope.maybeOf(context);
+    if (shellScope != null) {
+      shellScope.controller.goToTab(tabIndex, resetStack: resetStack);
+      return;
+    }
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    await rootNavigator.pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (_) => MaslakiUserShell(initialIndex: tabIndex),
+      ),
+      (route) => false,
+    );
+  }
+
+  static Future<void> maybePopOrGoHome(
+    BuildContext context, {
+    int fallbackTabIndex = 0,
+  }) async {
+    final navigator = Navigator.maybeOf(context);
+    if (navigator?.canPop() ?? false) {
+      await navigator!.maybePop();
+      return;
+    }
+    final shellScope = MaslakiUserShellScope.maybeOf(context);
+    if (shellScope != null) {
+      if (shellScope.controller.popCurrentNavigator()) {
+        return;
+      }
+      shellScope.controller.goToTab(fallbackTabIndex, resetStack: true);
+      return;
+    }
+    await goToTab(context, fallbackTabIndex, resetStack: true);
   }
 }
 

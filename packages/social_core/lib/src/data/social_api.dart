@@ -402,14 +402,15 @@ class SocialApi {
   }
 
   Future<Map<String, dynamic>> createPost({
-    required String caption,
-    required String postKind,
-    int? merchantId,
-    int? reviewRating,
-    LocalMediaFile? mediaFile,
-    String? audienceScopeType,
-    String? audienceScopeCode,
-    String? linkTargetType,
+      required String caption,
+      required String postKind,
+      int? merchantId,
+      int? reviewRating,
+      LocalMediaFile? mediaFile,
+      Map<String, dynamic>? reelStyle,
+      String? audienceScopeType,
+      String? audienceScopeCode,
+      String? linkTargetType,
     int? linkMerchantId,
     int? linkProductId,
     int? linkOfferId,
@@ -419,9 +420,10 @@ class SocialApi {
       'caption': caption,
       'postKind': postKind,
       'merchantId': merchantId,
-      'reviewRating': reviewRating,
-      'audienceScopeType': audienceScopeType,
-      'audienceScopeCode': audienceScopeCode,
+        'reviewRating': reviewRating,
+        'reelStyle': reelStyle,
+        'audienceScopeType': audienceScopeType,
+        'audienceScopeCode': audienceScopeCode,
       'linkTargetType': linkTargetType,
       'linkMerchantId': linkMerchantId,
       'linkProductId': linkProductId,
@@ -433,11 +435,12 @@ class SocialApi {
         ? await dio.post('/api/feed/posts', data: payload)
         : await dio.post(
             '/api/feed/posts',
-            data: FormData.fromMap({
-              ...payload,
-              'mediaFile': await mediaFile.toMultipartFile(),
-            }),
-          );
+              data: FormData.fromMap({
+                ...payload,
+                if (reelStyle != null) 'reelStyle': jsonEncode(reelStyle),
+                'mediaFile': await mediaFile.toMultipartFile(),
+              }),
+            );
 
     return Map<String, dynamic>.from(response.data as Map);
   }

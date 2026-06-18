@@ -1,0 +1,9 @@
+.git
+.env
+.qa_pg/
+.qa_run/
+node_modules/
+uploads/
+0
+tmp_*
+*.log

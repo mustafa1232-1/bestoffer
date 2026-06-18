@@ -60,6 +60,31 @@ Example smart search body:
 - `RATE_LIMIT_WINDOW_MS` (default: `60000`)
 - `RATE_LIMIT_MAX_REQUESTS` (default: `240`)
 - `RATE_LIMIT_AUTH_MAX_REQUESTS` (default: `40`)
+- `SUPABASE_REALTIME_ENABLED` (default: `false`)
+- `SUPABASE_REALTIME_MODE` (`dual | supabase_only | sse_only`, default: `dual`)
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_JWT_SECRET`
+- `SUPABASE_REALTIME_OUTBOX_MAX_ATTEMPTS` (default: `8`)
+- `SUPABASE_REALTIME_OUTBOX_BASE_DELAY_MS` (default: `1000`)
+
+## Realtime delivery modes
+
+- `sse_only`: keeps `/api/notifications/stream` and `/api/taxi/stream` as the only live transport.
+- `dual`: publishes to legacy SSE and Supabase private channels together.
+- `supabase_only`: publishes only to Supabase private channels.
+
+Client bootstrap:
+
+1. Authenticate with Railway.
+2. Call `POST /api/realtime/token`.
+3. Initialize Supabase with the returned `supabaseUrl` and `supabaseAnonKey`.
+4. Call `supabase.realtime.setAuth(realtimeToken)`.
+5. Subscribe to private channels only.
+
+Reference:
+- [../docs/realtime-supabase-contract.md](../docs/realtime-supabase-contract.md)
 
 ## Error response format
 
@@ -80,3 +105,12 @@ For validation failures, controllers still return:
   "fields": ["fieldA", "fieldB"]
 }
 ```
+
+## Maintenance reading order
+
+- [../SYSTEM_OVERVIEW.md](../SYSTEM_OVERVIEW.md)
+- [../SUPPORT_GUIDE.md](../SUPPORT_GUIDE.md)
+- [../TROUBLESHOOTING.md](../TROUBLESHOOTING.md)
+- [../ROUTES_AND_PERMISSIONS_MAP.md](../ROUTES_AND_PERMISSIONS_MAP.md)
+- [../DATA_FLOW_GUIDE.md](../DATA_FLOW_GUIDE.md)
+- [../ENV_GUIDE.md](../ENV_GUIDE.md)

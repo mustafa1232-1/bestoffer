@@ -10,6 +10,7 @@ import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
+import '../../../core/widgets/maslaki_back_button.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../notifications/data/notifications_api.dart';
@@ -988,11 +989,7 @@ class _SocialChatThreadsScreenState
           en: 'Private and work threads in one organized surface.',
         ),
         leading: canPop
-            ? IconButton(
-                tooltip: l10n.commonBack,
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back_rounded),
-              )
+            ? const MaslakiBackButton(fallbackTabIndex: 3)
             : const MaslakiUserDrawerButton(openStartDrawer: true),
         actions: [
           if (canPop) const MaslakiUserDrawerButton(openStartDrawer: true),

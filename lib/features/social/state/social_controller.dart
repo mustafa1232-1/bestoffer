@@ -396,14 +396,15 @@ class SocialController extends StateNotifier<SocialState> {
   }
 
   Future<void> createPost({
-    required String caption,
-    required String postKind,
-    int? merchantId,
-    int? reviewRating,
-    LocalMediaFile? mediaFile,
-    String? audienceScopeType,
-    String? audienceScopeCode,
-  }) async {
+      required String caption,
+      required String postKind,
+      int? merchantId,
+      int? reviewRating,
+      LocalMediaFile? mediaFile,
+      Map<String, dynamic>? reelStyle,
+      String? audienceScopeType,
+      String? audienceScopeCode,
+    }) async {
     _safeSetState(state.copyWith(creatingPost: true, error: null));
     try {
       final out = await ref
@@ -414,6 +415,7 @@ class SocialController extends StateNotifier<SocialState> {
             merchantId: merchantId,
             reviewRating: reviewRating,
             mediaFile: mediaFile,
+            reelStyle: reelStyle,
             audienceScopeType: audienceScopeType,
             audienceScopeCode: audienceScopeCode,
           );

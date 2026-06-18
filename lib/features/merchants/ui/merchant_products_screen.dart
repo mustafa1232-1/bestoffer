@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_const_constructors, duplicate_ignore
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -1888,6 +1890,7 @@ class _ProductCard extends StatelessWidget {
                           ar: 'وصفة مطلوبة',
                           en: 'Prescription required',
                         ),
+                        // ignore: prefer_const_constructors
                         color: Color(0x1A9C27B0),
                       ),
                     if (product.requiresPrescription && product.requiresReview)

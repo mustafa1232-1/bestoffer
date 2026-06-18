@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../customer/ui/maslaki_user_shell.dart';
+
 class LiveTrackingShell extends StatefulWidget {
   final String title;
   final LatLng initialCenter;
@@ -76,7 +78,9 @@ class _LiveTrackingShellState extends State<LiveTrackingShell> {
                 children: [
                   _TrackingTopButton(
                     icon: Icons.arrow_back_rounded,
-                    onPressed: widget.onBack ?? () => Navigator.of(context).maybePop(),
+                    onPressed:
+                        widget.onBack ??
+                        () => MaslakiHomeNavigator.maybePopOrGoHome(context),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
