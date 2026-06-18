@@ -1,6 +1,32 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'local_media_file.dart';
+
+/// Opens the device **gallery / photos ("studio")** to pick a single image or
+/// video — not the Files/documents browser. Used by stories and reels so the
+/// user lands in their photo gallery. Returns a path-backed [LocalMediaFile]
+/// (no in-memory bytes, so large videos stay light) with a resolved mimeType.
+Future<LocalMediaFile?> pickGalleryMediaFromDevice() async {
+  final picker = ImagePicker();
+  final XFile? file = await picker.pickMedia();
+  if (file == null) return null;
+  final path = file.path;
+  if (path.isEmpty) return null;
+
+  final extension =
+      path.contains('.') ? path.split('.').last.toLowerCase() : '';
+  final resolvedMime = (file.mimeType != null && file.mimeType!.contains('/'))
+      ? file.mimeType!
+      : _guessMimeType(extension);
+
+  return LocalMediaFile(
+    name: file.name.isEmpty ? 'gallery_media' : file.name,
+    path: path,
+    bytes: null,
+    mimeType: resolvedMime,
+  );
+}
 
 Future<LocalMediaFile?> pickChatImageFromDevice() {
   return _pickSingleFile(

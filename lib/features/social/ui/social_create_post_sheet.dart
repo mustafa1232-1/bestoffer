@@ -6,6 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../creator/creator_adapters.dart';
+import '../creator/creator_models.dart';
+import '../creator/social_camera_creator_screen.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'widgets/social_mention_composer_field.dart';
@@ -37,6 +40,7 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
 
   String _postKind = 'text';
   LocalMediaFile? _media;
+  Map<String, dynamic>? _reelStyle;
   bool _publishing = false;
   bool _loadingMerchants = false;
   List<SocialMerchantOption> _merchantOptions = const [];
@@ -120,11 +124,27 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
   }
 
   Future<void> _pickMedia() async {
-    final file = await pickPostMediaFromDevice();
+    final file = await pickGalleryMediaFromDevice();
     if (file == null) return;
     setState(() {
       _media = file;
       _postKind = file.isVideo ? 'reel' : 'image';
+      if (!file.isVideo) {
+        _reelStyle = null;
+      }
+    });
+  }
+
+  Future<void> _captureReel() async {
+    final creatorDraft = await showSocialCameraCreator(
+      context,
+      mode: SocialCreatorMode.reel,
+    );
+    if (!mounted || creatorDraft == null) return;
+    setState(() {
+      _media = buildReelMediaFromCreator(creatorDraft);
+      _reelStyle = buildReelStyleFromCreator(creatorDraft);
+      _postKind = 'reel';
     });
   }
 
@@ -173,6 +193,7 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
           merchantId: _selectedMerchant?.id,
           reviewRating: _postKind == 'merchant_review' ? _reviewRating : null,
           mediaFile: _media,
+          reelStyle: _postKind == 'reel' ? _reelStyle : null,
         );
     if (!mounted) return;
     final err = ref.read(socialControllerProvider).error;
@@ -262,6 +283,14 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
                             : l10n.socialCreatePostReplaceFile,
                       ),
                     ),
+                    if (_postKind == 'reel') ...[
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: _captureReel,
+                        icon: const Icon(Icons.videocam_rounded),
+                        label: Text(l10n.socialCreatorUseCamera),
+                      ),
+                    ],
                   ],
                 ),
               ],

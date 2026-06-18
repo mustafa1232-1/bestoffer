@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/files/media_picker_service.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/widgets/maslaki_back_button.dart';
 import '../models/social_story_document.dart';
 import '../state/social_story_draft_controller.dart';
 import 'social_story_publish_screen.dart';
@@ -54,7 +55,7 @@ class _SocialStoryComposerScreenState
     final notifier = ref.read(socialStoryDraftControllerProvider.notifier);
     final draft = ref.read(socialStoryDraftControllerProvider).draft;
     if ((draft.mediaPath ?? '').trim().isNotEmpty) return;
-    final file = await pickPostMediaFromDevice();
+    final file = await pickGalleryMediaFromDevice();
     if (file == null || !mounted) return;
     notifier.setMedia(
       path: file.path,
@@ -121,9 +122,9 @@ class _SocialStoryComposerScreenState
       appBar: AppBar(
         backgroundColor: const Color(0xFF090D18),
         foregroundColor: Colors.white,
-        leading: IconButton(
-          onPressed: () => Navigator.of(context).maybePop(),
-          icon: const Icon(Icons.close_rounded),
+        leading: const MaslakiBackButton(
+          fallbackTabIndex: 2,
+          icon: Icons.close_rounded,
         ),
         title: Text(l10n.socialStoryComposerTitle),
         actions: [

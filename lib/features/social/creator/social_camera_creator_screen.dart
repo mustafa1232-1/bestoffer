@@ -648,7 +648,7 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
   Future<void> _openGallery() async {
     if (_exporting) return;
     final l10n = context.l10n;
-    final picked = await pickPostMediaFromDevice();
+    final picked = await pickGalleryMediaFromDevice();
     if (picked == null || !mounted) return;
 
     if (_isLayoutMode) {
