@@ -1,13 +1,30 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image_picker_android/image_picker_android.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 
 import 'local_media_file.dart';
+
+bool _androidPhotoPickerConfigured = false;
+
+/// Forces the modern Android system Photo Picker (the gallery UI). Without this,
+/// image_picker falls back to ACTION_GET_CONTENT, which opens the Files /
+/// Documents chooser — the exact "it opens Files, not the gallery" symptom.
+void _ensureAndroidPhotoPicker() {
+  if (_androidPhotoPickerConfigured) return;
+  final implementation = ImagePickerPlatform.instance;
+  if (implementation is ImagePickerAndroid) {
+    implementation.useAndroidPhotoPicker = true;
+  }
+  _androidPhotoPickerConfigured = true;
+}
 
 /// Opens the device **gallery / photos ("studio")** to pick a single image or
 /// video — not the Files/documents browser. Used by stories and reels so the
 /// user lands in their photo gallery. Returns a path-backed [LocalMediaFile]
 /// (no in-memory bytes, so large videos stay light) with a resolved mimeType.
 Future<LocalMediaFile?> pickGalleryMediaFromDevice() async {
+  _ensureAndroidPhotoPicker();
   final picker = ImagePicker();
   final XFile? file = await picker.pickMedia();
   if (file == null) return null;
