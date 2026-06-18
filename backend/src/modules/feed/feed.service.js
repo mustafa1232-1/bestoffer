@@ -977,7 +977,7 @@ export async function submitResidenceChangeRequest(userId, dto = {}) {
     throw new AppError("RESIDENCE_CHANGE_CREATE_FAILED", { status: 500 });
   }
 
-  const adminIds = await repo.listSuperAdminUserIds(240);
+  const adminIds = await repo.listAdminUserIds(240);
   await createManyNotifications(
     adminIds
       .filter((adminId) => Number(adminId) !== Number(userId))

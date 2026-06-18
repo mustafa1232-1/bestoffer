@@ -2709,6 +2709,24 @@ export async function listSuperAdminUserIds(limit = 60) {
   return r.rows.map((row) => Number(row.id)).filter((id) => id > 0);
 }
 
+// All users who can review admin queues (matches `requireAdmin`: super-admins
+// plus role='admin'). Used so admin alerts aren't limited to super-admins only.
+export async function listAdminUserIds(limit = 120) {
+  const r = await q(
+    `SELECT id
+     FROM app_user
+     WHERE (
+         COALESCE(is_super_admin, FALSE) = TRUE
+         OR LOWER(COALESCE(role, '')) = 'admin'
+       )
+       AND COALESCE(is_account_disabled, FALSE) = FALSE
+     ORDER BY id DESC
+     LIMIT $1`,
+    [Math.max(1, Math.min(400, Number(limit) || 120))]
+  );
+  return r.rows.map((row) => Number(row.id)).filter((id) => id > 0);
+}
+
 export async function findUserSocialProfile(userId) {
   const r = await q(
     `SELECT
