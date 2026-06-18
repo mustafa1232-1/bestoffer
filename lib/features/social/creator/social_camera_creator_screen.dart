@@ -27,6 +27,7 @@ import 'story_layout_compositor.dart';
 import 'story_layout_controller.dart';
 import 'story_layout_models.dart';
 import 'story_segmentation_service.dart';
+import 'story_text_composer_screen.dart';
 import 'creator_filter_registry.dart';
 
 /// Primary creation mode shown in the story camera's bottom mode strip.
@@ -43,6 +44,11 @@ const List<String> kMaslakiMoodKeys = <String>[
   'on_the_way',
   'order_arrived',
 ];
+
+/// Fallback face region (normalized) for the live effect preview before a live
+/// face lock arrives — upper-centre, roughly where a selfie face sits. The
+/// exported photo still uses real on-device face detection for accurate placement.
+const Rect _kDefaultFaceBox = Rect.fromLTWH(0.28, 0.20, 0.44, 0.34);
 
 /// Outcome returned by the story camera hub. The story flow either yields a
 /// media draft (camera capture, layout composite, gallery import) or signals
@@ -117,6 +123,7 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
   bool _initializing = true;
   bool _isBootstrapping = false;
   bool _exporting = false;
+  bool _switchingCamera = false;
   String? _error;
   CreatorPreviewDraft? _previewDraft;
   VideoPlayerController? _previewVideoController;
@@ -130,7 +137,6 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
   // ── Maslaki unique features state ─────────────────────────────────────────
   late String _timeMoodKey;
   String? _placePulseLabel;
-  bool _placePulseLocating = false;
   bool _maslakiSealEnabled = false;
   String? _maslakiMoodKey;
 
@@ -269,15 +275,21 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
   }
 
   Future<void> _toggleCamera() async {
-    if (_exporting) return;
-    await _cameraCaptureService.switchCamera();
-    if (!mounted) return;
-    if (_shouldRunFacePreview) {
-      await _startFacePreview();
-    } else {
-      await _cameraCaptureService.stopPreviewStream();
+    if (_exporting || _switchingCamera) return;
+    setState(() => _switchingCamera = true);
+    try {
+      await _cameraCaptureService.switchCamera();
+      if (!mounted) return;
+      if (_shouldRunFacePreview) {
+        await _startFacePreview();
+      } else {
+        await _cameraCaptureService.stopPreviewStream();
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _switchingCamera = false);
     }
-    setState(() {});
   }
 
   Future<void> _toggleFlash() async {
@@ -326,8 +338,22 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
   Future<void> _selectStoryMode(_StoryMode mode) async {
     if (!_isStoryMode || mode == _storyMode) return;
     if (mode == _StoryMode.text) {
-      // Text mode is handled by the existing text composer.
-      Navigator.of(context).pop(const StoryCameraOutcome.text());
+      // Full-screen text card editor → renders to an image → flows to publish.
+      final file = await showStoryTextComposer(context);
+      if (file == null || !mounted) return;
+      final preview = CreatorPreviewDraft(
+        mode: SocialCreatorMode.story,
+        clip: _buildClip(
+          file: file,
+          mimeType: 'image/png',
+          captureType: CreatorCaptureType.photo,
+          duration: Duration.zero,
+          captureSource: 'text_card',
+          applySelectedFilter: false,
+        ),
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(StoryCameraOutcome.media(preview));
       return;
     }
     setState(() {
@@ -837,73 +863,169 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
     }
   }
 
-  Future<void> _onPlacePulseTap() async {
-    if (_placePulseLocating) return;
-    if ((_placePulseLabel ?? '').trim().isNotEmpty) {
-      await _showPlacePulseDialog(prefill: _placePulseLabel);
-      return;
+  /// Resolves the device's current location into a short label. Returns null if
+  /// services are off or permission is denied. All geolocator calls happen here
+  /// and the single caller wraps this in try/catch — nothing escapes to the UI.
+  Future<String?> _resolveCurrentLocationLabel() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return null;
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
     }
-    setState(() => _placePulseLocating = true);
-    try {
-      String prefill = '';
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (serviceEnabled) {
-        final permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.always ||
-            permission == LocationPermission.whileInUse) {
-          final position = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.low,
-          ).timeout(const Duration(seconds: 6));
-          prefill = '${position.latitude.toStringAsFixed(3)}° N, '
-              '${position.longitude.toStringAsFixed(3)}° E';
-        }
-      }
-      if (!mounted) return;
-      await _showPlacePulseDialog(prefill: prefill.isNotEmpty ? prefill : null);
-    } catch (_) {
-      if (!mounted) return;
-      await _showPlacePulseDialog(prefill: null);
-    } finally {
-      if (mounted) setState(() => _placePulseLocating = false);
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return null;
     }
+    final position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.medium,
+    ).timeout(const Duration(seconds: 8));
+    return '📍 ${position.latitude.toStringAsFixed(4)}, '
+        '${position.longitude.toStringAsFixed(4)}';
   }
 
-  Future<void> _showPlacePulseDialog({String? prefill}) async {
+  Future<void> _openPlacePulseSheet() async {
     final l10n = context.l10n;
-    final controller = TextEditingController(text: prefill ?? '');
-    final result = await showDialog<String>(
+    final searchController =
+        TextEditingController(text: _placePulseLabel ?? '');
+    final result = await showModalBottomSheet<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(l10n.socialCreatorPlacePulse),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 60,
-          decoration: InputDecoration(
-            hintText: l10n.socialCreatorPlacePulseHint,
-          ),
-          onSubmitted: (value) => Navigator.of(ctx).pop(value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(null),
-            child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
-          ),
-          if ((_placePulseLabel ?? '').trim().isNotEmpty)
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(''),
-              child: Text(MaterialLocalizations.of(ctx).deleteButtonTooltip),
-            ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: Text(l10n.socialCreatorPlacePulseSave),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF111C2B),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
+      builder: (ctx) {
+        var locating = false;
+        String? localError;
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            Future<void> useCurrent() async {
+              if (locating) return;
+              setSheet(() {
+                locating = true;
+                localError = null;
+              });
+              try {
+                final label = await _resolveCurrentLocationLabel();
+                if (label == null) {
+                  setSheet(() {
+                    locating = false;
+                    localError = l10n.socialCreatorPlacePulseError;
+                  });
+                  return;
+                }
+                if (ctx.mounted) Navigator.of(ctx).pop(label);
+              } catch (_) {
+                setSheet(() {
+                  locating = false;
+                  localError = l10n.socialCreatorPlacePulseError;
+                });
+              }
+            }
+
+            void submitSearch() {
+              final text = searchController.text.trim();
+              if (text.isEmpty) return;
+              Navigator.of(ctx).pop(text);
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on_rounded,
+                              color: Color(0xFFD4AF37), size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            l10n.socialCreatorPlacePulse,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const Spacer(),
+                          if ((_placePulseLabel ?? '').trim().isNotEmpty)
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(''),
+                              child: Text(l10n.socialCreatorPlacePulseClear),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: locating ? null : useCurrent,
+                        icon: locating
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.my_location_rounded),
+                        label: Text(
+                          locating
+                              ? l10n.socialCreatorPlacePulseLocating
+                              : l10n.socialCreatorPlacePulseCurrent,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: searchController,
+                        textInputAction: TextInputAction.search,
+                        maxLength: 60,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: l10n.socialCreatorPlacePulseSearchHint,
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          counterText: '',
+                          filled: true,
+                          fillColor: Colors.white10,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        onSubmitted: (_) => submitSearch(),
+                      ),
+                      const SizedBox(height: 10),
+                      FilledButton(
+                        onPressed: submitSearch,
+                        child: Text(l10n.socialCreatorPlacePulseSave),
+                      ),
+                      if (localError != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          localError!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFFFF8A80),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
-    controller.dispose();
+    searchController.dispose();
     if (!mounted) return;
-    if (result == null) return;
+    if (result == null) return; // dismissed — no change
     setState(() => _placePulseLabel = result.isEmpty ? null : result);
   }
 
@@ -958,8 +1080,7 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
       );
     }
 
-    if ((_capabilities?.hasCamera ?? false) == false ||
-        _cameraController == null) {
+    if ((_capabilities?.hasCamera ?? false) == false) {
       return _cameraUnavailableScaffold(l10n);
     }
 
@@ -1003,7 +1124,15 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
   }
 
   Widget _fullScreenCamera() {
-    final controller = _cameraController!;
+    final controller = _cameraController;
+    if (_switchingCamera ||
+        controller == null ||
+        !controller.value.isInitialized) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
     final filterPreset = resolveCreatorFilterPreset(_selectedFilterId);
     final effect = resolveCreatorEffectPreset(_selectedEffectId);
     final mediaSize = MediaQuery.of(context).size;
@@ -1025,11 +1154,15 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
           if (effect != null &&
               _captureType == CreatorCaptureType.photo &&
               !_isLayoutMode)
-            IgnorePointer(
-              child: CustomPaint(
-                painter: CreatorEffectPreviewPainter(
-                  effect: effect,
-                  faceBounds: _previewFaceBounds,
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: CreatorEffectPreviewPainter(
+                    effect: effect,
+                    // Always pass a box so the effect is visible even before/
+                    // without a live face lock; live tracking refines it.
+                    faceBounds: _previewFaceBounds ?? _kDefaultFaceBox,
+                  ),
                 ),
               ),
             ),
@@ -1141,8 +1274,7 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
             icon: Icons.location_on_outlined,
             label: l10n.socialCreatorPlacePulse,
             active: (_placePulseLabel ?? '').trim().isNotEmpty,
-            busy: _placePulseLocating,
-            onTap: _onPlacePulseTap,
+            onTap: _openPlacePulseSheet,
           ),
           const SizedBox(height: 12),
           _SideRailButton(
@@ -1512,7 +1644,6 @@ class _SideRailButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool active;
-  final bool busy;
   final VoidCallback onTap;
 
   const _SideRailButton({
@@ -1520,7 +1651,6 @@ class _SideRailButton extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
-    this.busy = false,
   });
 
   @override
@@ -1546,19 +1676,11 @@ class _SideRailButton extends StatelessWidget {
                   width: 1.2,
                 ),
               ),
-              child: busy
-                  ? const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(gold),
-                      ),
-                    )
-                  : Icon(
-                      icon,
-                      color: active ? gold : Colors.white,
-                      size: 22,
-                    ),
+              child: Icon(
+                icon,
+                color: active ? gold : Colors.white,
+                size: 22,
+              ),
             ),
             const SizedBox(height: 3),
             SizedBox(
@@ -2224,18 +2346,31 @@ class _MaslakiSealOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xFF0D1B2A).withValues(alpha: 0.72),
+        color: const Color(0xFF0D1B2A).withValues(alpha: 0.74),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: const Color(0xFFD4AF37), width: 1.2),
       ),
-      child: const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(5, 4, 10, 4),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.verified_rounded, size: 14, color: Color(0xFFD4AF37)),
-            SizedBox(width: 4),
-            Text(
+            ClipOval(
+              child: Image.asset(
+                'assets/branding/logo_mark.png',
+                width: 20,
+                height: 20,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (_, _, _) => const Icon(
+                  Icons.verified_rounded,
+                  size: 16,
+                  color: Color(0xFFD4AF37),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Text(
               'مسلكي',
               style: TextStyle(
                 color: Color(0xFFD4AF37),

@@ -6091,6 +6091,15 @@
   "socialCreatorMoodBasmayaMorning": "Basmaya morning",
   "socialCreatorMoodDailyCoffee": "Coffee of the day",
   "socialCreatorMoodOnTheWay": "On the way",
-  "socialCreatorMoodOrderArrived": "Order arrived"
+  "socialCreatorMoodOrderArrived": "Order arrived",
+  "socialCreatorPlacePulseCurrent": "Use my current location",
+  "socialCreatorPlacePulseSearchHint": "Search for a place",
+  "socialCreatorPlacePulseClear": "Remove",
+  "socialCreatorTextHint": "Type something…",
+  "socialCreatorTextBackground": "Background",
+  "socialCreatorTextColor": "Text color",
+  "socialCreatorTextSize": "Text size",
+  "socialCreatorTextAlign": "Align",
+  "socialCreatorTextEmpty": "Write something first"
 }
 

@@ -14778,4 +14778,31 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get socialCreatorMoodOrderArrived => 'وصل الطلب';
+
+  @override
+  String get socialCreatorPlacePulseCurrent => 'استخدم موقعي الحالي';
+
+  @override
+  String get socialCreatorPlacePulseSearchHint => 'ابحث عن مكان';
+
+  @override
+  String get socialCreatorPlacePulseClear => 'إزالة';
+
+  @override
+  String get socialCreatorTextHint => 'اكتب شيئًا…';
+
+  @override
+  String get socialCreatorTextBackground => 'الخلفية';
+
+  @override
+  String get socialCreatorTextColor => 'لون النص';
+
+  @override
+  String get socialCreatorTextSize => 'حجم النص';
+
+  @override
+  String get socialCreatorTextAlign => 'المحاذاة';
+
+  @override
+  String get socialCreatorTextEmpty => 'اكتب نصًا أولًا';
 }

@@ -27152,6 +27152,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Order arrived'**
   String get socialCreatorMoodOrderArrived;
+
+  /// No description provided for @socialCreatorPlacePulseCurrent.
+  ///
+  /// In en, this message translates to:
+  /// **'Use my current location'**
+  String get socialCreatorPlacePulseCurrent;
+
+  /// No description provided for @socialCreatorPlacePulseSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search for a place'**
+  String get socialCreatorPlacePulseSearchHint;
+
+  /// No description provided for @socialCreatorPlacePulseClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get socialCreatorPlacePulseClear;
+
+  /// No description provided for @socialCreatorTextHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Type something…'**
+  String get socialCreatorTextHint;
+
+  /// No description provided for @socialCreatorTextBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Background'**
+  String get socialCreatorTextBackground;
+
+  /// No description provided for @socialCreatorTextColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Text color'**
+  String get socialCreatorTextColor;
+
+  /// No description provided for @socialCreatorTextSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Text size'**
+  String get socialCreatorTextSize;
+
+  /// No description provided for @socialCreatorTextAlign.
+  ///
+  /// In en, this message translates to:
+  /// **'Align'**
+  String get socialCreatorTextAlign;
+
+  /// No description provided for @socialCreatorTextEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Write something first'**
+  String get socialCreatorTextEmpty;
 }
 
 class _AppLocalizationsDelegate

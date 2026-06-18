@@ -15019,4 +15019,31 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get socialCreatorMoodOrderArrived => 'Order arrived';
+
+  @override
+  String get socialCreatorPlacePulseCurrent => 'Use my current location';
+
+  @override
+  String get socialCreatorPlacePulseSearchHint => 'Search for a place';
+
+  @override
+  String get socialCreatorPlacePulseClear => 'Remove';
+
+  @override
+  String get socialCreatorTextHint => 'Type something…';
+
+  @override
+  String get socialCreatorTextBackground => 'Background';
+
+  @override
+  String get socialCreatorTextColor => 'Text color';
+
+  @override
+  String get socialCreatorTextSize => 'Text size';
+
+  @override
+  String get socialCreatorTextAlign => 'Align';
+
+  @override
+  String get socialCreatorTextEmpty => 'Write something first';
 }

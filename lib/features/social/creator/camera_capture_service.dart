@@ -130,7 +130,26 @@ class CameraCaptureService {
     required ResolutionPreset resolutionPreset,
     required bool enableAudio,
   }) async {
+    // Tear the existing controller down FIRST. Keeping two CameraControllers
+    // alive at once makes the new one open a camera the OS still holds, which
+    // surfaces as a black preview (especially on Android). Stop any running
+    // image stream before disposing so the platform releases cleanly.
     final existing = _controller;
+    _controller = null;
+    if (existing != null) {
+      try {
+        if (existing.value.isStreamingImages) {
+          await existing.stopImageStream();
+        }
+      } catch (_) {
+        // Best effort.
+      }
+      try {
+        await existing.dispose();
+      } catch (_) {
+        // Best effort.
+      }
+    }
     final next = CameraController(
       description,
       resolutionPreset,
@@ -138,7 +157,6 @@ class CameraCaptureService {
       imageFormatGroup: Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.yuv420,
     );
     await next.initialize();
-    await existing?.dispose();
     _controller = next;
   }
 

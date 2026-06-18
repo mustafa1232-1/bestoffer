@@ -32,11 +32,12 @@ class FaceTrackingService {
         now.difference(_lastProcessedAt!) < creatorFaceTrackingThrottle) {
       return;
     }
-    final inputImage = _buildInputImage(
-      image: image,
+    final rotation = _rotationFromCamera(
       description: description,
       deviceOrientation: deviceOrientation,
     );
+    if (rotation == null) return;
+    final inputImage = _buildInputImage(image: image, rotation: rotation);
     if (inputImage == null) return;
     _processing = true;
     _lastProcessedAt = now;
@@ -52,13 +53,26 @@ class FaceTrackingService {
         ),
       );
       final face = faces.first;
-      final normalized = Rect.fromLTWH(
-        face.boundingBox.left / image.width,
-        face.boundingBox.top / image.height,
-        face.boundingBox.width / image.width,
-        face.boundingBox.height / image.height,
-      );
-      onFaceDetected(normalized, face);
+      // ML Kit reports the bounding box in the image space AFTER the rotation
+      // metadata is applied, so for 90°/270° the displayed frame is portrait
+      // (width/height swapped). Normalising by the raw sensor dimensions would
+      // push `top` past 1.0 and the overlay off-screen — swap accordingly.
+      final rotated = rotation == InputImageRotation.rotation90deg ||
+          rotation == InputImageRotation.rotation270deg;
+      final frameWidth =
+          (rotated ? image.height : image.width).toDouble();
+      final frameHeight =
+          (rotated ? image.width : image.height).toDouble();
+      final box = face.boundingBox;
+      var left = (box.left / frameWidth).clamp(0.0, 1.0);
+      final top = (box.top / frameHeight).clamp(0.0, 1.0);
+      final width = (box.width / frameWidth).clamp(0.0, 1.0);
+      final height = (box.height / frameHeight).clamp(0.0, 1.0);
+      // The front-camera preview is mirrored, so mirror the overlay's X too.
+      if (description.lensDirection == CameraLensDirection.front) {
+        left = (1.0 - left - width).clamp(0.0, 1.0);
+      }
+      onFaceDetected(Rect.fromLTWH(left, top, width, height), face);
     } catch (_) {
       onFaceDetected(null, null);
     } finally {
@@ -82,14 +96,8 @@ class FaceTrackingService {
 
   InputImage? _buildInputImage({
     required CameraImage image,
-    required CameraDescription description,
-    required DeviceOrientation deviceOrientation,
+    required InputImageRotation rotation,
   }) {
-    final rotation = _rotationFromCamera(
-      description: description,
-      deviceOrientation: deviceOrientation,
-    );
-    if (rotation == null) return null;
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
     if (format == null) return null;
     if (Platform.isAndroid &&

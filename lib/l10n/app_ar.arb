@@ -6090,7 +6090,16 @@
   "socialCreatorMoodBasmayaMorning": "صباح بسماية",
   "socialCreatorMoodDailyCoffee": "قهوة اليوم",
   "socialCreatorMoodOnTheWay": "في الطريق",
-  "socialCreatorMoodOrderArrived": "وصل الطلب"
+  "socialCreatorMoodOrderArrived": "وصل الطلب",
+  "socialCreatorPlacePulseCurrent": "استخدم موقعي الحالي",
+  "socialCreatorPlacePulseSearchHint": "ابحث عن مكان",
+  "socialCreatorPlacePulseClear": "إزالة",
+  "socialCreatorTextHint": "اكتب شيئًا…",
+  "socialCreatorTextBackground": "الخلفية",
+  "socialCreatorTextColor": "لون النص",
+  "socialCreatorTextSize": "حجم النص",
+  "socialCreatorTextAlign": "المحاذاة",
+  "socialCreatorTextEmpty": "اكتب نصًا أولًا"
 }
 
 
