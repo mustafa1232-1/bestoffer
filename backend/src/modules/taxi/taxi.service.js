@@ -398,6 +398,10 @@ async function notifyCaptainsNearRide(ride) {
         rideId: ride.id,
         proposedFareIqd: ride.proposedFareIqd,
         searchRadiusM: ride.searchRadiusM,
+        // Make the captain's new-ride alert urgent (action channel, attention
+        // sound, full-screen overlay) on par with delivery courier offers.
+        target: "taxi_new_request",
+        requiresAction: true,
       },
     }))
   );

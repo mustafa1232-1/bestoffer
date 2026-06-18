@@ -643,10 +643,12 @@ bool _isUrgentRealtimeNotification({
   final normalizedTarget = (target ?? '').trim().toLowerCase();
   if (normalizedTarget == 'courier_orders_new' ||
       normalizedTarget == 'delivery_order_offer' ||
-      normalizedTarget == 'courier_order_offer') {
+      normalizedTarget == 'courier_order_offer' ||
+      normalizedTarget == 'taxi_new_request') {
     return true;
   }
   return normalizedType == 'delivery_order_available' ||
       normalizedType == 'delivery_order_offer' ||
-      normalizedType == 'courier_order_offer';
+      normalizedType == 'courier_order_offer' ||
+      normalizedType == 'taxi.request.new';
 }

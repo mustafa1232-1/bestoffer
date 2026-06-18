@@ -341,7 +341,8 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
   if (target == 'social_call' ||
       target == 'courier_orders_new' ||
       target == 'delivery_order_offer' ||
-      target == 'courier_order_offer') {
+      target == 'courier_order_offer' ||
+      target == 'taxi_new_request') {
     return true;
   }
 
@@ -350,7 +351,9 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
       type == 'delivery_order_available' ||
       type == 'delivery_order_offer' ||
       type == 'courier_order_offer' ||
-      type.startsWith('courier.');
+      type == 'taxi.request.new' ||
+      type.startsWith('courier.') ||
+      type.startsWith('taxi.request.');
 }
 
 (String, String, NotificationTapPayload) _parseRemoteMessagePayload(
