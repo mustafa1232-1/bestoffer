@@ -841,6 +841,15 @@ class NotificationNavigation {
     if (auth.isTaxiCaptain &&
         !courierScoped &&
         (taxiScoped || !auth.isDelivery)) {
+      // A new ride request opens that specific ride so the captain can accept it.
+      if (target == 'taxi_new_request') {
+        if (rideId != null && rideId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => TaxiTripDetailsPage(rideId: rideId),
+          );
+        }
+        return MaterialPageRoute(builder: (_) => const TaxiTripsNewPage());
+      }
       if (target == 'taxi_trips_new') {
         return MaterialPageRoute(builder: (_) => const TaxiTripsNewPage());
       }
