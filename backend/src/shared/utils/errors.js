@@ -13,6 +13,16 @@ export function toAppError(error, fallbackMessage = "SERVER_ERROR") {
   if (!error) return new AppError(fallbackMessage);
   if (error instanceof AppError) return error;
 
+  // Multer upload failures (e.g. file too large) are client errors, not 500s.
+  if (error.name === "MulterError") {
+    const tooLarge = error.code === "LIMIT_FILE_SIZE";
+    return new AppError(tooLarge ? "FILE_TOO_LARGE" : "UPLOAD_REJECTED", {
+      status: tooLarge ? 413 : 400,
+      code: error.code || "UPLOAD_REJECTED",
+      expose: true,
+    });
+  }
+
   const status =
     Number(error.status || error.statusCode || error.httpStatus || 500) || 500;
   const expose = error.expose !== undefined ? error.expose : status < 500;

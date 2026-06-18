@@ -503,7 +503,10 @@ export const mediaUpload = multer({
   storage,
   fileFilter: mediaFilter,
   limits: {
-    fileSize: 28 * 1024 * 1024,
+    // Story/reel videos (up to ~180s) routinely exceed the old 28MB cap, which
+    // tripped Multer's LIMIT_FILE_SIZE and surfaced as a 500. Allow short social
+    // video while keeping a sane ceiling.
+    fileSize: 100 * 1024 * 1024,
   },
 });
 

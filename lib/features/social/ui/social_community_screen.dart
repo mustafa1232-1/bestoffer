@@ -3357,17 +3357,21 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
         leading: const MaslakiUserDrawerButton(openStartDrawer: true),
         actions: const [NotificationsBellButton()],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'community-post-fab-_',
-        onPressed: _openScopedCreatePostSheet,
-        icon: const Icon(Icons.post_add_rounded),
-        label: Text(
-          _t(
-            '\u0625\u0636\u0627\u0641\u0629 \u0645\u0646\u0634\u0648\u0631',
-            'Add post',
-          ),
-        ),
-      ),
+      // Hide the "Add post" FAB on the chat/messages tab (tab 2) so it does not
+      // float over the message composer / send button.
+      floatingActionButton: _tab == 2
+          ? null
+          : FloatingActionButton.extended(
+              heroTag: 'community-post-fab-_',
+              onPressed: _openScopedCreatePostSheet,
+              icon: const Icon(Icons.post_add_rounded),
+              label: Text(
+                _t(
+                  '\u0625\u0636\u0627\u0641\u0629 \u0645\u0646\u0634\u0648\u0631',
+                  'Add post',
+                ),
+              ),
+            ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: Column(
         children: [
