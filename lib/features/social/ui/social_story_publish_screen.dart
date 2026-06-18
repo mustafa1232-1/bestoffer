@@ -125,6 +125,9 @@ class _SocialStoryPublishScreenState
       if (draft.hasMaslakiSeal) {
         baseStyle['hasMaslakiSeal'] = true;
       }
+      if ((draft.maslakiMoodKey ?? '').trim().isNotEmpty) {
+        baseStyle['maslakiMoodKey'] = draft.maslakiMoodKey;
+      }
       if (media != null && media.isVideo && _segments.length > 1) {
         final sequenceId =
             '${draft.draftId}-${DateTime.now().microsecondsSinceEpoch}';

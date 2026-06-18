@@ -105,6 +105,10 @@ class RecordedClipDraft {
   /// Whether the Maslaki Seal (gold watermark) should be applied to this clip.
   final bool hasMaslakiSeal;
 
+  /// Maslaki Mood preset key — one of the curated mood cards
+  /// (quick_trip, basmaya_morning, daily_coffee, on_the_way, order_arrived).
+  final String? maslakiMoodKey;
+
   const RecordedClipDraft({
     required this.mediaFile,
     required this.captureType,
@@ -118,6 +122,7 @@ class RecordedClipDraft {
     this.timeMoodKey,
     this.placePulseLabel,
     this.hasMaslakiSeal = false,
+    this.maslakiMoodKey,
   });
 }
 

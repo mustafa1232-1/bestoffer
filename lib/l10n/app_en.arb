@@ -6062,6 +6062,35 @@
   "socialCreatorPlacePulseError": "Location unavailable",
   "socialCreatorPlacePulseSave": "Add location",
   "socialCreatorMaslakiSeal": "Maslaki Seal",
-  "socialCreatorMaslakiSealOn": "Seal on"
+  "socialCreatorMaslakiSealOn": "Seal on",
+  "socialStoryModeStory": "Story",
+  "socialStoryModeLayout": "Layout",
+  "socialStoryModeText": "Text",
+  "socialCreatorGallery": "Gallery",
+  "socialCreatorFiltersTool": "Filters",
+  "socialCreatorEffectsTool": "Effects",
+  "socialCreatorMoodTool": "Mood",
+  "socialCreatorLayoutDuo": "Duo",
+  "socialCreatorLayoutTrio": "Daily strip",
+  "socialCreatorLayoutQuad": "Four shots",
+  "socialCreatorLayoutGrid": "Moments grid",
+  "socialCreatorLayoutDone": "Done",
+  "socialCreatorLayoutImagesOnly": "Layout supports images only.",
+  "socialCreatorLayoutHint": "Capture each section · {filled}/{total}",
+  "@socialCreatorLayoutHint": {
+    "placeholders": {
+      "filled": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "socialCreatorMoodQuickTrip": "Quick trip",
+  "socialCreatorMoodBasmayaMorning": "Basmaya morning",
+  "socialCreatorMoodDailyCoffee": "Coffee of the day",
+  "socialCreatorMoodOnTheWay": "On the way",
+  "socialCreatorMoodOrderArrived": "Order arrived"
 }
 

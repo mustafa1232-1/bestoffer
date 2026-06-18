@@ -6061,7 +6061,36 @@
   "socialCreatorPlacePulseError": "الموقع غير متاح",
   "socialCreatorPlacePulseSave": "أضف الموقع",
   "socialCreatorMaslakiSeal": "ختم مسلكي",
-  "socialCreatorMaslakiSealOn": "الختم مفعّل"
+  "socialCreatorMaslakiSealOn": "الختم مفعّل",
+  "socialStoryModeStory": "قصة",
+  "socialStoryModeLayout": "تخطيط",
+  "socialStoryModeText": "نص",
+  "socialCreatorGallery": "المعرض",
+  "socialCreatorFiltersTool": "فلاتر",
+  "socialCreatorEffectsTool": "مؤثرات",
+  "socialCreatorMoodTool": "مزاج",
+  "socialCreatorLayoutDuo": "ثنائي",
+  "socialCreatorLayoutTrio": "يومي المصغّر",
+  "socialCreatorLayoutQuad": "أربع لقطات",
+  "socialCreatorLayoutGrid": "شبكة اللحظات",
+  "socialCreatorLayoutDone": "تم",
+  "socialCreatorLayoutImagesOnly": "التخطيط يدعم الصور فقط.",
+  "socialCreatorLayoutHint": "التقط كل قسم · {filled}/{total}",
+  "@socialCreatorLayoutHint": {
+    "placeholders": {
+      "filled": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "socialCreatorMoodQuickTrip": "مشوار سريع",
+  "socialCreatorMoodBasmayaMorning": "صباح بسماية",
+  "socialCreatorMoodDailyCoffee": "قهوة اليوم",
+  "socialCreatorMoodOnTheWay": "في الطريق",
+  "socialCreatorMoodOrderArrived": "وصل الطلب"
 }
 
 

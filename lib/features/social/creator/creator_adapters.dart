@@ -15,6 +15,7 @@ SocialStoryDraft buildStoryDraftFromCreator(CreatorPreviewDraft preview) {
     timeMoodKey: clip.timeMoodKey,
     placePulseLabel: clip.placePulseLabel,
     hasMaslakiSeal: clip.hasMaslakiSeal,
+    maslakiMoodKey: clip.maslakiMoodKey,
   );
 }
 
@@ -35,5 +36,6 @@ Map<String, dynamic> buildReelStyleFromCreator(CreatorPreviewDraft preview) {
     if ((clip.timeMoodKey ?? '').trim().isNotEmpty) 'timeMoodKey': clip.timeMoodKey,
     if ((clip.placePulseLabel ?? '').trim().isNotEmpty) 'placePulseLabel': clip.placePulseLabel,
     if (clip.hasMaslakiSeal) 'hasMaslakiSeal': true,
+    if ((clip.maslakiMoodKey ?? '').trim().isNotEmpty) 'maslakiMoodKey': clip.maslakiMoodKey,
   };
 }

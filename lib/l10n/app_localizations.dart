@@ -26950,27 +26950,51 @@ abstract class AppLocalizations {
   String get socialCreatorTimeMood;
 
   /// No description provided for @socialCreatorTimeMoodMorning.
+  ///
+  /// In en, this message translates to:
+  /// **'Dawn mood'**
   String get socialCreatorTimeMoodMorning;
 
   /// No description provided for @socialCreatorTimeMoodForenoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Morning mood'**
   String get socialCreatorTimeMoodForenoon;
 
   /// No description provided for @socialCreatorTimeMoodNoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Noon mood'**
   String get socialCreatorTimeMoodNoon;
 
   /// No description provided for @socialCreatorTimeMoodAfternoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Afternoon mood'**
   String get socialCreatorTimeMoodAfternoon;
 
   /// No description provided for @socialCreatorTimeMoodSunset.
+  ///
+  /// In en, this message translates to:
+  /// **'Sunset mood'**
   String get socialCreatorTimeMoodSunset;
 
   /// No description provided for @socialCreatorTimeMoodEvening.
+  ///
+  /// In en, this message translates to:
+  /// **'Evening mood'**
   String get socialCreatorTimeMoodEvening;
 
   /// No description provided for @socialCreatorTimeMoodNight.
+  ///
+  /// In en, this message translates to:
+  /// **'Night mood'**
   String get socialCreatorTimeMoodNight;
 
   /// No description provided for @socialCreatorTimeMoodLateNight.
+  ///
+  /// In en, this message translates to:
+  /// **'Late-night mood'**
   String get socialCreatorTimeMoodLateNight;
 
   /// No description provided for @socialCreatorPlacePulse.
@@ -26980,15 +27004,27 @@ abstract class AppLocalizations {
   String get socialCreatorPlacePulse;
 
   /// No description provided for @socialCreatorPlacePulseHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Tag a location to your story'**
   String get socialCreatorPlacePulseHint;
 
   /// No description provided for @socialCreatorPlacePulseLocating.
+  ///
+  /// In en, this message translates to:
+  /// **'Finding location…'**
   String get socialCreatorPlacePulseLocating;
 
   /// No description provided for @socialCreatorPlacePulseError.
+  ///
+  /// In en, this message translates to:
+  /// **'Location unavailable'**
   String get socialCreatorPlacePulseError;
 
   /// No description provided for @socialCreatorPlacePulseSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Add location'**
   String get socialCreatorPlacePulseSave;
 
   /// No description provided for @socialCreatorMaslakiSeal.
@@ -26998,7 +27034,124 @@ abstract class AppLocalizations {
   String get socialCreatorMaslakiSeal;
 
   /// No description provided for @socialCreatorMaslakiSealOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Seal on'**
   String get socialCreatorMaslakiSealOn;
+
+  /// No description provided for @socialStoryModeStory.
+  ///
+  /// In en, this message translates to:
+  /// **'Story'**
+  String get socialStoryModeStory;
+
+  /// No description provided for @socialStoryModeLayout.
+  ///
+  /// In en, this message translates to:
+  /// **'Layout'**
+  String get socialStoryModeLayout;
+
+  /// No description provided for @socialStoryModeText.
+  ///
+  /// In en, this message translates to:
+  /// **'Text'**
+  String get socialStoryModeText;
+
+  /// No description provided for @socialCreatorGallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Gallery'**
+  String get socialCreatorGallery;
+
+  /// No description provided for @socialCreatorFiltersTool.
+  ///
+  /// In en, this message translates to:
+  /// **'Filters'**
+  String get socialCreatorFiltersTool;
+
+  /// No description provided for @socialCreatorEffectsTool.
+  ///
+  /// In en, this message translates to:
+  /// **'Effects'**
+  String get socialCreatorEffectsTool;
+
+  /// No description provided for @socialCreatorMoodTool.
+  ///
+  /// In en, this message translates to:
+  /// **'Mood'**
+  String get socialCreatorMoodTool;
+
+  /// No description provided for @socialCreatorLayoutDuo.
+  ///
+  /// In en, this message translates to:
+  /// **'Duo'**
+  String get socialCreatorLayoutDuo;
+
+  /// No description provided for @socialCreatorLayoutTrio.
+  ///
+  /// In en, this message translates to:
+  /// **'Daily strip'**
+  String get socialCreatorLayoutTrio;
+
+  /// No description provided for @socialCreatorLayoutQuad.
+  ///
+  /// In en, this message translates to:
+  /// **'Four shots'**
+  String get socialCreatorLayoutQuad;
+
+  /// No description provided for @socialCreatorLayoutGrid.
+  ///
+  /// In en, this message translates to:
+  /// **'Moments grid'**
+  String get socialCreatorLayoutGrid;
+
+  /// No description provided for @socialCreatorLayoutDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get socialCreatorLayoutDone;
+
+  /// No description provided for @socialCreatorLayoutImagesOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Layout supports images only.'**
+  String get socialCreatorLayoutImagesOnly;
+
+  /// No description provided for @socialCreatorLayoutHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Capture each section · {filled}/{total}'**
+  String socialCreatorLayoutHint(int filled, int total);
+
+  /// No description provided for @socialCreatorMoodQuickTrip.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick trip'**
+  String get socialCreatorMoodQuickTrip;
+
+  /// No description provided for @socialCreatorMoodBasmayaMorning.
+  ///
+  /// In en, this message translates to:
+  /// **'Basmaya morning'**
+  String get socialCreatorMoodBasmayaMorning;
+
+  /// No description provided for @socialCreatorMoodDailyCoffee.
+  ///
+  /// In en, this message translates to:
+  /// **'Coffee of the day'**
+  String get socialCreatorMoodDailyCoffee;
+
+  /// No description provided for @socialCreatorMoodOnTheWay.
+  ///
+  /// In en, this message translates to:
+  /// **'On the way'**
+  String get socialCreatorMoodOnTheWay;
+
+  /// No description provided for @socialCreatorMoodOrderArrived.
+  ///
+  /// In en, this message translates to:
+  /// **'Order arrived'**
+  String get socialCreatorMoodOrderArrived;
 }
 
 class _AppLocalizationsDelegate

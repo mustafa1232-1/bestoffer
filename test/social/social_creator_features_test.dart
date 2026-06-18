@@ -279,11 +279,22 @@ void main() {
         timeMoodKey: 'sunset',
         placePulseLabel: 'حي العدالة',
         hasMaslakiSeal: true,
+        maslakiMoodKey: 'on_the_way',
       );
       final restored = SocialStoryDraft.fromJson(original.toJson());
       expect(restored.timeMoodKey, 'sunset');
       expect(restored.placePulseLabel, 'حي العدالة');
       expect(restored.hasMaslakiSeal, isTrue);
+      expect(restored.maslakiMoodKey, 'on_the_way');
+    });
+
+    test('toJson includes maslakiMoodKey when set, omits when empty', () {
+      final withMood = SocialStoryDraft.initialText().copyWith(
+        maslakiMoodKey: 'daily_coffee',
+      );
+      expect(withMood.toJson()['maslakiMoodKey'], 'daily_coffee');
+      final without = SocialStoryDraft.initialText();
+      expect(without.toJson().containsKey('maslakiMoodKey'), isFalse);
     });
 
     test('copyWith does not lose unrelated fields', () {

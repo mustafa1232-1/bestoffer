@@ -327,6 +327,7 @@ class SocialStoryDraft {
   final String? timeMoodKey;
   final String? placePulseLabel;
   final bool hasMaslakiSeal;
+  final String? maslakiMoodKey;
 
   const SocialStoryDraft({
     required this.draftId,
@@ -345,6 +346,7 @@ class SocialStoryDraft {
     this.timeMoodKey,
     this.placePulseLabel,
     this.hasMaslakiSeal = false,
+    this.maslakiMoodKey,
   });
 
   factory SocialStoryDraft.initialText() => SocialStoryDraft(
@@ -396,6 +398,9 @@ class SocialStoryDraft {
       ),
       hasMaslakiSeal: parseBool(
         json['hasMaslakiSeal'] ?? json['has_maslaki_seal'],
+      ),
+      maslakiMoodKey: parseNullableString(
+        json['maslakiMoodKey'] ?? json['maslaki_mood_key'],
       ),
       background: SocialStoryBackground.fromJson(
         Map<String, dynamic>.from(json['background'] as Map? ?? const {}),
@@ -497,6 +502,7 @@ class SocialStoryDraft {
     if ((timeMoodKey ?? '').trim().isNotEmpty) 'timeMoodKey': timeMoodKey,
     if ((placePulseLabel ?? '').trim().isNotEmpty) 'placePulseLabel': placePulseLabel,
     if (hasMaslakiSeal) 'hasMaslakiSeal': true,
+    if ((maslakiMoodKey ?? '').trim().isNotEmpty) 'maslakiMoodKey': maslakiMoodKey,
     'background': background.toJson(),
     if (attachment != null) 'attachment': attachment!.toJson(),
     'layers': layers.map((layer) => layer.toJson()).toList(growable: false),
@@ -520,6 +526,7 @@ class SocialStoryDraft {
     String? timeMoodKey,
     String? placePulseLabel,
     bool? hasMaslakiSeal,
+    String? maslakiMoodKey,
   }) {
     return SocialStoryDraft(
       draftId: draftId,
@@ -538,6 +545,7 @@ class SocialStoryDraft {
       timeMoodKey: timeMoodKey ?? this.timeMoodKey,
       placePulseLabel: placePulseLabel ?? this.placePulseLabel,
       hasMaslakiSeal: hasMaslakiSeal ?? this.hasMaslakiSeal,
+      maslakiMoodKey: maslakiMoodKey ?? this.maslakiMoodKey,
     );
   }
 

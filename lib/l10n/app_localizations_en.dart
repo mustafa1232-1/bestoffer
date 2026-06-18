@@ -14960,4 +14960,63 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get socialCreatorMaslakiSealOn => 'Seal on';
+
+  @override
+  String get socialStoryModeStory => 'Story';
+
+  @override
+  String get socialStoryModeLayout => 'Layout';
+
+  @override
+  String get socialStoryModeText => 'Text';
+
+  @override
+  String get socialCreatorGallery => 'Gallery';
+
+  @override
+  String get socialCreatorFiltersTool => 'Filters';
+
+  @override
+  String get socialCreatorEffectsTool => 'Effects';
+
+  @override
+  String get socialCreatorMoodTool => 'Mood';
+
+  @override
+  String get socialCreatorLayoutDuo => 'Duo';
+
+  @override
+  String get socialCreatorLayoutTrio => 'Daily strip';
+
+  @override
+  String get socialCreatorLayoutQuad => 'Four shots';
+
+  @override
+  String get socialCreatorLayoutGrid => 'Moments grid';
+
+  @override
+  String get socialCreatorLayoutDone => 'Done';
+
+  @override
+  String get socialCreatorLayoutImagesOnly => 'Layout supports images only.';
+
+  @override
+  String socialCreatorLayoutHint(int filled, int total) {
+    return 'Capture each section · $filled/$total';
+  }
+
+  @override
+  String get socialCreatorMoodQuickTrip => 'Quick trip';
+
+  @override
+  String get socialCreatorMoodBasmayaMorning => 'Basmaya morning';
+
+  @override
+  String get socialCreatorMoodDailyCoffee => 'Coffee of the day';
+
+  @override
+  String get socialCreatorMoodOnTheWay => 'On the way';
+
+  @override
+  String get socialCreatorMoodOrderArrived => 'Order arrived';
 }

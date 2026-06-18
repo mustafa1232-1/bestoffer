@@ -14719,4 +14719,63 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get socialCreatorMaslakiSealOn => 'الختم مفعّل';
+
+  @override
+  String get socialStoryModeStory => 'قصة';
+
+  @override
+  String get socialStoryModeLayout => 'تخطيط';
+
+  @override
+  String get socialStoryModeText => 'نص';
+
+  @override
+  String get socialCreatorGallery => 'المعرض';
+
+  @override
+  String get socialCreatorFiltersTool => 'فلاتر';
+
+  @override
+  String get socialCreatorEffectsTool => 'مؤثرات';
+
+  @override
+  String get socialCreatorMoodTool => 'مزاج';
+
+  @override
+  String get socialCreatorLayoutDuo => 'ثنائي';
+
+  @override
+  String get socialCreatorLayoutTrio => 'يومي المصغّر';
+
+  @override
+  String get socialCreatorLayoutQuad => 'أربع لقطات';
+
+  @override
+  String get socialCreatorLayoutGrid => 'شبكة اللحظات';
+
+  @override
+  String get socialCreatorLayoutDone => 'تم';
+
+  @override
+  String get socialCreatorLayoutImagesOnly => 'التخطيط يدعم الصور فقط.';
+
+  @override
+  String socialCreatorLayoutHint(int filled, int total) {
+    return 'التقط كل قسم · $filled/$total';
+  }
+
+  @override
+  String get socialCreatorMoodQuickTrip => 'مشوار سريع';
+
+  @override
+  String get socialCreatorMoodBasmayaMorning => 'صباح بسماية';
+
+  @override
+  String get socialCreatorMoodDailyCoffee => 'قهوة اليوم';
+
+  @override
+  String get socialCreatorMoodOnTheWay => 'في الطريق';
+
+  @override
+  String get socialCreatorMoodOrderArrived => 'وصل الطلب';
 }
