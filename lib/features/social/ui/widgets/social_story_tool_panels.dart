@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/i18n/app_localizations_context.dart';
+import '../../../../core/i18n/locale_text.dart';
 import '../../models/social_story_document.dart';
 import 'social_story_layer_widget.dart';
 import 'social_story_mention_panel.dart';
@@ -213,55 +214,202 @@ class _TextToolPanelState extends State<_TextToolPanel> {
   }
 }
 
-class _StickerToolPanel extends StatelessWidget {
+/// Maslaki sticker categories. Emoji + a few Arabic word stickers — all persist
+/// as text stickers, so anything the user can type on their keyboard (including
+/// the keyboard's own emoji/sticker panel) can be added too.
+class _StickerCategory {
+  final String key;
+  final String emoji;
+  final List<String> stickers;
+  const _StickerCategory(this.key, this.emoji, this.stickers);
+}
+
+const List<_StickerCategory> _kStickerCategories = <_StickerCategory>[
+  _StickerCategory('smileys', '😀', <String>[
+    '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '🙂',
+    '😉', '😍', '🥰', '😘', '😗', '😎', '🤩', '🥳', '😋', '😛',
+    '😜', '🤪', '🤗', '🤔', '🤭', '🙃', '😏', '😴', '🤤', '😇',
+    '🥺', '😢', '😭', '😤', '😡', '🤯', '😱', '🥹', '😬', '🙄',
+  ]),
+  _StickerCategory('love', '❤️', <String>[
+    '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💖',
+    '💗', '💓', '💕', '💞', '💘', '💝', '💟', '❣️', '💔', '♥️',
+    '😍', '🥰', '😘', '💋', '💌',
+  ]),
+  _StickerCategory('hands', '👍', <String>[
+    '👍', '👎', '👏', '🙌', '🙏', '👌', '✌️', '🤞', '🤟', '🤙',
+    '💪', '👋', '🤝', '✊', '👊', '🫶', '🤲', '☝️', '👇', '👆',
+  ]),
+  _StickerCategory('animals', '🐶', <String>[
+    '🐶', '🐱', '🦊', '🦁', '🐯', '🐰', '🐻', '🐼', '🐨', '🐵',
+    '🦄', '🐝', '🦋', '🐢', '🐬', '🦅', '🐎', '🐪', '🦌', '🕊️',
+  ]),
+  _StickerCategory('food', '☕', <String>[
+    '☕', '🍵', '🧃', '🥤', '🍰', '🍩', '🍪', '🍫', '🍓', '🍉',
+    '🍇', '🍊', '🍕', '🍔', '🍟', '🌮', '🍦', '🍧', '🥙', '🧆',
+  ]),
+  _StickerCategory('places', '📍', <String>[
+    '📍', '🏠', '🏡', '🕌', '🌆', '🌃', '🏙️', '🚗', '🚕', '✈️',
+    '🛵', '⛽', '🛣️', '🌅', '🌙', '⭐', '🇮🇶',
+  ]),
+  _StickerCategory('fun', '🎉', <String>[
+    '🎉', '🎊', '🎁', '🎈', '🔥', '✨', '⭐', '🌟', '💫', '💯',
+    '📸', '🎬', '🎵', '🎶', '⚽', '🏀', '🎮', '🏆', '👑', '💎',
+  ]),
+  _StickerCategory('symbols', '✅', <String>[
+    '✅', '❌', '❓', '❗', '💬', '💡', '🔔', '📌', '🆕', '🔝',
+    '♻️', '➡️', '⬅️', '⬆️', '⬇️', '🔴', '🟢', '🟡', '🔵', '⚡',
+  ]),
+  _StickerCategory('words', '✍️', <String>[
+    'بسماية', 'مسلكي', 'يلا', 'تم ✅', 'وصل الطلب', 'في الطريق',
+    'صباح الخير', 'مساء الخير', 'مبروك', 'شكراً',
+  ]),
+];
+
+class _StickerToolPanel extends StatefulWidget {
   const _StickerToolPanel({this.onStickerSelected});
 
   final ValueChanged<String>? onStickerSelected;
 
   @override
+  State<_StickerToolPanel> createState() => _StickerToolPanelState();
+}
+
+class _StickerToolPanelState extends State<_StickerToolPanel> {
+  final TextEditingController _customController = TextEditingController();
+  int _category = 0;
+
+  @override
+  void dispose() {
+    _customController.dispose();
+    super.dispose();
+  }
+
+  void _addCustom() {
+    final value = _customController.text.trim();
+    if (value.isEmpty) return;
+    widget.onStickerSelected?.call(value);
+    _customController.clear();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    const stickers = [
-      '🔥',
-      '✨',
-      '📍',
-      '❤️',
-      '👏',
-      '☕',
-      '🎉',
-      'بسماية',
-      '🏠',
-      '💬',
-    ];
+    final l10n = context.l10n;
+    final scheme = Theme.of(context).colorScheme;
+    final stickers = _kStickerCategories[_category].stickers;
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: scheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        children: stickers
-            .map(
-              (sticker) => InkWell(
-                borderRadius: BorderRadius.circular(18),
-                onTap: () => onStickerSelected?.call(sticker),
-                child: Ink(
-                  width: 54,
-                  height: 54,
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Keyboard input: add any emoji/sticker/word straight from the
+          // device keyboard (incl. its emoji panel). Persists as a text sticker.
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _customController,
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: context.lt(
+                      ar: 'اكتب أو الصق ستيكر/إيموجي…',
+                      en: 'Type or paste a sticker/emoji…',
+                    ),
+                    filled: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
-                  child: Center(
-                    child: Text(sticker, style: const TextStyle(fontSize: 28)),
-                  ),
+                  onSubmitted: (_) => _addCustom(),
                 ),
               ),
-            )
-            .toList(growable: false),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: _addCustom,
+                icon: const Icon(Icons.add_rounded),
+                tooltip: l10n.socialStoryComposerToolStickers,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Category selector.
+          SizedBox(
+            height: 40,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _kStickerCategories.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 6),
+              itemBuilder: (context, index) {
+                final selected = index == _category;
+                return GestureDetector(
+                  onTap: () => setState(() => _category = index),
+                  child: Container(
+                    width: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? scheme.primary.withValues(alpha: 0.18)
+                          : scheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: selected ? scheme.primary : Colors.transparent,
+                      ),
+                    ),
+                    child: Text(
+                      _kStickerCategories[index].emoji,
+                      style: const TextStyle(fontSize: 20),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Sticker grid for the active category.
+          SizedBox(
+            height: 188,
+            child: GridView.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 60,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+              ),
+              itemCount: stickers.length,
+              itemBuilder: (context, index) {
+                final sticker = stickers[index];
+                final isWord = sticker.runes.length > 3;
+                return InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => widget.onStickerSelected?.call(sticker),
+                  child: Ink(
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: Text(
+                          sticker,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: isWord ? 11 : 26),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
