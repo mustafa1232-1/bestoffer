@@ -154,8 +154,20 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> bootstrap() async {
     final store = ref.read(secureStoreProvider);
+    state = state.copyWith(
+      loading: true,
+      clearValidationError: true,
+      clearErrorCode: true,
+    );
     final token = await store.readToken();
-    if (token == null || token.isEmpty) return;
+    if (token == null || token.isEmpty) {
+      state = state.copyWith(
+        loading: false,
+        clearValidationError: true,
+        clearErrorCode: true,
+      );
+      return;
+    }
 
     state = state.copyWith(
       token: token,
@@ -175,7 +187,13 @@ class AuthController extends StateNotifier<AuthState> {
     } catch (_) {
       await store.clear();
       state = const AuthState();
+      return;
     }
+    state = state.copyWith(
+      loading: false,
+      clearValidationError: true,
+      clearErrorCode: true,
+    );
   }
 
   Future<void> login(String phone, String pin) async {
@@ -531,6 +549,39 @@ class AuthController extends StateNotifier<AuthState> {
     }
     await ref.read(authRepoProvider).logout();
     state = const AuthState();
+  }
+
+  /// Permanently deletes the signed-in account, then clears the local session so
+  /// the router redirects to login. Returns true on success.
+  Future<bool> deleteAccount({String? reasonCode, String? note}) async {
+    state = state.copyWith(
+      loading: true,
+      error: null,
+      clearValidationError: true,
+      clearErrorCode: true,
+    );
+    try {
+      final api = AuthApi(ref.read(dioClientProvider).dio);
+      await api.deleteMyAccount(reasonCode: reasonCode, note: note);
+      await logout();
+      return true;
+    } on DioException catch (e) {
+      state = state.copyWith(
+        loading: false,
+        error: mapDioError(
+          e,
+          fallback: 'Unable to delete your account.',
+          appendRequestId: true,
+        ),
+      );
+      return false;
+    } catch (e) {
+      state = state.copyWith(
+        loading: false,
+        error: mapAnyError(e, fallback: 'Unable to delete your account.'),
+      );
+      return false;
+    }
   }
 
   Future<bool> updateAccount({

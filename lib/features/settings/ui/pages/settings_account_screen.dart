@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/i18n/app_localizations_context.dart';
 import '../../../../core/i18n/app_strings.dart';
 import '../../../auth/state/auth_controller.dart';
 
@@ -120,9 +121,53 @@ class _SettingsAccountScreenState extends ConsumerState<SettingsAccountScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 10),
+            _DeleteAccountCard(
+              loading: auth.loading,
+              onDelete: _confirmDeleteAccount,
+            ),
           ],
         ],
       ),
+    );
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    final l10n = context.l10n;
+    final scheme = Theme.of(context).colorScheme;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.settingsDeleteAccountConfirmTitle),
+        content: Text(l10n.settingsDeleteAccountConfirmBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: scheme.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l10n.settingsDeleteAccountConfirmAction),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await ref
+        .read(authControllerProvider.notifier)
+        .deleteAccount();
+    if (!mounted) return;
+    if (ok) {
+      // Session cleared → the router redirects to login. Leave the settings stack.
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      return;
+    }
+    final error = ref.read(authControllerProvider).error;
+    _snack(
+      (error != null && error.isNotEmpty)
+          ? error
+          : l10n.settingsDeleteAccountFailed,
     );
   }
 
@@ -211,5 +256,56 @@ class _SettingsAccountScreenState extends ConsumerState<SettingsAccountScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _DeleteAccountCard extends StatelessWidget {
+  final bool loading;
+  final Future<void> Function() onDelete;
+
+  const _DeleteAccountCard({required this.loading, required this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      color: scheme.errorContainer.withValues(alpha: 0.35),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.delete_forever_rounded, color: scheme.error),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    l10n.settingsDeleteAccount,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: scheme.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(l10n.settingsDeleteAccountHint),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: scheme.error,
+                side: BorderSide(color: scheme.error),
+              ),
+              onPressed: loading ? null : () => onDelete(),
+              icon: const Icon(Icons.delete_outline_rounded),
+              label: Text(l10n.settingsDeleteAccount),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

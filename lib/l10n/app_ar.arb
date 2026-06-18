@@ -6099,7 +6099,15 @@
   "socialCreatorTextColor": "لون النص",
   "socialCreatorTextSize": "حجم النص",
   "socialCreatorTextAlign": "المحاذاة",
-  "socialCreatorTextEmpty": "اكتب نصًا أولًا"
+  "socialCreatorTextEmpty": "اكتب نصًا أولًا",
+  "settingsPrivacyPolicy": "سياسة الخصوصية",
+  "settingsPrivacyPolicyHint": "كيف نجمع بياناتك ونستخدمها ونحميها",
+  "settingsDeleteAccount": "حذف حسابي",
+  "settingsDeleteAccountHint": "حذف حسابك وبياناتك المرتبطة نهائيًا.",
+  "settingsDeleteAccountConfirmTitle": "حذف الحساب؟",
+  "settingsDeleteAccountConfirmBody": "سيتم حذف حسابك وبياناتك المرتبطة نهائيًا، ولا يمكن التراجع عن هذا الإجراء.",
+  "settingsDeleteAccountConfirmAction": "حذف",
+  "settingsDeleteAccountFailed": "تعذّر حذف الحساب. حاول مجددًا."
 }
 
 

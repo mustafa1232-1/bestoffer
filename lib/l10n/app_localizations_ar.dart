@@ -14805,4 +14805,30 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get socialCreatorTextEmpty => 'اكتب نصًا أولًا';
+
+  @override
+  String get settingsPrivacyPolicy => 'سياسة الخصوصية';
+
+  @override
+  String get settingsPrivacyPolicyHint => 'كيف نجمع بياناتك ونستخدمها ونحميها';
+
+  @override
+  String get settingsDeleteAccount => 'حذف حسابي';
+
+  @override
+  String get settingsDeleteAccountHint =>
+      'حذف حسابك وبياناتك المرتبطة نهائيًا.';
+
+  @override
+  String get settingsDeleteAccountConfirmTitle => 'حذف الحساب؟';
+
+  @override
+  String get settingsDeleteAccountConfirmBody =>
+      'سيتم حذف حسابك وبياناتك المرتبطة نهائيًا، ولا يمكن التراجع عن هذا الإجراء.';
+
+  @override
+  String get settingsDeleteAccountConfirmAction => 'حذف';
+
+  @override
+  String get settingsDeleteAccountFailed => 'تعذّر حذف الحساب. حاول مجددًا.';
 }

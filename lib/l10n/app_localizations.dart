@@ -27206,6 +27206,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Write something first'**
   String get socialCreatorTextEmpty;
+
+  /// No description provided for @settingsPrivacyPolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'Privacy Policy'**
+  String get settingsPrivacyPolicy;
+
+  /// No description provided for @settingsPrivacyPolicyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'How we collect, use, and protect your data'**
+  String get settingsPrivacyPolicyHint;
+
+  /// No description provided for @settingsDeleteAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete my account'**
+  String get settingsDeleteAccount;
+
+  /// No description provided for @settingsDeleteAccountHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Permanently delete your account and associated data.'**
+  String get settingsDeleteAccountHint;
+
+  /// No description provided for @settingsDeleteAccountConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete account?'**
+  String get settingsDeleteAccountConfirmTitle;
+
+  /// No description provided for @settingsDeleteAccountConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This permanently deletes your account and associated data. This action cannot be undone.'**
+  String get settingsDeleteAccountConfirmBody;
+
+  /// No description provided for @settingsDeleteAccountConfirmAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get settingsDeleteAccountConfirmAction;
+
+  /// No description provided for @settingsDeleteAccountFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not delete your account. Please try again.'**
+  String get settingsDeleteAccountFailed;
 }
 
 class _AppLocalizationsDelegate

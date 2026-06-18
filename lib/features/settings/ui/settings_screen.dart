@@ -6,6 +6,7 @@ import '../../../core/auth/app_permission_matrix.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/settings/app_settings_controller.dart';
+import '../../../core/widgets/maslaki_back_button.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
 import '../../auth/state/auth_controller.dart';
 import 'pages/settings_account_screen.dart';
@@ -15,6 +16,7 @@ import 'pages/settings_cache_screen.dart';
 import 'pages/settings_language_screen.dart';
 import 'pages/settings_support_screen.dart';
 import 'pages/settings_usage_guide_screen.dart';
+import 'pages/privacy_policy_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -46,11 +48,7 @@ class SettingsScreen extends ConsumerWidget {
           en: 'Language, appearance, security, and support in one place.',
         ),
         leading: canPop
-            ? IconButton(
-                tooltip: l10n.commonBack,
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back_rounded),
-              )
+            ? const MaslakiBackButton(fallbackTabIndex: 4)
             : const MaslakiUserDrawerButton(),
         actions: [
           if (canPop) const MaslakiUserDrawerButton(),
@@ -163,6 +161,12 @@ class SettingsScreen extends ConsumerWidget {
                 ? 'عرض حجم الكاش ومسحه'
                 : 'View cache usage and clear it',
             onTap: () => open(const SettingsCacheScreen()),
+          ),
+          _SettingsSectionCard(
+            icon: Icons.privacy_tip_outlined,
+            title: l10n.settingsPrivacyPolicy,
+            subtitle: l10n.settingsPrivacyPolicyHint,
+            onTap: () => open(const PrivacyPolicyScreen()),
           ),
         ],
       ),

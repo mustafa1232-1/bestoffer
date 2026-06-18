@@ -6100,6 +6100,14 @@
   "socialCreatorTextColor": "Text color",
   "socialCreatorTextSize": "Text size",
   "socialCreatorTextAlign": "Align",
-  "socialCreatorTextEmpty": "Write something first"
+  "socialCreatorTextEmpty": "Write something first",
+  "settingsPrivacyPolicy": "Privacy Policy",
+  "settingsPrivacyPolicyHint": "How we collect, use, and protect your data",
+  "settingsDeleteAccount": "Delete my account",
+  "settingsDeleteAccountHint": "Permanently delete your account and associated data.",
+  "settingsDeleteAccountConfirmTitle": "Delete account?",
+  "settingsDeleteAccountConfirmBody": "This permanently deletes your account and associated data. This action cannot be undone.",
+  "settingsDeleteAccountConfirmAction": "Delete",
+  "settingsDeleteAccountFailed": "Could not delete your account. Please try again."
 }
 

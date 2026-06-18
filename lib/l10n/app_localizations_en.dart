@@ -15046,4 +15046,32 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get socialCreatorTextEmpty => 'Write something first';
+
+  @override
+  String get settingsPrivacyPolicy => 'Privacy Policy';
+
+  @override
+  String get settingsPrivacyPolicyHint =>
+      'How we collect, use, and protect your data';
+
+  @override
+  String get settingsDeleteAccount => 'Delete my account';
+
+  @override
+  String get settingsDeleteAccountHint =>
+      'Permanently delete your account and associated data.';
+
+  @override
+  String get settingsDeleteAccountConfirmTitle => 'Delete account?';
+
+  @override
+  String get settingsDeleteAccountConfirmBody =>
+      'This permanently deletes your account and associated data. This action cannot be undone.';
+
+  @override
+  String get settingsDeleteAccountConfirmAction => 'Delete';
+
+  @override
+  String get settingsDeleteAccountFailed =>
+      'Could not delete your account. Please try again.';
 }
