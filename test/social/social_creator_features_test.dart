@@ -88,9 +88,9 @@ void main() {
     });
 
     test('label returns Arabic name when languageCode is ar', () {
-      final preset = resolveCreatorFilterPreset('neon_souq');
-      expect(preset.label('ar'), 'سوق نيون');
-      expect(preset.label('en'), 'Neon Souq');
+      final preset = resolveCreatorFilterPreset('souq_light');
+      expect(preset.label('ar'), 'ضوء السوق');
+      expect(preset.label('en'), 'Souq Light');
     });
   });
 

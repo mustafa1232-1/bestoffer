@@ -34,12 +34,21 @@ class CreatorCapabilitySnapshot {
   });
 }
 
+/// Filter families. `color` = global color grade; `beauty` = portrait-tuned
+/// tone/light grade (NOT geometric face shaping — that needs a face mesh).
+enum CreatorFilterCategory { color, beauty }
+
 class CreatorFilterPreset {
   final String id;
   final String arabicName;
   final String englishName;
   final List<double> previewMatrix;
   final String ffmpegFilterGraph;
+  final CreatorFilterCategory category;
+
+  /// True only when the filter genuinely renders in live preview AND export.
+  /// Never expose a non-working filter to the user.
+  final bool supported;
 
   const CreatorFilterPreset({
     required this.id,
@@ -47,6 +56,8 @@ class CreatorFilterPreset {
     required this.englishName,
     required this.previewMatrix,
     required this.ffmpegFilterGraph,
+    this.category = CreatorFilterCategory.color,
+    this.supported = true,
   });
 
   String label(String languageCode) =>
@@ -60,12 +71,18 @@ class CreatorEffectPreset {
   final bool supportsPhotoExport;
   final bool supportsVideoExport;
 
+  /// AR face effects are only `supported` when backed by real anchored assets +
+  /// a face mesh. Defaults to false so primitive/code-drawn effects are hidden
+  /// from the user until professional assets land.
+  final bool supported;
+
   const CreatorEffectPreset({
     required this.id,
     required this.arabicName,
     required this.englishName,
     this.supportsPhotoExport = true,
     this.supportsVideoExport = false,
+    this.supported = false,
   });
 
   String label(String languageCode) =>

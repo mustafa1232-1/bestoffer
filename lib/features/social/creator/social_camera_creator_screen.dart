@@ -1239,8 +1239,11 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
   }
 
   Widget _sideRail(AppLocalizations l10n) {
-    final showEffects =
-        _storyMode == _StoryMode.camera && _captureType == CreatorCaptureType.photo;
+    // Only surface the Effects tool when real (supported) AR effects exist.
+    // Primitive code-drawn effects are intentionally hidden until pro assets land.
+    final showEffects = _storyMode == _StoryMode.camera &&
+        _captureType == CreatorCaptureType.photo &&
+        creatorEffectPresets.any((effect) => effect.supported);
     return PositionedDirectional(
       top: MediaQuery.of(context).padding.top + 64,
       end: 8,
@@ -1334,11 +1337,12 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
     final languageCode = Localizations.localeOf(context).languageCode;
     switch (_tray) {
       case _CameraTray.filters:
+        final filters = creatorSupportedFilterPresets;
         return _CarouselTray(
           height: 56,
-          itemCount: creatorFilterPresets.length,
+          itemCount: filters.length,
           itemBuilder: (context, index) {
-            final preset = creatorFilterPresets[index];
+            final preset = filters[index];
             return _TrayPill(
               label: preset.label(languageCode),
               selected: preset.id == _selectedFilterId,
@@ -1347,9 +1351,12 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
           },
         );
       case _CameraTray.effects:
+        // Only supported (asset-backed) effects are ever shown.
+        final effects =
+            creatorEffectPresets.where((effect) => effect.supported).toList();
         return _CarouselTray(
           height: 56,
-          itemCount: creatorEffectPresets.length + 1,
+          itemCount: effects.length + 1,
           itemBuilder: (context, index) {
             if (index == 0) {
               return _TrayPill(
@@ -1364,7 +1371,7 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
                 },
               );
             }
-            final preset = creatorEffectPresets[index - 1];
+            final preset = effects[index - 1];
             return _TrayPill(
               label: preset.label(languageCode),
               selected: preset.id == _selectedEffectId,
