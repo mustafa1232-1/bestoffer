@@ -11,12 +11,13 @@ class CustomerElectronicsHubScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
-          initialType: 'market',
+          // Strict isolation by real activity category — never market+keyword.
+          initialActivityType: topic.activityType,
           initialSearchQuery: topic.searchQuery,
-          requiredAnyKeywords: topic.searchTerms,
           overrideTitle: topic.title,
           compactCustomerMode: true,
-          applyInitialSearchQuery: true,
+          strictCategoryMode: true,
+          applyInitialSearchQuery: topic.searchQuery.trim().isNotEmpty,
         ),
       ),
     );
@@ -40,6 +41,7 @@ class CustomerElectronicsHubScreen extends StatelessWidget {
         icon: Icons.electrical_services_rounded,
         colorA: const Color(0xFF365F94),
         colorB: const Color(0xFF244066),
+        activityType: 'electrical_lighting',
       ),
       _ElectronicsTopic(
         title: l10n.customerElectronicsHubSmallAppliancesTitle,
@@ -56,6 +58,7 @@ class CustomerElectronicsHubScreen extends StatelessWidget {
         icon: Icons.kitchen_rounded,
         colorA: const Color(0xFF4F6D95),
         colorB: const Color(0xFF33475F),
+        activityType: 'home_kitchen',
       ),
       _ElectronicsTopic(
         title: l10n.customerElectronicsHubAccessoriesTitle,
@@ -73,6 +76,7 @@ class CustomerElectronicsHubScreen extends StatelessWidget {
         icon: Icons.settings_input_hdmi_rounded,
         colorA: const Color(0xFF3A6B78),
         colorB: const Color(0xFF254751),
+        activityType: 'electronics_mobile',
       ),
       _ElectronicsTopic(
         title: l10n.customerElectronicsHubPhonesTitle,
@@ -91,6 +95,7 @@ class CustomerElectronicsHubScreen extends StatelessWidget {
         icon: Icons.devices_other_rounded,
         colorA: const Color(0xFF5F5F9A),
         colorB: const Color(0xFF3D3D66),
+        activityType: 'electronics_mobile',
       ),
     ];
   }
@@ -237,6 +242,9 @@ class _ElectronicsTopic {
   final Color colorA;
   final Color colorB;
 
+  /// Strict store activity this topic isolates to.
+  final String activityType;
+
   const _ElectronicsTopic({
     required this.title,
     required this.subtitle,
@@ -245,5 +253,6 @@ class _ElectronicsTopic {
     required this.icon,
     required this.colorA,
     required this.colorB,
+    required this.activityType,
   });
 }

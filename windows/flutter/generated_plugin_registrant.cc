@@ -9,6 +9,7 @@
 #include <app_links/app_links_plugin_c_api.h>
 #include <audioplayers_windows/audioplayers_windows_plugin.h>
 #include <charset_converter/charset_converter_plugin.h>
+#include <ffmpeg_kit_flutter_new/f_fmpeg_kit_flutter_plugin.h>
 #include <file_selector_windows/file_selector_windows.h>
 #include <flutter_secure_storage_windows/flutter_secure_storage_windows_plugin.h>
 #include <flutter_webrtc/flutter_web_r_t_c_plugin.h>
@@ -27,6 +28,8 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("AudioplayersWindowsPlugin"));
   CharsetConverterPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("CharsetConverterPlugin"));
+  FFmpegKitFlutterPluginRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FFmpegKitFlutterPlugin"));
   FileSelectorWindowsRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FileSelectorWindows"));
   FlutterSecureStorageWindowsPluginRegisterWithRegistrar(

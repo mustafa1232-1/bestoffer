@@ -1,9 +1,11 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/settings/app_settings_controller.dart';
 import '../../../core/theme/app_backdrop.dart';
+import '../../../core/widgets/maslaki_brand_mark.dart';
+import '../../../core/widgets/maslaki_wordmark.dart';
 import '../state/company_session_controller.dart';
 
 class CompanyLoginScreen extends ConsumerStatefulWidget {
@@ -27,10 +29,12 @@ class _CompanyLoginScreenState extends ConsumerState<CompanyLoginScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    await ref.read(companySessionControllerProvider.notifier).login(
-      phone: _phoneController.text.trim(),
-      pin: _pinController.text.trim(),
-    );
+    await ref
+        .read(companySessionControllerProvider.notifier)
+        .login(
+          phone: _phoneController.text.trim(),
+          pin: _pinController.text.trim(),
+        );
   }
 
   @override
@@ -77,23 +81,25 @@ class _CompanyLoginScreenState extends ConsumerState<CompanyLoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Container(
-                          width: 72,
-                          height: 72,
-                          decoration: BoxDecoration(
-                            color: scheme.primary.withValues(alpha: 0.16),
-                            borderRadius: BorderRadius.circular(24),
-                          ),
-                          child: Icon(
-                            Icons.apartment_rounded,
-                            color: scheme.primary,
-                            size: 34,
-                          ),
+                        const Row(
+                          children: [
+                            MaslakiBrandMark(size: 54, borderRadius: 16),
+                            SizedBox(width: 14),
+                            Expanded(
+                              child: MaslakiWordmark(
+                                arabicSize: 24,
+                                latinSize: 10,
+                                latinLetterSpacing: 3.8,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 18),
                         Text(
                           l10n.companyPortalTitle,
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w900),
                         ),
                         const SizedBox(height: 8),
                         Text(
@@ -136,7 +142,8 @@ class _CompanyLoginScreenState extends ConsumerState<CompanyLoginScreen> {
                           const SizedBox(height: 14),
                           Text(
                             session.error!,
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: scheme.error),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: scheme.error),
                           ),
                         ],
                         const SizedBox(height: 22),
@@ -146,7 +153,9 @@ class _CompanyLoginScreenState extends ConsumerState<CompanyLoginScreen> {
                               ? const SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Icon(Icons.login_rounded),
                           label: Text(

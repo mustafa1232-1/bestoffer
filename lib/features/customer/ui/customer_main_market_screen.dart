@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../behavior/data/behavior_api.dart';
 import '../../auth/ui/merchants_list_screen.dart';
@@ -92,6 +93,7 @@ class _CustomerMainMarketScreenState
               initialActivityType: 'pharmacy',
               overrideTitle: context.l10n.customerDiscoveryHubPharmacyTitle,
               compactCustomerMode: true,
+              strictCategoryMode: true,
             ),
           ),
         );
@@ -116,6 +118,8 @@ class _CustomerMainMarketScreenState
           initialSearchQuery: initialSearchQuery,
           overrideTitle: title,
           compactCustomerMode: true,
+          // Quick categories are strict single-activity pages.
+          strictCategoryMode: initialActivityType != null,
           applyInitialSearchQuery: initialSearchQuery.trim().isNotEmpty,
         ),
       ),
@@ -130,56 +134,49 @@ class _CustomerMainMarketScreenState
         title: l10n.customerDiscoveryMerchants,
         subtitle: l10n.customerMainMarketHeroSubtitle,
         icon: Icons.store_mall_directory_rounded,
-        colorA: const Color(0xFF2A6E83),
-        colorB: const Color(0xFF1A4453),
+        accent: AppColors.brandNavy, // soft indigo — the general "all stores"
       ),
       _MainHubCard(
         id: 'style',
         title: l10n.customerDiscoveryHubStyleTitle,
         subtitle: l10n.customerDiscoveryHubStyleSubtitle,
         icon: Icons.style_rounded,
-        colorA: const Color(0xFF7A3E8D),
-        colorB: const Color(0xFF4E2A66),
+        accent: const Color(0xFF9C6BA8), // light lavender
       ),
       _MainHubCard(
         id: 'food',
         title: l10n.customerDiscoveryHubFoodTitle,
         subtitle: l10n.customerDiscoveryHubFoodSubtitle,
         icon: Icons.restaurant_rounded,
-        colorA: const Color(0xFF245D90),
-        colorB: const Color(0xFF183E66),
+        accent: AppColors.brandGold, // honey gold
       ),
       _MainHubCard(
         id: 'home',
         title: l10n.customerDiscoveryHubHomeTitle,
         subtitle: l10n.customerDiscoveryHubHomeSubtitle,
         icon: Icons.home_filled,
-        colorA: const Color(0xFF2B6480),
-        colorB: const Color(0xFF1D435A),
+        accent: const Color(0xFF5E8E72), // soft sage green
       ),
       _MainHubCard(
         id: 'electronics',
         title: l10n.customerDiscoveryHubElectronicsTitle,
         subtitle: l10n.customerDiscoveryHubElectronicsSubtitle,
         icon: Icons.electrical_services_rounded,
-        colorA: const Color(0xFF355D90),
-        colorB: const Color(0xFF223C62),
+        accent: const Color(0xFF3E6BA0), // cool indigo/blue
       ),
       _MainHubCard(
         id: 'pharmacy',
         title: l10n.customerDiscoveryHubPharmacyTitle,
         subtitle: l10n.customerDiscoveryHubPharmacySubtitle,
         icon: Icons.local_hospital_rounded,
-        colorA: const Color(0xFF216C79),
-        colorB: const Color(0xFF16444D),
+        accent: const Color(0xFF3E9488), // controlled medical mint/teal
       ),
       _MainHubCard(
         id: 'cars',
         title: l10n.customerDiscoveryHubCarsTitle,
         subtitle: l10n.customerDiscoveryHubCarsSubtitle,
         icon: Icons.directions_car_rounded,
-        colorA: const Color(0xFF2E5D86),
-        colorB: const Color(0xFF1D3E5D),
+        accent: const Color(0xFF4A6B8A), // steel blue
       ),
     ];
   }
@@ -190,41 +187,55 @@ class _CustomerMainMarketScreenState
       _QuickQuery(
         title: l10n.customerDiscoveryCategoryRestaurantsTitle,
         type: 'restaurant',
+        activityType: 'restaurant',
         icon: Icons.restaurant_rounded,
       ),
       _QuickQuery(
         title: l10n.customerDiscoveryCategoryDessertsTitle,
         type: 'restaurant',
+        activityType: 'sweets_bakery',
         icon: Icons.cake_rounded,
       ),
       _QuickQuery(
         title: l10n.customerDiscoveryCategoryCoffeeDrinksTitle,
         type: 'restaurant',
+        activityType: 'coffee_drinks',
         icon: Icons.local_cafe_rounded,
+      ),
+      _QuickQuery(
+        title: context.lt(ar: 'الملابس والأزياء', en: 'Fashion & Clothing'),
+        type: 'market',
+        activityType: 'fashion_clothing',
+        icon: Icons.checkroom_rounded,
       ),
       _QuickQuery(
         title: l10n.customerDiscoveryCategoryMarketsCleaningTitle,
         type: 'market',
+        activityType: 'supermarket',
         icon: Icons.storefront_rounded,
       ),
       _QuickQuery(
         title: l10n.customerDiscoveryCategoryFruitVegetablesTitle,
         type: 'market',
+        activityType: 'fruits_vegetables',
         icon: Icons.local_grocery_store_rounded,
       ),
       _QuickQuery(
         title: l10n.customerDiscoveryCategoryMeatPoultryTitle,
         type: 'market',
+        activityType: 'meat_poultry',
         icon: Icons.set_meal_rounded,
       ),
       _QuickQuery(
         title: l10n.customerDiscoveryCategoryStationeryGiftsTitle,
         type: 'market',
+        activityType: 'stationery_office',
         icon: Icons.card_giftcard_rounded,
       ),
       _QuickQuery(
         title: l10n.customerDiscoveryCategoryElectricalSuppliesTitle,
         type: 'market',
+        activityType: 'electrical_lighting',
         icon: Icons.electrical_services_rounded,
       ),
       _QuickQuery(
@@ -232,11 +243,6 @@ class _CustomerMainMarketScreenState
         type: 'market',
         activityType: 'pharmacy',
         icon: Icons.local_hospital_rounded,
-      ),
-      _QuickQuery(
-        title: l10n.customerDiscoveryHubCarsTitle,
-        type: 'market',
-        icon: Icons.directions_car_rounded,
       ),
     ];
   }
@@ -275,80 +281,7 @@ class _CustomerMainMarketScreenState
               physics: const NeverScrollableScrollPhysics(),
               itemBuilder: (context, index) {
                 final card = mainHubs[index];
-                return InkWell(
-                  borderRadius: BorderRadius.circular(16),
-                  onTap: () => _openHub(context, card),
-                  child: Ink(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      gradient: LinearGradient(
-                        begin: Alignment.topRight,
-                        end: Alignment.bottomLeft,
-                        colors: [card.colorA, card.colorB],
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.16),
-                      ),
-                    ),
-                    child: SizedBox(
-                      height: 100,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        child: Row(
-                          textDirection: context.appTextDirection,
-                          children: [
-                            Container(
-                              width: 46,
-                              height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                color: Colors.white.withValues(alpha: 0.12),
-                              ),
-                              child: Icon(card.icon, size: 24),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    card.title,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    card.subtitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.88,
-                                      ),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            const Icon(
-                              Icons.arrow_back_ios_new_rounded,
-                              size: 16,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                );
+                return _MainHubTile(card: card, onTap: () => _openHub(context, card));
               },
               separatorBuilder: (_, _) => const SizedBox(height: 10),
             ),
@@ -433,17 +366,103 @@ class _MainHubCard {
   final String title;
   final String subtitle;
   final IconData icon;
-  final Color colorA;
-  final Color colorB;
+
+  /// Soft, on-theme accent used for the icon badge + border on the light card.
+  final Color accent;
 
   const _MainHubCard({
     required this.id,
     required this.title,
     required this.subtitle,
     required this.icon,
-    required this.colorA,
-    required this.colorB,
+    required this.accent,
   });
+}
+
+/// Light, premium Maslaki market card: warm cream surface, soft indigo text,
+/// gentle per-category accent badge and subtle elevation. Replaces the previous
+/// dark teal/purple blocks for a consistent Maslaki identity.
+class _MainHubTile extends StatelessWidget {
+  final _MainHubCard card;
+  final VoidCallback onTap;
+
+  const _MainHubTile({required this.card, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    const cream = Color(0xFFFBF7EF);
+    const ink = AppColors.brandNavy;
+    final accent = card.accent;
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
+      child: MaslakiCard(
+        radius: 20,
+        elevated: true,
+        backgroundColor: cream,
+        borderColor: accent.withValues(alpha: 0.24),
+        padding: const EdgeInsets.symmetric(
+          horizontal: MaslakiSpacing.md,
+          vertical: 14,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: LinearGradient(
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                  colors: [
+                    accent.withValues(alpha: 0.20),
+                    accent.withValues(alpha: 0.08),
+                  ],
+                ),
+                border: Border.all(color: accent.withValues(alpha: 0.32)),
+              ),
+              child: Icon(card.icon, size: 26, color: accent),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    card.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                      color: ink,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    card.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: ink.withValues(alpha: 0.60),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(
+              Icons.arrow_back_ios_new_rounded,
+              size: 15,
+              color: accent.withValues(alpha: 0.85),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _QuickQuery {

@@ -298,6 +298,28 @@ void main() {
     },
   );
 
+  testWidgets(
+    'strictCategoryMode never appends unrelated fallback stores',
+    (tester) async {
+      // Same seeded-keyword setup as the non-strict test above, but strict:
+      // none of the seeded merchants match burger/pizza, so a strict category
+      // page must stay clean instead of falling back to all market stores.
+      await _pumpMerchantsList(
+        tester,
+        screen: const MerchantsListScreen(
+          compactCustomerMode: true,
+          initialType: 'market',
+          initialSearchQuery: 'fast food',
+          requiredAnyKeywords: <String>['burger', 'pizza'],
+          strictCategoryMode: true,
+        ),
+      );
+
+      expect(find.text('Fresh Market'), findsNothing);
+      expect(find.text('Coffee Corner'), findsNothing);
+    },
+  );
+
   testWidgets('explicit search still shows the no matching state', (
     tester,
   ) async {

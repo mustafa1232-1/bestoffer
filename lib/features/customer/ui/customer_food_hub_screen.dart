@@ -11,12 +11,13 @@ class CustomerFoodHubScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
-          initialType: 'restaurant',
+          // Strict isolation by real activity category — never type+keyword.
+          initialActivityType: topic.activityType,
           initialSearchQuery: topic.searchQuery,
-          requiredAnyKeywords: topic.searchTerms,
           overrideTitle: topic.title,
           compactCustomerMode: true,
-          applyInitialSearchQuery: true,
+          strictCategoryMode: true,
+          applyInitialSearchQuery: topic.searchQuery.trim().isNotEmpty,
         ),
       ),
     );
@@ -33,6 +34,7 @@ class CustomerFoodHubScreen extends StatelessWidget {
         icon: Icons.restaurant_rounded,
         colorA: const Color(0xFF23588A),
         colorB: const Color(0xFF183D65),
+        activityType: 'restaurant',
       ),
       _FoodTopic(
         title: l10n.customerFoodHubDessertsTitle,
@@ -51,6 +53,7 @@ class CustomerFoodHubScreen extends StatelessWidget {
         icon: Icons.cake_rounded,
         colorA: const Color(0xFF7A3E8E),
         colorB: const Color(0xFF4C2A65),
+        activityType: 'sweets_bakery',
       ),
       _FoodTopic(
         title: l10n.customerFoodHubBakeryTitle,
@@ -68,6 +71,7 @@ class CustomerFoodHubScreen extends StatelessWidget {
         icon: Icons.bakery_dining_rounded,
         colorA: const Color(0xFF99623A),
         colorB: const Color(0xFF6A4427),
+        activityType: 'sweets_bakery',
       ),
       _FoodTopic(
         title: l10n.customerFoodHubCoffeeTitle,
@@ -86,6 +90,7 @@ class CustomerFoodHubScreen extends StatelessWidget {
         icon: Icons.local_cafe_rounded,
         colorA: const Color(0xFF556F8A),
         colorB: const Color(0xFF36485C),
+        activityType: 'coffee_drinks',
       ),
     ];
   }
@@ -232,6 +237,9 @@ class _FoodTopic {
   final Color colorA;
   final Color colorB;
 
+  /// Strict store activity this topic isolates to.
+  final String activityType;
+
   const _FoodTopic({
     required this.title,
     required this.subtitle,
@@ -240,5 +248,6 @@ class _FoodTopic {
     required this.icon,
     required this.colorA,
     required this.colorB,
+    required this.activityType,
   });
 }

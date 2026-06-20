@@ -11,12 +11,13 @@ class CustomerHomeShoppingHubScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
-          initialType: 'market',
+          // Strict isolation by real activity category — never market+keyword.
+          initialActivityType: topic.activityType,
           initialSearchQuery: topic.searchQuery,
-          requiredAnyKeywords: topic.searchTerms,
           overrideTitle: topic.title,
           compactCustomerMode: true,
-          applyInitialSearchQuery: true,
+          strictCategoryMode: true,
+          applyInitialSearchQuery: topic.searchQuery.trim().isNotEmpty,
         ),
       ),
     );
@@ -41,6 +42,7 @@ class CustomerHomeShoppingHubScreen extends StatelessWidget {
         icon: Icons.storefront_rounded,
         colorA: const Color(0xFF2B6387),
         colorB: const Color(0xFF1D4460),
+        activityType: 'supermarket',
       ),
       _HomeTopic(
         title: l10n.customerHomeShoppingHubProduceTitle,
@@ -50,6 +52,7 @@ class CustomerHomeShoppingHubScreen extends StatelessWidget {
         icon: Icons.local_grocery_store_rounded,
         colorA: const Color(0xFF2F7B5E),
         colorB: const Color(0xFF20543F),
+        activityType: 'fruits_vegetables',
       ),
       _HomeTopic(
         title: l10n.customerHomeShoppingHubMeatTitle,
@@ -59,6 +62,7 @@ class CustomerHomeShoppingHubScreen extends StatelessWidget {
         icon: Icons.set_meal_rounded,
         colorA: const Color(0xFF7A3C4B),
         colorB: const Color(0xFF532734),
+        activityType: 'meat_poultry',
       ),
       _HomeTopic(
         title: l10n.customerHomeShoppingHubGiftsTitle,
@@ -76,6 +80,7 @@ class CustomerHomeShoppingHubScreen extends StatelessWidget {
         icon: Icons.card_giftcard_rounded,
         colorA: const Color(0xFF745387),
         colorB: const Color(0xFF4E365F),
+        activityType: 'flowers_gifts',
       ),
       _HomeTopic(
         title: l10n.customerHomeShoppingHubHousewareTitle,
@@ -93,6 +98,7 @@ class CustomerHomeShoppingHubScreen extends StatelessWidget {
         icon: Icons.home_work_rounded,
         colorA: const Color(0xFF3F5E86),
         colorB: const Color(0xFF263D5D),
+        activityType: 'home_kitchen',
       ),
       _HomeTopic(
         title: l10n.customerHomeShoppingHubPersonalCareTitle,
@@ -111,6 +117,7 @@ class CustomerHomeShoppingHubScreen extends StatelessWidget {
         icon: Icons.spa_rounded,
         colorA: const Color(0xFF6A4E88),
         colorB: const Color(0xFF473363),
+        activityType: 'personal_care_beauty',
       ),
     ];
   }
@@ -257,6 +264,9 @@ class _HomeTopic {
   final Color colorA;
   final Color colorB;
 
+  /// Strict store activity this topic isolates to.
+  final String activityType;
+
   const _HomeTopic({
     required this.title,
     required this.subtitle,
@@ -265,5 +275,6 @@ class _HomeTopic {
     required this.icon,
     required this.colorA,
     required this.colorB,
+    required this.activityType,
   });
 }

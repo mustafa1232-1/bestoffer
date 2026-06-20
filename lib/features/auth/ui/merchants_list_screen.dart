@@ -40,6 +40,12 @@ class MerchantsListScreen extends ConsumerStatefulWidget {
   final bool compactCustomerMode;
   final bool applyInitialSearchQuery;
 
+  /// When true this list is a strict single-category surface: unrelated stores
+  /// are NEVER appended as fallback. Use for every specific category page so a
+  /// pharmacy/restaurant/general store can never leak into e.g. the clothing
+  /// page. The general "all stores" surface leaves this false.
+  final bool strictCategoryMode;
+
   const MerchantsListScreen({
     super.key,
     this.initialType,
@@ -50,6 +56,7 @@ class MerchantsListScreen extends ConsumerStatefulWidget {
     this.overrideTitle,
     this.compactCustomerMode = false,
     this.applyInitialSearchQuery = true,
+    this.strictCategoryMode = false,
   });
 
   @override
@@ -560,6 +567,12 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
       } else {
         fallback.add(merchant);
       }
+    }
+    // Strict category pages must never surface unrelated fallback stores.
+    // The keyword intent is used only to rank within the already
+    // activityType-filtered result set.
+    if (widget.strictCategoryMode) {
+      return matched;
     }
     return [...matched, ...fallback];
   }

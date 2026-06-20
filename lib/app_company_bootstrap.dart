@@ -56,7 +56,7 @@ class CompanyPortalApp extends ConsumerWidget {
       themeMode: ThemeMode.dark,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
-        return AppResponsiveShell(child: child);
+        return AppBackdrop(child: AppResponsiveShell(child: child));
       },
       home: const CompanyAuthGate(),
     );

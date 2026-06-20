@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
+import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lottie/lottie.dart';
@@ -9,6 +10,8 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/notifications/push_notification_service.dart';
+import '../../../core/widgets/maslaki_brand_mark.dart';
+import '../../../core/widgets/maslaki_wordmark.dart';
 import 'package:core_maps/core_maps.dart';
 
 class MaslakiOnboardingScreen extends ConsumerStatefulWidget {
@@ -46,41 +49,96 @@ class _MaslakiOnboardingScreenState
     super.dispose();
   }
 
+  List<_OnboardingServiceTileData> _serviceCatalog(BuildContext context) => [
+    _OnboardingServiceTileData(
+      title: context.l10n.onboardingRestaurantsTitle,
+      icon: Icons.restaurant_menu_rounded,
+      accent: const Color(0xFFFFA23B),
+      kind: _OnboardingSlideKind.restaurants,
+    ),
+    _OnboardingServiceTileData(
+      title: context.l10n.customerHomeShoppingHubTitle,
+      icon: Icons.shopping_bag_rounded,
+      accent: const Color(0xFF4AB8FF),
+      kind: _OnboardingSlideKind.shopping,
+    ),
+    _OnboardingServiceTileData(
+      title: context.l10n.customerDiscoveryHubPharmacyTitle,
+      icon: Icons.local_pharmacy_rounded,
+      accent: const Color(0xFF78D6B4),
+    ),
+    _OnboardingServiceTileData(
+      title: context.l10n.deliveryAppTitle,
+      icon: Icons.local_shipping_rounded,
+      accent: const Color(0xFFE6C98A),
+    ),
+    _OnboardingServiceTileData(
+      title: context.l10n.onboardingTaxiTitle,
+      icon: Icons.local_taxi_rounded,
+      accent: const Color(0xFFFFD23B),
+      kind: _OnboardingSlideKind.taxi,
+    ),
+    _OnboardingServiceTileData(
+      title: context.l10n.jobsHubPlatformTitle,
+      icon: Icons.work_outline_rounded,
+      accent: const Color(0xFF71DF89),
+      kind: _OnboardingSlideKind.jobs,
+    ),
+    _OnboardingServiceTileData(
+      title: context.l10n.socialExploreHeroTitle,
+      icon: Icons.groups_rounded,
+      accent: const Color(0xFFC88BFF),
+      kind: _OnboardingSlideKind.community,
+    ),
+  ];
+
   List<_OnboardingSlide> _slides(BuildContext context) => [
     _OnboardingSlide(
+      kind: _OnboardingSlideKind.restaurants,
       title: context.l10n.onboardingRestaurantsTitle,
       description: context.l10n.onboardingRestaurantsDescription,
       accent: const Color(0xFFFFA23B),
+      icon: Icons.restaurant_menu_rounded,
       visual: const _FoodVisual(),
     ),
     _OnboardingSlide(
+      kind: _OnboardingSlideKind.shopping,
       title: context.l10n.onboardingShoppingTitle,
       description: context.l10n.onboardingShoppingDescription,
       accent: const Color(0xFF4AB8FF),
+      icon: Icons.shopping_bag_rounded,
       visual: const _ShoppingVisual(),
     ),
     _OnboardingSlide(
+      kind: _OnboardingSlideKind.taxi,
       title: context.l10n.onboardingTaxiTitle,
       description: context.l10n.onboardingTaxiDescription,
       accent: const Color(0xFFFFD23B),
+      icon: Icons.local_taxi_rounded,
       visual: const _YellowTaxiVisual(),
     ),
     _OnboardingSlide(
+      kind: _OnboardingSlideKind.jobs,
       title: context.l10n.onboardingJobsTitle,
       description: context.l10n.onboardingJobsDescription,
       accent: const Color(0xFF71DF89),
+      icon: Icons.work_outline_rounded,
       visual: const _JobsVisual(),
     ),
     _OnboardingSlide(
+      kind: _OnboardingSlideKind.community,
       title: context.l10n.onboardingCommunityTitle,
       description: context.l10n.onboardingCommunityDescription,
       accent: const Color(0xFFC88BFF),
+      icon: Icons.groups_rounded,
       visual: const _CommunityVisual(),
     ),
     _OnboardingSlide(
+      kind: _OnboardingSlideKind.permissions,
       title: context.l10n.onboardingPermissionsTitle,
       description: context.l10n.onboardingPermissionsDescription,
       accent: const Color(0xFF43D6FF),
+      icon: Icons.verified_user_rounded,
       visual: const _PermissionsVisual(),
       permissionsStep: true,
     ),
@@ -146,11 +204,7 @@ class _MaslakiOnboardingScreenState
   Future<void> _nextOrFinish(List<_OnboardingSlide> slides) async {
     if (_submitting) return;
     if (_pageIndex < slides.length - 1) {
-      await _pageController.animateToPage(
-        _pageIndex + 1,
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutCubic,
-      );
+      await _goToPage(_pageIndex + 1);
       return;
     }
     setState(() => _submitting = true);
@@ -175,205 +229,614 @@ class _MaslakiOnboardingScreenState
     }
   }
 
+  Future<void> _goToPage(int index) async {
+    await _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Widget _buildSlideCard(
+    BuildContext context,
+    _OnboardingSlide slide,
+    List<_OnboardingServiceTileData> services,
+    int slideIndex,
+    int slideCount,
+  ) {
+    final tokens = context.maslakiTokens;
+    final isWide = MediaQuery.sizeOf(context).width >= 760;
+
+    final visualPanel = ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: isWide ? 320 : 360,
+        minHeight: 250,
+        maxHeight: 330,
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    slide.accent.withValues(alpha: 0.28),
+                    slide.accent.withValues(alpha: 0.07),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 14,
+            right: 14,
+            child: _OnboardingMetaPill(
+              icon: slide.icon,
+              label: '${slideIndex + 1} / $slideCount',
+              color: slide.accent,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.08),
+                    Colors.white.withValues(alpha: 0.02),
+                  ],
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: slide.visual,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final contentPanel = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            const _OnboardingBrandChip(),
+            _OnboardingMetaPill(
+              icon: slide.icon,
+              label: '${slideIndex + 1} / $slideCount',
+              color: slide.accent,
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        Text(
+          slide.title,
+          textAlign: TextAlign.start,
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            color: tokens.textPrimary,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          slide.description,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: tokens.textSecondary,
+            height: 1.55,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 18),
+        _OnboardingServicesPanel(
+          services: services,
+          activeKind: slide.kind == _OnboardingSlideKind.permissions
+              ? null
+              : slide.kind,
+        ),
+        if (slide.permissionsStep) ...[
+          const SizedBox(height: 18),
+          _PermissionConsentPanel(
+            locationGranted: _locationGranted,
+            locationServiceEnabled: _locationServiceEnabled,
+            locationPermanentlyDenied: _locationPermanentlyDenied,
+            notificationsGranted: _notificationsGranted,
+            notificationsPermanentlyDenied: _notificationsPermanentlyDenied,
+            loadingLocationPermission: _loadingLocationPermission,
+            loadingNotificationPermission: _loadingNotificationPermission,
+            onRequestLocation: _requestLocationPermission,
+            onRequestNotifications: _requestNotificationsPermission,
+          ),
+        ],
+      ],
+    );
+
+    return MaslakiCard(
+      radius: 30,
+      padding: const EdgeInsets.all(18),
+      backgroundColor: tokens.cardPrimary.withValues(alpha: 0.74),
+      borderColor: Colors.white.withValues(alpha: 0.10),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          slide.accent.withValues(alpha: 0.16),
+          tokens.cardPrimary.withValues(alpha: 0.92),
+          tokens.cardElevated.withValues(alpha: 0.94),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 760;
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: wide
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(flex: 5, child: contentPanel),
+                      const SizedBox(width: 16),
+                      Expanded(flex: 4, child: visualPanel),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      visualPanel,
+                      const SizedBox(height: 12),
+                      contentPanel,
+                    ],
+                  ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final slides = _slides(context);
     final isLast = _pageIndex == slides.length - 1;
     final current = slides[_pageIndex];
     final l10n = context.l10n;
+    final tokens = context.maslakiTokens;
+    final services = _serviceCatalog(context);
 
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF050B24), Color(0xFF101B45), Color(0xFF261B52)],
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  tokens.backgroundPrimary,
+                  tokens.backgroundSecondary,
+                  tokens.backgroundTertiary,
+                ],
+              ),
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
-                child: Row(
-                  children: [
-                    Text(
-                      l10n.onboardingBrand,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: _submitting ? null : _skip,
-                      child: Text(
-                        l10n.onboardingSkip,
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                    ),
-                  ],
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(-0.85, -0.90),
+                    radius: 1.0,
+                    colors: [
+                      current.accent.withValues(alpha: 0.14),
+                      Colors.transparent,
+                    ],
+                  ),
                 ),
               ),
-              Expanded(
-                child: PageView.builder(
-                  controller: _pageController,
-                  itemCount: slides.length,
-                  onPageChanged: (value) => setState(() => _pageIndex = value),
-                  itemBuilder: (context, index) {
-                    final slide = slides[index];
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(28),
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.white.withValues(alpha: 0.12),
-                              Colors.white.withValues(alpha: 0.05),
-                            ],
-                          ),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.13),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              blurRadius: 22,
-                              spreadRadius: 2,
-                              color: slide.accent.withValues(alpha: 0.18),
+            ),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Row(
+                    children: [
+                      const Expanded(child: _OnboardingHeaderBrand()),
+                      const SizedBox(width: 12),
+                      TextButton.icon(
+                        onPressed: _submitting ? null : _skip,
+                        icon: const Icon(Icons.chevron_right_rounded),
+                        label: Text(l10n.onboardingSkip),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: slides.length,
+                    onPageChanged: (value) =>
+                        setState(() => _pageIndex = value),
+                    itemBuilder: (context, index) => Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+                      child: _buildSlideCard(
+                        context,
+                        slides[index],
+                        services,
+                        index,
+                        slides.length,
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                  child: MaslakiCard(
+                    radius: 24,
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                    backgroundColor: tokens.cardPrimary.withValues(alpha: 0.68),
+                    borderColor: Colors.white.withValues(alpha: 0.08),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(
+                            slides.length,
+                            (index) => AnimatedContainer(
+                              duration: const Duration(milliseconds: 220),
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              width: _pageIndex == index ? 24 : 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(999),
+                                color: _pageIndex == index
+                                    ? current.accent
+                                    : Colors.white.withValues(alpha: 0.22),
+                              ),
                             ),
-                          ],
+                          ),
                         ),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                          child: Column(
-                            children: [
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            if (_pageIndex > 0) ...[
                               Expanded(
-                                child: Center(
-                                  child: ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxHeight: 320,
-                                      maxWidth: 320,
+                                child: OutlinedButton.icon(
+                                  onPressed: _submitting
+                                      ? null
+                                      : () => _goToPage(_pageIndex - 1),
+                                  icon: const Icon(Icons.arrow_back_rounded),
+                                  label: Text(l10n.commonBack),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: tokens.textPrimary,
+                                    side: BorderSide(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.16,
+                                      ),
                                     ),
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        gradient: RadialGradient(
-                                          colors: [
-                                            slide.accent.withValues(
-                                              alpha: 0.24,
-                                            ),
-                                            Colors.transparent,
-                                          ],
-                                        ),
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(10),
-                                        child: slide.visual,
-                                      ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 16,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(18),
                                     ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 12),
-                              Text(
-                                slide.title,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                slide.description,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.88),
-                                  height: 1.5,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              if (slide.permissionsStep) ...[
-                                const SizedBox(height: 18),
-                                _PermissionConsentPanel(
-                                  locationGranted: _locationGranted,
-                                  locationServiceEnabled:
-                                      _locationServiceEnabled,
-                                  locationPermanentlyDenied:
-                                      _locationPermanentlyDenied,
-                                  notificationsGranted: _notificationsGranted,
-                                  notificationsPermanentlyDenied:
-                                      _notificationsPermanentlyDenied,
-                                  loadingLocationPermission:
-                                      _loadingLocationPermission,
-                                  loadingNotificationPermission:
-                                      _loadingNotificationPermission,
-                                  onRequestLocation: _requestLocationPermission,
-                                  onRequestNotifications:
-                                      _requestNotificationsPermission,
-                                ),
-                              ],
+                              const SizedBox(width: 12),
                             ],
-                          ),
+                            Expanded(
+                              flex: _pageIndex > 0 ? 2 : 1,
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: current.accent,
+                                  foregroundColor: const Color(0xFF08132D),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(18),
+                                  ),
+                                ),
+                                onPressed: _submitting
+                                    ? null
+                                    : () => _nextOrFinish(slides),
+                                icon: _submitting
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Icon(
+                                        isLast
+                                            ? Icons.check_circle_rounded
+                                            : Icons.arrow_forward_rounded,
+                                      ),
+                                label: Text(
+                                  isLast
+                                      ? l10n.onboardingStartNow
+                                      : l10n.commonNext,
+                                  style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  slides.length,
-                  (index) => AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: _pageIndex == index ? 24 : 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(999),
-                      color: _pageIndex == index
-                          ? current.accent
-                          : Colors.white.withValues(alpha: 0.30),
+                      ],
                     ),
                   ),
                 ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _OnboardingSlideKind {
+  restaurants,
+  shopping,
+  taxi,
+  jobs,
+  community,
+  permissions,
+}
+
+class _OnboardingSlide {
+  final _OnboardingSlideKind kind;
+  final String title;
+  final String description;
+  final Color accent;
+  final IconData icon;
+  final Widget visual;
+  final bool permissionsStep;
+
+  const _OnboardingSlide({
+    required this.kind,
+    required this.title,
+    required this.description,
+    required this.accent,
+    required this.icon,
+    required this.visual,
+    this.permissionsStep = false,
+  });
+}
+
+class _OnboardingServiceTileData {
+  final String title;
+  final IconData icon;
+  final Color accent;
+  final _OnboardingSlideKind? kind;
+
+  const _OnboardingServiceTileData({
+    required this.title,
+    required this.icon,
+    required this.accent,
+    this.kind,
+  });
+}
+
+class _OnboardingHeaderBrand extends StatelessWidget {
+  const _OnboardingHeaderBrand();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      children: [
+        MaslakiBrandMark(size: 42, borderRadius: 14),
+        SizedBox(width: 12),
+        Expanded(
+          child: MaslakiWordmark(
+            arabicSize: 24,
+            latinSize: 9.5,
+            latinLetterSpacing: 3.6,
+            showLatin: true,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OnboardingBrandChip extends StatelessWidget {
+  const _OnboardingBrandChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: tokens.primaryAccent.withValues(alpha: 0.12),
+        border: Border.all(color: tokens.primaryAccent.withValues(alpha: 0.22)),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MaslakiBrandMark(size: 24, borderRadius: 8, showGlow: false),
+            SizedBox(width: 8),
+            MaslakiWordmark(
+              arabicSize: 16,
+              latinSize: 7,
+              latinLetterSpacing: 2.8,
+              showLatin: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OnboardingMetaPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _OnboardingMetaPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: color.withValues(alpha: 0.14),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: Colors.white),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: current.accent,
-                      foregroundColor: const Color(0xFF08132D),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OnboardingServicesPanel extends StatelessWidget {
+  final List<_OnboardingServiceTileData> services;
+  final _OnboardingSlideKind? activeKind;
+
+  const _OnboardingServicesPanel({
+    required this.services,
+    required this.activeKind,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        color: Colors.white.withValues(alpha: 0.04),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              context.l10n.splashTagline,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: tokens.textPrimary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              context.l10n.onboardingBrand,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: tokens.textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: services
+                  .map(
+                    (service) => _OnboardingServiceTile(
+                      data: service,
+                      active: activeKind != null && service.kind == activeKind,
                     ),
-                    onPressed: _submitting ? null : () => _nextOrFinish(slides),
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(
-                            isLast
-                                ? l10n.onboardingStartNow
-                                : l10n.onboardingNext,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
+                  )
+                  .toList(growable: false),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OnboardingServiceTile extends StatelessWidget {
+  final _OnboardingServiceTileData data;
+  final bool active;
+
+  const _OnboardingServiceTile({required this.data, required this.active});
+
+  @override
+  Widget build(BuildContext context) {
+    final background = active
+        ? data.accent.withValues(alpha: 0.18)
+        : Colors.white.withValues(alpha: 0.04);
+    final border = active
+        ? data.accent.withValues(alpha: 0.36)
+        : Colors.white.withValues(alpha: 0.10);
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 132, maxWidth: 180),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: background,
+          border: Border.all(color: border),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: data.accent.withValues(alpha: active ? 0.24 : 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(data.icon, size: 18, color: Colors.white),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  data.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontSize: 12.5,
+                    fontWeight: active ? FontWeight.w800 : FontWeight.w700,
+                    height: 1.2,
                   ),
                 ),
               ),
@@ -383,22 +846,6 @@ class _MaslakiOnboardingScreenState
       ),
     );
   }
-}
-
-class _OnboardingSlide {
-  final String title;
-  final String description;
-  final Color accent;
-  final Widget visual;
-  final bool permissionsStep;
-
-  const _OnboardingSlide({
-    required this.title,
-    required this.description,
-    required this.accent,
-    required this.visual,
-    this.permissionsStep = false,
-  });
 }
 
 class _FoodVisual extends StatelessWidget {

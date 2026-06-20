@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/forms/backend_field_error_parser.dart';
 import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_field_error_resolver.dart';
@@ -145,16 +146,13 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
     final matching = _activityOptions
         .where((item) => item.baseType == merchantType)
         .toList();
-    if (matching.isEmpty) {
+    // Never auto-pick a default category — the admin must choose explicitly.
+    // Only clear the selection when it is no longer valid for the current type.
+    if (matching.every((item) => item.activityType != merchantActivityType)) {
       merchantActivityType = null;
       _discoveryOptions = const [];
       discoverySubcategories.clear();
       discoverySelectAll = false;
-      return;
-    }
-    if (merchantActivityType == null ||
-        matching.every((item) => item.activityType != merchantActivityType)) {
-      merchantActivityType = matching.first.activityType;
     }
   }
 
@@ -446,6 +444,16 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
         break;
       }
     }
+    // Store category is mandatory — no silent fallback to market/restaurant.
+    if (merchantActivityType == null ||
+        merchantActivityType!.trim().isEmpty ||
+        selectedActivity == null) {
+      nextErrors['activityType'] = resolveFormFieldError(
+        l10n: l10n,
+        field: 'activityType',
+        fieldLabel: _fieldLabel(context, 'activityType'),
+      );
+    }
     if ((selectedActivity?.hasDiscoverySubcategories ?? false) &&
         !discoverySelectAll &&
         discoverySubcategories.isEmpty) {
@@ -479,9 +487,8 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
           .addMerchant(
             name: merchantName,
             type: merchantType,
-            activityType:
-                merchantActivityType ??
-                (merchantType == 'restaurant' ? 'restaurant' : 'market'),
+            // Guaranteed non-null: validation above blocks submit without it.
+            activityType: merchantActivityType!,
             discoverySubcategory: discoverySubcategories.isEmpty
                 ? null
                 : discoverySubcategories.first,
@@ -899,11 +906,17 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
                     discoverySubcategories.clear();
                     discoverySelectAll = false;
                     _fieldErrors.remove('discoverySubcategory');
+                    _fieldErrors.remove('activityType');
                   });
                   await _loadDiscoveryOptions(value);
                 },
                 decoration: InputDecoration(
                   labelText: l10n.addMerchantActivityTypeLabel,
+                  helperText: context.lt(
+                    ar: 'اختر التصنيف الذي سيظهر فيه المتجر للمستخدمين',
+                    en: 'Choose the category the store appears under for users',
+                  ),
+                  errorText: _fieldErrors['activityType'],
                 ),
               ),
             ],

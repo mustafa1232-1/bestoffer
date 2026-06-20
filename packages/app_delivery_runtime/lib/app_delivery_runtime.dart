@@ -157,10 +157,14 @@ class _DeliverySplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.local_shipping_rounded,
-              size: 52,
-              color: Theme.of(context).colorScheme.primary,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset(
+                'assets/branding/maslaki_official_logo.png',
+                width: 78,
+                height: 78,
+                fit: BoxFit.cover,
+              ),
             ),
             const SizedBox(height: 16),
             Text(
@@ -193,7 +197,9 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
     return PopupMenuButton<String>(
       tooltip: l10n.languageSectionTitle,
       onSelected: (code) {
-        ref.read(appSettingsControllerProvider.notifier).setLocale(Locale(code));
+        ref
+            .read(appSettingsControllerProvider.notifier)
+            .setLocale(Locale(code));
       },
       itemBuilder: (_) => [
         PopupMenuItem(value: 'ar', child: Text(l10n.languageArabic)),
@@ -204,7 +210,9 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.34),
+            color: Theme.of(
+              context,
+            ).colorScheme.outline.withValues(alpha: 0.34),
           ),
           color: Theme.of(context).colorScheme.surfaceContainerHigh,
         ),
@@ -213,10 +221,7 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
           children: [
             const Icon(Icons.language_rounded, size: 17),
             const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
           ],
         ),
       ),
@@ -623,7 +628,9 @@ class _DeliveryAnalyticsScreen extends ConsumerWidget {
             loading: () => const _LoadingCard(),
             error: (_, _) => _RuntimeListCard(
               title: l10n.runtimeOpenAnalyticsLabel,
-              emptyTitle: l10n.runtimeEmptyTitle(l10n.runtimeOpenAnalyticsLabel),
+              emptyTitle: l10n.runtimeEmptyTitle(
+                l10n.runtimeOpenAnalyticsLabel,
+              ),
               emptySubtitle: l10n.runtimeEmptySubtitle(
                 l10n.runtimeOpenAnalyticsLabel,
               ),
@@ -703,9 +710,15 @@ class _DeliveryOrderCardState extends ConsumerState<_DeliveryOrderCard> {
     CoreAppLocalizations l10n,
   ) {
     if (status.contains('pending') || status.contains('request')) {
-      return ('accept', Icons.check_circle_outline_rounded, l10n.runtimeClaimOrderLabel);
+      return (
+        'accept',
+        Icons.check_circle_outline_rounded,
+        l10n.runtimeClaimOrderLabel,
+      );
     }
-    if (status.contains('ready') || status.contains('accepted') || status.contains('claimed')) {
+    if (status.contains('ready') ||
+        status.contains('accepted') ||
+        status.contains('claimed')) {
       return ('start', Icons.route_rounded, l10n.runtimeStartDeliveryLabel);
     }
     if (status.contains('on_the_way')) {
@@ -800,7 +813,9 @@ class _DeliveryRuntimeApi {
   }
 
   Future<Map<String, dynamic>?> markDelivered(int orderId) async {
-    final response = await _dio.patch('/api/delivery/orders/$orderId/delivered');
+    final response = await _dio.patch(
+      '/api/delivery/orders/$orderId/delivered',
+    );
     return _extractObject(response.data, const ['data', 'order', 'item']);
   }
 }

@@ -6,6 +6,8 @@ import 'core/i18n/app_localizations_context.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/settings/app_settings_controller.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/maslaki_brand_mark.dart';
+import 'core/widgets/maslaki_wordmark.dart';
 import 'features/auth/presentation/role_login_screen.dart';
 import 'features/auth/state/auth_controller.dart';
 import 'features/taxi/ui/taxi_captain_dashboard_screen.dart';
@@ -100,28 +102,46 @@ class _TaxiCaptainSplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     return Scaffold(
       body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.local_taxi_rounded,
-              size: 52,
-              color: Theme.of(context).colorScheme.primary,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 380),
+          child: MaslakiCard(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const MaslakiBrandMark(
+                  size: 72,
+                  shape: MaslakiBrandShape.circle,
+                ),
+                const SizedBox(height: 16),
+                const MaslakiWordmark(
+                  arabicSize: 30,
+                  subtitle: 'تطبيق الكابتن',
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  context.l10n.taxiCaptainAppTitle,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: tokens.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 18),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    minHeight: 5,
+                    backgroundColor: tokens.surfaceSecondary,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              context.l10n.taxiCaptainAppTitle,
-              style: Theme.of(context).textTheme.titleLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            const SizedBox(
-              width: 140,
-              child: LinearProgressIndicator(minHeight: 4),
-            ),
-          ],
+          ),
         ),
       ),
     );

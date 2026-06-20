@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/settings/app_settings_controller.dart';
+import '../../../core/widgets/maslaki_brand_mark.dart';
+import '../../../core/widgets/maslaki_wordmark.dart';
 import '../state/auth_controller.dart';
 import 'owner_register_screen.dart';
 import 'taxi_captain_register_screen.dart';
@@ -144,6 +146,22 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            const Row(
+                              children: [
+                                MaslakiBrandMark(size: 46, borderRadius: 14),
+                                SizedBox(width: 12),
+                                Expanded(
+                                  child: MaslakiWordmark(
+                                    arabicSize: 22,
+                                    latinSize: 9.5,
+                                    latinLetterSpacing: 3.6,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
                             Row(
                               children: [
                                 Expanded(
@@ -164,17 +182,24 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
                                   ),
                                   onSelected: (code) {
                                     ref
-                                        .read(appSettingsControllerProvider.notifier)
+                                        .read(
+                                          appSettingsControllerProvider
+                                              .notifier,
+                                        )
                                         .setLocale(Locale(code));
                                   },
                                   itemBuilder: (menuContext) => [
                                     PopupMenuItem(
                                       value: 'ar',
-                                      child: Text(menuContext.l10n.commonArabic),
+                                      child: Text(
+                                        menuContext.l10n.commonArabic,
+                                      ),
                                     ),
                                     PopupMenuItem(
                                       value: 'en',
-                                      child: Text(menuContext.l10n.commonEnglish),
+                                      child: Text(
+                                        menuContext.l10n.commonEnglish,
+                                      ),
                                     ),
                                   ],
                                 ),

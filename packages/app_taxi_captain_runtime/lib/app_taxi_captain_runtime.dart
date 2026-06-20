@@ -87,9 +87,7 @@ Future<void> _syncCaptainPresence(
     }
   }
 
-  final position = isOnline
-      ? await locationService.getCurrentPosition()
-      : null;
+  final position = isOnline ? await locationService.getCurrentPosition() : null;
   if (isOnline && position == null) {
     messenger.showSnackBar(
       SnackBar(content: Text(l10n.runtimeActionFailedLabel)),
@@ -98,13 +96,17 @@ Future<void> _syncCaptainPresence(
   }
 
   try {
-    await ref.read(_captainRuntimeApiProvider).upsertPresence(
+    await ref
+        .read(_captainRuntimeApiProvider)
+        .upsertPresence(
           isOnline: isOnline,
           latitude: position?.latitude,
           longitude: position?.longitude,
         );
     if (rideId != null && rideId > 0 && position != null) {
-      await ref.read(_captainRuntimeApiProvider).updateRideLocation(
+      await ref
+          .read(_captainRuntimeApiProvider)
+          .updateRideLocation(
             rideId,
             latitude: position.latitude,
             longitude: position.longitude,
@@ -150,8 +152,7 @@ class MaslakiTaxiCaptainApp extends ConsumerStatefulWidget {
       _MaslakiTaxiCaptainAppState();
 }
 
-class _MaslakiTaxiCaptainAppState
-    extends ConsumerState<MaslakiTaxiCaptainApp>
+class _MaslakiTaxiCaptainAppState extends ConsumerState<MaslakiTaxiCaptainApp>
     with WidgetsBindingObserver {
   bool _bootstrapped = false;
   bool _roleMismatchLogoutQueued = false;
@@ -245,10 +246,14 @@ class _CaptainSplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.local_taxi_rounded,
-              size: 52,
-              color: Theme.of(context).colorScheme.primary,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset(
+                'assets/branding/maslaki_official_logo.png',
+                width: 78,
+                height: 78,
+                fit: BoxFit.cover,
+              ),
             ),
             const SizedBox(height: 16),
             Text(
@@ -281,7 +286,9 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
     return PopupMenuButton<String>(
       tooltip: l10n.languageSectionTitle,
       onSelected: (code) {
-        ref.read(appSettingsControllerProvider.notifier).setLocale(Locale(code));
+        ref
+            .read(appSettingsControllerProvider.notifier)
+            .setLocale(Locale(code));
       },
       itemBuilder: (_) => [
         PopupMenuItem(value: 'ar', child: Text(l10n.languageArabic)),
@@ -292,7 +299,9 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.34),
+            color: Theme.of(
+              context,
+            ).colorScheme.outline.withValues(alpha: 0.34),
           ),
           color: Theme.of(context).colorScheme.surfaceContainerHigh,
         ),
@@ -301,10 +310,7 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
           children: [
             const Icon(Icons.language_rounded, size: 17),
             const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
           ],
         ),
       ),
@@ -574,11 +580,8 @@ class _CaptainHomeScreen extends ConsumerWidget {
                 label: Text(l10n.runtimeNearbyRequestsLabel),
               ),
               FilledButton.tonalIcon(
-                onPressed: () => _syncCaptainPresence(
-                  context,
-                  ref,
-                  isOnline: true,
-                ),
+                onPressed: () =>
+                    _syncCaptainPresence(context, ref, isOnline: true),
                 icon: const Icon(Icons.my_location_rounded),
                 label: Text(l10n.runtimeSyncCaptainPresenceLabel),
               ),
@@ -591,11 +594,11 @@ class _CaptainHomeScreen extends ConsumerWidget {
                   _extractObject(value, const ['metrics', 'summary']) ?? value;
               return _SummaryMetricsCard(
                 rows: [
-                _MetricRow(
-                  label: l10n.runtimeTodayLabel,
-                  value:
-                      '${_readInt(metrics, const ['dayCompletedCount', 'day_completed_count'])}',
-                ),
+                  _MetricRow(
+                    label: l10n.runtimeTodayLabel,
+                    value:
+                        '${_readInt(metrics, const ['dayCompletedCount', 'day_completed_count'])}',
+                  ),
                   _MetricRow(
                     label: l10n.ordersLabel,
                     value:
@@ -785,7 +788,8 @@ class _CaptainRideActionCard extends ConsumerStatefulWidget {
       _CaptainRideActionCardState();
 }
 
-class _CaptainRideActionCardState extends ConsumerState<_CaptainRideActionCard> {
+class _CaptainRideActionCardState
+    extends ConsumerState<_CaptainRideActionCard> {
   bool _submitting = false;
 
   @override
@@ -811,7 +815,12 @@ class _CaptainRideActionCardState extends ConsumerState<_CaptainRideActionCard> 
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 6),
-            Text(_stringOf(ride['dropoffLabel'], fallback: _stringOf(ride['status']))),
+            Text(
+              _stringOf(
+                ride['dropoffLabel'],
+                fallback: _stringOf(ride['status']),
+              ),
+            ),
             const SizedBox(height: 6),
             Text(_stringOf(ride['status'], fallback: '-')),
             const SizedBox(height: 12),
@@ -822,8 +831,11 @@ class _CaptainRideActionCardState extends ConsumerState<_CaptainRideActionCard> 
                   FilledButton.icon(
                     onPressed: _submitting
                         ? null
-                        : () =>
-                              _runAction(context, _intOf(ride['id']), action.$1),
+                        : () => _runAction(
+                            context,
+                            _intOf(ride['id']),
+                            action.$1,
+                          ),
                     icon: Icon(action.$2),
                     label: Text(action.$3),
                   ),
@@ -832,11 +844,11 @@ class _CaptainRideActionCardState extends ConsumerState<_CaptainRideActionCard> 
                     onPressed: _submitting
                         ? null
                         : () => _syncCaptainPresence(
-                              context,
-                              ref,
-                              isOnline: true,
-                              rideId: _intOf(ride['id']),
-                            ),
+                            context,
+                            ref,
+                            isOnline: true,
+                            rideId: _intOf(ride['id']),
+                          ),
                     icon: const Icon(Icons.my_location_rounded),
                     label: Text(l10n.runtimeSendRideLocationLabel),
                   ),
@@ -859,12 +871,20 @@ class _CaptainRideActionCardState extends ConsumerState<_CaptainRideActionCard> 
       return ('start', Icons.route_rounded, l10n.runtimeStartRideLabel);
     }
     if (status.contains('ride_started')) {
-      return ('complete', Icons.done_all_rounded, l10n.runtimeCompleteRideLabel);
+      return (
+        'complete',
+        Icons.done_all_rounded,
+        l10n.runtimeCompleteRideLabel,
+      );
     }
     return null;
   }
 
-  Future<void> _runAction(BuildContext context, int rideId, String action) async {
+  Future<void> _runAction(
+    BuildContext context,
+    int rideId,
+    String action,
+  ) async {
     if (rideId <= 0) return;
     final messenger = ScaffoldMessenger.of(context);
     final l10n = context.l10n;
@@ -923,8 +943,9 @@ class _CaptainNearbyRequestCardState
   @override
   void initState() {
     super.initState();
-    final defaultFare =
-        _intOf(widget.request['proposedFareIqd'] ?? widget.request['fareIqd']);
+    final defaultFare = _intOf(
+      widget.request['proposedFareIqd'] ?? widget.request['fareIqd'],
+    );
     _fareController = TextEditingController(
       text: '${defaultFare > 0 ? defaultFare : 3000}',
     );
@@ -954,7 +975,12 @@ class _CaptainNearbyRequestCardState
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 6),
-            Text(_stringOf(request['dropoffLabel'], fallback: _stringOf(request['status']))),
+            Text(
+              _stringOf(
+                request['dropoffLabel'],
+                fallback: _stringOf(request['status']),
+              ),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: _fareController,
@@ -1106,10 +1132,7 @@ class _CaptainRuntimeApi {
     if (longitude != null) {
       data['longitude'] = longitude;
     }
-    await _dio.post(
-      '/api/taxi/captain/presence',
-      data: data,
-    );
+    await _dio.post('/api/taxi/captain/presence', data: data);
   }
 
   Future<void> updateRideLocation(

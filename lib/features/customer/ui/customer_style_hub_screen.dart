@@ -11,12 +11,14 @@ class CustomerStyleHubScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
-          initialType: 'market',
+          // Strict isolation by real activity category — no market+keyword
+          // fallback that would surface pharmacies/restaurants/general stores.
+          initialActivityType: topic.activityType,
           initialSearchQuery: topic.searchQuery,
-          requiredAnyKeywords: topic.searchTerms,
           overrideTitle: topic.title,
           compactCustomerMode: true,
-          applyInitialSearchQuery: true,
+          strictCategoryMode: true,
+          applyInitialSearchQuery: topic.searchQuery.trim().isNotEmpty,
         ),
       ),
     );
@@ -92,6 +94,7 @@ class CustomerStyleHubScreen extends StatelessWidget {
         icon: Icons.auto_awesome_rounded,
         colorA: const Color(0xFF4E6E95),
         colorB: const Color(0xFF314A69),
+        activityType: 'personal_care_beauty',
       ),
     ];
   }
@@ -137,6 +140,7 @@ class CustomerStyleHubScreen extends StatelessWidget {
         icon: Icons.water_drop_rounded,
         colorA: const Color(0xFF5A6786),
         colorB: const Color(0xFF35415A),
+        activityType: 'personal_care_beauty',
       ),
       _StyleTopic(
         title: l10n.customerStyleHubSportsTitle,
@@ -317,6 +321,10 @@ class _StyleTopic {
   final Color colorA;
   final Color colorB;
 
+  /// Strict store activity this topic belongs to. Clothing/shoes/bags/sports
+  /// map to `fashion_clothing`; beauty/fragrance map to `personal_care_beauty`.
+  final String activityType;
+
   const _StyleTopic({
     required this.title,
     required this.subtitle,
@@ -325,5 +333,6 @@ class _StyleTopic {
     required this.icon,
     required this.colorA,
     required this.colorB,
+    this.activityType = 'fashion_clothing',
   });
 }

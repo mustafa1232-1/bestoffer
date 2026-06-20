@@ -667,22 +667,13 @@ class _UserSplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 88,
-              height: 88,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [
-                    theme.colorScheme.primary,
-                    theme.colorScheme.secondary,
-                  ],
-                ),
-              ),
-              child: Icon(
-                Icons.navigation_rounded,
-                color: theme.colorScheme.onPrimary,
-                size: 42,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: Image.asset(
+                'assets/branding/maslaki_official_logo.png',
+                width: 88,
+                height: 88,
+                fit: BoxFit.cover,
               ),
             ),
             const SizedBox(height: 20),

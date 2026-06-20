@@ -34,9 +34,7 @@ final _companyDashboardProvider = FutureProvider<Map<String, dynamic>?>((
   final companyId = _effectiveCompanyId(ref, bootstrap);
   if (companyId == null) return null;
   try {
-    return await ref
-        .read(_companyRuntimeApiProvider)
-        .dashboard(companyId);
+    return await ref.read(_companyRuntimeApiProvider).dashboard(companyId);
   } catch (_) {
     return null;
   }
@@ -49,9 +47,7 @@ final _companyBranchesProvider = FutureProvider<List<Map<String, dynamic>>>((
   final companyId = _effectiveCompanyId(ref, bootstrap);
   if (companyId == null) return const <Map<String, dynamic>>[];
   try {
-    return await ref
-        .read(_companyRuntimeApiProvider)
-        .branches(companyId);
+    return await ref.read(_companyRuntimeApiProvider).branches(companyId);
   } catch (_) {
     return const <Map<String, dynamic>>[];
   }
@@ -64,9 +60,7 @@ final _companyUsersProvider = FutureProvider<List<Map<String, dynamic>>>((
   final companyId = _effectiveCompanyId(ref, bootstrap);
   if (companyId == null) return const <Map<String, dynamic>>[];
   try {
-    return await ref
-        .read(_companyRuntimeApiProvider)
-        .users(companyId);
+    return await ref.read(_companyRuntimeApiProvider).users(companyId);
   } catch (_) {
     return const <Map<String, dynamic>>[];
   }
@@ -191,10 +185,14 @@ class _CompanySplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.business_center_rounded,
-              size: 52,
-              color: Theme.of(context).colorScheme.primary,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset(
+                'assets/branding/maslaki_official_logo.png',
+                width: 78,
+                height: 78,
+                fit: BoxFit.cover,
+              ),
             ),
             const SizedBox(height: 16),
             Text(
@@ -227,7 +225,9 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
     return PopupMenuButton<String>(
       tooltip: l10n.languageSectionTitle,
       onSelected: (code) {
-        ref.read(appSettingsControllerProvider.notifier).setLocale(Locale(code));
+        ref
+            .read(appSettingsControllerProvider.notifier)
+            .setLocale(Locale(code));
       },
       itemBuilder: (_) => [
         PopupMenuItem(value: 'ar', child: Text(l10n.languageArabic)),
@@ -238,7 +238,9 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.34),
+            color: Theme.of(
+              context,
+            ).colorScheme.outline.withValues(alpha: 0.34),
           ),
           color: Theme.of(context).colorScheme.surfaceContainerHigh,
         ),
@@ -247,10 +249,7 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
           children: [
             const Icon(Icons.language_rounded, size: 17),
             const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
           ],
         ),
       ),
@@ -528,21 +527,24 @@ class _CompanyHomeScreen extends ConsumerWidget {
                         items: memberships
                             .map(
                               (membership) => DropdownMenuItem<int>(
-                                value: _readInt(
-                                  membership,
-                                  const ['companyId', 'company_id'],
-                                ),
+                                value: _readInt(membership, const [
+                                  'companyId',
+                                  'company_id',
+                                ]),
                                 child: Text(
                                   _stringOf(
-                                    membership['companyName'] ?? membership['company_name'],
-                                    fallback: '#${_readInt(membership, const ['companyId', 'company_id'])}',
+                                    membership['companyName'] ??
+                                        membership['company_name'],
+                                    fallback:
+                                        '#${_readInt(membership, const ['companyId', 'company_id'])}',
                                   ),
                                 ),
                               ),
                             )
                             .toList(growable: false),
                         onChanged: (value) {
-                          ref.read(_selectedCompanyIdProvider.notifier).state = value;
+                          ref.read(_selectedCompanyIdProvider.notifier).state =
+                              value;
                         },
                       ),
                     ],
@@ -872,7 +874,9 @@ Map<String, dynamic>? _firstCompanyMembership(Map<String, dynamic>? bootstrap) {
   return memberships.first;
 }
 
-List<Map<String, dynamic>> _companyMemberships(Map<String, dynamic>? bootstrap) {
+List<Map<String, dynamic>> _companyMemberships(
+  Map<String, dynamic>? bootstrap,
+) {
   if (bootstrap == null) return const <Map<String, dynamic>>[];
   return _extractList(bootstrap, const ['memberships', 'items']);
 }
@@ -888,7 +892,8 @@ Map<String, dynamic>? _selectedMembership(
     return memberships.length == 1 ? memberships.first : null;
   }
   for (final membership in memberships) {
-    if (_readInt(membership, const ['companyId', 'company_id']) == selectedCompanyId) {
+    if (_readInt(membership, const ['companyId', 'company_id']) ==
+        selectedCompanyId) {
       return membership;
     }
   }

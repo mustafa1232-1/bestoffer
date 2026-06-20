@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
@@ -9,28 +10,43 @@ import '../../../core/widgets/maslaki_brand_mark.dart';
 import '../../../core/widgets/maslaki_wordmark.dart';
 
 class MaslakiSplashScreen extends StatefulWidget {
-  final VoidCallback onFinished;
+  final String statusTitle;
+  final String statusMessage;
+  final String? errorDetails;
+  final int attempts;
+  final bool waiting;
+  final VoidCallback? onRetry;
 
-  const MaslakiSplashScreen({super.key, required this.onFinished});
+  const MaslakiSplashScreen({
+    super.key,
+    required this.statusTitle,
+    required this.statusMessage,
+    required this.attempts,
+    required this.waiting,
+    this.errorDetails,
+    this.onRetry,
+  });
 
   @override
   State<MaslakiSplashScreen> createState() => _MaslakiSplashScreenState();
 }
 
 class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
-    with SingleTickerProviderStateMixin {
-  bool _animationCompleted = false;
+    with TickerProviderStateMixin {
+  static const _featureSwitchEvery = Duration(milliseconds: 1800);
 
-  late final AnimationController _controller =
-      AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 5200),
-      )..addStatusListener((status) {
-        if (status == AnimationStatus.completed) {
-          if (!mounted) return;
-          setState(() => _animationCompleted = true);
-        }
-      });
+  late final AnimationController _introController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3200),
+  )..forward();
+
+  late final AnimationController _ambientController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 9000),
+  )..repeat();
+
+  Timer? _featureTimer;
+  int _featureIndex = 0;
 
   static const List<_ServiceIconDatum> _serviceIcons = [
     _ServiceIconDatum(
@@ -65,15 +81,50 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
     ),
   ];
 
+  static const List<_SplashFeatureDatum> _features = [
+    _SplashFeatureDatum(
+      icon: Icons.restaurant_menu_rounded,
+      color: Color(0xFFFFB24C),
+      kind: _SplashFeatureKind.restaurants,
+    ),
+    _SplashFeatureDatum(
+      icon: Icons.shopping_bag_outlined,
+      color: Color(0xFF63C6FF),
+      kind: _SplashFeatureKind.shopping,
+    ),
+    _SplashFeatureDatum(
+      icon: Icons.local_taxi_rounded,
+      color: Color(0xFFFFD264),
+      kind: _SplashFeatureKind.taxi,
+    ),
+    _SplashFeatureDatum(
+      icon: Icons.work_outline_rounded,
+      color: Color(0xFF7BE39B),
+      kind: _SplashFeatureKind.jobs,
+    ),
+    _SplashFeatureDatum(
+      icon: Icons.groups_rounded,
+      color: Color(0xFFD29EFF),
+      kind: _SplashFeatureKind.community,
+    ),
+  ];
+
   @override
   void initState() {
     super.initState();
-    _controller.forward();
+    _featureTimer = Timer.periodic(_featureSwitchEvery, (_) {
+      if (!mounted) return;
+      setState(() {
+        _featureIndex = (_featureIndex + 1) % _features.length;
+      });
+    });
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _featureTimer?.cancel();
+    _introController.dispose();
+    _ambientController.dispose();
     super.dispose();
   }
 
@@ -99,44 +150,72 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
     }
   }
 
+  (String, String) _featureCopy(BuildContext context, _SplashFeatureKind kind) {
+    final l10n = context.l10n;
+    switch (kind) {
+      case _SplashFeatureKind.restaurants:
+        return (
+          l10n.onboardingRestaurantsTitle,
+          l10n.onboardingRestaurantsDescription,
+        );
+      case _SplashFeatureKind.shopping:
+        return (
+          l10n.onboardingShoppingTitle,
+          l10n.onboardingShoppingDescription,
+        );
+      case _SplashFeatureKind.taxi:
+        return (l10n.onboardingTaxiTitle, l10n.onboardingTaxiDescription);
+      case _SplashFeatureKind.jobs:
+        return (l10n.onboardingJobsTitle, l10n.onboardingJobsDescription);
+      case _SplashFeatureKind.community:
+        return (
+          l10n.onboardingCommunityTitle,
+          l10n.onboardingCommunityDescription,
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: AnimatedBuilder(
-        animation: _controller,
+        animation: Listenable.merge([_introController, _ambientController]),
         builder: (context, _) {
-          final progress = _controller.value;
+          final reveal = _introController.value;
+          final ambient = _ambientController.value;
           final orbitDraw = Curves.easeOutCubic.transform(
-            _stage(0.00, 0.22, progress),
+            _stage(0.00, 0.22, reveal),
           );
-          final orbitTravel = Curves.easeInOut.transform(
-            _stage(0.12, 0.60, progress),
-          );
+          final orbitTravel = reveal < 0.68
+              ? Curves.easeInOut.transform(_stage(0.14, 0.60, reveal))
+              : ambient;
           final logoReveal = Curves.easeOutExpo.transform(
-            _stage(0.20, 0.58, progress),
+            _stage(0.14, 0.48, reveal),
           );
           final pinReveal = Curves.easeOutBack.transform(
-            _stage(0.50, 0.72, progress),
+            _stage(0.40, 0.64, reveal),
           );
           final iconsMerge = Curves.easeInOutCubic.transform(
-            _stage(0.76, 0.96, progress),
+            _stage(0.62, 0.92, reveal),
           );
-          final titleReveal = Curves.easeOut.transform(
-            _stage(0.84, 1.00, progress),
+          final contentReveal = Curves.easeOutCubic.transform(
+            _stage(0.40, 0.82, reveal),
           );
+          final contentLift = lerpDouble(18, 0, contentReveal)!;
+          final ambientWave = math.sin(ambient * math.pi * 2);
           final zoom = lerpDouble(
-            1.12,
+            1.08,
             1.00,
-            Curves.easeOutCubic.transform(progress),
+            Curves.easeOutCubic.transform(reveal),
           )!;
 
           return LayoutBuilder(
             builder: (context, constraints) {
               final maxStageSize = math.min(
-                constraints.maxWidth * 0.86,
-                constraints.maxHeight * 0.60,
+                constraints.maxWidth * 0.82,
+                constraints.maxHeight * 0.42,
               );
-              final stageSize = maxStageSize.clamp(250.0, 400.0);
+              final stageSize = maxStageSize.clamp(240.0, 360.0);
 
               return Stack(
                 fit: StackFit.expand,
@@ -147,9 +226,9 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [
-                          Color(0xFF102238),
-                          Color(0xFF16314D),
-                          Color(0xFF1F3D5C),
+                          Color(0xFF071224),
+                          Color(0xFF112741),
+                          Color(0xFF183454),
                         ],
                       ),
                     ),
@@ -157,7 +236,7 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
                   Positioned.fill(
                     child: IgnorePointer(
                       child: Opacity(
-                        opacity: 0.34,
+                        opacity: 0.26,
                         child: Lottie.asset(
                           'assets/lottie/splash_particles.json',
                           fit: BoxFit.cover,
@@ -169,21 +248,18 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
                   ),
                   Positioned.fill(
                     child: IgnorePointer(
-                      child: Opacity(
-                        opacity: 0.12,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: RadialGradient(
-                              center: Alignment(
-                                lerpDouble(-0.35, 0.20, progress)!,
-                                lerpDouble(-0.38, 0.35, progress)!,
-                              ),
-                              radius: 0.95,
-                              colors: const [
-                                Color(0xFFE2C28F),
-                                Colors.transparent,
-                              ],
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: RadialGradient(
+                            center: Alignment(
+                              lerpDouble(-0.48, 0.12, ambient)!,
+                              lerpDouble(-0.56, -0.10, reveal)!,
                             ),
+                            radius: 0.95,
+                            colors: [
+                              const Color(0xFFE1BF8A).withValues(alpha: 0.16),
+                              Colors.transparent,
+                            ],
                           ),
                         ),
                       ),
@@ -191,173 +267,164 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
                   ),
                   Positioned.fill(
                     child: IgnorePointer(
-                      child: Opacity(
-                        opacity: 0.10,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: RadialGradient(
-                              center: Alignment(
-                                lerpDouble(0.42, -0.20, progress)!,
-                                lerpDouble(0.46, -0.12, progress)!,
-                              ),
-                              radius: 0.88,
-                              colors: const [
-                                Color(0xFF45668D),
-                                Colors.transparent,
-                              ],
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: RadialGradient(
+                            center: Alignment(
+                              lerpDouble(0.55, -0.18, reveal)!,
+                              lerpDouble(0.50, 0.16, ambient)!,
                             ),
+                            radius: 0.92,
+                            colors: [
+                              const Color(0xFF5C7CA7).withValues(alpha: 0.18),
+                              Colors.transparent,
+                            ],
                           ),
                         ),
                       ),
                     ),
                   ),
-                  Center(
-                    child: Transform.scale(
-                      scale: zoom,
-                      child: SizedBox(
-                        width: stageSize,
-                        height: stageSize,
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Positioned.fill(
-                              child: CustomPaint(
-                                painter: _OrbitRoadPainter(
-                                  drawProgress: orbitDraw,
-                                  travelProgress: orbitTravel,
-                                ),
+                  SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+                      child: Column(
+                        children: [
+                          Transform.translate(
+                            offset: Offset(0, contentLift),
+                            child: Opacity(
+                              opacity: contentReveal,
+                              child: const Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: _BrandPill(),
                               ),
                             ),
-                            ..._buildServiceIcons(
-                              context: context,
-                              stageSize: stageSize,
-                              progress: progress,
-                              mergeProgress: iconsMerge,
-                            ),
-                            Center(
-                              child: Opacity(
-                                opacity: logoReveal,
-                                child: Transform.translate(
-                                  offset: Offset(
-                                    0,
-                                    lerpDouble(24, 0, logoReveal)!,
-                                  ),
-                                  child: SizedBox(
-                                    width: stageSize * 0.57,
-                                    height: stageSize * 0.57,
-                                    child: MaslakiBrandMark(
-                                      size: stageSize * 0.57,
-                                      shape: MaslakiBrandShape.circle,
-                                      revealProgress: logoReveal,
-                                      dashPhase: progress * 1.6,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              top: stageSize * 0.08,
-                              left: 0,
-                              right: 0,
+                          ),
+                          Expanded(
+                            child: Center(
                               child: Transform.scale(
-                                scale: pinReveal.clamp(0.0, 1.0),
-                                child: Opacity(
-                                  opacity: pinReveal.clamp(0.0, 1.0),
-                                  child: Center(
-                                    child: Container(
-                                      width: 45,
-                                      height: 45,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            Colors.white.withValues(
-                                              alpha: 0.24,
-                                            ),
-                                            Colors.white.withValues(
-                                              alpha: 0.08,
-                                            ),
-                                          ],
-                                        ),
-                                        border: Border.all(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.60,
+                                scale: zoom,
+                                child: SizedBox(
+                                  width: stageSize,
+                                  height: stageSize,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Positioned.fill(
+                                        child: CustomPaint(
+                                          painter: _OrbitRoadPainter(
+                                            drawProgress: orbitDraw,
+                                            travelProgress: orbitTravel,
+                                            glowPulse: ambient,
                                           ),
                                         ),
                                       ),
-                                      child: const Icon(
-                                        Icons.location_on_rounded,
-                                        color: Colors.white,
-                                        size: 25,
+                                      ..._buildServiceIcons(
+                                        context: context,
+                                        stageSize: stageSize,
+                                        progress: reveal,
+                                        mergeProgress: iconsMerge,
+                                        ambientWave: ambientWave,
                                       ),
-                                    ),
+                                      Center(
+                                        child: Opacity(
+                                          opacity: logoReveal,
+                                          child: Transform.translate(
+                                            offset: Offset(
+                                              0,
+                                              lerpDouble(18, 0, logoReveal)!,
+                                            ),
+                                            child: SizedBox(
+                                              width: stageSize * 0.58,
+                                              height: stageSize * 0.58,
+                                              child: MaslakiBrandMark(
+                                                size: stageSize * 0.58,
+                                                shape: MaslakiBrandShape.circle,
+                                                revealProgress: logoReveal,
+                                                dashPhase: ambient * 1.8,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: stageSize * 0.08,
+                                        left: 0,
+                                        right: 0,
+                                        child: Transform.scale(
+                                          scale: pinReveal.clamp(0.0, 1.0),
+                                          child: Opacity(
+                                            opacity: pinReveal.clamp(0.0, 1.0),
+                                            child: Center(
+                                              child: Container(
+                                                width: 46,
+                                                height: 46,
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  gradient: LinearGradient(
+                                                    begin: Alignment.topLeft,
+                                                    end: Alignment.bottomRight,
+                                                    colors: [
+                                                      Colors.white.withValues(
+                                                        alpha: 0.24,
+                                                      ),
+                                                      Colors.white.withValues(
+                                                        alpha: 0.08,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  border: Border.all(
+                                                    color: Colors.white
+                                                        .withValues(
+                                                          alpha: 0.62,
+                                                        ),
+                                                  ),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      blurRadius: 24,
+                                                      color: const Color(
+                                                        0xFFE1BF8A,
+                                                      ).withValues(alpha: 0.18),
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: const Icon(
+                                                  Icons.location_on_rounded,
+                                                  color: Colors.white,
+                                                  size: 25,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 16,
-                    right: 16,
-                    bottom: math.max(40, constraints.maxHeight * 0.08),
-                    child: Opacity(
-                      opacity: titleReveal,
-                      child: Transform.translate(
-                        offset: Offset(0, lerpDouble(14, 0, titleReveal)!),
-                        child: Column(
-                          children: [
-                            const MaslakiWordmark(
-                              arabicSize: 42,
-                              latinSize: 14,
-                              latinLetterSpacing: 6.2,
-                              arabicColor: Color(0xFFF8F0E2),
-                              latinColor: Color(0xFFE0BC88),
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              context.l10n.splashTagline,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: const Color(
-                                  0xFFF7EFDF,
-                                ).withValues(alpha: 0.86),
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            AnimatedSlide(
-                              duration: const Duration(milliseconds: 320),
-                              curve: Curves.easeOutCubic,
-                              offset: _animationCompleted
-                                  ? Offset.zero
-                                  : const Offset(0, 0.2),
-                              child: AnimatedOpacity(
-                                duration: const Duration(milliseconds: 280),
-                                curve: Curves.easeOutCubic,
-                                opacity: _animationCompleted ? 1 : 0,
-                                child: IgnorePointer(
-                                  ignoring: !_animationCompleted,
-                                  child: FilledButton.icon(
-                                    onPressed: widget.onFinished,
-                                    icon: const Icon(
-                                      Icons.arrow_forward_rounded,
-                                    ),
-                                    label: Text(context.l10n.commonContinue),
-                                  ),
+                          ),
+                          Transform.translate(
+                            offset: Offset(0, contentLift),
+                            child: Opacity(
+                              opacity: contentReveal,
+                              child: _SplashBottomPanel(
+                                feature: _features[_featureIndex],
+                                copy: _featureCopy(
+                                  context,
+                                  _features[_featureIndex].kind,
                                 ),
+                                featureCount: _features.length,
+                                featureIndex: _featureIndex,
+                                waiting: widget.waiting,
+                                statusTitle: widget.statusTitle,
+                                statusMessage: widget.statusMessage,
+                                errorDetails: widget.errorDetails,
+                                attempts: widget.attempts,
+                                onRetry: widget.onRetry,
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -375,23 +442,25 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
     required double stageSize,
     required double progress,
     required double mergeProgress,
+    required double ambientWave,
   }) {
-    final baseRadius = stageSize * 0.45;
+    final baseRadius = stageSize * 0.44;
     final center = stageSize / 2;
     final out = <Widget>[];
     for (var index = 0; index < _serviceIcons.length; index++) {
       final item = _serviceIcons[index];
       final appear = Curves.easeOutBack.transform(
-        _stage(0.54 + index * 0.06, 0.70 + index * 0.06, progress),
+        _stage(0.46 + index * 0.05, 0.62 + index * 0.05, progress),
       );
       if (appear <= 0) continue;
       final angle = item.angleDeg * math.pi / 180;
-      final radius = lerpDouble(baseRadius, stageSize * 0.10, mergeProgress)!;
+      final radius = lerpDouble(baseRadius, stageSize * 0.11, mergeProgress)!;
+      final bob = math.sin((ambientWave + index) * 1.4) * 4;
       final x = center + math.cos(angle) * radius;
-      final y = center + math.sin(angle) * radius;
-      final size = lerpDouble(20, 54, appear)!;
-      final opacity = (appear * (1 - mergeProgress * 0.9)).clamp(0.0, 1.0);
-      final labelOpacity = (opacity * (1 - mergeProgress * 0.82)).clamp(
+      final y = center + math.sin(angle) * radius + bob;
+      final size = lerpDouble(18, 52, appear)!;
+      final opacity = (appear * (1 - mergeProgress * 0.82)).clamp(0.0, 1.0);
+      final labelOpacity = (opacity * (1 - mergeProgress * 0.88)).clamp(
         0.0,
         1.0,
       );
@@ -403,7 +472,7 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
           child: Opacity(
             opacity: opacity,
             child: Transform.scale(
-              scale: lerpDouble(0.38, 1.0, appear)!,
+              scale: lerpDouble(0.40, 1.0, appear)!,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -414,14 +483,14 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [
-                          item.color.withValues(alpha: 0.96),
-                          item.color.withValues(alpha: 0.58),
+                          item.color.withValues(alpha: 0.95),
+                          item.color.withValues(alpha: 0.56),
                         ],
                       ),
                       boxShadow: [
                         BoxShadow(
                           blurRadius: 18,
-                          color: item.color.withValues(alpha: 0.50),
+                          color: item.color.withValues(alpha: 0.34),
                         ),
                       ],
                     ),
@@ -431,7 +500,7 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
                       child: Icon(
                         item.icon,
                         color: Colors.white,
-                        size: size * 0.52,
+                        size: size * 0.50,
                       ),
                     ),
                   ),
@@ -441,7 +510,7 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
                     child: Text(
                       _serviceLabel(context, item.label),
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.92),
+                        color: Colors.white.withValues(alpha: 0.88),
                         fontSize: 10.5,
                         fontWeight: FontWeight.w700,
                       ),
@@ -460,6 +529,8 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
 
 enum _SplashServiceLabel { food, shopping, taxi, jobs, community }
 
+enum _SplashFeatureKind { restaurants, shopping, taxi, jobs, community }
+
 class _ServiceIconDatum {
   final IconData icon;
   final Color color;
@@ -474,13 +545,301 @@ class _ServiceIconDatum {
   });
 }
 
+class _SplashFeatureDatum {
+  final IconData icon;
+  final Color color;
+  final _SplashFeatureKind kind;
+
+  const _SplashFeatureDatum({
+    required this.icon,
+    required this.color,
+    required this.kind,
+  });
+}
+
+class _BrandPill extends StatelessWidget {
+  const _BrandPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: Colors.white.withValues(alpha: 0.08),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MaslakiBrandMark(size: 30, borderRadius: 10),
+            SizedBox(width: 10),
+            MaslakiWordmark(
+              arabicSize: 18,
+              latinSize: 7.8,
+              latinLetterSpacing: 3.0,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SplashBottomPanel extends StatelessWidget {
+  final _SplashFeatureDatum feature;
+  final (String, String) copy;
+  final int featureCount;
+  final int featureIndex;
+  final bool waiting;
+  final String statusTitle;
+  final String statusMessage;
+  final String? errorDetails;
+  final int attempts;
+  final VoidCallback? onRetry;
+
+  const _SplashBottomPanel({
+    required this.feature,
+    required this.copy,
+    required this.featureCount,
+    required this.featureIndex,
+    required this.waiting,
+    required this.statusTitle,
+    required this.statusMessage,
+    required this.errorDetails,
+    required this.attempts,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final (title, description) = copy;
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 700),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.12),
+              Colors.white.withValues(alpha: 0.06),
+            ],
+          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          boxShadow: [
+            BoxShadow(
+              blurRadius: 28,
+              color: Colors.black.withValues(alpha: 0.16),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const MaslakiWordmark(
+                arabicSize: 34,
+                latinSize: 12,
+                latinLetterSpacing: 5.0,
+                arabicColor: Color(0xFFF8F0E2),
+                latinColor: Color(0xFFE0BC88),
+                crossAxisAlignment: CrossAxisAlignment.center,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                context.l10n.splashTagline,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: const Color(0xFFF7EFDF).withValues(alpha: 0.84),
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 16),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 420),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0.05, 0),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  );
+                },
+                child: Container(
+                  key: ValueKey(feature.kind),
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    color: Colors.white.withValues(alpha: 0.05),
+                    border: Border.all(
+                      color: feature.color.withValues(alpha: 0.24),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: feature.color.withValues(alpha: 0.18),
+                          border: Border.all(
+                            color: feature.color.withValues(alpha: 0.34),
+                          ),
+                        ),
+                        child: Icon(
+                          feature.icon,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              description,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.80),
+                                fontSize: 12.8,
+                                height: 1.45,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(featureCount, (index) {
+                  final active = index == featureIndex;
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 240),
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    width: active ? 20 : 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      color: active
+                          ? const Color(0xFFE0BC88)
+                          : Colors.white.withValues(alpha: 0.26),
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 16),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  statusTitle,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  statusMessage,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.82),
+                    fontSize: 13.2,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (waiting) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: const LinearProgressIndicator(minHeight: 5),
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    context.l10n.startupIntroAttempts(attempts),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.62),
+                      fontSize: 12.3,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ] else ...[
+                if (errorDetails?.trim().isNotEmpty == true) ...[
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      errorDetails!,
+                      style: TextStyle(
+                        color: const Color(0xFFFFC8C8).withValues(alpha: 0.92),
+                        fontSize: 12.4,
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: FilledButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: Text(context.l10n.commonRetry),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _OrbitRoadPainter extends CustomPainter {
   final double drawProgress;
   final double travelProgress;
+  final double glowPulse;
 
   const _OrbitRoadPainter({
     required this.drawProgress,
     required this.travelProgress,
+    required this.glowPulse,
   });
 
   @override
@@ -491,15 +850,20 @@ class _OrbitRoadPainter extends CustomPainter {
 
     final basePaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.8
-      ..color = Colors.white.withValues(alpha: 0.17);
+      ..strokeWidth = 2.6
+      ..color = Colors.white.withValues(alpha: 0.16);
     canvas.drawCircle(center, radius, basePaint);
 
+    final glowAlpha = lerpDouble(
+      0.16,
+      0.28,
+      (math.sin(glowPulse * math.pi) + 1) / 2,
+    )!;
     final glowPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 10
       ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFFD9B980).withValues(alpha: 0.22);
+      ..color = const Color(0xFFD9B980).withValues(alpha: glowAlpha);
 
     final roadPaint = Paint()
       ..style = PaintingStyle.stroke
@@ -509,8 +873,9 @@ class _OrbitRoadPainter extends CustomPainter {
         colors: [Color(0xFFDAB887), Color(0xFF6A87AC), Color(0xFF4A6D93)],
       ).createShader(rect);
 
-    if (drawProgress > 0) {
-      final sweep = math.pi * 2 * drawProgress;
+    final effectiveDraw = drawProgress.clamp(0.0, 1.0);
+    if (effectiveDraw > 0) {
+      final sweep = math.pi * 2 * effectiveDraw;
       canvas.drawArc(rect, -math.pi / 2, sweep, false, glowPaint);
       canvas.drawArc(rect, -math.pi / 2, sweep, false, roadPaint);
     }
@@ -533,149 +898,7 @@ class _OrbitRoadPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _OrbitRoadPainter oldDelegate) {
     return oldDelegate.drawProgress != drawProgress ||
-        oldDelegate.travelProgress != travelProgress;
-  }
-}
-
-// ignore: unused_element
-class _LogoRoadPainter extends CustomPainter {
-  final double revealProgress;
-  final double dashPhase;
-
-  const _LogoRoadPainter({
-    required this.revealProgress,
-    required this.dashPhase,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final outerPath = _buildOuterMPath(size);
-    final innerPath = _buildInnerRoadPath(size);
-
-    final bounds = Rect.fromLTWH(0, 0, size.width, size.height);
-    final outerPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = size.width * 0.205
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..shader = const LinearGradient(
-        begin: Alignment.centerLeft,
-        end: Alignment.centerRight,
-        colors: [Color(0xFFDAB887), Color(0xFF6885AA), Color(0xFF4A6D93)],
-      ).createShader(bounds);
-
-    _drawPathPortion(
-      canvas: canvas,
-      path: outerPath,
-      paint: outerPaint,
-      t: revealProgress,
-    );
-
-    if (revealProgress <= 0.05) return;
-
-    final roadGlow = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = size.width * 0.043
-      ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFFE9CE9F).withValues(alpha: 0.36);
-
-    final roadPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = size.width * 0.027
-      ..strokeCap = StrokeCap.round
-      ..color = Colors.white;
-
-    _drawDashedPath(
-      canvas: canvas,
-      path: innerPath,
-      paint: roadGlow,
-      dashLength: size.width * 0.08,
-      gapLength: size.width * 0.045,
-      phase: dashPhase,
-    );
-    _drawDashedPath(
-      canvas: canvas,
-      path: innerPath,
-      paint: roadPaint,
-      dashLength: size.width * 0.056,
-      gapLength: size.width * 0.048,
-      phase: dashPhase,
-    );
-  }
-
-  Path _buildOuterMPath(Size size) {
-    final w = size.width;
-    final h = size.height;
-    return Path()
-      ..moveTo(0.15 * w, 0.84 * h)
-      ..lineTo(0.15 * w, 0.22 * h)
-      ..quadraticBezierTo(0.15 * w, 0.12 * h, 0.23 * w, 0.17 * h)
-      ..lineTo(0.50 * w, 0.58 * h)
-      ..lineTo(0.77 * w, 0.17 * h)
-      ..quadraticBezierTo(0.85 * w, 0.12 * h, 0.85 * w, 0.22 * h)
-      ..lineTo(0.85 * w, 0.84 * h);
-  }
-
-  Path _buildInnerRoadPath(Size size) {
-    final w = size.width;
-    final h = size.height;
-    return Path()
-      ..moveTo(0.30 * w, 0.82 * h)
-      ..lineTo(0.30 * w, 0.34 * h)
-      ..quadraticBezierTo(0.30 * w, 0.30 * h, 0.34 * w, 0.35 * h)
-      ..lineTo(0.50 * w, 0.56 * h)
-      ..lineTo(0.66 * w, 0.35 * h)
-      ..quadraticBezierTo(0.70 * w, 0.30 * h, 0.70 * w, 0.34 * h)
-      ..lineTo(0.70 * w, 0.82 * h);
-  }
-
-  void _drawPathPortion({
-    required Canvas canvas,
-    required Path path,
-    required Paint paint,
-    required double t,
-  }) {
-    final metrics = path.computeMetrics().toList();
-    if (metrics.isEmpty) return;
-    final totalLength = metrics.fold<double>(
-      0,
-      (sum, metric) => sum + metric.length,
-    );
-    var visible = (totalLength * t).clamp(0.0, totalLength);
-    for (final metric in metrics) {
-      if (visible <= 0) break;
-      final end = math.min(metric.length, visible);
-      canvas.drawPath(metric.extractPath(0, end), paint);
-      visible -= end;
-    }
-  }
-
-  void _drawDashedPath({
-    required Canvas canvas,
-    required Path path,
-    required Paint paint,
-    required double dashLength,
-    required double gapLength,
-    required double phase,
-  }) {
-    final cycle = dashLength + gapLength;
-    final phaseOffset = cycle * phase;
-    for (final metric in path.computeMetrics()) {
-      var distance = -phaseOffset;
-      while (distance < metric.length) {
-        final start = math.max(0.0, distance);
-        final end = math.min(metric.length, distance + dashLength);
-        if (end > start) {
-          canvas.drawPath(metric.extractPath(start, end), paint);
-        }
-        distance += cycle;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _LogoRoadPainter oldDelegate) {
-    return oldDelegate.revealProgress != revealProgress ||
-        oldDelegate.dashPhase != dashPhase;
+        oldDelegate.travelProgress != travelProgress ||
+        oldDelegate.glowPulse != glowPulse;
   }
 }

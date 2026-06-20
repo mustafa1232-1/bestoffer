@@ -67,18 +67,19 @@ final _storeCategoriesProvider = FutureProvider<List<Map<String, dynamic>>>((
   }
 });
 
-final _storeDeliveryAgentsProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) async {
-      final auth = ref.watch(authControllerProvider);
-      if (auth.user == null || !auth.isOwner) {
-        return const <Map<String, dynamic>>[];
-      }
-      try {
-        return await ref.read(_storeRuntimeApiProvider).deliveryAgents();
-      } catch (_) {
-        return const <Map<String, dynamic>>[];
-      }
-    });
+final _storeDeliveryAgentsProvider = FutureProvider<List<Map<String, dynamic>>>(
+  (ref) async {
+    final auth = ref.watch(authControllerProvider);
+    if (auth.user == null || !auth.isOwner) {
+      return const <Map<String, dynamic>>[];
+    }
+    try {
+      return await ref.read(_storeRuntimeApiProvider).deliveryAgents();
+    } catch (_) {
+      return const <Map<String, dynamic>>[];
+    }
+  },
+);
 
 final _storeRuntimeApiProvider = Provider<_StoreRuntimeApi>((ref) {
   return _StoreRuntimeApi(ref.watch(runtimeDioProvider));
@@ -205,10 +206,14 @@ class _StoreSplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.storefront_rounded,
-              size: 52,
-              color: Theme.of(context).colorScheme.primary,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset(
+                'assets/branding/maslaki_official_logo.png',
+                width: 78,
+                height: 78,
+                fit: BoxFit.cover,
+              ),
             ),
             const SizedBox(height: 16),
             Text(
@@ -241,7 +246,9 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
     return PopupMenuButton<String>(
       tooltip: l10n.languageSectionTitle,
       onSelected: (code) {
-        ref.read(appSettingsControllerProvider.notifier).setLocale(Locale(code));
+        ref
+            .read(appSettingsControllerProvider.notifier)
+            .setLocale(Locale(code));
       },
       itemBuilder: (_) => [
         PopupMenuItem(value: 'ar', child: Text(l10n.languageArabic)),
@@ -252,7 +259,9 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.34),
+            color: Theme.of(
+              context,
+            ).colorScheme.outline.withValues(alpha: 0.34),
           ),
           color: Theme.of(context).colorScheme.surfaceContainerHigh,
         ),
@@ -261,10 +270,7 @@ class _RuntimeLoginLanguageButton extends ConsumerWidget {
           children: [
             const Icon(Icons.language_rounded, size: 17),
             const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
           ],
         ),
       ),
@@ -745,7 +751,9 @@ class _StoreAnalyticsScreen extends ConsumerWidget {
             loading: () => const _LoadingCard(),
             error: (_, _) => _RuntimeListCard(
               title: l10n.runtimeOpenAnalyticsLabel,
-              emptyTitle: l10n.runtimeEmptyTitle(l10n.runtimeOpenAnalyticsLabel),
+              emptyTitle: l10n.runtimeEmptyTitle(
+                l10n.runtimeOpenAnalyticsLabel,
+              ),
               emptySubtitle: l10n.runtimeEmptySubtitle(
                 l10n.runtimeOpenAnalyticsLabel,
               ),
@@ -1004,7 +1012,8 @@ class _StoreOrderActionCardState extends ConsumerState<_StoreOrderActionCard> {
     if (orderId <= 0) return;
     await _runAction(
       context,
-      () => ref.read(_storeRuntimeApiProvider).updateOrderStatus(orderId, status),
+      () =>
+          ref.read(_storeRuntimeApiProvider).updateOrderStatus(orderId, status),
     );
   }
 
@@ -1058,7 +1067,9 @@ class _StoreOrderActionCardState extends ConsumerState<_StoreOrderActionCard> {
     }
     await _runAction(
       context,
-      () => ref.read(_storeRuntimeApiProvider).assignDelivery(orderId, selectedId),
+      () => ref
+          .read(_storeRuntimeApiProvider)
+          .assignDelivery(orderId, selectedId),
     );
   }
 
