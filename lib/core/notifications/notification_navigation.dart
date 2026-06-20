@@ -734,6 +734,15 @@ class NotificationNavigation {
           builder: (_) => const SocialResidenceChangeScreen(),
         );
       }
+      // Result of a user's profile core-data change request → their profile.
+      if (target == 'profile_core_change_request' || target == 'profile') {
+        final selfId = payload.entityId ?? auth.user?.id;
+        if (selfId != null && selfId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => SocialProfileScreen(userId: selfId),
+          );
+        }
+      }
       if (target == 'social_restriction_notice' ||
           target == 'social_restrictions') {
         return MaterialPageRoute(
@@ -926,6 +935,7 @@ class NotificationNavigation {
     if (auth.isBackoffice) {
       if (target == 'admin_requests_inbox' ||
           target == 'admin_approval_requests' ||
+          target == 'admin_profile_change_requests' ||
           target.startsWith('admin_request_') ||
           target.contains('approval')) {
         return MaterialPageRoute(
