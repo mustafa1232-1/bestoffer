@@ -1,11 +1,18 @@
+import 'dart:async';
+
 import 'package:core_auth/core_auth.dart';
 import 'package:core_design_system/core_design_system.dart';
 import 'package:core_localization/core_localization.dart';
 import 'package:core_networking/core_networking.dart';
+import 'package:core_notifications/core_notifications.dart';
 import 'package:core_storage/core_storage.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:image_picker_android/image_picker_android.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 
 final _storeMerchantProvider = FutureProvider<Map<String, dynamic>?>((
   ref,
@@ -85,6 +92,113 @@ final _storeRuntimeApiProvider = Provider<_StoreRuntimeApi>((ref) {
   return _StoreRuntimeApi(ref.watch(runtimeDioProvider));
 });
 
+final ImagePicker _storeImagePicker = ImagePicker();
+bool _androidPhotoPickerConfigured = false;
+
+void _debugStoreLog(String message) {
+  if (kReleaseMode) return;
+  debugPrint('[app-store-runtime] $message');
+}
+
+void _ensureAndroidPhotoPicker() {
+  if (_androidPhotoPickerConfigured) return;
+  final implementation = ImagePickerPlatform.instance;
+  if (implementation is ImagePickerAndroid) {
+    implementation.useAndroidPhotoPicker = true;
+  }
+  _androidPhotoPickerConfigured = true;
+}
+
+Future<_StorePickedImage?> _pickStoreImage(ImageSource source) async {
+  if (source == ImageSource.gallery) {
+    _ensureAndroidPhotoPicker();
+  }
+  try {
+    final image = await _storeImagePicker.pickImage(
+      source: source,
+      imageQuality: 92,
+      maxWidth: 2400,
+      requestFullMetadata: false,
+    );
+    if (image == null) {
+      _debugStoreLog('image pick canceled from ${source.name}');
+      return null;
+    }
+    final bytes = await image.readAsBytes();
+    if (bytes.isEmpty) {
+      _debugStoreLog('image pick returned empty bytes from ${source.name}');
+      return null;
+    }
+    _debugStoreLog('image picked from ${source.name}: ${bytes.length} bytes');
+    return _StorePickedImage(
+      name: image.name.isEmpty ? 'store_image.jpg' : image.name,
+      path: image.path,
+      bytes: bytes,
+    );
+  } catch (error) {
+    _debugStoreLog('image pick failed from ${source.name}: $error');
+    return null;
+  }
+}
+
+String? _resolveRuntimeImageUrl(dynamic value) {
+  final raw = '${value ?? ''}'.trim();
+  if (raw.isEmpty || raw == '-') return null;
+  final lower = raw.toLowerCase();
+  if (lower.startsWith('http://') ||
+      lower.startsWith('https://') ||
+      lower.startsWith('data:')) {
+    return raw;
+  }
+  final base = RuntimeApiConfig.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+  if (base.isEmpty) return raw;
+  if (raw.startsWith('/')) return '$base$raw';
+  return '$base/$raw';
+}
+
+String? _imageUrlFrom(Map<String, dynamic>? data) {
+  if (data == null) return null;
+  return _resolveRuntimeImageUrl(
+    data['imageUrl'] ??
+        data['image_url'] ??
+        data['thumbnailUrl'] ??
+        data['thumbnail_url'] ??
+        data['photoUrl'] ??
+        data['photo_url'],
+  );
+}
+
+String _storeText(
+  BuildContext context, {
+  required String ar,
+  required String en,
+}) {
+  final code = Localizations.maybeLocaleOf(context)?.languageCode.toLowerCase();
+  return code == 'ar' ? ar : en;
+}
+
+class _StorePickedImage {
+  final String name;
+  final String path;
+  final Uint8List bytes;
+
+  const _StorePickedImage({
+    required this.name,
+    required this.path,
+    required this.bytes,
+  });
+
+  Future<MultipartFile> toMultipartFile() async {
+    if (bytes.isNotEmpty) {
+      return MultipartFile.fromBytes(bytes, filename: name);
+    }
+    if (path.isNotEmpty) {
+      return MultipartFile.fromFile(path, filename: name);
+    }
+    throw StateError('Image file has no readable bytes or path');
+  }
+}
+
 void runAppStore() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
@@ -111,8 +225,15 @@ class MaslakiStoreApp extends ConsumerStatefulWidget {
 
 class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
     with WidgetsBindingObserver {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   bool _bootstrapped = false;
   bool _roleMismatchLogoutQueued = false;
+  bool _pushSyncInFlight = false;
+  int? _pushSyncedUserId;
+  ProviderSubscription<AuthState>? _authStateSub;
+  StreamSubscription<RuntimeNotificationTapPayload>? _localTapSub;
+  StreamSubscription<RuntimeNotificationTapPayload>? _pushTapSub;
+  RuntimeNotificationTapPayload? _pendingNotificationTap;
 
   @override
   void initState() {
@@ -122,18 +243,41 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
       _bootstrapped = true;
       return;
     }
+    _authStateSub = ref.listenManual<AuthState>(authControllerProvider, (
+      previous,
+      next,
+    ) {
+      unawaited(_handleAuthStateChanged(previous, next));
+    });
     Future.microtask(() async {
+      final localNotifications = ref.read(runtimeLocalNotificationsProvider);
+      await localNotifications.initialize();
+      _localTapSub = localNotifications.tapStream.listen(
+        _handleNotificationTap,
+      );
+      final pushNotifications = ref.read(runtimePushNotificationsProvider);
+      await pushNotifications.initialize();
+      _pushTapSub = pushNotifications.tapStream.listen(_handleNotificationTap);
       await ref.read(authControllerProvider.notifier).bootstrap();
+      if (!mounted) return;
+      final auth = ref.read(authControllerProvider);
+      if (auth.isAuthed && auth.isOwner) {
+        await _ensurePushReadyAndSync(auth);
+      }
       if (!mounted) return;
       setState(() {
         _bootstrapped = true;
       });
+      _flushPendingNotificationTap();
     });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _authStateSub?.close();
+    _localTapSub?.cancel();
+    _pushTapSub?.cancel();
     super.dispose();
   }
 
@@ -146,6 +290,128 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
     ref.invalidate(_storeProductsProvider);
     ref.invalidate(_storeCategoriesProvider);
     ref.invalidate(_storeDeliveryAgentsProvider);
+    final auth = ref.read(authControllerProvider);
+    if (auth.isAuthed && auth.isOwner) {
+      unawaited(_ensurePushReadyAndSync(auth));
+    }
+  }
+
+  Future<void> _handleAuthStateChanged(
+    AuthState? previous,
+    AuthState next,
+  ) async {
+    final wasAuthed = previous?.isAuthed ?? false;
+    final nextUserId = next.user?.id;
+    final previousUserId = previous?.user?.id;
+    final pushNotifications = ref.read(runtimePushNotificationsProvider);
+
+    if (wasAuthed && (!next.isAuthed || !next.isOwner)) {
+      _pushSyncedUserId = null;
+      await pushNotifications.unregisterCurrentToken();
+      return;
+    }
+
+    if (next.isAuthed &&
+        next.isOwner &&
+        nextUserId != null &&
+        previousUserId != nextUserId) {
+      await _ensurePushReadyAndSync(next);
+      _flushPendingNotificationTap();
+    }
+  }
+
+  Future<void> _ensurePushReadyAndSync(AuthState auth) async {
+    if (!mounted || !auth.isAuthed || !auth.isOwner || auth.user == null) {
+      return;
+    }
+    final push = ref.read(runtimePushNotificationsProvider);
+    await push.initialize();
+    await push.requestPermissionIfNeeded();
+    if (!mounted) return;
+
+    final userId = auth.user!.id;
+    if (_pushSyncInFlight || _pushSyncedUserId == userId) return;
+    _pushSyncInFlight = true;
+    try {
+      await push.syncToken();
+      _pushSyncedUserId = userId;
+      _debugStoreLog('push token synced for owner $userId');
+    } catch (error) {
+      _debugStoreLog('push token sync failed: $error');
+    } finally {
+      _pushSyncInFlight = false;
+    }
+  }
+
+  void _handleNotificationTap(RuntimeNotificationTapPayload payload) {
+    _debugStoreLog('notification tap: ${payload.toJson()}');
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isAuthed || !auth.isOwner) {
+      _pendingNotificationTap = payload;
+      return;
+    }
+    final nav = _navigatorKey.currentState;
+    if (nav == null) {
+      _pendingNotificationTap = payload;
+      return;
+    }
+    _pendingNotificationTap = null;
+
+    if (_isOrderNotification(payload)) {
+      nav.push(
+        MaterialPageRoute<void>(builder: (_) => const _StoreOrdersScreen()),
+      );
+      return;
+    }
+    if (_isProductNotification(payload)) {
+      nav.push(
+        MaterialPageRoute<void>(builder: (_) => const _StoreProductsScreen()),
+      );
+      return;
+    }
+    if (_isMerchantNotification(payload)) {
+      nav.push(
+        MaterialPageRoute<void>(builder: (_) => const _StoreProfileScreen()),
+      );
+      return;
+    }
+    _debugStoreLog('notification tap ignored: no safe store route matched');
+  }
+
+  void _flushPendingNotificationTap() {
+    final pending = _pendingNotificationTap;
+    if (pending == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _handleNotificationTap(pending);
+    });
+  }
+
+  bool _isOrderNotification(RuntimeNotificationTapPayload payload) {
+    return payload.orderId != null || _payloadHints(payload).contains('order');
+  }
+
+  bool _isProductNotification(RuntimeNotificationTapPayload payload) {
+    final hints = _payloadHints(payload);
+    return payload.productId != null ||
+        hints.contains('product') ||
+        hints.contains('catalog');
+  }
+
+  bool _isMerchantNotification(RuntimeNotificationTapPayload payload) {
+    final hints = _payloadHints(payload);
+    return payload.merchantId != null ||
+        hints.contains('merchant') ||
+        hints.contains('store');
+  }
+
+  String _payloadHints(RuntimeNotificationTapPayload payload) {
+    return [
+      payload.target,
+      payload.type,
+      payload.title,
+      payload.body,
+    ].whereType<String>().join(' ').toLowerCase();
   }
 
   @override
@@ -165,6 +431,7 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
     }
 
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       onGenerateTitle: (context) => context.l10n.storePortalWindowTitle,
       locale: settings.locale,
@@ -173,6 +440,8 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
       theme: AppTheme.light(preset: settings.themePreset),
       darkTheme: AppTheme.dark(preset: settings.themePreset),
       themeMode: ThemeMode.dark,
+      themeAnimationDuration: const Duration(milliseconds: 450),
+      themeAnimationCurve: Curves.easeOutCubic,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
         return AppBackdrop(
@@ -498,6 +767,7 @@ class _StoreHomeScreen extends ConsumerWidget {
               title: _storeMerchantName(value, l10n),
               subtitle: _storeMerchantSubtitle(value, l10n),
               icon: Icons.storefront_rounded,
+              imageUrl: _imageUrlFrom(value),
             ),
             loading: () => const _LoadingCard(),
             error: (_, _) => _SummaryHeroCard(
@@ -654,6 +924,21 @@ class _StoreProfileScreen extends ConsumerWidget {
                       const SizedBox(height: 8),
                       Text(_storeMerchantSubtitle(value, l10n)),
                       const SizedBox(height: 12),
+                      _StoreImagePreview(
+                        imageUrl: _imageUrlFrom(value),
+                        size: 148,
+                        icon: Icons.storefront_rounded,
+                      ),
+                      const SizedBox(height: 12),
+                      _StoreImageActions(
+                        onPicked: (image) async {
+                          await ref
+                              .read(_storeRuntimeApiProvider)
+                              .updateMerchantImage(image);
+                          ref.invalidate(_storeMerchantProvider);
+                        },
+                      ),
+                      const SizedBox(height: 12),
                       Text(_stringOf(value?['workingHours'] ?? value?['type'])),
                       const SizedBox(height: 8),
                       Text(_stringOf(value?['phone'])),
@@ -779,31 +1064,26 @@ class _StoreProductsScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(16),
         children: [
           products.when(
-            data: (items) => _RuntimeListCard(
-              title: l10n.runtimeProductsLabel,
-              emptyTitle: l10n.runtimeEmptyTitle(l10n.runtimeProductsLabel),
-              emptySubtitle: l10n.runtimeEmptySubtitle(
-                l10n.runtimeProductsLabel,
-              ),
-              items: items
-                  .map(
-                    (product) => _ListItemView(
-                      title: _stringOf(
-                        product['name'],
-                        fallback: '#${_intOf(product['id'])}',
-                      ),
-                      subtitle: _stringOf(
-                        product['description'] ?? product['categoryName'],
-                        fallback: _stringOf(product['status']),
-                      ),
-                      trailing: _stringOf(
-                        product['price'],
-                        fallback: _stringOf(product['discountedPrice']),
-                      ),
-                    ),
-                  )
-                  .toList(growable: false),
-            ),
+            data: (items) {
+              if (items.isEmpty) {
+                return _RuntimeListCard(
+                  title: l10n.runtimeProductsLabel,
+                  emptyTitle: l10n.runtimeEmptyTitle(l10n.runtimeProductsLabel),
+                  emptySubtitle: l10n.runtimeEmptySubtitle(
+                    l10n.runtimeProductsLabel,
+                  ),
+                  items: const <_ListItemView>[],
+                );
+              }
+              return Column(
+                children: [
+                  for (var i = 0; i < items.length; i++) ...[
+                    _StoreProductCard(product: items[i]),
+                    if (i != items.length - 1) const SizedBox(height: 12),
+                  ],
+                ],
+              );
+            },
             loading: () => const _LoadingCard(),
             error: (_, _) => _RuntimeListCard(
               title: l10n.runtimeProductsLabel,
@@ -1140,6 +1420,23 @@ class _StoreRuntimeApi {
     return _extractList(response.data, const ['agents', 'items', 'data']);
   }
 
+  Future<void> updateMerchantImage(_StorePickedImage image) async {
+    await _dio.put(
+      '/api/owner/merchant',
+      data: FormData.fromMap({'imageFile': await image.toMultipartFile()}),
+    );
+  }
+
+  Future<void> updateProductImage(
+    int productId,
+    _StorePickedImage image,
+  ) async {
+    await _dio.put(
+      '/api/owner/products/$productId',
+      data: FormData.fromMap({'imageFile': await image.toMultipartFile()}),
+    );
+  }
+
   Future<void> updateOrderStatus(int orderId, String status) async {
     await _dio.patch(
       '/api/owner/orders/$orderId/status',
@@ -1179,11 +1476,13 @@ class _SummaryHeroCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final IconData icon;
+  final String? imageUrl;
 
   const _SummaryHeroCard({
     required this.title,
     required this.subtitle,
     required this.icon,
+    this.imageUrl,
   });
 
   @override
@@ -1193,7 +1492,7 @@ class _SummaryHeroCard extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
-            CircleAvatar(radius: 26, child: Icon(icon)),
+            _StoreImagePreview(imageUrl: imageUrl, size: 58, icon: icon),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -1208,6 +1507,251 @@ class _SummaryHeroCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _StoreProductCard extends ConsumerWidget {
+  final Map<String, dynamic> product;
+
+  const _StoreProductCard({required this.product});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final productId = _intOf(product['id']);
+    final title = _stringOf(product['name'], fallback: '#$productId');
+    final subtitle = _stringOf(
+      product['description'] ?? product['categoryName'],
+      fallback: _stringOf(product['status']),
+    );
+    final price = _stringOf(
+      product['price'],
+      fallback: _stringOf(product['discountedPrice']),
+    );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _StoreImagePreview(
+                  imageUrl: _imageUrlFrom(product),
+                  size: 76,
+                  icon: Icons.inventory_2_outlined,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(subtitle),
+                      const SizedBox(height: 6),
+                      Text(
+                        price,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.secondary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _StoreImageActions(
+              enabled: productId > 0,
+              onPicked: (image) async {
+                await ref
+                    .read(_storeRuntimeApiProvider)
+                    .updateProductImage(productId, image);
+                ref.invalidate(_storeProductsProvider);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StoreImageActions extends StatefulWidget {
+  final bool enabled;
+  final Future<void> Function(_StorePickedImage image) onPicked;
+
+  const _StoreImageActions({required this.onPicked, this.enabled = true});
+
+  @override
+  State<_StoreImageActions> createState() => _StoreImageActionsState();
+}
+
+class _StoreImageActionsState extends State<_StoreImageActions> {
+  ImageSource? _busySource;
+
+  @override
+  Widget build(BuildContext context) {
+    final galleryLabel = _storeText(
+      context,
+      ar: 'اختيار من الاستديو',
+      en: 'Choose from gallery',
+    );
+    final cameraLabel = _storeText(
+      context,
+      ar: 'التقاط بالكاميرا',
+      en: 'Capture with camera',
+    );
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        FilledButton.tonalIcon(
+          onPressed: widget.enabled && _busySource == null
+              ? () => _pickAndUpload(ImageSource.gallery)
+              : null,
+          icon: _busySource == ImageSource.gallery
+              ? const _TinyProgress()
+              : const Icon(Icons.photo_library_outlined),
+          label: Text(galleryLabel),
+        ),
+        OutlinedButton.icon(
+          onPressed: widget.enabled && _busySource == null
+              ? () => _pickAndUpload(ImageSource.camera)
+              : null,
+          icon: _busySource == ImageSource.camera
+              ? const _TinyProgress()
+              : const Icon(Icons.camera_alt_outlined),
+          label: Text(cameraLabel),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickAndUpload(ImageSource source) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    setState(() => _busySource = source);
+    try {
+      final image = await _pickStoreImage(source);
+      if (image == null) return;
+      await widget.onPicked(image);
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            _storeText(context, ar: 'تم تحديث الصورة.', en: 'Image updated.'),
+          ),
+        ),
+      );
+    } catch (error) {
+      _debugStoreLog('image upload failed: $error');
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            _storeText(
+              context,
+              ar: 'تعذر تحديث الصورة. حاول مرة أخرى.',
+              en: 'Could not update the image. Try again.',
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _busySource = null);
+      }
+    }
+  }
+}
+
+class _StoreImagePreview extends StatefulWidget {
+  final String? imageUrl;
+  final double size;
+  final IconData icon;
+
+  const _StoreImagePreview({
+    required this.imageUrl,
+    required this.size,
+    required this.icon,
+  });
+
+  @override
+  State<_StoreImagePreview> createState() => _StoreImagePreviewState();
+}
+
+class _StoreImagePreviewState extends State<_StoreImagePreview> {
+  int _retryToken = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    final imageUrl = widget.imageUrl;
+    final radius = BorderRadius.circular(widget.size >= 100 ? 24 : 18);
+    return ClipRRect(
+      borderRadius: radius,
+      child: Container(
+        width: widget.size,
+        height: widget.size,
+        decoration: BoxDecoration(
+          color: tokens.surfaceSecondary.withValues(alpha: 0.82),
+          border: Border.all(color: tokens.borderSubtle),
+          borderRadius: radius,
+        ),
+        child: imageUrl == null
+            ? Icon(
+                widget.icon,
+                color: tokens.primaryAccent,
+                size: widget.size / 2.4,
+              )
+            : Image.network(
+                imageUrl,
+                key: ValueKey('$imageUrl:$_retryToken'),
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return const Center(child: _TinyProgress());
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return Center(
+                    child: IconButton(
+                      tooltip: _storeText(
+                        context,
+                        ar: 'إعادة المحاولة',
+                        en: 'Retry',
+                      ),
+                      onPressed: () {
+                        setState(() => _retryToken++);
+                      },
+                      icon: Icon(
+                        Icons.refresh_rounded,
+                        color: tokens.primaryAccent,
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
+    );
+  }
+}
+
+class _TinyProgress extends StatelessWidget {
+  const _TinyProgress();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: 18,
+      height: 18,
+      child: CircularProgressIndicator(strokeWidth: 2),
     );
   }
 }

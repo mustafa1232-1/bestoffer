@@ -108,8 +108,22 @@ android {
         }
         release {
             manifestPlaceholders["usesCleartextTraffic"] = "false"
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // R8/code-shrinking is intentionally DISABLED for now.
+            //
+            // The previous internal-testing build had minify+shrink ON with
+            // incomplete keep rules, so R8 stripped native plugin code that is
+            // only referenced from Dart over method channels (mlkit face
+            // detection, video_player/ExoPlayer, geolocator, permission_handler,
+            // image_picker). That broke camera, reels, location and gallery in
+            // release while debug (no minify) worked — the exact reported bug.
+            //
+            // Dart code is AOT-compiled and does not need R8, so disabling it
+            // yields a 100%-reliable build for internal testing at the cost of a
+            // slightly larger APK. proguard-rules.pro now ALSO carries the full
+            // keep rules, so minify can be re-enabled later by flipping these
+            // two flags back to true once a shrunk build is verified on-device.
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

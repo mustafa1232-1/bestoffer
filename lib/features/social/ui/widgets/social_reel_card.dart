@@ -88,13 +88,14 @@ class _SocialReelCardState extends State<SocialReelCard> {
         : VideoPlayerController.networkUrl(source.uri);
     _controller = controller;
     try {
-      await controller.initialize();
+      await controller.initialize().timeout(const Duration(seconds: 8));
       await controller.setLooping(true);
       await controller.setVolume(widget.muted ? 0 : 1);
       if (!mounted) return;
       setState(() => _ready = true);
       _syncPlayback();
     } catch (_) {
+      await controller.dispose();
       if (!mounted) return;
       setState(() => _ready = false);
     }

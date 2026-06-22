@@ -19,7 +19,6 @@ import '../../../core/widgets/maslaki_user_drawer.dart';
 import '../../../core/widgets/maslaki_wordmark.dart';
 import '../../../pages/map_page.dart';
 import '../../auth/state/auth_controller.dart';
-import '../../assistant/ui/assistant_chat_screen.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 import '../../customer/models/customer_ad_board_item.dart';
 import '../../customer/models/recent_activity.dart';
@@ -298,12 +297,6 @@ class _CustomerHomeSelectorScreenState
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const CustomerCarsHubScreen()));
-  }
-
-  Future<void> _openAssistant() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const AssistantChatScreen()));
   }
 
   Future<void> _openSavedPlaceShortcut(Map<String, dynamic> place) async {
@@ -943,18 +936,6 @@ class _CustomerHomeSelectorScreenState
             ),
           );
         }
-        shortcuts.add(
-          _HomeSmartShortcutCard(
-            title: context.lt(ar: 'المساعد الذكي', en: 'Smart assistant'),
-            subtitle: context.lt(
-              ar: 'اسأل عن الأفضل لك الآن',
-              en: 'Ask for the best option for you now',
-            ),
-            icon: Icons.auto_awesome_rounded,
-            onTap: _openAssistant,
-          ),
-        );
-
         return Column(
           children: [
             MaslakiSectionHeader(
@@ -1026,14 +1007,6 @@ class _CustomerHomeSelectorScreenState
                     MainCategoryGrid(items: categories),
                     const SizedBox(height: 18),
                     smartExperienceSection,
-                    const SizedBox(height: 16),
-                    MaslakiOfferBanner(
-                      title: 'المساعد الذكي',
-                      subtitle:
-                          'اسأل عن أفضل متجر، خدمة، عرض، أو دع المساعد يرتب لك خياراتك بسرعة.',
-                      ctaLabel: 'افتح المساعد',
-                      onTap: _openAssistant,
-                    ),
                     const SizedBox(height: 18),
                     BestStoreSpotlight(
                       state: _openStoresState,

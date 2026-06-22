@@ -21,7 +21,6 @@ import { invalidateMerchantCatalogCache } from "../merchants/merchants.repo.js";
 import crypto from "crypto";
 import {
   buildMerchantCapabilities,
-  inferActivityTypeFromMerchantType,
   normalizeActivityType,
   normalizeDiscoverySubcategoryList,
   requireActivityConfig,
@@ -382,10 +381,9 @@ export async function registerOwner(dto, deviceContext = {}) {
   const phone = normalizePhone(dto.phone);
   const pin = normalizePin(dto.pin);
   const address = resolveOwnerAddress(dto);
-  const requestedActivityType = normalizeActivityType(
-    dto.merchantActivityType,
-    inferActivityTypeFromMerchantType(dto.merchantType)
-  );
+  // Explicit category required — requireActivityConfig throws if missing/invalid
+  // (no silent inference from merchant base type for new stores).
+  const requestedActivityType = normalizeActivityType(dto.merchantActivityType);
   const activityConfig = await requireActivityConfig(requestedActivityType);
   const normalizedDiscoverySubcategoriesInput = normalizeDiscoverySubcategoryList(
     dto.merchantDiscoverySubcategories

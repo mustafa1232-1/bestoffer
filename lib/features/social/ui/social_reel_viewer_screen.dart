@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../data/social_api.dart';
+import 'social_create_post_sheet.dart';
 import '../../merchants/models/merchant_model.dart';
 import '../../merchants/ui/merchant_products_screen.dart';
 import '../models/social_models.dart';
@@ -37,6 +40,7 @@ class SocialReelViewerScreen extends ConsumerStatefulWidget {
 
 class _SocialReelViewerScreenState
     extends ConsumerState<SocialReelViewerScreen> {
+  static const Duration _reelsLoadTimeout = Duration(seconds: 12);
   static bool _rememberedMuted = true;
   late final PageController _pageController;
   late final SocialApi _socialApi;
@@ -95,7 +99,7 @@ class _SocialReelViewerScreenState
   }
 
   Future<void> _hydrateSeedItemsFromExploreFeed() async {
-    await ref.read(socialReelsControllerProvider.notifier).load(refresh: true);
+    await _loadReels(refresh: true);
     if (!mounted) return;
     final loaded = ref.read(socialReelsControllerProvider).items;
     if (loaded.isEmpty) return;
@@ -105,7 +109,7 @@ class _SocialReelViewerScreenState
   }
 
   Future<void> _loadMoreIntoSeedItems() async {
-    await ref.read(socialReelsControllerProvider.notifier).loadMore();
+    await _loadReels(refresh: false);
     if (!mounted) return;
     final loaded = ref.read(socialReelsControllerProvider).items;
     if (loaded.isEmpty) return;
@@ -119,11 +123,11 @@ class _SocialReelViewerScreenState
     if (reelId == null || reelId <= 0) return;
     try {
       final api = ref.read(socialApiProvider);
-      final response = await api.getReelById(reelId);
+      final response = await api.getReelById(reelId).timeout(_reelsLoadTimeout);
       final target = SocialReelItem.fromJson(
         Map<String, dynamic>.from(response['reel'] as Map? ?? const {}),
       );
-      await ref.read(socialReelsControllerProvider.notifier).load(refresh: true);
+      await _loadReels(refresh: true);
       if (!mounted) return;
       final loaded = ref.read(socialReelsControllerProvider).items;
       final merged = _mergeReelItems(<SocialReelItem>[target], loaded);
@@ -133,8 +137,15 @@ class _SocialReelViewerScreenState
       });
     } catch (_) {
       if (!mounted) return;
-      await ref.read(socialReelsControllerProvider.notifier).load(refresh: true);
+      await _loadReels(refresh: true);
     }
+  }
+
+  Future<void> _loadReels({required bool refresh}) async {
+    await ref.read(socialReelsControllerProvider.notifier).load(
+      refresh: refresh,
+      timeout: _reelsLoadTimeout,
+    );
   }
 
   Future<void> _recordCurrentView() async {
@@ -162,7 +173,7 @@ class _SocialReelViewerScreenState
         completed: completionRate >= 0.92,
         replayCount: completionRate >= 0.98 ? 1 : 0,
         context: 'reel_viewer',
-      );
+      ).timeout(const Duration(seconds: 6));
     } catch (_) {
       // Keep viewer disposal/navigation resilient.
     }
@@ -277,6 +288,22 @@ class _SocialReelViewerScreenState
     );
   }
 
+  Future<void> _openCreateReel() async {
+    await showSocialCreatePostSheet(context);
+  }
+
+  Future<void> _retryLoading() async {
+    if (widget.initialReelId != null) {
+      await _bootstrapInitialReel();
+      return;
+    }
+    if (widget.initialItems != null && widget.initialItems!.isNotEmpty) {
+      await _hydrateSeedItemsFromExploreFeed();
+      return;
+    }
+    await _loadReels(refresh: true);
+  }
+
   void _toggleMute() {
     setState(() {
       _muted = !_muted;
@@ -288,8 +315,9 @@ class _SocialReelViewerScreenState
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final state = ref.watch(socialReelsControllerProvider);
-    final items = widget.initialItems ?? _seedItems ?? state.items;
+    final items = _seedItems ?? widget.initialItems ?? state.items;
     _lastKnownItems = List<SocialReelItem>.of(items);
+    final errorText = _resolveErrorText(context, state.error);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -304,17 +332,17 @@ class _SocialReelViewerScreenState
             child: items.isEmpty
                 ? state.loading
                       ? const Center(child: CircularProgressIndicator())
-                      : Center(
-                          child: Text(
-                            state.error ?? l10n.socialReelViewerEmpty,
-                            style: const TextStyle(color: Colors.white),
-                          ),
+                      : _ReelViewerEmptyState(
+                          message: errorText ?? l10n.socialReelViewerEmpty,
+                          isError: errorText != null,
+                          onRetry: _retryLoading,
+                          onCreateReel: _openCreateReel,
                         )
                 : PageView.builder(
                     controller: _pageController,
                     scrollDirection: Axis.vertical,
                     onPageChanged: (index) async {
-                      await _recordCurrentView();
+                      unawaited(_recordCurrentView());
                       if (!mounted) return;
                       setState(() {
                         _currentIndex = index;
@@ -372,6 +400,83 @@ class _SocialReelViewerScreenState
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+String? _resolveErrorText(BuildContext context, String? error) {
+  final value = error?.trim();
+  if (value == null || value.isEmpty) return null;
+  if (value == 'REELS_LOAD_TIMEOUT') {
+    return context.lt(
+      ar: 'استغرق تحميل الريلز وقتًا أطول من اللازم.',
+      en: 'Reels took too long to load.',
+    );
+  }
+  return value;
+}
+
+class _ReelViewerEmptyState extends StatelessWidget {
+  final String message;
+  final bool isError;
+  final VoidCallback onRetry;
+  final Future<void> Function() onCreateReel;
+
+  const _ReelViewerEmptyState({
+    required this.message,
+    required this.isError,
+    required this.onRetry,
+    required this.onCreateReel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isError ? Icons.cloud_off_rounded : Icons.play_circle_outline_rounded,
+              color: Colors.white70,
+              size: 48,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FilledButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(l10n.commonRetry),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => unawaited(onCreateReel()),
+                  icon: const Icon(Icons.add_rounded),
+                  label: Text(
+                    context.lt(ar: 'إنشاء ريلز', en: 'Create reel'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

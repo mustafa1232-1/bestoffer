@@ -33,6 +33,7 @@ class RuntimeNotificationTapPayload {
   final int? orderId;
   final int? rideId;
   final int? merchantId;
+  final int? productId;
   final String? type;
   final String? title;
   final String? body;
@@ -43,6 +44,7 @@ class RuntimeNotificationTapPayload {
     this.orderId,
     this.rideId,
     this.merchantId,
+    this.productId,
     this.type,
     this.title,
     this.body,
@@ -55,6 +57,7 @@ class RuntimeNotificationTapPayload {
       if (orderId != null) 'orderId': orderId,
       if (rideId != null) 'rideId': rideId,
       if (merchantId != null) 'merchantId': merchantId,
+      if (productId != null) 'productId': productId,
       if (type != null) 'type': type,
       if (title != null) 'title': title,
       if (body != null) 'body': body,
@@ -75,6 +78,7 @@ class RuntimeNotificationTapPayload {
             json['storeId'] ??
             json['store_id'],
       ),
+      productId: _parseInt(json['productId'] ?? json['product_id']),
       type: _parseString(json['type']),
       title: _parseString(json['title'] ?? json['subject']),
       body: _parseString(json['body'] ?? json['message']),
@@ -82,7 +86,9 @@ class RuntimeNotificationTapPayload {
     );
   }
 
-  static RuntimeNotificationTapPayload fromRemoteMessage(RemoteMessage message) {
+  static RuntimeNotificationTapPayload fromRemoteMessage(
+    RemoteMessage message,
+  ) {
     final data = Map<String, dynamic>.from(message.data);
     return RuntimeNotificationTapPayload.fromJson({
       ...data,
@@ -128,7 +134,9 @@ class RuntimeLocalNotificationsService {
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       iOS: darwinSettings,
       macOS: darwinSettings,
-      linux: LinuxInitializationSettings(defaultActionName: 'Open notification'),
+      linux: LinuxInitializationSettings(
+        defaultActionName: 'Open notification',
+      ),
     );
 
     await _plugin.initialize(
@@ -161,10 +169,14 @@ class RuntimeLocalNotificationsService {
         >();
     await androidPlugin?.requestNotificationsPermission();
     final iosPlugin = _plugin
-        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >();
     await iosPlugin?.requestPermissions(alert: true, badge: true, sound: true);
     final macosPlugin = _plugin
-        .resolvePlatformSpecificImplementation<MacOSFlutterLocalNotificationsPlugin>();
+        .resolvePlatformSpecificImplementation<
+          MacOSFlutterLocalNotificationsPlugin
+        >();
     await macosPlugin?.requestPermissions(
       alert: true,
       badge: true,
@@ -283,7 +295,9 @@ class RuntimePushNotificationsService {
     }
 
     _openedAppSub = FirebaseMessaging.onMessageOpenedApp.listen((message) {
-      _tapController.add(RuntimeNotificationTapPayload.fromRemoteMessage(message));
+      _tapController.add(
+        RuntimeNotificationTapPayload.fromRemoteMessage(message),
+      );
     });
 
     _foregroundSub = FirebaseMessaging.onMessage.listen((message) async {
@@ -309,7 +323,8 @@ class RuntimePushNotificationsService {
 
   Future<void> syncToken() async {
     await initialize();
-    if (!_supportsPushMessaging || !_firebaseReady || _tokenSyncInFlight) return;
+    if (!_supportsPushMessaging || !_firebaseReady || _tokenSyncInFlight)
+      return;
     _tokenSyncInFlight = true;
     try {
       final token = await FirebaseMessaging.instance.getToken();
@@ -393,7 +408,9 @@ Future<void> runtimeFirebaseMessagingBackgroundHandler(
     }
     final local = RuntimeLocalNotificationsService();
     await local.initialize();
-    await local.showPayload(RuntimeNotificationTapPayload.fromRemoteMessage(message));
+    await local.showPayload(
+      RuntimeNotificationTapPayload.fromRemoteMessage(message),
+    );
   } catch (_) {
     // Best effort only.
   }

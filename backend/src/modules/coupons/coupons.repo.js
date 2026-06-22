@@ -1,6 +1,18 @@
 import { q } from "../../config/db.js";
 
 /**
+ * The coupon `scope_kind` column is NOT NULL with a column default of
+ * 'merchant'. It MUST be derived explicitly on insert (never left to the
+ * default) so global coupons don't silently become unmatchable 'merchant'
+ * coupons with a NULL merchant_id. Validation matches on this value.
+ */
+export function resolveCouponScopeKind({ merchantId, companyId } = {}) {
+  if (companyId) return "company";
+  if (merchantId) return "merchant";
+  return "global";
+}
+
+/**
  * Look up a coupon by its code and validate it's usable:
  * - active, within valid dates, not exceeded max_uses
  * - optionally scoped to a merchant
@@ -262,17 +274,24 @@ export async function createCoupon({
   code, description, discountType, discountValue, minOrderTotal,
   maxUses, merchantId, validFrom, validUntil, createdBy,
 }) {
+  // scope_kind MUST be set explicitly (see resolveCouponScopeKind). The column
+  // defaults to 'merchant', so omitting it made global coupons (no merchant_id)
+  // default to 'merchant' with a NULL merchant_id — which the validation query
+  // can never match, making every global coupon report as invalid.
+  const resolvedMerchantId = merchantId ? Number(merchantId) : null;
+  const scopeKind = resolveCouponScopeKind({ merchantId: resolvedMerchantId });
   const r = await q(
     `INSERT INTO coupon
        (code, description, discount_type, discount_value, min_order_total,
-        max_uses, merchant_id, valid_from, valid_until, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        max_uses, merchant_id, scope_kind, valid_from, valid_until, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      RETURNING *`,
     [
       code.toUpperCase().trim(), description || null, discountType,
       Number(discountValue), Number(minOrderTotal || 0),
       maxUses ? Number(maxUses) : null,
-      merchantId ? Number(merchantId) : null,
+      resolvedMerchantId,
+      scopeKind,
       validFrom || null, validUntil || null, createdBy,
     ]
   );

@@ -11,7 +11,6 @@ import { AppError } from "../../shared/utils/errors.js";
 import { env } from "../../config/env.js";
 import {
   buildMerchantCapabilities,
-  inferActivityTypeFromMerchantType,
   listActivityRegistry,
   listDiscoveryOptions as listActivityDiscoveryOptions,
   normalizeActivityType as normalizeRegistryActivityType,
@@ -126,10 +125,15 @@ export async function createMerchant(dto, approvedByUserId) {
     throw err;
   }
 
-  const requestedActivityType = normalizeRegistryActivityType(
-    dto.activityType,
-    inferActivityTypeFromMerchantType(dto.type)
-  );
+  // Creation must carry an explicit category. We do NOT infer/default from the
+  // merchant base type anymore — every new store picks its real activity.
+  const requestedActivityType = normalizeRegistryActivityType(dto.activityType);
+  if (!requestedActivityType) {
+    throw new AppError("VALIDATION_ERROR", {
+      status: 400,
+      details: { fields: { activityType: "ACTIVITY_TYPE_REQUIRED" } },
+    });
+  }
   const activityConfig = await requireActivityConfig(requestedActivityType);
   if (String(activityConfig.baseType || "").trim() !== String(dto.type || "").trim()) {
     throw new AppError("VALIDATION_ERROR", {

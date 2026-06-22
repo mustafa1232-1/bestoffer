@@ -31,7 +31,8 @@ export function validateCreateMerchant(body) {
 
   if (!isNonEmptyString(body.name, 150)) errors.push("name");
   if (!["restaurant", "market"].includes(body.type)) errors.push("type");
-  if (!isOptionalString(body.activityType, 80)) errors.push("activityType");
+  // Activity (real store category) is mandatory on creation — no silent default.
+  if (!isNonEmptyString(body.activityType, 80)) errors.push("activityType");
   if (!isOptionalString(body.discoverySubcategory, 120)) {
     errors.push("discoverySubcategory");
   }

@@ -1,8 +1,29 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/core/permissions/maslaki_permission_models.dart';
 import 'package:maslaki/core/permissions/maslaki_permission_policy.dart';
+import 'package:maslaki/core/permissions/maslaki_permission_service.dart';
 
 void main() {
+  group('MaslakiPermissionService.ensure* (graceful, no-crash)', () {
+    // permission_handler has no platform impl in the test VM; the ensure
+    // helpers must degrade to false instead of throwing into the UI.
+    TestWidgetsFlutterBinding.ensureInitialized();
+    const service = MaslakiPermissionService();
+
+    test('ensureCameraPermission returns false without throwing', () async {
+      expect(await service.ensureCameraPermission(), isFalse);
+    });
+    test('ensureLocationPermission returns false without throwing', () async {
+      expect(await service.ensureLocationPermission(), isFalse);
+    });
+    test('ensureMediaImagesPermission returns false without throwing', () async {
+      expect(await service.ensureMediaImagesPermission(), isFalse);
+    });
+    test('ensureNotificationPermission returns false without throwing', () async {
+      expect(await service.ensureNotificationPermission(), isFalse);
+    });
+  });
+
   group('MaslakiPermissionPolicy', () {
     test('customer: notifications + foreground location required, no background', () {
       const role = MaslakiAppRole.customer;

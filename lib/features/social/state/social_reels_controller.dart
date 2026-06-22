@@ -1,7 +1,13 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/social_models.dart';
 import 'social_controller.dart';
+
+const Duration kSocialReelsLoadTimeout = Duration(seconds: 12);
+const String kSocialReelsLoadTimeoutCode = 'REELS_LOAD_TIMEOUT';
 
 class SocialReelsState {
   final bool loading;
@@ -46,7 +52,10 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
 
   SocialReelsController(this.ref) : super(const SocialReelsState());
 
-  Future<void> load({bool refresh = true}) async {
+  Future<void> load({
+    bool refresh = true,
+    Duration timeout = kSocialReelsLoadTimeout,
+  }) async {
     if (state.loading || state.loadingMore) return;
     final beforeId = refresh ? null : state.nextCursor;
     if (!refresh && beforeId == null) return;
@@ -58,7 +67,7 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
     try {
       final out = await ref.read(socialApiProvider).listExploreReels(
             beforeId: beforeId,
-          );
+          ).timeout(timeout);
       final rows = List<dynamic>.from(out['reels'] as List? ?? const []);
       final items = rows
           .map((e) => SocialReelItem.fromJson(Map<String, dynamic>.from(e as Map)))
@@ -69,6 +78,18 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
         items: refresh ? items : [...state.items, ...items],
         nextCursor: int.tryParse('${out['nextCursor']}'),
         nextCursorTouched: true,
+      );
+    } on TimeoutException catch (_) {
+      state = state.copyWith(
+        loading: false,
+        loadingMore: false,
+        error: kSocialReelsLoadTimeoutCode,
+      );
+    } on DioException catch (e) {
+      state = state.copyWith(
+        loading: false,
+        loadingMore: false,
+        error: '$e',
       );
     } catch (e) {
       state = state.copyWith(

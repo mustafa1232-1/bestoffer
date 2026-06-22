@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -77,6 +78,51 @@ class MaslakiPermissionService {
       return false;
     }
   }
+
+  // ── Central "ensure" helpers ────────────────────────────────────────────────
+  // Each re-reads the LIVE status (never a cached one), requests if needed, and
+  // returns whether the feature can proceed. Safe to call right before opening
+  // camera/gallery/location so a grant made in Settings is picked up
+  // immediately. They never throw and degrade to `false` if unsupported.
+
+  void _log(String message) {
+    if (kReleaseMode) return;
+    debugPrint('[permissions] $message');
+  }
+
+  Future<bool> _ensure(MaslakiPermission permission) async {
+    final current = await getStatus(permission);
+    if (current.isGranted) {
+      _log('$permission already granted');
+      return true;
+    }
+    if (current == MaslakiPermissionStatus.permanentlyDenied) {
+      _log('$permission permanently denied → needs settings');
+      return false;
+    }
+    final next = await request(permission);
+    _log('$permission requested → $next');
+    return next.isGranted;
+  }
+
+  Future<bool> ensureCameraPermission() => _ensure(MaslakiPermission.camera);
+
+  Future<bool> ensureMicrophonePermission() =>
+      _ensure(MaslakiPermission.microphone);
+
+  Future<bool> ensureMediaImagesPermission() =>
+      _ensure(MaslakiPermission.photos);
+
+  /// On Android the gallery video picker uses the same Photo Picker surface as
+  /// images (permissionless), so this maps to the photos permission.
+  Future<bool> ensureMediaVideoPermission() =>
+      _ensure(MaslakiPermission.photos);
+
+  Future<bool> ensureLocationPermission() =>
+      _ensure(MaslakiPermission.locationWhenInUse);
+
+  Future<bool> ensureNotificationPermission() =>
+      _ensure(MaslakiPermission.notifications);
 
   // ── First-run readiness persistence ────────────────────────────────────────
   Future<bool> isSetupComplete() async {

@@ -18,6 +18,11 @@ dependencies:
     path: ../core_localization
   core_networking:
     path: ../core_networking
+  core_notifications:
+    path: ../core_notifications
   core_storage:
     path: ../core_storage
   dio: ^5.7.0
+  image_picker: ^1.1.2
+  image_picker_android: ^0.8.13+14
+  image_picker_platform_interface: ^2.11.1

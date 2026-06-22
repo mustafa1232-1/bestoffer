@@ -726,7 +726,7 @@ async function recordImpressionsForRows({
 }) {
   const items = Array.isArray(rows) ? rows : [];
   if (items.length <= 0) return;
-  await Promise.all(
+  void Promise.allSettled(
     items
       .map((row) => ({
         contentType:

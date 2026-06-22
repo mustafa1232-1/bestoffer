@@ -62,16 +62,9 @@ export function validateOwnerRegister(body) {
   ) {
     errors.push("merchantType");
   }
-  const hasMerchantActivityType = isNonEmptyString(body.merchantActivityType, 80);
-  const hasLegacyMerchantType = isNonEmptyString(body.merchantType, 20);
-  if (!hasMerchantActivityType && !hasLegacyMerchantType) {
-    errors.push("merchantActivityType");
-  } else if (
-    body.merchantActivityType !== undefined &&
-    body.merchantActivityType !== null &&
-    body.merchantActivityType !== "" &&
-    !isNonEmptyString(body.merchantActivityType, 80)
-  ) {
+  // Store category is mandatory on owner self-registration — no legacy
+  // merchant-type fallback / silent inference for new stores.
+  if (!isNonEmptyString(body.merchantActivityType, 80)) {
     errors.push("merchantActivityType");
   }
   if (!isOptionalString(body.merchantDiscoverySubcategory, 120)) {
