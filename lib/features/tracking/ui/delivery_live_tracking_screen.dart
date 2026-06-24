@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:maslaki/core/constants/api.dart';
 import 'package:maslaki/core/i18n/locale_text.dart';
 import 'package:core_design_system/core_design_system.dart';
@@ -91,6 +92,25 @@ class _DeliveryLiveTrackingScreenState
         _snapshot = trackingMap(data) ?? const <String, dynamic>{};
         _loading = false;
         _error = null;
+      });
+    } on DioException catch (error) {
+      if (!mounted) return;
+      // A real 403 means this viewer is not allowed to track the order (e.g. a
+      // courier who is not assigned to it). The assigned courier, the order's
+      // customer, the merchant owner and admins are all authorized server-side,
+      // so they will never reach this branch.
+      final forbidden = error.response?.statusCode == 403;
+      setState(() {
+        _loading = false;
+        _error = forbidden
+            ? context.lt(
+                ar: 'لا تملك صلاحية تتبع هذا الطلب.',
+                en: 'You do not have permission to track this order.',
+              )
+            : context.lt(
+                ar: 'تعذر تحميل التتبع الحي لهذا الطلب.',
+                en: 'Failed to load live tracking for this order.',
+              );
       });
     } catch (_) {
       if (!mounted) return;
@@ -405,13 +425,43 @@ class _DeliveryLiveTrackingScreenState
     }
 
     if (_error != null || _snapshot == null || _order == null) {
+      final tokens = context.maslakiTokens;
       return Scaffold(
-        backgroundColor: context.maslakiTokens.backgroundPrimary,
+        backgroundColor: tokens.backgroundPrimary,
         appBar: AppBar(),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text(_error ?? ''),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.location_off_rounded,
+                  size: 40,
+                  color: tokens.textSecondary,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  (_error ?? '').isEmpty
+                      ? context.lt(
+                          ar: 'تعذر تحميل التتبع الحي لهذا الطلب.',
+                          en: 'Failed to load live tracking for this order.',
+                        )
+                      : _error!,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: tokens.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: () => unawaited(_load()),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(context.lt(ar: 'إعادة المحاولة', en: 'Retry')),
+                ),
+              ],
+            ),
           ),
         ),
       );

@@ -535,6 +535,7 @@ async function insertOrderItemTx(client, orderId, item) {
 export const __ordersRepoTestables = Object.freeze({
   buildDynamicInsertParts,
   toDeliveryDetailResponse,
+  resolveTrackingViewerMode,
 });
 
 export async function listDeliveryAgents() {
@@ -2004,6 +2005,134 @@ export async function getCustomerOrderTrackingSnapshot(customerUserId, orderId) 
       order.approved_at?.toISOString?.() ||
       order.created_at?.toISOString?.() ||
       null,
+  };
+}
+
+/**
+ * Pure permission resolver for order tracking. Returns the viewer mode
+ * ('admin' | 'customer' | 'delivery' | 'merchant') the user is entitled to,
+ * or null when they have no access. Side-effect free so it can be unit tested
+ * without a database (exposed via __ordersRepoTestables).
+ */
+function resolveTrackingViewerMode({ role, isSuperAdmin = false, viewerId, order }) {
+  const normalizedRole = String(role || "").trim().toLowerCase();
+  const isAdmin =
+    isSuperAdmin === true ||
+    normalizedRole === "admin" ||
+    normalizedRole === "deputy_admin" ||
+    normalizedRole === "company";
+  const id = Number(viewerId || 0);
+  if (isAdmin) return "admin";
+  if (id > 0 && Number(order?.customer_user_id || 0) === id) return "customer";
+  if (
+    normalizedRole === "delivery" &&
+    Number(order?.delivery_user_id || 0) > 0 &&
+    Number(order?.delivery_user_id) === id
+  ) {
+    return "delivery";
+  }
+  if (
+    (normalizedRole === "owner" || normalizedRole === "merchant") &&
+    id > 0 &&
+    Number(order?.owner_user_id || 0) === id
+  ) {
+    return "merchant";
+  }
+  return null;
+}
+
+/**
+ * Role-aware tracking snapshot. Resolves the viewer mode for the order and
+ * returns the same payload shape the customer tracking screen consumes, so
+ * every role (customer/delivery/merchant/admin) renders the live map without
+ * a 403. Returns `{ notFound }` / `{ forbidden }` markers for the service to
+ * translate into HTTP errors.
+ */
+export async function getOrderTrackingSnapshotForViewer({
+  viewerUserId,
+  viewerRole,
+  isSuperAdmin = false,
+  orderId,
+}) {
+  const res = await q(
+    `${orderSelect}
+     WHERE o.id = $1
+     LIMIT 1`,
+    [Number(orderId)]
+  );
+  const order = res.rows[0] || null;
+  if (!order) return { notFound: true };
+
+  const viewerMode = resolveTrackingViewerMode({
+    role: viewerRole,
+    isSuperAdmin,
+    viewerId: viewerUserId,
+    order,
+  });
+  if (!viewerMode) return { forbidden: true };
+
+  const latestLocation = order.delivery_user_id
+    ? await getLatestCourierPresence(order.delivery_user_id)
+    : null;
+
+  let share = null;
+  if (viewerMode === "customer" || viewerMode === "admin") {
+    const activeShareRes = await q(
+      `SELECT share_token, expires_at, revoked_at
+       FROM customer_order_share_token
+       WHERE order_id = $1
+       LIMIT 1`,
+      [Number(orderId)]
+    );
+    share = activeShareRes.rows[0]
+      ? {
+          token: activeShareRes.rows[0].share_token,
+          expiresAt: activeShareRes.rows[0].expires_at || null,
+          revokedAt: activeShareRes.rows[0].revoked_at || null,
+        }
+      : null;
+  }
+
+  return {
+    snapshot: {
+      kind: "delivery",
+      viewerMode,
+      order,
+      stage: buildOrderTrackingStage(order),
+      latestLocation,
+      courier: order.delivery_user_id
+        ? {
+            userId: Number(order.delivery_user_id),
+            fullName: order.delivery_full_name || null,
+            phone: order.delivery_phone || null,
+            driverType: order.delivery_driver_type || null,
+            courierSource: order.courier_source || null,
+            isMerchantCourier: order.is_merchant_delivery === true,
+          }
+        : null,
+      destination: {
+        city: order.customer_city,
+        block: order.customer_block,
+        buildingNumber: order.customer_building_number,
+        apartment: order.customer_apartment,
+        label: `${order.customer_city} - ${order.customer_block} - ${order.customer_building_number}`,
+      },
+      merchant: {
+        id: Number(order.merchant_id),
+        name: order.merchant_name,
+        type: order.merchant_type || null,
+      },
+      share,
+      lastUpdatedAt:
+        latestLocation?.updatedAt ||
+        order.arrived_at?.toISOString?.() ||
+        order.picked_up_at?.toISOString?.() ||
+        order.prepared_at?.toISOString?.() ||
+        order.preparing_started_at?.toISOString?.() ||
+        order.approved_at?.toISOString?.() ||
+        order.created_at?.toISOString?.() ||
+        null,
+    },
   };
 }
 

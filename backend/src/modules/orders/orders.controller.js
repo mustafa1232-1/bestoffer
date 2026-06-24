@@ -121,7 +121,12 @@ export async function listMyOrders(req, res, next) {
 
 export async function getTrackingSnapshot(req, res, next) {
   try {
-    const out = await service.getOrderTrackingSnapshot(req.userId, req.params.orderId);
+    const out = await service.getOrderTrackingSnapshotForViewer({
+      viewerUserId: req.userId,
+      viewerRole: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin === true,
+      orderId: req.params.orderId,
+    });
     res.json(out);
   } catch (e) {
     next(e);

@@ -198,6 +198,39 @@ class _FakeOrdersApi extends OrdersApi {
   ) async* {}
 }
 
+class _ForbiddenOrdersApi extends OrdersApi {
+  _ForbiddenOrdersApi() : super(Dio());
+
+  DioException _forbidden() => DioException(
+    requestOptions: RequestOptions(path: '/api/orders/7/tracking'),
+    response: Response<dynamic>(
+      requestOptions: RequestOptions(path: '/api/orders/7/tracking'),
+      statusCode: 403,
+      data: const {'message': 'FORBIDDEN_ORDER_TRACKING'},
+    ),
+    type: DioExceptionType.badResponse,
+  );
+
+  @override
+  Future<Map<String, dynamic>> getTrackingSnapshot(int orderId) async =>
+      throw _forbidden();
+
+  @override
+  Future<Map<String, dynamic>> getPublicTrackingByToken(String token) async =>
+      throw _forbidden();
+
+  @override
+  Stream<OrderTrackingLiveEvent> streamTrackingEvents({
+    required int orderId,
+    int? lastEventId,
+  }) async* {}
+
+  @override
+  Stream<OrderTrackingLiveEvent> streamPublicTrackingByToken(
+    String token,
+  ) async* {}
+}
+
 class _FakeTaxiApi extends TaxiApi {
   _FakeTaxiApi(this.envelope) : super(Dio());
 
@@ -311,5 +344,26 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Taxi Live Tracking'), findsOneWidget);
     expect(find.text('Awaiting assignment'), findsOneWidget);
+  });
+
+  testWidgets('delivery tracking shows a graceful 403 state with retry', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrapForTest(
+        const DeliveryLiveTrackingScreen(orderId: 7),
+        overrides: [ordersApiProvider.overrideWithValue(_ForbiddenOrdersApi())],
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.text('You do not have permission to track this order.'),
+      findsOneWidget,
+    );
+    expect(find.text('Retry'), findsOneWidget);
   });
 }

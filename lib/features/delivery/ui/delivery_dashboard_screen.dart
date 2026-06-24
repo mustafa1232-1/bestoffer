@@ -278,31 +278,53 @@ class _DeliveryDashboardScreenState
               icon: Icons.local_shipping_outlined,
               label: l10n.deliveryCurrentOrders,
               value: '${metrics.currentOrders}',
+              onTap: () => setState(() => activeTab = _DeliveryTab.current),
             ),
             _DeliveryMetricTile(
               icon: Icons.two_wheeler_outlined,
               label: l10n.deliveryOnTheWay,
               value: '${metrics.onTheWay}',
+              onTap: () => setState(() => activeTab = _DeliveryTab.current),
             ),
             _DeliveryMetricTile(
               icon: Icons.store_mall_directory_outlined,
               label: l10n.deliveryWaitingPickup,
               value: '${metrics.waitingPickup}',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const CourierOrdersNewPage(),
+                ),
+              ),
             ),
             _DeliveryMetricTile(
               icon: Icons.archive_outlined,
               label: l10n.deliveryCompletedToday,
               value: '${metrics.completedToday}',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const CourierOrdersCompletedPage(),
+                ),
+              ),
             ),
             _DeliveryMetricTile(
               icon: Icons.payments_outlined,
               label: l10n.deliveryFeesToday,
               value: formatIqd(metrics.todayFees),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const CourierEarningsPage(),
+                ),
+              ),
             ),
             _DeliveryMetricTile(
               icon: Icons.star_border_rounded,
               label: l10n.deliveryRating,
               value: metrics.rating.toStringAsFixed(1),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const CourierReportsPage(),
+                ),
+              ),
             ),
           ],
         ),
@@ -519,41 +541,61 @@ class _DeliveryMetricTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
+  final VoidCallback? onTap;
 
   const _DeliveryMetricTile({
     required this.icon,
     required this.label,
     required this.value,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 152,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.white.withValues(alpha: 0.08),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12),
+    return Material(
+      color: Colors.white.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: 152,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, size: 18),
+                    if (onTap != null) ...[
+                      const Spacer(),
+                      Icon(
+                        Icons.chevron_right,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ],
+        ),
       ),
     );
   }

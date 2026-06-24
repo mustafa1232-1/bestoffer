@@ -36,7 +36,12 @@ ordersRouter.post(
   c.requestReturnByCustomer
 );
 ordersRouter.post("/:orderId/reorder", requireCustomer, c.reorder);
-ordersRouter.get("/:orderId/tracking", requireCustomer, c.getTrackingSnapshot);
+// Tracking is role-aware: the customer owner, the assigned courier, the
+// merchant owner and admins can all view it. Authorization is resolved
+// per-order inside the service (see getOrderTrackingSnapshotForViewer), so
+// this route only needs the shared requireAuth applied above — not the
+// customer-only gate, which previously 403'd assigned couriers.
+ordersRouter.get("/:orderId/tracking", c.getTrackingSnapshot);
 ordersRouter.post("/:orderId/share-token", requireCustomer, c.createShareToken);
 ordersRouter.post(
   "/:orderId/confirm-delivered",

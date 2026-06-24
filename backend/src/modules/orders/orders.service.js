@@ -338,6 +338,37 @@ export async function getOrderTrackingSnapshot(customerUserId, orderId) {
   return out;
 }
 
+/**
+ * Role-aware order tracking. The customer owner, the assigned courier, the
+ * merchant owner and admins may all view a tracking snapshot for the order;
+ * anyone else is rejected with 403 (not 404), so the apps can show a clear
+ * "not allowed" state instead of a generic failure.
+ */
+export async function getOrderTrackingSnapshotForViewer({
+  viewerUserId,
+  viewerRole,
+  isSuperAdmin = false,
+  orderId,
+}) {
+  const out = await repo.getOrderTrackingSnapshotForViewer({
+    viewerUserId: Number(viewerUserId),
+    viewerRole,
+    isSuperAdmin: isSuperAdmin === true,
+    orderId: Number(orderId),
+  });
+  if (out?.notFound) {
+    const err = new Error("ORDER_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+  if (out?.forbidden) {
+    const err = new Error("FORBIDDEN_ORDER_TRACKING");
+    err.status = 403;
+    throw err;
+  }
+  return out.snapshot;
+}
+
 export async function createOrderShareToken(customerUserId, orderId) {
   const out = await repo.createCustomerOrderShareToken(
     Number(customerUserId),
