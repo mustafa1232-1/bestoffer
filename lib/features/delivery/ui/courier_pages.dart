@@ -35,6 +35,22 @@ class CourierOrdersCurrentPage extends StatelessWidget {
       const _CourierOrdersPage(mode: _OrdersMode.current);
 }
 
+class CourierOrdersWaitingPickupPage extends StatelessWidget {
+  const CourierOrdersWaitingPickupPage({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      const _CourierOrdersPage(mode: _OrdersMode.waitingPickup);
+}
+
+class CourierOrdersInDeliveryPage extends StatelessWidget {
+  const CourierOrdersInDeliveryPage({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      const _CourierOrdersPage(mode: _OrdersMode.inDelivery);
+}
+
 class CourierOrdersCompletedPage extends StatelessWidget {
   const CourierOrdersCompletedPage({super.key});
 
@@ -105,7 +121,8 @@ class CourierSettingsPage extends StatelessWidget {
   const CourierSettingsPage({super.key});
 
   @override
-  Widget build(BuildContext context) => const SettingsScreen();
+  Widget build(BuildContext context) =>
+      const SettingsScreen(showUserDrawer: false);
 }
 
 class _CourierCompetitionsPage extends ConsumerStatefulWidget {
@@ -278,7 +295,14 @@ class _CourierCompetitionsPageState
   }
 }
 
-enum _OrdersMode { newOffers, current, completed, cancelled }
+enum _OrdersMode {
+  newOffers,
+  current,
+  waitingPickup,
+  inDelivery,
+  completed,
+  cancelled,
+}
 
 class _CourierOrdersPage extends ConsumerStatefulWidget {
   const _CourierOrdersPage({required this.mode});
@@ -295,6 +319,8 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
 
   bool get _live =>
       widget.mode == _OrdersMode.current ||
+      widget.mode == _OrdersMode.waitingPickup ||
+      widget.mode == _OrdersMode.inDelivery ||
       widget.mode == _OrdersMode.newOffers;
 
   @override
@@ -360,6 +386,33 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
               }.contains(normalizeOrderStatusForUi(order.status)),
             )
             .toList();
+      case _OrdersMode.waitingPickup:
+        // Assigned to this courier, accepted, merchant preparing/ready, but not
+        // picked up yet — this is NOT the same as new (unaccepted) offers.
+        return all
+            .where(
+              (order) =>
+                  order.deliveryUserId != null &&
+                  const {
+                    'approved',
+                    'preparing',
+                    'ready_for_delivery',
+                  }.contains(normalizeOrderStatusForUi(order.status)),
+            )
+            .toList();
+      case _OrdersMode.inDelivery:
+        // Only orders that are actually in transit to the customer.
+        return all
+            .where(
+              (order) =>
+                  order.deliveryUserId != null &&
+                  const {
+                    'picked_up',
+                    'on_the_way',
+                    'arrived',
+                  }.contains(normalizeOrderStatusForUi(order.status)),
+            )
+            .toList();
       case _OrdersMode.newOffers:
         return const [];
     }
@@ -378,6 +431,10 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
         return l10n.deliveryCourierNewOffersTitle;
       case _OrdersMode.current:
         return l10n.deliveryCourierCurrentOrdersTitle;
+      case _OrdersMode.waitingPickup:
+        return l10n.deliveryWaitingPickup;
+      case _OrdersMode.inDelivery:
+        return l10n.deliveryOnTheWay;
       case _OrdersMode.completed:
         return l10n.deliveryCourierCompletedOrdersTitle;
       case _OrdersMode.cancelled:
@@ -437,7 +494,10 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
                   onPickedUp: () => controller.pickedUpOrder(order.id),
                   onArrived: () => controller.arrivedOrder(order.id),
                   onDelivered: () => controller.deliveredOrder(order.id),
-                  showActions: widget.mode == _OrdersMode.current,
+                  showActions:
+                      widget.mode == _OrdersMode.current ||
+                      widget.mode == _OrdersMode.waitingPickup ||
+                      widget.mode == _OrdersMode.inDelivery,
                 ),
               ),
           ],

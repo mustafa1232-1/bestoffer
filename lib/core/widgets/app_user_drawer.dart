@@ -247,7 +247,12 @@ class _AppUserDrawerState extends ConsumerState<AppUserDrawer> {
       final navigator = Navigator.of(context);
       if (!embedded) navigator.pop();
       await navigator.push(
-        MaterialPageRoute(builder: (_) => const SettingsScreen()),
+        MaterialPageRoute(
+          // Non-customer surfaces (e.g. delivery) hide the community section;
+          // they must also open settings WITHOUT the customer/community side
+          // drawer so settings can't become a doorway back into the user shell.
+          builder: (_) => SettingsScreen(showUserDrawer: showCommunitySection),
+        ),
       );
     }
 

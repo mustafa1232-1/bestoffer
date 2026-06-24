@@ -19,7 +19,12 @@ import 'pages/settings_usage_guide_screen.dart';
 import 'pages/privacy_policy_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
-  const SettingsScreen({super.key});
+  /// When false the user/community side drawer is not attached. Delivery,
+  /// taxi-captain and other non-customer surfaces pass false so the settings
+  /// screen can never become a doorway back into the customer/community shell.
+  const SettingsScreen({super.key, this.showUserDrawer = true});
+
+  final bool showUserDrawer;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -40,7 +45,7 @@ class SettingsScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: context.maslakiTokens.backgroundPrimary,
-      endDrawer: const MaslakiUserDrawer(),
+      endDrawer: showUserDrawer ? const MaslakiUserDrawer() : null,
       appBar: MaslakiTopBar(
         title: l10n.commonSettings,
         subtitle: context.lt(
@@ -49,9 +54,9 @@ class SettingsScreen extends ConsumerWidget {
         ),
         leading: canPop
             ? const MaslakiBackButton(fallbackTabIndex: 4)
-            : const MaslakiUserDrawerButton(),
+            : (showUserDrawer ? const MaslakiUserDrawerButton() : null),
         actions: [
-          if (canPop) const MaslakiUserDrawerButton(),
+          if (canPop && showUserDrawer) const MaslakiUserDrawerButton(),
         ],
       ),
       body: ListView(
@@ -385,12 +390,12 @@ class _SettingsSectionCard extends StatelessWidget {
       child: MaslakiCard(
         padding: EdgeInsets.zero,
         child: ListTile(
-        onTap: onTap,
-        leading: Icon(icon),
-        title: Text(title),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right),
-      ),
+          onTap: onTap,
+          leading: Icon(icon),
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right),
+        ),
       ),
     );
   }

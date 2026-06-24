@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' as intl;
 
@@ -33,9 +34,49 @@ class DeliveryDashboardScreen extends ConsumerStatefulWidget {
 
 class _DeliveryDashboardScreenState
     extends ConsumerState<DeliveryDashboardScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   _DeliveryTab activeTab = _DeliveryTab.dashboard;
   DateTime? historyDateFilter;
+  DateTime? _lastBackPressAt;
   late final DeliveryController _deliveryController;
+
+  /// Hardware/gesture back handling for the dashboard root:
+  /// 1. close an open drawer, else
+  /// 2. return to the dashboard tab from any other tab, else
+  /// 3. require a second back press within 2s to leave the app.
+  void _handleDashboardPop() {
+    final scaffold = _scaffoldKey.currentState;
+    if (scaffold?.isDrawerOpen == true) {
+      scaffold!.closeDrawer();
+      return;
+    }
+    if (scaffold?.isEndDrawerOpen == true) {
+      scaffold!.closeEndDrawer();
+      return;
+    }
+    if (activeTab != _DeliveryTab.dashboard) {
+      setState(() => activeTab = _DeliveryTab.dashboard);
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastBackPressAt != null &&
+        now.difference(_lastBackPressAt!) < const Duration(seconds: 2)) {
+      SystemNavigator.pop();
+      return;
+    }
+    _lastBackPressAt = now;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 2),
+        content: Text(
+          context.lt(
+            ar: 'اضغط مرة أخرى للخروج',
+            en: 'Press back again to exit',
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -115,132 +156,140 @@ class _DeliveryDashboardScreenState
       }
     });
 
-    return Scaffold(
-      drawer: AppUserDrawer(
-        title: _tabTitle(),
-        subtitle: l10n.drawerDeliverySub,
-        showProfileButton: false,
-        showCommunitySection: false,
-        items: [
-          AppUserDrawerItem(
-            icon: Icons.campaign_outlined,
-            label: l10n.deliveryCourierNewOffersTitle,
-            subtitle: l10n.deliveryOfferReviewPrompt,
-            onTap: (_) async {
-              await Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CourierOrdersNewPage(),
-                ),
-              );
-            },
-          ),
-          AppUserDrawerItem(
-            icon: Icons.dashboard_outlined,
-            label: l10n.deliveryDashboardTitle,
-            onTap: (_) async =>
-                setState(() => activeTab = _DeliveryTab.dashboard),
-          ),
-          AppUserDrawerItem(
-            icon: Icons.local_shipping_outlined,
-            label: l10n.deliveryCurrentOrders,
-            onTap: (_) async =>
-                setState(() => activeTab = _DeliveryTab.current),
-          ),
-          AppUserDrawerItem(
-            icon: Icons.history_rounded,
-            label: l10n.deliveryOrderHistory,
-            onTap: (_) async =>
-                setState(() => activeTab = _DeliveryTab.history),
-          ),
-          AppUserDrawerItem(
-            icon: Icons.person_outline_rounded,
-            label: l10n.drawerProfile,
-            onTap: (_) async =>
-                setState(() => activeTab = _DeliveryTab.profile),
-          ),
-          AppUserDrawerItem(
-            icon: Icons.emoji_events_outlined,
-            label: l10n.deliveryCourierCompetitions,
-            subtitle: l10n.deliveryCourierCompetitionsSubtitle,
-            onTap: (_) async {
-              await Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CourierCompetitionsPage(),
-                ),
-              );
-            },
-          ),
-          AppUserDrawerItem(
-            icon: Icons.payments_outlined,
-            label: l10n.deliveryCourierEarningsTitle,
-            onTap: (_) async {
-              await Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CourierEarningsPage(),
-                ),
-              );
-            },
-          ),
-          AppUserDrawerItem(
-            icon: Icons.insights_outlined,
-            label: l10n.deliveryCourierReportsTitle,
-            onTap: (_) async {
-              await Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CourierReportsPage(),
-                ),
-              );
-            },
-          ),
-          AppUserDrawerItem(
-            icon: Icons.refresh_rounded,
-            label: l10n.drawerRefresh,
-            onTap: (_) async =>
-                ref.read(deliveryControllerProvider.notifier).bootstrap(),
-          ),
-          AppUserDrawerItem(
-            icon: Icons.archive_outlined,
-            label: l10n.deliveryEndDay,
-            onTap: (_) async {
-              await ref.read(deliveryControllerProvider.notifier).endDay();
-            },
-          ),
-        ],
-      ),
-      appBar: AppBar(
-        title: Text(_tabTitle()),
-        actions: [
-          if (activeTab == _DeliveryTab.history)
-            IconButton(
-              onPressed: _pickHistoryDate,
-              icon: const Icon(Icons.event_outlined),
-              tooltip: l10n.deliveryFilterByDate,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleDashboardPop();
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
+        drawer: AppUserDrawer(
+          title: _tabTitle(),
+          subtitle: l10n.drawerDeliverySub,
+          showProfileButton: false,
+          showCommunitySection: false,
+          items: [
+            AppUserDrawerItem(
+              icon: Icons.campaign_outlined,
+              label: l10n.deliveryCourierNewOffersTitle,
+              subtitle: l10n.deliveryOfferReviewPrompt,
+              onTap: (_) async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CourierOrdersNewPage(),
+                  ),
+                );
+              },
             ),
-          const NotificationsBellButton(),
-        ],
-      ),
-      floatingActionButton:
-          activeTab == _DeliveryTab.dashboard ||
-              activeTab == _DeliveryTab.current
-          ? FloatingActionButton.extended(
-              heroTag: null,
-              onPressed: state.saving
-                  ? null
-                  : () async {
-                      await ref
-                          .read(deliveryControllerProvider.notifier)
-                          .endDay();
-                    },
-              icon: const Icon(Icons.archive_outlined),
-              label: Text(l10n.deliveryEndDay),
-            )
-          : null,
-      body: RefreshIndicator(
-        onRefresh: () =>
-            ref.read(deliveryControllerProvider.notifier).bootstrap(),
-        child: state.loading
-            ? const Center(child: CircularProgressIndicator())
-            : _buildDeliveryTabBody(state: state, auth: auth),
+            AppUserDrawerItem(
+              icon: Icons.dashboard_outlined,
+              label: l10n.deliveryDashboardTitle,
+              onTap: (_) async =>
+                  setState(() => activeTab = _DeliveryTab.dashboard),
+            ),
+            AppUserDrawerItem(
+              icon: Icons.local_shipping_outlined,
+              label: l10n.deliveryCurrentOrders,
+              onTap: (_) async =>
+                  setState(() => activeTab = _DeliveryTab.current),
+            ),
+            AppUserDrawerItem(
+              icon: Icons.history_rounded,
+              label: l10n.deliveryOrderHistory,
+              onTap: (_) async =>
+                  setState(() => activeTab = _DeliveryTab.history),
+            ),
+            AppUserDrawerItem(
+              icon: Icons.person_outline_rounded,
+              label: l10n.drawerProfile,
+              onTap: (_) async =>
+                  setState(() => activeTab = _DeliveryTab.profile),
+            ),
+            AppUserDrawerItem(
+              icon: Icons.emoji_events_outlined,
+              label: l10n.deliveryCourierCompetitions,
+              subtitle: l10n.deliveryCourierCompetitionsSubtitle,
+              onTap: (_) async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CourierCompetitionsPage(),
+                  ),
+                );
+              },
+            ),
+            AppUserDrawerItem(
+              icon: Icons.payments_outlined,
+              label: l10n.deliveryCourierEarningsTitle,
+              onTap: (_) async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CourierEarningsPage(),
+                  ),
+                );
+              },
+            ),
+            AppUserDrawerItem(
+              icon: Icons.insights_outlined,
+              label: l10n.deliveryCourierReportsTitle,
+              onTap: (_) async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CourierReportsPage(),
+                  ),
+                );
+              },
+            ),
+            AppUserDrawerItem(
+              icon: Icons.refresh_rounded,
+              label: l10n.drawerRefresh,
+              onTap: (_) async =>
+                  ref.read(deliveryControllerProvider.notifier).bootstrap(),
+            ),
+            AppUserDrawerItem(
+              icon: Icons.archive_outlined,
+              label: l10n.deliveryEndDay,
+              onTap: (_) async {
+                await ref.read(deliveryControllerProvider.notifier).endDay();
+              },
+            ),
+          ],
+        ),
+        appBar: AppBar(
+          title: Text(_tabTitle()),
+          actions: [
+            if (activeTab == _DeliveryTab.history)
+              IconButton(
+                onPressed: _pickHistoryDate,
+                icon: const Icon(Icons.event_outlined),
+                tooltip: l10n.deliveryFilterByDate,
+              ),
+            const NotificationsBellButton(),
+          ],
+        ),
+        floatingActionButton:
+            activeTab == _DeliveryTab.dashboard ||
+                activeTab == _DeliveryTab.current
+            ? FloatingActionButton.extended(
+                heroTag: null,
+                onPressed: state.saving
+                    ? null
+                    : () async {
+                        await ref
+                            .read(deliveryControllerProvider.notifier)
+                            .endDay();
+                      },
+                icon: const Icon(Icons.archive_outlined),
+                label: Text(l10n.deliveryEndDay),
+              )
+            : null,
+        body: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(deliveryControllerProvider.notifier).bootstrap(),
+          child: state.loading
+              ? const Center(child: CircularProgressIndicator())
+              : _buildDeliveryTabBody(state: state, auth: auth),
+        ),
       ),
     );
   }
@@ -284,7 +333,11 @@ class _DeliveryDashboardScreenState
               icon: Icons.two_wheeler_outlined,
               label: l10n.deliveryOnTheWay,
               value: '${metrics.onTheWay}',
-              onTap: () => setState(() => activeTab = _DeliveryTab.current),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const CourierOrdersInDeliveryPage(),
+                ),
+              ),
             ),
             _DeliveryMetricTile(
               icon: Icons.store_mall_directory_outlined,
@@ -292,7 +345,7 @@ class _DeliveryDashboardScreenState
               value: '${metrics.waitingPickup}',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const CourierOrdersNewPage(),
+                  builder: (_) => const CourierOrdersWaitingPickupPage(),
                 ),
               ),
             ),
