@@ -396,15 +396,16 @@ class SocialController extends StateNotifier<SocialState> {
   }
 
   Future<void> createPost({
-      required String caption,
-      required String postKind,
-      int? merchantId,
-      int? reviewRating,
-      LocalMediaFile? mediaFile,
-      Map<String, dynamic>? reelStyle,
-      String? audienceScopeType,
-      String? audienceScopeCode,
-    }) async {
+    required String caption,
+    required String postKind,
+    int? merchantId,
+    int? reviewRating,
+    LocalMediaFile? mediaFile,
+    List<LocalMediaFile>? mediaFiles,
+    Map<String, dynamic>? reelStyle,
+    String? audienceScopeType,
+    String? audienceScopeCode,
+  }) async {
     _safeSetState(state.copyWith(creatingPost: true, error: null));
     try {
       final out = await ref
@@ -415,6 +416,7 @@ class SocialController extends StateNotifier<SocialState> {
             merchantId: merchantId,
             reviewRating: reviewRating,
             mediaFile: mediaFile,
+            mediaFiles: mediaFiles,
             reelStyle: reelStyle,
             audienceScopeType: audienceScopeType,
             audienceScopeCode: audienceScopeCode,
@@ -527,13 +529,12 @@ class SocialController extends StateNotifier<SocialState> {
         : 'post';
 
     try {
-      final out = await ref.read(socialApiProvider).toggleSaved(
-            entityType: entityType,
-            entityId: post.id,
-          );
+      final out = await ref
+          .read(socialApiProvider)
+          .toggleSaved(entityType: entityType, entityId: post.id);
       final savesCount =
           _parseInt(out['savesCount'] ?? out['saves_count']) ??
-              optimistic.savesCount;
+          optimistic.savesCount;
       final saved = out['saved'] == true;
       _safeSetState(
         state.copyWith(
@@ -662,11 +663,13 @@ class SocialController extends StateNotifier<SocialState> {
     String? imageUrl,
   }) async {
     try {
-      final out = await ref.read(socialApiProvider).createGroupThread(
-        title: title,
-        memberIds: memberIds,
-        imageUrl: imageUrl,
-      );
+      final out = await ref
+          .read(socialApiProvider)
+          .createGroupThread(
+            title: title,
+            memberIds: memberIds,
+            imageUrl: imageUrl,
+          );
       final thread = SocialChatThread.fromJson(
         Map<String, dynamic>.from(out['thread'] as Map),
       );
@@ -689,9 +692,7 @@ class SocialController extends StateNotifier<SocialState> {
       return null;
     } catch (e) {
       _safeSetState(
-        state.copyWith(
-          error: mapAnyError(e, fallback: 'تعذر إنشاء المجموعة.'),
-        ),
+        state.copyWith(error: mapAnyError(e, fallback: 'تعذر إنشاء المجموعة.')),
       );
       return null;
     }
@@ -708,4 +709,3 @@ int? _parseInt(dynamic value) {
   if (value == null) return null;
   return int.tryParse('$value');
 }
-

@@ -621,6 +621,8 @@ async function main() {
         apartment: "102",
         merchantName: `E2E Merchant ${runTag}`,
         merchantType: "restaurant",
+        merchantActivityType: "restaurant",
+        merchantDiscoverySelectAll: true,
         merchantDescription: `merchant-desc-${runTag}`,
         merchantTagline: `merchant-tag-${runTag}`,
         merchantWorkingHours: "10:00-22:00",

@@ -47,9 +47,11 @@ class SocialReelCard extends StatefulWidget {
 class _SocialReelCardState extends State<SocialReelCard> {
   VideoPlayerController? _controller;
   bool _ready = false;
+  bool _videoFailed = false;
   bool _speedBoosting = false;
   bool _showMuteFeedback = false;
   Timer? _muteFeedbackTimer;
+  int _videoGeneration = 0;
 
   @override
   void initState() {
@@ -72,17 +74,34 @@ class _SocialReelCardState extends State<SocialReelCard> {
   }
 
   Future<void> _initialize() async {
+    final generation = ++_videoGeneration;
+    if (mounted) {
+      setState(() {
+        _ready = false;
+        _videoFailed = false;
+      });
+    }
     final url =
         widget.item.post.asset?.normalizedUrl ??
         widget.item.post.mediaUrl ??
         '';
     if (url.trim().isEmpty) return;
-    final source = await MediaCacheService.instance.resolveVideoSource(
-      url: url,
-      cacheIdentity: 'reel_video_${widget.item.post.id}',
-      version: widget.item.post.updatedAt?.toIso8601String(),
-      scope: MediaCacheScope.public,
-    );
+    final CachedVideoSource source;
+    try {
+      source = await MediaCacheService.instance
+          .resolveVideoSource(
+            url: url,
+            cacheIdentity: 'reel_video_${widget.item.post.id}',
+            version: widget.item.post.updatedAt?.toIso8601String(),
+            scope: MediaCacheScope.public,
+          )
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      if (!mounted || generation != _videoGeneration) return;
+      setState(() => _videoFailed = true);
+      return;
+    }
+    if (!mounted || generation != _videoGeneration) return;
     final controller = source.isLocalFile
         ? VideoPlayerController.file(source.file!)
         : VideoPlayerController.networkUrl(source.uri);
@@ -91,13 +110,22 @@ class _SocialReelCardState extends State<SocialReelCard> {
       await controller.initialize().timeout(const Duration(seconds: 8));
       await controller.setLooping(true);
       await controller.setVolume(widget.muted ? 0 : 1);
-      if (!mounted) return;
+      if (!mounted || generation != _videoGeneration) {
+        await controller.dispose();
+        return;
+      }
       setState(() => _ready = true);
       _syncPlayback();
     } catch (_) {
+      if (identical(_controller, controller)) {
+        _controller = null;
+      }
       await controller.dispose();
-      if (!mounted) return;
-      setState(() => _ready = false);
+      if (!mounted || generation != _videoGeneration) return;
+      setState(() {
+        _ready = false;
+        _videoFailed = true;
+      });
     }
   }
 
@@ -116,10 +144,13 @@ class _SocialReelCardState extends State<SocialReelCard> {
   }
 
   void _disposeVideo() {
+    _videoGeneration++;
     _muteFeedbackTimer?.cancel();
     _controller?.dispose();
     _controller = null;
     _ready = false;
+    _videoFailed = false;
+    _speedBoosting = false;
   }
 
   Future<void> _toggleMuteWithFeedback() async {
@@ -203,6 +234,8 @@ class _SocialReelCardState extends State<SocialReelCard> {
                 ),
               ),
             ),
+          if (_videoFailed && !_ready)
+            const Center(child: _VideoUnavailablePill()),
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -421,6 +454,38 @@ class _SocialReelCardState extends State<SocialReelCard> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _VideoUnavailablePill extends StatelessWidget {
+  const _VideoUnavailablePill();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
+            SizedBox(width: 8),
+            Text(
+              'Video unavailable',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -6,10 +6,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/app_user_bootstrap.dart';
 import 'package:maslaki/core/notifications/local_notification_service.dart';
 import 'package:maslaki/core/notifications/push_notification_service.dart';
+import 'package:maslaki/core/realtime/maslaki_realtime_service.dart';
+import 'package:maslaki/core/sections/section_availability_controller.dart';
 import 'package:maslaki/core/settings/app_settings_controller.dart';
 import 'package:maslaki/core/theme/theme_preset.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
+import 'package:maslaki/features/auth/presentation/login_screen.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/customer/ui/customer_home_selector_screen.dart';
 import 'package:maslaki/features/notifications/data/notifications_api.dart';
@@ -54,6 +57,18 @@ class _FakeSettingsController extends AppSettingsController {
   Future<void> bootstrap() async {}
 }
 
+class _FakeSectionAvailabilityController extends SectionAvailabilityController {
+  _FakeSectionAvailabilityController(super.ref) {
+    state = const SectionAvailabilityState(initialized: true);
+  }
+
+  @override
+  Future<void> bootstrap() async {}
+
+  @override
+  Future<void> refresh({bool silent = false}) async {}
+}
+
 class _FakeLocalNotificationService extends LocalNotificationService {
   @override
   Stream<NotificationTapPayload> get tapStream =>
@@ -89,6 +104,19 @@ class _FakePushNotificationService extends PushNotificationService {
 
   @override
   void dispose() {}
+}
+
+class _FakeMaslakiRealtimeService extends MaslakiRealtimeService {
+  _FakeMaslakiRealtimeService() : super(Dio());
+
+  @override
+  Future<bool> bindAuthenticatedSession({bool force = false}) async => true;
+
+  @override
+  Future<void> clearSession() async {}
+
+  @override
+  Future<void> setAppActive(bool active) async {}
 }
 
 UserModel _customerUser() {
@@ -127,6 +155,12 @@ void main() {
             appSettingsControllerProvider.overrideWith(
               (ref) => _FakeSettingsController(),
             ),
+            sectionAvailabilityControllerProvider.overrideWith(
+              (ref) => _FakeSectionAvailabilityController(ref),
+            ),
+            maslakiRealtimeServiceProvider.overrideWithValue(
+              _FakeMaslakiRealtimeService(),
+            ),
             localNotificationsProvider.overrideWithValue(
               _FakeLocalNotificationService(),
             ),
@@ -144,4 +178,44 @@ void main() {
       expect(find.byType(CustomerHomeSelectorScreen), findsOneWidget);
     },
   );
+
+  testWidgets('token without verified user stays on login screen', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) =>
+                _FakeAuthController(ref, const AuthState(token: 'stale-token')),
+          ),
+          appStartupControllerProvider.overrideWith(
+            (ref) => _FakeStartupController(),
+          ),
+          appSettingsControllerProvider.overrideWith(
+            (ref) => _FakeSettingsController(),
+          ),
+          sectionAvailabilityControllerProvider.overrideWith(
+            (ref) => _FakeSectionAvailabilityController(ref),
+          ),
+          maslakiRealtimeServiceProvider.overrideWithValue(
+            _FakeMaslakiRealtimeService(),
+          ),
+          localNotificationsProvider.overrideWithValue(
+            _FakeLocalNotificationService(),
+          ),
+          pushNotificationsProvider.overrideWithValue(
+            _FakePushNotificationService(),
+          ),
+        ],
+        child: const MaslakiApp(),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.byType(CustomerHomeSelectorScreen), findsNothing);
+  });
 }

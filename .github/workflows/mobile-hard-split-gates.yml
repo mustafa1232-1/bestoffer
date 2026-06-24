@@ -25,12 +25,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app:
-          - app_user
-          - app_store
-          - app_delivery
-          - app_taxi_captain
-          - app_company
+        include:
+          - app: app_user
+            working_directory: apps/app_user
+            target: ""
+          - app: app_store
+            working_directory: .
+            target: lib/main_store.dart
+          - app: app_delivery
+            working_directory: apps/app_delivery
+            target: ""
+          - app: app_taxi_captain
+            working_directory: apps/app_taxi_captain
+            target: ""
+          - app: app_company
+            working_directory: apps/app_company
+            target: ""
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -38,13 +48,13 @@ jobs:
           flutter-version: "3.38.6"
       - name: ${{ matrix.app }} pub get
         run: flutter pub get
-        working-directory: apps/${{ matrix.app }}
+        working-directory: ${{ matrix.working_directory }}
       - name: ${{ matrix.app }} analyze
         run: flutter analyze
-        working-directory: apps/${{ matrix.app }}
+        working-directory: ${{ matrix.working_directory }}
       - name: ${{ matrix.app }} test
         run: flutter test
-        working-directory: apps/${{ matrix.app }}
+        working-directory: ${{ matrix.working_directory }}
 
   split-governance:
     runs-on: windows-latest

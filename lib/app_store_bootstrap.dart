@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/notifications/local_notification_service.dart';
@@ -24,6 +25,7 @@ import 'l10n/app_localizations.dart';
 /// lightweight runtime shell.
 void runStoreAppBootstrap() {
   WidgetsFlutterBinding.ensureInitialized();
+  installAppRuntimeErrorPresentation();
   runApp(
     ProviderScope(
       overrides: [appSettingsStorageScopeProvider.overrideWithValue('store')],
@@ -76,7 +78,7 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
 
       if (!mounted) return;
       final auth = ref.read(authControllerProvider);
-      if (auth.isAuthed && auth.isOwner) {
+      if (_hasVerifiedSession(auth) && auth.isOwner) {
         await _ensurePushReadyAndSync(auth);
       }
       if (!mounted) return;
@@ -105,8 +107,8 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
   }
 
   void _handleAuthStateChanged(AuthState? previous, AuthState next) {
-    final wasAuthed = previous?.isAuthed ?? false;
-    final isAuthed = next.isAuthed;
+    final wasAuthed = previous == null ? false : _hasVerifiedSession(previous);
+    final isAuthed = _hasVerifiedSession(next);
     final previousUserId = previous?.user?.id;
     final nextUserId = next.user?.id;
 
@@ -151,6 +153,9 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
     }
   }
 
+  bool _hasVerifiedSession(AuthState auth) =>
+      auth.isAuthed && auth.user != null;
+
   void _consumePendingTapIfAny() {
     final payload = _pendingTapPayload;
     if (payload == null) return;
@@ -163,7 +168,7 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
 
   void _handleNotificationTap(NotificationTapPayload payload) {
     final auth = ref.read(authControllerProvider);
-    if (!auth.isAuthed || !auth.isOwner) {
+    if (!_hasVerifiedSession(auth) || !auth.isOwner) {
       _pendingTapPayload = payload;
       return;
     }
@@ -184,14 +189,16 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
     final auth = ref.watch(authControllerProvider);
     Intl.defaultLocale = settings.locale.languageCode;
 
-    if (auth.isAuthed && !auth.isOwner && !_roleMismatchLogoutInFlight) {
+    if (_hasVerifiedSession(auth) &&
+        !auth.isOwner &&
+        !_roleMismatchLogoutInFlight) {
       _roleMismatchLogoutInFlight = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
         await ref.read(authControllerProvider.notifier).logout();
         _roleMismatchLogoutInFlight = false;
       });
-    } else if (!auth.isAuthed || auth.isOwner) {
+    } else if (!_hasVerifiedSession(auth) || auth.isOwner) {
       _roleMismatchLogoutInFlight = false;
     }
 
@@ -216,7 +223,7 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
       },
       home: !_bootstrapped
           ? const _StoreSplashScreen()
-          : auth.isAuthed && auth.isOwner
+          : _hasVerifiedSession(auth) && auth.isOwner
           ? const OwnerDashboardScreen()
           : const RoleLoginScreen(scope: RoleLoginScope.owner),
     );

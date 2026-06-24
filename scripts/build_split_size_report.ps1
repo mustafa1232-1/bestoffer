@@ -140,7 +140,13 @@ function Get-ApkInfo([string]$Path) {
   }
 }
 
-function Invoke-Build([string]$WorkingDir, [string]$Label) {
+function Invoke-Build(
+  [string]$WorkingDir,
+  [string]$Label,
+  [string]$Target = "",
+  [string]$AppId = "",
+  [string]$AppLabel = ""
+) {
   if (-not $shouldRebuild) {
     Write-Host "Skipping build for $Label (Rebuild=false)"
     return [pscustomobject]@{ Succeeded = $true; Error = "" }
@@ -148,14 +154,29 @@ function Invoke-Build([string]$WorkingDir, [string]$Label) {
 
   Write-Host "Building $Label..."
   Push-Location $WorkingDir
+  $previousAppId = $env:ORG_GRADLE_PROJECT_APP_ID
+  $previousAppLabel = $env:ORG_GRADLE_PROJECT_APP_LABEL
   try {
+    if (-not [string]::IsNullOrWhiteSpace($AppId)) {
+      $env:ORG_GRADLE_PROJECT_APP_ID = $AppId
+    }
+    if (-not [string]::IsNullOrWhiteSpace($AppLabel)) {
+      $env:ORG_GRADLE_PROJECT_APP_LABEL = $AppLabel
+    }
+
     Invoke-CheckedCommand -Command "flutter" -Arguments @("pub", "get")
-    Invoke-CheckedCommand -Command "flutter" -Arguments @("build", "apk", "--release")
+    $buildArgs = @("build", "apk", "--release")
+    if (-not [string]::IsNullOrWhiteSpace($Target)) {
+      $buildArgs += @("-t", $Target)
+    }
+    Invoke-CheckedCommand -Command "flutter" -Arguments $buildArgs
     return [pscustomobject]@{ Succeeded = $true; Error = "" }
   } catch {
     Write-Warning "Build failed for ${Label}: $($_.Exception.Message)"
     return [pscustomobject]@{ Succeeded = $false; Error = $_.Exception.Message }
   } finally {
+    $env:ORG_GRADLE_PROJECT_APP_ID = $previousAppId
+    $env:ORG_GRADLE_PROJECT_APP_LABEL = $previousAppLabel
     Pop-Location
   }
 }
@@ -163,7 +184,14 @@ function Invoke-Build([string]$WorkingDir, [string]$Label) {
 $targets = @(
   @{ Name = "root_monolith"; WorkingDir = "."; ApkPath = "build/app/outputs/flutter-apk/app-release.apk" },
   @{ Name = "app_user"; WorkingDir = "apps/app_user"; ApkPath = "apps/app_user/build/app/outputs/flutter-apk/app-release.apk" },
-  @{ Name = "app_store"; WorkingDir = "apps/app_store"; ApkPath = "apps/app_store/build/app/outputs/flutter-apk/app-release.apk" },
+  @{
+    Name = "app_store";
+    WorkingDir = ".";
+    Target = "lib/main_store.dart";
+    AppId = "com.maslaki.store";
+    AppLabel = "Maslaki Store";
+    ApkPath = "build/app/outputs/flutter-apk/app-release.apk"
+  },
   @{ Name = "app_delivery"; WorkingDir = "apps/app_delivery"; ApkPath = "apps/app_delivery/build/app/outputs/flutter-apk/app-release.apk" },
   @{ Name = "app_taxi_captain"; WorkingDir = "apps/app_taxi_captain"; ApkPath = "apps/app_taxi_captain/build/app/outputs/flutter-apk/app-release.apk" },
   @{ Name = "app_company"; WorkingDir = "apps/app_company"; ApkPath = "apps/app_company/build/app/outputs/flutter-apk/app-release.apk" }
@@ -171,18 +199,22 @@ $targets = @(
 
 Initialize-AndroidSigningEnvironment -RepoRootPath $repoRoot.Path
 
-$buildResults = @{}
+$rowsList = New-Object System.Collections.Generic.List[object]
 foreach ($target in $targets) {
-  $buildResults[$target.Name] = Invoke-Build -WorkingDir $target.WorkingDir -Label $target.Name
-}
-
-$rows = foreach ($target in $targets) {
+  $targetEntrypoint = if ($target.ContainsKey("Target")) { $target.Target } else { "" }
+  $targetAppId = if ($target.ContainsKey("AppId")) { $target.AppId } else { "" }
+  $targetAppLabel = if ($target.ContainsKey("AppLabel")) { $target.AppLabel } else { "" }
+  $buildResult = Invoke-Build `
+    -WorkingDir $target.WorkingDir `
+    -Label $target.Name `
+    -Target $targetEntrypoint `
+    -AppId $targetAppId `
+    -AppLabel $targetAppLabel
   $info = Get-ApkInfo -Path $target.ApkPath
-  $buildResult = $buildResults[$target.Name]
   if ($null -eq $buildResult -or -not ($buildResult.PSObject.Properties.Name -contains "Succeeded")) {
     $buildResult = [pscustomobject]@{ Succeeded = $false; Error = "No build result captured." }
   }
-  [pscustomobject]@{
+  $rowsList.Add([pscustomobject]@{
     App = $target.Name
     Build = if ($buildResult.Succeeded) { "PASS" } else { "FAIL" }
     BuildError = $buildResult.Error
@@ -191,8 +223,9 @@ $rows = foreach ($target in $targets) {
     SizeMB = $info.SizeMB
     SizeBytes = $info.SizeBytes
     Sha256 = $info.Sha256
-  }
+  })
 }
+$rows = @($rowsList)
 
 $rootRow = $rows | Where-Object { $_.App -eq "root_monolith" } | Select-Object -First 1
 $rootSizeBytes = 0

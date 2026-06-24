@@ -159,7 +159,14 @@ feedRouter.post("/saved/collections", c.createSavedCollection);
 feedRouter.patch("/saved/collections/:collectionId", c.updateSavedCollection);
 feedRouter.delete("/saved/collections/:collectionId", c.deleteSavedCollection);
 feedRouter.post("/saved/toggle", c.toggleSavedContent);
-feedRouter.post("/posts", mediaUpload.single("mediaFile"), c.createPost);
+feedRouter.post(
+  "/posts",
+  mediaUpload.fields([
+    { name: "mediaFile", maxCount: 1 },
+    { name: "mediaFiles", maxCount: 10 },
+  ]),
+  c.createPost
+);
 feedRouter.patch(
   "/posts/:postId/resubmit",
   mediaUpload.single("mediaFile"),

@@ -13,10 +13,38 @@ Set-Location $repoRoot
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 
 $targets = @(
-  @{ Name = "app_user"; Dir = "apps/app_user"; PackageId = "com.maslaki.user" },
-  @{ Name = "app_store"; Dir = "apps/app_store"; PackageId = "com.maslaki.store" },
-  @{ Name = "app_delivery"; Dir = "apps/app_delivery"; PackageId = "com.maslaki.delivery" },
-  @{ Name = "app_taxi_captain"; Dir = "apps/app_taxi_captain"; PackageId = "com.maslaki.captain" },
+  @{
+    Name = "app_user";
+    Dir = ".";
+    PackageId = "com.maslaki.user";
+    Target = "lib/main.dart";
+    AppId = "com.maslaki.user";
+    AppLabel = "Maslaki"
+  },
+  @{
+    Name = "app_store";
+    Dir = ".";
+    PackageId = "com.maslaki.store";
+    Target = "lib/main_store.dart";
+    AppId = "com.maslaki.store";
+    AppLabel = "Maslaki Store"
+  },
+  @{
+    Name = "app_delivery";
+    Dir = ".";
+    PackageId = "com.maslaki.delivery";
+    Target = "lib/main_delivery.dart";
+    AppId = "com.maslaki.delivery";
+    AppLabel = "Maslaki Delivery"
+  },
+  @{
+    Name = "app_taxi_captain";
+    Dir = ".";
+    PackageId = "com.maslaki.captain";
+    Target = "lib/main_captain.dart";
+    AppId = "com.maslaki.captain";
+    AppLabel = "Maslaki Captain"
+  },
   @{ Name = "app_company"; Dir = "apps/app_company"; PackageId = "com.maslaki.company" }
 )
 
@@ -170,15 +198,28 @@ foreach ($target in $targets) {
   $buildError = ""
 
   Push-Location $dir
+  $previousAppId = $env:ORG_GRADLE_PROJECT_APP_ID
+  $previousAppLabel = $env:ORG_GRADLE_PROJECT_APP_LABEL
   try {
+    if ($target.ContainsKey("AppId") -and -not [string]::IsNullOrWhiteSpace($target.AppId)) {
+      $env:ORG_GRADLE_PROJECT_APP_ID = $target.AppId
+    }
+    if ($target.ContainsKey("AppLabel") -and -not [string]::IsNullOrWhiteSpace($target.AppLabel)) {
+      $env:ORG_GRADLE_PROJECT_APP_LABEL = $target.AppLabel
+    }
+
     $buildOutputRoot = Join-Path $dir "build/app/outputs"
     if (Test-Path $buildOutputRoot) {
       Remove-Item -Recurse -Force (Join-Path $buildOutputRoot "flutter-apk") -ErrorAction SilentlyContinue
       Remove-Item -Recurse -Force (Join-Path $buildOutputRoot "bundle/release") -ErrorAction SilentlyContinue
     }
+    $targetArgs = @()
+    if ($target.ContainsKey("Target") -and -not [string]::IsNullOrWhiteSpace($target.Target)) {
+      $targetArgs = @("-t", $target.Target)
+    }
     Invoke-CheckedCommand -Command "flutter" -Arguments @("pub", "get")
-    Invoke-CheckedCommand -Command "flutter" -Arguments @("build", "apk", "--release")
-    Invoke-CheckedCommand -Command "flutter" -Arguments @("build", "appbundle", "--release")
+    Invoke-CheckedCommand -Command "flutter" -Arguments (@("build", "apk", "--release") + $targetArgs)
+    Invoke-CheckedCommand -Command "flutter" -Arguments (@("build", "appbundle", "--release") + $targetArgs)
   } catch {
     $buildSucceeded = $false
     $buildError = $_.Exception.Message
@@ -187,6 +228,8 @@ foreach ($target in $targets) {
       throw
     }
   } finally {
+    $env:ORG_GRADLE_PROJECT_APP_ID = $previousAppId
+    $env:ORG_GRADLE_PROJECT_APP_LABEL = $previousAppLabel
     Pop-Location
   }
 

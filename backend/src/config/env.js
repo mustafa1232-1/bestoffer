@@ -346,9 +346,9 @@ export const env = {
     min: 1,
     max: 120,
   }),
-  authMaxActiveSessionsPerUser: readNumber("AUTH_MAX_ACTIVE_SESSIONS_PER_USER", 5, {
+  authMaxActiveSessionsPerUser: readNumber("AUTH_MAX_ACTIVE_SESSIONS_PER_USER", 30, {
     min: 1,
-    max: 30,
+    max: 100,
   }),
   authDeviceBindingRequired: readBoolean("AUTH_DEVICE_BINDING_REQUIRED", true),
   authAllowLegacyTokens: readBoolean("AUTH_ALLOW_LEGACY_TOKENS", false),

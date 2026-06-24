@@ -1,10 +1,11 @@
 # App Split And Structure Guide
 
 ## Current Operating Model
-- The repository runs in **multi-app mode** from `apps/*`.
-- Each app now boots through its runtime package:
-  - `apps/app_user` -> `app_user_runtime`
-  - `apps/app_store` -> `app_store_runtime`
+- The repository uses root entrypoints for the user and store surfaces, plus
+  split service apps under `apps/*`.
+- Each surface boots through its runtime package:
+  - `lib/main.dart` -> user app
+  - `lib/main_store.dart` -> `app_store_runtime`
   - `apps/app_delivery` -> `app_delivery_runtime`
   - `apps/app_taxi_captain` -> `app_taxi_captain_runtime`
   - `apps/app_company` -> `app_company_runtime`
@@ -12,7 +13,7 @@
 
 ## Scope Ownership
 - `app_user`: consumer flows (home, stores, pharmacy customer flow, taxi rider, social/reels, profile/settings).
-- `app_store`: owner/store operations.
+- `lib/main_store.dart`: owner/store operations.
 - `app_delivery`: courier flow only.
 - `app_taxi_captain`: captain flow only.
 - `app_company`: company/admin operations only.
@@ -24,9 +25,11 @@
 - Boundary guard: `scripts/check_import_boundaries.ps1`.
 
 ## Shipping Note
-- Split apps under `apps/*` are the intended shipping entrypoints.
-- Root `lib/main.dart` remains a maintenance fallback only.
-- New feature work must land in runtime packages and shared `core_*` packages, not in the root bootstrap path.
+- `lib/main.dart` and `lib/main_store.dart` are the user/store shipping entrypoints.
+- Split service apps under `apps/*` remain the shipping entrypoints for delivery,
+  taxi captain, and company.
+- New feature work must land in runtime packages and shared `core_*` packages,
+  not in duplicate app harnesses.
 
 ## Design System Source Of Truth
 - Primary theme exports:
@@ -42,6 +45,6 @@
 3. Root:
    - `flutter analyze`
    - `flutter test`
-4. Each app in `apps/*`:
+4. Each remaining app in `apps/*`:
    - `flutter analyze`
    - `flutter test`

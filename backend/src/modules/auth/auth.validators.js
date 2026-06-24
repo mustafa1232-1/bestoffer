@@ -74,6 +74,19 @@ export function validateLogin(body) {
   return { ok: errors.length === 0, errors };
 }
 
+export function validateRefreshSession(body) {
+  const errors = [];
+  const refreshToken = String(body?.refreshToken || body?.refresh_token || "").trim();
+  if (refreshToken.length < 24 || refreshToken.length > 256) {
+    errors.push("refreshToken");
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: { refreshToken },
+  };
+}
+
 export function validateUpdateAccount(body) {
   const errors = [];
 

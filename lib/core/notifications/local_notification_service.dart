@@ -103,6 +103,16 @@ class LocalNotificationService {
         playSound: true,
         enableVibration: true,
       );
+  static const AndroidNotificationChannel _deliveryUrgentChannel =
+      AndroidNotificationChannel(
+        'maslaki_delivery_urgent_v1',
+        'Maslaki Delivery Urgent',
+        description:
+            'Urgent courier assignments, pickup, cancellation, and chat alerts',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+      );
   static const AndroidNotificationChannel _callChannel =
       AndroidNotificationChannel(
         'maslaki_calls_v1',
@@ -155,6 +165,7 @@ class LocalNotificationService {
         >();
     await androidPlugin?.createNotificationChannel(_channel);
     await androidPlugin?.createNotificationChannel(_actionChannel);
+    await androidPlugin?.createNotificationChannel(_deliveryUrgentChannel);
     await androidPlugin?.createNotificationChannel(_callChannel);
 
     _initialized = true;
@@ -301,6 +312,13 @@ class LocalNotificationService {
         ? _resolveActionReminderNotificationId(type: type, orderId: orderId)
         : null;
     final isCall = _isCallNotification(type: type, target: target);
+    final isDeliveryUrgent = _isDeliveryUrgentNotification(
+      type: type,
+      target: target,
+      roleScope: roleScope,
+      action: action,
+      orderId: orderId,
+    );
     final isUrgentRealtime = _isUrgentRealtimeNotification(
       type: type,
       target: target,
@@ -345,8 +363,11 @@ class LocalNotificationService {
 
     final androidChannel = isCall
         ? _callChannel
-        : (requiresAction ? _actionChannel : _channel);
-    final useAttentionSound = requiresAction || isCall || isUrgentRealtime;
+        : (isDeliveryUrgent
+              ? _deliveryUrgentChannel
+              : (requiresAction ? _actionChannel : _channel));
+    final useAttentionSound =
+        requiresAction || isCall || isUrgentRealtime || isDeliveryUrgent;
     final androidActions = _buildAndroidActions(
       requiresAction: requiresAction,
       isUrgentRealtime: isUrgentRealtime,
@@ -357,7 +378,8 @@ class LocalNotificationService {
         androidChannel.name,
         channelDescription: androidChannel.description,
         importance: Importance.max,
-        priority: (requiresAction || isCall || isUrgentRealtime)
+        priority:
+            (requiresAction || isCall || isUrgentRealtime || isDeliveryUrgent)
             ? Priority.max
             : Priority.high,
         playSound: true,
@@ -366,7 +388,7 @@ class LocalNotificationService {
             : null,
         audioAttributesUsage: isCall
             ? AudioAttributesUsage.notificationRingtone
-            : (requiresAction
+            : (requiresAction || isDeliveryUrgent
                   ? AudioAttributesUsage.alarm
                   : AudioAttributesUsage.notification),
         enableVibration: true,
@@ -375,10 +397,14 @@ class LocalNotificationService {
             : null,
         ticker: isCall
             ? 'maslaki_incoming_call'
-            : (requiresAction ? 'maslaki_action_required' : 'maslaki_update'),
+            : (isDeliveryUrgent
+                  ? 'maslaki_delivery_urgent'
+                  : (requiresAction
+                        ? 'maslaki_action_required'
+                        : 'maslaki_update')),
         category: isCall
             ? AndroidNotificationCategory.call
-            : (requiresAction
+            : (requiresAction || isDeliveryUrgent
                   ? AndroidNotificationCategory.alarm
                   : AndroidNotificationCategory.status),
         fullScreenIntent: isCall || isUrgentRealtime,
@@ -437,10 +463,7 @@ class LocalNotificationService {
   void _onNotificationResponse(NotificationResponse response) {
     final payload = response.payload;
     if (payload == null || payload.isEmpty) return;
-    final parsed = _parsePayload(
-      payload,
-      responseActionId: response.actionId,
-    );
+    final parsed = _parsePayload(payload, responseActionId: response.actionId);
     if (parsed != null) {
       _tapController.add(parsed);
     }
@@ -616,6 +639,42 @@ List<AndroidNotificationAction>? _buildAndroidActions({
     ]);
   }
   return actions;
+}
+
+bool _isDeliveryUrgentNotification({
+  required String? type,
+  required String? target,
+  required String? roleScope,
+  required String? action,
+  required int? orderId,
+}) {
+  if (orderId == null || orderId <= 0) return false;
+  final normalizedType = (type ?? '').trim().toLowerCase();
+  final normalizedTarget = (target ?? '').trim().toLowerCase();
+  final normalizedRoleScope = (roleScope ?? '').trim().toLowerCase();
+  final normalizedAction = (action ?? '').trim().toLowerCase();
+  final courierScoped =
+      normalizedRoleScope == 'courier' ||
+      normalizedRoleScope == 'delivery' ||
+      normalizedTarget.startsWith('courier') ||
+      normalizedTarget.startsWith('delivery') ||
+      normalizedTarget == 'order_tracking';
+  if (!courierScoped) return false;
+
+  return normalizedType == 'delivery_order_available' ||
+      normalizedType == 'delivery_order_offer' ||
+      normalizedType == 'courier_order_offer' ||
+      normalizedType == 'delivery_order_assigned' ||
+      normalizedType == 'delivery_order_ready_for_pickup' ||
+      normalizedType == 'delivery_order_ready' ||
+      normalizedType == 'delivery_order_cancelled' ||
+      normalizedType == 'courier_cancel_request_approved' ||
+      normalizedType == 'courier_cancel_request_rejected' ||
+      (normalizedType == 'order_chat_message' &&
+          normalizedTarget != 'social_chat') ||
+      normalizedAction.contains('ready_for_pickup') ||
+      normalizedAction.contains('open_current_order') ||
+      normalizedAction.contains('open_cancelled_order');
 }
 
 bool _parseBool(dynamic value) {

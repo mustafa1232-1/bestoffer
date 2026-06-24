@@ -11,21 +11,34 @@ import '../creator/creator_models.dart';
 import '../creator/social_camera_creator_screen.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
+import 'social_post_composer_screen.dart';
 import 'widgets/social_mention_composer_field.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
 Future<bool?> showSocialCreatePostSheet(BuildContext context) {
-  return showModalBottomSheet<bool>(
+  return showModalBottomSheet<String>(
     context: context,
-    isScrollControlled: true,
     showDragHandle: true,
-    builder: (_) => const SocialCreatePostSheet(),
-  );
+    builder: (_) => const _CreatePostModePickerSheet(),
+  ).then((selection) async {
+    if (selection == null || !context.mounted) return null;
+    if (selection == 'merchant_review') {
+      return showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (_) => const SocialCreatePostSheet(reviewOnly: true),
+      );
+    }
+    return showSocialPostComposerScreen(context, initialKind: selection);
+  });
 }
 
 class SocialCreatePostSheet extends ConsumerStatefulWidget {
-  const SocialCreatePostSheet({super.key});
+  final bool reviewOnly;
+
+  const SocialCreatePostSheet({super.key, this.reviewOnly = false});
 
   @override
   ConsumerState<SocialCreatePostSheet> createState() =>
@@ -51,6 +64,10 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
   @override
   void initState() {
     super.initState();
+    if (widget.reviewOnly) {
+      _postKind = 'merchant_review';
+      unawaited(_loadMerchants(_merchantSearchCtrl.text));
+    }
     _merchantSearchCtrl.addListener(_onMerchantSearchChanged);
   }
 
@@ -229,38 +246,40 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
                 ),
               ),
               const SizedBox(height: 10),
-              Wrap(
-                alignment: WrapAlignment.end,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _PostModeChip(
-                    selected: _postKind == 'merchant_review',
-                    label: l10n.socialCreatePostModeStoreReview,
-                    icon: Icons.rate_review_outlined,
-                    onTap: () => _setPostKind('merchant_review'),
-                  ),
-                  _PostModeChip(
-                    selected: _postKind == 'reel',
-                    label: l10n.socialCreatePostModeReel,
-                    icon: Icons.ondemand_video_rounded,
-                    onTap: () => _setPostKind('reel'),
-                  ),
-                  _PostModeChip(
-                    selected: _postKind == 'image',
-                    label: l10n.socialCreatePostModePhoto,
-                    icon: Icons.image_outlined,
-                    onTap: () => _setPostKind('image'),
-                  ),
-                  _PostModeChip(
-                    selected: _postKind == 'text',
-                    label: l10n.socialCreatePostModeText,
-                    icon: Icons.text_fields_rounded,
-                    onTap: () => _setPostKind('text'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
+              if (!widget.reviewOnly) ...[
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _PostModeChip(
+                      selected: _postKind == 'merchant_review',
+                      label: l10n.socialCreatePostModeStoreReview,
+                      icon: Icons.rate_review_outlined,
+                      onTap: () => _setPostKind('merchant_review'),
+                    ),
+                    _PostModeChip(
+                      selected: _postKind == 'reel',
+                      label: l10n.socialCreatePostModeReel,
+                      icon: Icons.ondemand_video_rounded,
+                      onTap: () => _setPostKind('reel'),
+                    ),
+                    _PostModeChip(
+                      selected: _postKind == 'image',
+                      label: l10n.socialCreatePostModePhoto,
+                      icon: Icons.image_outlined,
+                      onTap: () => _setPostKind('image'),
+                    ),
+                    _PostModeChip(
+                      selected: _postKind == 'text',
+                      label: l10n.socialCreatePostModeText,
+                      icon: Icons.text_fields_rounded,
+                      onTap: () => _setPostKind('text'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
               SocialMentionComposerField(
                 controller: _captionCtrl,
                 minLines: 3,
@@ -429,6 +448,79 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CreatePostModePickerSheet extends StatelessWidget {
+  const _CreatePostModePickerSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _CreatePostModeTile(
+              icon: Icons.text_fields_rounded,
+              title: l10n.socialCreatePostModeText,
+              subtitle: l10n.socialCreatePostShareHint,
+              value: 'text',
+            ),
+            _CreatePostModeTile(
+              icon: Icons.collections_outlined,
+              title: l10n.socialCreatePostModePhoto,
+              subtitle: 'Open full-screen editor for photos',
+              value: 'image',
+            ),
+            const _CreatePostModeTile(
+              icon: Icons.movie_creation_outlined,
+              title: 'Video',
+              subtitle: 'Open full-screen editor for videos',
+              value: 'video',
+            ),
+            _CreatePostModeTile(
+              icon: Icons.ondemand_video_rounded,
+              title: l10n.socialCreatePostModeReel,
+              subtitle: l10n.socialCreatorUseCamera,
+              value: 'reel',
+            ),
+            _CreatePostModeTile(
+              icon: Icons.rate_review_outlined,
+              title: l10n.socialCreatePostModeStoreReview,
+              subtitle: l10n.socialCreatePostReviewHint,
+              value: 'merchant_review',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CreatePostModeTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String value;
+
+  const _CreatePostModeTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      onTap: () => Navigator.of(context).pop(value),
     );
   }
 }

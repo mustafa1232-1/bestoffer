@@ -149,6 +149,59 @@ function mapPostRow(row) {
   };
 }
 
+function mapPostMediaItemRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    sortOrder: Number(row.sort_order || 0),
+    mediaUrl: row.asset_normalized_url || row.media_url || null,
+    mediaKind: row.media_kind || null,
+    asset:
+      row.media_asset_id || row.asset_poster_url || row.asset_normalized_url
+        ? {
+            id: row.media_asset_id == null ? null : Number(row.media_asset_id),
+            normalizedUrl: row.asset_normalized_url || row.media_url || null,
+            posterUrl: row.asset_poster_url || null,
+            durationMs:
+              row.asset_duration_ms == null ? null : Number(row.asset_duration_ms),
+            processingStatus: row.asset_processing_status || null,
+          }
+        : null,
+  };
+}
+
+async function attachPostMediaRows(rows) {
+  if (!Array.isArray(rows) || rows.length <= 0) return rows;
+  const postIds = [
+    ...new Set(
+      rows
+        .map((row) => Number(row?.id))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    ),
+  ];
+  if (postIds.length <= 0) return rows;
+  const mediaRows = await repo.listPostMediaItemsByPostIds(postIds);
+  const mediaByPostId = new Map();
+  for (const row of mediaRows) {
+    const postId = Number(row.post_id);
+    const mapped = mapPostMediaItemRow(row);
+    if (!mapped || postId <= 0) continue;
+    const current = mediaByPostId.get(postId) || [];
+    current.push(mapped);
+    mediaByPostId.set(postId, current);
+  }
+  return rows.map((row) => ({
+    ...row,
+    media_gallery: mediaByPostId.get(Number(row.id)) || [],
+  }));
+}
+
+async function attachPostMediaRow(row) {
+  if (!row) return row;
+  const enriched = await attachPostMediaRows([row]);
+  return enriched[0] || row;
+}
+
 function buildTransientFeedCacheKey(prefix, viewerUserId, query = {}) {
   const parts = Object.entries(query || {})
     .filter(([, value]) => value !== undefined)
@@ -2705,6 +2758,7 @@ export async function listUserPosts(viewerUserId, userId, query) {
         beforeId: query.beforeId,
         postKind: normalizeRequestedPostKind(query.kind),
       });
+  const enrichedRows = await attachPostMediaRows(rows);
   return {
     user: {
       id: Number(owner.id),
@@ -2722,8 +2776,11 @@ export async function listUserPosts(viewerUserId, userId, query) {
       },
     },
     postsPrivate: privateForViewer,
-    posts: rows.map(mapPostRow),
-    nextCursor: rows.length > 0 ? Number(rows[rows.length - 1].id) : null,
+    posts: enrichedRows.map(mapPostRow),
+    nextCursor:
+      enrichedRows.length > 0
+        ? Number(enrichedRows[enrichedRows.length - 1].id)
+        : null,
   };
 }
 
@@ -2734,9 +2791,13 @@ export async function listMyReportedPosts({ userId, query = {} }) {
     beforeId: query.beforeId,
   });
 
+  const enrichedRows = await attachPostMediaRows(rows);
   return {
-    posts: rows.map(mapPostRow),
-    nextCursor: rows.length > 0 ? Number(rows[rows.length - 1].id) : null,
+    posts: enrichedRows.map(mapPostRow),
+    nextCursor:
+      enrichedRows.length > 0
+        ? Number(enrichedRows[enrichedRows.length - 1].id)
+        : null,
   };
 }
 
@@ -3205,9 +3266,13 @@ export async function listPosts(viewerUserId, query) {
     rows,
     context: "home_feed",
   });
+  const enrichedRows = await attachPostMediaRows(rows);
   return {
-    posts: rows.map(mapPostRow),
-    nextCursor: rows.length > 0 ? Number(rows[rows.length - 1].id) : null,
+    posts: enrichedRows.map(mapPostRow),
+    nextCursor:
+      enrichedRows.length > 0
+        ? Number(enrichedRows[enrichedRows.length - 1].id)
+        : null,
   };
 }
 
@@ -3469,9 +3534,13 @@ export async function listMyArchivedPosts(userId, query) {
     limit: query?.limit ?? 24,
     postKind,
   });
+  const enrichedRows = await attachPostMediaRows(rows);
   return {
-    posts: rows.map(mapPostRow),
-    nextCursor: rows.length > 0 ? Number(rows[rows.length - 1].id) : null,
+    posts: enrichedRows.map(mapPostRow),
+    nextCursor:
+      enrichedRows.length > 0
+        ? Number(enrichedRows[enrichedRows.length - 1].id)
+        : null,
   };
 }
 
@@ -3497,10 +3566,11 @@ export async function setPostArchivedState({
     viewerUserId: userId,
     includeArchivedForOwner: true,
   });
+  const enrichedRow = await attachPostMediaRow(mappedRow);
   return {
     ok: true,
     archived: archived === true,
-    post: mappedRow ? mapPostRow(mappedRow) : null,
+    post: enrichedRow ? mapPostRow(enrichedRow) : null,
   };
 }
 
@@ -3588,7 +3658,7 @@ export async function getPostById(viewerUserId, postId) {
       context: "post_detail",
     });
   }
-  return { post: mapPostRow(row) };
+  return { post: mapPostRow(await attachPostMediaRow(row)) };
 }
 
 export async function getReelById(viewerUserId, reelId) {
@@ -3653,31 +3723,51 @@ export async function createPost(userId, dto, media) {
     }
   }
 
-  const uploadedMediaKind = resolveMediaKindFromMime(media?.mimetype);
+  const uploadedMediaList = Array.isArray(media)
+    ? media.filter((item) => item?.url)
+    : media?.url
+      ? [media]
+      : [];
   const requestedPostKind = String(dto.postKind || "text").trim().toLowerCase();
   const requestedIsReel = requestedPostKind === "reel";
-  const preparedMedia = await mediaService.prepareSocialMediaAsset({
-    userId,
-    media,
-    preferredKind: requestedIsReel ? "reel" : uploadedMediaKind,
-    sourceType: requestedIsReel ? "reel" : "post",
-  });
-  const mediaKind = preparedMedia.mediaKind;
-  const mediaUrl = preparedMedia.mediaUrl;
+  if (requestedIsReel && uploadedMediaList.length > 1) {
+    throw new AppError("REEL_SINGLE_MEDIA_ONLY", { status: 400 });
+  }
+  if (uploadedMediaList.length > 10) {
+    throw new AppError("POST_MEDIA_LIMIT_EXCEEDED", { status: 400 });
+  }
+  const preparedMediaItems = [];
+  for (const mediaItem of uploadedMediaList) {
+    const uploadedMediaKind = resolveMediaKindFromMime(mediaItem?.mimetype);
+    const preparedMedia = await mediaService.prepareSocialMediaAsset({
+      userId,
+      media: mediaItem,
+      preferredKind: requestedIsReel ? "reel" : uploadedMediaKind,
+      sourceType: requestedIsReel ? "reel" : "post",
+    });
+    preparedMediaItems.push(preparedMedia);
+  }
+  const primaryMedia = preparedMediaItems[0] || null;
+  const mediaKind = primaryMedia?.mediaKind || null;
+  const mediaUrl = primaryMedia?.mediaUrl || null;
   const contentLink = normalizeContentLinkPayload(dto);
 
   let postKind = dto.postKind;
   if (requestedIsReel) {
     postKind = "reel";
-  } else if (mediaKind && postKind !== "merchant_review") {
-    postKind = mediaKind;
+  } else if (preparedMediaItems.length > 0 && postKind !== "merchant_review") {
+    const hasVideo = preparedMediaItems.some((item) => {
+      const normalized = String(item?.mediaKind || "").trim().toLowerCase();
+      return normalized === "video" || normalized === "reel";
+    });
+    postKind = hasVideo ? "video" : "image";
   }
 
   if (!mediaKind && (postKind === "image" || postKind === "video" || postKind === "reel")) {
     throw new AppError("MEDIA_REQUIRED", { status: 400 });
   }
 
-  if (!dto.caption && !mediaUrl && postKind !== "merchant_review") {
+  if (!dto.caption && preparedMediaItems.length <= 0 && postKind !== "merchant_review") {
     throw new AppError("EMPTY_POST", {
       status: 400,
       details: { fields: ["caption", "media"] },
@@ -3703,12 +3793,22 @@ export async function createPost(userId, dto, media) {
     caption: dto.caption,
     mediaUrl,
     mediaKind,
-    mediaAssetId: preparedMedia.mediaAssetId,
+    mediaAssetId: primaryMedia?.mediaAssetId,
     merchantId: dto.merchantId,
     reviewRating: dto.reviewRating,
     audienceScopeType: audienceScope.scopeType,
     audienceScopeCode: audienceScope.scopeCode,
   });
+  if (preparedMediaItems.length > 0) {
+    await repo.replacePostMediaItems({
+      postId: Number(inserted.id),
+      items: preparedMediaItems.map((item) => ({
+        mediaUrl: item.mediaUrl,
+        mediaKind: item.mediaKind,
+        mediaAssetId: item.mediaAssetId,
+      })),
+    });
+  }
   if (contentLink) {
     await repo.replaceSocialContentLink({
       entityType: postKind === "reel" ? "reel" : "post",
@@ -3729,7 +3829,7 @@ export async function createPost(userId, dto, media) {
     taggedUserIds: dto.taggedUserIds || [],
     actorUserId: userId,
   });
-  const created = await repo.findPostById(inserted?.id);
+  const created = await attachPostMediaRow(await repo.findPostById(inserted?.id));
   if (!created) throw new AppError("POST_CREATE_FAILED", { status: 500 });
 
   const mapped = mapPostRow({
@@ -4775,9 +4875,13 @@ export async function listUserLikedPosts({ viewerUserId, targetUserId, query }) 
     beforeId: query.beforeId,
     postKind: normalizeRequestedPostKind(query.kind),
   });
+  const enrichedRows = await attachPostMediaRows(rows);
   return {
-    posts: rows.map(mapPostRow),
-    nextCursor: rows.length > 0 ? Number(rows[rows.length - 1].id) : null,
+    posts: enrichedRows.map(mapPostRow),
+    nextCursor:
+      enrichedRows.length > 0
+        ? Number(enrichedRows[enrichedRows.length - 1].id)
+        : null,
   };
 }
 
@@ -4801,9 +4905,13 @@ export async function listUserCommentedPosts({
     beforeId: query.beforeId,
     postKind: normalizeRequestedPostKind(query.kind),
   });
+  const enrichedRows = await attachPostMediaRows(rows);
   return {
-    posts: rows.map(mapPostRow),
-    nextCursor: rows.length > 0 ? Number(rows[rows.length - 1].id) : null,
+    posts: enrichedRows.map(mapPostRow),
+    nextCursor:
+      enrichedRows.length > 0
+        ? Number(enrichedRows[enrichedRows.length - 1].id)
+        : null,
   };
 }
 

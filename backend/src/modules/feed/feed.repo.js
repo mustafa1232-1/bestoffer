@@ -1153,6 +1153,70 @@ export async function insertPost({
   return r.rows[0] || null;
 }
 
+export async function replacePostMediaItems({ postId, items = [] }) {
+  await q(`DELETE FROM social_post_media WHERE post_id = $1`, [Number(postId)]);
+  if (!Array.isArray(items) || items.length <= 0) {
+    return [];
+  }
+
+  const inserted = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index] || {};
+    const r = await q(
+      `INSERT INTO social_post_media
+        (
+          post_id,
+          sort_order,
+          media_url,
+          media_kind,
+          media_asset_id
+        )
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [
+        Number(postId),
+        index,
+        String(item.mediaUrl || "").trim(),
+        String(item.mediaKind || "image").trim().toLowerCase(),
+        item.mediaAssetId == null ? null : Number(item.mediaAssetId),
+      ]
+    );
+    if (r.rows[0]) inserted.push(r.rows[0]);
+  }
+  return inserted;
+}
+
+export async function listPostMediaItemsByPostIds(postIds = []) {
+  const normalized = [
+    ...new Set(
+      (Array.isArray(postIds) ? postIds : [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    ),
+  ];
+  if (normalized.length <= 0) return [];
+
+  const r = await q(
+    `SELECT
+       pm.id,
+       pm.post_id,
+       pm.sort_order,
+       pm.media_url,
+       pm.media_kind,
+       pm.media_asset_id,
+       asset.normalized_url AS asset_normalized_url,
+       asset.poster_url AS asset_poster_url,
+       asset.duration_ms AS asset_duration_ms,
+       asset.processing_status AS asset_processing_status
+     FROM social_post_media pm
+     LEFT JOIN social_media_asset asset ON asset.id = pm.media_asset_id
+     WHERE pm.post_id = ANY($1::bigint[])
+     ORDER BY pm.post_id ASC, pm.sort_order ASC, pm.id ASC`,
+    [normalized]
+  );
+  return r.rows;
+}
+
 export async function setPostArchivedState({
   postId,
   userId,
@@ -2717,7 +2781,7 @@ export async function listAdminUserIds(limit = 120) {
      FROM app_user
      WHERE (
          COALESCE(is_super_admin, FALSE) = TRUE
-         OR LOWER(COALESCE(role, '')) = 'admin'
+         OR LOWER(COALESCE(role::text, '')) = 'admin'
        )
        AND COALESCE(is_account_disabled, FALSE) = FALSE
      ORDER BY id DESC

@@ -91,6 +91,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _inputController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
+  double _lastViewInsetBottom = 0;
   final Map<int, GlobalKey> _messageItemKeys = <int, GlobalKey>{};
 
   bool get _isEnglishLocale =>
@@ -147,16 +148,31 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   List<SocialChatMessage> _searchResults = const [];
 
   int? get _currentUserId => ref.read(authControllerProvider).user?.id;
+  SocialAuthor get _widgetPeerAuthor => SocialAuthor(
+    id: widget.peerUserId ?? 0,
+    username: null,
+    fullName: widget.peerName,
+    imageUrl: widget.peerImageUrl,
+    phone: widget.peerPhone,
+    role: 'user',
+  );
+  SocialAuthor? get _currentUserAuthor {
+    final user = ref.read(authControllerProvider).user;
+    if (user == null) return null;
+    return SocialAuthor(
+      id: user.id,
+      username: null,
+      fullName: user.fullName,
+      imageUrl: user.imageUrl,
+      phone: user.phone,
+      role: user.role,
+    );
+  }
+
   SocialAuthor get _resolvedPeer =>
-      _thread?.peer ??
-      SocialAuthor(
-        id: widget.peerUserId ?? 0,
-        username: null,
-        fullName: widget.peerName,
-        imageUrl: widget.peerImageUrl,
-        phone: widget.peerPhone,
-        role: 'user',
-      );
+      (_thread?.resolvedWithPeerFallback(_widgetPeerAuthor).peer ??
+              _widgetPeerAuthor)
+          .mergedWith(_widgetPeerAuthor);
   String get _resolvedPeerDisplayLabel =>
       socialPrimaryIdentityLabel(_resolvedPeer);
   String get _resolvedPeerOpenName => _resolvedPeer.fullName.trim().isNotEmpty
@@ -167,6 +183,23 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     Theme.of(context).colorScheme,
     _thread?.state.themeKey,
   );
+
+  SocialChatMessage _resolveMessageForViewer(
+    SocialChatMessage message, {
+    int? currentUserId,
+    SocialAuthor? currentUserAuthor,
+    SocialAuthor? peerAuthor,
+  }) {
+    return message.resolvedForViewer(
+      viewerUserId: currentUserId ?? _currentUserId,
+      selfAuthor: currentUserAuthor ?? _currentUserAuthor,
+      peerAuthor: peerAuthor ?? _resolvedPeer,
+    );
+  }
+
+  bool _isMessageMine(SocialChatMessage message) {
+    return _resolveMessageForViewer(message).isMine;
+  }
 
   @override
   void initState() {
@@ -435,7 +468,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
         if (threadRaw is Map) {
           _thread = SocialChatThread.fromJson(
             Map<String, dynamic>.from(threadRaw),
-          );
+          ).resolvedWithPeerFallback(_widgetPeerAuthor);
           final serverReadId = _thread?.state.lastReadMessageId;
           if (serverReadId != null &&
               (_lastMarkedReadMessageId == null ||
@@ -445,19 +478,28 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
         }
         _nextCursor = _parseInt(out['nextCursor']);
         if (pinnedRaw.isNotEmpty || !loadMore) {
-          _setPinnedMessages(pinnedParsed);
+          _setPinnedMessages(
+            pinnedParsed
+                .map((message) => _resolveMessageForViewer(message))
+                .toList(growable: false),
+          );
         }
         if (loadMore) {
-          _messages = [...parsed, ..._messages];
+          _messages = [
+            ...parsed.map((message) => _resolveMessageForViewer(message)),
+            ..._messages,
+          ];
         } else if (initial) {
-          _messages = parsed;
+          _messages = parsed
+              .map((message) => _resolveMessageForViewer(message))
+              .toList(growable: false);
         } else {
           final merged = <int, SocialChatMessage>{};
           for (final m in _messages) {
             merged[m.id] = m;
           }
           for (final m in parsed) {
-            merged[m.id] = m;
+            merged[m.id] = _resolveMessageForViewer(m);
           }
           final ordered = merged.values.toList()
             ..sort((a, b) => a.id.compareTo(b.id));
@@ -689,7 +731,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       }
       _messages = _messages
           .map((message) {
-            if (!message.isMine) return message;
+            if (!_isMessageMine(message)) return message;
             final delivered = deliveredMessageId != null
                 ? (message.deliveredToPeer || message.id <= deliveredMessageId)
                 : message.deliveredToPeer;
@@ -766,21 +808,22 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   void _upsertRealtimeMessage(SocialChatMessage next) {
     if (!mounted) return;
     final wasNearBottom = _isNearBottom(threshold: 260);
+    final resolvedNext = _resolveMessageForViewer(next);
     final current = [..._messages];
-    final index = current.indexWhere((m) => m.id == next.id);
+    final index = current.indexWhere((m) => m.id == resolvedNext.id);
     if (index >= 0) {
-      current[index] = next;
+      current[index] = resolvedNext;
     } else {
-      current.add(next);
+      current.add(resolvedNext);
     }
     current.sort((a, b) => a.id.compareTo(b.id));
     setState(() => _messages = current);
     if (!widget.monitorMode &&
         _currentUserId != null &&
-        next.senderUserId != _currentUserId) {
-      unawaited(_markThreadReadIfNeeded(messageId: next.id));
+        resolvedNext.senderUserId != _currentUserId) {
+      unawaited(_markThreadReadIfNeeded(messageId: resolvedNext.id));
     }
-    _syncPinnedMessage(next);
+    _syncPinnedMessage(resolvedNext);
     if (wasNearBottom) {
       _scrollToBottom(animated: true);
     }
@@ -1023,7 +1066,9 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       setState(() {
         _searchLoading = false;
         _searchError = null;
-        _searchResults = parsed;
+        _searchResults = parsed
+            .map((message) => _resolveMessageForViewer(message))
+            .toList(growable: false);
         if (parsed.isEmpty) {
           _searchResultIndex = 0;
           _highlightedMessageId = null;
@@ -1103,17 +1148,21 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
         if (threadRaw is Map) {
           _thread = SocialChatThread.fromJson(
             Map<String, dynamic>.from(threadRaw),
-          );
+          ).resolvedWithPeerFallback(_widgetPeerAuthor);
         }
         if (pinnedParsed.isNotEmpty) {
-          _setPinnedMessages(pinnedParsed);
+          _setPinnedMessages(
+            pinnedParsed
+                .map((message) => _resolveMessageForViewer(message))
+                .toList(growable: false),
+          );
         }
         final merged = <int, SocialChatMessage>{};
         for (final message in _messages) {
           merged[message.id] = message;
         }
         for (final message in parsed) {
-          merged[message.id] = message;
+          merged[message.id] = _resolveMessageForViewer(message);
         }
         final ordered = merged.values.toList()
           ..sort((a, b) => a.id.compareTo(b.id));
@@ -1686,13 +1735,13 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   }
 
   bool _canEditMessage(SocialChatMessage message) {
-    return message.isMine &&
+    return _isMessageMine(message) &&
         !message.isDeleted &&
         _isWithinEditDeleteWindow(message);
   }
 
   bool _canDeleteMessage(SocialChatMessage message) {
-    return message.isMine &&
+    return _isMessageMine(message) &&
         !message.isDeleted &&
         _isWithinEditDeleteWindow(message);
   }
@@ -2323,6 +2372,21 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   }
 
   @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    // When the keyboard opens, keep the latest message pinned just above the
+    // composer (WhatsApp-style) instead of leaving the list mid-scroll.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+      if (bottomInset > _lastViewInsetBottom + 1) {
+        _scrollToBottom(animated: true);
+      }
+      _lastViewInsetBottom = bottomInset;
+    });
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _appInForeground = true;
@@ -2353,6 +2417,20 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   /// يبني shell المحادثة مع القائمة، حقل الإدخال، والحالات اللحظية.
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final currentAuthUser = ref.watch(
+      authControllerProvider.select((state) => state.user),
+    );
+    final currentUserId = currentAuthUser?.id;
+    final currentUserAuthor = currentAuthUser == null
+        ? null
+        : SocialAuthor(
+            id: currentAuthUser.id,
+            username: null,
+            fullName: currentAuthUser.fullName,
+            imageUrl: currentAuthUser.imageUrl,
+            phone: currentAuthUser.phone,
+            role: currentAuthUser.role,
+          );
     final peer = _resolvedPeer;
     final presenceLabel = _buildPresenceLabel();
     final isEmpty = _messages.isEmpty;
@@ -2694,11 +2772,14 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                               onRefresh: () => _loadMessages(),
                               child: ListView(
                                 controller: _scrollController,
+                                // Bottom padding kept minimal so the latest
+                                // message sits right against the composer
+                                // (no raised gap above the bottom boundary).
                                 padding: const EdgeInsets.fromLTRB(
                                   12,
                                   14,
                                   12,
-                                  8,
+                                  2,
                                 ),
                                 children: [
                                   if (_nextCursor != null)
@@ -2737,7 +2818,12 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                     KeyedSubtree(
                                       key: _messageKey(message.id),
                                       child: _ChatBubble(
-                                        message: message,
+                                        message: _resolveMessageForViewer(
+                                          message,
+                                          currentUserId: currentUserId,
+                                          currentUserAuthor: currentUserAuthor,
+                                          peerAuthor: peer,
+                                        ),
                                         translation: _translatedMessageFor(
                                           message.id,
                                         ),
@@ -2763,7 +2849,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                             : _timeFormat.format(
                                                 message.createdAt!.toLocal(),
                                               ),
-                                        currentUserId: _currentUserId,
+                                        currentUserId: currentUserId,
                                         onOpenAttachment:
                                             message.attachment == null
                                             ? null
@@ -2779,13 +2865,41 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                               ),
                                         onOpenAuthorAvatar: () =>
                                             _openUserAvatar(
-                                              userId: message.sender.id,
-                                              fullName: message.sender.fullName,
+                                              userId: _resolveMessageForViewer(
+                                                message,
+                                                currentUserId: currentUserId,
+                                                currentUserAuthor:
+                                                    currentUserAuthor,
+                                                peerAuthor: peer,
+                                              ).sender.id,
+                                              fullName:
+                                                  _resolveMessageForViewer(
+                                                    message,
+                                                    currentUserId:
+                                                        currentUserId,
+                                                    currentUserAuthor:
+                                                        currentUserAuthor,
+                                                    peerAuthor: peer,
+                                                  ).sender.fullName,
                                             ),
                                         onOpenAuthorProfile: () =>
                                             _openUserProfile(
-                                              userId: message.sender.id,
-                                              fullName: message.sender.fullName,
+                                              userId: _resolveMessageForViewer(
+                                                message,
+                                                currentUserId: currentUserId,
+                                                currentUserAuthor:
+                                                    currentUserAuthor,
+                                                peerAuthor: peer,
+                                              ).sender.id,
+                                              fullName:
+                                                  _resolveMessageForViewer(
+                                                    message,
+                                                    currentUserId:
+                                                        currentUserId,
+                                                    currentUserAuthor:
+                                                        currentUserAuthor,
+                                                    peerAuthor: peer,
+                                                  ).sender.fullName,
                                             ),
                                         onMore: widget.readOnly
                                             ? null
@@ -2847,355 +2961,376 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                   ],
                 ),
               ),
-              SafeArea(
-                top: false,
-                child: widget.readOnly
-                    ? Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surface,
-                          border: Border(
-                            top: BorderSide(
-                              color: Theme.of(
-                                context,
-                              ).dividerColor.withValues(alpha: 0.25),
+              DecoratedBox(
+                // Surface fills all the way to the bottom screen edge so there
+                // is no background-gradient gap under the composer; the inner
+                // SafeArea just pads the input above the gesture/nav bar.
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                ),
+                child: Padding(
+                  // Only a small margin above the gesture/home bar so the input
+                  // box hugs the bottom edge (no large empty gap). Collapses to
+                  // zero when the keyboard is open.
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.paddingOf(
+                      context,
+                    ).bottom.clamp(0.0, 8.0).toDouble(),
+                  ),
+                  child: widget.readOnly
+                      ? Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surface,
+                            border: Border(
+                              top: BorderSide(
+                                color: Theme.of(
+                                  context,
+                                ).dividerColor.withValues(alpha: 0.25),
+                              ),
                             ),
                           ),
-                        ),
-                        child: Text(
-                          readOnlyLabel,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      )
-                    : Container(
-                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surface,
-                          border: Border(
-                            top: BorderSide(
-                              color: Theme.of(
-                                context,
-                              ).dividerColor.withValues(alpha: 0.25),
+                          child: Text(
+                            readOnlyLabel,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        )
+                      : Container(
+                          padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surface,
+                            border: Border(
+                              top: BorderSide(
+                                color: Theme.of(
+                                  context,
+                                ).dividerColor.withValues(alpha: 0.25),
+                              ),
                             ),
                           ),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (_replyingTo != null)
-                              _ComposerMetaCard(
-                                icon: Icons.reply_rounded,
-                                title: l10n.socialChatThreadReplyingTo(
-                                  _replyingTo!.senderFullName,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_replyingTo != null)
+                                _ComposerMetaCard(
+                                  icon: Icons.reply_rounded,
+                                  title: l10n.socialChatThreadReplyingTo(
+                                    _replyingTo!.senderFullName,
+                                  ),
+                                  subtitle: _replyingTo!.previewText,
+                                  onClear: () =>
+                                      setState(() => _replyingTo = null),
                                 ),
-                                subtitle: _replyingTo!.previewText,
-                                onClear: () =>
-                                    setState(() => _replyingTo = null),
-                              ),
-                            if (_voiceComposer.state.isRecording)
-                              SocialVoiceRecordingStatusCard(
-                                duration: _voiceComposer.state.duration,
-                                locked: _voiceComposer.state.isLocked,
-                                title: l10n.socialChatThreadRecordVoice,
-                                slideToLockLabel:
-                                    l10n.socialChatThreadSlideUpToLock,
-                                lockedLabel:
-                                    l10n.socialChatThreadRecordingLocked,
-                                cancelLabel:
-                                    l10n.socialChatThreadDeleteVoiceDraft,
-                                stopLabel: l10n.socialChatThreadStopRecording,
-                                onCancel: () {
-                                  unawaited(_cancelVoiceComposer());
-                                },
-                                onStop: _voiceComposer.state.isLocked
-                                    ? () {
-                                        unawaited(_stopLockedVoiceRecording());
-                                      }
-                                    : null,
-                              ),
-                            if (_voiceComposer.state.draft != null)
-                              SocialVoicePreviewCard(
-                                draft: _voiceComposer.state.draft!,
-                                sending: _voiceComposer.state.isSending,
-                                title: l10n.socialChatThreadPreviewVoiceMessage,
-                                playLabel:
-                                    l10n.socialChatThreadVoiceMessagePlay,
-                                pauseLabel:
-                                    l10n.socialChatThreadVoiceMessagePause,
-                                deleteLabel:
-                                    l10n.socialChatThreadDeleteVoiceDraft,
-                                sendLabel:
-                                    l10n.socialChatThreadSendVoiceMessage,
-                                onDelete: () {
-                                  unawaited(_cancelVoiceComposer());
-                                },
-                                onSend: _sendVoiceDraft,
-                              ),
-                            if (_attachmentDraft != null)
-                              SocialAttachmentPreviewCard(
-                                file: _attachmentDraft!,
-                                onClear: () =>
-                                    setState(() => _attachmentDraft = null),
-                              ),
-                            if (_sharedEntityDraft != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: _SharedEntityCard(
-                                        entity: _sharedEntityDraft!,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    IconButton(
-                                      tooltip: l10n.commonDelete,
-                                      onPressed: () {
-                                        setState(
-                                          () => _sharedEntityDraft = null,
-                                        );
-                                      },
-                                      icon: const Icon(Icons.close_rounded),
-                                    ),
-                                  ],
+                              if (_voiceComposer.state.isRecording)
+                                SocialVoiceRecordingStatusCard(
+                                  duration: _voiceComposer.state.duration,
+                                  locked: _voiceComposer.state.isLocked,
+                                  title: l10n.socialChatThreadRecordVoice,
+                                  slideToLockLabel:
+                                      l10n.socialChatThreadSlideUpToLock,
+                                  lockedLabel:
+                                      l10n.socialChatThreadRecordingLocked,
+                                  cancelLabel:
+                                      l10n.socialChatThreadDeleteVoiceDraft,
+                                  stopLabel: l10n.socialChatThreadStopRecording,
+                                  onCancel: () {
+                                    unawaited(_cancelVoiceComposer());
+                                  },
+                                  onStop: _voiceComposer.state.isLocked
+                                      ? () {
+                                          unawaited(
+                                            _stopLockedVoiceRecording(),
+                                          );
+                                        }
+                                      : null,
                                 ),
-                              ),
-                            if (!widget.readOnly &&
-                                _scheduledMessages.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Text(
-                                      l10n.socialChatThreadScheduledMessages,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelLarge
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    for (final item in _scheduledMessages)
-                                      Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 8,
-                                        ),
-                                        child: SocialScheduledMessageCard(
-                                          item: item,
-                                          title: l10n
-                                              .socialChatThreadScheduleMessage,
-                                          scheduledLabel: l10n
-                                              .socialChatThreadScheduledStatus,
-                                          failedLabel: l10n
-                                              .socialChatThreadScheduledFailed,
-                                          processingLabel: l10n
-                                              .socialChatThreadScheduledProcessing,
-                                          deleteLabel: l10n
-                                              .socialChatThreadCancelScheduledMessage,
-                                          onDelete: () {
-                                            unawaited(
-                                              _cancelScheduledMessage(item.id),
-                                            );
-                                          },
+                              if (_voiceComposer.state.draft != null)
+                                SocialVoicePreviewCard(
+                                  draft: _voiceComposer.state.draft!,
+                                  sending: _voiceComposer.state.isSending,
+                                  title:
+                                      l10n.socialChatThreadPreviewVoiceMessage,
+                                  playLabel:
+                                      l10n.socialChatThreadVoiceMessagePlay,
+                                  pauseLabel:
+                                      l10n.socialChatThreadVoiceMessagePause,
+                                  deleteLabel:
+                                      l10n.socialChatThreadDeleteVoiceDraft,
+                                  sendLabel:
+                                      l10n.socialChatThreadSendVoiceMessage,
+                                  onDelete: () {
+                                    unawaited(_cancelVoiceComposer());
+                                  },
+                                  onSend: _sendVoiceDraft,
+                                ),
+                              if (_attachmentDraft != null)
+                                SocialAttachmentPreviewCard(
+                                  file: _attachmentDraft!,
+                                  onClear: () =>
+                                      setState(() => _attachmentDraft = null),
+                                ),
+                              if (_sharedEntityDraft != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: _SharedEntityCard(
+                                          entity: _sharedEntityDraft!,
                                         ),
                                       ),
-                                  ],
-                                ),
-                              ),
-                            Builder(
-                              builder: (context) {
-                                final hasComposerText = _composerHasText;
-                                final showSendAction =
-                                    hasComposerText ||
-                                    _attachmentDraft != null ||
-                                    _sharedEntityDraft != null ||
-                                    _voiceComposer.state.hasPreview;
-                                return Row(
-                                  children: [
-                                    IconButton(
-                                      tooltip: l10n.socialChatThreadAttach,
-                                      onPressed:
-                                          (_sending || _voiceComposerBusy)
-                                          ? null
-                                          : _openAttachmentsMenu,
-                                      icon: const Icon(
-                                        Icons.add_circle_outline_rounded,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip: _isEnglishLocale
-                                          ? 'Stickers & GIF'
-                                          : 'الملصقات و GIF',
-                                      onPressed:
-                                          (_sending ||
-                                              widget.readOnly ||
-                                              _voiceComposerBusy)
-                                          ? null
-                                          : _openStickersGifMenu,
-                                      icon: const Icon(
-                                        Icons.sentiment_satisfied_alt_rounded,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip:
-                                          l10n.socialChatThreadScheduleMessage,
-                                      onPressed:
-                                          (_sending ||
-                                              widget.readOnly ||
-                                              _voiceComposer.state.isRecording)
-                                          ? null
-                                          : _scheduleCurrentDraft,
-                                      icon: const Icon(
-                                        Icons.schedule_send_rounded,
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _inputController,
-                                        onChanged: _handleComposerChanged,
-                                        textInputAction: TextInputAction.send,
-                                        onSubmitted: (_) {
-                                          if (_voiceComposerBusy) return;
-                                          _sendMessage();
+                                      const SizedBox(width: 8),
+                                      IconButton(
+                                        tooltip: l10n.commonDelete,
+                                        onPressed: () {
+                                          setState(
+                                            () => _sharedEntityDraft = null,
+                                          );
                                         },
-                                        minLines: 1,
-                                        maxLines: 4,
-                                        enabled: !_voiceComposerBusy,
-                                        decoration: InputDecoration(
-                                          hintText:
-                                              _voiceComposer.state.hasPreview
-                                              ? l10n.socialChatThreadPreviewVoiceMessage
-                                              : l10n.socialChatThreadWriteMessageHint,
-                                          isDense: true,
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              16,
-                                            ),
-                                          ),
-                                          contentPadding:
-                                              const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 10,
-                                              ),
-                                        ),
+                                        icon: const Icon(Icons.close_rounded),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    if (showSendAction)
-                                      FilledButton(
+                                    ],
+                                  ),
+                                ),
+                              if (!widget.readOnly &&
+                                  _scheduledMessages.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text(
+                                        l10n.socialChatThreadScheduledMessages,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelLarge
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      for (final item in _scheduledMessages)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 8,
+                                          ),
+                                          child: SocialScheduledMessageCard(
+                                            item: item,
+                                            title: l10n
+                                                .socialChatThreadScheduleMessage,
+                                            scheduledLabel: l10n
+                                                .socialChatThreadScheduledStatus,
+                                            failedLabel: l10n
+                                                .socialChatThreadScheduledFailed,
+                                            processingLabel: l10n
+                                                .socialChatThreadScheduledProcessing,
+                                            deleteLabel: l10n
+                                                .socialChatThreadCancelScheduledMessage,
+                                            onDelete: () {
+                                              unawaited(
+                                                _cancelScheduledMessage(
+                                                  item.id,
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              Builder(
+                                builder: (context) {
+                                  final hasComposerText = _composerHasText;
+                                  final showSendAction =
+                                      hasComposerText ||
+                                      _attachmentDraft != null ||
+                                      _sharedEntityDraft != null ||
+                                      _voiceComposer.state.hasPreview;
+                                  return Row(
+                                    children: [
+                                      IconButton(
+                                        tooltip: l10n.socialChatThreadAttach,
                                         onPressed:
                                             (_sending || _voiceComposerBusy)
                                             ? null
-                                            : _sendMessage,
-                                        style: FilledButton.styleFrom(
-                                          minimumSize: const Size(52, 48),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                          ),
+                                            : _openAttachmentsMenu,
+                                        icon: const Icon(
+                                          Icons.add_circle_outline_rounded,
                                         ),
-                                        child: _sending
-                                            ? const SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                    ),
-                                              )
-                                            : const Icon(Icons.send_rounded),
-                                      )
-                                    else
-                                      GestureDetector(
-                                        behavior: HitTestBehavior.opaque,
-                                        onLongPressStart:
+                                      ),
+                                      IconButton(
+                                        tooltip: _isEnglishLocale
+                                            ? 'Stickers & GIF'
+                                            : 'الملصقات و GIF',
+                                        onPressed:
                                             (_sending ||
                                                 widget.readOnly ||
-                                                _attachmentDraft != null ||
                                                 _voiceComposerBusy)
                                             ? null
-                                            : (_) => _startVoiceHold(),
-                                        onLongPressMoveUpdate:
+                                            : _openStickersGifMenu,
+                                        icon: const Icon(
+                                          Icons.sentiment_satisfied_alt_rounded,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: l10n
+                                            .socialChatThreadScheduleMessage,
+                                        onPressed:
                                             (_sending ||
                                                 widget.readOnly ||
-                                                _attachmentDraft != null ||
-                                                _voiceComposerBusy)
+                                                _voiceComposer
+                                                    .state
+                                                    .isRecording)
                                             ? null
-                                            : _updateVoiceHoldDrag,
-                                        onLongPressEnd:
-                                            (_sending ||
-                                                widget.readOnly ||
-                                                _attachmentDraft != null)
-                                            ? null
-                                            : (_) => _finishVoiceHold(),
-                                        onTap:
-                                            (_sending ||
-                                                widget.readOnly ||
-                                                _attachmentDraft != null ||
-                                                _voiceComposerBusy)
-                                            ? null
-                                            : () {
-                                                ScaffoldMessenger.of(
-                                                  context,
-                                                ).showSnackBar(
-                                                  SnackBar(
-                                                    content: Text(
-                                                      l10n.socialChatThreadHoldToRecord,
-                                                    ),
-                                                  ),
-                                                );
-                                              },
-                                        child: Semantics(
-                                          button: true,
-                                          label:
-                                              l10n.socialChatThreadHoldToRecord,
-                                          child: Container(
-                                            width: 48,
-                                            height: 48,
-                                            alignment: Alignment.center,
-                                            decoration: BoxDecoration(
+                                            : _scheduleCurrentDraft,
+                                        icon: const Icon(
+                                          Icons.schedule_send_rounded,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: TextField(
+                                          controller: _inputController,
+                                          onChanged: _handleComposerChanged,
+                                          textInputAction: TextInputAction.send,
+                                          onSubmitted: (_) {
+                                            if (_voiceComposerBusy) return;
+                                            _sendMessage();
+                                          },
+                                          minLines: 1,
+                                          maxLines: 4,
+                                          enabled: !_voiceComposerBusy,
+                                          decoration: InputDecoration(
+                                            hintText:
+                                                _voiceComposer.state.hasPreview
+                                                ? l10n.socialChatThreadPreviewVoiceMessage
+                                                : l10n.socialChatThreadWriteMessageHint,
+                                            isDense: true,
+                                            border: OutlineInputBorder(
                                               borderRadius:
-                                                  BorderRadius.circular(999),
-                                              color:
-                                                  _voiceComposer
-                                                      .state
-                                                      .isRecording
-                                                  ? Theme.of(
-                                                      context,
-                                                    ).colorScheme.errorContainer
-                                                  : Theme.of(context)
-                                                        .colorScheme
-                                                        .surfaceContainerHighest,
+                                                  BorderRadius.circular(16),
                                             ),
-                                            child: Icon(
-                                              _voiceComposer.state.isRecording
-                                                  ? Icons.lock_open_rounded
-                                                  : Icons.mic_none_rounded,
-                                              color:
-                                                  _voiceComposer
-                                                      .state
-                                                      .isRecording
-                                                  ? Theme.of(
-                                                      context,
-                                                    ).colorScheme.error
-                                                  : Theme.of(context)
-                                                        .colorScheme
-                                                        .onSurfaceVariant,
-                                            ),
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                  horizontal: 12,
+                                                  vertical: 10,
+                                                ),
                                           ),
                                         ),
                                       ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ],
+                                      const SizedBox(width: 8),
+                                      if (showSendAction)
+                                        FilledButton(
+                                          onPressed:
+                                              (_sending || _voiceComposerBusy)
+                                              ? null
+                                              : _sendMessage,
+                                          style: FilledButton.styleFrom(
+                                            minimumSize: const Size(52, 48),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 14,
+                                            ),
+                                          ),
+                                          child: _sending
+                                              ? const SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                      ),
+                                                )
+                                              : const Icon(Icons.send_rounded),
+                                        )
+                                      else
+                                        GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onLongPressStart:
+                                              (_sending ||
+                                                  widget.readOnly ||
+                                                  _attachmentDraft != null ||
+                                                  _voiceComposerBusy)
+                                              ? null
+                                              : (_) => _startVoiceHold(),
+                                          onLongPressMoveUpdate:
+                                              (_sending ||
+                                                  widget.readOnly ||
+                                                  _attachmentDraft != null ||
+                                                  _voiceComposerBusy)
+                                              ? null
+                                              : _updateVoiceHoldDrag,
+                                          onLongPressEnd:
+                                              (_sending ||
+                                                  widget.readOnly ||
+                                                  _attachmentDraft != null)
+                                              ? null
+                                              : (_) => _finishVoiceHold(),
+                                          onTap:
+                                              (_sending ||
+                                                  widget.readOnly ||
+                                                  _attachmentDraft != null ||
+                                                  _voiceComposerBusy)
+                                              ? null
+                                              : () {
+                                                  ScaffoldMessenger.of(
+                                                    context,
+                                                  ).showSnackBar(
+                                                    SnackBar(
+                                                      content: Text(
+                                                        l10n.socialChatThreadHoldToRecord,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                          child: Semantics(
+                                            button: true,
+                                            label: l10n
+                                                .socialChatThreadHoldToRecord,
+                                            child: Container(
+                                              width: 48,
+                                              height: 48,
+                                              alignment: Alignment.center,
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                                color:
+                                                    _voiceComposer
+                                                        .state
+                                                        .isRecording
+                                                    ? Theme.of(context)
+                                                          .colorScheme
+                                                          .errorContainer
+                                                    : Theme.of(context)
+                                                          .colorScheme
+                                                          .surfaceContainerHighest,
+                                              ),
+                                              child: Icon(
+                                                _voiceComposer.state.isRecording
+                                                    ? Icons.lock_open_rounded
+                                                    : Icons.mic_none_rounded,
+                                                color:
+                                                    _voiceComposer
+                                                        .state
+                                                        .isRecording
+                                                    ? Theme.of(
+                                                        context,
+                                                      ).colorScheme.error
+                                                    : Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
+                ),
               ),
             ],
           ),

@@ -135,6 +135,20 @@ export async function history(deliveryUserId, date) {
   return ordersRepo.listDeliveryHistory(deliveryUserId, date || null);
 }
 
+export async function orderDetail({
+  requestUserId,
+  requestUserRole,
+  userIsSuperAdmin = false,
+  orderId,
+}) {
+  return ordersRepo.getDeliveryOrderDetail({
+    requestUserId,
+    requestUserRole,
+    userIsSuperAdmin,
+    orderId,
+  });
+}
+
 export async function claimOrder(deliveryUserId, orderId) {
   const updated = await ordersRepo.claimDeliveryOrder(
     deliveryUserId,

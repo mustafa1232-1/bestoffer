@@ -9,7 +9,7 @@
 | App | Package ID | Build | APK Path | APK Size (MB) |
 | --- | --- | --- | --- | ---: |
 | app_user | `com.maslaki.user` | PASS | `apps/app_user/build/app/outputs/flutter-apk/app-profile.apk` | 22.54 |
-| app_store | `com.maslaki.store` | PASS | `apps/app_store/build/app/outputs/flutter-apk/app-profile.apk` | 22.54 |
+| app_store | `com.maslaki.store` | PASS | `build/app/outputs/flutter-apk/app-profile.apk` (`-t lib/main_store.dart`) | 22.54 |
 | app_delivery | `com.maslaki.delivery` | PASS | `apps/app_delivery/build/app/outputs/flutter-apk/app-profile.apk` | 22.54 |
 | app_taxi_captain | `com.maslaki.captain` | PASS | `apps/app_taxi_captain/build/app/outputs/flutter-apk/app-profile.apk` | 22.54 |
 | app_company | `com.maslaki.company` | PASS | `apps/app_company/build/app/outputs/flutter-apk/app-profile.apk` | 22.54 |

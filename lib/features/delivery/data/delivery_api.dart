@@ -57,6 +57,11 @@ class DeliveryApi {
     await dio.patch('/api/delivery/orders/$orderId/delivered');
   }
 
+  Future<Map<String, dynamic>> orderDetailV2(int orderId) async {
+    final response = await dio.get('/api/delivery/orders/$orderId');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> upsertPresence({
     required double latitude,
     required double longitude,
@@ -75,10 +80,7 @@ class DeliveryApi {
     if (headingDeg != null) payload['headingDeg'] = headingDeg;
     if (speedKmh != null) payload['speedKmh'] = speedKmh;
     if (accuracyM != null) payload['accuracyM'] = accuracyM;
-    final response = await dio.post(
-      '/api/courier/presence',
-      data: payload,
-    );
+    final response = await dio.post('/api/courier/presence', data: payload);
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -163,10 +165,7 @@ class DeliveryApi {
   }) async {
     final response = await dio.get(
       '/api/orders/action-reasons',
-      queryParameters: {
-        'actorScope': actorScope,
-        'actionKind': actionKind,
-      },
+      queryParameters: {'actorScope': actorScope, 'actionKind': actionKind},
     );
     final map = Map<String, dynamic>.from(response.data as Map? ?? const {});
     final items = List<dynamic>.from(map['items'] as List? ?? const []);

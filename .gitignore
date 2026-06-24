@@ -79,3 +79,11 @@ keystores/
 **/key.properties
 **/*.jks
 **/*.keystore
+
+# --- Build & QA artifacts (machine-generated, never commit) ---
+/qa_artifacts/
+/dist/
+/backend/.qa_pg/
+**/.cxx/
+/overflow_debug.txt
+/backend/tmp_*

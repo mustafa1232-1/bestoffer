@@ -8,6 +8,7 @@ import '../../../features/notifications/ui/notifications_screen.dart';
 import '../../../features/settings/ui/settings_screen.dart';
 import '../../orders/models/order_model.dart';
 import '../state/delivery_controller.dart';
+import 'delivery_order_detail_screen.dart';
 import 'delivery_dashboard_screen.dart';
 
 class CourierDashboardPage extends StatelessWidget {
@@ -55,8 +56,18 @@ class CourierOrderDetailsPage extends StatelessWidget {
   final int? orderId;
 
   @override
-  Widget build(BuildContext context) =>
-      _CourierOrderDetailsPage(orderId: orderId);
+  Widget build(BuildContext context) {
+    final id = orderId;
+    if (id == null || id <= 0) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(context.l10n.deliveryCourierOrderDetailsTitle),
+        ),
+        body: Center(child: Text(context.l10n.deliveryCourierOrderNotFound)),
+      );
+    }
+    return DeliveryOrderDetailScreen(orderId: id);
+  }
 }
 
 class CourierEarningsPage extends StatelessWidget {
@@ -435,52 +446,6 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
   }
 }
 
-class _CourierOrderDetailsPage extends ConsumerWidget {
-  const _CourierOrderDetailsPage({required this.orderId});
-
-  final int? orderId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(deliveryControllerProvider);
-    final controller = ref.read(deliveryControllerProvider.notifier);
-    final order = [...state.currentOrders, ...state.historyOrders]
-        .cast<OrderModel?>()
-        .firstWhere(
-          (row) => row != null && row.id == orderId,
-          orElse: () => null,
-        );
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(context.l10n.deliveryCourierOrderDetailsTitle),
-      ),
-      body: RefreshIndicator(
-        onRefresh: () => controller.bootstrap(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(12),
-          children: [
-            if (order == null)
-              _Empty(text: context.l10n.deliveryCourierOrderNotFound)
-            else
-              _OrderCard(
-                order: order,
-                saving: state.saving,
-                showActions: true,
-                expanded: true,
-                onOpen: null,
-                onPickedUp: () => controller.pickedUpOrder(order.id),
-                onArrived: () => controller.arrivedOrder(order.id),
-                onDelivered: () => controller.deliveredOrder(order.id),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _CourierMetricsPage extends ConsumerStatefulWidget {
   const _CourierMetricsPage({required this.earnings});
 
@@ -694,7 +659,6 @@ class _OrderCard extends StatelessWidget {
     required this.onPickedUp,
     required this.onArrived,
     required this.onDelivered,
-    this.expanded = false,
   });
 
   final OrderModel order;
@@ -704,7 +668,6 @@ class _OrderCard extends StatelessWidget {
   final Future<void> Function() onPickedUp;
   final Future<void> Function() onArrived;
   final Future<void> Function() onDelivered;
-  final bool expanded;
 
   @override
   Widget build(BuildContext context) {
@@ -733,10 +696,6 @@ class _OrderCard extends StatelessWidget {
               Text(
                 '${l10n.deliveryCourierLabelTotal}: ${formatIqd(order.totalAmount)}',
               ),
-              if (expanded) ...[
-                for (final item in order.items)
-                  Text('- ${item.productName} x${item.quantity}'),
-              ],
               if (showActions)
                 Wrap(
                   spacing: 8,

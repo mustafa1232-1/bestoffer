@@ -86,6 +86,69 @@ class SocialAuthor {
       j['isPremiumCreator'] ?? j['is_premium_creator'],
     ),
   );
+
+  bool get hasIdentityData =>
+      id > 0 ||
+      (username ?? '').trim().isNotEmpty ||
+      fullName.trim().isNotEmpty ||
+      (imageUrl ?? '').trim().isNotEmpty ||
+      (phone ?? '').trim().isNotEmpty;
+
+  SocialAuthor copyWith({
+    int? id,
+    String? username,
+    String? fullName,
+    String? imageUrl,
+    String? phone,
+    String? role,
+    List<String>? badges,
+    bool? isResidentVerified,
+    bool? isMerchantVerified,
+    bool? isPremiumCreator,
+    bool clearUsername = false,
+    bool clearImageUrl = false,
+    bool clearPhone = false,
+  }) {
+    return SocialAuthor(
+      id: id ?? this.id,
+      username: clearUsername ? null : (username ?? this.username),
+      fullName: fullName ?? this.fullName,
+      imageUrl: clearImageUrl ? null : (imageUrl ?? this.imageUrl),
+      phone: clearPhone ? null : (phone ?? this.phone),
+      role: role ?? this.role,
+      badges: badges ?? this.badges,
+      isResidentVerified: isResidentVerified ?? this.isResidentVerified,
+      isMerchantVerified: isMerchantVerified ?? this.isMerchantVerified,
+      isPremiumCreator: isPremiumCreator ?? this.isPremiumCreator,
+    );
+  }
+
+  SocialAuthor mergedWith(SocialAuthor? fallback) {
+    if (fallback == null) return this;
+    final normalizedUsername = (username ?? '').trim();
+    final normalizedImage = (imageUrl ?? '').trim();
+    final normalizedPhone = (phone ?? '').trim();
+    final normalizedRole = role.trim();
+    return SocialAuthor(
+      id: id > 0 ? id : fallback.id,
+      username: normalizedUsername.isNotEmpty
+          ? normalizedUsername
+          : fallback.username,
+      fullName: fullName.trim().isNotEmpty ? fullName : fallback.fullName,
+      imageUrl: normalizedImage.isNotEmpty
+          ? normalizedImage
+          : fallback.imageUrl,
+      phone: normalizedPhone.isNotEmpty ? normalizedPhone : fallback.phone,
+      role: normalizedRole.isNotEmpty ? normalizedRole : fallback.role,
+      badges: <String>{
+        ...fallback.badges,
+        ...badges,
+      }.where((entry) => entry.trim().isNotEmpty).toList(growable: false),
+      isResidentVerified: isResidentVerified || fallback.isResidentVerified,
+      isMerchantVerified: isMerchantVerified || fallback.isMerchantVerified,
+      isPremiumCreator: isPremiumCreator || fallback.isPremiumCreator,
+    );
+  }
 }
 
 class SocialMediaAsset {
@@ -114,6 +177,35 @@ class SocialMediaAsset {
       j['processingStatus'] ?? j['processing_status'],
     ),
   );
+}
+
+class SocialPostMediaItem {
+  final int id;
+  final int sortOrder;
+  final String? mediaUrl;
+  final String? mediaKind;
+  final SocialMediaAsset? asset;
+
+  const SocialPostMediaItem({
+    required this.id,
+    required this.sortOrder,
+    required this.mediaUrl,
+    required this.mediaKind,
+    required this.asset,
+  });
+
+  factory SocialPostMediaItem.fromJson(Map<String, dynamic> j) =>
+      SocialPostMediaItem(
+        id: parseInt(j['id']),
+        sortOrder: parseInt(j['sortOrder'] ?? j['sort_order'] ?? 0),
+        mediaUrl: parseNullableString(j['mediaUrl'] ?? j['media_url']),
+        mediaKind: parseNullableString(j['mediaKind'] ?? j['media_kind']),
+        asset: j['asset'] is Map
+            ? SocialMediaAsset.fromJson(
+                Map<String, dynamic>.from(j['asset'] as Map),
+              )
+            : null,
+      );
 }
 
 class SocialContentLink {
@@ -171,6 +263,7 @@ class SocialPost {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final SocialMediaAsset? asset;
+  final List<SocialPostMediaItem> mediaGallery;
   final SocialContentLink? contentLink;
   final SocialAuthor author;
 
@@ -201,6 +294,7 @@ class SocialPost {
     required this.createdAt,
     required this.updatedAt,
     required this.asset,
+    required this.mediaGallery,
     required this.contentLink,
     required this.author,
   });
@@ -249,6 +343,13 @@ class SocialPost {
             Map<String, dynamic>.from(j['asset'] as Map),
           )
         : null,
+    mediaGallery:
+        List<dynamic>.from(j['mediaGallery'] ?? j['media_gallery'] ?? const [])
+            .whereType<Map>()
+            .map(
+              (e) => SocialPostMediaItem.fromJson(Map<String, dynamic>.from(e)),
+            )
+            .toList(growable: false),
     contentLink: j['contentLink'] is Map || j['content_link'] is Map
         ? SocialContentLink.fromJson(
             Map<String, dynamic>.from(
@@ -297,6 +398,7 @@ class SocialPost {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt,
       asset: asset,
+      mediaGallery: mediaGallery,
       contentLink: contentLink,
       author: author ?? this.author,
     );
@@ -345,6 +447,17 @@ String? resolveSocialPostPosterUrl(
   SocialPost post, {
   bool preferMerchantFallback = true,
 }) {
+  final galleryFirst = post.mediaGallery.isNotEmpty
+      ? post.mediaGallery.first
+      : null;
+  final galleryPoster = (galleryFirst?.asset?.posterUrl ?? '').trim();
+  if (galleryPoster.isNotEmpty) return galleryPoster;
+
+  final galleryUrl =
+      (galleryFirst?.asset?.normalizedUrl ?? galleryFirst?.mediaUrl ?? '')
+          .trim();
+  if (galleryUrl.isNotEmpty) return galleryUrl;
+
   final assetPoster = (post.asset?.posterUrl ?? '').trim();
   if (assetPoster.isNotEmpty) return assetPoster;
 
@@ -362,6 +475,13 @@ String? resolveSocialPostPosterUrl(
 }
 
 String? resolveSocialPostVideoUrl(SocialPost post) {
+  final galleryFirst = post.mediaGallery.isNotEmpty
+      ? post.mediaGallery.first
+      : null;
+  final galleryUrl =
+      (galleryFirst?.asset?.normalizedUrl ?? galleryFirst?.mediaUrl ?? '')
+          .trim();
+  if (galleryUrl.isNotEmpty) return galleryUrl;
   if (!isSocialVideoPost(post)) return null;
   final assetUrl = (post.asset?.normalizedUrl ?? '').trim();
   if (assetUrl.isNotEmpty) return assetUrl;
@@ -1355,104 +1475,96 @@ class SocialScheduledChatMessage {
     required this.lastErrorCode,
   });
 
-  factory SocialScheduledChatMessage.fromJson(Map<String, dynamic> j) =>
-      SocialScheduledChatMessage(
-        id: parseInt(j['id']),
-        threadId: parseInt(j['threadId'] ?? j['thread_id']),
-        senderUserId: parseInt(j['senderUserId'] ?? j['sender_user_id']),
-        body: parseString(j['body']),
-        replyToMessage:
-            j['replyToMessage'] is Map ||
-                j['reply_to_message'] is Map ||
-                j['replyMessageId'] != null ||
-                j['reply_message_id'] != null
-            ? SocialChatReplyPreview.fromJson(
-                Map<String, dynamic>.from(
-                  (j['replyToMessage'] ?? j['reply_to_message']) as Map? ??
-                      <String, dynamic>{
-                        'id': j['replyMessageId'] ?? j['reply_message_id'],
-                        'senderUserId':
-                            j['replySenderUserId'] ?? j['reply_sender_user_id'],
-                        'senderUsername':
-                            j['replySenderUsername'] ??
-                            j['reply_sender_username'],
-                        'senderFullName':
-                            j['replySenderFullName'] ??
-                            j['reply_sender_full_name'],
-                        'body': j['replyBody'] ?? j['reply_body'],
-                        'attachmentKind':
-                            j['replyAttachmentKind'] ??
-                            j['reply_attachment_kind'],
-                        'attachmentName':
-                            j['replyAttachmentName'] ??
-                            j['reply_attachment_name'],
-                      },
-                ),
-              )
-            : null,
-        attachment:
-            j['attachment'] is Map ||
-                j['attachmentUrl'] != null ||
-                j['attachment_url'] != null
-            ? SocialChatAttachment.fromJson(
-                Map<String, dynamic>.from(
-                  j['attachment'] as Map? ??
-                      <String, dynamic>{
-                        'attachmentUrl':
-                            j['attachmentUrl'] ?? j['attachment_url'],
-                        'attachmentKind':
-                            j['attachmentKind'] ?? j['attachment_kind'],
-                        'attachmentName':
-                            j['attachmentName'] ?? j['attachment_name'],
-                        'attachmentMimeType':
-                            j['attachmentMimeType'] ??
-                            j['attachment_mime_type'],
-                        'sizeBytes':
-                            j['sizeBytes'] ?? j['attachment_size_bytes'],
-                        'attachmentDurationMs':
-                            j['attachmentDurationMs'] ??
-                            j['attachment_duration_ms'],
-                      },
-                ),
-              )
-            : null,
-        sharedEntity:
-            j['sharedEntity'] is Map ||
-                j['shared_entity'] is Map ||
-                j['sharedEntityType'] != null ||
-                j['shared_entity_type'] != null
-            ? SocialSharedEntity.fromJson(
-                Map<String, dynamic>.from(
-                  (j['sharedEntity'] ?? j['shared_entity']) as Map? ??
-                      <String, dynamic>{
-                        'type':
-                            j['sharedEntityType'] ??
-                            j['shared_entity_type'] ??
-                            'post',
-                        'id': j['sharedEntityId'] ?? j['shared_entity_id'],
-                        'snapshot':
-                            j['sharedSnapshot'] ??
-                            j['shared_snapshot'] ??
-                            j['sharedSnapshotJson'] ??
-                            j['shared_snapshot_json'],
-                      },
-                ),
-              )
-            : null,
-        scheduledFor: parseNullableDateTime(
-          j['scheduledFor'] ?? j['scheduled_for'],
-        ),
-        createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
-        sentAt: parseNullableDateTime(j['sentAt'] ?? j['sent_at']),
-        sentMessageId: parseNullableInt(
-          j['sentMessageId'] ?? j['sent_message_id'],
-        ),
-        status: parseString(j['status'], fallback: 'scheduled'),
-        attempts: parseInt(j['attempts']),
-        lastErrorCode: parseNullableString(
-          j['lastErrorCode'] ?? j['last_error_code'],
-        ),
-      );
+  factory SocialScheduledChatMessage.fromJson(
+    Map<String, dynamic> j,
+  ) => SocialScheduledChatMessage(
+    id: parseInt(j['id']),
+    threadId: parseInt(j['threadId'] ?? j['thread_id']),
+    senderUserId: parseInt(j['senderUserId'] ?? j['sender_user_id']),
+    body: parseString(j['body']),
+    replyToMessage:
+        j['replyToMessage'] is Map ||
+            j['reply_to_message'] is Map ||
+            j['replyMessageId'] != null ||
+            j['reply_message_id'] != null
+        ? SocialChatReplyPreview.fromJson(
+            Map<String, dynamic>.from(
+              (j['replyToMessage'] ?? j['reply_to_message']) as Map? ??
+                  <String, dynamic>{
+                    'id': j['replyMessageId'] ?? j['reply_message_id'],
+                    'senderUserId':
+                        j['replySenderUserId'] ?? j['reply_sender_user_id'],
+                    'senderUsername':
+                        j['replySenderUsername'] ?? j['reply_sender_username'],
+                    'senderFullName':
+                        j['replySenderFullName'] ?? j['reply_sender_full_name'],
+                    'body': j['replyBody'] ?? j['reply_body'],
+                    'attachmentKind':
+                        j['replyAttachmentKind'] ?? j['reply_attachment_kind'],
+                    'attachmentName':
+                        j['replyAttachmentName'] ?? j['reply_attachment_name'],
+                  },
+            ),
+          )
+        : null,
+    attachment:
+        j['attachment'] is Map ||
+            j['attachmentUrl'] != null ||
+            j['attachment_url'] != null
+        ? SocialChatAttachment.fromJson(
+            Map<String, dynamic>.from(
+              j['attachment'] as Map? ??
+                  <String, dynamic>{
+                    'attachmentUrl': j['attachmentUrl'] ?? j['attachment_url'],
+                    'attachmentKind':
+                        j['attachmentKind'] ?? j['attachment_kind'],
+                    'attachmentName':
+                        j['attachmentName'] ?? j['attachment_name'],
+                    'attachmentMimeType':
+                        j['attachmentMimeType'] ?? j['attachment_mime_type'],
+                    'sizeBytes': j['sizeBytes'] ?? j['attachment_size_bytes'],
+                    'attachmentDurationMs':
+                        j['attachmentDurationMs'] ??
+                        j['attachment_duration_ms'],
+                  },
+            ),
+          )
+        : null,
+    sharedEntity:
+        j['sharedEntity'] is Map ||
+            j['shared_entity'] is Map ||
+            j['sharedEntityType'] != null ||
+            j['shared_entity_type'] != null
+        ? SocialSharedEntity.fromJson(
+            Map<String, dynamic>.from(
+              (j['sharedEntity'] ?? j['shared_entity']) as Map? ??
+                  <String, dynamic>{
+                    'type':
+                        j['sharedEntityType'] ??
+                        j['shared_entity_type'] ??
+                        'post',
+                    'id': j['sharedEntityId'] ?? j['shared_entity_id'],
+                    'snapshot':
+                        j['sharedSnapshot'] ??
+                        j['shared_snapshot'] ??
+                        j['sharedSnapshotJson'] ??
+                        j['shared_snapshot_json'],
+                  },
+            ),
+          )
+        : null,
+    scheduledFor: parseNullableDateTime(
+      j['scheduledFor'] ?? j['scheduled_for'],
+    ),
+    createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
+    sentAt: parseNullableDateTime(j['sentAt'] ?? j['sent_at']),
+    sentMessageId: parseNullableInt(j['sentMessageId'] ?? j['sent_message_id']),
+    status: parseString(j['status'], fallback: 'scheduled'),
+    attempts: parseInt(j['attempts']),
+    lastErrorCode: parseNullableString(
+      j['lastErrorCode'] ?? j['last_error_code'],
+    ),
+  );
 
   bool get isFailed => status.trim().toLowerCase() == 'failed';
   bool get isProcessing => status.trim().toLowerCase() == 'processing';
@@ -1780,6 +1892,7 @@ class SocialChatMessage {
     bool clearMyReaction = false,
     bool? deliveredToPeer,
     bool? readByPeer,
+    SocialAuthor? sender,
   }) {
     return SocialChatMessage(
       id: id,
@@ -1802,8 +1915,24 @@ class SocialChatMessage {
       myReaction: clearMyReaction ? null : (myReaction ?? this.myReaction),
       deliveredToPeer: deliveredToPeer ?? this.deliveredToPeer,
       readByPeer: readByPeer ?? this.readByPeer,
-      sender: sender,
+      sender: sender ?? this.sender,
     );
+  }
+
+  SocialChatMessage resolvedForViewer({
+    required int? viewerUserId,
+    SocialAuthor? selfAuthor,
+    SocialAuthor? peerAuthor,
+  }) {
+    final computedMine = viewerUserId != null && viewerUserId > 0
+        ? senderUserId == viewerUserId
+        : isMine;
+    final fallbackAuthor = computedMine ? selfAuthor : peerAuthor;
+    var resolvedSender = sender.mergedWith(fallbackAuthor);
+    if (resolvedSender.id <= 0 && senderUserId > 0) {
+      resolvedSender = resolvedSender.copyWith(id: senderUserId);
+    }
+    return copyWith(isMine: computedMine, sender: resolvedSender);
   }
 
   String get previewText {
@@ -1949,7 +2078,8 @@ class SocialChatThread {
             ),
           )
         : null,
-    group: j['group'] is Map ||
+    group:
+        j['group'] is Map ||
             j['groupInfo'] is Map ||
             j['groupTitle'] != null ||
             j['group_title'] != null
@@ -2015,6 +2145,7 @@ class SocialChatThread {
       isGroup ? group?.imageUrl ?? peer.imageUrl : peer.imageUrl;
 
   SocialChatThread copyWith({
+    SocialAuthor? peer,
     SocialThreadGroupInfo? group,
     SocialThreadPresence? presence,
     DateTime? lastMessageAt,
@@ -2030,13 +2161,18 @@ class SocialChatThread {
       contextSnapshot: contextSnapshot,
       context: context,
       group: group ?? this.group,
-      peer: peer,
+      peer: peer ?? this.peer,
       peerPhone: peerPhone,
       presence: presence ?? this.presence,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
       lastMessage: lastMessage ?? this.lastMessage,
       state: state ?? this.state,
     );
+  }
+
+  SocialChatThread resolvedWithPeerFallback(SocialAuthor? fallbackPeer) {
+    if (isGroup || fallbackPeer == null) return this;
+    return copyWith(peer: peer.mergedWith(fallbackPeer));
   }
 }
 

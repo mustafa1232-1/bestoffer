@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
+import '../../../core/navigation/app_route_observer.dart';
 import '../data/social_api.dart';
 import 'social_create_post_sheet.dart';
 import '../../merchants/models/merchant_model.dart';
@@ -25,12 +26,14 @@ class SocialReelViewerScreen extends ConsumerStatefulWidget {
   final List<SocialReelItem>? initialItems;
   final int initialIndex;
   final int? initialReelId;
+  final bool playbackEnabled;
 
   const SocialReelViewerScreen({
     super.key,
     this.initialItems,
     this.initialIndex = 0,
     this.initialReelId,
+    this.playbackEnabled = true,
   });
 
   @override
@@ -38,8 +41,8 @@ class SocialReelViewerScreen extends ConsumerStatefulWidget {
       _SocialReelViewerScreenState();
 }
 
-class _SocialReelViewerScreenState
-    extends ConsumerState<SocialReelViewerScreen> {
+class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
+    with WidgetsBindingObserver, RouteAware {
   static const Duration _reelsLoadTimeout = Duration(seconds: 12);
   static bool _rememberedMuted = true;
   late final PageController _pageController;
@@ -49,10 +52,17 @@ class _SocialReelViewerScreenState
   List<SocialReelItem>? _seedItems;
   List<SocialReelItem> _lastKnownItems = const <SocialReelItem>[];
   late bool _muted;
+  bool _appInForeground = true;
+  bool _routeVisible = true;
+  ModalRoute<dynamic>? _subscribedRoute;
+
+  bool get _playbackActive =>
+      widget.playbackEnabled && _appInForeground && _routeVisible;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
     _socialApi = ref.read(socialApiProvider);
@@ -73,7 +83,65 @@ class _SocialReelViewerScreenState
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route == null || identical(route, _subscribedRoute)) {
+      return;
+    }
+    if (_subscribedRoute != null) {
+      appRouteObserver.unsubscribe(this);
+    }
+    _subscribedRoute = route;
+    appRouteObserver.subscribe(this, route);
+    final isCurrent = route.isCurrent;
+    if (_routeVisible != isCurrent) {
+      setState(() => _routeVisible = isCurrent);
+    }
+  }
+
+  @override
+  void didPush() {
+    if (!_routeVisible && mounted) {
+      setState(() => _routeVisible = true);
+    }
+  }
+
+  @override
+  void didPopNext() {
+    if (!_routeVisible && mounted) {
+      setState(() => _routeVisible = true);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    if (_routeVisible && mounted) {
+      setState(() => _routeVisible = false);
+    }
+  }
+
+  @override
+  void didPop() {
+    _routeVisible = false;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final nextForeground = state == AppLifecycleState.resumed;
+    if (_appInForeground == nextForeground || !mounted) {
+      return;
+    }
+    setState(() => _appInForeground = nextForeground);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (_subscribedRoute != null) {
+      appRouteObserver.unsubscribe(this);
+      _subscribedRoute = null;
+    }
     _recordCurrentViewFromItems(_seedItems ?? _lastKnownItems);
     _pageController.dispose();
     super.dispose();
@@ -104,7 +172,10 @@ class _SocialReelViewerScreenState
     final loaded = ref.read(socialReelsControllerProvider).items;
     if (loaded.isEmpty) return;
     setState(() {
-      _seedItems = _mergeReelItems(_seedItems ?? const <SocialReelItem>[], loaded);
+      _seedItems = _mergeReelItems(
+        _seedItems ?? const <SocialReelItem>[],
+        loaded,
+      );
     });
   }
 
@@ -114,7 +185,10 @@ class _SocialReelViewerScreenState
     final loaded = ref.read(socialReelsControllerProvider).items;
     if (loaded.isEmpty) return;
     setState(() {
-      _seedItems = _mergeReelItems(_seedItems ?? const <SocialReelItem>[], loaded);
+      _seedItems = _mergeReelItems(
+        _seedItems ?? const <SocialReelItem>[],
+        loaded,
+      );
     });
   }
 
@@ -142,10 +216,9 @@ class _SocialReelViewerScreenState
   }
 
   Future<void> _loadReels({required bool refresh}) async {
-    await ref.read(socialReelsControllerProvider.notifier).load(
-      refresh: refresh,
-      timeout: _reelsLoadTimeout,
-    );
+    await ref
+        .read(socialReelsControllerProvider.notifier)
+        .load(refresh: refresh, timeout: _reelsLoadTimeout);
   }
 
   Future<void> _recordCurrentView() async {
@@ -166,14 +239,16 @@ class _SocialReelViewerScreenState
         ? 0.0
         : (durationMs / assetDurationMs).clamp(0.0, 1.0);
     try {
-      await _socialApi.recordReelView(
-        reelId: item.post.id,
-        watchDurationMs: durationMs,
-        completionRate: completionRate,
-        completed: completionRate >= 0.92,
-        replayCount: completionRate >= 0.98 ? 1 : 0,
-        context: 'reel_viewer',
-      ).timeout(const Duration(seconds: 6));
+      await _socialApi
+          .recordReelView(
+            reelId: item.post.id,
+            watchDurationMs: durationMs,
+            completionRate: completionRate,
+            completed: completionRate >= 0.92,
+            replayCount: completionRate >= 0.98 ? 1 : 0,
+            context: 'reel_viewer',
+          )
+          .timeout(const Duration(seconds: 6));
     } catch (_) {
       // Keep viewer disposal/navigation resilient.
     }
@@ -364,7 +439,7 @@ class _SocialReelViewerScreenState
                       final item = items[index];
                       return SocialReelCard(
                         item: item,
-                        active: index == _currentIndex,
+                        active: index == _currentIndex && _playbackActive,
                         muted: _muted,
                         onOpenProfile: () {
                           Navigator.of(context).push(
@@ -393,9 +468,7 @@ class _SocialReelViewerScreenState
               bottom: 18 + MediaQuery.paddingOf(context).bottom,
               child: _ReelViewerMuteButton(
                 muted: _muted,
-                tooltip: _muted
-                    ? l10n.socialReelUnmute
-                    : l10n.socialReelMute,
+                tooltip: _muted ? l10n.socialReelUnmute : l10n.socialReelMute,
                 onPressed: _toggleMute,
               ),
             ),
@@ -440,7 +513,9 @@ class _ReelViewerEmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              isError ? Icons.cloud_off_rounded : Icons.play_circle_outline_rounded,
+              isError
+                  ? Icons.cloud_off_rounded
+                  : Icons.play_circle_outline_rounded,
               color: Colors.white70,
               size: 48,
             ),
@@ -469,9 +544,7 @@ class _ReelViewerEmptyState extends StatelessWidget {
                 OutlinedButton.icon(
                   onPressed: () => unawaited(onCreateReel()),
                   icon: const Icon(Icons.add_rounded),
-                  label: Text(
-                    context.lt(ar: 'إنشاء ريلز', en: 'Create reel'),
-                  ),
+                  label: Text(context.lt(ar: 'إنشاء ريلز', en: 'Create reel')),
                 ),
               ],
             ),

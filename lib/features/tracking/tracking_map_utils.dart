@@ -2,6 +2,27 @@ import 'package:latlong2/latlong.dart';
 
 const basmayaTrackingCenter = LatLng(33.2388, 44.4975);
 
+Map<String, dynamic>? trackingMap(dynamic raw) {
+  if (raw is! Map) return null;
+  return Map<String, dynamic>.from(raw);
+}
+
+String? trackingString(dynamic value) {
+  final text = '${value ?? ''}'.trim();
+  if (text.isEmpty || text == 'null') return null;
+  return text;
+}
+
+String? trackingNestedString(dynamic raw, List<String> path) {
+  dynamic current = raw;
+  for (final segment in path) {
+    final map = trackingMap(current);
+    if (map == null) return null;
+    current = map[segment];
+  }
+  return trackingString(current);
+}
+
 LatLng approximateBasmayaAddressPoint({
   required String block,
   required String buildingNumber,
@@ -37,10 +58,10 @@ LatLng approximateBasmayaAddressPoint({
 LatLng? latLngFromMap(dynamic raw) {
   if (raw is! Map) return null;
   final map = Map<String, dynamic>.from(raw);
-  final latitude =
-      double.tryParse('${map['latitude'] ?? map['lat'] ?? ''}');
-  final longitude =
-      double.tryParse('${map['longitude'] ?? map['lng'] ?? map['lon'] ?? ''}');
+  final latitude = double.tryParse('${map['latitude'] ?? map['lat'] ?? ''}');
+  final longitude = double.tryParse(
+    '${map['longitude'] ?? map['lng'] ?? map['lon'] ?? ''}',
+  );
   if (latitude == null || longitude == null) return null;
   return LatLng(latitude, longitude);
 }

@@ -1,7 +1,7 @@
 name: maslaki
 description: "Maslaki - Basmaya super-app for shopping, food, and taxi"
 publish_to: 'none'
-version: 1.0.0+2
+version: 1.0.0+3
 
 environment:
   sdk: ^3.10.7
@@ -78,12 +78,6 @@ dependencies:
     path: packages/core_design_system
   core_maps:
     path: packages/core_maps
-  app_delivery_runtime:
-    path: packages/app_delivery_runtime
-  app_taxi_captain_runtime:
-    path: packages/app_taxi_captain_runtime
-  app_store_runtime:
-    path: packages/app_store_runtime
   app_company_runtime:
     path: packages/app_company_runtime
   social_core:
@@ -120,6 +114,15 @@ flutter:
     - assets/branding/
     - assets/fonts/
     - assets/lottie/
+  fonts:
+    # Bundled complete Arabic font (Tajawal). Used as the guaranteed fallback so
+    # every Arabic glyph (e.g. "ف") renders even when the runtime google_fonts
+    # download is unavailable. The old NotoNaskhArabic ttf files were corrupted.
+    - family: TajawalLocal
+      fonts:
+        - asset: assets/fonts/Tajawal-Regular.ttf
+        - asset: assets/fonts/Tajawal-Bold.ttf
+          weight: 700
 
 flutter_launcher_icons:
   android: true

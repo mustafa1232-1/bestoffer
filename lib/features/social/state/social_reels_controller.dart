@@ -49,6 +49,7 @@ final socialReelsControllerProvider =
 
 class SocialReelsController extends StateNotifier<SocialReelsState> {
   final Ref ref;
+  int _loadGeneration = 0;
 
   SocialReelsController(this.ref) : super(const SocialReelsState());
 
@@ -57,6 +58,7 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
     Duration timeout = kSocialReelsLoadTimeout,
   }) async {
     if (state.loading || state.loadingMore) return;
+    final generation = ++_loadGeneration;
     final beforeId = refresh ? null : state.nextCursor;
     if (!refresh && beforeId == null) return;
     state = state.copyWith(
@@ -65,13 +67,17 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
       error: null,
     );
     try {
-      final out = await ref.read(socialApiProvider).listExploreReels(
-            beforeId: beforeId,
-          ).timeout(timeout);
+      final out = await ref
+          .read(socialApiProvider)
+          .listExploreReels(beforeId: beforeId)
+          .timeout(timeout);
       final rows = List<dynamic>.from(out['reels'] as List? ?? const []);
       final items = rows
-          .map((e) => SocialReelItem.fromJson(Map<String, dynamic>.from(e as Map)))
+          .map(
+            (e) => SocialReelItem.fromJson(Map<String, dynamic>.from(e as Map)),
+          )
           .toList(growable: false);
+      if (!mounted || generation != _loadGeneration) return;
       state = state.copyWith(
         loading: false,
         loadingMore: false,
@@ -80,23 +86,18 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
         nextCursorTouched: true,
       );
     } on TimeoutException catch (_) {
+      if (!mounted || generation != _loadGeneration) return;
       state = state.copyWith(
         loading: false,
         loadingMore: false,
         error: kSocialReelsLoadTimeoutCode,
       );
     } on DioException catch (e) {
-      state = state.copyWith(
-        loading: false,
-        loadingMore: false,
-        error: '$e',
-      );
+      if (!mounted || generation != _loadGeneration) return;
+      state = state.copyWith(loading: false, loadingMore: false, error: '$e');
     } catch (e) {
-      state = state.copyWith(
-        loading: false,
-        loadingMore: false,
-        error: '$e',
-      );
+      if (!mounted || generation != _loadGeneration) return;
+      state = state.copyWith(loading: false, loadingMore: false, error: '$e');
     }
   }
 
@@ -123,7 +124,9 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
     String context = 'reel_viewer',
   }) async {
     try {
-      await ref.read(socialApiProvider).recordReelView(
+      await ref
+          .read(socialApiProvider)
+          .recordReelView(
             reelId: reelId,
             watchDurationMs: watchDurationMs,
             completionRate: completionRate,

@@ -53,8 +53,11 @@ class AppResponsiveShell extends StatelessWidget {
 
   static double _adaptiveTextScale(MediaQueryData media) {
     final userScale = media.textScaler.scale(1.0);
-    final widthFactor = (media.size.shortestSide / 390).clamp(0.92, 1.12);
-    return (userScale * widthFactor).clamp(0.92, 1.20);
+    // Text size is now DEVICE-INDEPENDENT: small/narrow screens no longer shrink
+    // the text (they scroll instead), so the UI reads the same for everyone.
+    // We only honor the user's own font-size accessibility setting within a
+    // tight range to keep a consistent look.
+    return userScale.clamp(1.0, 1.15);
   }
 
   static double _maxContentWidth(double width) {

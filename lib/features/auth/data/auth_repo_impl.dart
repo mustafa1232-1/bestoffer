@@ -37,7 +37,7 @@ class AuthRepoImpl implements AuthRepo {
       'analyticsConsentVersion': analyticsConsentVersion,
     }, imageFile: imageFile);
 
-    await store.saveToken(_readToken(data));
+    await _saveAuthPayload(data, store);
     return _readUser(data);
   }
 
@@ -59,10 +59,7 @@ class AuthRepoImpl implements AuthRepo {
       imageFile: imageFile,
       cardImageFile: cardImageFile,
     );
-    final token = data['token'];
-    if (token is String && token.trim().isNotEmpty) {
-      await store.saveToken(token);
-    }
+    await _saveAuthPayload(data, store);
     return _readUser(data);
   }
 
@@ -122,11 +119,12 @@ class AuthRepoImpl implements AuthRepo {
     }
     if (merchantDiscoverySubcategory != null &&
         merchantDiscoverySubcategory.trim().isNotEmpty) {
-      payload['merchantDiscoverySubcategory'] =
-          merchantDiscoverySubcategory.trim();
+      payload['merchantDiscoverySubcategory'] = merchantDiscoverySubcategory
+          .trim();
     }
     if (merchantDiscoverySubcategories != null) {
-      payload['merchantDiscoverySubcategories'] = merchantDiscoverySubcategories;
+      payload['merchantDiscoverySubcategories'] =
+          merchantDiscoverySubcategories;
     }
     if (merchantDiscoverySelectAll != null) {
       payload['merchantDiscoverySelectAll'] = merchantDiscoverySelectAll;
@@ -157,7 +155,7 @@ class AuthRepoImpl implements AuthRepo {
       merchantImageFile: merchantImageFile,
     );
 
-    await store.saveToken(_readToken(data));
+    await _saveAuthPayload(data, store);
     return _readUser(data);
   }
 
@@ -215,7 +213,7 @@ class AuthRepoImpl implements AuthRepo {
       'pin': normalizedPin,
     });
 
-    await store.saveToken(_readToken(data));
+    await _saveAuthPayload(data, store);
     return _readUser(data);
   }
 
@@ -261,6 +259,24 @@ String _readToken(Map<String, dynamic> payload) {
     return rawToken;
   }
   throw const FormatException('INVALID_TOKEN_PAYLOAD');
+}
+
+String? _readRefreshToken(Map<String, dynamic> payload) {
+  final rawToken = payload['refreshToken'] ?? payload['refresh_token'];
+  if (rawToken is String && rawToken.trim().isNotEmpty) {
+    return rawToken.trim();
+  }
+  return null;
+}
+
+Future<void> _saveAuthPayload(
+  Map<String, dynamic> payload,
+  SecureStore store,
+) async {
+  await store.saveAuthTokens(
+    accessToken: _readToken(payload),
+    refreshToken: _readRefreshToken(payload),
+  );
 }
 
 UserModel _readUser(Map<String, dynamic> payload) {

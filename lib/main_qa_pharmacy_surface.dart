@@ -18,8 +18,12 @@ import 'features/notifications/state/notifications_controller.dart';
 import 'features/orders/state/delivery_address_controller.dart';
 import 'l10n/app_localizations.dart';
 
-void main() {
+void runQaPharmacySurfaceApp() {
   runApp(const _QaPharmacySurfaceApp());
+}
+
+void main() {
+  runQaPharmacySurfaceApp();
 }
 
 class _QaPharmacySurfaceApp extends StatelessWidget {

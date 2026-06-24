@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:dio/dio.dart';
@@ -147,6 +148,8 @@ final authControllerProvider = StateNotifierProvider<AuthController, AuthState>(
   (ref) => AuthController(ref),
 );
 
+const Duration kAuthSessionVerifyTimeout = Duration(seconds: 20);
+
 class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
 
@@ -176,17 +179,34 @@ class AuthController extends StateNotifier<AuthState> {
     );
 
     try {
-      final user = await ref.read(authRepoProvider).me();
+      final user = await ref
+          .read(authRepoProvider)
+          .me()
+          .timeout(kAuthSessionVerifyTimeout);
+      final latestToken = await store.readToken() ?? token;
       await _applyPreferredLocale(user);
       state = state.copyWith(
         user: user,
+        token: latestToken,
         error: null,
         clearValidationError: true,
         clearErrorCode: true,
       );
-    } catch (_) {
-      await store.clear();
-      state = const AuthState();
+    } catch (e) {
+      if (_isInvalidStoredSession(e)) {
+        await store.clear();
+        state = const AuthState();
+        return;
+      }
+      state = state.copyWith(
+        loading: false,
+        error: mapAnyError(
+          e,
+          fallback: 'Unable to verify session. Please try again.',
+        ),
+        clearValidationError: true,
+        clearErrorCode: true,
+      );
       return;
     }
     state = state.copyWith(
@@ -716,4 +736,16 @@ class AuthController extends StateNotifier<AuthState> {
       appendRequestId: true,
     );
   }
+}
+
+bool _isInvalidStoredSession(Object error) {
+  if (error is! DioException) return false;
+  if (error.response?.statusCode != 401) return false;
+
+  final data = error.response?.data;
+  final rawMessage = data is Map ? (data['message'] ?? data['code']) : data;
+  final message = '$rawMessage'.trim().toUpperCase();
+  return message == 'INVALID_TOKEN' ||
+      message == 'NO_TOKEN' ||
+      message == 'INVALID_REFRESH_TOKEN';
 }

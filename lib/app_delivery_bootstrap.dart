@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/notifications/local_notification_service.dart';
@@ -26,6 +27,7 @@ import 'l10n/app_localizations.dart';
 /// the lightweight runtime shell.
 void runDeliveryAppBootstrap() {
   WidgetsFlutterBinding.ensureInitialized();
+  installAppRuntimeErrorPresentation();
   runApp(
     ProviderScope(
       overrides: [
@@ -83,7 +85,7 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
 
       if (!mounted) return;
       final auth = ref.read(authControllerProvider);
-      if (auth.isAuthed && auth.isDelivery) {
+      if (_hasVerifiedSession(auth) && auth.isDelivery) {
         await _ensurePushReadyAndSync(auth);
       }
       if (!mounted) return;
@@ -112,8 +114,8 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
   }
 
   void _handleAuthStateChanged(AuthState? previous, AuthState next) {
-    final wasAuthed = previous?.isAuthed ?? false;
-    final isAuthed = next.isAuthed;
+    final wasAuthed = previous == null ? false : _hasVerifiedSession(previous);
+    final isAuthed = _hasVerifiedSession(next);
     final previousUserId = previous?.user?.id;
     final nextUserId = next.user?.id;
 
@@ -158,6 +160,9 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
     }
   }
 
+  bool _hasVerifiedSession(AuthState auth) =>
+      auth.isAuthed && auth.user != null;
+
   void _consumePendingTapIfAny() {
     final payload = _pendingTapPayload;
     if (payload == null) return;
@@ -170,7 +175,7 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
 
   void _handleNotificationTap(NotificationTapPayload payload) {
     final auth = ref.read(authControllerProvider);
-    if (!auth.isAuthed || !auth.isDelivery) {
+    if (!_hasVerifiedSession(auth) || !auth.isDelivery) {
       _pendingTapPayload = payload;
       return;
     }
@@ -264,14 +269,16 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
     final auth = ref.watch(authControllerProvider);
     Intl.defaultLocale = settings.locale.languageCode;
 
-    if (auth.isAuthed && !auth.isDelivery && !_roleMismatchLogoutInFlight) {
+    if (_hasVerifiedSession(auth) &&
+        !auth.isDelivery &&
+        !_roleMismatchLogoutInFlight) {
       _roleMismatchLogoutInFlight = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
         await ref.read(authControllerProvider.notifier).logout();
         _roleMismatchLogoutInFlight = false;
       });
-    } else if (!auth.isAuthed || auth.isDelivery) {
+    } else if (!_hasVerifiedSession(auth) || auth.isDelivery) {
       _roleMismatchLogoutInFlight = false;
     }
 
@@ -295,7 +302,7 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
       },
       home: !_bootstrapped
           ? const _DeliverySplashScreen()
-          : auth.isAuthed && auth.isDelivery
+          : _hasVerifiedSession(auth) && auth.isDelivery
           ? const DeliveryDashboardScreen()
           : const RoleLoginScreen(scope: RoleLoginScope.delivery),
     );

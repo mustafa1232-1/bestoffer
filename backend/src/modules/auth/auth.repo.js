@@ -377,6 +377,84 @@ export async function createUserSession({
   return r.rows[0] || null;
 }
 
+export async function findActiveSessionByRefreshToken(refreshToken) {
+  const token = String(refreshToken || "").trim();
+  if (!token) return null;
+  const r = await q(
+    `SELECT
+       s.id AS session_id,
+       s.user_id AS session_user_id,
+       s.refresh_token,
+       s.token_jti,
+       s.device_fingerprint,
+       s.expires_at AS session_expires_at,
+       s.is_revoked,
+       u.id,
+       u.username,
+       u.full_name,
+       u.phone,
+       u.preferred_locale,
+       u.role,
+       u.block,
+       u.building_number,
+       u.apartment,
+       u.image_url,
+       u.work_title,
+       u.work_company,
+       u.is_super_admin,
+       u.is_account_disabled,
+       u.account_disabled_note,
+       u.delivery_account_approved,
+       EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       ) AS is_taxi_captain
+     FROM user_session s
+     JOIN app_user u ON u.id = s.user_id
+     WHERE s.refresh_token = $1
+       AND s.is_revoked = FALSE
+       AND s.expires_at > NOW()
+       AND COALESCE(u.is_account_disabled, FALSE) = FALSE
+     LIMIT 1`,
+    [token]
+  );
+  return r.rows[0] || null;
+}
+
+export async function rotateUserSessionTokens({
+  sessionId,
+  userId,
+  refreshToken,
+  tokenJti,
+  ipAddress = null,
+  userAgent = null,
+}) {
+  const r = await q(
+    `UPDATE user_session
+     SET refresh_token = $3,
+         token_jti = $4,
+         ip = COALESCE($5, ip),
+         user_agent = COALESCE($6, user_agent),
+         last_seen_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $1
+       AND user_id = $2
+       AND is_revoked = FALSE
+       AND expires_at > NOW()
+     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at`,
+    [
+      Number(sessionId),
+      Number(userId),
+      String(refreshToken || ""),
+      tokenJti || null,
+      ipAddress || null,
+      userAgent || null,
+    ]
+  );
+  return r.rows[0] || null;
+}
+
 export async function pruneUserSessions(userId, { maxActive }) {
   const cap = Math.max(1, Number(maxActive) || 1);
   const rows = await q(

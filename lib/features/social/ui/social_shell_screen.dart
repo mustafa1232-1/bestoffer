@@ -38,6 +38,7 @@ class SocialShellScreen extends ConsumerStatefulWidget {
 class _SocialShellScreenState extends ConsumerState<SocialShellScreen> {
   late int _currentIndex;
   int? _lastTrackedIndex;
+  late final ValueNotifier<bool> _reelsPlaybackEnabled;
   late final List<Widget?> _pages = List<Widget?>.filled(
     SocialShellTab.values.length,
     null,
@@ -48,9 +49,18 @@ class _SocialShellScreenState extends ConsumerState<SocialShellScreen> {
   void initState() {
     super.initState();
     _currentIndex = widget.initialTab.index;
+    _reelsPlaybackEnabled = ValueNotifier<bool>(
+      _currentIndex == SocialShellTab.reels.index,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _trackCurrentTab();
     });
+  }
+
+  @override
+  void dispose() {
+    _reelsPlaybackEnabled.dispose();
+    super.dispose();
   }
 
   String _tabRouteFor(int index) {
@@ -102,6 +112,7 @@ class _SocialShellScreenState extends ConsumerState<SocialShellScreen> {
       SocialShellTab.explore => const SocialExploreScreen(),
       SocialShellTab.reels => SocialReelsScreen(
         initialReelId: widget.initialReelId,
+        playbackEnabledListenable: _reelsPlaybackEnabled,
       ),
       SocialShellTab.messages => SocialChatThreadsScreen(
         initialThreadId: widget.initialThreadId,
@@ -146,6 +157,8 @@ class _SocialShellScreenState extends ConsumerState<SocialShellScreen> {
                 currentIndex: _currentIndex,
                 onTap: (index) {
                   setState(() => _currentIndex = index);
+                  _reelsPlaybackEnabled.value =
+                      index == SocialShellTab.reels.index;
                   _trackCurrentTab();
                 },
                 items: [

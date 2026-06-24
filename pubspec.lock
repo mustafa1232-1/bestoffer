@@ -24,13 +24,6 @@ packages:
       relative: true
     source: path
     version: "1.0.0"
-  app_delivery_runtime:
-    dependency: "direct main"
-    description:
-      path: "packages/app_delivery_runtime"
-      relative: true
-    source: path
-    version: "1.0.0"
   app_links:
     dependency: transitive
     description:
@@ -63,20 +56,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.4"
-  app_store_runtime:
-    dependency: "direct main"
-    description:
-      path: "packages/app_store_runtime"
-      relative: true
-    source: path
-    version: "1.0.0"
-  app_taxi_captain_runtime:
-    dependency: "direct main"
-    description:
-      path: "packages/app_taxi_captain_runtime"
-      relative: true
-    source: path
-    version: "1.0.0"
   app_user_runtime:
     dependency: "direct dev"
     description:

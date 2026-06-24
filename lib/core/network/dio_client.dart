@@ -6,6 +6,7 @@ import 'package:maslaki/core/network/auth_session_token_cache.dart';
 import 'package:maslaki/core/network/request_signing.dart';
 import 'package:maslaki/core/network/secure_networking_config.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/api.dart';
 import '../utils/parsers.dart';
@@ -14,13 +15,13 @@ import 'secure_http_adapter_stub.dart'
 
 class DioClient {
   DioClient(this.store)
-      : dio = Dio(
+    : dio = Dio(
         BaseOptions(
           baseUrl: Api.baseUrl,
-            connectTimeout: const Duration(seconds: 15),
-            receiveTimeout: const Duration(seconds: 15),
-            responseType: ResponseType.json,
-            headers: {'Accept': 'application/json; charset=utf-8'},
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 15),
+          responseType: ResponseType.json,
+          headers: {'Accept': 'application/json; charset=utf-8'},
         ),
       ) {
     configureSecureHttpAdapter(dio, SecureNetworkingConfig.current());
@@ -29,9 +30,7 @@ class DioClient {
         onRequest: (options, handler) async {
           try {
             final skipAuth = options.extra['skipAuth'] == true;
-            final token = skipAuth
-                ? null
-                : await store.readToken() ?? AuthSessionTokenCache.currentToken;
+            final token = skipAuth ? null : await _readUsableAccessToken();
             if (!skipAuth && token != null && token.isNotEmpty) {
               options.headers['Authorization'] = 'Bearer $token';
             }
@@ -62,6 +61,15 @@ class DioClient {
           return handler.next(response);
         },
         onError: (error, handler) async {
+          try {
+            final refreshed = await _tryResolveUnauthorizedWithRefresh(error);
+            if (refreshed != null) {
+              return handler.resolve(refreshed);
+            }
+          } on DioException catch (refreshError) {
+            return handler.next(refreshError);
+          }
+
           if (!_isRetryableConnectionError(error)) {
             return handler.next(error);
           }
@@ -109,6 +117,157 @@ class DioClient {
 
   RequestSigningMaterial? _cachedSigningMaterial;
   Future<RequestSigningMaterial?>? _signingRefreshFuture;
+  Future<String?>? _accessRefreshFuture;
+
+  Future<String?> _readUsableAccessToken() async {
+    final token = await store.readToken() ?? AuthSessionTokenCache.currentToken;
+    if (token == null || token.isEmpty) return null;
+    if (!_shouldRefreshAccessToken(token)) return token;
+    try {
+      final refreshed = await _refreshAccessToken(token, allowExpired: true);
+      if (refreshed != null && refreshed.isNotEmpty) return refreshed;
+      return _isAccessTokenExpired(token) ? null : token;
+    } on DioException {
+      if (_isAccessTokenExpired(token)) rethrow;
+      return token;
+    }
+  }
+
+  bool _shouldRefreshAccessToken(String token) {
+    try {
+      final expiry = JwtDecoder.getExpirationDate(token);
+      final remaining = expiry.difference(DateTime.now());
+      return remaining <= const Duration(minutes: 5);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _isAccessTokenExpired(String token) {
+    try {
+      return JwtDecoder.isExpired(token);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String?> _refreshAccessToken(
+    String currentAccessToken, {
+    bool allowExpired = false,
+  }) async {
+    if (_accessRefreshFuture != null) return _accessRefreshFuture;
+    _accessRefreshFuture = _refreshAccessTokenOnce(
+      currentAccessToken,
+      allowExpired: allowExpired,
+    );
+    try {
+      return await _accessRefreshFuture;
+    } finally {
+      _accessRefreshFuture = null;
+    }
+  }
+
+  Future<String?> _refreshAccessTokenOnce(
+    String currentAccessToken, {
+    bool allowExpired = false,
+  }) async {
+    final refreshToken = await store.readRefreshToken();
+    if (refreshToken == null || refreshToken.isEmpty) {
+      return allowExpired ? null : currentAccessToken;
+    }
+
+    try {
+      final deviceId = await _ensureDeviceId(store);
+      final response = await dio.fetch<dynamic>(
+        RequestOptions(
+          path: '/api/auth/refresh',
+          method: 'POST',
+          baseUrl: dio.options.baseUrl,
+          data: {'refreshToken': refreshToken},
+          headers: {
+            'Accept': 'application/json; charset=utf-8',
+            'Authorization': 'Bearer $currentAccessToken',
+            'X-Device-Id': deviceId,
+            'X-Client-Platform': 'flutter',
+          },
+          extra: const {'skipSigning': true, 'skipAuthRefresh': true},
+        ),
+      );
+      final raw = response.data;
+      if (raw is! Map) return null;
+      final accessToken = '${raw['token'] ?? ''}'.trim();
+      final nextRefreshToken =
+          '${raw['refreshToken'] ?? raw['refresh_token'] ?? ''}'.trim();
+      if (accessToken.isEmpty) return null;
+      await store.saveAuthTokens(
+        accessToken: accessToken,
+        refreshToken: nextRefreshToken.isEmpty
+            ? refreshToken
+            : nextRefreshToken,
+      );
+      return accessToken;
+    } on DioException catch (error) {
+      if (_isInvalidRefreshFailure(error)) {
+        await _clearSigningMaterial();
+        await store.clear();
+        return null;
+      }
+      rethrow;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Response<dynamic>?> _tryResolveUnauthorizedWithRefresh(
+    DioException error,
+  ) async {
+    final request = error.requestOptions;
+    if (error.response?.statusCode != 401) return null;
+    if (request.extra['skipAuth'] == true ||
+        request.extra['skipAuthRefresh'] == true ||
+        request.extra['_authRefreshRetried'] == true) {
+      return null;
+    }
+
+    final currentToken =
+        await store.readToken() ?? AuthSessionTokenCache.currentToken;
+    if (currentToken == null || currentToken.isEmpty) return null;
+
+    final requestToken = _readBearerHeader(request.headers['Authorization']);
+    final nextToken = requestToken != null && requestToken != currentToken
+        ? currentToken
+        : await _refreshAccessToken(currentToken);
+    if (nextToken == null || nextToken.isEmpty || nextToken == requestToken) {
+      return null;
+    }
+
+    final retryOptions = request.copyWith(
+      headers: Map<String, dynamic>.from(request.headers),
+      extra: {...request.extra, '_authRefreshRetried': true},
+    );
+    retryOptions.headers['Authorization'] = 'Bearer $nextToken';
+    retryOptions.headers['X-Device-Id'] = await _ensureDeviceId(store);
+    retryOptions.headers['X-Client-Platform'] = 'flutter';
+    for (final header in const [
+      'X-Request-Key-Id',
+      'X-Request-Timestamp',
+      'X-Request-Nonce',
+      'X-Request-Signature',
+    ]) {
+      retryOptions.headers.remove(header);
+    }
+    if (retryOptions.extra['skipSigning'] != true) {
+      await _attachRequestSignature(retryOptions, nextToken);
+    }
+
+    try {
+      final response = await dio.fetch<dynamic>(retryOptions);
+      response.data = _normalizePayload(response.data);
+      return response;
+    } on DioException {
+      return null;
+    }
+  }
 
   Future<void> _attachRequestSignature(
     RequestOptions options,
@@ -186,9 +345,7 @@ class DioClient {
           method: 'POST',
           baseUrl: dio.options.baseUrl,
           headers: {'Authorization': 'Bearer $accessToken'},
-          extra: const {
-            'skipSigning': true,
-          },
+          extra: const {'skipSigning': true},
         ),
       );
       final raw = response.data;
@@ -231,18 +388,24 @@ class DioClient {
     }
 
     final material = RequestSigningMaterial.fromStorageMap({
-      requestSigningKeyIdStorageKey:
-          await store.readString(requestSigningKeyIdStorageKey),
-      requestSigningSecretStorageKey:
-          await store.readString(requestSigningSecretStorageKey),
-      requestSigningIssuedAtStorageKey:
-          await store.readString(requestSigningIssuedAtStorageKey),
-      requestSigningExpiresAtStorageKey:
-          await store.readString(requestSigningExpiresAtStorageKey),
-      requestSigningAlgorithmStorageKey:
-          await store.readString(requestSigningAlgorithmStorageKey),
-      requestSigningRefreshWindowStorageKey:
-          await store.readString(requestSigningRefreshWindowStorageKey),
+      requestSigningKeyIdStorageKey: await store.readString(
+        requestSigningKeyIdStorageKey,
+      ),
+      requestSigningSecretStorageKey: await store.readString(
+        requestSigningSecretStorageKey,
+      ),
+      requestSigningIssuedAtStorageKey: await store.readString(
+        requestSigningIssuedAtStorageKey,
+      ),
+      requestSigningExpiresAtStorageKey: await store.readString(
+        requestSigningExpiresAtStorageKey,
+      ),
+      requestSigningAlgorithmStorageKey: await store.readString(
+        requestSigningAlgorithmStorageKey,
+      ),
+      requestSigningRefreshWindowStorageKey: await store.readString(
+        requestSigningRefreshWindowStorageKey,
+      ),
     });
 
     if (material == null || material.isExpired) {
@@ -315,13 +478,32 @@ class _RequestSessionBinding {
 Future<String> _ensureDeviceId(SecureStore store) async {
   final existing = await store.readString(DioClient._deviceIdKey);
   if (existing != null && existing.trim().isNotEmpty) {
-    return existing.trim();
+    final normalized = existing.trim();
+    await _persistDeviceIdFallback(normalized);
+    return normalized;
+  }
+  final prefs = await SharedPreferences.getInstance();
+  final fallback = prefs.getString(DioClient._deviceIdKey);
+  if (fallback != null && fallback.trim().isNotEmpty) {
+    final normalized = fallback.trim();
+    await store.writeString(DioClient._deviceIdKey, normalized);
+    return normalized;
   }
   final random = Random.secure();
   final bytes = List<int>.generate(16, (_) => random.nextInt(256));
   final value = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   await store.writeString(DioClient._deviceIdKey, value);
+  await _persistDeviceIdFallback(value);
   return value;
+}
+
+Future<void> _persistDeviceIdFallback(String value) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(DioClient._deviceIdKey, value);
+  } catch (_) {
+    // The in-memory SecureStore fallback still covers the current process.
+  }
 }
 
 bool _isRetryableConnectionError(DioException error) {
@@ -329,6 +511,26 @@ bool _isRetryableConnectionError(DioException error) {
       error.type == DioExceptionType.connectionTimeout ||
       error.type == DioExceptionType.sendTimeout ||
       error.type == DioExceptionType.receiveTimeout;
+}
+
+bool _isInvalidRefreshFailure(DioException error) {
+  final status = error.response?.statusCode;
+  if (status != 400 && status != 401) return false;
+  final data = error.response?.data;
+  final rawMessage = data is Map ? (data['message'] ?? data['code']) : data;
+  final message = '$rawMessage'.trim().toUpperCase();
+  return message == 'INVALID_REFRESH_TOKEN' ||
+      message == 'VALIDATION_ERROR' ||
+      message == 'NO_TOKEN';
+}
+
+String? _readBearerHeader(Object? value) {
+  final raw = '$value'.trim();
+  if (raw.isEmpty) return null;
+  const prefix = 'Bearer ';
+  if (!raw.startsWith(prefix)) return null;
+  final token = raw.substring(prefix.length).trim();
+  return token.isEmpty ? null : token;
 }
 
 List<String> _readTriedBaseUrls(RequestOptions request) {

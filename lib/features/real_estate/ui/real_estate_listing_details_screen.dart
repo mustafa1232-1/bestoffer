@@ -184,11 +184,13 @@ class _RealEstateListingDetailsScreenState
         MaterialPageRoute(
           builder: (_) => SocialChatThreadScreen(
             threadId: thread.id,
-            peerName: thread.peer.username?.trim().isNotEmpty == true
-                ? '@${thread.peer.username!}'
-                : thread.peer.fullName,
+            peerName: (listing.ownerFullName ?? '').trim().isNotEmpty
+                ? listing.ownerFullName!.trim()
+                : (thread.peer.username?.trim().isNotEmpty == true
+                      ? '@${thread.peer.username!}'
+                      : thread.peer.fullName),
             peerPhone: thread.peerPhone,
-            peerUserId: thread.peer.id,
+            peerUserId: listing.ownerId,
             peerImageUrl: thread.peer.imageUrl,
           ),
         ),

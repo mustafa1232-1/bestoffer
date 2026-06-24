@@ -63,6 +63,32 @@ export function mapSocialPostProductRow(row) {
           processingStatus: row.asset_processing_status || row.processing_status || null,
         }
       : null,
+    mediaGallery: Array.isArray(row.media_gallery)
+      ? row.media_gallery.map((item) => ({
+          id: Number(item.id),
+          sortOrder: Number(item.sortOrder ?? item.sort_order ?? 0),
+          mediaUrl: item.mediaUrl || item.media_url || null,
+          mediaKind: item.mediaKind || item.media_kind || null,
+          asset:
+            item.asset && typeof item.asset === "object"
+              ? {
+                  id: item.asset.id == null ? null : Number(item.asset.id),
+                  normalizedUrl:
+                    item.asset.normalizedUrl || item.asset.normalized_url || null,
+                  posterUrl: item.asset.posterUrl || item.asset.poster_url || null,
+                  durationMs:
+                    item.asset.durationMs == null &&
+                    item.asset.duration_ms == null
+                      ? null
+                      : Number(item.asset.durationMs ?? item.asset.duration_ms),
+                  processingStatus:
+                    item.asset.processingStatus ||
+                    item.asset.processing_status ||
+                    null,
+                }
+              : null,
+        }))
+      : [],
     contentLink:
       row.link_target_type || row.target_type
         ? {

@@ -143,6 +143,7 @@ const orderSelect = `
     o.*,
     m.name AS merchant_name,
     m.type AS merchant_type,
+    m.phone AS merchant_phone,
     m.owner_user_id AS owner_user_id,
     c.image_url AS customer_image_url,
     d.id AS delivery_id,
@@ -3080,6 +3081,280 @@ export async function listDeliveryHistory(deliveryUserId, archiveDate) {
     params
   );
   return attachItems(r.rows);
+}
+
+function normalizeDeliveryDetailOrderState(status) {
+  switch (String(status || "").trim().toLowerCase()) {
+    case "approved":
+      return "accepted";
+    case "preparing":
+    case "courier_requested":
+    case "courier_assigned":
+      return "preparing";
+    case "ready_for_delivery":
+    case "ready_for_pickup":
+      return "ready";
+    case "cancelled":
+    case "cancelled_by_customer":
+    case "cancelled_by_store":
+    case "cancelled_by_admin":
+      return "cancelled";
+    case "failed_delivery":
+    case "returned_if_needed":
+      return "returned";
+    default:
+      return String(status || "").trim().toLowerCase() || "pending";
+  }
+}
+
+function normalizeDeliveryDetailCourierState(order, { isAssignedToDelivery }) {
+  const status = String(order?.status || "").trim().toLowerCase();
+  if (!isAssignedToDelivery) {
+    if (status === "ready_for_delivery" || status === "ready_for_pickup") {
+      return "assigned";
+    }
+    return null;
+  }
+  switch (status) {
+    case "approved":
+    case "preparing":
+    case "ready_for_delivery":
+    case "ready_for_pickup":
+      return "accepted";
+    case "picked_up":
+      return "picked_up";
+    case "on_the_way":
+      return "on_the_way";
+    case "arrived":
+      return "arrived";
+    case "delivered":
+    case "completed":
+      return "delivered";
+    default:
+      return null;
+  }
+}
+
+function buildDeliveryAllowedActions({
+  order,
+  isAssignedToDelivery,
+  isEligibleDelivery,
+  canModerate,
+}) {
+  const status = String(order?.status || "").trim().toLowerCase();
+  const actions = new Set();
+
+  if (isEligibleDelivery && ["approved", "preparing", "ready_for_delivery"].includes(status)) {
+    actions.add("accept");
+    actions.add("reject");
+  }
+
+  if (isAssignedToDelivery || canModerate) {
+    if (["approved", "preparing", "ready_for_delivery"].includes(status)) {
+      actions.add("picked_up");
+    }
+    if (status === "on_the_way") {
+      actions.add("arrived");
+    }
+    if (status === "arrived") {
+      actions.add("delivered");
+    }
+    if (["ready_for_delivery", "on_the_way", "arrived"].includes(status)) {
+      actions.add("request_cancel");
+    }
+  }
+
+  actions.add("open_chat");
+  actions.add("open_tracking");
+  return Array.from(actions);
+}
+
+function buildDeliveryTimeline(order) {
+  return [
+    {
+      key: "created",
+      status: "done",
+      labelAr: "تم إنشاء الطلب",
+      labelEn: "Order placed",
+      time: order.created_at || null,
+    },
+    {
+      key: "approved",
+      status: order.approved_at ? "done" : "pending",
+      labelAr: "تم قبول الطلب",
+      labelEn: "Order accepted",
+      time: order.approved_at || null,
+    },
+    {
+      key: "preparing",
+      status:
+        order.preparing_started_at || order.prepared_at ? "done" : "pending",
+      labelAr: "قيد التحضير",
+      labelEn: "Preparing",
+      time: order.preparing_started_at || order.prepared_at || null,
+    },
+    {
+      key: "picked_up",
+      status: order.picked_up_at ? "done" : "pending",
+      labelAr: "تم الاستلام من المتجر",
+      labelEn: "Picked up",
+      time: order.picked_up_at || null,
+    },
+    {
+      key: "arrived",
+      status: order.arrived_at ? "done" : "pending",
+      labelAr: "وصل السائق",
+      labelEn: "Courier arrived",
+      time: order.arrived_at || null,
+    },
+    {
+      key: "delivered",
+      status: order.delivered_at ? "done" : "pending",
+      labelAr: "تم التسليم",
+      labelEn: "Delivered",
+      time: order.delivered_at || null,
+    },
+  ];
+}
+
+function toDeliveryDetailResponse(order, context) {
+  const isAssignedToDelivery =
+    Number(order.delivery_user_id || 0) > 0 &&
+    Number(order.delivery_user_id || 0) === Number(context.requestUserId || 0);
+  const isEligibleDelivery = context.requestUserRole === "delivery" && !isAssignedToDelivery;
+  const canModerate = context.isBackoffice === true;
+  const orderState = normalizeDeliveryDetailOrderState(order.status);
+  const courierState = normalizeDeliveryDetailCourierState(order, {
+    isAssignedToDelivery,
+  });
+  const invoice = {
+    grossSubtotal: Number(order.gross_subtotal || order.subtotal || 0),
+    productDiscountTotal: Number(order.product_discount_total || 0),
+    subtotal: Number(order.subtotal || 0),
+    serviceFee: Number(order.service_fee || 0),
+    deliveryFee: Number(order.delivery_fee || 0),
+    couponDiscountTotal: Number(order.coupon_discount_total || 0),
+    totalAmount: Number(order.total_amount || 0),
+    paymentMethod: order.payment_method || null,
+    paymentMethodOther: order.payment_method_other || null,
+    cashCollectionResponsible:
+      Number(order.delivery_user_id || 0) > 0 ? "courier" : null,
+  };
+  const canonicalOrder = {
+    ...order,
+    items: Array.isArray(order.items) ? order.items : [],
+    normalizedStatus: String(order.status || "").trim().toLowerCase(),
+    orderState,
+    courierState,
+  };
+
+  return {
+    order: canonicalOrder,
+    items: canonicalOrder.items,
+    merchant: {
+      id: Number(order.merchant_id),
+      name: order.merchant_name || null,
+      type: order.merchant_type || null,
+      phone: order.merchant_phone || null,
+      ownerUserId: order.owner_user_id == null ? null : Number(order.owner_user_id),
+    },
+    customer: {
+      userId: Number(order.customer_user_id),
+      fullName: order.customer_full_name || null,
+      phone: order.customer_phone || null,
+      city: order.customer_city || null,
+      block: order.customer_block || null,
+      buildingNumber: order.customer_building_number || null,
+      apartment: order.customer_apartment || null,
+      imageUrl: order.customer_image_url || null,
+      note: order.note || null,
+    },
+    delivery: {
+      userId: order.delivery_user_id == null ? null : Number(order.delivery_user_id),
+      fullName: order.delivery_full_name || null,
+      phone: order.delivery_phone || null,
+      driverType: order.delivery_driver_type || null,
+      courierSource: order.courier_source || null,
+      isMerchantDelivery: order.is_merchant_delivery === true,
+      isAssignedToRequester: isAssignedToDelivery,
+      isEligibleForRequester: isEligibleDelivery,
+      courierState,
+    },
+    invoice,
+    timeline: buildDeliveryTimeline(order),
+    allowedActions: buildDeliveryAllowedActions({
+      order,
+      isAssignedToDelivery,
+      isEligibleDelivery,
+      canModerate,
+    }),
+  };
+}
+
+export async function getDeliveryOrderDetail({
+  requestUserId,
+  requestUserRole,
+  userIsSuperAdmin = false,
+  orderId,
+}) {
+  const normalizedRole = String(requestUserRole || "").trim().toLowerCase();
+  const isBackoffice =
+    userIsSuperAdmin === true ||
+    normalizedRole === "admin" ||
+    normalizedRole === "deputy_admin";
+
+  if (!isBackoffice && normalizedRole !== "delivery") {
+    throw new AppError("FORBIDDEN_DELIVERY_DETAIL_ONLY", { status: 403 });
+  }
+
+  let row = null;
+  if (isBackoffice) {
+    const result = await q(
+      `${orderSelect}
+       WHERE o.id = $1
+       LIMIT 1`,
+      [Number(orderId)]
+    );
+    row = result.rows[0] || null;
+  } else {
+    const result = await q(
+      `${orderSelect}
+       JOIN app_user du ON du.id = $2
+       LEFT JOIN courier_profile ducp ON ducp.user_id = du.id
+       WHERE o.id = $1
+         AND (
+           o.delivery_user_id = $2
+           OR (
+             o.delivery_user_id IS NULL
+             AND o.status = 'ready_for_delivery'
+             AND COALESCE(o.is_merchant_delivery, FALSE) = FALSE
+             AND COALESCE(ducp.driver_type, 'app_driver') = 'app_driver'
+             AND (
+               (
+                 du.block IS NOT NULL
+                 AND o.customer_block IS NOT NULL
+                 AND UPPER(TRIM(du.block)) = UPPER(TRIM(o.customer_block))
+               )
+               OR COALESCE(o.prepared_at, o.updated_at, o.created_at) <= NOW() - INTERVAL '7 minutes'
+             )
+           )
+         )
+       LIMIT 1`,
+      [Number(orderId), Number(requestUserId)]
+    );
+    row = result.rows[0] || null;
+  }
+
+  if (!row) {
+    throw new AppError("ORDER_NOT_FOUND", { status: 404 });
+  }
+
+  const withItems = await attachItems([row]);
+  return toDeliveryDetailResponse(withItems[0], {
+    requestUserId,
+    requestUserRole: normalizedRole,
+    isBackoffice,
+  });
 }
 
 /**

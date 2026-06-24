@@ -7,6 +7,101 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:1016190459986:android:092a50b3306b9b3a117f8b",
+        "android_client_info": {
+          "package_name": "com.maslaki.captain"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-H43YYDhymZWezTY9vEMfN2rTKRgLjiw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1016190459986:android:8e3f87b016030364117f8b",
+        "android_client_info": {
+          "package_name": "com.maslaki.company"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-H43YYDhymZWezTY9vEMfN2rTKRgLjiw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1016190459986:android:f0fd7f6186ded629117f8b",
+        "android_client_info": {
+          "package_name": "com.maslaki.delivery"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-H43YYDhymZWezTY9vEMfN2rTKRgLjiw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1016190459986:android:a8dd4761e435b5a8117f8b",
+        "android_client_info": {
+          "package_name": "com.maslaki.pharmacy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-H43YYDhymZWezTY9vEMfN2rTKRgLjiw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1016190459986:android:628e942069afbf01117f8b",
+        "android_client_info": {
+          "package_name": "com.maslaki.store"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-H43YYDhymZWezTY9vEMfN2rTKRgLjiw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:1016190459986:android:9efc0d2446d7b1e1117f8b",
         "android_client_info": {
           "package_name": "com.maslaki.user"

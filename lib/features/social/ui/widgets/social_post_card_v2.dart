@@ -63,10 +63,10 @@ class SocialPostCardV2 extends StatelessWidget {
             isEnglish ? 'en' : 'ar',
           ).format(post.createdAt!);
     final mediaUrl = resolveSocialPostPosterUrl(post);
-    final videoUrl = resolveSocialPostVideoUrl(post);
     final isVideo = isSocialVideoPost(post);
     final isReel = isSocialReelPost(post);
     final isMerchantReview = isSocialMerchantReviewPost(post);
+    final mediaItems = _buildPostMediaDisplayItems(post);
     final caption = post.caption.trim();
     final hasCaption = caption.isNotEmpty;
     final username = (post.author.username ?? '').trim();
@@ -217,16 +217,13 @@ class SocialPostCardV2 extends StatelessWidget {
                   ),
                 ),
               ],
-              if (mediaUrl != null && mediaUrl.trim().isNotEmpty) ...[
+              if (mediaItems.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(20),
-                  child: _InlineFeedMediaPreview(
-                    posterUrl: mediaUrl,
-                    videoUrl: videoUrl,
+                  child: _InlineFeedMediaGalleryPreview(
+                    items: mediaItems,
                     aspectRatio: isReel ? 9 / 16 : 4 / 5,
-                    isVideo: isVideo,
-                    isReel: isReel,
                     autoPlay: autoPlayVideoPreview,
                     fallbackColor: scheme.surfaceContainerHighest,
                     cacheIdentity: 'post_${post.id}',
@@ -388,88 +385,315 @@ class _InlineFeedMediaPreviewState extends State<_InlineFeedMediaPreview> {
     final muteLabel = _muted ? l10n.socialReelUnmute : l10n.socialReelMute;
     return AspectRatio(
       aspectRatio: widget.aspectRatio,
+      child: _InlineFeedMediaContent(
+        posterUrl: widget.posterUrl,
+        videoUrl: widget.videoUrl,
+        isVideo: widget.isVideo,
+        isReel: widget.isReel,
+        autoPlay: widget.autoPlay,
+        fallbackColor: widget.fallbackColor,
+        cacheIdentity: widget.cacheIdentity,
+        cacheVersion: widget.cacheVersion,
+        muted: _muted,
+        muteLabel: muteLabel,
+        onToggleMuted: _toggleMuted,
+      ),
+    );
+  }
+}
+
+class _InlineFeedMediaContent extends StatelessWidget {
+  final String posterUrl;
+  final String? videoUrl;
+  final bool isVideo;
+  final bool isReel;
+  final bool autoPlay;
+  final Color fallbackColor;
+  final String cacheIdentity;
+  final String? cacheVersion;
+  final bool muted;
+  final String muteLabel;
+  final VoidCallback onToggleMuted;
+
+  const _InlineFeedMediaContent({
+    required this.posterUrl,
+    required this.videoUrl,
+    required this.isVideo,
+    required this.isReel,
+    required this.autoPlay,
+    required this.fallbackColor,
+    required this.cacheIdentity,
+    required this.cacheVersion,
+    required this.muted,
+    required this.muteLabel,
+    required this.onToggleMuted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      alignment: Alignment.center,
+      children: [
+        if (isVideo && autoPlay)
+          _InlineFeedVideoPreview(
+            posterUrl: posterUrl,
+            videoUrl: videoUrl,
+            fallbackColor: fallbackColor,
+            muted: muted,
+            cacheIdentity: cacheIdentity,
+            cacheVersion: cacheVersion,
+          )
+        else
+          CachedAppImage(
+            imageUrl: posterUrl,
+            cacheIdentity: '${cacheIdentity}_poster',
+            version: cacheVersion,
+            fit: BoxFit.cover,
+            errorWidget: (context, error, stackTrace) => ColoredBox(
+              color: fallbackColor,
+              child: const Icon(Icons.broken_image_outlined, size: 36),
+            ),
+          ),
+        if (isVideo && !autoPlay)
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.42),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.play_arrow_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
+          )
+        else if (isReel && autoPlay)
+          PositionedDirectional(
+            top: 12,
+            start: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.36),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.play_circle_fill_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                  SizedBox(width: 5),
+                  Text(
+                    'Reel',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        if (isVideo && autoPlay)
+          PositionedDirectional(
+            start: 10,
+            bottom: 10,
+            child: _FeedPreviewMuteButton(
+              muted: muted,
+              tooltip: muteLabel,
+              onTap: onToggleMuted,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _InlineFeedMediaGalleryPreview extends StatefulWidget {
+  final List<_PostMediaDisplayItem> items;
+  final double aspectRatio;
+  final bool autoPlay;
+  final Color fallbackColor;
+  final String cacheIdentity;
+  final String? cacheVersion;
+
+  const _InlineFeedMediaGalleryPreview({
+    required this.items,
+    required this.aspectRatio,
+    required this.autoPlay,
+    required this.fallbackColor,
+    required this.cacheIdentity,
+    required this.cacheVersion,
+  });
+
+  @override
+  State<_InlineFeedMediaGalleryPreview> createState() =>
+      _InlineFeedMediaGalleryPreviewState();
+}
+
+class _InlineFeedMediaGalleryPreviewState
+    extends State<_InlineFeedMediaGalleryPreview> {
+  final PageController _pageController = PageController();
+  int _currentIndex = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.items;
+    if (items.length == 1) {
+      final item = items.first;
+      return _InlineFeedMediaPreview(
+        posterUrl: item.posterUrl,
+        videoUrl: item.videoUrl,
+        aspectRatio: widget.aspectRatio,
+        isVideo: item.isVideo,
+        isReel: item.isReel,
+        autoPlay: widget.autoPlay,
+        fallbackColor: widget.fallbackColor,
+        cacheIdentity: widget.cacheIdentity,
+        cacheVersion: widget.cacheVersion,
+      );
+    }
+    return AspectRatio(
+      aspectRatio: widget.aspectRatio,
       child: Stack(
         fit: StackFit.expand,
-        alignment: Alignment.center,
         children: [
-          if (widget.isVideo && widget.autoPlay)
-            _InlineFeedVideoPreview(
-              posterUrl: widget.posterUrl,
-              videoUrl: widget.videoUrl,
-              fallbackColor: widget.fallbackColor,
-              muted: _muted,
-              cacheIdentity: widget.cacheIdentity,
-              cacheVersion: widget.cacheVersion,
-            )
-          else
-            CachedAppImage(
-              imageUrl: widget.posterUrl,
-              cacheIdentity: '${widget.cacheIdentity}_poster',
-              version: widget.cacheVersion,
-              fit: BoxFit.cover,
-              errorWidget: (context, error, stackTrace) => ColoredBox(
-                color: widget.fallbackColor,
-                child: const Icon(Icons.broken_image_outlined, size: 36),
-              ),
-            ),
-          if (widget.isVideo && !widget.autoPlay)
-            Container(
-              padding: const EdgeInsets.all(10),
+          PageView.builder(
+            controller: _pageController,
+            itemCount: items.length,
+            onPageChanged: (value) => setState(() => _currentIndex = value),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return _InlineFeedMediaContent(
+                posterUrl: item.posterUrl,
+                videoUrl: item.videoUrl,
+                isVideo: item.isVideo,
+                isReel: item.isReel,
+                autoPlay: widget.autoPlay && index == _currentIndex,
+                fallbackColor: widget.fallbackColor,
+                cacheIdentity: '${widget.cacheIdentity}_$index',
+                cacheVersion: widget.cacheVersion,
+                muted: true,
+                muteLabel: context.l10n.socialReelUnmute,
+                onToggleMuted: () {},
+              );
+            },
+          ),
+          PositionedDirectional(
+            top: 12,
+            end: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.42),
-                shape: BoxShape.circle,
+                borderRadius: BorderRadius.circular(999),
               ),
-              child: const Icon(
-                Icons.play_arrow_rounded,
-                color: Colors.white,
-                size: 28,
-              ),
-            )
-          else if (widget.isReel && widget.autoPlay)
-            PositionedDirectional(
-              top: 12,
-              start: 12,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.36),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.play_circle_fill_rounded,
-                      color: Colors.white,
-                      size: 16,
-                    ),
-                    SizedBox(width: 5),
-                    Text(
-                      'Reel',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
+              child: Text(
+                '${_currentIndex + 1}/${items.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
                 ),
               ),
             ),
-          if (widget.isVideo && widget.autoPlay)
-            PositionedDirectional(
-              start: 10,
-              bottom: 10,
-              child: _FeedPreviewMuteButton(
-                muted: _muted,
-                tooltip: muteLabel,
-                onTap: _toggleMuted,
-              ),
+          ),
+          PositionedDirectional(
+            start: 0,
+            end: 0,
+            bottom: 12,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List<Widget>.generate(items.length, (index) {
+                final active = index == _currentIndex;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  width: active ? 18 : 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: active ? Colors.white : Colors.white54,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                );
+              }),
             ),
+          ),
         ],
       ),
     );
   }
+}
+
+class _PostMediaDisplayItem {
+  final String posterUrl;
+  final String? videoUrl;
+  final bool isVideo;
+  final bool isReel;
+
+  const _PostMediaDisplayItem({
+    required this.posterUrl,
+    required this.videoUrl,
+    required this.isVideo,
+    required this.isReel,
+  });
+}
+
+List<_PostMediaDisplayItem> _buildPostMediaDisplayItems(SocialPost post) {
+  if (post.mediaGallery.isNotEmpty) {
+    final items = <_PostMediaDisplayItem>[];
+    for (final media in post.mediaGallery) {
+      final mediaKind = (media.mediaKind ?? '').trim().toLowerCase();
+      final isVideo = mediaKind == 'video' || mediaKind == 'reel';
+      final isReel = mediaKind == 'reel';
+      final posterUrl =
+          (media.asset?.posterUrl ??
+                  media.asset?.normalizedUrl ??
+                  media.mediaUrl ??
+                  '')
+              .trim();
+      if (posterUrl.isEmpty) {
+        continue;
+      }
+      items.add(
+        _PostMediaDisplayItem(
+          posterUrl: posterUrl,
+          videoUrl: isVideo
+              ? (media.asset?.normalizedUrl ?? media.mediaUrl)?.trim()
+              : null,
+          isVideo: isVideo,
+          isReel: isReel,
+        ),
+      );
+    }
+    if (items.isNotEmpty) {
+      return items;
+    }
+  }
+
+  final posterUrl = resolveSocialPostPosterUrl(post)?.trim();
+  if (posterUrl == null || posterUrl.isEmpty) {
+    return const <_PostMediaDisplayItem>[];
+  }
+  return <_PostMediaDisplayItem>[
+    _PostMediaDisplayItem(
+      posterUrl: posterUrl,
+      videoUrl: resolveSocialPostVideoUrl(post)?.trim(),
+      isVideo: isSocialVideoPost(post),
+      isReel: isSocialReelPost(post),
+    ),
+  ];
 }
 
 class _MerchantReviewPreview extends StatelessWidget {

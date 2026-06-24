@@ -28,24 +28,6 @@ $appContracts = @(
     RuntimeImport = "package:app_user_runtime/app_user_runtime.dart"
   },
   @{
-    AppMain = "apps/app_store/lib/main.dart"
-    AppPubspec = "apps/app_store/pubspec.yaml"
-    RuntimePackageName = "app_store_runtime"
-    RuntimeImport = "package:app_store_runtime/app_store_runtime.dart"
-  },
-  @{
-    AppMain = "apps/app_delivery/lib/main.dart"
-    AppPubspec = "apps/app_delivery/pubspec.yaml"
-    RuntimePackageName = "app_delivery_runtime"
-    RuntimeImport = "package:app_delivery_runtime/app_delivery_runtime.dart"
-  },
-  @{
-    AppMain = "apps/app_taxi_captain/lib/main.dart"
-    AppPubspec = "apps/app_taxi_captain/pubspec.yaml"
-    RuntimePackageName = "app_taxi_captain_runtime"
-    RuntimeImport = "package:app_taxi_captain_runtime/app_taxi_captain_runtime.dart"
-  },
-  @{
     AppMain = "apps/app_company/lib/main.dart"
     AppPubspec = "apps/app_company/pubspec.yaml"
     RuntimePackageName = "app_company_runtime"
@@ -80,6 +62,14 @@ $allowedMainImports = @{}
 foreach ($contract in $appContracts) {
   $normalizedMain = $contract.AppMain.Replace('\', '/')
   $allowedMainImports[$normalizedMain] = $contract.RuntimeImport
+}
+
+# The store app is consolidated onto the full in-repo workspace
+# (lib/main_store.dart -> app_store_bootstrap.dart -> features/owner), not a
+# thin runtime package. So there is no app_store_runtime boundary to enforce.
+$rootStoreMain = "lib/main_store.dart"
+if (-not (Test-Path $rootStoreMain)) {
+  Add-Error "Missing root store entrypoint: $rootStoreMain"
 }
 
 $appLibFiles = Get-ChildItem "apps" -Recurse -Filter "*.dart" |
@@ -118,30 +108,14 @@ foreach ($file in $appLibFiles) {
 }
 
 # 3) runtime packages
-# Default mode (current transitional split):
-# - keeps bestoffer bridge allowed.
-# Strict mode (-StrictRuntimeNoBridge):
-# - forbids any bestoffer dependency/import in runtimes.
+# Default mode keeps runtime packages independent and does not require a
+# bestoffer bridge dependency. Strict mode additionally fails any remaining
+# bestoffer dependency/import in runtimes and core packages.
 $runtimeContracts = @(
   @{
     RuntimeName = "app_user_runtime"
     RuntimeLib = "packages/app_user_runtime/lib/app_user_runtime.dart"
     RuntimePubspec = "packages/app_user_runtime/pubspec.yaml"
-  },
-  @{
-    RuntimeName = "app_store_runtime"
-    RuntimeLib = "packages/app_store_runtime/lib/app_store_runtime.dart"
-    RuntimePubspec = "packages/app_store_runtime/pubspec.yaml"
-  },
-  @{
-    RuntimeName = "app_delivery_runtime"
-    RuntimeLib = "packages/app_delivery_runtime/lib/app_delivery_runtime.dart"
-    RuntimePubspec = "packages/app_delivery_runtime/pubspec.yaml"
-  },
-  @{
-    RuntimeName = "app_taxi_captain_runtime"
-    RuntimeLib = "packages/app_taxi_captain_runtime/lib/app_taxi_captain_runtime.dart"
-    RuntimePubspec = "packages/app_taxi_captain_runtime/pubspec.yaml"
   },
   @{
     RuntimeName = "app_company_runtime"
@@ -157,14 +131,9 @@ foreach ($contract in $runtimeContracts) {
   }
   $pubspecText = Get-Text $contract.RuntimePubspec
   $hasBestofferDependency = $pubspecText -match "(?m)^\s*bestoffer\s*:"
-  if ($StrictRuntimeNoBridge) {
-    if ($hasBestofferDependency) {
-      Add-Error "Strict mode: bestoffer dependency is forbidden in runtime pubspec: $($contract.RuntimePubspec)"
-    }
-  } else {
-    if (-not $hasBestofferDependency) {
-      Add-Error "Runtime package missing bestoffer bridge dependency: $($contract.RuntimePubspec)"
-    }
+  if ($hasBestofferDependency) {
+    $prefix = if ($StrictRuntimeNoBridge) { "Strict mode: " } else { "" }
+    Add-Error "${prefix}bestoffer dependency is forbidden in runtime pubspec: $($contract.RuntimePubspec)"
   }
 
   if (-not (Test-Path $contract.RuntimeLib)) {
@@ -228,9 +197,6 @@ if ($StrictRuntimeNoBridge) {
 
   $strictSourceRoots = @(
     "packages/app_user_runtime/lib",
-    "packages/app_store_runtime/lib",
-    "packages/app_delivery_runtime/lib",
-    "packages/app_taxi_captain_runtime/lib",
     "packages/app_company_runtime/lib",
     "packages/core_auth/lib",
     "packages/core_design_system/lib",

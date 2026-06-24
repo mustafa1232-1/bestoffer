@@ -69,9 +69,9 @@ class _ServiceProviderProfileScreenState
       mode: LaunchMode.externalApplication,
     );
     if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذر بدء الاتصال حاليًا.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذر بدء الاتصال حاليًا.')));
     }
   }
 
@@ -82,7 +82,9 @@ class _ServiceProviderProfileScreenState
     if (auth.user!.id == profile.userId) return;
     setState(() => _busy = true);
     try {
-      final raw = await ref.read(socialApiProvider).createThread(
+      final raw = await ref
+          .read(socialApiProvider)
+          .createThread(
             profile.userId,
             kind: 'business',
             contextType: 'service_provider',
@@ -96,12 +98,16 @@ class _ServiceProviderProfileScreenState
         MaterialPageRoute(
           builder: (_) => SocialChatThreadScreen(
             threadId: thread.id,
-            peerName: thread.peer.username?.trim().isNotEmpty == true
-                ? '@${thread.peer.username!}'
-                : thread.peer.fullName,
+            peerName: profile.businessName.trim().isNotEmpty
+                ? profile.businessName.trim()
+                : (thread.peer.username?.trim().isNotEmpty == true
+                      ? '@${thread.peer.username!}'
+                      : thread.peer.fullName),
             peerPhone: thread.peerPhone,
-            peerUserId: thread.peer.id,
-            peerImageUrl: thread.peer.imageUrl,
+            peerUserId: profile.userId,
+            peerImageUrl: (profile.logoUrl ?? '').trim().isNotEmpty
+                ? profile.logoUrl
+                : thread.peer.imageUrl,
           ),
         ),
       );

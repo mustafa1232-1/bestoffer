@@ -58,9 +58,7 @@ class StoryCameraOutcome {
   final bool textMode;
 
   const StoryCameraOutcome.media(this.mediaDraft) : textMode = false;
-  const StoryCameraOutcome.text()
-      : mediaDraft = null,
-        textMode = true;
+  const StoryCameraOutcome.text() : mediaDraft = null, textMode = true;
 }
 
 /// Reel entry point — opens the camera and returns the captured preview draft.
@@ -81,9 +79,8 @@ Future<StoryCameraOutcome?> showStoryCamera(BuildContext context) {
   return Navigator.of(context).push<StoryCameraOutcome>(
     MaterialPageRoute(
       fullscreenDialog: true,
-      builder: (_) => const SocialCameraCreatorScreen(
-        mode: SocialCreatorMode.story,
-      ),
+      builder: (_) =>
+          const SocialCameraCreatorScreen(mode: SocialCreatorMode.story),
     ),
   );
 }
@@ -185,7 +182,8 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
     try {
       await _tempMediaService.clearAgedFiles();
       final permissionState = await _permissionsService.ensure(
-        needsMicrophone: widget.mode == SocialCreatorMode.reel ||
+        needsMicrophone:
+            widget.mode == SocialCreatorMode.reel ||
             _captureType == CreatorCaptureType.video,
       );
       if (!mounted) return;
@@ -541,7 +539,8 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
     int? coverFrameMs,
     bool applySelectedFilter = true,
   }) {
-    final media = mediaFile ??
+    final media =
+        mediaFile ??
         LocalMediaFile(
           name: file!.uri.pathSegments.last,
           path: file.path,
@@ -554,15 +553,17 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
       duration: duration,
       mediaSize: mediaSize,
       captureSource: captureSource,
-      filterId: (!applySelectedFilter || _selectedFilterId == creatorNoFilter.id)
+      filterId:
+          (!applySelectedFilter || _selectedFilterId == creatorNoFilter.id)
           ? null
           : _selectedFilterId,
       effectId: effectId,
       trackingSamples: trackingSamples,
       coverFrameMs: coverFrameMs,
       timeMoodKey: _timeMoodKey,
-      placePulseLabel:
-          (_placePulseLabel ?? '').trim().isEmpty ? null : _placePulseLabel,
+      placePulseLabel: (_placePulseLabel ?? '').trim().isEmpty
+          ? null
+          : _placePulseLabel,
       hasMaslakiSeal: _maslakiSealEnabled,
       maslakiMoodKey: _maslakiMoodKey,
     );
@@ -583,7 +584,9 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
     VideoPlayerController? controller;
     if (preview.clip.captureType == CreatorCaptureType.video &&
         (preview.clip.mediaFile.path ?? '').trim().isNotEmpty) {
-      controller = VideoPlayerController.file(File(preview.clip.mediaFile.path!));
+      controller = VideoPlayerController.file(
+        File(preview.clip.mediaFile.path!),
+      );
       await controller.initialize();
       await controller.setLooping(true);
       await controller.play();
@@ -886,8 +889,9 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
 
   Future<void> _openPlacePulseSheet() async {
     final l10n = context.l10n;
-    final searchController =
-        TextEditingController(text: _placePulseLabel ?? '');
+    final searchController = TextEditingController(
+      text: _placePulseLabel ?? '',
+    );
     final result = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -943,8 +947,11 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.location_on_rounded,
-                              color: Color(0xFFD4AF37), size: 20),
+                          const Icon(
+                            Icons.location_on_rounded,
+                            color: Color(0xFFD4AF37),
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             l10n.socialCreatorPlacePulse,
@@ -969,8 +976,9 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.my_location_rounded),
                         label: Text(
@@ -1032,8 +1040,8 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(_cameraCaptureService.dispose());
     unawaited(_cameraCaptureService.stopPreviewStream());
+    unawaited(_cameraCaptureService.dispose());
     unawaited(_faceTrackingService.dispose());
     unawaited(_previewVideoController?.dispose());
     _recordingController.dispose();
@@ -1091,11 +1099,12 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
         children: [
           _fullScreenCamera(),
           const _StageScrim(),
-          if (_isLayoutMode) _LayoutGridFrame(
-            controller: _layoutController,
-            onSelectTile: (index) => _layoutController.selectTile(index),
-            onDeleteTile: (index) => _layoutController.deleteTile(index),
-          ),
+          if (_isLayoutMode)
+            _LayoutGridFrame(
+              controller: _layoutController,
+              onSelectTile: (index) => _layoutController.selectTile(index),
+              onDeleteTile: (index) => _layoutController.deleteTile(index),
+            ),
           if (_maslakiSealEnabled)
             const PositionedDirectional(
               bottom: 150,
@@ -1116,7 +1125,8 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
               !_recordingController.isRecording)
             _timeMoodBadge(),
           _topBar(l10n),
-          if (_isStoryMode && !_recordingController.isRecording) _sideRail(l10n),
+          if (_isStoryMode && !_recordingController.isRecording)
+            _sideRail(l10n),
           _bottomArea(l10n),
         ],
       ),
@@ -1188,8 +1198,11 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.wb_twilight_rounded,
-                      size: 14, color: Color(0xFFD4AF37)),
+                  const Icon(
+                    Icons.wb_twilight_rounded,
+                    size: 14,
+                    color: Color(0xFFD4AF37),
+                  ),
                   const SizedBox(width: 5),
                   Text(
                     _timeMoodLabel(),
@@ -1241,7 +1254,8 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
   Widget _sideRail(AppLocalizations l10n) {
     // Only surface the Effects tool when real (supported) AR effects exist.
     // Primitive code-drawn effects are intentionally hidden until pro assets land.
-    final showEffects = _storyMode == _StoryMode.camera &&
+    final showEffects =
+        _storyMode == _StoryMode.camera &&
         _captureType == CreatorCaptureType.photo &&
         creatorEffectPresets.any((effect) => effect.supported);
     return PositionedDirectional(
@@ -1352,8 +1366,9 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
         );
       case _CameraTray.effects:
         // Only supported (asset-backed) effects are ever shown.
-        final effects =
-            creatorEffectPresets.where((effect) => effect.supported).toList();
+        final effects = creatorEffectPresets
+            .where((effect) => effect.supported)
+            .toList();
         return _CarouselTray(
           height: 56,
           itemCount: effects.length + 1,
@@ -1463,8 +1478,9 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
             child: _CaptureButton(
               recording: recording,
               busy: _exporting,
-              captureType:
-                  _isLayoutMode ? CreatorCaptureType.photo : _captureType,
+              captureType: _isLayoutMode
+                  ? CreatorCaptureType.photo
+                  : _captureType,
             ),
           ),
           const Spacer(),
@@ -1477,12 +1493,12 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
                     onTap: _finishLayout,
                   )
                 : (recording
-                    ? const SizedBox.shrink()
-                    : _GlassIconButton(
-                        icon: Icons.cameraswitch_outlined,
-                        tooltip: l10n.socialCreatorSwitchCamera,
-                        onTap: _toggleCamera,
-                      )),
+                      ? const SizedBox.shrink()
+                      : _GlassIconButton(
+                          icon: Icons.cameraswitch_outlined,
+                          tooltip: l10n.socialCreatorSwitchCamera,
+                          onTap: _toggleCamera,
+                        )),
           ),
         ],
       ),
@@ -1683,11 +1699,7 @@ class _SideRailButton extends StatelessWidget {
                   width: 1.2,
                 ),
               ),
-              child: Icon(
-                icon,
-                color: active ? gold : Colors.white,
-                size: 22,
-              ),
+              child: Icon(icon, color: active ? gold : Colors.white, size: 22),
             ),
             const SizedBox(height: 3),
             SizedBox(
@@ -1916,7 +1928,9 @@ class _LayoutGridFrame extends StatelessWidget {
               children: List<Widget>.generate(template.rows, (row) {
                 return Expanded(
                   child: Padding(
-                    padding: EdgeInsets.only(bottom: row == template.rows - 1 ? 0 : 3),
+                    padding: EdgeInsets.only(
+                      bottom: row == template.rows - 1 ? 0 : 3,
+                    ),
                     child: Row(
                       children: List<Widget>.generate(template.columns, (col) {
                         final index = row * template.columns + col;
@@ -2088,8 +2102,8 @@ class _CaptureButton extends StatelessWidget {
             color: busy
                 ? const Color(0xFF8A7A49)
                 : recording
-                    ? Colors.redAccent
-                    : const Color(0xFFD4AF37),
+                ? Colors.redAccent
+                : const Color(0xFFD4AF37),
           ),
           child: busy
               ? const Padding(
@@ -2100,8 +2114,8 @@ class _CaptureButton extends StatelessWidget {
                   captureType == CreatorCaptureType.photo
                       ? Icons.camera_alt_rounded
                       : (recording
-                          ? Icons.stop_rounded
-                          : Icons.fiber_manual_record_rounded),
+                            ? Icons.stop_rounded
+                            : Icons.fiber_manual_record_rounded),
                   color: captureType == CreatorCaptureType.photo || recording
                       ? Colors.white
                       : const Color(0xFF0D1B2A),
@@ -2175,8 +2189,8 @@ class _CreatorPreviewScaffold extends StatelessWidget {
                   child: Text(
                     l10n.socialCreatorStorySegments(draft.storySegments.length),
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -2206,8 +2220,8 @@ class _CreatorPreviewScaffold extends StatelessWidget {
                   child: Text(
                     l10n.socialCreatorCoverFrame,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 Slider(
@@ -2301,15 +2315,19 @@ class _CreatorPermissionScaffold extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.camera_alt_outlined, size: 52, color: Color(0xFFE6C98A)),
+              const Icon(
+                Icons.camera_alt_outlined,
+                size: 52,
+                color: Color(0xFFE6C98A),
+              ),
               const SizedBox(height: 14),
               Text(
                 l10n.socialCreatorPermissionsTitle,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
@@ -2317,9 +2335,9 @@ class _CreatorPermissionScaffold extends StatelessWidget {
                     ? l10n.socialCreatorPermissionsPermanentlyDenied
                     : l10n.socialCreatorPermissionsBody,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.white70,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(color: Colors.white70),
               ),
               const SizedBox(height: 18),
               FilledButton.icon(
@@ -2331,7 +2349,9 @@ class _CreatorPermissionScaffold extends StatelessWidget {
                   unawaited(onRetry());
                 },
                 icon: Icon(
-                  permanentlyDenied ? Icons.settings_outlined : Icons.refresh_rounded,
+                  permanentlyDenied
+                      ? Icons.settings_outlined
+                      : Icons.refresh_rounded,
                 ),
                 label: Text(
                   permanentlyDenied ? l10n.commonSettings : l10n.commonRetry,

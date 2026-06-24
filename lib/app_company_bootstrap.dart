@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/settings/app_settings_controller.dart';
@@ -29,6 +30,7 @@ import 'l10n/app_localizations.dart';
 /// وسياق شركة نشطة مستقلين عن جلسة التطبيق العامة.
 void runCompanyAppBootstrap() {
   WidgetsFlutterBinding.ensureInitialized();
+  installAppRuntimeErrorPresentation();
   unawaited(MediaCacheService.instance.scheduleMaintenance());
   runApp(
     ProviderScope(

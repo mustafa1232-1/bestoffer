@@ -43,26 +43,49 @@ val googleServicesJsonText = if (googleServicesJsonFile.exists()) {
 } else {
     ""
 }
-val configuredApplicationId =
-    (project.findProperty("APP_ID") as String?)
-        ?.trim()
-        ?.takeIf { it.isNotEmpty() }
-        ?: "com.maslaki.user"
 
-val configuredAppLabel =
-    (project.findProperty("APP_LABEL") as String?)
-        ?.trim()
-        ?.takeIf { it.isNotEmpty() }
-val effectiveAppLabel = configuredAppLabel ?: "Maslaki"
+data class FlavorConfig(
+    val applicationId: String,
+    val appLabel: String,
+    val deepLinkScheme: String,
+)
 
+val flavorConfigs =
+    mapOf(
+        "user" to FlavorConfig("com.maslaki.user", "مسلكي", "maslaki-user"),
+        "delivery" to FlavorConfig("com.maslaki.delivery", "مسلكي دلفري", "maslaki-delivery"),
+        "captain" to FlavorConfig("com.maslaki.captain", "مسلكي كابتن", "maslaki-captain"),
+        "store" to FlavorConfig("com.maslaki.store", "متجر مسلكي", "maslaki-store"),
+        "company" to FlavorConfig("com.maslaki.company", "شركات مسلكي", "maslaki-company"),
+        "pharmacy" to FlavorConfig("com.maslaki.pharmacy", "صيدلية مسلكي", "maslaki-pharmacy"),
+    )
+
+fun requestedFlavorName(): String {
+    val explicit =
+        (project.findProperty("APP_FLAVOR") as String?)
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { it in flavorConfigs.keys }
+    if (explicit != null) return explicit
+
+    val taskNames = gradle.startParameter.taskNames.map { it.lowercase() }
+    for (flavor in flavorConfigs.keys) {
+        if (taskNames.any { task -> task.contains(flavor) }) {
+            return flavor
+        }
+    }
+    return "user"
+}
+
+val requestedFlavorConfig = flavorConfigs.getValue(requestedFlavorName())
 val hasConfiguredFirebaseClient =
-    googleServicesJsonText.contains("\"package_name\": \"$configuredApplicationId\"")
+    googleServicesJsonText.contains("\"package_name\": \"${requestedFlavorConfig.applicationId}\"")
 
 if (hasConfiguredFirebaseClient) {
     apply(plugin = "com.google.gms.google-services")
 } else {
     logger.lifecycle(
-        "Skipping Google Services plugin for applicationId=$configuredApplicationId; no matching client in google-services.json.",
+        "Skipping Google Services plugin for applicationId=${requestedFlavorConfig.applicationId}; no matching client in google-services.json.",
     )
 }
 
@@ -83,12 +106,25 @@ android {
     }
 
     defaultConfig {
-        applicationId = configuredApplicationId
         minSdk = flutter.minSdkVersion
         targetSdk = maxOf(flutter.targetSdkVersion, 35)
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["appLabel"] = effectiveAppLabel
+        manifestPlaceholders["appLabel"] = flavorConfigs.getValue("user").appLabel
+        manifestPlaceholders["deepLinkScheme"] = flavorConfigs.getValue("user").deepLinkScheme
+    }
+
+    flavorDimensions += "app"
+
+    productFlavors {
+        flavorConfigs.forEach { (name, config) ->
+            create(name) {
+                dimension = "app"
+                applicationId = config.applicationId
+                manifestPlaceholders["appLabel"] = config.appLabel
+                manifestPlaceholders["deepLinkScheme"] = config.deepLinkScheme
+            }
+        }
     }
 
     signingConfigs {

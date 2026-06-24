@@ -12,12 +12,32 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app:
-          - app_user
-          - app_store
-          - app_delivery
-          - app_taxi_captain
-          - app_company
+        include:
+          - app: app_user
+            working_directory: apps/app_user
+            target: ""
+            app_id: ""
+            app_label: ""
+          - app: app_store
+            working_directory: .
+            target: lib/main_store.dart
+            app_id: com.maslaki.store
+            app_label: Maslaki Store
+          - app: app_delivery
+            working_directory: apps/app_delivery
+            target: ""
+            app_id: ""
+            app_label: ""
+          - app: app_taxi_captain
+            working_directory: apps/app_taxi_captain
+            target: ""
+            app_id: ""
+            app_label: ""
+          - app: app_company
+            working_directory: apps/app_company
+            target: ""
+            app_id: ""
+            app_label: ""
     env:
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
@@ -38,16 +58,32 @@ jobs:
 
       - name: ${{ matrix.app }} pub get
         run: flutter pub get
-        working-directory: apps/${{ matrix.app }}
+        working-directory: ${{ matrix.working_directory }}
 
       - name: ${{ matrix.app }} debug apk
-        run: flutter build apk --debug
-        working-directory: apps/${{ matrix.app }}
+        env:
+          ORG_GRADLE_PROJECT_APP_ID: ${{ matrix.app_id }}
+          ORG_GRADLE_PROJECT_APP_LABEL: ${{ matrix.app_label }}
+        run: |
+          args=(build apk --debug)
+          if [ -n "${{ matrix.target }}" ]; then
+            args+=(-t "${{ matrix.target }}")
+          fi
+          flutter "${args[@]}"
+        working-directory: ${{ matrix.working_directory }}
 
       - name: ${{ matrix.app }} release appbundle
         if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
-        run: flutter build appbundle --release
-        working-directory: apps/${{ matrix.app }}
+        env:
+          ORG_GRADLE_PROJECT_APP_ID: ${{ matrix.app_id }}
+          ORG_GRADLE_PROJECT_APP_LABEL: ${{ matrix.app_label }}
+        run: |
+          args=(build appbundle --release)
+          if [ -n "${{ matrix.target }}" ]; then
+            args+=(-t "${{ matrix.target }}")
+          fi
+          flutter "${args[@]}"
+        working-directory: ${{ matrix.working_directory }}
 
       - name: Release signing not configured
         if: ${{ !(secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '') }}

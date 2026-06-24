@@ -4,8 +4,8 @@ Company Portal is a standalone product that sits above the existing store model.
 It is not mounted inside the user app or the store app.
 
 ## Entry points
-- User app: `apps/app_user/lib/main.dart`
-- Store app: `apps/app_store/lib/main.dart`
+- User app: `lib/main.dart`
+- Store app: `lib/main_store.dart`
 - Company app: `apps/app_company/lib/main.dart`
 
 ## Shared backend boundaries

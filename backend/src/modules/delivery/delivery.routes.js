@@ -15,8 +15,10 @@ import { requireDeliveryAgent } from "../../shared/middleware/delivery-agent.mid
  */
 export const deliveryRouter = Router();
 
-deliveryRouter.use(requireAuth, requireDeliveryAgent);
+deliveryRouter.use(requireAuth);
 
+deliveryRouter.get("/orders/:orderId", c.orderDetail);
+deliveryRouter.use(requireDeliveryAgent);
 deliveryRouter.get("/orders/current", c.currentOrders);
 deliveryRouter.get("/orders/history", c.history);
 deliveryRouter.patch("/orders/:orderId/claim", c.claimOrder);

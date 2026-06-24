@@ -11,6 +11,7 @@ import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'social_chat_thread_screen.dart';
 import 'social_profile_screen.dart';
+import 'widgets/social_identity_view.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -233,10 +234,12 @@ class _SocialUserSearchScreenState
       MaterialPageRoute<void>(
         builder: (_) => SocialChatThreadScreen(
           threadId: thread.id,
-          peerName: thread.peer.fullName,
+          peerName: socialPrimaryIdentityLabel(user),
           peerPhone: thread.peerPhone,
-          peerUserId: thread.peer.id,
-          peerImageUrl: thread.peer.imageUrl,
+          peerUserId: user.id,
+          peerImageUrl: (thread.peer.imageUrl ?? '').trim().isNotEmpty
+              ? thread.peer.imageUrl
+              : user.imageUrl,
         ),
       ),
     );

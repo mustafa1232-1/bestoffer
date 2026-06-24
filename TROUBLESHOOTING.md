@@ -57,10 +57,10 @@ Check:
 - Cloudflare R2 configuration
 
 ## Current shipping entrypoints
-- `apps/app_user/lib/main.dart`
-- `apps/app_store/lib/main.dart`
+- `lib/main.dart`
+- `lib/main_store.dart`
 - `apps/app_delivery/lib/main.dart`
 - `apps/app_taxi_captain/lib/main.dart`
 - `apps/app_company/lib/main.dart`
 
-`lib/main.dart` is maintenance fallback only and should not be used as the primary release target.
+The old standalone store harness has been retired; use `lib/main_store.dart`.

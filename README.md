@@ -115,25 +115,32 @@ Supporting docs:
 
 ## Multi-App structure
 
-The repository now has standalone Flutter apps under `apps/`:
+The repository has root user/store entrypoints plus standalone service apps
+under `apps/`:
 
-- `apps/app_user` -> user app (includes rider taxi flow only)
-- `apps/app_store` -> store owner app
+- `lib/main.dart` -> user app
+- `lib/main_store.dart` -> store owner app target in the root app (`com.maslaki.store`)
 - `apps/app_delivery` -> delivery app
 - `apps/app_taxi_captain` -> taxi captain app
 - `apps/app_company` -> company/ops app
 
 Current state:
-- `apps/*` entrypoints are isolated behind shell packages under `packages/app_*_shell`.
+- app entrypoints are isolated behind runtime packages under `packages/app_*_runtime`.
 - Direct imports from `apps/*/lib` to `package:bestoffer/*` are blocked by guard scripts.
 - Full hard split (removing shell bridge to root runtime) is still tracked as remaining scope.
 
 Quick run examples:
 
 ```powershell
-cd apps/app_user
 flutter pub get
-flutter run
+flutter run -t lib/main.dart
+```
+
+```powershell
+flutter pub get
+$env:ORG_GRADLE_PROJECT_APP_ID='com.maslaki.store'
+$env:ORG_GRADLE_PROJECT_APP_LABEL='Maslaki Store'
+flutter run -t lib/main_store.dart
 ```
 
 ```powershell

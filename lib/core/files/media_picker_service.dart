@@ -25,24 +25,29 @@ void _ensureAndroidPhotoPicker() {
 /// (no in-memory bytes, so large videos stay light) with a resolved mimeType.
 Future<LocalMediaFile?> pickGalleryMediaFromDevice() async {
   _ensureAndroidPhotoPicker();
-  final picker = ImagePicker();
-  final XFile? file = await picker.pickMedia();
-  if (file == null) return null;
-  final path = file.path;
-  if (path.isEmpty) return null;
+  try {
+    final picker = ImagePicker();
+    final XFile? file = await picker.pickMedia();
+    if (file == null) return null;
+    final path = file.path;
+    if (path.isEmpty) return null;
 
-  final extension =
-      path.contains('.') ? path.split('.').last.toLowerCase() : '';
-  final resolvedMime = (file.mimeType != null && file.mimeType!.contains('/'))
-      ? file.mimeType!
-      : _guessMimeType(extension);
+    final extension = path.contains('.')
+        ? path.split('.').last.toLowerCase()
+        : '';
+    final resolvedMime = (file.mimeType != null && file.mimeType!.contains('/'))
+        ? file.mimeType!
+        : _guessMimeType(extension);
 
-  return LocalMediaFile(
-    name: file.name.isEmpty ? 'gallery_media' : file.name,
-    path: path,
-    bytes: null,
-    mimeType: resolvedMime,
-  );
+    return LocalMediaFile(
+      name: file.name.isEmpty ? 'gallery_media' : file.name,
+      path: path,
+      bytes: null,
+      mimeType: resolvedMime,
+    );
+  } catch (_) {
+    return null;
+  }
 }
 
 Future<LocalMediaFile?> pickChatImageFromDevice() {
@@ -89,6 +94,53 @@ Future<LocalMediaFile?> pickPostMediaFromDevice() async {
   );
 }
 
+Future<List<LocalMediaFile>> pickMultiplePostMediaFromDevice({
+  int maxFiles = 10,
+}) async {
+  final FilePickerResult? result;
+  try {
+    result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowMultiple: true,
+      withData: true,
+      allowedExtensions: const [
+        'jpg',
+        'jpeg',
+        'png',
+        'webp',
+        'gif',
+        'mp4',
+        'mov',
+        'webm',
+        'mkv',
+        '3gp',
+      ],
+    );
+  } catch (_) {
+    return const <LocalMediaFile>[];
+  }
+  if (result == null || result.files.isEmpty) {
+    return const <LocalMediaFile>[];
+  }
+  final out = <LocalMediaFile>[];
+  for (final file in result.files.take(maxFiles)) {
+    if ((file.path == null || file.path!.isEmpty) &&
+        (file.bytes == null || file.bytes!.isEmpty)) {
+      continue;
+    }
+    final extension = file.extension?.toLowerCase() ?? '';
+    out.add(
+      LocalMediaFile(
+        name: file.name,
+        path: file.path,
+        bytes: file.bytes,
+        mimeType: _guessMimeType(extension),
+      ),
+    );
+  }
+  return out;
+}
+
 Future<LocalMediaFile?> pickChatAttachmentFromDevice() async {
   return _pickSingleFile(
     allowedExtensions: const [
@@ -123,12 +175,17 @@ Future<LocalMediaFile?> pickJobApplicationAttachmentFromDevice() async {
 Future<LocalMediaFile?> _pickSingleFile({
   required List<String> allowedExtensions,
 }) async {
-  final result = await FilePicker.platform.pickFiles(
-    type: FileType.custom,
-    allowedExtensions: allowedExtensions,
-    allowMultiple: false,
-    withData: true,
-  );
+  final FilePickerResult? result;
+  try {
+    result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: allowedExtensions,
+      allowMultiple: false,
+      withData: true,
+    );
+  } catch (_) {
+    return null;
+  }
 
   if (result == null || result.files.isEmpty) return null;
   final file = result.files.first;

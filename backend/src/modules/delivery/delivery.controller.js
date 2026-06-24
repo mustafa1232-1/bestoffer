@@ -62,6 +62,19 @@ export async function history(req, res, next) {
     next(e);
   }
 }
+export async function orderDetail(req, res, next) {
+  try {
+    const data = await service.orderDetail({
+      requestUserId: req.userId,
+      requestUserRole: req.userRole,
+      userIsSuperAdmin: req.userIsSuperAdmin === true,
+      orderId: req.params.orderId,
+    });
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
 
 /**
  * يحاول claim لطلب توصيل جديد.

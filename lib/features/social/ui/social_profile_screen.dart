@@ -531,10 +531,26 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
       MaterialPageRoute<void>(
         builder: (_) => SocialChatThreadScreen(
           threadId: thread.id,
-          peerName: socialPrimaryIdentityLabel(thread.peer),
+          peerName: socialPrimaryIdentityLabel(
+            SocialAuthor(
+              id: profile.id,
+              username: profile.username,
+              fullName: profile.fullName,
+              imageUrl: profile.imageUrl,
+              phone: profile.phone,
+              role: profile.role,
+              badges: profile.badges,
+              isResidentVerified: profile.isResidentVerified,
+              isMerchantVerified: profile.isMerchantVerified,
+              isPremiumCreator:
+                  profile.isPremiumMember && profile.premiumBadgeVisible,
+            ),
+          ),
           peerPhone: thread.peerPhone,
-          peerUserId: thread.peer.id,
-          peerImageUrl: thread.peer.imageUrl,
+          peerUserId: profile.id,
+          peerImageUrl: (thread.peer.imageUrl ?? '').trim().isNotEmpty
+              ? thread.peer.imageUrl
+              : profile.imageUrl,
         ),
       ),
     );

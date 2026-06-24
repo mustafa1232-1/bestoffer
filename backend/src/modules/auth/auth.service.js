@@ -3,6 +3,7 @@ import {
   createUser,
   createCustomerAddress,
   deactivateCustomerAddress,
+  findActiveSessionByRefreshToken,
   findUserByIdWithAuthFields,
   findUserByPhone,
   getCustomerDefaultAddress,
@@ -14,6 +15,7 @@ import {
   resetLoginProtection,
   revokeAllUserSessions,
   revokeUserSession,
+  rotateUserSessionTokens,
   setCustomerDefaultAddress,
   isUsernameTaken,
   updateCustomerAddress,
@@ -217,9 +219,17 @@ function buildSessionTimestamps() {
   };
 }
 
+function createRefreshToken() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function createTokenJti() {
+  return crypto.randomBytes(18).toString("base64url");
+}
+
 async function issueSessionToken(user, deviceContext = {}) {
-  const tokenJti = crypto.randomBytes(18).toString("base64url");
-  const refreshToken = crypto.randomBytes(24).toString("base64url");
+  const tokenJti = createTokenJti();
+  const refreshToken = createRefreshToken();
   const { expiresAt } = buildSessionTimestamps();
 
   const session = await createUserSession({
@@ -259,6 +269,7 @@ async function issueSessionToken(user, deviceContext = {}) {
 
   return {
     token,
+    refreshToken,
     sessionId: session?.id || null,
   };
 }
@@ -320,7 +331,12 @@ export async function register(dto, deviceContext = {}) {
 
   const session = await issueSessionToken(created, deviceContext);
 
-  return { token: session.token, sessionId: session.sessionId, user: mapUser(created) };
+  return {
+    token: session.token,
+    refreshToken: session.refreshToken,
+    sessionId: session.sessionId,
+    user: mapUser(created),
+  };
 }
 
 export async function login({ phone, pin }, deviceContext = {}) {
@@ -386,6 +402,7 @@ export async function login({ phone, pin }, deviceContext = {}) {
 
   return {
     token: session.token,
+    refreshToken: session.refreshToken,
     sessionId: session.sessionId,
     user: {
       id: user.id,
@@ -398,6 +415,95 @@ export async function login({ phone, pin }, deviceContext = {}) {
       apartment: user.apartment,
       imageUrl: user.image_url,
     },
+  };
+}
+
+export async function refreshSession(refreshToken, deviceContext = {}) {
+  const normalizedRefreshToken = String(refreshToken || "").trim();
+  if (normalizedRefreshToken.length < 24 || normalizedRefreshToken.length > 256) {
+    const err = new Error("INVALID_REFRESH_TOKEN");
+    err.status = 401;
+    throw err;
+  }
+
+  const row = await findActiveSessionByRefreshToken(normalizedRefreshToken);
+  if (!row) {
+    const err = new Error("INVALID_REFRESH_TOKEN");
+    err.status = 401;
+    throw err;
+  }
+
+  const expectedDevice = String(row.device_fingerprint || "").trim();
+  const currentDevice = String(deviceContext.deviceFingerprint || "").trim();
+  if (env.authDeviceBindingRequired) {
+    if (!expectedDevice || !currentDevice || expectedDevice !== currentDevice) {
+      const err = new Error("INVALID_REFRESH_TOKEN");
+      err.status = 401;
+      throw err;
+    }
+  } else if (expectedDevice && currentDevice && expectedDevice !== currentDevice) {
+    const err = new Error("INVALID_REFRESH_TOKEN");
+    err.status = 401;
+    throw err;
+  }
+
+  const nextRefreshToken = createRefreshToken();
+  const nextTokenJti = createTokenJti();
+  const session = await rotateUserSessionTokens({
+    sessionId: row.session_id,
+    userId: row.id,
+    refreshToken: nextRefreshToken,
+    tokenJti: nextTokenJti,
+    ipAddress: deviceContext.ipAddress || null,
+    userAgent: deviceContext.userAgent || null,
+  });
+  if (!session) {
+    const err = new Error("INVALID_REFRESH_TOKEN");
+    err.status = 401;
+    throw err;
+  }
+
+  invalidateSessionAccessCacheForSession({
+    sessionId: row.session_id,
+    userId: row.id,
+  });
+
+  const user = {
+    id: row.id,
+    username: row.username,
+    full_name: row.full_name,
+    phone: row.phone,
+    preferred_locale: row.preferred_locale,
+    role: row.role,
+    block: row.block,
+    building_number: row.building_number,
+    apartment: row.apartment,
+    image_url: row.image_url,
+    work_title: row.work_title,
+    work_company: row.work_company,
+    is_super_admin: row.is_super_admin,
+    is_taxi_captain: row.is_taxi_captain,
+  };
+
+  const token = signAccessToken(
+    {
+      id: row.id,
+      role: row.role || "user",
+      isSuperAdmin: resolveSuperAdmin(row),
+      isTaxiCaptain: row.is_taxi_captain === true,
+    },
+    {
+      sessionId: session.id,
+      tokenJti: nextTokenJti,
+      deviceFingerprint: expectedDevice || currentDevice || null,
+    }
+  );
+
+  return {
+    token,
+    refreshToken: nextRefreshToken,
+    sessionId: session.id,
+    user: mapUser(user),
   };
 }
 

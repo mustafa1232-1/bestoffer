@@ -3,6 +3,7 @@ import {
   validateAddressCreate,
   validateAddressUpdate,
   validateLogin,
+  validateRefreshSession,
   validateRegister,
   validateRegisterWithCard,
   validateUpdateAccount,
@@ -138,6 +139,23 @@ export async function login(req, res, next) {
     if (!v.ok) return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
 
     const out = await service.login(req.body, extractDeviceContext(req));
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function refreshSession(req, res, next) {
+  try {
+    const v = validateRefreshSession(req.body || {});
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const out = await service.refreshSession(
+      v.value.refreshToken,
+      extractDeviceContext(req)
+    );
     res.json(out);
   } catch (e) {
     next(e);

@@ -812,9 +812,8 @@ class NotificationNavigation {
         final conversationId = entityId;
         if ((conversationId ?? 0) > 0) {
           return MaterialPageRoute(
-            builder: (_) => PharmacyConversationScreen(
-              conversationId: conversationId,
-            ),
+            builder: (_) =>
+                PharmacyConversationScreen(conversationId: conversationId),
           );
         }
         return MaterialPageRoute(
@@ -1219,10 +1218,13 @@ class NotificationNavigation {
           normalizedAction.contains('requested') ||
           normalizedType.contains('delivery_order_available') ||
           normalizedType.contains('delivery_order_offer');
-      final isReadyForPickupNotification =
-          normalizedAction.contains('ready_for_pickup') ||
-          normalizedType.contains('ready_for_pickup');
+      final hasOrderId = orderId != null && orderId > 0;
       if (target == 'courier_dashboard' || target == 'delivery_dashboard') {
+        if (hasOrderId && !isOfferNotification) {
+          return MaterialPageRoute(
+            builder: (_) => CourierOrderDetailsPage(orderId: orderId),
+          );
+        }
         return MaterialPageRoute(builder: (_) => const CourierDashboardPage());
       }
       if (target == 'courier_orders_new' ||
@@ -1238,9 +1240,9 @@ class NotificationNavigation {
             builder: (_) => const CourierOrdersNewPage(),
           );
         }
-        if (isReadyForPickupNotification) {
+        if (hasOrderId) {
           return MaterialPageRoute(
-            builder: (_) => const CourierOrdersCurrentPage(),
+            builder: (_) => CourierOrderDetailsPage(orderId: orderId),
           );
         }
         return MaterialPageRoute(
@@ -1248,11 +1250,21 @@ class NotificationNavigation {
         );
       }
       if (target == 'courier_orders_completed') {
+        if (hasOrderId) {
+          return MaterialPageRoute(
+            builder: (_) => CourierOrderDetailsPage(orderId: orderId),
+          );
+        }
         return MaterialPageRoute(
           builder: (_) => const CourierOrdersCompletedPage(),
         );
       }
       if (target == 'courier_orders_cancelled') {
+        if (hasOrderId) {
+          return MaterialPageRoute(
+            builder: (_) => CourierOrderDetailsPage(orderId: orderId),
+          );
+        }
         return MaterialPageRoute(
           builder: (_) => const CourierOrdersCancelledPage(),
         );
@@ -1279,6 +1291,11 @@ class NotificationNavigation {
       if (target == 'order_tracking' ||
           targetModule == 'courier' ||
           target.startsWith('courier_')) {
+        if (!hasOrderId) {
+          return MaterialPageRoute(
+            builder: (_) => const CourierNotificationsPage(),
+          );
+        }
         return MaterialPageRoute(
           builder: (_) => CourierOrderDetailsPage(orderId: orderId),
         );
@@ -1304,8 +1321,10 @@ class NotificationNavigation {
 
     final allowExistingActiveAccess =
         entry.allowExistingActiveAccess &&
-        <String>{'service_request_details', 'services_provider_requests'}
-            .contains(target) &&
+        <String>{
+          'service_request_details',
+          'services_provider_requests',
+        }.contains(target) &&
         ((payload.requestId ?? payload.entityId) ?? 0) > 0;
     if (allowExistingActiveAccess) return null;
 

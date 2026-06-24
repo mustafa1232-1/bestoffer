@@ -6,8 +6,8 @@ import '../network/request_signing.dart';
 class SecureStore {
   static const _storage = FlutterSecureStorage();
   static const _tokenKey = 'access_token';
-  static const _authScopedKeys = <String>{
-    _tokenKey,
+  static const _refreshTokenKey = 'refresh_token';
+  static const _requestSigningKeys = <String>{
     requestSigningKeyIdStorageKey,
     requestSigningSecretStorageKey,
     requestSigningIssuedAtStorageKey,
@@ -15,14 +15,21 @@ class SecureStore {
     requestSigningAlgorithmStorageKey,
     requestSigningRefreshWindowStorageKey,
   };
+  static const _authScopedKeys = <String>{
+    _tokenKey,
+    _refreshTokenKey,
+    ..._requestSigningKeys,
+  };
   static final Map<String, String> _volatileValues = {};
   static String? _volatileToken;
 
   Future<void> saveToken(String token) async {
     final previousToken =
-        _volatileToken ?? _volatileValues[_tokenKey] ?? AuthSessionTokenCache.currentToken;
+        _volatileToken ??
+        _volatileValues[_tokenKey] ??
+        AuthSessionTokenCache.currentToken;
     if (previousToken != null && previousToken != token) {
-      for (final key in _authScopedKeys.where((key) => key != _tokenKey)) {
+      for (final key in _requestSigningKeys) {
         _volatileValues.remove(key);
         try {
           await _storage.delete(key: key);
@@ -41,6 +48,17 @@ class SecureStore {
     }
   }
 
+  Future<void> saveAuthTokens({
+    required String accessToken,
+    String? refreshToken,
+  }) async {
+    await saveToken(accessToken);
+    final normalizedRefreshToken = refreshToken?.trim();
+    if (normalizedRefreshToken != null && normalizedRefreshToken.isNotEmpty) {
+      await writeString(_refreshTokenKey, normalizedRefreshToken);
+    }
+  }
+
   Future<String?> readToken() async {
     final value = await readString(_tokenKey);
     if (value != null && value.isNotEmpty) {
@@ -54,6 +72,12 @@ class SecureStore {
         AuthSessionTokenCache.currentToken;
     AuthSessionTokenCache.setToken(fallback);
     return fallback;
+  }
+
+  Future<String?> readRefreshToken() async {
+    final value = await readString(_refreshTokenKey);
+    final normalized = value?.trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
   }
 
   Future<void> clear() async {

@@ -787,13 +787,21 @@ class AppTheme {
     TextTheme base,
     MaslakiThemeTokens tokens,
   ) {
+    // Bundled Arabic fallback (assets/fonts/NotoNaskhArabic). The primary fonts
+    // (Cairo/Tajawal) are fetched at runtime via google_fonts and can be
+    // unavailable in release/offline, and some weights miss glyphs — without a
+    // bundled fallback, letters like "ف" can drop out. Noto Naskh covers the
+    // full Arabic set so every glyph always renders.
+    const arabicFallback = <String>['TajawalLocal'];
     final display = GoogleFonts.cairoTextTheme(base).apply(
       bodyColor: tokens.textPrimary,
       displayColor: tokens.textPrimary,
+      fontFamilyFallback: arabicFallback,
     );
     final body = GoogleFonts.tajawalTextTheme(base).apply(
       bodyColor: tokens.textPrimary,
       displayColor: tokens.textPrimary,
+      fontFamilyFallback: arabicFallback,
     );
 
     return base.copyWith(

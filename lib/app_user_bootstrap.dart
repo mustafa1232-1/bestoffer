@@ -13,7 +13,9 @@ import 'package:maslaki/l10n/app_localizations.dart';
 
 import 'core/calls/in_app_call_overlay_coordinator.dart';
 import 'core/constants/api.dart';
+import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
+import 'core/navigation/app_route_observer.dart';
 import 'core/platform/app_platform_capabilities.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/notifications/local_notification_service.dart';
@@ -36,8 +38,14 @@ import 'features/startup/state/app_startup_controller.dart';
 import 'features/startup/ui/app_first_launch_screen.dart';
 
 const _sentryDsn = String.fromEnvironment('SENTRY_DSN', defaultValue: '');
-const _appEnvName = String.fromEnvironment('APP_ENV', defaultValue: 'development');
-const _appVersionName = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
+const _appEnvName = String.fromEnvironment(
+  'APP_ENV',
+  defaultValue: 'development',
+);
+const _appVersionName = String.fromEnvironment(
+  'APP_VERSION',
+  defaultValue: 'dev',
+);
 final _crashReportGate = _CrashReportGate();
 
 Future<void> _runAppWithOptionalSentry(Widget app) async {
@@ -46,45 +54,42 @@ Future<void> _runAppWithOptionalSentry(Widget app) async {
     return;
   }
 
-  await SentryFlutter.init(
-    (options) {
-      options.dsn = _sentryDsn.trim();
-      options.environment = _appEnvName.trim();
-      options.release = _appVersionName.trim();
-      options.sendDefaultPii = false;
-      options.enableAppLifecycleBreadcrumbs = true;
-      options.enableUserInteractionBreadcrumbs = false;
-      options.enableAutoNativeBreadcrumbs = true;
-      options.beforeBreadcrumb = (breadcrumb, hint) {
-        if (breadcrumb == null) {
-          return null;
+  await SentryFlutter.init((options) {
+    options.dsn = _sentryDsn.trim();
+    options.environment = _appEnvName.trim();
+    options.release = _appVersionName.trim();
+    options.sendDefaultPii = false;
+    options.enableAppLifecycleBreadcrumbs = true;
+    options.enableUserInteractionBreadcrumbs = false;
+    options.enableAutoNativeBreadcrumbs = true;
+    options.beforeBreadcrumb = (breadcrumb, hint) {
+      if (breadcrumb == null) {
+        return null;
+      }
+      final rawData = breadcrumb.data ?? const <String, dynamic>{};
+      final scrubbed = Map<String, dynamic>.from(rawData);
+      for (final key in scrubbed.keys.toList()) {
+        final lower = key.toLowerCase();
+        if (lower.contains('token') ||
+            lower.contains('secret') ||
+            lower.contains('password') ||
+            lower.contains('authorization') ||
+            lower.contains('phone') ||
+            lower.contains('address') ||
+            lower.contains('payment')) {
+          scrubbed[key] = '[redacted]';
         }
-        final rawData = breadcrumb.data ?? const <String, dynamic>{};
-        final scrubbed = Map<String, dynamic>.from(rawData);
-        for (final key in scrubbed.keys.toList()) {
-          final lower = key.toLowerCase();
-          if (lower.contains('token') ||
-              lower.contains('secret') ||
-              lower.contains('password') ||
-              lower.contains('authorization') ||
-              lower.contains('phone') ||
-              lower.contains('address') ||
-              lower.contains('payment')) {
-            scrubbed[key] = '[redacted]';
-          }
-        }
-        return Breadcrumb(
-          message: breadcrumb.message,
-          category: breadcrumb.category,
-          type: breadcrumb.type,
-          level: breadcrumb.level,
-          data: scrubbed,
-          timestamp: breadcrumb.timestamp,
-        );
-      };
-    },
-    appRunner: () => runApp(app),
-  );
+      }
+      return Breadcrumb(
+        message: breadcrumb.message,
+        category: breadcrumb.category,
+        type: breadcrumb.type,
+        level: breadcrumb.level,
+        data: scrubbed,
+        timestamp: breadcrumb.timestamp,
+      );
+    };
+  }, appRunner: () => runApp(app));
 }
 
 /// Purpose:
@@ -110,6 +115,7 @@ Future<void> _runAppWithOptionalSentry(Widget app) async {
 void runUserAppBootstrap() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    installAppRuntimeErrorPresentation();
 
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
@@ -198,10 +204,7 @@ Future<void> _reportCrashEvent({
         'stackTrace': '$stack',
         'platform': appPlatformName,
         'appVersion': _appVersionName,
-        'extra': {
-          'fingerprint': fingerprint,
-          'environment': _appEnvName,
-        },
+        'extra': {'fingerprint': fingerprint, 'environment': _appEnvName},
       },
     );
   } catch (_) {
@@ -294,6 +297,10 @@ class MaslakiApp extends ConsumerStatefulWidget {
 
 class _MaslakiAppState extends ConsumerState<MaslakiApp>
     with WidgetsBindingObserver {
+  static const Duration _authBootstrapTimeout = Duration(seconds: 20);
+  static const Duration _startupStepTimeout = Duration(seconds: 12);
+  static const Duration _bestEffortStepTimeout = Duration(seconds: 8);
+
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final SentryNavigatorObserver _sentryObserver = SentryNavigatorObserver();
   final _OpsBreadcrumbNavigatorObserver _opsBreadcrumbObserver =
@@ -325,15 +332,35 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     });
     Future.microtask(() async {
       if (!mounted) return;
-      final authBootstrap = ref.read(authControllerProvider.notifier).bootstrap();
-      await ref.read(mediaCacheServiceProvider).scheduleMaintenance();
+      final authBootstrap = _guardedStartupStep(
+        'auth_bootstrap',
+        ref.read(authControllerProvider.notifier).bootstrap(),
+        timeout: _authBootstrapTimeout,
+      );
+      await _guardedStartupStep(
+        'media_cache_maintenance',
+        ref.read(mediaCacheServiceProvider).scheduleMaintenance(),
+        timeout: _bestEffortStepTimeout,
+      );
       if (!mounted) return;
-      await ref.read(appStartupControllerProvider.notifier).bootstrap();
+      await _guardedStartupStep(
+        'app_startup_bootstrap',
+        ref.read(appStartupControllerProvider.notifier).bootstrap(),
+        timeout: _startupStepTimeout,
+      );
       if (!mounted) return;
-      await ref.read(sectionAvailabilityControllerProvider.notifier).bootstrap();
+      await _guardedStartupStep(
+        'section_availability_bootstrap',
+        ref.read(sectionAvailabilityControllerProvider.notifier).bootstrap(),
+        timeout: _bestEffortStepTimeout,
+      );
       if (!mounted) return;
       final localNotifications = ref.read(localNotificationsProvider);
-      await localNotifications.initialize();
+      await _guardedStartupStep(
+        'local_notifications_initialize',
+        localNotifications.initialize(),
+        timeout: _bestEffortStepTimeout,
+      );
       if (!mounted) return;
       _notificationTapSub = localNotifications.tapStream.listen(
         _handleNotificationTap,
@@ -341,12 +368,29 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       await authBootstrap;
       if (!mounted) return;
       final auth = ref.read(authControllerProvider);
-      if (auth.isAuthed) {
-        await ref.read(maslakiRealtimeServiceProvider).bindAuthenticatedSession();
+      if (_hasVerifiedSession(auth)) {
+        await _guardedStartupStep(
+          'realtime_bind',
+          ref.read(maslakiRealtimeServiceProvider).bindAuthenticatedSession(),
+          timeout: _bestEffortStepTimeout,
+        );
         if (!mounted) return;
         await _ensurePushReadyAndSync(auth);
       }
     });
+  }
+
+  Future<void> _guardedStartupStep(
+    String label,
+    Future<void> future, {
+    required Duration timeout,
+  }) async {
+    try {
+      await future.timeout(timeout);
+    } catch (error, stack) {
+      debugPrint('[startup][$label] $error');
+      debugPrintStack(stackTrace: stack, label: '[startup][$label] stack');
+    }
   }
 
   @override
@@ -420,6 +464,9 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
         !auth.isCompanyPortal;
   }
 
+  bool _hasVerifiedSession(AuthState auth) =>
+      auth.isAuthed && auth.user != null;
+
   void _addOpsBreadcrumb({
     required String message,
     required String category,
@@ -445,9 +492,9 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     }
     unawaited(ref.read(maslakiRealtimeServiceProvider).setAppActive(true));
     unawaited(
-      ref.read(sectionAvailabilityControllerProvider.notifier).refresh(
-            silent: true,
-          ),
+      ref
+          .read(sectionAvailabilityControllerProvider.notifier)
+          .refresh(silent: true),
     );
     final auth = ref.read(authControllerProvider);
     if (!auth.isAuthed || auth.user == null) return;
@@ -459,10 +506,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     _addOpsBreadcrumb(
       message: 'notification_received',
       category: 'notifications',
-      data: {
-        'target': payload.target ?? '',
-        'type': payload.type ?? '',
-      },
+      data: {'target': payload.target ?? '', 'type': payload.type ?? ''},
     );
     final auth = ref.read(authControllerProvider);
     if (!auth.isAuthed) {
@@ -480,8 +524,8 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   }
 
   void _handleAuthStateChanged(AuthState? previous, AuthState next) {
-    final wasAuthed = previous?.isAuthed ?? false;
-    final isAuthed = next.isAuthed;
+    final wasAuthed = previous == null ? false : _hasVerifiedSession(previous);
+    final isAuthed = _hasVerifiedSession(next);
     final previousUserId = previous?.user?.id;
     final nextUserId = next.user?.id;
     final previousBindingKey = previous == null
@@ -502,10 +546,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       _addOpsBreadcrumb(
         message: 'user_login_success',
         category: 'auth',
-        data: {
-          'role': next.user?.role ?? '',
-          'userId': next.user?.id ?? 0,
-        },
+        data: {'role': next.user?.role ?? '', 'userId': next.user?.id ?? 0},
       );
       final startup = ref.read(appStartupControllerProvider);
       if (startup.isReady) {
@@ -514,7 +555,9 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     }
 
     if (isAuthed) {
-      unawaited(ref.read(maslakiRealtimeServiceProvider).bindAuthenticatedSession());
+      unawaited(
+        ref.read(maslakiRealtimeServiceProvider).bindAuthenticatedSession(),
+      );
     }
 
     if (isAuthed && nextUserId != null && previousUserId != nextUserId) {
@@ -779,7 +822,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     final startup = ref.watch(appStartupControllerProvider);
     final pendingPayload = _pendingTapPayload;
 
-    if (auth.isAuthed && !_isUserAppRole(auth)) {
+    if (_hasVerifiedSession(auth) && !_isUserAppRole(auth)) {
       if (!_roleMismatchLogoutInFlight) {
         _roleMismatchLogoutInFlight = true;
         Future.microtask(() async {
@@ -791,14 +834,14 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       _roleMismatchLogoutInFlight = false;
     }
 
-    if (auth.isAuthed && pendingPayload != null) {
+    if (_hasVerifiedSession(auth) && pendingPayload != null) {
       _pendingTapPayload = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _openFromNotificationPayload(pendingPayload);
       });
     }
 
-    if (appInAppCallsEnabled && auth.isAuthed) {
+    if (appInAppCallsEnabled && _hasVerifiedSession(auth)) {
       final pendingSocialCall = _pendingIncomingSocialCall;
       if (pendingSocialCall != null) {
         _pendingIncomingSocialCall = null;
@@ -816,13 +859,15 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
 
     final appHome = switch (startup.phase) {
       AppStartupPhase.onboarding => const AppFirstLaunchScreen(),
-      AppStartupPhase.ready => auth.loading
-          ? const AppFirstLaunchScreen()
-          : (auth.isAuthed ? _homeForAuth(auth) : const LoginScreen()),
+      AppStartupPhase.ready =>
+        auth.loading
+            ? const AppFirstLaunchScreen()
+            : (_hasVerifiedSession(auth)
+                  ? _homeForAuth(auth)
+                  : const LoginScreen()),
       AppStartupPhase.idle ||
       AppStartupPhase.checkingServer ||
-      AppStartupPhase.serverCheckFailed =>
-        const AppFirstLaunchScreen(),
+      AppStartupPhase.serverCheckFailed => const AppFirstLaunchScreen(),
     };
     Intl.defaultLocale = settings.locale.languageCode;
 
@@ -833,6 +878,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       navigatorObservers: [
         _sentryObserver,
         _opsBreadcrumbObserver,
+        appRouteObserver,
       ],
       locale: settings.locale,
       supportedLocales: const [Locale('ar'), Locale('en')],
@@ -891,7 +937,9 @@ class _OpsBreadcrumbNavigatorObserver extends NavigatorObserver {
     if (name.contains('order')) category = 'order';
     if (name.contains('payment')) category = 'payment';
     if (name.contains('taxi') || name.contains('driver')) category = 'driver';
-    if (name.contains('merchant') || name.contains('store')) category = 'merchant';
+    if (name.contains('merchant') || name.contains('store')) {
+      category = 'merchant';
+    }
 
     Sentry.addBreadcrumb(
       Breadcrumb(

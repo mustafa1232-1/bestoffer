@@ -14,6 +14,8 @@ class CameraCaptureService {
   CameraController? _controller;
   List<CameraDescription> _cameras = const <CameraDescription>[];
   CameraDescription? _activeCamera;
+  int _controllerGeneration = 0;
+  bool _disposed = false;
 
   CameraController? get controller => _controller;
   List<CameraDescription> get cameras => _cameras;
@@ -24,12 +26,23 @@ class CameraCaptureService {
     ResolutionPreset resolutionPreset = ResolutionPreset.high,
     bool enableAudio = true,
   }) async {
+    if (_disposed) {
+      throw CameraException('camera_disposed', 'Camera service is disposed.');
+    }
     _cameras = await availableCameras();
+    if (_disposed) {
+      throw CameraException('camera_disposed', 'Camera service is disposed.');
+    }
     if (_cameras.isEmpty) {
-      throw CameraException('camera_unavailable', 'No device camera was found.');
+      throw CameraException(
+        'camera_unavailable',
+        'No device camera was found.',
+      );
     }
     _activeCamera =
-        _cameras.where((camera) => camera.lensDirection == preferredLensDirection).firstOrNull ??
+        _cameras
+            .where((camera) => camera.lensDirection == preferredLensDirection)
+            .firstOrNull ??
         _cameras.first;
     await _createController(
       description: _activeCamera!,
@@ -42,6 +55,7 @@ class CameraCaptureService {
     ResolutionPreset resolutionPreset = ResolutionPreset.high,
     bool enableAudio = true,
   }) async {
+    if (_disposed) return;
     if (_cameras.length < 2 || _activeCamera == null) return;
     final currentLens = _activeCamera!.lensDirection;
     final next = _cameras.firstWhere(
@@ -58,21 +72,32 @@ class CameraCaptureService {
   }
 
   Future<void> setFlashMode(FlashMode mode) async {
+    if (_disposed) return;
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
     await controller.setFlashMode(mode);
   }
 
   Future<LocalMediaFile> takePhoto() async {
+    if (_disposed) {
+      throw CameraException('camera_disposed', 'Camera service is disposed.');
+    }
     final controller = _controller;
     if (controller == null) {
       throw CameraException('camera_not_initialized', 'Camera is not ready.');
     }
     final file = await controller.takePicture();
-    return _localFileFromXFile(file, prefix: 'creator_photo', mimeType: 'image/jpeg');
+    return _localFileFromXFile(
+      file,
+      prefix: 'creator_photo',
+      mimeType: 'image/jpeg',
+    );
   }
 
   Future<void> startRecording({onLatestImageAvailable? onAvailable}) async {
+    if (_disposed) {
+      throw CameraException('camera_disposed', 'Camera service is disposed.');
+    }
     final controller = _controller;
     if (controller == null) {
       throw CameraException('camera_not_initialized', 'Camera is not ready.');
@@ -90,18 +115,27 @@ class CameraCaptureService {
   }
 
   Future<LocalMediaFile> stopRecording() async {
+    if (_disposed) {
+      throw CameraException('camera_disposed', 'Camera service is disposed.');
+    }
     final controller = _controller;
     if (controller == null) {
       throw CameraException('camera_not_initialized', 'Camera is not ready.');
     }
     final file = await controller.stopVideoRecording();
-    return _localFileFromXFile(file, prefix: 'creator_video', mimeType: 'video/mp4');
+    return _localFileFromXFile(
+      file,
+      prefix: 'creator_video',
+      mimeType: 'video/mp4',
+    );
   }
 
   Future<void> startPreviewStream(onLatestImageAvailable onAvailable) async {
+    if (_disposed) return;
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
-    if (controller.value.isRecordingVideo || controller.value.isStreamingImages) {
+    if (controller.value.isRecordingVideo ||
+        controller.value.isStreamingImages) {
       return;
     }
     if (!controller.supportsImageStreaming()) return;
@@ -109,18 +143,29 @@ class CameraCaptureService {
   }
 
   Future<void> stopPreviewStream() async {
+    if (_disposed) return;
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
-    if (!controller.value.isStreamingImages || controller.value.isRecordingVideo) {
+    if (!controller.value.isStreamingImages ||
+        controller.value.isRecordingVideo) {
       return;
     }
     await controller.stopImageStream();
   }
 
   Future<void> dispose() async {
+    _disposed = true;
+    _controllerGeneration++;
     final controller = _controller;
     _controller = null;
     if (controller != null) {
+      try {
+        if (controller.value.isStreamingImages) {
+          await controller.stopImageStream();
+        }
+      } catch (_) {
+        // Best effort during screen shutdown.
+      }
       await controller.dispose();
     }
   }
@@ -130,6 +175,10 @@ class CameraCaptureService {
     required ResolutionPreset resolutionPreset,
     required bool enableAudio,
   }) async {
+    if (_disposed) {
+      throw CameraException('camera_disposed', 'Camera service is disposed.');
+    }
+    final generation = ++_controllerGeneration;
     // Tear the existing controller down FIRST. Keeping two CameraControllers
     // alive at once makes the new one open a camera the OS still holds, which
     // surfaces as a black preview (especially on Android). Stop any running
@@ -154,9 +203,20 @@ class CameraCaptureService {
       description,
       resolutionPreset,
       enableAudio: enableAudio,
-      imageFormatGroup: Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.yuv420,
+      imageFormatGroup: Platform.isIOS
+          ? ImageFormatGroup.bgra8888
+          : ImageFormatGroup.yuv420,
     );
-    await next.initialize();
+    try {
+      await next.initialize();
+    } catch (_) {
+      await next.dispose();
+      rethrow;
+    }
+    if (_disposed || generation != _controllerGeneration) {
+      await next.dispose();
+      return;
+    }
     _controller = next;
   }
 
@@ -165,7 +225,10 @@ class CameraCaptureService {
     required String prefix,
     required String mimeType,
   }) async {
-    final copied = await tempMediaService.cleanupAndCopy(File(file.path), prefix: prefix);
+    final copied = await tempMediaService.cleanupAndCopy(
+      File(file.path),
+      prefix: prefix,
+    );
     return LocalMediaFile(
       name: path.basename(copied.path),
       path: copied.path,

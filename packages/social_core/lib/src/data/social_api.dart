@@ -402,15 +402,16 @@ class SocialApi {
   }
 
   Future<Map<String, dynamic>> createPost({
-      required String caption,
-      required String postKind,
-      int? merchantId,
-      int? reviewRating,
-      LocalMediaFile? mediaFile,
-      Map<String, dynamic>? reelStyle,
-      String? audienceScopeType,
-      String? audienceScopeCode,
-      String? linkTargetType,
+    required String caption,
+    required String postKind,
+    int? merchantId,
+    int? reviewRating,
+    LocalMediaFile? mediaFile,
+    List<LocalMediaFile>? mediaFiles,
+    Map<String, dynamic>? reelStyle,
+    String? audienceScopeType,
+    String? audienceScopeCode,
+    String? linkTargetType,
     int? linkMerchantId,
     int? linkProductId,
     int? linkOfferId,
@@ -420,10 +421,10 @@ class SocialApi {
       'caption': caption,
       'postKind': postKind,
       'merchantId': merchantId,
-        'reviewRating': reviewRating,
-        'reelStyle': reelStyle,
-        'audienceScopeType': audienceScopeType,
-        'audienceScopeCode': audienceScopeCode,
+      'reviewRating': reviewRating,
+      'reelStyle': reelStyle,
+      'audienceScopeType': audienceScopeType,
+      'audienceScopeCode': audienceScopeCode,
       'linkTargetType': linkTargetType,
       'linkMerchantId': linkMerchantId,
       'linkProductId': linkProductId,
@@ -431,16 +432,23 @@ class SocialApi {
       'linkCouponId': linkCouponId,
     }..removeWhere((_, value) => value == null);
 
-    final response = mediaFile == null
+    final normalizedMediaFiles = [
+      if (mediaFile != null) mediaFile,
+      ...?mediaFiles,
+    ];
+
+    final response = normalizedMediaFiles.isEmpty
         ? await dio.post('/api/feed/posts', data: payload)
         : await dio.post(
             '/api/feed/posts',
-              data: FormData.fromMap({
-                ...payload,
-                if (reelStyle != null) 'reelStyle': jsonEncode(reelStyle),
-                'mediaFile': await mediaFile.toMultipartFile(),
-              }),
-            );
+            data: FormData.fromMap({
+              ...payload,
+              if (reelStyle != null) 'reelStyle': jsonEncode(reelStyle),
+              'mediaFiles': await Future.wait(
+                normalizedMediaFiles.map((file) => file.toMultipartFile()),
+              ),
+            }),
+          );
 
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -801,7 +809,9 @@ class SocialApi {
   }
 
   Future<Map<String, dynamic>> leaveGroupThread(int threadId) async {
-    final response = await dio.post('/api/feed/chats/threads/$threadId/group/leave');
+    final response = await dio.post(
+      '/api/feed/chats/threads/$threadId/group/leave',
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 

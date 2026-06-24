@@ -561,12 +561,25 @@ export async function createPost(req, res, next) {
     const v = validateCreatePost(body);
     if (!v.ok) return badRequest(res, v.errors);
 
-    const media = req.file
-      ? {
-          url: buildUploadedFileUrl(req, req.file),
-          mimetype: req.file.mimetype,
-        }
-      : null;
+    const uploadedFiles = [];
+    if (req.file) {
+      uploadedFiles.push(req.file);
+    }
+    if (Array.isArray(req.files)) {
+      uploadedFiles.push(...req.files);
+    } else if (req.files && typeof req.files === "object") {
+      const mediaFiles = Array.isArray(req.files.mediaFiles)
+        ? req.files.mediaFiles
+        : [];
+      const mediaFile = Array.isArray(req.files.mediaFile)
+        ? req.files.mediaFile
+        : [];
+      uploadedFiles.push(...mediaFile, ...mediaFiles);
+    }
+    const media = uploadedFiles.map((file) => ({
+      url: buildUploadedFileUrl(req, file),
+      mimetype: file.mimetype,
+    }));
     const post = await service.createPost(
       req.userId,
       { ...body, ...v.value },

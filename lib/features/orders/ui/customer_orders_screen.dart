@@ -400,12 +400,22 @@ class _OrderCard extends StatelessWidget {
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => isLive
-                  ? DeliveryLiveTrackingScreen(orderId: order.id)
-                  : _OrderTrackingDetailsScreen(
-                      orderId: order.id,
-                      fallbackOrder: order,
-                    ),
+              builder: (_) {
+                // Live map tracking only has data once a courier is actually in
+                // transit. For earlier stages (pending/approved/preparing) the
+                // live snapshot is empty and the map screen hangs on a spinner —
+                // show the status-timeline screen instead, which renders
+                // instantly from the already-loaded order.
+                const inTransit = {'on_the_way', 'arrived'};
+                final showLiveMap = inTransit.contains(order.status) &&
+                    order.customerConfirmedAt == null;
+                return showLiveMap
+                    ? DeliveryLiveTrackingScreen(orderId: order.id)
+                    : _OrderTrackingDetailsScreen(
+                        orderId: order.id,
+                        fallbackOrder: order,
+                      );
+              },
             ),
           );
         },

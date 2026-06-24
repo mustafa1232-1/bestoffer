@@ -10,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/utils/order_status.dart';
 import '../../orders/data/orders_api.dart';
 import '../../orders/state/orders_controller.dart';
 import '../../orders/ui/order_chat_screen.dart';
@@ -20,11 +21,8 @@ class DeliveryLiveTrackingScreen extends ConsumerStatefulWidget {
   final int? orderId;
   final String? publicToken;
 
-  const DeliveryLiveTrackingScreen({
-    super.key,
-    this.orderId,
-    this.publicToken,
-  }) : assert(orderId != null || publicToken != null);
+  const DeliveryLiveTrackingScreen({super.key, this.orderId, this.publicToken})
+    : assert(orderId != null || publicToken != null);
 
   @override
   ConsumerState<DeliveryLiveTrackingScreen> createState() =>
@@ -80,12 +78,17 @@ class _DeliveryLiveTrackingScreenState
 
     try {
       final api = ref.read(ordersApiProvider);
-      final data = _isPublic
-          ? await api.getPublicTrackingByToken(widget.publicToken!)
-          : await api.getTrackingSnapshot(widget.orderId!);
+      // Hard timeout so a slow/unresponsive snapshot can never leave the screen
+      // stuck on an endless loading spinner — it falls through to the error
+      // state (with retry) instead.
+      final data =
+          await (_isPublic
+                  ? api.getPublicTrackingByToken(widget.publicToken!)
+                  : api.getTrackingSnapshot(widget.orderId!))
+              .timeout(const Duration(seconds: 15));
       if (!mounted) return;
       setState(() {
-        _snapshot = data;
+        _snapshot = trackingMap(data) ?? const <String, dynamic>{};
         _loading = false;
         _error = null;
       });
@@ -118,7 +121,7 @@ class _DeliveryLiveTrackingScreenState
               event.event == 'resync_required') {
             unawaited(_load(silent: true));
           }
-        });
+        }, onError: (error, stack) => unawaited(_load(silent: true)));
   }
 
   void _connectPublicStream() {
@@ -130,7 +133,7 @@ class _DeliveryLiveTrackingScreenState
           if (!mounted) return;
           if (event.event == 'order_tracking_update') {
             setState(() {
-              _snapshot = event.data;
+              _snapshot = trackingMap(event.data) ?? const <String, dynamic>{};
               _error = null;
               _loading = false;
             });
@@ -139,7 +142,7 @@ class _DeliveryLiveTrackingScreenState
           if (event.event == 'resync_required' || event.event == 'closed') {
             unawaited(_load(silent: true));
           }
-        });
+        }, onError: (error, stack) => unawaited(_load(silent: true)));
   }
 
   Future<void> _shareTracking() async {
@@ -149,9 +152,9 @@ class _DeliveryLiveTrackingScreenState
       en: 'Track my Maslaki order:',
     );
     try {
-      final out = await ref.read(ordersApiProvider).createTrackingShareToken(
-            widget.orderId!,
-          );
+      final out = await ref
+          .read(ordersApiProvider)
+          .createTrackingShareToken(widget.orderId!);
       final token = (out['token'] ?? '').toString().trim();
       if (token.isEmpty) return;
       final url = '${Api.baseUrl}/api/orders/public/track/$token';
@@ -192,30 +195,28 @@ class _DeliveryLiveTrackingScreenState
   }
 
   Map<String, dynamic>? get _order {
-    final raw = _snapshot?['order'];
-    return raw is Map ? Map<String, dynamic>.from(raw) : null;
+    return trackingMap(_snapshot?['order']);
   }
 
   Map<String, dynamic>? get _courier {
-    final raw = _snapshot?['courier'];
-    return raw is Map ? Map<String, dynamic>.from(raw) : null;
+    return trackingMap(_snapshot?['courier']);
   }
 
   Map<String, dynamic>? get _latestLocation {
-    final raw = _snapshot?['latestLocation'];
-    return raw is Map ? Map<String, dynamic>.from(raw) : null;
+    return trackingMap(_snapshot?['latestLocation']);
   }
 
   Map<String, dynamic>? get _destination {
-    final raw = _snapshot?['destination'];
-    return raw is Map ? Map<String, dynamic>.from(raw) : null;
+    return trackingMap(_snapshot?['destination']);
   }
 
   LatLng? get _destinationPoint {
     final explicit = latLngFromMap(_destination);
     if (explicit != null) return explicit;
     final block =
-        _string(_destination?['block']) ?? _string(_order?['customerBlock']) ?? '';
+        _string(_destination?['block']) ??
+        _string(_order?['customerBlock']) ??
+        '';
     final building =
         _string(_destination?['buildingNumber']) ??
         _string(_order?['customerBuildingNumber']) ??
@@ -228,7 +229,9 @@ class _DeliveryLiveTrackingScreenState
   }
 
   LatLng get _initialCenter =>
-      latLngFromMap(_latestLocation) ?? _destinationPoint ?? basmayaTrackingCenter;
+      latLngFromMap(_latestLocation) ??
+      _destinationPoint ??
+      basmayaTrackingCenter;
 
   List<Marker> get _markers {
     final tokens = context.maslakiTokens;
@@ -271,7 +274,7 @@ class _DeliveryLiveTrackingScreenState
               ],
             ),
             child: Icon(
-              Icons.local_shipping_rounded,
+              Icons.two_wheeler_rounded,
               color: tokens.primaryAccent,
               size: 30,
             ),
@@ -300,9 +303,13 @@ class _DeliveryLiveTrackingScreenState
     final label = _string(_destination?['label']);
     if (label != null && label.isNotEmpty) return label;
     final city =
-        _string(_destination?['city']) ?? _string(_order?['customerCity']) ?? '-';
+        _string(_destination?['city']) ??
+        _string(_order?['customerCity']) ??
+        '-';
     final block =
-        _string(_destination?['block']) ?? _string(_order?['customerBlock']) ?? '-';
+        _string(_destination?['block']) ??
+        _string(_order?['customerBlock']) ??
+        '-';
     final building =
         _string(_destination?['buildingNumber']) ??
         _string(_order?['customerBuildingNumber']) ??
@@ -342,7 +349,8 @@ class _DeliveryLiveTrackingScreenState
       _DeliveryTimelineEntry(
         labelAr: 'تم التسليم',
         labelEn: 'Delivered',
-        time: _date(order['deliveredAt']) ?? _date(order['customerConfirmedAt']),
+        time:
+            _date(order['deliveredAt']) ?? _date(order['customerConfirmedAt']),
       ),
     ];
   }
@@ -365,6 +373,25 @@ class _DeliveryLiveTrackingScreenState
         return context.lt(ar: 'تم إلغاء الطلب', en: 'Order cancelled');
       default:
         return context.lt(ar: 'تم إنشاء الطلب', en: 'Order placed');
+    }
+  }
+
+  String _courierStatusLabel(String? status) {
+    switch ((status ?? '').trim().toLowerCase()) {
+      case 'approved':
+      case 'preparing':
+      case 'ready_for_delivery':
+        return context.lt(ar: 'بانتظار الاستلام', en: 'Awaiting pickup');
+      case 'picked_up':
+      case 'on_the_way':
+        return context.lt(ar: 'في الطريق', en: 'On the way');
+      case 'arrived':
+        return context.lt(ar: 'وصل', en: 'Arrived');
+      case 'delivered':
+      case 'completed':
+        return context.lt(ar: 'تم التسليم', en: 'Delivered');
+      default:
+        return context.lt(ar: 'بانتظار التعيين', en: 'Awaiting assignment');
     }
   }
 
@@ -438,14 +465,26 @@ class _DeliveryLiveTrackingScreenState
             ),
             const SizedBox(height: 16),
             _DeliveryInfoTile(
+              title: context.lt(ar: 'حالة الطلب', en: 'Order status'),
+              value: orderStatusLabel(_string(order['status']) ?? ''),
+            ),
+            _DeliveryInfoTile(
+              title: context.lt(ar: 'حالة السائق', en: 'Courier status'),
+              value: _courierStatusLabel(_string(order['status'])),
+            ),
+            _DeliveryInfoTile(
               title: context.lt(ar: 'المتجر', en: 'Merchant'),
-              value: _string(order['merchantName']) ??
-                  _string(_snapshot?['merchant']?['name']) ??
+              value:
+                  _string(order['merchantName']) ??
+                  trackingNestedString(_snapshot?['merchant'], const [
+                    'name',
+                  ]) ??
                   '-',
             ),
             _DeliveryInfoTile(
               title: context.lt(ar: 'المندوب', en: 'Courier'),
-              value: _string(_courier?['fullName']) ??
+              value:
+                  _string(_courier?['fullName']) ??
                   context.lt(ar: 'بانتظار التعيين', en: 'Awaiting assignment'),
             ),
             _DeliveryInfoTile(
@@ -488,8 +527,7 @@ class _DeliveryLiveTrackingScreenState
   }
 
   String? _string(dynamic value) {
-    final text = '${value ?? ''}'.trim();
-    return text.isEmpty ? null : text;
+    return trackingString(value);
   }
 
   int? _readInt(dynamic value) => int.tryParse('${value ?? ''}');
@@ -586,9 +624,9 @@ class _DeliveryInfoTile extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: tokens.textSecondary,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: tokens.textSecondary),
             ),
           ),
           const SizedBox(width: 12),
@@ -661,9 +699,9 @@ class _DeliveryTimelineRow extends StatelessWidget {
                 Text(
                   entry.time?.toLocal().toString() ??
                       context.lt(ar: 'قريبًا', en: 'Pending'),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: tokens.textSecondary,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),
                 ),
               ],
             ),

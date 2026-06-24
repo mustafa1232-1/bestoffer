@@ -41,6 +41,7 @@ authRouter.post(
   c.registerWithCard
 );
 authRouter.post("/login", c.login);
+authRouter.post("/refresh", c.refreshSession);
 authRouter.post("/logout", requireAuth, c.logout);
 authRouter.post("/logout-all", requireAuth, c.logoutAll);
 authRouter.get("/sessions", requireAuth, c.listSessions);
