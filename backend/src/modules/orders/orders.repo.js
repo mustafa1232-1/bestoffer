@@ -534,6 +534,7 @@ async function insertOrderItemTx(client, orderId, item) {
 
 export const __ordersRepoTestables = Object.freeze({
   buildDynamicInsertParts,
+  toDeliveryDetailResponse,
 });
 
 export async function listDeliveryAgents() {

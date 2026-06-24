@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/order_status.dart';
 import '../../../features/notifications/ui/notifications_screen.dart';
@@ -695,6 +696,17 @@ class _OrderCard extends StatelessWidget {
               ),
               Text(
                 '${l10n.deliveryCourierLabelTotal}: ${formatIqd(order.totalAmount)}',
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: OutlinedButton.icon(
+                  onPressed: onOpen,
+                  icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                  label: Text(
+                    context.lt(ar: 'عرض التفاصيل', en: 'View details'),
+                  ),
+                ),
               ),
               if (showActions)
                 Wrap(

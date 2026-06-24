@@ -5,6 +5,7 @@ import 'package:intl/intl.dart' as intl;
 import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/order_status.dart';
 import '../../../core/widgets/app_user_drawer.dart';
@@ -374,7 +375,7 @@ class _DeliveryDashboardScreenState
             child: Text(l10n.deliveryNoCurrentOrders),
           )
         else
-          ...state.currentOrders.map((o) => _CurrentOrderCard(order: o)),
+          ...state.currentOrders.map((o) => DeliveryCurrentOrderCard(order: o)),
         const SizedBox(height: 80),
       ],
     );
@@ -832,10 +833,10 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-class _CurrentOrderCard extends ConsumerWidget {
+class DeliveryCurrentOrderCard extends ConsumerWidget {
   final OrderModel order;
 
-  const _CurrentOrderCard({required this.order});
+  const DeliveryCurrentOrderCard({super.key, required this.order});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -865,6 +866,14 @@ class _CurrentOrderCard extends ConsumerWidget {
           'on_the_way',
           'arrived',
         }.contains(normalized);
+
+    Future<void> openDetails() async {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CourierOrderDetailsPage(orderId: order.id),
+        ),
+      );
+    }
 
     Future<void> openOrderChat() async {
       await Navigator.of(context).push(
@@ -1041,150 +1050,192 @@ class _CurrentOrderCard extends ConsumerWidget {
 
     return Card(
       margin: const EdgeInsets.only(top: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              l10n.deliveryOrderCardTitle(
-                order.id,
-                orderStatusLabel(order.status),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(l10n.deliveryMerchantLine(order.merchantName)),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    l10n.deliveryCustomerLine(
-                      order.customerFullName,
-                      order.customerPhone,
-                    ),
-                  ),
-                ),
-                if (order.customerImageUrl?.trim().isNotEmpty == true) ...[
-                  const SizedBox(width: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: CachedAppImage(
-                      imageUrl: order.customerImageUrl!,
-                      width: 38,
-                      height: 38,
-                      fit: BoxFit.cover,
-                      errorWidget: (context, error, stackTrace) =>
-                          const Icon(Icons.person_outline),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            Text(
-              l10n.deliveryCustomerLocation(
-                order.customerCity,
-                order.customerBlock,
-                order.customerBuildingNumber,
-                order.customerApartment,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(l10n.deliveryOrderItemsCount(itemCount)),
-            Text(l10n.deliveryOrderPriceLine(formatIqd(subtotal))),
-            Text(
-              l10n.deliveryOrderDiscountLine(
-                formatIqd(estimatedDiscount.toDouble()),
-              ),
-            ),
-            Text(l10n.deliveryPriceAfterDiscountLine(formatIqd(afterDiscount))),
-            Text(l10n.deliveryDeliveryFeeLine(formatIqd(order.deliveryFee))),
-            const SizedBox(height: 8),
-            ...order.items.map(
-              (i) => Text(
-                '- ${i.productName} x ${i.quantity}',
-                textDirection: TextDirection.rtl,
-              ),
-            ),
-            if (order.imageUrl?.trim().isNotEmpty == true) ...[
-              const SizedBox(height: 10),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Text(
-                  l10n.deliveryOrderImageLabel,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: openDetails,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                l10n.deliveryOrderCardTitle(
+                  order.id,
+                  orderStatusLabel(order.status),
                 ),
               ),
               const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: CachedAppImage(
-                  imageUrl: order.imageUrl!,
-                  height: 130,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorWidget: (context, error, stackTrace) => Container(
-                    height: 90,
-                    alignment: Alignment.center,
-                    color: Colors.black12,
-                    child: const Icon(Icons.image_not_supported_outlined),
+              Text(l10n.deliveryMerchantLine(order.merchantName)),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.deliveryCustomerLine(
+                        order.customerFullName,
+                        order.customerPhone,
+                      ),
+                    ),
+                  ),
+                  if (order.customerImageUrl?.trim().isNotEmpty == true) ...[
+                    const SizedBox(width: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: CachedAppImage(
+                        imageUrl: order.customerImageUrl!,
+                        width: 38,
+                        height: 38,
+                        fit: BoxFit.cover,
+                        errorWidget: (context, error, stackTrace) =>
+                            const Icon(Icons.person_outline),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              Text(
+                l10n.deliveryCustomerLocation(
+                  order.customerCity,
+                  order.customerBlock,
+                  order.customerBuildingNumber,
+                  order.customerApartment,
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Item count is only trustworthy when the list payload actually
+              // carried items. The current-orders list endpoint returns a
+              // summary without items, so showing "0" there is misleading —
+              // we surface "View details" instead and fetch the full invoice
+              // (with items) inside DeliveryOrderDetailScreen.
+              if (order.items.isNotEmpty)
+                Text(l10n.deliveryOrderItemsCount(itemCount))
+              else
+                Text(
+                  context.lt(
+                    ar: 'اضغط "عرض التفاصيل" لرؤية المواد والفاتورة الكاملة',
+                    en: 'Tap "View details" to see items and the full invoice',
+                  ),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              Text(l10n.deliveryOrderPriceLine(formatIqd(subtotal))),
+              Text(
+                l10n.deliveryOrderDiscountLine(
+                  formatIqd(estimatedDiscount.toDouble()),
+                ),
+              ),
+              Text(
+                '${context.lt(ar: 'رسوم الخدمة', en: 'Service fee')}: ${formatIqd(order.serviceFee)}',
+              ),
+              Text(l10n.deliveryDeliveryFeeLine(formatIqd(order.deliveryFee))),
+              Text(
+                '${context.lt(ar: 'الإجمالي النهائي', en: 'Final total')}: ${formatIqd(order.totalAmount)}',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              if (order.items.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                ...order.items.map(
+                  (i) => Text(
+                    '- ${i.productName} x ${i.quantity}',
+                    textDirection: TextDirection.rtl,
+                  ),
+                ),
+              ],
+              if (order.imageUrl?.trim().isNotEmpty == true) ...[
+                const SizedBox(height: 10),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    l10n.deliveryOrderImageLabel,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: CachedAppImage(
+                    imageUrl: order.imageUrl!,
+                    height: 130,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorWidget: (context, error, stackTrace) => Container(
+                      height: 90,
+                      alignment: Alignment.center,
+                      color: Colors.black12,
+                      child: const Icon(Icons.image_not_supported_outlined),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  onPressed: openDetails,
+                  icon: const Icon(Icons.receipt_long_outlined),
+                  label: Text(
+                    context.lt(
+                      ar: 'عرض التفاصيل والفاتورة',
+                      en: 'View details & invoice',
+                    ),
                   ),
                 ),
               ),
-            ],
-            const SizedBox(height: 10),
-            if (waitingForMerchant)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(l10n.deliveryWaitingMerchantPrepare),
-              ),
-            Row(
-              children: [
-                if (assignedToMe && normalized == 'ready_for_delivery')
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => controller.pickedUpOrder(order.id),
-                      child: Text(l10n.deliveryCourierActionPickedUp),
-                    ),
-                  ),
-                if (assignedToMe && normalized == 'on_the_way')
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => controller.arrivedOrder(order.id),
-                      child: Text(l10n.deliveryCourierActionArrived),
-                    ),
-                  ),
-                if (assignedToMe && normalized == 'arrived')
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => controller.deliveredOrder(order.id),
-                      child: Text(l10n.deliveryCourierActionDelivered),
-                    ),
-                  ),
-              ],
-            ),
-            if (canOpenChat || canRequestCancel) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              if (waitingForMerchant)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(l10n.deliveryWaitingMerchantPrepare),
+                ),
+              Row(
                 children: [
-                  if (canOpenChat)
-                    OutlinedButton.icon(
-                      onPressed: openOrderChat,
-                      icon: const Icon(Icons.chat_bubble_outline_rounded),
-                      label: Text(l10n.deliveryChatCustomer),
+                  if (assignedToMe && normalized == 'ready_for_delivery')
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => controller.pickedUpOrder(order.id),
+                        child: Text(l10n.deliveryCourierActionPickedUp),
+                      ),
                     ),
-                  if (canRequestCancel)
-                    TextButton.icon(
-                      onPressed: requestCancelWithReason,
-                      icon: const Icon(Icons.cancel_outlined),
-                      label: Text(l10n.deliveryCancelRequest),
+                  if (assignedToMe && normalized == 'on_the_way')
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => controller.arrivedOrder(order.id),
+                        child: Text(l10n.deliveryCourierActionArrived),
+                      ),
+                    ),
+                  if (assignedToMe && normalized == 'arrived')
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => controller.deliveredOrder(order.id),
+                        child: Text(l10n.deliveryCourierActionDelivered),
+                      ),
                     ),
                 ],
               ),
+              if (canOpenChat || canRequestCancel) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (canOpenChat)
+                      OutlinedButton.icon(
+                        onPressed: openOrderChat,
+                        icon: const Icon(Icons.chat_bubble_outline_rounded),
+                        label: Text(l10n.deliveryChatCustomer),
+                      ),
+                    if (canRequestCancel)
+                      TextButton.icon(
+                        onPressed: requestCancelWithReason,
+                        icon: const Icon(Icons.cancel_outlined),
+                        label: Text(l10n.deliveryCancelRequest),
+                      ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
