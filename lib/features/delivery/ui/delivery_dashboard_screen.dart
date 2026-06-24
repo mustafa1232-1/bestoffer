@@ -820,6 +820,18 @@ class _CourierDashboardMetrics {
     final day = _DeliveryPeriod.fromMap(state.analytics['day']);
     final kpis = _extractDashboardKpis(state.dashboardV2);
 
+    // Local fallback count that ONLY includes truly completed orders and never
+    // counts cancelled/rejected/returned/pending/ready/picked_up.
+    final completedFromOrders = [...state.currentOrders, ...state.historyOrders]
+        .where(
+          (order) => const {
+            'delivered',
+            'received',
+            'completed',
+          }.contains(normalizeOrderStatusForUi(order.status)),
+        )
+        .length;
+
     final currentOrders = _readInt(kpis, const [
       'activeOrders',
       'active_orders',
@@ -839,7 +851,9 @@ class _CourierDashboardMetrics {
       waitingPickup: waitingPickupFromOrders + waitingPickupRequests,
       completedToday: completedToday > 0
           ? completedToday
-          : day.deliveredOrdersCount,
+          : (day.deliveredOrdersCount > 0
+                ? day.deliveredOrdersCount
+                : completedFromOrders),
       todayFees: todayFees > 0 ? todayFees : day.deliveryFees,
       rating: day.avgRating,
     );

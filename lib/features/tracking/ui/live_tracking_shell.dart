@@ -44,6 +44,67 @@ class _LiveTrackingShellState extends State<LiveTrackingShell> {
     super.dispose();
   }
 
+  void _zoomBy(double delta) {
+    final camera = _mapController.camera;
+    final next = (camera.zoom + delta).clamp(3.0, 19.0);
+    _mapController.move(camera.center, next);
+  }
+
+  void _recenter() {
+    _mapController.move(widget.initialCenter, widget.initialZoom);
+  }
+
+  void _fitBounds() {
+    final points = widget.markers
+        .map((marker) => marker.point)
+        .toList(growable: false);
+    if (points.length < 2) {
+      _recenter();
+      return;
+    }
+    try {
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(points),
+          padding: const EdgeInsets.all(64),
+        ),
+      );
+    } catch (_) {
+      _recenter();
+    }
+  }
+
+  Widget _mapControls(BuildContext context, MaslakiThemeTokens tokens) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _MapControlButton(
+          icon: Icons.add_rounded,
+          tooltip: context.lt(ar: 'تكبير', en: 'Zoom in'),
+          onPressed: () => _zoomBy(1),
+        ),
+        const SizedBox(height: 8),
+        _MapControlButton(
+          icon: Icons.remove_rounded,
+          tooltip: context.lt(ar: 'تصغير', en: 'Zoom out'),
+          onPressed: () => _zoomBy(-1),
+        ),
+        const SizedBox(height: 8),
+        _MapControlButton(
+          icon: Icons.my_location_rounded,
+          tooltip: context.lt(ar: 'إعادة التمركز', en: 'Recenter'),
+          onPressed: _recenter,
+        ),
+        const SizedBox(height: 8),
+        _MapControlButton(
+          icon: Icons.fit_screen_rounded,
+          tooltip: context.lt(ar: 'عرض المسار كاملاً', en: 'Fit route'),
+          onPressed: _fitBounds,
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.maslakiTokens;
@@ -57,6 +118,11 @@ class _LiveTrackingShellState extends State<LiveTrackingShell> {
           children: [
             Positioned.fill(child: _map(context, interactive: true)),
             _topBar(context, theme, tokens, fullScreen: true),
+            PositionedDirectional(
+              end: 14,
+              bottom: 28,
+              child: SafeArea(child: _mapControls(context, tokens)),
+            ),
           ],
         ),
       );
@@ -72,45 +138,15 @@ class _LiveTrackingShellState extends State<LiveTrackingShell> {
           Expanded(
             child: Stack(
               children: [
-                Positioned.fill(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _mapFullScreen = true),
-                    child: _map(context, interactive: false),
-                  ),
-                ),
+                // The preview map is fully interactive (pan + pinch zoom); the
+                // top bar's expand button opens the full-screen view. Controls
+                // are small corner buttons so they never block touching the map.
+                Positioned.fill(child: _map(context, interactive: true)),
                 _topBar(context, theme, tokens, fullScreen: false),
                 PositionedDirectional(
                   end: 14,
                   bottom: 14,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 7,
-                    ),
-                    decoration: BoxDecoration(
-                      color: tokens.surfaceSecondary.withValues(alpha: 0.92),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: tokens.borderSubtle),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.open_in_full_rounded,
-                          size: 15,
-                          color: tokens.primaryAccent,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          context.lt(ar: 'اضغط للتكبير', en: 'Tap to expand'),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: tokens.textSecondary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  child: _mapControls(context, tokens),
                 ),
               ],
             ),
@@ -336,6 +372,43 @@ class _TrackingTopButton extends StatelessWidget {
             border: Border.all(color: tokens.borderSubtle),
           ),
           child: Icon(icon, color: tokens.primaryAccent, size: 22),
+        ),
+      ),
+    );
+  }
+}
+
+class _MapControlButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  const _MapControlButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(14),
+          child: Ink(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: tokens.surfaceSecondary.withValues(alpha: 0.94),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Icon(icon, color: tokens.primaryAccent, size: 22),
+          ),
         ),
       ),
     );

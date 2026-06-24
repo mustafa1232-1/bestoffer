@@ -122,6 +122,33 @@ class LocalNotificationService {
         playSound: true,
         enableVibration: true,
       );
+  static const AndroidNotificationChannel _deliveryOrdersChannel =
+      AndroidNotificationChannel(
+        'maslaki_delivery_orders_v1',
+        'Maslaki Delivery Orders',
+        description: 'Courier order assignments, pickup readiness, and status',
+        importance: Importance.high,
+        playSound: true,
+        enableVibration: true,
+      );
+  static const AndroidNotificationChannel _deliveryChatChannel =
+      AndroidNotificationChannel(
+        'maslaki_delivery_chat_v1',
+        'Maslaki Delivery Chat',
+        description: 'Customer and merchant messages for courier orders',
+        importance: Importance.high,
+        playSound: true,
+        enableVibration: true,
+      );
+  static const AndroidNotificationChannel _deliveryCompetitionsChannel =
+      AndroidNotificationChannel(
+        'maslaki_delivery_competitions_v1',
+        'Maslaki Delivery Competitions',
+        description: 'Courier competition updates, progress, and rewards',
+        importance: Importance.defaultImportance,
+        playSound: true,
+        enableVibration: true,
+      );
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -167,6 +194,11 @@ class LocalNotificationService {
     await androidPlugin?.createNotificationChannel(_actionChannel);
     await androidPlugin?.createNotificationChannel(_deliveryUrgentChannel);
     await androidPlugin?.createNotificationChannel(_callChannel);
+    await androidPlugin?.createNotificationChannel(_deliveryOrdersChannel);
+    await androidPlugin?.createNotificationChannel(_deliveryChatChannel);
+    await androidPlugin?.createNotificationChannel(
+      _deliveryCompetitionsChannel,
+    );
 
     _initialized = true;
 

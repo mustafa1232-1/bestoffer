@@ -13,6 +13,7 @@ import '../../features/admin/ui/admin_taxi_cash_payments_screen.dart';
 import '../../features/admin/ui/admin_taxi_governance_screen.dart';
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/delivery/ui/courier_pages.dart';
+import '../../features/delivery/ui/delivery_restricted_screen.dart';
 import '../../features/hr/ui/hr_dashboard_screen.dart';
 import '../../features/hr/ui/hr_employee_portal_screen.dart';
 import '../../features/jobs/ui/job_applications_screen.dart';
@@ -507,6 +508,29 @@ class NotificationNavigation {
     return '';
   }
 
+  /// True when a notification target belongs to a customer/community/social
+  /// surface that must never open inside the delivery app. Order tracking is
+  /// intentionally NOT restricted — an assigned courier is allowed to track.
+  static bool isRestrictedForDelivery(String targetModule, String target) {
+    final module = targetModule.trim().toLowerCase();
+    final t = target.trim().toLowerCase();
+    if (module == 'social') return true;
+    if (t.startsWith('social_')) return true;
+    if (t.startsWith('customer_')) return true;
+    const restricted = <String>{
+      'social_community',
+      'social_profile',
+      'social_feed',
+      'social_reel',
+      'social_story',
+      'social_post',
+      'social_activity',
+      'social_chat',
+      'community',
+    };
+    return restricted.contains(t);
+  }
+
   /// يحول target النهائي إلى Route Flutter صالح اعتماداً على دور المستخدم
   /// والكيانات المرجعية الموجودة في payload.
   static Route<void>? _resolveRoute({
@@ -561,6 +585,13 @@ class NotificationNavigation {
       roleScope: roleScope,
       targetModule: targetModule,
     )) {
+      // Hard isolation: a courier must never be routed into a customer/social
+      // surface. Show an explicit dead-end instead of a silent redirect.
+      if (auth.isDelivery && isRestrictedForDelivery(targetModule, target)) {
+        return MaterialPageRoute(
+          builder: (_) => const DeliveryRestrictedScreen(),
+        );
+      }
       return _fallbackRouteForRole(auth, preferredModule: targetModule);
     }
 
