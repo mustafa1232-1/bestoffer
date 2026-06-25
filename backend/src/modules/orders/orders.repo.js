@@ -3579,8 +3579,12 @@ function buildDeliveryRatings(orderRows) {
 }
 
 export async function getDeliveryEarnings(deliveryUserId) {
+  // NOTE: customer_order has no payment_method column (it lives on
+  // merchant_payment_request / merchant_receivable_invoice). Selecting it here
+  // previously caused a 42703 "column o.payment_method does not exist" 500.
+  // paymentMethod is therefore returned as null while keeping the response shape.
   const result = await q(
-    `SELECT o.id, o.status, o.delivery_fee, o.total_amount, o.payment_method,
+    `SELECT o.id, o.status, o.delivery_fee, o.total_amount,
             o.delivered_at, o.customer_confirmed_at, o.created_at,
             c.full_name AS customer_name,
             m.name AS merchant_name

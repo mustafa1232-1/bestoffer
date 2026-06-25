@@ -59,6 +59,30 @@ test("earnings are an empty report (not a fake zero) when no delivered orders", 
   assert.deepEqual(out.rows, []);
 });
 
+test("earnings tolerate orders with no payment_method field (production schema)", () => {
+  // customer_order has no payment_method column, so the SQL no longer selects
+  // it and the row simply lacks the field. The builder must not crash and must
+  // return paymentMethod=null while preserving the rest of the row.
+  const out = buildDeliveryEarnings(
+    [
+      {
+        id: 5,
+        status: "delivered",
+        delivery_fee: 1500,
+        total_amount: 8000,
+        delivered_at: new Date(2026, 5, 15),
+        customer_name: "X",
+        merchant_name: "Y",
+      },
+    ],
+    new Date(2026, 5, 15)
+  );
+  assert.equal(out.rows.length, 1);
+  assert.equal(out.rows[0].paymentMethod, null);
+  assert.equal(out.rows[0].deliveryFee, 1500);
+  assert.equal(out.todayEarnings, 1500);
+});
+
 test("ratings link each rating to its order and average correctly", () => {
   const rows = [
     {
