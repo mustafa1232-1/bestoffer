@@ -3592,7 +3592,10 @@ export async function getDeliveryEarnings(deliveryUserId) {
        JOIN merchant m ON m.id = o.merchant_id
        LEFT JOIN app_user c ON c.id = o.customer_user_id
       WHERE o.delivery_user_id = $1
-        AND o.status = ANY($2::text[])
+        -- customer_order.status is the PostgreSQL enum order_status, so it must
+        -- be cast to text before comparing to a text[] (otherwise Postgres
+        -- raises 42883 operator does not exist: order_status = text).
+        AND o.status::text = ANY($2::text[])
       ORDER BY COALESCE(o.delivered_at, o.customer_confirmed_at, o.updated_at, o.created_at) DESC
       LIMIT 300`,
     [Number(deliveryUserId), DELIVERY_COMPLETED_STATUSES]

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { __ordersRepoTestables } from "../modules/orders/orders.repo.js";
 
@@ -125,4 +127,27 @@ test("ratings skip rows without stars and survive an empty set", () => {
   assert.equal(empty.averageRating, 0);
   assert.equal(empty.ratingCount, 0);
   assert.deepEqual(empty.rows, []);
+});
+
+test("getDeliveryEarnings casts the order_status enum to text (no 42883)", () => {
+  // customer_order.status is the PostgreSQL enum `order_status`. Comparing it
+  // directly to a text[] (o.status = ANY($2::text[])) raised a production 500
+  // (42883 operator does not exist: order_status = text). Guard the regression
+  // at the source level since a pure unit test cannot exercise the SQL operator.
+  const repoPath = fileURLToPath(
+    new URL("../modules/orders/orders.repo.js", import.meta.url)
+  );
+  const src = readFileSync(repoPath, "utf8");
+  const start = src.indexOf("export async function getDeliveryEarnings");
+  assert.ok(start >= 0, "getDeliveryEarnings must exist");
+  const body = src.slice(start, start + 1200);
+
+  assert.ok(
+    body.includes("o.status::text = ANY($2::text[])"),
+    "status enum must be cast to text before comparing to a text[]"
+  );
+  assert.ok(
+    !/o\.status = ANY\(\$2::text\[\]\)/.test(body),
+    "the un-cast enum=text comparison must not be present"
+  );
 });
