@@ -141,3 +141,21 @@ export async function analytics(req, res, next) {
     next(e);
   }
 }
+
+export async function earnings(req, res, next) {
+  try {
+    const out = await service.earningsReport(req.userId);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function ratings(req, res, next) {
+  try {
+    const out = await service.ratingsReport(req.userId);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}

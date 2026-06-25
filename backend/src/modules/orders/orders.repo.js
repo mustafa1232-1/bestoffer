@@ -536,6 +536,8 @@ export const __ordersRepoTestables = Object.freeze({
   buildDynamicInsertParts,
   toDeliveryDetailResponse,
   resolveTrackingViewerMode,
+  buildDeliveryEarnings,
+  buildDeliveryRatings,
 });
 
 export async function listDeliveryAgents() {
@@ -3485,6 +3487,132 @@ export async function getDeliveryOrderDetail({
     requestUserRole: normalizedRole,
     isBackoffice,
   });
+}
+
+const DELIVERY_COMPLETED_STATUSES = [
+  "delivered",
+  "received",
+  "completed",
+  "delivered_by_courier",
+  "received_by_customer",
+];
+
+/**
+ * Pure earnings aggregator over a courier's COMPLETED orders. Side-effect free
+ * (exposed via __ordersRepoTestables) so the calculation rules can be unit
+ * tested without a database. Only delivered/completed rows reach here, so
+ * cancelled/rejected/returned/pending are never counted.
+ */
+function buildDeliveryEarnings(orderRows, referenceDate) {
+  const ref = referenceDate || new Date();
+  const startOfDay = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  const startOfMonth = new Date(ref.getFullYear(), ref.getMonth(), 1);
+  let todayEarnings = 0;
+  let monthEarnings = 0;
+  let completedTodayCount = 0;
+  let completedMonthCount = 0;
+  let deliveryFeeSum = 0;
+  const rows = [];
+  for (const o of orderRows) {
+    const fee = Number(o.delivery_fee || 0);
+    const when =
+      o.delivered_at || o.customer_confirmed_at || o.created_at || null;
+    const whenDate = when ? new Date(when) : null;
+    deliveryFeeSum += fee;
+    if (whenDate && whenDate >= startOfMonth) {
+      monthEarnings += fee;
+      completedMonthCount += 1;
+    }
+    if (whenDate && whenDate >= startOfDay) {
+      todayEarnings += fee;
+      completedTodayCount += 1;
+    }
+    rows.push({
+      orderId: Number(o.id),
+      orderNumber: Number(o.id),
+      customerName: o.customer_name || null,
+      merchantName: o.merchant_name || null,
+      deliveredAt: when,
+      deliveryFee: fee,
+      totalInvoice: Number(o.total_amount || 0),
+      paymentMethod: o.payment_method || null,
+      status: o.status || null,
+    });
+  }
+  return {
+    todayEarnings,
+    monthEarnings,
+    completedTodayCount,
+    completedMonthCount,
+    deliveryFeeSum,
+    rows,
+  };
+}
+
+/**
+ * Pure ratings aggregator. The rating lives ON the order (delivery_rating),
+ * so every row is intrinsically linked to its orderId.
+ */
+function buildDeliveryRatings(orderRows) {
+  const rows = [];
+  let sum = 0;
+  let count = 0;
+  for (const o of orderRows) {
+    const stars = Number(o.delivery_rating || 0);
+    if (!(stars > 0)) continue;
+    sum += stars;
+    count += 1;
+    rows.push({
+      ratingId: Number(o.id),
+      orderId: Number(o.id),
+      orderNumber: Number(o.id),
+      stars,
+      comment: o.delivery_review || null,
+      customerName: o.customer_name || null,
+      merchantName: o.merchant_name || null,
+      createdAt:
+        o.delivered_at || o.customer_confirmed_at || o.created_at || null,
+    });
+  }
+  const averageRating = count > 0 ? Math.round((sum / count) * 100) / 100 : 0;
+  return { averageRating, ratingCount: count, rows };
+}
+
+export async function getDeliveryEarnings(deliveryUserId) {
+  const result = await q(
+    `SELECT o.id, o.status, o.delivery_fee, o.total_amount, o.payment_method,
+            o.delivered_at, o.customer_confirmed_at, o.created_at,
+            c.full_name AS customer_name,
+            m.name AS merchant_name
+       FROM customer_order o
+       JOIN merchant m ON m.id = o.merchant_id
+       LEFT JOIN app_user c ON c.id = o.customer_user_id
+      WHERE o.delivery_user_id = $1
+        AND o.status = ANY($2::text[])
+      ORDER BY COALESCE(o.delivered_at, o.customer_confirmed_at, o.updated_at, o.created_at) DESC
+      LIMIT 300`,
+    [Number(deliveryUserId), DELIVERY_COMPLETED_STATUSES]
+  );
+  return buildDeliveryEarnings(result.rows, new Date());
+}
+
+export async function getDeliveryRatings(deliveryUserId) {
+  const result = await q(
+    `SELECT o.id, o.delivery_rating, o.delivery_review,
+            o.delivered_at, o.customer_confirmed_at, o.created_at,
+            c.full_name AS customer_name,
+            m.name AS merchant_name
+       FROM customer_order o
+       JOIN merchant m ON m.id = o.merchant_id
+       LEFT JOIN app_user c ON c.id = o.customer_user_id
+      WHERE o.delivery_user_id = $1
+        AND o.delivery_rating IS NOT NULL
+        AND o.delivery_rating > 0
+      ORDER BY COALESCE(o.delivered_at, o.customer_confirmed_at, o.created_at) DESC
+      LIMIT 300`,
+    [Number(deliveryUserId)]
+  );
+  return buildDeliveryRatings(result.rows);
 }
 
 /**

@@ -62,6 +62,20 @@ class DeliveryApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  /// Canonical courier earnings report: today/month totals, completed counts,
+  /// delivery-fee sum, and per-order rows (computed server-side from this
+  /// courier's delivered orders only).
+  Future<Map<String, dynamic>> deliveryEarnings() async {
+    final response = await dio.get('/api/delivery/earnings');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// Courier ratings with their linked order ids (the rating lives on the order).
+  Future<Map<String, dynamic>> deliveryRatings() async {
+    final response = await dio.get('/api/delivery/ratings');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> upsertPresence({
     required double latitude,
     required double longitude,

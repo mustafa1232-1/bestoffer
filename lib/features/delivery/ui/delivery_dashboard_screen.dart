@@ -19,6 +19,7 @@ import '../../settings/ui/pages/settings_support_screen.dart';
 import '../data/delivery_api.dart';
 import '../state/delivery_controller.dart';
 import 'courier_pages.dart';
+import 'delivery_reports_screens.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -224,7 +225,7 @@ class _DeliveryDashboardScreenState
               onTap: (_) async {
                 await Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const CourierEarningsPage(),
+                    builder: (_) => const DeliveryEarningsScreen(),
                   ),
                 );
               },
@@ -365,7 +366,7 @@ class _DeliveryDashboardScreenState
               value: formatIqd(metrics.todayFees),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const CourierEarningsPage(),
+                  builder: (_) => const DeliveryEarningsScreen(),
                 ),
               ),
             ),
@@ -375,7 +376,7 @@ class _DeliveryDashboardScreenState
               value: metrics.rating.toStringAsFixed(1),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const CourierReportsPage(),
+                  builder: (_) => const DeliveryRatingsScreen(),
                 ),
               ),
             ),

@@ -200,3 +200,11 @@ export async function endDay(deliveryUserId, date) {
 export async function analytics(deliveryUserId) {
   return analyticsRepo.getDeliveryAnalytics(deliveryUserId);
 }
+
+export async function earningsReport(deliveryUserId) {
+  return ordersRepo.getDeliveryEarnings(Number(deliveryUserId));
+}
+
+export async function ratingsReport(deliveryUserId) {
+  return ordersRepo.getDeliveryRatings(Number(deliveryUserId));
+}

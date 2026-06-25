@@ -27,3 +27,5 @@ deliveryRouter.patch("/orders/:orderId/arrived", c.markArrived);
 deliveryRouter.patch("/orders/:orderId/delivered", c.markDelivered);
 deliveryRouter.post("/end-day", c.endDay);
 deliveryRouter.get("/analytics", c.analytics);
+deliveryRouter.get("/earnings", c.earnings);
+deliveryRouter.get("/ratings", c.ratings);
