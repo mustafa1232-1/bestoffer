@@ -242,6 +242,31 @@ export const env = {
     1000,
     { min: 100, max: 600000 }
   ),
+  supabaseRealtimeMembershipTimeoutMs: readNumber(
+    "SUPABASE_REALTIME_MEMBERSHIP_TIMEOUT_MS",
+    6000,
+    { min: 500, max: 60000 }
+  ),
+  supabaseRealtimeMembershipRetries: readNumber(
+    "SUPABASE_REALTIME_MEMBERSHIP_RETRIES",
+    2,
+    { min: 0, max: 5 }
+  ),
+  supabaseRealtimePublishTimeoutMs: readNumber(
+    "SUPABASE_REALTIME_PUBLISH_TIMEOUT_MS",
+    8000,
+    { min: 500, max: 60000 }
+  ),
+  supabaseRealtimeCircuitThreshold: readNumber(
+    "SUPABASE_REALTIME_CIRCUIT_THRESHOLD",
+    5,
+    { min: 1, max: 100 }
+  ),
+  supabaseRealtimeCircuitCooldownMs: readNumber(
+    "SUPABASE_REALTIME_CIRCUIT_COOLDOWN_MS",
+    15000,
+    { min: 1000, max: 600000 }
+  ),
   jwtSecret: readString("JWT_SECRET"),
   jwtSecretPrevious: readString("JWT_SECRET_PREVIOUS"),
   jwtIssuer: readString("JWT_ISSUER", ""),

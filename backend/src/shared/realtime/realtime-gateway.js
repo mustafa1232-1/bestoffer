@@ -8,6 +8,11 @@ import {
   syncOrderMembers,
   syncTaxiRideMembers,
 } from "./realtime-membership.js";
+import {
+  REALTIME_METRICS,
+  incMetric,
+  sanitizeErrorForLog,
+} from "./realtime-resilience.js";
 
 const SHARED_TOPIC_DEDUP_TTL_MS = 5000;
 const sharedTopicDedupCache = new Map();
@@ -229,90 +234,90 @@ function shouldSkipSharedTopicPublish(topic, event, envelope) {
   return false;
 }
 
+/**
+ * Best-effort membership sync for a shared topic.
+ *
+ * IMPORTANT: a failure here (e.g. Supabase 520 on allowUsersOnChannel) must NOT
+ * cause the event to be dropped. We return readiness so the caller can still
+ * publish — already-authorized members keep receiving events, and the outbox
+ * covers any publish that also fails. This is the core 520 fix.
+ */
 async function ensureTopicMembership(topic) {
-  if (String(topic || "").startsWith("chat:thread:")) {
-    const threadId = toIntOrNull(String(topic).split(":").pop());
-    if (threadId) {
-      try {
-        const result = await dependencies.syncChatThreadMembers(threadId);
-        if (result?.ok === true) {
-          return true;
-        }
-        dependencies.logger.warn?.("[realtime-gateway] chat membership unavailable", {
-          topic,
-          reason: result?.reason || result?.error?.message || "membership_unavailable",
-        });
-      } catch (error) {
-        dependencies.logger.warn?.(
-          "[realtime-gateway] chat membership sync failed",
-          error?.message || error
-        );
+  const safeTopic = String(topic || "");
+  const syncers = [
+    { prefix: "chat:thread:", run: dependencies.syncChatThreadMembers, kind: "chat" },
+    { prefix: "taxi:ride:", run: dependencies.syncTaxiRideMembers, kind: "taxi" },
+    { prefix: "order:", run: dependencies.syncOrderMembers, kind: "order" },
+  ];
+
+  for (const { prefix, run, kind } of syncers) {
+    if (!safeTopic.startsWith(prefix)) continue;
+    const entityId = toIntOrNull(safeTopic.split(":").pop());
+    if (!entityId) return { ready: false, retryable: false, reason: "invalid_topic" };
+    try {
+      const result = await run(entityId);
+      if (result?.ok === true) {
+        return { ready: true, retryable: false, reason: "ok" };
       }
+      dependencies.logger.warn?.("[realtime-gateway] membership unavailable", {
+        event: "realtime_membership_unavailable",
+        topic: safeTopic,
+        kind,
+        statusCode: result?.statusCode ?? null,
+        retryable: result?.retryable ?? false,
+        reason: result?.reason || "membership_unavailable",
+        fallback: "publish_anyway",
+      });
+      return {
+        ready: false,
+        retryable: result?.retryable ?? false,
+        reason: result?.reason || "membership_unavailable",
+      };
+    } catch (error) {
+      const safe = sanitizeErrorForLog(error);
+      dependencies.logger.warn?.("[realtime-gateway] membership sync failed", {
+        event: "realtime_membership_sync_failed",
+        topic: safeTopic,
+        kind,
+        statusCode: safe?.statusCode ?? null,
+        retryable: safe?.retryable ?? false,
+        error: safe?.message || null,
+        fallback: "publish_anyway",
+      });
+      return { ready: false, retryable: safe?.retryable ?? true, reason: "sync_threw" };
     }
-    return false;
   }
-  if (String(topic || "").startsWith("taxi:ride:")) {
-    const rideId = toIntOrNull(String(topic).split(":").pop());
-    if (rideId) {
-      try {
-        const result = await dependencies.syncTaxiRideMembers(rideId);
-        if (result?.ok === true) {
-          return true;
-        }
-        dependencies.logger.warn?.("[realtime-gateway] taxi membership unavailable", {
-          topic,
-          reason: result?.reason || result?.error?.message || "membership_unavailable",
-        });
-      } catch (error) {
-        dependencies.logger.warn?.(
-          "[realtime-gateway] taxi membership sync failed",
-          error?.message || error
-        );
-      }
-    }
-    return false;
-  }
-  if (String(topic || "").startsWith("order:")) {
-    const orderId = toIntOrNull(String(topic).split(":").pop());
-    if (orderId) {
-      try {
-        const result = await dependencies.syncOrderMembers(orderId);
-        if (result?.ok === true) {
-          return true;
-        }
-        dependencies.logger.warn?.("[realtime-gateway] order membership unavailable", {
-          topic,
-          reason: result?.reason || result?.error?.message || "membership_unavailable",
-        });
-      } catch (error) {
-        dependencies.logger.warn?.(
-          "[realtime-gateway] order membership sync failed",
-          error?.message || error
-        );
-      }
-    }
-    return false;
-  }
-  return true;
+  // Private user topics and explicit topics need no shared membership.
+  return { ready: true, retryable: false, reason: "not_shared" };
 }
 
-async function publishSupabaseWithFallback(topic, event, envelope) {
+async function publishSupabaseWithFallback(topic, event, envelope, context = {}) {
   try {
     await dependencies.publish(topic, event, envelope, { private: true });
+    incMetric(REALTIME_METRICS.PUBLISH_SUCCESS);
     return { ok: true, queued: false };
   } catch (error) {
-    await dependencies.enqueueOutbox({
+    incMetric(REALTIME_METRICS.PUBLISH_FAILURE);
+    const outboxId = await dependencies.enqueueOutbox({
       topic,
       event,
       payload: envelope,
       error,
     });
+    if (outboxId) incMetric(REALTIME_METRICS.FALLBACK_OUTBOX_USED);
+    const safe = sanitizeErrorForLog(error);
     dependencies.logger.warn?.("[realtime-gateway] supabase publish failed", {
+      event: "realtime_publish_failed",
       topic,
-      event,
-      error: error?.message || error,
+      realtimeEvent: event,
+      statusCode: safe?.statusCode ?? null,
+      retryable: safe?.retryable ?? false,
+      membershipReady: context.membershipReady ?? null,
+      fallback: outboxId ? "outbox" : "none",
+      outboxId: outboxId || null,
+      error: safe?.message || null,
     });
-    return { ok: false, queued: true, error };
+    return { ok: false, queued: !!outboxId, error };
   }
 }
 
@@ -359,10 +364,7 @@ export async function emitRealtimeToUser(
     (value) => value && value !== primaryTopic
   );
   for (const sharedTopic of sharedTopics) {
-    const sharedTopicReady = await ensureTopicMembership(sharedTopic);
-    if (!sharedTopicReady) {
-      continue;
-    }
+    const membership = await ensureTopicMembership(sharedTopic);
     const sharedEnvelope = {
       ...baseEnvelope,
       channel: sharedTopic,
@@ -371,7 +373,13 @@ export async function emitRealtimeToUser(
     if (shouldSkipSharedTopicPublish(sharedTopic, normalizedEvent, sharedEnvelope)) {
       continue;
     }
-    await publishSupabaseWithFallback(sharedTopic, normalizedEvent, sharedEnvelope);
+    // Publish regardless of membership readiness. Dropping the event on a
+    // transient membership failure (Supabase 520) was the original bug: it
+    // silently broke order/chat/taxi shared channels. Publish failures fall
+    // back to the outbox for retry.
+    await publishSupabaseWithFallback(sharedTopic, normalizedEvent, sharedEnvelope, {
+      membershipReady: membership.ready,
+    });
   }
 
   return eventId;
@@ -409,10 +417,7 @@ export async function emitRealtimeToTopic(
   const normalizedEvent = String(event || "").trim();
   if (!safeTopic || !normalizedEvent) return null;
 
-  const sharedTopicReady = await ensureTopicMembership(safeTopic);
-  if (!sharedTopicReady) {
-    return toIntOrNull(id) || dependencies.allocateId();
-  }
+  const membership = await ensureTopicMembership(safeTopic);
 
   const eventId = toIntOrNull(id) || dependencies.allocateId();
   const envelope = buildEnvelope({
@@ -428,7 +433,10 @@ export async function emitRealtimeToTopic(
     return eventId;
   }
 
-  await publishSupabaseWithFallback(safeTopic, normalizedEvent, envelope);
+  // Publish regardless of membership readiness; the outbox covers failures.
+  await publishSupabaseWithFallback(safeTopic, normalizedEvent, envelope, {
+    membershipReady: membership.ready,
+  });
   return eventId;
 }
 

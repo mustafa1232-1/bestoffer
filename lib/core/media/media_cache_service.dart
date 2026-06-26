@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'media_cache_models.dart';
+import 'media_url.dart';
 
 final mediaCacheServiceProvider = Provider<MediaCacheService>((ref) {
   final service = MediaCacheService.instance;
@@ -136,7 +137,9 @@ class MediaCacheService {
     int? userId,
     Map<String, String>? headers,
   }) async {
-    final cleaned = url.trim();
+    // Normalize transport (http->https) and encoding so reels/videos load on
+    // strict Android/iOS builds exactly like images do.
+    final cleaned = resolveMediaUrl(url) ?? '';
     if (cleaned.isEmpty) {
       throw ArgumentError.value(url, 'url', 'Video URL is empty');
     }

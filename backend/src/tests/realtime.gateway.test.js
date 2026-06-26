@@ -105,7 +105,10 @@ test("gateway queues outbox when supabase publish fails", async () => {
   assert.equal(queued[0].topic, "notifications:user:18");
 });
 
-test("gateway skips shared topics when membership sync is unavailable", async () => {
+test("gateway still publishes shared topics when membership sync is unavailable (520 fix)", async () => {
+  // Regression guard for the Supabase 520 bug: a failed membership sync must NOT
+  // drop the shared-topic event. Already-authorized members keep receiving it,
+  // and publish failures fall back to the outbox.
   const topics = [];
 
   __realtimeGatewayTestApi.setModeResolver(() => "dual");
@@ -115,9 +118,24 @@ test("gateway skips shared topics when membership sync is unavailable", async ()
     topics.push(topic);
   });
   __realtimeGatewayTestApi.setMembershipSyncers({
-    syncChatThreadMembers: async () => ({ ok: false, reason: "missing_sql_objects" }),
-    syncTaxiRideMembers: async () => ({ ok: false, reason: "missing_sql_objects" }),
-    syncOrderMembers: async () => ({ ok: false, reason: "missing_sql_objects" }),
+    syncChatThreadMembers: async () => ({
+      ok: false,
+      reason: "membership_supabase_failed",
+      statusCode: 520,
+      retryable: true,
+    }),
+    syncTaxiRideMembers: async () => ({
+      ok: false,
+      reason: "membership_supabase_failed",
+      statusCode: 520,
+      retryable: true,
+    }),
+    syncOrderMembers: async () => ({
+      ok: false,
+      reason: "membership_supabase_failed",
+      statusCode: 520,
+      retryable: true,
+    }),
   });
 
   await emitRealtimeToUser(9, "social_chat_message", {
@@ -133,9 +151,48 @@ test("gateway skips shared topics when membership sync is unavailable", async ()
     stage: "heading_to_customer",
   });
 
+  // The shared topics (chat:thread:33, taxi:ride:77, order:55) are now published
+  // despite the membership 520, instead of being silently dropped.
   assert.deepEqual(topics, [
     "social:user:9",
+    "chat:thread:33",
     "taxi:user:9",
+    "taxi:ride:77",
     "user:9",
+    "order:55",
   ]);
+});
+
+test("gateway queues shared-topic event to outbox when membership down AND publish fails", async () => {
+  const queued = [];
+
+  __realtimeGatewayTestApi.setModeResolver(() => "dual");
+  __realtimeGatewayTestApi.setAllocateId(() => 4242);
+  __realtimeGatewayTestApi.setSseEmitter(() => {});
+  __realtimeGatewayTestApi.setPublisher(async () => {
+    const error = new Error("supabase.co | 520 Web server is returning an unknown error");
+    error.status = 520;
+    throw error;
+  });
+  __realtimeGatewayTestApi.setOutboxEnqueuer(async (entry) => {
+    queued.push(entry);
+    return queued.length;
+  });
+  __realtimeGatewayTestApi.setMembershipSyncers({
+    syncOrderMembers: async () => ({
+      ok: false,
+      reason: "membership_supabase_failed",
+      statusCode: 520,
+      retryable: true,
+    }),
+  });
+
+  await emitRealtimeToUser(9, "order_tracking_update", {
+    orderId: 55,
+    stage: "heading_to_customer",
+  });
+
+  // Both the user topic and the order shared topic land in the outbox — nothing lost.
+  const topics = queued.map((entry) => entry.topic).sort();
+  assert.deepEqual(topics, ["order:55", "user:9"]);
 });

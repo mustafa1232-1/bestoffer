@@ -19,3 +19,12 @@ CREATE INDEX IF NOT EXISTS idx_realtime_outbox_pending
 
 CREATE INDEX IF NOT EXISTS idx_realtime_outbox_topic_created
   ON realtime_outbox (topic, created_at DESC, id DESC);
+
+-- Idempotency / de-duplication key. Two logically-identical events collapse to a
+-- single in-flight row; once published the same key can be re-queued again.
+ALTER TABLE realtime_outbox
+  ADD COLUMN IF NOT EXISTS dedupe_key TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_realtime_outbox_dedupe_active
+  ON realtime_outbox (dedupe_key)
+  WHERE status IN ('pending', 'processing') AND dedupe_key IS NOT NULL;

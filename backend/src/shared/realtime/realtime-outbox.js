@@ -1,10 +1,50 @@
+import { createHash } from "node:crypto";
+
 import { pool, q } from "../../config/db.js";
 import { env } from "../../config/env.js";
 import { getSupabaseRealtimeStatus } from "../../config/supabase.js";
 import { publishSupabaseBroadcast } from "./realtime-supabase-publisher.js";
+import {
+  REALTIME_METRICS,
+  incMetric,
+  sanitizeErrorForLog,
+} from "./realtime-resilience.js";
 
 const OUTBOX_ADVISORY_LOCK_KEY = 927451803;
 const OUTBOX_POLL_INTERVAL_MS = 1500;
+
+function safeOutboxError(error, fallback = "SUPABASE_BROADCAST_FAILED") {
+  const safe = sanitizeErrorForLog(error);
+  return (safe?.message || fallback).slice(0, 300);
+}
+
+/**
+ * Stable idempotency key for an outbox entry. Excludes volatile fields (event
+ * id, createdAt) so two logically-identical events collapse to one pending row,
+ * but includes the topic + logical entity + payload so genuinely distinct events
+ * (and re-sends after publish) are kept separate.
+ */
+export function computeOutboxDedupeKey({ topic, event, payload } = {}) {
+  const envelope = payload && typeof payload === "object" ? payload : {};
+  const basis = JSON.stringify({
+    topic: String(topic || ""),
+    event: String(event || ""),
+    entityType: envelope.entityType ?? null,
+    entityId: envelope.entityId ?? null,
+    actorUserId: envelope.actorUserId ?? null,
+    recipientUserId: envelope.recipientUserId ?? null,
+    data: envelope.data ?? null,
+  });
+  return createHash("sha1").update(basis).digest("hex");
+}
+
+function isUndefinedColumnError(error) {
+  // Postgres 42703 = undefined_column (dedupe_key migration not applied yet).
+  return (
+    error?.code === "42703" ||
+    /column .*dedupe_key.* does not exist/i.test(String(error?.message || ""))
+  );
+}
 
 const dependencies = {
   query: (text, params) => q(text, params),
@@ -40,6 +80,21 @@ function normalizeJsonPayload(payload) {
   return { value: payload };
 }
 
+async function insertOutboxRow({ topic, event, payloadJson, lastError, dedupeKey }) {
+  // Idempotent insert: if an identical event is already pending/processing we
+  // reuse that row (returning its id) instead of queuing a duplicate.
+  const withDedupe = await dependencies.query(
+    `INSERT INTO realtime_outbox
+        (topic, event, payload, last_error, dedupe_key)
+       VALUES ($1,$2,$3::jsonb,$4,$5)
+       ON CONFLICT (dedupe_key) WHERE status IN ('pending','processing')
+       DO UPDATE SET last_error = COALESCE(realtime_outbox.last_error, EXCLUDED.last_error)
+       RETURNING id`,
+    [topic, event, payloadJson, lastError, dedupeKey]
+  );
+  return Number(withDedupe.rows[0]?.id || 0) || null;
+}
+
 export async function enqueueRealtimeOutbox({
   topic,
   event,
@@ -50,25 +105,49 @@ export async function enqueueRealtimeOutbox({
   const safeEvent = String(event || "").trim();
   if (!safeTopic || !safeEvent) return null;
 
+  const payloadJson = JSON.stringify(normalizeJsonPayload(payload));
+  const lastError = error ? safeOutboxError(error) : null;
+  const dedupeKey = computeOutboxDedupeKey({
+    topic: safeTopic,
+    event: safeEvent,
+    payload,
+  });
+
   try {
-    const result = await dependencies.query(
-      `INSERT INTO realtime_outbox
-        (topic, event, payload, last_error)
-       VALUES ($1,$2,$3::jsonb,$4)
-       RETURNING id`,
-      [
-        safeTopic,
-        safeEvent,
-        JSON.stringify(normalizeJsonPayload(payload)),
-        error ? String(error?.message || error).slice(0, 4000) : null,
-      ]
-    );
-    return Number(result.rows[0]?.id || 0) || null;
+    return await insertOutboxRow({
+      topic: safeTopic,
+      event: safeEvent,
+      payloadJson,
+      lastError,
+      dedupeKey,
+    });
   } catch (insertError) {
-    dependencies.logger.error?.(
-      "[realtime-outbox] enqueue failed",
-      insertError?.message || insertError
-    );
+    // Backward compatibility: if the dedupe_key migration has not yet been
+    // applied, fall back to the plain insert so events are never lost.
+    if (isUndefinedColumnError(insertError)) {
+      try {
+        const result = await dependencies.query(
+          `INSERT INTO realtime_outbox
+            (topic, event, payload, last_error)
+           VALUES ($1,$2,$3::jsonb,$4)
+           RETURNING id`,
+          [safeTopic, safeEvent, payloadJson, lastError]
+        );
+        return Number(result.rows[0]?.id || 0) || null;
+      } catch (fallbackError) {
+        dependencies.logger.error?.("[realtime-outbox] enqueue failed", {
+          event: "realtime_outbox_enqueue_failed",
+          topic: safeTopic,
+          error: safeOutboxError(fallbackError),
+        });
+        return null;
+      }
+    }
+    dependencies.logger.error?.("[realtime-outbox] enqueue failed", {
+      event: "realtime_outbox_enqueue_failed",
+      topic: safeTopic,
+      error: safeOutboxError(insertError),
+    });
     return null;
   }
 }
@@ -105,6 +184,7 @@ async function markOutboxPublished(client, id) {
       WHERE id = $1`,
     [Number(id)]
   );
+  incMetric(REALTIME_METRICS.OUTBOX_PUBLISHED);
 }
 
 async function markOutboxRetry(client, id, attempts, error) {
@@ -115,25 +195,22 @@ async function markOutboxRetry(client, id, attempts, error) {
             last_error = $2,
             next_attempt_at = NOW() + ($3 * INTERVAL '1 millisecond')
       WHERE id = $1`,
-    [
-      Number(id),
-      String(error?.message || error || "SUPABASE_BROADCAST_FAILED").slice(0, 4000),
-      delayMs,
-    ]
+    [Number(id), safeOutboxError(error), delayMs]
   );
+  incMetric(REALTIME_METRICS.OUTBOX_RETRY);
 }
 
 async function markOutboxFailed(client, id, error) {
+  // Dead-letter: attempts exhausted. Kept in-table with status 'failed' for
+  // inspection/replay; never deleted automatically.
   await client.query(
     `UPDATE realtime_outbox
         SET status = 'failed',
             last_error = $2
       WHERE id = $1`,
-    [
-      Number(id),
-      String(error?.message || error || "SUPABASE_BROADCAST_FAILED").slice(0, 4000),
-    ]
+    [Number(id), safeOutboxError(error)]
   );
+  incMetric(REALTIME_METRICS.OUTBOX_DEAD_LETTER);
 }
 
 export async function processRealtimeOutboxBatch({ limit = 50 } = {}) {
@@ -232,6 +309,8 @@ export async function stopRealtimeOutboxPump() {
 
 export const __realtimeOutboxTestApi = {
   computeBackoffMs,
+  computeOutboxDedupeKey,
+  safeOutboxError,
   setQuery(fn) {
     dependencies.query = fn;
   },
