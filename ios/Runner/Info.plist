@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -14,6 +16,12 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>$(APP_DISPLAY_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -27,16 +35,52 @@
 			</array>
 		</dict>
 	</array>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>$(FLUTTER_BUILD_NAME)</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>يستخدم تطبيق مسلكي الكاميرا لالتقاط الصور والفيديوهات للمنشورات والريلز والستوري وصور الحساب والمنتجات عند الحاجة. | Maslaki uses the camera to capture photos and videos for posts, reels, stories, profile pictures, and product images.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>يستخدم تطبيق مسلكي موقعك في الخلفية لضمان دقة تتبع رحلات التكسي وطلبات التوصيل بشكل مستمر. | Maslaki uses your location in the background to accurately track taxi rides and delivery orders in real time.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>يستخدم تطبيق مسلكي موقعك في الخلفية لضمان دقة تتبع رحلات التكسي وطلبات التوصيل بشكل مستمر. | Maslaki uses your location in the background to accurately track taxi rides and delivery orders in real time.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>يستخدم تطبيق مسلكي الموقع لتحديد عنوانك، عرض الخدمات القريبة، تتبع الطلبات، وخدمات التوصيل والتكسي عند استخدام هذه الخدمات. | Maslaki uses your location to determine your address, show nearby services, track orders, and enable delivery and taxi services.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>يستخدم تطبيق مسلكي الميكروفون لتسجيل الصوت في الريلز والستوري والرسائل الصوتية والمكالمات عند استخدام هذه الميزات. | Maslaki uses the microphone to record audio in reels, stories, voice messages, and calls.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>يستخدم تطبيق مسلكي مكتبة الصور لحفظ الصور والفيديوهات من المنشورات والريلز عند طلب الحفظ. | Maslaki saves photos and videos from posts and reels to your photo library when you request it.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>يستخدم تطبيق مسلكي مكتبة الصور لاختيار الصور والفيديوهات للمنشورات والريلز والستوري وصور الحساب والمنتجات والمرفقات. | Maslaki accesses your photo library to select photos and videos for posts, reels, stories, profile pictures, products, and attachments.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>FlutterSceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -54,29 +98,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>We need your location to enable nearby trips and services.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Background location is needed to keep live trip and delivery tracking accurate.</string>
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>Background location is needed to keep live trip and delivery tracking accurate.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Camera access is needed for in-app calls and media capture.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Microphone access is needed for voice calls and voice messages.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Photo library access is needed to select and upload media.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Photo library access is needed when saving or exporting media from the app.</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>location</string>
-		<string>remote-notification</string>
-	</array>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
 </dict>
 </plist>
-
