@@ -117,7 +117,16 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       setState(() {
         _appliedCoupon = null;
         _couponDiscount = 0;
-        _couponError = mapAnyError(e, fallback: 'الكوبون غير صالح');
+        _couponError = mapAnyError(e, fallback: 'الكوبون غير صالح', customMessages: {
+          'COUPON_NOT_FOUND': 'الكوبون غير موجود.',
+          'COUPON_EXPIRED': 'انتهت صلاحية هذا الكوبون.',
+          'COUPON_NOT_STARTED': 'هذا الكوبون غير متاح بعد.',
+          'COUPON_INACTIVE': 'هذا الكوبون غير مفعل حالياً.',
+          'COUPON_NOT_TARGETED': 'هذا الكوبون غير مخصص لحسابك الحالي.',
+          'COUPON_USER_LIMIT_REACHED': 'استنفدت عدد الاستخدامات المسموح بها لهذا الكوبون.',
+          'COUPON_TOTAL_LIMIT_REACHED': 'تم استنفاد هذا الكوبون بالكامل.',
+          'COUPON_NO_TIERS': 'لا توجد شرائح خصم صالحة لهذا الكوبون حالياً.',
+        });
         _checkingCoupon = false;
       });
     }

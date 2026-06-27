@@ -433,31 +433,34 @@ class _MaslakiDrawerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      onTap: entry.onTap,
-      leading: Icon(
-        Icons.chevron_left_rounded,
-        color: context.maslakiTokens.textMuted,
-      ),
-      title: Text(
-        entry.label,
-        textDirection: context.appTextDirection,
-        textAlign: TextAlign.end,
-        style: Theme.of(
-          context,
-        ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
-      ),
-      trailing: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          color: context.maslakiTokens.primaryAccent.withValues(alpha: 0.12),
-          border: Border.all(color: context.maslakiTokens.borderSubtle),
+    return Material(
+      type: MaterialType.transparency,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        onTap: entry.onTap,
+        leading: Icon(
+          Icons.chevron_left_rounded,
+          color: context.maslakiTokens.textMuted,
         ),
-        child: Icon(entry.icon, color: context.maslakiTokens.primaryAccent),
+        title: Text(
+          entry.label,
+          textDirection: context.appTextDirection,
+          textAlign: TextAlign.end,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        trailing: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: context.maslakiTokens.primaryAccent.withValues(alpha: 0.12),
+            border: Border.all(color: context.maslakiTokens.borderSubtle),
+          ),
+          child: Icon(entry.icon, color: context.maslakiTokens.primaryAccent),
+        ),
       ),
     );
   }

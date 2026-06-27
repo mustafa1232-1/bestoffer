@@ -877,31 +877,34 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 const SizedBox(height: 8),
                                 _scrollCoordinator.anchor(
                                   'analyticsConsent',
-                                  CheckboxListTile(
-                                    value: analyticsConsentAccepted,
-                                    onChanged: (v) {
-                                      setState(() {
-                                        analyticsConsentAccepted = v == true;
-                                        _consentError = null;
-                                        _formError = null;
-                                      });
-                                    },
-                                    controlAffinity:
-                                        ListTileControlAffinity.leading,
-                                    title: Text(
-                                      context.l10n.authRegisterConsentCheckbox,
-                                      style: const TextStyle(color: Colors.white),
-                                    ),
-                                    subtitle: _consentError == null
-                                        ? null
-                                        : Text(
-                                            _consentError!,
-                                            style: TextStyle(
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.error,
+                                  Material(
+                                    type: MaterialType.transparency,
+                                    child: CheckboxListTile(
+                                      value: analyticsConsentAccepted,
+                                      onChanged: (v) {
+                                        setState(() {
+                                          analyticsConsentAccepted = v == true;
+                                          _consentError = null;
+                                          _formError = null;
+                                        });
+                                      },
+                                      controlAffinity:
+                                          ListTileControlAffinity.leading,
+                                      title: Text(
+                                        context.l10n.authRegisterConsentCheckbox,
+                                        style: const TextStyle(color: Colors.white),
+                                      ),
+                                      subtitle: _consentError == null
+                                          ? null
+                                          : Text(
+                                              _consentError!,
+                                              style: TextStyle(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.error,
+                                              ),
                                             ),
-                                          ),
+                                    ),
                                   ),
                                 ),
                                 FilledButton.icon(

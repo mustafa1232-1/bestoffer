@@ -610,12 +610,15 @@ class _ServiceProviderOnboardingScreenState
                             Row(
                               children: [
                                 Expanded(
-                                  child: SwitchListTile(
-                                    dense: true,
-                                    value: _hasTeam,
-                                    title: const Text('لدي فريق عمل'),
-                                    onChanged: (v) =>
-                                        setState(() => _hasTeam = v),
+                                  child: Material(
+                                    type: MaterialType.transparency,
+                                    child: SwitchListTile(
+                                      dense: true,
+                                      value: _hasTeam,
+                                      title: const Text('لدي فريق عمل'),
+                                      onChanged: (v) =>
+                                          setState(() => _hasTeam = v),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),

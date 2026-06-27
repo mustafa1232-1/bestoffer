@@ -775,9 +775,8 @@ class _RealEstateListingEditorScreenState
                               scrollDirection: Axis.horizontal,
                               buildDefaultDragHandles: false,
                               itemCount: _images.length,
-                              onReorder: (oldIndex, newIndex) {
+                              onReorderItem: (oldIndex, newIndex) {
                                 setState(() {
-                                  if (newIndex > oldIndex) newIndex -= 1;
                                   final item = _images.removeAt(oldIndex);
                                   _images.insert(newIndex, item);
                                 });
