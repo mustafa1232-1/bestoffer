@@ -1,7 +1,8 @@
 name: maslaki
 description: "Maslaki - Basmaya super-app for shopping, food, and taxi"
 publish_to: 'none'
-version: 1.0.1+6
+version: 1.0.1+5
+
 environment:
   sdk: ^3.10.7
 
