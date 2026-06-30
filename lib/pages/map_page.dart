@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:maslaki/features/auth/state/auth_controller.dart';
+import 'package:maslaki/core/auth/auth_guard.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
 import 'package:maslaki/features/taxi/data/taxi_route_service.dart';
 import 'package:maslaki/features/taxi/domain/taxi_fare_policy.dart';
@@ -253,12 +254,14 @@ class _MapPageState extends ConsumerState<MapPage>
     if (!mounted) return;
     final auth = ref.read(authControllerProvider);
     if (!auth.isAuthed) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _canUseTaxiApi = false;
-        _error = context.l10n.mapPageLoginRequired;
-      });
+      await requireAuthBeforeAction(
+        context,
+        featureArabic: 'خدمة التكسي',
+        featureEnglish: 'taxi booking',
+      );
+      if (mounted) {
+        Navigator.of(context).maybePop();
+      }
       return;
     }
     if (auth.isBackoffice || auth.isOwner || auth.isDelivery) {

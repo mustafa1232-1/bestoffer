@@ -17,6 +17,7 @@ import 'pages/settings_language_screen.dart';
 import 'pages/settings_support_screen.dart';
 import 'pages/settings_usage_guide_screen.dart';
 import 'pages/privacy_policy_screen.dart';
+import 'pages/terms_of_use_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   /// When false the user/community side drawer is not attached. Delivery,
@@ -172,6 +173,15 @@ class SettingsScreen extends ConsumerWidget {
             title: l10n.settingsPrivacyPolicy,
             subtitle: l10n.settingsPrivacyPolicyHint,
             onTap: () => open(const PrivacyPolicyScreen()),
+          ),
+          _SettingsSectionCard(
+            icon: Icons.gavel_rounded,
+            title: context.lt(ar: 'شروط الاستخدام', en: 'Terms of Use'),
+            subtitle: context.lt(
+              ar: 'الشروط العامة لاستخدام التطبيق والخدمة',
+              en: 'General terms for using the app and service',
+            ),
+            onTap: () => open(const TermsOfUseScreen()),
           ),
         ],
       ),

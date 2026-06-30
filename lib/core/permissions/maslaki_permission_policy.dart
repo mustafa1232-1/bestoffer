@@ -19,7 +19,7 @@ class MaslakiPermissionPolicy {
           PermissionRequirement(
               MaslakiPermission.notifications, MaslakiPermissionImportance.required),
           PermissionRequirement(MaslakiPermission.locationWhenInUse,
-              MaslakiPermissionImportance.required),
+              MaslakiPermissionImportance.onDemand),
           PermissionRequirement(
               MaslakiPermission.camera, MaslakiPermissionImportance.onDemand),
           PermissionRequirement(

@@ -12,9 +12,9 @@ import 'package:maslaki/core/settings/app_settings_controller.dart';
 import 'package:maslaki/core/theme/theme_preset.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
-import 'package:maslaki/features/auth/presentation/login_screen.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/customer/ui/customer_home_selector_screen.dart';
+import 'package:maslaki/features/customer/ui/maslaki_user_shell.dart';
 import 'package:maslaki/features/notifications/data/notifications_api.dart';
 import 'package:maslaki/features/startup/state/app_startup_controller.dart';
 
@@ -179,7 +179,7 @@ void main() {
     },
   );
 
-  testWidgets('token without verified user stays on login screen', (
+  testWidgets('token without verified user lands on guest shell', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -215,7 +215,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
-    expect(find.byType(LoginScreen), findsOneWidget);
-    expect(find.byType(CustomerHomeSelectorScreen), findsNothing);
+    expect(find.byType(MaslakiUserShell), findsOneWidget);
+    expect(find.byType(CustomerHomeSelectorScreen), findsOneWidget);
   });
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../creator/creator_adapters.dart';
 import '../creator/social_camera_creator_screen.dart';
 import '../models/social_story_document.dart';
@@ -12,6 +13,14 @@ import 'social_story_composer_screen.dart';
 ///
 /// Returns `true` when a story was published, mirroring the previous contract.
 Future<bool?> showSocialStoryComposerEntrySheet(BuildContext context) async {
+  if (!await requireAuthBeforeAction(
+    context,
+    featureArabic: 'إنشاء قصة',
+    featureEnglish: 'creating a story',
+  )) {
+    return null;
+  }
+  if (!context.mounted) return null;
   final outcome = await showStoryCamera(context);
   if (outcome == null || !context.mounted) return null;
 
@@ -26,7 +35,6 @@ Future<bool?> showSocialStoryComposerEntrySheet(BuildContext context) async {
     mode = SocialStoryComposerMode.media;
   }
 
-  if (!context.mounted) return null;
   return Navigator.of(context).push<bool>(
     MaterialPageRoute(
       fullscreenDialog: true,

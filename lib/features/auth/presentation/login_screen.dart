@@ -6,12 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
 import '../../../core/settings/app_settings_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/maslaki_brand_mark.dart';
 import '../../../core/widgets/maslaki_wordmark.dart';
+import '../../customer/ui/maslaki_user_shell.dart';
 import '../../settings/ui/settings_screen.dart';
 import '../../services/ui/service_provider_onboarding_screen.dart';
 import '../state/auth_controller.dart';
@@ -331,6 +333,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                   );
                 },
                 child: const Text('إنشاء حساب صاحب خدمة'),
+              ),
+              const SizedBox(height: 6),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(
+                      builder: (_) => const MaslakiUserShell(),
+                    ),
+                    (route) => false,
+                  );
+                },
+                icon: const Icon(Icons.person_outline_rounded),
+                label: Text(
+                  context.lt(ar: 'متابعة التصفح', en: 'Continue browsing'),
+                ),
               ),
             ],
           ),

@@ -28,7 +28,6 @@ import 'core/storage/secure_storage.dart';
 import 'core/theme/app_theme.dart';
 import 'features/accountant/ui/accountant_dashboard_screen.dart';
 import 'features/admin/ui/admin_dashboard_screen.dart';
-import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/state/auth_controller.dart';
 import 'features/customer/ui/maslaki_user_shell.dart';
 import 'features/hr/ui/hr_dashboard_screen.dart';
@@ -419,7 +418,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       return;
     }
     nav.pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+      MaterialPageRoute<void>(builder: (_) => const MaslakiUserShell()),
       (route) => false,
     );
   }
@@ -864,7 +863,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
             ? const AppFirstLaunchScreen()
             : (_hasVerifiedSession(auth)
                   ? _homeForAuth(auth)
-                  : const LoginScreen()),
+                  : const MaslakiUserShell()),
       AppStartupPhase.idle ||
       AppStartupPhase.checkingServer ||
       AppStartupPhase.serverCheckFailed => const AppFirstLaunchScreen(),
