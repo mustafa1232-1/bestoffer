@@ -237,6 +237,9 @@ class OrdersController extends StateNotifier<OrdersState> {
                         'quantity': i.quantity,
                         if (i.selectedModifiers.isNotEmpty)
                           'selectedModifiers': i.selectedModifiers,
+                        if (i.selectedVariantSelections.isNotEmpty)
+                          'selectedVariantSelections':
+                              i.selectedVariantSelections,
                       },
                     )
                     .toList(),
@@ -252,6 +255,8 @@ class OrdersController extends StateNotifier<OrdersState> {
                 'quantity': i.quantity,
                 if (i.selectedModifiers.isNotEmpty)
                   'selectedModifiers': i.selectedModifiers,
+                if (i.selectedVariantSelections.isNotEmpty)
+                  'selectedVariantSelections': i.selectedVariantSelections,
               },
             )
             .toList();

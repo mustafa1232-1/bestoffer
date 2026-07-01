@@ -7,6 +7,9 @@ import {
   normalizeOrderActionKind,
   normalizeOrderActionScope,
 } from "./order-action-reasons.repo.js";
+import {
+  normalizeVariantSelectionInput,
+} from "../products/product-catalog.logic.js";
 
 const ORDER_LIST_CACHE_TTL_MS = 10000;
 const orderListCache = new Map();
@@ -127,12 +130,21 @@ function normalizeItems(items) {
     const selectedModifiers = Array.isArray(raw.selectedModifiers)
       ? raw.selectedModifiers
       : [];
+    const selectedVariant = normalizeVariantSelectionInput(
+      raw.selectedVariant ??
+        raw.selectedVariantSelections ??
+        raw.selectedVariantOptions ??
+        raw.variantSelection ??
+        {}
+    );
     const modifiersKey = JSON.stringify(selectedModifiers);
-    const key = `${productId}:${modifiersKey}`;
+    const variantKey = selectedVariant.signature || "";
+    const key = `${productId}:${modifiersKey}:${variantKey}`;
     const prev = map.get(key) || {
       productId,
       quantity: 0,
       selectedModifiers,
+      selectedVariant: selectedVariant.hasSelections ? selectedVariant : null,
     };
     prev.quantity += quantity;
     map.set(key, prev);

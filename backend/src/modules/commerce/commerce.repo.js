@@ -11,6 +11,9 @@ import {
   normalizeApprovalStatus,
   normalizeMerchantBillingProfile,
 } from "./merchant-financial.logic.js";
+import {
+  loadProductRichCatalogByIds,
+} from "../products/products.repo.js";
 import { syncOrderIncentiveConsumptionForStatusTx } from "../orders/order-incentives.repo.js";
 
 const DELIVERY_APPROVED_FILTER = `
@@ -8740,6 +8743,9 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
 
   const hasMore = result.rows.length > safeLimit;
   const rows = hasMore ? result.rows.slice(0, safeLimit) : result.rows;
+  const richCatalogMap = await loadProductRichCatalogByIds(
+    rows.map((row) => Number(row.product_id))
+  );
 
   return {
     query: qText,
@@ -8754,36 +8760,44 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
       city: userCity || null,
       block: userBlock || null,
     },
-    items: rows.map((row) => ({
-      productId: Number(row.product_id),
-      name: row.product_name,
-      description: row.product_description,
-      imageUrl: row.product_image_url,
-      price: Number(row.base_price || 0),
-      discountedPrice:
-        row.discounted_price == null ? null : Number(row.discounted_price),
-      finalPrice: Number(row.final_price || 0),
-      discountPercent: Number(row.discount_percent || 0),
-      isAvailable: row.is_available === true,
-      freeDelivery: row.free_delivery === true,
-      offerLabel: row.offer_label || null,
-      merchant: {
-        id: Number(row.merchant_id),
-        name: row.merchant_name,
-        type: row.merchant_type,
-        imageUrl: row.merchant_image_url,
-        city: null,
-        block: null,
-        rating: Number(row.merchant_rating || 0),
-        ratingsCount: Number(row.merchant_ratings_count || 0),
-      },
-      stats: {
-        ordersCount: Number(row.orders_count || 0),
-        etaMinutes:
-          row.eta_minutes == null ? null : Number(row.eta_minutes),
-        proximityRank: Number(row.proximity_rank || 2),
-      },
-    })),
+    items: rows.map((row) => {
+      const rich = richCatalogMap.get(Number(row.product_id)) || null;
+      return {
+        productId: Number(row.product_id),
+        name: row.product_name,
+        description: row.product_description,
+        imageUrl: rich?.primaryMedia?.imageUrl || row.product_image_url,
+        price: Number(row.base_price || 0),
+        discountedPrice:
+          row.discounted_price == null ? null : Number(row.discounted_price),
+        finalPrice: Number(row.final_price || 0),
+        discountPercent: Number(row.discount_percent || 0),
+        isAvailable: row.is_available === true,
+        freeDelivery: row.free_delivery === true,
+        offerLabel: row.offer_label || null,
+        hasVariants: rich?.hasVariants === true,
+        summaryAttributes: rich?.summaryAttributes || rich?.highlights || [],
+        variantGroups: rich?.variantGroups || [],
+        media: rich?.media || [],
+        primaryMedia: rich?.primaryMedia || null,
+        merchant: {
+          id: Number(row.merchant_id),
+          name: row.merchant_name,
+          type: row.merchant_type,
+          imageUrl: row.merchant_image_url,
+          city: null,
+          block: null,
+          rating: Number(row.merchant_rating || 0),
+          ratingsCount: Number(row.merchant_ratings_count || 0),
+        },
+        stats: {
+          ordersCount: Number(row.orders_count || 0),
+          etaMinutes:
+            row.eta_minutes == null ? null : Number(row.eta_minutes),
+          proximityRank: Number(row.proximity_rank || 2),
+        },
+      };
+    }),
     pagination: {
       limit: safeLimit,
       offset: safeOffset,

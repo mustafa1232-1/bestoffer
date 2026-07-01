@@ -1,5 +1,8 @@
 import { pool, q } from "../../config/db.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
+import {
+  syncProductRichCatalogTx,
+} from "../products/products.repo.js";
 
 function normalizeDiscoveryCodes(values) {
   if (!Array.isArray(values)) return [];
@@ -700,44 +703,60 @@ export async function listOwnerProducts(ownerUserId) {
 export async function createOwnerProduct(ownerUserId, dto) {
   const merchant = await findMerchantByOwnerUserId(ownerUserId);
   if (!merchant) return null;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const r = await client.query(
+      `INSERT INTO product
+        (
+          merchant_id,
+          category_id,
+          name,
+          description,
+          price,
+          discounted_price,
+          image_url,
+          free_delivery,
+          offer_label,
+          is_available,
+          requires_prescription,
+          requires_review,
+          sort_order
+        )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       RETURNING *`,
+      [
+        merchant.id,
+        dto.categoryId,
+        dto.name,
+        dto.description,
+        dto.price,
+        dto.discountedPrice,
+        dto.imageUrl,
+        dto.freeDelivery,
+        dto.offerLabel,
+        dto.isAvailable,
+        dto.requiresPrescription === true,
+        dto.requiresReview === true,
+        dto.sortOrder,
+      ]
+    );
 
-  const r = await q(
-    `INSERT INTO product
-      (
-        merchant_id,
-        category_id,
-        name,
-        description,
-        price,
-        discounted_price,
-        image_url,
-        free_delivery,
-        offer_label,
-        is_available,
-        requires_prescription,
-        requires_review,
-        sort_order
-      )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-     RETURNING *`,
-    [
-      merchant.id,
-      dto.categoryId,
-      dto.name,
-      dto.description,
-      dto.price,
-      dto.discountedPrice,
-      dto.imageUrl,
-      dto.freeDelivery,
-      dto.offerLabel,
-      dto.isAvailable,
-      dto.requiresPrescription === true,
-      dto.requiresReview === true,
-      dto.sortOrder,
-    ]
-  );
-
-  return r.rows[0];
+    const product = r.rows[0];
+    if (product && dto.richCatalog) {
+      await syncProductRichCatalogTx(client, product.id, {
+        ...dto.richCatalog,
+        imageUrl: dto.imageUrl,
+      });
+    }
+    await client.query("COMMIT");
+    return product;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function findOwnerProductById(ownerUserId, productId) {
@@ -757,6 +776,7 @@ export async function findOwnerProductById(ownerUserId, productId) {
 }
 
 export async function updateOwnerProduct(ownerUserId, productId, dto) {
+  const richCatalog = dto.richCatalog || null;
   const map = {
     name: "name",
     description: "description",
@@ -784,23 +804,57 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
   }
 
   if (sets.length === 0) {
-    return findOwnerProductById(ownerUserId, productId);
+    const current = await findOwnerProductById(ownerUserId, productId);
+    if (!current) return null;
+    if (richCatalog) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await syncProductRichCatalogTx(client, productId, {
+          ...richCatalog,
+          imageUrl: current.image_url || dto.imageUrl || null,
+        });
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+    return current;
   }
 
   values.push(productId, ownerUserId);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const r = await client.query(
+      `UPDATE product p
+       SET ${sets.join(", ")}
+       FROM merchant m
+       WHERE p.id=$${idx}
+         AND p.merchant_id=m.id
+         AND m.owner_user_id=$${idx + 1}
+       RETURNING p.*`,
+      values
+    );
 
-  const r = await q(
-    `UPDATE product p
-     SET ${sets.join(", ")}
-     FROM merchant m
-     WHERE p.id=$${idx}
-       AND p.merchant_id=m.id
-       AND m.owner_user_id=$${idx + 1}
-     RETURNING p.*`,
-    values
-  );
-
-  return r.rows[0] || null;
+    const updated = r.rows[0] || null;
+    if (updated && richCatalog) {
+      await syncProductRichCatalogTx(client, productId, {
+        ...richCatalog,
+        imageUrl: updated.image_url || dto.imageUrl || null,
+      });
+    }
+    await client.query("COMMIT");
+    return updated;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function deleteOwnerProduct(ownerUserId, productId) {

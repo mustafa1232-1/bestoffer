@@ -192,9 +192,19 @@ class _CartScreenState extends ConsumerState<CartScreen> {
         });
       final withQty = sorted.where((e) => e.quantity > 1).toList();
       if (withQty.isNotEmpty) {
-        notifier.decrementItem(withQty.first.product.id);
+        notifier.decrementItem(
+          withQty.first.product.id,
+          merchantId: withQty.first.merchantId,
+          selectedModifiers: withQty.first.selectedModifiers,
+          selectedVariantSelections: withQty.first.selectedVariantSelections,
+        );
       } else if (sorted.length > 1) {
-        notifier.removeItem(sorted.first.product.id);
+        notifier.removeItem(
+          sorted.first.product.id,
+          merchantId: sorted.first.merchantId,
+          selectedModifiers: sorted.first.selectedModifiers,
+          selectedVariantSelections: sorted.first.selectedVariantSelections,
+        );
       } else {
         break;
       }
@@ -234,6 +244,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                       'quantity': item.quantity,
                       if (item.selectedModifiers.isNotEmpty)
                         'selectedModifiers': item.selectedModifiers,
+                      if (item.selectedVariantSelections.isNotEmpty)
+                        'selectedVariantSelections':
+                            item.selectedVariantSelections,
                     },
                   )
                   .toList(),
@@ -249,6 +262,8 @@ class _CartScreenState extends ConsumerState<CartScreen> {
               'quantity': item.quantity,
               if (item.selectedModifiers.isNotEmpty)
                 'selectedModifiers': item.selectedModifiers,
+              if (item.selectedVariantSelections.isNotEmpty)
+                'selectedVariantSelections': item.selectedVariantSelections,
             },
           )
           .toList();
@@ -332,26 +347,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                               ),
                               const SizedBox(height: 6),
                               ...items.map(
-                                (item) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: Row(
-                                    children: [
-                                      Text(
-                                        formatIqd(
-                                          (item['lineTotal'] as num?)?.toDouble() ?? 0,
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      Expanded(
-                                        child: Text(
-                                          '${item['productName'] ?? 'منتج'} x ${(item['quantity'] as num?)?.toInt() ?? 0}',
-                                          textAlign: TextAlign.right,
-                                          textDirection: TextDirection.rtl,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                (item) => _buildCartReviewItem(item, TextDirection.rtl),
                               ),
                               const Divider(height: 18),
                               Row(
@@ -800,6 +796,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                         .decrementItem(
                                           item.product.id,
                                           merchantId: item.merchantId,
+                                          selectedModifiers: item.selectedModifiers,
+                                          selectedVariantSelections:
+                                              item.selectedVariantSelections,
                                         ),
                                     icon: const Icon(
                                       Icons.remove_circle_outline,
@@ -812,6 +811,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                           product: item.product,
                                           merchantId: item.merchantId,
                                           merchantName: item.merchantName,
+                                          selectedModifiers: item.selectedModifiers,
+                                          selectedVariantSelections:
+                                              item.selectedVariantSelections,
                                         ),
                                     icon: const Icon(Icons.add_circle_outline),
                                   ),
@@ -821,6 +823,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                         .removeItem(
                                           item.product.id,
                                           merchantId: item.merchantId,
+                                          selectedModifiers: item.selectedModifiers,
+                                          selectedVariantSelections:
+                                              item.selectedVariantSelections,
                                         ),
                                     icon: const Icon(Icons.delete_outline),
                                   ),
@@ -1122,6 +1127,64 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       ),
     );
   }
+}
+
+Widget _buildCartReviewItem(
+  Map<String, dynamic> item,
+  TextDirection textDirection,
+) {
+  final variantSelections = List<dynamic>.from(
+    item['selectedVariantSelections'] as List? ??
+        item['selected_variant_options_json'] as List? ??
+        const [],
+  );
+  final variantLabel = variantSelections.isEmpty
+      ? null
+      : variantSelections.map((selection) {
+          final map = Map<String, dynamic>.from(selection as Map);
+          final group = '${map['groupLabel'] ?? map['groupCode'] ?? ''}'.trim();
+          final option = '${map['optionLabel'] ?? map['optionCode'] ?? ''}'.trim();
+          if (group.isEmpty) return option;
+          if (option.isEmpty) return group;
+          return '$group: $option';
+        }).join(' • ');
+
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Row(
+          children: [
+            Text(
+              formatIqd((item['lineTotal'] as num?)?.toDouble() ?? 0),
+            ),
+            const Spacer(),
+            Expanded(
+              child: Text(
+                '${item['productName'] ?? 'منتج'} x ${(item['quantity'] as num?)?.toInt() ?? 0}',
+                textAlign: TextAlign.right,
+                textDirection: textDirection,
+              ),
+            ),
+          ],
+        ),
+        if (variantLabel != null && variantLabel.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(
+              variantLabel,
+              textDirection: textDirection,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.68),
+                fontSize: 11,
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
 }
 
 class _CartQuickCard extends StatelessWidget {

@@ -14,6 +14,10 @@ import {
   listLatestEligibleOffersByProductIds,
   markOfferUsageByOrderTx,
 } from "../owner/merchant-offers.repo.js";
+import {
+  extractRichCatalogFromMetadata,
+  normalizeVariantSelectionInput,
+} from "../products/product-catalog.logic.js";
 import crypto from "crypto";
 import {
   consumeCouponRedemptionByOrderTx,
@@ -325,6 +329,10 @@ async function attachItems(orderRows) {
        base_unit_price,
        unit_price,
        quantity,
+       selected_modifiers_json,
+       selected_variant_json,
+       selected_variant_options_json,
+       variant_price_delta_total,
        line_discount_total,
        line_total,
        pricing_breakdown_json
@@ -400,6 +408,247 @@ function buildDynamicInsertParts({ availableColumns, candidates }) {
     insertColumns,
     insertValues,
     placeholders,
+  };
+}
+
+async function loadProductVariantCatalogTx(client, productIds) {
+  const normalizedIds = Array.from(
+    new Set(
+      (productIds || [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    )
+  );
+  if (!normalizedIds.length) return new Map();
+
+  const result = await client.query(
+    `SELECT
+       g.id AS group_id,
+       g.product_id,
+       g.group_code,
+       g.label_ar AS group_label_ar,
+       g.label_en AS group_label_en,
+       g.display_mode,
+       g.selection_mode,
+       g.required,
+       g.sort_order AS group_sort_order,
+       g.metadata_json AS group_metadata_json,
+       o.id AS option_id,
+       o.option_code,
+       o.label_ar AS option_label_ar,
+       o.label_en AS option_label_en,
+       o.swatch_hex,
+       o.price_delta,
+       o.image_url,
+       o.is_available,
+       o.sort_order AS option_sort_order,
+       o.metadata_json AS option_metadata_json
+     FROM product_variant_group g
+     LEFT JOIN product_variant_option o
+       ON o.group_id = g.id
+     WHERE g.product_id = ANY($1::bigint[])
+     ORDER BY g.product_id ASC, g.sort_order ASC, g.id ASC, o.sort_order ASC, o.id ASC`,
+    [normalizedIds]
+  );
+
+  const byProductId = new Map();
+  for (const row of result.rows) {
+    const productId = Number(row.product_id);
+    let catalog = byProductId.get(productId);
+    if (!catalog) {
+      catalog = {
+        groups: [],
+        groupByCode: new Map(),
+        hasVariants: false,
+      };
+      byProductId.set(productId, catalog);
+    }
+
+    const groupId = Number(row.group_id);
+    let group = catalog.groups.find((entry) => Number(entry.groupId) === groupId);
+    if (!group) {
+      group = {
+        groupId,
+        groupCode: row.group_code,
+        labelAr: row.group_label_ar || null,
+        labelEn: row.group_label_en || null,
+        displayMode: row.display_mode || "chips",
+        selectionMode: row.selection_mode || "single",
+        required: row.required === true,
+        sortOrder: Number(row.group_sort_order || 0),
+        metadata: row.group_metadata_json || {},
+        options: [],
+        optionByCode: new Map(),
+        optionById: new Map(),
+      };
+      catalog.groups.push(group);
+      catalog.groupByCode.set(String(group.groupCode || "").toLowerCase(), group);
+      catalog.hasVariants = true;
+    }
+
+    if (row.option_id == null) continue;
+    const option = {
+      optionId: Number(row.option_id),
+      optionCode: row.option_code,
+      labelAr: row.option_label_ar || null,
+      labelEn: row.option_label_en || null,
+      swatchHex: row.swatch_hex || null,
+      priceDelta: Number(row.price_delta || 0),
+      imageUrl: row.image_url || null,
+      isAvailable: row.is_available !== false,
+      sortOrder: Number(row.option_sort_order || 0),
+      metadata: row.option_metadata_json || {},
+    };
+    group.options.push(option);
+    group.optionByCode.set(String(option.optionCode || "").toLowerCase(), option);
+    group.optionById.set(Number(option.optionId), option);
+  }
+
+  const fallbackResult = await client.query(
+    `SELECT id, metadata_json
+     FROM product
+     WHERE id = ANY($1::bigint[])`,
+    [normalizedIds]
+  );
+  for (const row of fallbackResult.rows) {
+    const productId = Number(row.id);
+    const existing = byProductId.get(productId);
+    if (existing && existing.hasVariants) continue;
+    const fallback = extractRichCatalogFromMetadata(row.metadata_json);
+    if (!fallback.variantGroups.length) continue;
+    const catalog = {
+      groups: [],
+      groupByCode: new Map(),
+      hasVariants: true,
+    };
+    for (const groupEntry of fallback.variantGroups) {
+      const group = {
+        groupId: Number(groupEntry.groupId || catalog.groups.length + 1),
+        productId,
+        groupCode: groupEntry.code,
+        labelAr: groupEntry.labelAr || null,
+        labelEn: groupEntry.labelEn || null,
+        displayMode: groupEntry.displayMode || "chips",
+        selectionMode: groupEntry.selectionMode || "single",
+        required: groupEntry.required === true,
+        sortOrder: Number(groupEntry.sortOrder || 0),
+        metadata: groupEntry.metadata || {},
+        options: [],
+        optionByCode: new Map(),
+        optionById: new Map(),
+      };
+      for (const optionEntry of groupEntry.options || []) {
+        const option = {
+          optionId: Number(optionEntry.optionId || group.optionByCode.size + 1),
+          optionCode: optionEntry.code,
+          labelAr: optionEntry.labelAr || null,
+          labelEn: optionEntry.labelEn || null,
+          swatchHex: optionEntry.swatchHex || null,
+          priceDelta: Number(optionEntry.priceDelta || 0),
+          imageUrl: optionEntry.imageUrl || null,
+          isAvailable: optionEntry.isAvailable !== false,
+          sortOrder: Number(optionEntry.sortOrder || 0),
+          metadata: optionEntry.metadata || {},
+        };
+        group.options.push(option);
+        group.optionByCode.set(String(option.optionCode || "").toLowerCase(), option);
+        group.optionById.set(Number(option.optionId), option);
+      }
+      catalog.groups.push(group);
+      catalog.groupByCode.set(String(group.groupCode || "").toLowerCase(), group);
+    }
+    byProductId.set(productId, catalog);
+  }
+
+  return byProductId;
+}
+
+function resolveVariantSelectionForItem(product, item, variantCatalog) {
+  const selected = normalizeVariantSelectionInput(
+    item.selectedVariant ?? item.selectedVariantSelections ?? {}
+  );
+  const groups = variantCatalog?.groups || [];
+  const hasVariants = groups.length > 0;
+
+  if (!hasVariants) {
+    if (selected.hasSelections) {
+      const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
+      err.status = 400;
+      throw err;
+    }
+    return {
+      hasVariants: false,
+      selectedVariantSnapshot: null,
+      variantPriceDeltaTotal: 0,
+    };
+  }
+
+  if (!selected.hasSelections) {
+    const err = new Error("PRODUCT_VARIANT_SELECTION_REQUIRED");
+    err.status = 400;
+    throw err;
+  }
+
+  const seenGroups = new Set();
+  const resolvedSelections = [];
+  let variantPriceDeltaTotal = 0;
+
+  for (const selection of selected.selections) {
+    const groupKey = String(selection.groupCode || "").toLowerCase();
+    if (!groupKey || seenGroups.has(groupKey)) {
+      const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
+      err.status = 400;
+      throw err;
+    }
+    const group = variantCatalog.groupByCode.get(groupKey);
+    if (!group) {
+      const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
+      err.status = 400;
+      throw err;
+    }
+    const optionKey = String(selection.optionCode || "").toLowerCase();
+    const option = group.optionByCode.get(optionKey);
+    if (!option || option.isAvailable === false) {
+      const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
+      err.status = 400;
+      throw err;
+    }
+    seenGroups.add(groupKey);
+    variantPriceDeltaTotal += Number(option.priceDelta || 0);
+    resolvedSelections.push({
+      groupCode: group.groupCode,
+      groupLabel: group.labelAr || group.labelEn || group.groupCode,
+      optionCode: option.optionCode,
+      optionLabel: option.labelAr || option.labelEn || option.optionCode,
+      optionId: Number(option.optionId),
+      swatchHex: option.swatchHex || null,
+      imageUrl: option.imageUrl || null,
+      priceDelta: Number(option.priceDelta || 0),
+    });
+  }
+
+  for (const group of groups) {
+    if (group.required === true && !seenGroups.has(String(group.groupCode || "").toLowerCase())) {
+      const err = new Error("PRODUCT_VARIANT_SELECTION_REQUIRED");
+      err.status = 400;
+      throw err;
+    }
+  }
+
+  const selectedVariantSnapshot = {
+    signature: selected.signature,
+    selections: resolvedSelections,
+    groupCodes: resolvedSelections.map((item) => item.groupCode),
+    optionCodes: resolvedSelections.map((item) => item.optionCode),
+    optionIds: resolvedSelections.map((item) => item.optionId),
+    priceDeltaTotal: Number(variantPriceDeltaTotal || 0),
+    productId: Number(product.id),
+  };
+
+  return {
+    hasVariants: true,
+    selectedVariantSnapshot,
+    variantPriceDeltaTotal: Number(variantPriceDeltaTotal || 0),
   };
 }
 
@@ -516,6 +765,18 @@ async function insertOrderItemTx(client, orderId, item) {
     ["unit_price", Number(item.unitPrice || 0)],
     ["quantity", Number(item.quantity || 0)],
     ["selected_modifiers_json", JSON.stringify(item.selectedModifiers || [])],
+    [
+      "selected_variant_json",
+      JSON.stringify(item.selectedVariantSnapshot || null),
+    ],
+    [
+      "selected_variant_options_json",
+      JSON.stringify(item.selectedVariantSnapshot?.selections || []),
+    ],
+    [
+      "variant_price_delta_total",
+      Number(item.variantPriceDeltaTotal || 0),
+    ],
     ["modifiers_unit_total", Number(item.modifiersUnitTotal || 0)],
     ["modifiers_line_total", Number(item.modifiersLineTotal || 0)],
     ["line_discount_total", Number(item.lineDiscountTotal || 0)],
@@ -795,6 +1056,10 @@ async function calculateStoreOrderDraft({
   );
 
   const productMap = new Map(productsResult.rows.map((p) => [String(p.id), p]));
+  const variantCatalogMap = await loadProductVariantCatalogTx(
+    client,
+    productIds
+  );
   const activeOffers = await listLatestEligibleOffersByProductIds({
     client,
     merchantId: Number(merchantId),
@@ -828,6 +1093,12 @@ async function calculateStoreOrderDraft({
       throw err;
     }
 
+    const variantResolution = resolveVariantSelectionForItem(
+      product,
+      item,
+      variantCatalogMap.get(Number(product.id)) || null
+    );
+
     if (inventoryEnabled && product.inventory_quantity != null) {
       if (product.inventory_manual_disabled === true) {
         const err = new Error("PRODUCT_UNAVAILABLE");
@@ -845,11 +1116,16 @@ async function calculateStoreOrderDraft({
     if (product.free_delivery) hasFreeDeliveryOffer = true;
 
     const activeOffer = activeOfferMap.get(String(item.productId)) || null;
+    const baseUnitPrice = Number(product.price) + Number(variantResolution.variantPriceDeltaTotal || 0);
+    const fallbackDiscountedPrice =
+      product.discounted_price == null
+        ? null
+        : Number(product.discounted_price) + Number(variantResolution.variantPriceDeltaTotal || 0);
     const pricing = applyMerchantOfferPricing({
-      baseUnitPrice: Number(product.price),
+      baseUnitPrice,
       quantity: Number(item.quantity || 0),
       offer: activeOffer,
-      fallbackDiscountedPrice: product.discounted_price,
+      fallbackDiscountedPrice,
     });
 
     const selectedModifiers = Array.isArray(item.selectedModifiers)
@@ -861,7 +1137,6 @@ async function calculateStoreOrderDraft({
     );
     const modifiersLineTotal = modifiersUnitTotal * Number(item.quantity || 0);
 
-    const baseUnitPrice = Number(product.price);
     const unitPrice = Number(pricing.unitPrice) + modifiersUnitTotal;
     const lineDiscountTotal = Number(pricing.lineDiscountTotal);
     const grossLineTotal = Number(pricing.grossLineTotal) + modifiersLineTotal;
@@ -886,11 +1161,15 @@ async function calculateStoreOrderDraft({
       modifiersUnitTotal,
       modifiersLineTotal,
       selectedModifiers,
+      selectedVariantSnapshot: variantResolution.selectedVariantSnapshot,
+      variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
       pricingBreakdown: {
         ...pricing.pricingBreakdown,
         selectedModifiers,
         modifiersUnitTotal,
         modifiersLineTotal,
+        selectedVariantSnapshot: variantResolution.selectedVariantSnapshot,
+        variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
       },
     });
   }
@@ -1050,10 +1329,14 @@ export async function createOrderWithItems({
       [productIds]
     );
 
-    const productMap = new Map(productsResult.rows.map((p) => [String(p.id), p]));
-    const activeOffers = await listLatestEligibleOffersByProductIds({
-      client,
-      merchantId: Number(merchantId),
+  const productMap = new Map(productsResult.rows.map((p) => [String(p.id), p]));
+  const variantCatalogMap = await loadProductVariantCatalogTx(
+    client,
+    productIds
+  );
+  const activeOffers = await listLatestEligibleOffersByProductIds({
+    client,
+    merchantId: Number(merchantId),
       productIds,
     });
     const activeOfferMap = new Map(
@@ -1084,6 +1367,12 @@ export async function createOrderWithItems({
         throw err;
       }
 
+      const variantResolution = resolveVariantSelectionForItem(
+        product,
+        item,
+        variantCatalogMap.get(Number(product.id)) || null
+      );
+
       if (inventoryEnabled && product.inventory_quantity != null) {
         if (product.inventory_manual_disabled === true) {
           const err = new Error("PRODUCT_UNAVAILABLE");
@@ -1103,11 +1392,18 @@ export async function createOrderWithItems({
       }
 
       const activeOffer = activeOfferMap.get(String(item.productId)) || null;
+      const baseUnitPrice =
+        Number(product.price) + Number(variantResolution.variantPriceDeltaTotal || 0);
+      const fallbackDiscountedPrice =
+        product.discounted_price == null
+          ? null
+          : Number(product.discounted_price) +
+            Number(variantResolution.variantPriceDeltaTotal || 0);
       const pricing = applyMerchantOfferPricing({
-        baseUnitPrice: Number(product.price),
+        baseUnitPrice,
         quantity: item.quantity,
         offer: activeOffer,
-        fallbackDiscountedPrice: product.discounted_price,
+        fallbackDiscountedPrice,
       });
       const selectedModifiers = Array.isArray(item.selectedModifiers)
         ? item.selectedModifiers
@@ -1118,7 +1414,6 @@ export async function createOrderWithItems({
       );
       const modifiersLineTotal = modifiersUnitTotal * Number(item.quantity || 0);
 
-      const baseUnitPrice = Number(product.price);
       const unitPrice = Number(pricing.unitPrice) + modifiersUnitTotal;
       const lineDiscountTotal = Number(pricing.lineDiscountTotal);
       const grossLineTotal = Number(pricing.grossLineTotal) + modifiersLineTotal;
@@ -1142,11 +1437,15 @@ export async function createOrderWithItems({
         modifiersUnitTotal,
         modifiersLineTotal,
         selectedModifiers,
+        selectedVariantSnapshot: variantResolution.selectedVariantSnapshot,
+        variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
         pricingBreakdown: {
           ...pricing.pricingBreakdown,
           selectedModifiers,
           modifiersUnitTotal,
           modifiersLineTotal,
+          selectedVariantSnapshot: variantResolution.selectedVariantSnapshot,
+          variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
         },
       });
 
@@ -4160,11 +4459,14 @@ export async function getOrderForReorder(customerUserId, orderId) {
   const itemsResult = await q(
     `SELECT
        product_id,
+       selected_modifiers_json,
+       selected_variant_json,
        SUM(quantity)::int AS quantity
      FROM order_item
      WHERE order_id = $1
        AND product_id IS NOT NULL
-     GROUP BY product_id`,
+     GROUP BY product_id, selected_modifiers_json, selected_variant_json
+     ORDER BY product_id ASC`,
     [Number(order.id)]
   );
 
@@ -4179,6 +4481,10 @@ export async function getOrderForReorder(customerUserId, orderId) {
     items: itemsResult.rows.map((row) => ({
       productId: Number(row.product_id),
       quantity: Number(row.quantity),
+      selectedModifiers: Array.isArray(row.selected_modifiers_json)
+        ? row.selected_modifiers_json
+        : [],
+      selectedVariant: row.selected_variant_json || null,
     })),
   };
 }

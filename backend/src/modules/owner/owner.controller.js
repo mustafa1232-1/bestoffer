@@ -263,6 +263,13 @@ export async function deleteCategory(req, res, next) {
  */
 export async function createProduct(req, res, next) {
   try {
+    const richCatalog = parseOptionalJson(req.body?.richCatalog);
+    const attributes = parseOptionalJson(req.body?.attributes);
+    const variantGroups = parseOptionalJson(req.body?.variantGroups);
+    const media = parseOptionalJson(req.body?.media);
+    const metadataJson = parseOptionalJson(
+      req.body?.metadataJson ?? req.body?.metadata_json
+    );
     const body = {
       ...req.body,
       imageUrl: buildUploadedFileUrl(req, req.file) || req.body?.imageUrl,
@@ -282,6 +289,13 @@ export async function createProduct(req, res, next) {
         req.body?.requiresReview === undefined
           ? undefined
           : parseBooleanInput(req.body?.requiresReview),
+      richCatalog:
+        richCatalog && typeof richCatalog === "object" ? richCatalog : undefined,
+      attributes: Array.isArray(attributes) ? attributes : undefined,
+      variantGroups: Array.isArray(variantGroups) ? variantGroups : undefined,
+      media: Array.isArray(media) ? media : undefined,
+      metadataJson:
+        metadataJson && typeof metadataJson === "object" ? metadataJson : undefined,
     };
 
     const v = validateOwnerProductCreate(body);
@@ -312,6 +326,13 @@ export async function createOffer(req, res, next) {
 
 export async function updateProduct(req, res, next) {
   try {
+    const richCatalog = parseOptionalJson(req.body?.richCatalog);
+    const attributes = parseOptionalJson(req.body?.attributes);
+    const variantGroups = parseOptionalJson(req.body?.variantGroups);
+    const media = parseOptionalJson(req.body?.media);
+    const metadataJson = parseOptionalJson(
+      req.body?.metadataJson ?? req.body?.metadata_json
+    );
     const body = {
       ...req.body,
       imageUrl: buildUploadedFileUrl(req, req.file) || req.body?.imageUrl,
@@ -331,6 +352,13 @@ export async function updateProduct(req, res, next) {
         req.body?.requiresReview === undefined
           ? undefined
           : parseBooleanInput(req.body?.requiresReview),
+      richCatalog:
+        richCatalog && typeof richCatalog === "object" ? richCatalog : undefined,
+      attributes: Array.isArray(attributes) ? attributes : undefined,
+      variantGroups: Array.isArray(variantGroups) ? variantGroups : undefined,
+      media: Array.isArray(media) ? media : undefined,
+      metadataJson:
+        metadataJson && typeof metadataJson === "object" ? metadataJson : undefined,
     };
 
     const v = validateOwnerProductUpdate(body);
