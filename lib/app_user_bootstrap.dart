@@ -30,6 +30,7 @@ import 'core/theme/app_theme.dart';
 import 'features/accountant/ui/accountant_dashboard_screen.dart';
 import 'features/admin/ui/admin_dashboard_screen.dart';
 import 'features/auth/state/auth_controller.dart';
+import 'features/auth/presentation/login_screen.dart';
 import 'features/customer/ui/maslaki_user_shell.dart';
 import 'features/hr/ui/hr_dashboard_screen.dart';
 import 'features/notifications/data/notifications_api.dart';
@@ -131,14 +132,10 @@ void runUserAppBootstrap() {
     if (appSupportsPushMessaging) {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
     }
-    final store = SecureStore();
-    final firstLaunchDone =
-        await store.readBool(AppStartupController.firstLaunchDoneStorageKey) ??
-        false;
     await _runAppWithOptionalSentry(
       ProviderScope(
         overrides: [
-          appStartupInitialDoneProvider.overrideWithValue(firstLaunchDone),
+          appStartupInitialDoneProvider.overrideWithValue(false),
           appSettingsStorageScopeProvider.overrideWithValue('user'),
         ],
         child: const MaslakiApp(),
@@ -419,7 +416,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       return;
     }
     nav.pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => const MaslakiUserShell()),
+      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
       (route) => false,
     );
   }
@@ -538,8 +535,11 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       unawaited(ref.read(pushNotificationsProvider).unregisterCurrentToken());
       unawaited(ref.read(maslakiRealtimeServiceProvider).clearSession());
       unawaited(_syncCallLiveStreams(next));
-      unawaited(SessionExpiryNoticeGate.instance.show(context));
-      _redirectToLogin();
+      if (next.guestMode) {
+        unawaited(SessionExpiryNoticeGate.instance.show(context));
+      } else {
+        _redirectToLogin();
+      }
       return;
     }
 
@@ -865,7 +865,9 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
             ? const AppFirstLaunchScreen()
             : (_hasVerifiedSession(auth)
                   ? _homeForAuth(auth)
-                  : const MaslakiUserShell()),
+                  : auth.isGuest || (auth.token?.trim().isNotEmpty ?? false)
+                      ? const MaslakiUserShell()
+                      : const LoginScreen()),
       AppStartupPhase.idle ||
       AppStartupPhase.checkingServer ||
       AppStartupPhase.serverCheckFailed => const AppFirstLaunchScreen(),

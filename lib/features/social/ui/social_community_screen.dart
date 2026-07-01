@@ -928,6 +928,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
 
   Future<void> _reload({bool silent = false}) async {
     if (!mounted) return;
+    final hadVerifiedSession = _hasVerifiedSession;
     setState(() {
       _loading = !silent;
       if (!silent) _error = null;
@@ -1073,7 +1074,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
           }
         });
         _syncActiveCommunityChatContext();
-        if (!_isGuestSession) {
+        if (hadVerifiedSession) {
           unawaited(
             SessionExpiryNoticeGate.instance.show(
               context,
