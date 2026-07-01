@@ -109,5 +109,11 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.maslaki.user.refresh</string>
+		<string>com.maslaki.user.processing</string>
+		<string>com.maslaki.user.sync</string>
+	</array>
 </dict>
 </plist>
