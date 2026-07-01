@@ -119,9 +119,26 @@ class SocialController extends StateNotifier<SocialState> {
     state = next;
   }
 
+  bool _hasVerifiedSession() {
+    final auth = ref.read(authControllerProvider);
+    return auth.isAuthed && auth.user != null;
+  }
+
+  bool _isAuthFailure(Object error) {
+    return error is DioException && isAuthDioError(error);
+  }
+
   /// يحمل القصص والمنشورات والـ threads معاً عند فتح التجربة الاجتماعية.
   Future<void> bootstrap() async {
-    await Future.wait([loadStories(), loadPosts(refresh: true), loadThreads()]);
+    if (_hasVerifiedSession()) {
+      await Future.wait([
+        loadStories(),
+        loadPosts(refresh: true),
+        loadThreads(),
+      ]);
+      return;
+    }
+    await Future.wait([loadStories(), loadPosts(refresh: true)]);
   }
 
   /// يبدل نوع المحتوى النشط ويعيد تحميل feed من البداية.
@@ -185,6 +202,16 @@ class SocialController extends StateNotifier<SocialState> {
         ),
       );
     } on DioException catch (e) {
+      if (_isAuthFailure(e)) {
+        _safeSetState(
+          state.copyWith(
+            loadingPosts: false,
+            loadingMorePosts: false,
+            error: null,
+          ),
+        );
+        return;
+      }
       if (silent) return;
       _safeSetState(
         state.copyWith(
@@ -239,6 +266,15 @@ class SocialController extends StateNotifier<SocialState> {
         ),
       );
     } on DioException catch (e) {
+      if (_isAuthFailure(e)) {
+        _safeSetState(
+          state.copyWith(
+            loadingStories: false,
+            error: null,
+          ),
+        );
+        return;
+      }
       if (silent) return;
       _safeSetState(
         state.copyWith(
@@ -585,6 +621,15 @@ class SocialController extends StateNotifier<SocialState> {
   }
 
   Future<void> loadThreads({bool silent = false}) async {
+    if (!_hasVerifiedSession()) {
+      _safeSetState(
+        state.copyWith(
+          loadingThreads: false,
+          error: null,
+        ),
+      );
+      return;
+    }
     if (!silent) {
       _safeSetState(state.copyWith(loadingThreads: true, error: null));
     }
@@ -604,6 +649,15 @@ class SocialController extends StateNotifier<SocialState> {
         ),
       );
     } on DioException catch (e) {
+      if (_isAuthFailure(e)) {
+        _safeSetState(
+          state.copyWith(
+            loadingThreads: false,
+            error: null,
+          ),
+        );
+        return;
+      }
       if (silent) return;
       _safeSetState(
         state.copyWith(

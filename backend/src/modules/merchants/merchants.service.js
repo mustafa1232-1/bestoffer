@@ -7,6 +7,9 @@ import {
 import {
   listLatestEligibleOffersByProductIds,
 } from "../owner/merchant-offers.repo.js";
+import {
+  loadProductRichCatalogByIds,
+} from "../products/products.repo.js";
 import { AppError } from "../../shared/utils/errors.js";
 import { env } from "../../config/env.js";
 import {
@@ -372,6 +375,7 @@ export async function listMerchants(type, search, options = {}) {
 export async function listMerchantProducts(merchantId, { limit, offset } = {}) {
   const rows = await repo.getPublicMerchantProducts(merchantId, { limit, offset });
   if (!rows.length) return rows;
+  const richCatalogMap = await loadProductRichCatalogByIds(rows.map((row) => row.id));
   const activeOffers = await listLatestEligibleOffersByProductIds({
     merchantId: Number(merchantId),
     productIds: rows.map((row) => Number(row.id)),
@@ -382,7 +386,21 @@ export async function listMerchantProducts(merchantId, { limit, offset } = {}) {
 
   return rows.map((row) => {
     const activeOffer = offerMap.get(String(row.id)) || null;
-    if (!activeOffer) return row;
+    const rich = richCatalogMap.get(Number(row.id)) || null;
+    const primaryMedia = rich?.primaryMedia || null;
+    const base = {
+      ...row,
+      image_url: primaryMedia?.imageUrl || row.image_url || null,
+      imageUrl: primaryMedia?.imageUrl || row.image_url || null,
+      metadata_json: rich?.metadata || row.metadata_json || null,
+      attributes: rich?.attributes || [],
+      summaryAttributes: rich?.summaryAttributes || rich?.highlights || [],
+      variantGroups: rich?.variantGroups || [],
+      media: rich?.media || [],
+      primaryMedia,
+      hasVariants: rich?.hasVariants === true,
+    };
+    if (!activeOffer) return base;
 
     const pricing = applyMerchantOfferPricing({
       baseUnitPrice: Number(row.price),
@@ -392,7 +410,7 @@ export async function listMerchantProducts(merchantId, { limit, offset } = {}) {
     });
 
     return {
-      ...row,
+      ...base,
       discounted_price:
         activeOffer.offer_type === "buy_x_get_y"
           ? null

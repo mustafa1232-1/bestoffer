@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
 import '../../../core/i18n/app_localizations_context.dart';
@@ -16,23 +17,30 @@ import 'widgets/social_mention_composer_field.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
-Future<bool?> showSocialCreatePostSheet(BuildContext context) {
-  return showModalBottomSheet<String>(
+Future<bool?> showSocialCreatePostSheet(BuildContext context) async {
+  if (!await requireAuthBeforeAction(
+    context,
+    featureArabic: 'إنشاء منشور أو ريل',
+    featureEnglish: 'creating a post or reel',
+  )) {
+    return null;
+  }
+  if (!context.mounted) return null;
+  final selection = await showModalBottomSheet<String>(
     context: context,
     showDragHandle: true,
     builder: (_) => const _CreatePostModePickerSheet(),
-  ).then((selection) async {
-    if (selection == null || !context.mounted) return null;
-    if (selection == 'merchant_review') {
-      return showModalBottomSheet<bool>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        builder: (_) => const SocialCreatePostSheet(reviewOnly: true),
-      );
-    }
-    return showSocialPostComposerScreen(context, initialKind: selection);
-  });
+  );
+  if (selection == null || !context.mounted) return null;
+  if (selection == 'merchant_review') {
+    return showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const SocialCreatePostSheet(reviewOnly: true),
+    );
+  }
+  return showSocialPostComposerScreen(context, initialKind: selection);
 }
 
 class SocialCreatePostSheet extends ConsumerStatefulWidget {
@@ -141,7 +149,15 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
   }
 
   Future<void> _pickMedia() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'نشر صورة أو فيديو',
+      featureEnglish: 'publishing a photo or video',
+    )) {
+      return;
+    }
     final file = await pickGalleryMediaFromDevice();
+    if (!mounted) return;
     if (file == null) return;
     setState(() {
       _media = file;
@@ -153,6 +169,14 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
   }
 
   Future<void> _captureReel() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إنشاء ريل',
+      featureEnglish: 'creating a reel',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final creatorDraft = await showSocialCameraCreator(
       context,
       mode: SocialCreatorMode.reel,
@@ -166,6 +190,14 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
   }
 
   Future<void> _publish() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'نشر محتوى اجتماعي',
+      featureEnglish: 'publishing social content',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final l10n = context.l10n;
     if (_publishing) return;
     final caption = _captionCtrl.buildMarkedText().trim();

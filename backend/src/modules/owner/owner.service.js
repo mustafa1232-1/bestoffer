@@ -18,6 +18,10 @@ import {
   computeMerchantOfferState,
 } from "./merchant-offers.logic.js";
 import { invalidateMerchantCatalogCache } from "../merchants/merchants.repo.js";
+import {
+  hasRichProductInput,
+  normalizeRichProductPayload,
+} from "../products/product-catalog.logic.js";
 import crypto from "crypto";
 import {
   buildMerchantCapabilities,
@@ -956,6 +960,10 @@ export async function createOwnerProduct(ownerUserId, dto) {
     throw err;
   }
 
+  const richCatalog = hasRichProductInput(dto)
+    ? normalizeRichProductPayload(dto)
+    : null;
+
   const product = await repo.createOwnerProduct(ownerUserId, {
     name: dto.name.trim(),
     description: normalizeOptional(dto.description),
@@ -969,6 +977,7 @@ export async function createOwnerProduct(ownerUserId, dto) {
     requiresPrescription: dto.requiresPrescription === true,
     requiresReview: dto.requiresReview === true,
     sortOrder: Number(dto.sortOrder ?? 0),
+    richCatalog,
   });
 
   if (!product) {
@@ -986,6 +995,9 @@ export async function createOwnerProduct(ownerUserId, dto) {
  */
 export async function updateOwnerProduct(ownerUserId, productId, dto) {
   const patch = {};
+  const richCatalog = hasRichProductInput(dto)
+    ? normalizeRichProductPayload(dto)
+    : null;
 
   if (dto.name !== undefined) patch.name = dto.name.trim();
   if (dto.description !== undefined) patch.description = normalizeOptional(dto.description);
@@ -1000,6 +1012,7 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
     patch.requiresReview = dto.requiresReview === true;
   }
   if (dto.sortOrder !== undefined) patch.sortOrder = Number(dto.sortOrder);
+  if (richCatalog) patch.richCatalog = richCatalog;
 
   if (dto.categoryId !== undefined) {
     const categoryId = toPositiveIntOrNull(dto.categoryId);

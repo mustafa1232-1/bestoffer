@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
@@ -97,6 +98,14 @@ class _SocialPostDetailsScreenState
   }
 
   Future<void> _toggleLike() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'الإعجاب بالمنشور',
+      featureEnglish: 'liking a post',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final post = _post;
     if (post == null) return;
     final out = await _api.toggleLike(post.id);
@@ -112,6 +121,14 @@ class _SocialPostDetailsScreenState
   }
 
   Future<void> _toggleSave() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'حفظ المنشور',
+      featureEnglish: 'saving a post',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final post = _post;
     if (post == null) return;
     final entityType = post.postKind == 'merchant_review'
@@ -136,6 +153,14 @@ class _SocialPostDetailsScreenState
   }
 
   Future<void> _openComments() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'التعليق على المنشور',
+      featureEnglish: 'commenting on a post',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final post = _post;
     if (post == null) return;
     final nextCount = await showSocialPostCommentsSheet(
@@ -486,6 +511,14 @@ class _SocialPostCommentsSheetState
   }
 
   Future<void> _send() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إرسال تعليق',
+      featureEnglish: 'sending a comment',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final body = _composerController.buildMarkedText().trim();
     if (_submitting || body.isEmpty) return;
     setState(() => _submitting = true);
@@ -530,6 +563,14 @@ class _SocialPostCommentsSheetState
   }
 
   Future<void> _toggleLikeComment(SocialComment comment) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'الإعجاب بالتعليق',
+      featureEnglish: 'liking a comment',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     try {
       final out = await _api.toggleCommentLike(
         postId: widget.post.id,

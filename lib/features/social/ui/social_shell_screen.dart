@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
@@ -48,7 +51,11 @@ class _SocialShellScreenState extends ConsumerState<SocialShellScreen> {
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialTab.index;
+    final auth = ref.read(authControllerProvider);
+    final requested = widget.initialTab.index;
+    _currentIndex = !auth.isAuthed && _isGuestRestrictedTab(requested)
+        ? SocialShellTab.home.index
+        : requested;
     _reelsPlaybackEnabled = ValueNotifier<bool>(
       _currentIndex == SocialShellTab.reels.index,
     );
@@ -82,6 +89,36 @@ class _SocialShellScreenState extends ConsumerState<SocialShellScreen> {
       SocialShellTab.messages => l10n.socialShellMessages,
       SocialShellTab.activity => l10n.socialShellActivity,
     };
+  }
+
+  bool _isGuestRestrictedTab(int index) {
+    return <int>{
+      SocialShellTab.messages.index,
+      SocialShellTab.activity.index,
+    }.contains(index);
+  }
+
+  void _selectTab(int index) {
+    unawaited(_selectTabAsync(index));
+  }
+
+  Future<void> _selectTabAsync(int index) async {
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isAuthed && _isGuestRestrictedTab(index)) {
+      await requireAuthBeforeAction(
+        context,
+        featureArabic: index == SocialShellTab.messages.index
+            ? 'الرسائل'
+            : 'النشاط الاجتماعي',
+        featureEnglish: index == SocialShellTab.messages.index
+            ? 'messages'
+            : 'social activity',
+      );
+      return;
+    }
+    setState(() => _currentIndex = index);
+    _reelsPlaybackEnabled.value = index == SocialShellTab.reels.index;
+    _trackCurrentTab();
   }
 
   Future<void> _trackCurrentTab() async {
@@ -155,12 +192,7 @@ class _SocialShellScreenState extends ConsumerState<SocialShellScreen> {
         bottomNavigationBar: widget.showBottomNavigation
             ? MaslakiBottomNavShell(
                 currentIndex: _currentIndex,
-                onTap: (index) {
-                  setState(() => _currentIndex = index);
-                  _reelsPlaybackEnabled.value =
-                      index == SocialShellTab.reels.index;
-                  _trackCurrentTab();
-                },
+                onTap: _selectTab,
                 items: [
                   MaslakiBottomNavItem(
                     icon: Icons.home_outlined,

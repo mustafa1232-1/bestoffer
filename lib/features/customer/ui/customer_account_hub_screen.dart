@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:core_design_system/core_design_system.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/parsers.dart';
@@ -47,18 +48,34 @@ class CustomerAccountHubScreen extends ConsumerWidget {
       ).push(MaterialPageRoute(builder: (_) => page));
     }
 
-    Future<void> openSavedPlace(Map<String, dynamic> place) {
-      return open(MapPage(initialDropoffSnapshot: place));
+    Future<void> openSavedPlace(Map<String, dynamic> place) async {
+      if (!auth.isAuthed) {
+        await requireAuthBeforeAction(
+          context,
+          featureArabic: 'العناوين المحفوظة',
+          featureEnglish: 'saved places',
+        );
+        return;
+      }
+      await open(MapPage(initialDropoffSnapshot: place));
     }
 
-    Future<void> rebookRide(Map<String, dynamic> ride) {
+    Future<void> rebookRide(Map<String, dynamic> ride) async {
+      if (!auth.isAuthed) {
+        await requireAuthBeforeAction(
+          context,
+          featureArabic: 'إعادة المشوار الأخير',
+          featureEnglish: 'rebooking a previous ride',
+        );
+        return;
+      }
       final pickup = (ride['pickup'] as Map?)?.cast<String, dynamic>();
       final dropoff = (ride['dropoff'] as Map?)?.cast<String, dynamic>();
       final fare =
           tryParseLocalizedInt(ride['agreedFareIqd']) ??
           tryParseLocalizedInt(ride['fareAfterDiscountIqd']) ??
           tryParseLocalizedInt(ride['proposedFareIqd']);
-      return open(
+      await open(
         MapPage(
           initialPickupSnapshot: pickup,
           initialDropoffSnapshot: dropoff,
@@ -68,6 +85,14 @@ class CustomerAccountHubScreen extends ConsumerWidget {
     }
 
     Future<void> openProfile() async {
+      if (!auth.isAuthed) {
+        await requireAuthBeforeAction(
+          context,
+          featureArabic: 'الملف الشخصي',
+          featureEnglish: 'your profile',
+        );
+        return;
+      }
       if (userId == null || userId <= 0) return;
       await open(
         SocialProfileScreen(userId: userId, initialName: user?.fullName),
@@ -99,7 +124,17 @@ class CustomerAccountHubScreen extends ConsumerWidget {
           if (canPop) const MaslakiUserDrawerButton(),
           IconButton(
             tooltip: context.l10n.notificationsTitle,
-            onPressed: () => open(const NotificationsScreen()),
+            onPressed: () async {
+              if (!auth.isAuthed) {
+                await requireAuthBeforeAction(
+                  context,
+                  featureArabic: 'الإشعارات الشخصية',
+                  featureEnglish: 'personal notifications',
+                );
+                return;
+              }
+              await open(const NotificationsScreen());
+            },
             icon: Stack(
               clipBehavior: Clip.none,
               children: [

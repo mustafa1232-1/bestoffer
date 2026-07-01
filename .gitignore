@@ -87,3 +87,7 @@ keystores/
 **/.cxx/
 /overflow_debug.txt
 /backend/tmp_*
+
+# Local backup files
+*.backup.*
+*.backup

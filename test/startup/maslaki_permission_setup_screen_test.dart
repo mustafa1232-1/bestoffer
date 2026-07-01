@@ -62,8 +62,8 @@ void main() {
 
     // Header present.
     expect(find.text('تهيئة مسلكي لتجربة كاملة'), findsOneWidget);
-    // Customer first-run = notifications + foreground location → 2 enable CTAs.
-    expect(find.text('تفعيل'), findsNWidgets(2));
+    // Customer first-run now only requires notifications; location is on-demand.
+    expect(find.text('تفعيل'), findsOneWidget);
     // RTL by default for Arabic locale.
     expect(Directionality.of(tester.element(find.byType(Scaffold))),
         TextDirection.rtl);
@@ -83,7 +83,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('جاهز'), findsNWidgets(2));
+    expect(find.text('جاهز'), findsOneWidget);
     expect(find.text('تفعيل'), findsNothing);
   });
 

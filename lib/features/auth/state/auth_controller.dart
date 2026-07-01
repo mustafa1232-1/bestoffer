@@ -33,6 +33,7 @@ class AuthState {
   final bool loading;
   final UserModel? user;
   final String? token;
+  final bool guestMode;
   final String? error;
   final ParsedBackendFieldErrors? validationError;
   final String? errorCode;
@@ -41,12 +42,14 @@ class AuthState {
     this.loading = false,
     this.user,
     this.token,
+    this.guestMode = false,
     this.error,
     this.validationError,
     this.errorCode,
   });
 
   bool get isAuthed => token != null && token!.isNotEmpty;
+  bool get isGuest => guestMode && !isAuthed;
 
   bool get isAdmin => _resolveRole() == 'admin';
 
@@ -125,6 +128,7 @@ class AuthState {
     bool? loading,
     UserModel? user,
     String? token,
+    bool? guestMode,
     String? error,
     ParsedBackendFieldErrors? validationError,
     String? errorCode,
@@ -135,6 +139,7 @@ class AuthState {
       loading: loading ?? this.loading,
       user: user ?? this.user,
       token: token ?? this.token,
+      guestMode: guestMode ?? this.guestMode,
       error: error,
       validationError: clearValidationError
           ? null
@@ -166,6 +171,7 @@ class AuthController extends StateNotifier<AuthState> {
     if (token == null || token.isEmpty) {
       state = state.copyWith(
         loading: false,
+        guestMode: await store.readGuestMode(),
         clearValidationError: true,
         clearErrorCode: true,
       );
@@ -185,9 +191,11 @@ class AuthController extends StateNotifier<AuthState> {
           .timeout(kAuthSessionVerifyTimeout);
       final latestToken = await store.readToken() ?? token;
       await _applyPreferredLocale(user);
+      await store.saveGuestMode(false);
       state = state.copyWith(
         user: user,
         token: latestToken,
+        guestMode: false,
         error: null,
         clearValidationError: true,
         clearErrorCode: true,
@@ -195,7 +203,8 @@ class AuthController extends StateNotifier<AuthState> {
     } catch (e) {
       if (_isInvalidStoredSession(e)) {
         await store.clear();
-        state = const AuthState();
+        await store.saveGuestMode(true);
+        state = const AuthState(guestMode: true);
         return;
       }
       state = state.copyWith(
@@ -230,10 +239,12 @@ class AuthController extends StateNotifier<AuthState> {
           .login(phone: phone, pin: pin);
       final token = await ref.read(secureStoreProvider).readToken();
       await _applyPreferredLocale(user);
+      await ref.read(secureStoreProvider).saveGuestMode(false);
       state = state.copyWith(
         loading: false,
         user: user,
         token: token,
+        guestMode: false,
         error: null,
         clearValidationError: true,
         clearErrorCode: true,
@@ -285,10 +296,12 @@ class AuthController extends StateNotifier<AuthState> {
 
       final token = await ref.read(secureStoreProvider).readToken();
       await _applyPreferredLocale(user);
+      await ref.read(secureStoreProvider).saveGuestMode(false);
       state = state.copyWith(
         loading: false,
         user: user,
         token: token,
+        guestMode: false,
         error: null,
         clearValidationError: true,
         clearErrorCode: true,
@@ -400,10 +413,12 @@ class AuthController extends StateNotifier<AuthState> {
 
       final token = await ref.read(secureStoreProvider).readToken();
       await _applyPreferredLocale(user);
+      await ref.read(secureStoreProvider).saveGuestMode(false);
       state = state.copyWith(
         loading: false,
         user: user,
         token: token,
+        guestMode: false,
         error: null,
         clearValidationError: true,
         clearErrorCode: true,
@@ -524,10 +539,12 @@ class AuthController extends StateNotifier<AuthState> {
           );
       final token = await ref.read(secureStoreProvider).readToken();
       await _applyPreferredLocale(user);
+      await ref.read(secureStoreProvider).saveGuestMode(false);
       state = state.copyWith(
         loading: false,
         user: user,
         token: token,
+        guestMode: false,
         error: null,
         clearValidationError: true,
         clearErrorCode: true,
@@ -569,6 +586,13 @@ class AuthController extends StateNotifier<AuthState> {
     }
     await ref.read(authRepoProvider).logout();
     state = const AuthState();
+  }
+
+  Future<void> continueAsGuest() async {
+    final store = ref.read(secureStoreProvider);
+    await store.clear();
+    await store.saveGuestMode(true);
+    state = const AuthState(guestMode: true);
   }
 
   /// Permanently deletes the signed-in account, then clears the local session so

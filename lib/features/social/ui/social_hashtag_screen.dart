@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../merchants/models/merchant_model.dart';
 import '../../merchants/ui/merchant_products_screen.dart';
@@ -59,6 +60,13 @@ class _SocialHashtagScreenState extends ConsumerState<SocialHashtagScreen> {
   }
 
   Future<void> _toggleLike(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'الإعجاب بالمنشور',
+      featureEnglish: 'liking a post',
+    )) {
+      return;
+    }
     final out = await ref.read(socialApiProvider).toggleLike(post.id);
     final next = post.copyWith(
       likesCount: int.tryParse('${out['likesCount']}') ?? post.likesCount,
@@ -71,6 +79,13 @@ class _SocialHashtagScreenState extends ConsumerState<SocialHashtagScreen> {
   }
 
   Future<void> _toggleSave(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'حفظ المنشور',
+      featureEnglish: 'saving a post',
+    )) {
+      return;
+    }
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,

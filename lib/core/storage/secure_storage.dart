@@ -7,6 +7,7 @@ class SecureStore {
   static const _storage = FlutterSecureStorage();
   static const _tokenKey = 'access_token';
   static const _refreshTokenKey = 'refresh_token';
+  static const _guestModeKey = 'guest_mode_active';
   static const _requestSigningKeys = <String>{
     requestSigningKeyIdStorageKey,
     requestSigningSecretStorageKey,
@@ -18,6 +19,7 @@ class SecureStore {
   static const _authScopedKeys = <String>{
     _tokenKey,
     _refreshTokenKey,
+    _guestModeKey,
     ..._requestSigningKeys,
   };
   static final Map<String, String> _volatileValues = {};
@@ -59,7 +61,25 @@ class SecureStore {
     }
   }
 
+  Future<void> saveGuestMode(bool enabled) async {
+    if (enabled) {
+      await writeBool(_guestModeKey, true);
+    } else {
+      await delete(_guestModeKey);
+    }
+  }
+
+  Future<bool> readGuestMode() async {
+    return await readBool(_guestModeKey) ?? false;
+  }
+
   Future<String?> readToken() async {
+    final guestMode = await readBool(_guestModeKey) ?? false;
+    if (guestMode) {
+      _volatileToken = null;
+      AuthSessionTokenCache.clear();
+      return null;
+    }
     final value = await readString(_tokenKey);
     if (value != null && value.isNotEmpty) {
       _volatileToken = value;

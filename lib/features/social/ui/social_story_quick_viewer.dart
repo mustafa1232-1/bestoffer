@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/media/cached_app_image.dart';
@@ -88,6 +89,14 @@ class _SocialStoryQuickViewerSheetState
   }
 
   Future<void> _toggleLike() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إعجاب بالقصة',
+      featureEnglish: 'liking a story',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final api = widget.api;
     if (api == null || _likeBusy) return;
     final story = _currentStory;
@@ -119,6 +128,14 @@ class _SocialStoryQuickViewerSheetState
   }
 
   Future<void> _openComments() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'التعليق على القصة',
+      featureEnglish: 'commenting on a story',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final api = widget.api;
     if (api == null) return;
     final story = _currentStory;

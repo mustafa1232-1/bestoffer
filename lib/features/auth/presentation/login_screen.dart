@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
 import '../../../core/settings/app_settings_controller.dart';
@@ -331,6 +332,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                   );
                 },
                 child: const Text('إنشاء حساب صاحب خدمة'),
+              ),
+              const SizedBox(height: 6),
+              FilledButton.icon(
+                onPressed: auth.loading
+                    ? null
+                    : () async {
+                        await ref
+                            .read(authControllerProvider.notifier)
+                            .continueAsGuest();
+                      },
+                icon: const Icon(Icons.person_outline_rounded),
+                label: Text(
+                  context.lt(
+                    ar: 'الدخول كزائر',
+                    en: 'Continue as Guest',
+                  ),
+                ),
               ),
             ],
           ),

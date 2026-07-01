@@ -15,6 +15,7 @@ import '../../orders/ui/cart_screen.dart';
 import '../../pharmacy/ui/pharmacy_conversation_screen.dart';
 import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
+import '../../products/ui/product_variant_picker_sheet.dart';
 import 'merchant_product_details_screen.dart';
 import '../models/merchant_model.dart';
 import '../state/merchants_controller.dart';
@@ -343,7 +344,11 @@ class _MerchantProductsScreenState
         product.requiresPharmacyConversation;
   }
 
-  String _buildPharmacyContextMessage(ProductModel product, {int quantity = 1}) {
+  String _buildPharmacyContextMessage(
+    ProductModel product, {
+    int quantity = 1,
+    List<Map<String, dynamic>> selectedVariantSelections = const [],
+  }) {
     final pieces = <String>[
       context.lt(
         ar: 'أرغب بمراجعة هذا المنتج الصيدلي:',
@@ -363,12 +368,21 @@ class _MerchantProductsScreenState
         ),
       );
     }
+    if (selectedVariantSelections.isNotEmpty) {
+      pieces.add(
+        context.lt(
+          ar: 'الاختيارات: ${selectedVariantSelections.map(_formatVariantSelectionLabel).join(' | ')}',
+          en: 'Selected options: ${selectedVariantSelections.map(_formatVariantSelectionLabel).join(' | ')}',
+        ),
+      );
+    }
     return pieces.join('\n');
   }
 
   Map<String, dynamic> _buildPharmacyContextMetadata(
     ProductModel product, {
     int quantity = 1,
+    List<Map<String, dynamic>> selectedVariantSelections = const [],
   }) {
     return <String, dynamic>{
       'source': 'product_catalog',
@@ -378,6 +392,8 @@ class _MerchantProductsScreenState
       'requiresPrescription': product.requiresPrescription,
       'requiresReview': product.requiresReview,
       'merchantId': widget.merchant.id,
+      if (selectedVariantSelections.isNotEmpty)
+        'selectedVariantSelections': selectedVariantSelections,
     };
   }
 
@@ -432,7 +448,12 @@ class _MerchantProductsScreenState
     required Set<int> favoriteProductIds,
   }) {
     final available = products
-        .where((p) => p.isAvailable && !_requiresPharmacyConversation(p))
+        .where(
+          (p) =>
+              p.isAvailable &&
+              !_requiresPharmacyConversation(p) &&
+              !p.hasVariants,
+        )
         .toList();
     if (available.isEmpty) return const <ProductModel>[];
 
@@ -710,10 +731,11 @@ class _MerchantProductsScreenState
               ? 'غير متوفر حالياً'
               : 'المتجر مغلق الآن',
           onAddToCart: _canCustomerActions
-              ? (selectedProduct, quantity) async =>
+              ? (selectedProduct, quantity, {List<Map<String, dynamic>> selectedVariantSelections = const []}) async =>
                     _addToCart(
                       selectedProduct,
                       quantity: quantity,
+                      selectedVariantSelections: selectedVariantSelections,
                       showFeedback: false,
                     )
               : null,
@@ -740,6 +762,7 @@ class _MerchantProductsScreenState
   Future<void> _openPharmacyConversationForProduct(
     ProductModel product, {
     int quantity = 1,
+    List<Map<String, dynamic>> selectedVariantSelections = const [],
   }) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -749,10 +772,12 @@ class _MerchantProductsScreenState
           pendingProductContextMessage: _buildPharmacyContextMessage(
             product,
             quantity: quantity,
+            selectedVariantSelections: selectedVariantSelections,
           ),
           pendingProductContextMetadata: _buildPharmacyContextMetadata(
             product,
             quantity: quantity,
+            selectedVariantSelections: selectedVariantSelections,
           ),
         ),
       ),
@@ -762,14 +787,25 @@ class _MerchantProductsScreenState
   Future<void> _addToCart(
     ProductModel product, {
     int quantity = 1,
+    List<Map<String, dynamic>>? selectedVariantSelections,
     bool showFeedback = true,
   }) async {
     final safeQuantity = quantity < 1 ? 1 : quantity;
+    var variantSelections = selectedVariantSelections;
+    if (product.hasVariants && variantSelections == null) {
+      final picked = await showProductVariantPickerSheet(
+        context,
+        product: product,
+      );
+      if (!mounted || picked == null) return;
+      variantSelections = picked;
+    }
     if (_requiresPharmacyConversation(product)) {
       if (!widget.merchant.isOpen || !product.isAvailable) return;
       await _openPharmacyConversationForProduct(
         product,
         quantity: safeQuantity,
+        selectedVariantSelections: variantSelections ?? const [],
       );
       return;
     }
@@ -810,6 +846,7 @@ class _MerchantProductsScreenState
           merchantId: widget.merchant.id,
           merchantName: widget.merchant.name,
           quantity: safeQuantity,
+          selectedVariantSelections: variantSelections ?? const [],
         );
 
     if (!mounted) return;
@@ -1845,6 +1882,24 @@ class _ProductCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                    if (product.summaryAttributes.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        alignment: WrapAlignment.end,
+                        children: product.summaryAttributes
+                            .take(3)
+                            .map(
+                              (attr) => _Badge(
+                                text: '${attr.title}: ${attr.valueText}',
+                                color: Colors.white.withValues(alpha: 0.06),
+                                textColor: tokens.textMuted,
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
                     const SizedBox(height: 7),
                     Row(
                       textDirection: TextDirection.rtl,
@@ -1873,6 +1928,14 @@ class _ProductCard extends StatelessWidget {
                             color: Colors.orange.withValues(alpha: 0.20),
                             textColor: Colors.orange,
                           ),
+                          if (product.hasVariants) ...[
+                            const SizedBox(width: 6),
+                            _Badge(
+                              text: '${product.variantGroups.length} خيارات',
+                              color: visual.accentCyan.withValues(alpha: 0.14),
+                              textColor: visual.accentCyan,
+                            ),
+                          ],
                         ],
                       ],
                     ),
@@ -1928,7 +1991,9 @@ class _ProductCard extends StatelessWidget {
                     child: Icon(
                       usesPharmacyConversation
                           ? Icons.chat_bubble_outline_rounded
-                          : Icons.add_rounded,
+                          : product.hasVariants
+                              ? Icons.tune_rounded
+                              : Icons.add_rounded,
                       color: canOrder ? visual.accentCyan : tokens.textMuted,
                       size: 22,
                     ),
@@ -1988,4 +2053,14 @@ class _EmptyProducts extends StatelessWidget {
       body: 'غيّر الفئة أو أزل بعض الفلاتر لرؤية خيارات أخرى من المتجر.',
     );
   }
+}
+
+String _formatVariantSelectionLabel(Map<String, dynamic> entry) {
+  final group = (entry['groupLabel'] ?? entry['groupCode'] ?? '').toString().trim();
+  final option =
+      (entry['optionLabel'] ?? entry['optionCode'] ?? entry['value'] ?? '').toString().trim();
+  if (group.isEmpty && option.isEmpty) return '';
+  if (group.isEmpty) return option;
+  if (option.isEmpty) return group;
+  return '$group: $option';
 }

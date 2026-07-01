@@ -7,6 +7,7 @@ import '../../merchants/ui/merchant_products_screen.dart';
 import '../../orders/state/cart_controller.dart';
 import '../../orders/state/orders_controller.dart';
 import '../../products/models/product_model.dart';
+import '../../products/ui/product_variant_picker_sheet.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -90,19 +91,39 @@ class _CustomerGlobalProductSearchScreenState
   }
 
   ProductModel _toProduct(Map<String, dynamic> item) {
-    return ProductModel(
-      id: (item['productId'] as num?)?.toInt() ?? 0,
-      merchantId: (item['merchant']?['id'] as num?)?.toInt() ?? 0,
-      name: '${item['name'] ?? ''}',
-      description: item['description']?.toString(),
-      price: (item['price'] as num?)?.toDouble() ?? 0,
-      discountedPrice: (item['discountedPrice'] as num?)?.toDouble(),
-      imageUrl: item['imageUrl']?.toString(),
-      freeDelivery: item['freeDelivery'] == true,
-      offerLabel: item['offerLabel']?.toString(),
-      isAvailable: item['isAvailable'] == true,
-      sortOrder: 0,
+    final merchant = Map<String, dynamic>.from(
+      item['merchant'] as Map? ?? const {},
     );
+    final payload = <String, dynamic>{
+      ...item,
+      'id': item['productId'] ?? item['id'],
+      'merchant_id': merchant['id'] ?? item['merchantId'] ?? item['merchant_id'],
+      'merchantId': merchant['id'] ?? item['merchantId'] ?? item['merchant_id'],
+      'category_id': item['categoryId'] ?? item['category_id'],
+      'categoryId': item['categoryId'] ?? item['category_id'],
+      'image_url': item['imageUrl'] ?? item['image_url'],
+      'discounted_price':
+          item['discountedPrice'] ?? item['discounted_price'] ?? item['finalPrice'],
+      'discountedPrice':
+          item['discountedPrice'] ?? item['discounted_price'] ?? item['finalPrice'],
+      'free_delivery': item['freeDelivery'] ?? item['free_delivery'] ?? false,
+      'freeDelivery': item['freeDelivery'] ?? item['free_delivery'] ?? false,
+      'requires_prescription':
+          item['requiresPrescription'] ?? item['requires_prescription'] ?? false,
+      'requiresPrescription':
+          item['requiresPrescription'] ?? item['requires_prescription'] ?? false,
+      'requires_review': item['requiresReview'] ?? item['requires_review'] ?? false,
+      'requiresReview': item['requiresReview'] ?? item['requires_review'] ?? false,
+      'attributes': item['attributes'] ?? const [],
+      'summaryAttributes':
+          item['summaryAttributes'] ?? item['summary_attributes'] ?? item['attributes'] ?? const [],
+      'variantGroups': item['variantGroups'] ?? item['variant_groups'] ?? const [],
+      'media': item['media'] ?? const [],
+      'primaryMedia': item['primaryMedia'] ?? item['primary_media'],
+      'hasVariants': item['hasVariants'] ?? item['has_variants'],
+      'metadata_json': item['metadata_json'] ?? item['metadataJson'] ?? const {},
+    };
+    return ProductModel.fromJson(payload);
   }
 
   MerchantModel _toMerchant(Map<String, dynamic> item) {
@@ -127,12 +148,22 @@ class _CustomerGlobalProductSearchScreenState
     final merchant = Map<String, dynamic>.from(
       item['merchant'] as Map? ?? const {},
     );
+    var variantSelections = const <Map<String, dynamic>>[];
+    if (product.hasVariants) {
+      final picked = await showProductVariantPickerSheet(
+        context,
+        product: product,
+      );
+      if (!mounted || picked == null) return;
+      variantSelections = picked;
+    }
     final status = ref
         .read(cartControllerProvider.notifier)
         .addItem(
           product: product,
           merchantId: (merchant['id'] as num?)?.toInt() ?? 0,
           merchantName: merchant['name']?.toString() ?? 'متجر',
+          selectedVariantSelections: variantSelections,
         );
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -265,10 +296,10 @@ class _CustomerGlobalProductSearchScreenState
             final merchant = Map<String, dynamic>.from(
               item['merchant'] as Map? ?? const {},
             );
-            final hasDiscount =
-                ((item['discountPercent'] as num?)?.toDouble() ?? 0) > 0;
-            final finalPrice = (item['finalPrice'] as num?)?.toDouble() ?? 0;
-            final basePrice = (item['price'] as num?)?.toDouble() ?? 0;
+            final product = _toProduct(item);
+            final hasDiscount = product.hasDiscount;
+            final finalPrice = product.discountedPrice ?? product.price;
+            final basePrice = product.price;
             final rating = (merchant['rating'] as num?)?.toDouble() ?? 0;
             final etaMinutes = (item['stats']?['etaMinutes'] as num?)
                 ?.toDouble();
@@ -287,15 +318,19 @@ class _CustomerGlobalProductSearchScreenState
                         width: 78,
                         height: 78,
                         child:
-                            (item['imageUrl']?.toString().isNotEmpty ?? false)
+                            (product.displayImageUrl?.isNotEmpty ?? false)
                             ? CachedAppImage(
-                                imageUrl: item['imageUrl'].toString(),
+                                imageUrl: product.displayImageUrl!,
                                 fit: BoxFit.cover,
                               )
                             : Container(
                                 color: Colors.white.withValues(alpha: 0.08),
                                 alignment: Alignment.center,
-                                child: const Icon(Icons.fastfood_rounded),
+                                child: Icon(
+                                  product.hasVariants
+                                      ? Icons.tune_rounded
+                                      : Icons.fastfood_rounded,
+                                ),
                               ),
                       ),
                     ),
@@ -305,7 +340,7 @@ class _CustomerGlobalProductSearchScreenState
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Text(
-                            item['name']?.toString() ?? '',
+                            product.name,
                             textDirection: TextDirection.rtl,
                             style: const TextStyle(
                               fontWeight: FontWeight.w800,
@@ -321,6 +356,41 @@ class _CustomerGlobalProductSearchScreenState
                               color: Colors.white.withValues(alpha: 0.72),
                             ),
                           ),
+                          if (product.summaryAttributes.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              alignment: WrapAlignment.end,
+                              children: product.summaryAttributes
+                                  .take(3)
+                                  .map(
+                                    (attr) => Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.06,
+                                        ),
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        '${attr.title}: ${attr.valueText}',
+                                        textDirection: TextDirection.rtl,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                            ),
+                          ],
                           const SizedBox(height: 4),
                           Row(
                             children: [
@@ -372,9 +442,26 @@ class _CustomerGlobalProductSearchScreenState
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                   child: Text(
-                                    '-${(item['discountPercent'] as num?)?.toStringAsFixed(0) ?? '0'}%',
+                                    '-${product.discountPercent ?? 0}%',
                                   ),
                                 ),
+                              if (product.hasVariants) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.cyan.withValues(alpha: 0.18),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    '${product.variantGroups.length} خيارات',
+                                    style: const TextStyle(fontSize: 10),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                           const SizedBox(height: 8),
@@ -393,8 +480,10 @@ class _CustomerGlobalProductSearchScreenState
                               const SizedBox(width: 8),
                               FilledButton.icon(
                                 onPressed: () => _addToCart(item),
-                                icon: const Icon(
-                                  Icons.add_shopping_cart_rounded,
+                                icon: Icon(
+                                  product.hasVariants
+                                      ? Icons.tune_rounded
+                                      : Icons.add_shopping_cart_rounded,
                                 ),
                                 label: const Text('إضافة'),
                               ),

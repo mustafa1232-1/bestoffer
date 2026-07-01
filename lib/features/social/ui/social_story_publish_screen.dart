@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../creator/creator_models.dart';
@@ -75,6 +76,13 @@ class _SocialStoryPublishScreenState
   }
 
   Future<void> _publish() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'نشر ستوري',
+      featureEnglish: 'publishing a story',
+    )) {
+      return;
+    }
     if (_publishing) return;
     final l10n = context.l10n;
     final draft = ref.read(socialStoryDraftControllerProvider).draft;

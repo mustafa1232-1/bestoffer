@@ -128,10 +128,7 @@ class AppStartupController extends StateNotifier<AppStartupState> {
         );
       }
 
-      state = state.copyWith(
-        phase: AppStartupPhase.onboarding,
-        clearError: true,
-      );
+      state = state.copyWith(phase: AppStartupPhase.ready, clearError: true);
     } on DioException catch (error) {
       state = state.copyWith(
         phase: AppStartupPhase.serverCheckFailed,

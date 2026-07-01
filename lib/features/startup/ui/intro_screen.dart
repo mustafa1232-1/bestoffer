@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../state/app_startup_controller.dart';
-import 'onboarding_screen.dart';
 import 'splash_screen.dart';
 
 class IntroScreen extends ConsumerStatefulWidget {
@@ -28,13 +27,7 @@ class _IntroScreenState extends ConsumerState<IntroScreen> {
     final state = ref.watch(appStartupControllerProvider);
     final notifier = ref.read(appStartupControllerProvider.notifier);
 
-    if (state.phase == AppStartupPhase.onboarding) {
-      return MaslakiOnboardingScreen(onStartNow: notifier.completeFirstLaunch);
-    }
-
-    final waiting =
-        state.phase == AppStartupPhase.idle ||
-        state.phase == AppStartupPhase.checkingServer;
+    final waiting = state.phase != AppStartupPhase.serverCheckFailed;
     final failed = state.phase == AppStartupPhase.serverCheckFailed;
     return MaslakiSplashScreen(
       waiting: waiting,

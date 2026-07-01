@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../merchants/models/merchant_model.dart';
@@ -131,6 +132,13 @@ class _SocialProfilePostsScreenState
   }
 
   Future<void> _toggleLike(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'الإعجاب بالمنشور',
+      featureEnglish: 'liking a post',
+    )) {
+      return;
+    }
     final out = await _api.toggleLike(post.id);
     final updated = post.copyWith(
       likesCount:
@@ -147,6 +155,13 @@ class _SocialProfilePostsScreenState
   }
 
   Future<void> _toggleSave(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'حفظ المنشور',
+      featureEnglish: 'saving a post',
+    )) {
+      return;
+    }
     final entityType = post.postKind == 'reel'
         ? 'reel'
         : post.postKind == 'merchant_review'

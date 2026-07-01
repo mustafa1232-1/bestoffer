@@ -68,7 +68,9 @@ class ReceiptItem {
       grossLineTotal: item.baseUnitPrice * item.quantity,
       lineDiscount: item.lineDiscountTotal,
       finalLineTotal: item.lineTotal,
-      note: null,
+      note: item.variantSelectionsLabel.isEmpty
+          ? null
+          : item.variantSelectionsLabel,
     );
   }
 }

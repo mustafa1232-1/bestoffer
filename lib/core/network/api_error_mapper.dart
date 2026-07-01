@@ -265,6 +265,14 @@ String mapAnyError(
   return normalizeText(fallback);
 }
 
+bool isAuthDioError(DioException error) {
+  final statusCode = error.response?.statusCode;
+  if (statusCode == 401) return true;
+  final data = error.response?.data;
+  final code = _extractMessageCode(data)?.trim().toUpperCase();
+  return code == 'INVALID_TOKEN' || code == 'NO_TOKEN';
+}
+
 String mapDioErrorL10n(
   DioException error, {
   required String Function(AppLocalizations l10n) fallbackBuilder,

@@ -34,6 +34,7 @@ import {
   paidUpgradesRouter,
 } from "./modules/paid-upgrades/paid-upgrades.routes.js";
 import { pharmacyRouter } from "./modules/pharmacy/pharmacy.routes.js";
+import { productsRouter } from "./modules/products/products.routes.js";
 import { realtimeRouter } from "./modules/realtime/realtime.routes.js";
 import { securityRouter } from "./modules/security/security.routes.js";
 import {
@@ -169,6 +170,7 @@ function mountApiSurface(prefix = "/api") {
   app.use(`${prefix}/services/requests`, servicesRequestsRouter);
   app.use(`${prefix}/services/reviews`, servicesReviewsRouter);
   app.use(`${prefix}/pharmacy`, pharmacyRouter);
+  app.use(`${prefix}/products`, productsRouter);
   app.use(`${prefix}/realtime`, realtimeRouter);
   app.use(`${prefix}/security`, securityRouter);
   app.use(`${prefix}/feed`, feedRouter);

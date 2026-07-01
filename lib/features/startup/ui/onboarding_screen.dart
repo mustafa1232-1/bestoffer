@@ -8,6 +8,7 @@ import 'package:lottie/lottie.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/notifications/push_notification_service.dart';
 import '../../../core/widgets/maslaki_brand_mark.dart';
@@ -29,7 +30,6 @@ class _MaslakiOnboardingScreenState
   final PageController _pageController = PageController();
   int _pageIndex = 0;
   bool _submitting = false;
-  bool _loadingLocationPermission = false;
   bool _loadingNotificationPermission = false;
   bool _locationGranted = false;
   bool _notificationsGranted = false;
@@ -158,27 +158,6 @@ class _MaslakiOnboardingScreenState
           notificationStatus.isGranted || notificationStatus.isLimited;
       _notificationsPermanentlyDenied = notificationStatus.isPermanentlyDenied;
     });
-  }
-
-  Future<void> _requestLocationPermission() async {
-    if (_loadingLocationPermission) return;
-    setState(() => _loadingLocationPermission = true);
-    try {
-      final service = ref.read(locationPermissionServiceProvider);
-      final current = await service.getStatus();
-      if (!current.serviceEnabled) {
-        await service.openLocationSettings();
-      }
-      final next = await service.requestPermission();
-      if (next.isPermanentlyDenied) {
-        await openAppSettings();
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _loadingLocationPermission = false);
-      }
-      await _loadPermissionStatus();
-    }
   }
 
   Future<void> _requestNotificationsPermission() async {
@@ -353,9 +332,7 @@ class _MaslakiOnboardingScreenState
             locationPermanentlyDenied: _locationPermanentlyDenied,
             notificationsGranted: _notificationsGranted,
             notificationsPermanentlyDenied: _notificationsPermanentlyDenied,
-            loadingLocationPermission: _loadingLocationPermission,
             loadingNotificationPermission: _loadingNotificationPermission,
-            onRequestLocation: _requestLocationPermission,
             onRequestNotifications: _requestNotificationsPermission,
           ),
         ],
@@ -897,9 +874,7 @@ class _PermissionConsentPanel extends StatelessWidget {
   final bool locationPermanentlyDenied;
   final bool notificationsGranted;
   final bool notificationsPermanentlyDenied;
-  final bool loadingLocationPermission;
   final bool loadingNotificationPermission;
-  final Future<void> Function() onRequestLocation;
   final Future<void> Function() onRequestNotifications;
 
   const _PermissionConsentPanel({
@@ -908,9 +883,7 @@ class _PermissionConsentPanel extends StatelessWidget {
     required this.locationPermanentlyDenied,
     required this.notificationsGranted,
     required this.notificationsPermanentlyDenied,
-    required this.loadingLocationPermission,
     required this.loadingNotificationPermission,
-    required this.onRequestLocation,
     required this.onRequestNotifications,
   });
 
@@ -919,17 +892,15 @@ class _PermissionConsentPanel extends StatelessWidget {
     final l10n = context.l10n;
     return Column(
       children: [
-        _PermissionTile(
+        _PermissionInfoTile(
           icon: Icons.my_location_rounded,
           title: l10n.onboardingPermissionsLocationTitle,
-          description: l10n.onboardingPermissionsLocationDescription,
           granted: locationGranted,
           warning: !locationServiceEnabled || locationPermanentlyDenied,
-          actionLabel: locationPermanentlyDenied
-              ? l10n.commonSettings
-              : l10n.onboardingPermissionsAllowLocation,
-          loading: loadingLocationPermission,
-          onTap: onRequestLocation,
+          description: context.lt(
+            ar: 'سيُطلب الموقع فقط عند فتح التكسي أو التوصيل أو أي ميزة تحتاج تتبعًا مباشرًا.',
+            en: 'Location will be requested only when you open taxi, delivery, or another feature that needs it.',
+          ),
         ),
         const SizedBox(height: 12),
         _PermissionTile(
@@ -945,6 +916,90 @@ class _PermissionConsentPanel extends StatelessWidget {
           onTap: onRequestNotifications,
         ),
       ],
+    );
+  }
+}
+
+class _PermissionInfoTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String description;
+  final bool granted;
+  final bool warning;
+
+  const _PermissionInfoTile({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.granted,
+    required this.warning,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accentColor = granted
+        ? const Color(0xFF71DF89)
+        : (warning ? const Color(0xFFFFA23B) : const Color(0xFF43D6FF));
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: accentColor),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        granted
+                            ? Icons.check_circle_rounded
+                            : Icons.info_outline_rounded,
+                        color: accentColor,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    description,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.82),
+                      height: 1.4,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

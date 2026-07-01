@@ -226,6 +226,21 @@ export function validateOwnerProductCreate(body) {
     errors.push("requiresReview");
   }
   if (body.sortOrder !== undefined && !Number.isInteger(Number(body.sortOrder))) errors.push("sortOrder");
+  if (body.metadataJson !== undefined && !isOptionalObject(body.metadataJson)) {
+    errors.push("metadataJson");
+  }
+  if (body.richCatalog !== undefined && !isOptionalObject(body.richCatalog)) {
+    errors.push("richCatalog");
+  }
+  if (body.attributes !== undefined && !Array.isArray(body.attributes)) {
+    errors.push("attributes");
+  }
+  if (body.variantGroups !== undefined && !Array.isArray(body.variantGroups)) {
+    errors.push("variantGroups");
+  }
+  if (body.media !== undefined && !Array.isArray(body.media)) {
+    errors.push("media");
+  }
 
   return { ok: errors.length === 0, errors };
 }
@@ -244,7 +259,12 @@ export function validateOwnerProductUpdate(body) {
     body.isAvailable !== undefined ||
     body.requiresPrescription !== undefined ||
     body.requiresReview !== undefined ||
-    body.sortOrder !== undefined;
+    body.sortOrder !== undefined ||
+    body.metadataJson !== undefined ||
+    body.richCatalog !== undefined ||
+    body.attributes !== undefined ||
+    body.variantGroups !== undefined ||
+    body.media !== undefined;
 
   if (!hasAnyField) errors.push("empty_update");
 
@@ -278,6 +298,21 @@ export function validateOwnerProductUpdate(body) {
     errors.push("requiresReview");
   }
   if (body.sortOrder !== undefined && !Number.isInteger(Number(body.sortOrder))) errors.push("sortOrder");
+  if (body.metadataJson !== undefined && !isOptionalObject(body.metadataJson)) {
+    errors.push("metadataJson");
+  }
+  if (body.richCatalog !== undefined && !isOptionalObject(body.richCatalog)) {
+    errors.push("richCatalog");
+  }
+  if (body.attributes !== undefined && !Array.isArray(body.attributes)) {
+    errors.push("attributes");
+  }
+  if (body.variantGroups !== undefined && !Array.isArray(body.variantGroups)) {
+    errors.push("variantGroups");
+  }
+  if (body.media !== undefined && !Array.isArray(body.media)) {
+    errors.push("media");
+  }
 
   return { ok: errors.length === 0, errors };
 }

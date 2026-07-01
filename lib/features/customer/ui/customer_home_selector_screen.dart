@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/sections/section_access_guard.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
@@ -179,12 +180,26 @@ class _CustomerHomeSelectorScreenState
   }
 
   Future<void> _openNotifications() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'الإشعارات الشخصية',
+      featureEnglish: 'personal notifications',
+    )) {
+      return;
+    }
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const NotificationsScreen()));
   }
 
   Future<void> _openAddresses() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'العناوين المحفوظة',
+      featureEnglish: 'saved addresses',
+    )) {
+      return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => const DeliveryAddressesScreen(selectOnTap: true),
@@ -200,6 +215,13 @@ class _CustomerHomeSelectorScreenState
         await _openShopping();
         return;
       case HomeMainSection.taxi:
+        if (!await requireAuthBeforeAction(
+          context,
+          featureArabic: 'خدمة التكسي',
+          featureEnglish: 'taxi booking',
+        )) {
+          return;
+        }
         await Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const MapPage()));
@@ -301,6 +323,13 @@ class _CustomerHomeSelectorScreenState
 
   Future<void> _openSavedPlaceShortcut(Map<String, dynamic> place) async {
     if (!await _ensureSectionAccess(HomeMainSection.taxi)) return;
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'اختصار موقع محفوظ',
+      featureEnglish: 'saved place shortcut',
+    )) {
+      return;
+    }
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => MapPage(initialDropoffSnapshot: place)),
@@ -309,6 +338,13 @@ class _CustomerHomeSelectorScreenState
 
   Future<void> _openRideReuseShortcut(Map<String, dynamic> ride) async {
     if (!await _ensureSectionAccess(HomeMainSection.taxi)) return;
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إعادة آخر مشوار',
+      featureEnglish: 'rebook last ride',
+    )) {
+      return;
+    }
     if (!mounted) return;
     final pickup = (ride['pickup'] as Map?)?.cast<String, dynamic>();
     final dropoff = (ride['dropoff'] as Map?)?.cast<String, dynamic>();

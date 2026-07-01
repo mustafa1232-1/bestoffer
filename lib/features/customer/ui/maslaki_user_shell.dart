@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:core_design_system/core_design_system.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../auth/state/auth_controller.dart';
 import '../../orders/ui/customer_orders_screen.dart';
 import '../../social/ui/social_shell_screen.dart';
 import 'customer_account_hub_screen.dart';
@@ -118,7 +122,35 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
     });
   }
 
-  void _selectTab(int nextIndex) => _goToTab(nextIndex, resetStack: true);
+  bool _isGuestRestrictedTab(int index) {
+    return <int>{1, 3, 4}.contains(index);
+  }
+
+  void _selectTab(int nextIndex) {
+    unawaited(_selectTabAsync(nextIndex));
+  }
+
+  Future<void> _selectTabAsync(int nextIndex) async {
+    final resolvedIndex = nextIndex.clamp(0, _navigatorKeys.length - 1);
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isAuthed && _isGuestRestrictedTab(resolvedIndex)) {
+      await requireAuthBeforeAction(
+        context,
+        featureArabic: switch (resolvedIndex) {
+          1 => 'الطلبات الشخصية',
+          3 => 'الرسائل',
+          _ => 'الحساب',
+        },
+        featureEnglish: switch (resolvedIndex) {
+          1 => 'my orders',
+          3 => 'messages',
+          _ => 'account',
+        },
+      );
+      return;
+    }
+    _goToTab(resolvedIndex, resetStack: true);
+  }
 
   void goHome({bool resetStack = true}) => _goToTab(0, resetStack: resetStack);
 
@@ -166,7 +198,11 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
   @override
   void initState() {
     super.initState();
-    _index = widget.initialIndex.clamp(0, _navigatorKeys.length - 1);
+    final auth = ref.read(authControllerProvider);
+    final requested = widget.initialIndex.clamp(0, _navigatorKeys.length - 1);
+    _index = !auth.isAuthed && _isGuestRestrictedTab(requested)
+        ? 0
+        : requested;
   }
 
   @override

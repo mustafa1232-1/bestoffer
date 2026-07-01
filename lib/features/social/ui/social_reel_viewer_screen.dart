@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/navigation/app_route_observer.dart';
@@ -270,6 +271,13 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
   }
 
   Future<void> _toggleLike(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'الإعجاب بالريلز',
+      featureEnglish: 'liking a reel',
+    )) {
+      return;
+    }
     final out = await ref.read(socialApiProvider).toggleLike(post.id);
     _patchCurrentPost(
       post.copyWith(
@@ -282,6 +290,13 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
   }
 
   Future<void> _toggleSave(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'حفظ الريلز',
+      featureEnglish: 'saving a reel',
+    )) {
+      return;
+    }
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -324,6 +339,13 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
   }
 
   Future<void> _openComments(SocialReelItem item) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'التعليق على الريلز',
+      featureEnglish: 'commenting on a reel',
+    )) {
+      return;
+    }
     final nextCount = await showSocialReelCommentsSheet(
       context,
       reelPost: item.post,
@@ -333,6 +355,13 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
   }
 
   Future<void> _shareToStory(SocialReelItem item) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'مشاركة الريلز في ستوري',
+      featureEnglish: 'sharing a reel to story',
+    )) {
+      return;
+    }
     final posted = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -349,6 +378,13 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
   }
 
   Future<void> _shareToChat(SocialReelItem item) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'مشاركة الريلز في محادثة',
+      featureEnglish: 'sharing a reel in chat',
+    )) {
+      return;
+    }
     await showSocialShareSheet(
       context: context,
       entityType: 'reel',
@@ -364,6 +400,13 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
   }
 
   Future<void> _openCreateReel() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إنشاء ريلز',
+      featureEnglish: 'creating a reel',
+    )) {
+      return;
+    }
     await showSocialCreatePostSheet(context);
   }
 

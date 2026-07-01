@@ -572,25 +572,28 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
                   style: Theme.of(context).textTheme.labelLarge,
                 ),
                 const SizedBox(height: 8),
-                CheckboxListTile(
-                  value: _discoverySelectAll,
-                  contentPadding: EdgeInsets.zero,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  title: Text(l10n.addMerchantDiscoverySelectAllLabel),
-                  subtitle: Text(
-                    l10n.addMerchantDiscoverySelectAllHint,
-                    style: Theme.of(context).textTheme.bodySmall,
+                Material(
+                  type: MaterialType.transparency,
+                  child: CheckboxListTile(
+                    value: _discoverySelectAll,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: Text(l10n.addMerchantDiscoverySelectAllLabel),
+                    subtitle: Text(
+                      l10n.addMerchantDiscoverySelectAllHint,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _discoverySelectAll = value == true;
+                        if (_discoverySelectAll) {
+                          _selectedDiscoverySubcategories.clear();
+                        }
+                        _fieldErrors.remove('merchantDiscoverySubcategory');
+                        _formError = null;
+                      });
+                    },
                   ),
-                  onChanged: (value) {
-                    setState(() {
-                      _discoverySelectAll = value == true;
-                      if (_discoverySelectAll) {
-                        _selectedDiscoverySubcategories.clear();
-                      }
-                      _fieldErrors.remove('merchantDiscoverySubcategory');
-                      _formError = null;
-                    });
-                  },
                 ),
                 if (!_discoverySelectAll && _discoveryOptions.isNotEmpty)
                   Wrap(
@@ -1118,17 +1121,20 @@ class _ConsentCard extends StatelessWidget {
               ),
             ],
           ),
-          CheckboxListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
-            value: accepted,
-            activeColor: Colors.cyanAccent.shade400,
-            checkColor: Colors.black,
-            onChanged: (value) => onChanged(value == true),
-            title: Text(
-              l10n.ownerRegisterConsentCheckbox,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+          Material(
+            type: MaterialType.transparency,
+            child: CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: accepted,
+              activeColor: Colors.cyanAccent.shade400,
+              checkColor: Colors.black,
+              onChanged: (value) => onChanged(value == true),
+              title: Text(
+                l10n.ownerRegisterConsentCheckbox,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
             ),
           ),
           if (errorText != null)

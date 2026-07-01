@@ -28,6 +28,21 @@ function validateItems(items, pathPrefix, errors) {
     ) {
       errors.push(`${pathPrefix}.${index}.selectedModifiers`);
     }
+    if (
+      item.selectedVariant !== undefined &&
+      item.selectedVariant !== null &&
+      typeof item.selectedVariant !== "object"
+    ) {
+      errors.push(`${pathPrefix}.${index}.selectedVariant`);
+    }
+    if (
+      item.selectedVariantSelections !== undefined &&
+      item.selectedVariantSelections !== null &&
+      !Array.isArray(item.selectedVariantSelections) &&
+      typeof item.selectedVariantSelections !== "object"
+    ) {
+      errors.push(`${pathPrefix}.${index}.selectedVariantSelections`);
+    }
   }
 }
 
