@@ -80,6 +80,15 @@
 	<array>
 		<string>location</string>
 		<string>remote-notification</string>
+		<string>processing</string>
+		<string>fetch</string>
+		<string>push-to-talk</string>
+		<string>external-accessory</string>
+		<string>bluetooth-peripheral</string>
+		<string>audio</string>
+		<string>bluetooth-central</string>
+		<string>nearby-interaction</string>
+		<string>voip</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
@@ -98,5 +107,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
