@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
@@ -42,6 +43,13 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
   }
 
   Future<void> _toggleLike(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'الإعجاب بالمنشور',
+      featureEnglish: 'liking a post',
+    )) {
+      return;
+    }
     final out = await ref.read(socialApiProvider).toggleLike(post.id);
     ref
         .read(socialExploreControllerProvider.notifier)
@@ -54,6 +62,13 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
   }
 
   Future<void> _toggleSave(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'حفظ المنشور',
+      featureEnglish: 'saving a post',
+    )) {
+      return;
+    }
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -125,6 +140,13 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
   Future<void> _onSuggestedRelationPressed(
     SocialUserSearchResult person,
   ) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إرسال طلب متابعة',
+      featureEnglish: 'sending a follow request',
+    )) {
+      return;
+    }
     if (_busySuggestedUserIds.contains(person.user.id) ||
         person.relation.isAccepted) {
       return;

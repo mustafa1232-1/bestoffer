@@ -11,8 +11,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/auth/session_expiry_notice.dart';
 import '../../../core/notifications/active_chat_context_registry.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
@@ -115,6 +117,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   int _chatReconnectAttempt = 0;
   bool _communityRealtimeConnected = false;
   int _communityConnectedPollTick = 0;
+  ProviderSubscription<AuthState>? _authStateSub;
   bool _communityComposerHasText = false;
   late final SocialVoiceComposerController _voiceComposer;
   bool _typingActive = false;
@@ -134,11 +137,29 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   NotificationsApi get _liveApi =>
       ref.read(_communityLiveNotificationsApiProvider);
   int? get _currentUserId => ref.read(authControllerProvider).user?.id;
+  bool get _hasVerifiedSession {
+    final auth = ref.read(authControllerProvider);
+    return auth.isAuthed && auth.user != null;
+  }
+
+  bool get _isGuestSession => !_hasVerifiedSession;
   String get _scopeType => widget.scopeType.trim().toLowerCase();
   String get _scopeCode => widget.scopeCode.trim().toUpperCase();
 
   void _setTab(int tab) {
     if (_tab == tab) return;
+    if (_isGuestSession && (tab == 2 || tab == 3)) {
+      unawaited(
+        requireAuthBeforeAction(
+          context,
+          featureArabic: tab == 2
+              ? 'محادثة المجتمع'
+              : 'فواتير المجتمع',
+          featureEnglish: tab == 2 ? 'community chat' : 'community bills',
+        ),
+      );
+      return;
+    }
     if (_tab == 2 && tab != 2) {
       _stopCommunityTyping();
       _peerTypingResetTimer?.cancel();
@@ -158,11 +179,20 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
     _tab = widget.initialTab < 0 || widget.initialTab > 3
         ? 0
         : widget.initialTab;
+    if (_isGuestSession && _tab >= 2) {
+      _tab = 0;
+    }
     _scopeTitle = widget.title ?? '${widget.scopeType} ${widget.scopeCode}';
     _voiceComposer = SocialVoiceComposerController()
       ..addListener(_handleVoiceComposerChanged);
     _chatSearchCtrl.addListener(_handleCommunitySearchTextChanged);
     WidgetsBinding.instance.addObserver(this);
+    _authStateSub = ref.listenManual<AuthState>(authControllerProvider, (
+      previous,
+      next,
+    ) {
+      _handleAuthStateChanged(previous, next);
+    });
     Future<void>.microtask(_bootstrapCommunityRealtime);
   }
 
@@ -391,6 +421,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
 
   @override
   void dispose() {
+    _authStateSub?.close();
     _liveSub?.cancel();
     _chatPollTimer?.cancel();
     _chatReconnectTimer?.cancel();
@@ -411,9 +442,60 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
     super.dispose();
   }
 
+  void _handleAuthStateChanged(AuthState? previous, AuthState next) {
+    final wasAuthed = previous != null && previous.isAuthed && previous.user != null;
+    final isAuthed = next.isAuthed && next.user != null;
+    if (!mounted) return;
+
+    if (wasAuthed && !isAuthed) {
+      _liveSub?.cancel();
+      _chatPollTimer?.cancel();
+      _chatReconnectTimer?.cancel();
+      _communityRealtimeConnected = false;
+      _communityConnectedPollTick = 0;
+      _chatReconnectAttempt = 0;
+      setState(() {
+        _canManageAnnouncements = false;
+        _canManageChat = false;
+        _canManageBills = false;
+        _canManageManagers = false;
+        _chatLocked = false;
+        _isBanned = false;
+        _chatMessages = const <SocialCommunityChatMessage>[];
+        _bills = const <SocialCommunityBill>[];
+        _managers = const <SocialCommunityManager>[];
+        _replyingToMessage = null;
+        _chatAttachmentDraft = null;
+        _chatSharedEntityDraft = null;
+        _peerTyping = false;
+        _peerTypingActorName = null;
+        _chatSearchResults = const <SocialCommunityChatMessage>[];
+        _chatSearchLoading = false;
+        _chatSearchError = null;
+        _highlightedChatMessageId = null;
+        _chatLastEventId = null;
+        if (_tab >= 2) {
+          _tab = 0;
+        }
+      });
+      _syncActiveCommunityChatContext();
+      unawaited(_bootstrapCommunityRealtime());
+      return;
+    }
+
+    if (!wasAuthed && isAuthed) {
+      unawaited(_bootstrapCommunityRealtime());
+    }
+  }
+
   Future<void> _bootstrapCommunityRealtime() async {
     await _reload();
     if (!mounted) return;
+    if (_isGuestSession) {
+      _liveSub?.cancel();
+      _chatPollTimer?.cancel();
+      return;
+    }
     _connectCommunityRealtime();
     _chatPollTimer?.cancel();
     _chatPollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -809,6 +891,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _reloadCommunityChatOnly({bool silent = false}) async {
+    if (_isGuestSession) return;
     try {
       final chat = await _api.listCommunityChatMessages(
         scopeType: _scopeType,
@@ -850,43 +933,49 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       if (!silent) _error = null;
     });
     try {
-      final coreOut = await Future.wait([
-        _api.listCommunityFeed(
-          scopeType: _scopeType,
-          scopeCode: _scopeCode,
-          limit: 25,
-        ),
-        _api.listCommunityChatMessages(
-          scopeType: _scopeType,
-          scopeCode: _scopeCode,
-          limit: 120,
-        ),
-        _api.listCommunityBills(
-          scopeType: _scopeType,
-          scopeCode: _scopeCode,
-          category: _billCategory,
-          limit: 120,
-        ),
-        _api.listCommunityManagers(
-          scopeType: _scopeType,
-          scopeCode: _scopeCode,
-        ),
-      ]);
-      final feed = Map<String, dynamic>.from(coreOut[0]);
-      final chat = Map<String, dynamic>.from(coreOut[1]);
-      final bills = Map<String, dynamic>.from(coreOut[2]);
-      final managers = Map<String, dynamic>.from(coreOut[3]);
-      Map<String, dynamic> ann = const {'announcements': <dynamic>[]};
-      try {
-        final annOut = await _api.listCommunityAnnouncements(
-          scopeType: _scopeType,
-          scopeCode: _scopeCode,
-          limit: 50,
-        );
-        ann = Map<String, dynamic>.from(annOut);
-      } catch (_) {
-        ann = const {'announcements': <dynamic>[]};
-      }
+      final hasSession = _hasVerifiedSession;
+      final publicFeedFuture = _api.listCommunityFeed(
+        scopeType: _scopeType,
+        scopeCode: _scopeCode,
+        limit: 25,
+      );
+      final announcementsFuture = _api
+          .listCommunityAnnouncements(
+            scopeType: _scopeType,
+            scopeCode: _scopeCode,
+            limit: 50,
+          )
+          .catchError((_) => const {'announcements': <dynamic>[]});
+
+      final feedResult = await publicFeedFuture;
+      final chatResult = hasSession
+          ? await _api.listCommunityChatMessages(
+              scopeType: _scopeType,
+              scopeCode: _scopeCode,
+              limit: 120,
+            )
+          : const <String, dynamic>{'messages': <dynamic>[]};
+      final billsResult = hasSession
+          ? await _api.listCommunityBills(
+              scopeType: _scopeType,
+              scopeCode: _scopeCode,
+              category: _billCategory,
+              limit: 120,
+            )
+          : const <String, dynamic>{'bills': <dynamic>[]};
+      final managersResult = hasSession
+          ? await _api.listCommunityManagers(
+              scopeType: _scopeType,
+              scopeCode: _scopeCode,
+            )
+          : const <String, dynamic>{'managers': <dynamic>[]};
+      final annResult = await announcementsFuture;
+
+      final feed = Map<String, dynamic>.from(feedResult);
+      final chat = Map<String, dynamic>.from(chatResult);
+      final bills = Map<String, dynamic>.from(billsResult);
+      final managers = Map<String, dynamic>.from(managersResult);
+      final ann = Map<String, dynamic>.from(annResult);
       final scope = Map<String, dynamic>.from(
         feed['scope'] as Map? ?? ann['scope'] as Map? ?? const {},
       );
@@ -899,57 +988,103 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
               (e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)),
             )
             .toList(growable: false);
-        _announcements =
-            List<dynamic>.from(ann['announcements'] as List? ?? const [])
-                .map(
-                  (e) => SocialCommunityAnnouncement.fromJson(
-                    Map<String, dynamic>.from(e as Map),
-                  ),
-                )
-                .toList(growable: false);
-        _chatMessages =
-            List<dynamic>.from(chat['messages'] as List? ?? const [])
-                .map(
-                  (e) => SocialCommunityChatMessage.fromJson(
-                    Map<String, dynamic>.from(e as Map),
-                  ),
-                )
-                .toList(growable: false)
-              ..sort((a, b) => a.id.compareTo(b.id));
-        _bills = List<dynamic>.from(bills['bills'] as List? ?? const [])
+        _announcements = List<dynamic>.from(ann['announcements'] as List? ?? const [])
             .map(
-              (e) => SocialCommunityBill.fromJson(
+              (e) => SocialCommunityAnnouncement.fromJson(
                 Map<String, dynamic>.from(e as Map),
               ),
             )
             .toList(growable: false);
-        _managers =
-            List<dynamic>.from(managers['managers'] as List? ?? const [])
+        final parsedChat = List<dynamic>.from(chat['messages'] as List? ?? const [])
+            .map(
+              (e) => SocialCommunityChatMessage.fromJson(
+                Map<String, dynamic>.from(e as Map),
+              ),
+            )
+            .toList(growable: false);
+        parsedChat.sort((a, b) => a.id.compareTo(b.id));
+        _chatMessages = hasSession ? parsedChat : const <SocialCommunityChatMessage>[];
+        _bills = hasSession
+            ? List<dynamic>.from(bills['bills'] as List? ?? const [])
+                .map(
+                  (e) => SocialCommunityBill.fromJson(
+                    Map<String, dynamic>.from(e as Map),
+                  ),
+                )
+                .toList(growable: false)
+            : const <SocialCommunityBill>[];
+        _managers = hasSession
+            ? List<dynamic>.from(managers['managers'] as List? ?? const [])
                 .map(
                   (e) => SocialCommunityManager.fromJson(
                     Map<String, dynamic>.from(e as Map),
                   ),
                 )
-                .toList(growable: false);
-        _canManageAnnouncements = ann['canManageAnnouncements'] == true;
-        _canManageChat = chat['canManageChat'] == true;
-        _canManageBills = bills['canManageBills'] == true;
-        _canManageManagers = managers['canManageManagers'] == true;
-        _chatLocked = chat['chatLocked'] == true;
-        _isBanned = chat['isBanned'] == true;
+                .toList(growable: false)
+            : const <SocialCommunityManager>[];
+        _canManageAnnouncements = hasSession && ann['canManageAnnouncements'] == true;
+        _canManageChat = hasSession && chat['canManageChat'] == true;
+        _canManageBills = hasSession && bills['canManageBills'] == true;
+        _canManageManagers = hasSession && managers['canManageManagers'] == true;
+        _chatLocked = hasSession && chat['chatLocked'] == true;
+        _isBanned = hasSession && chat['isBanned'] == true;
         _loading = false;
       });
       final route = ModalRoute.of(context);
-      if (_tab == 2 && route?.isCurrent == true) {
+      if (hasSession && _tab == 2 && route?.isCurrent == true) {
         await _markCommunityChatNotificationsRead();
       }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_chatScrollCtrl.hasClients) {
-          _chatScrollCtrl.jumpTo(_chatScrollCtrl.position.maxScrollExtent);
-        }
-      });
+      if (hasSession) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_chatScrollCtrl.hasClients) {
+            _chatScrollCtrl.jumpTo(
+              _chatScrollCtrl.position.maxScrollExtent,
+            );
+          }
+        });
+      }
     } on DioException catch (e) {
       if (!mounted) return;
+      if (isAuthDioError(e)) {
+        setState(() {
+          _loading = false;
+          _error = null;
+          _canManageAnnouncements = false;
+          _canManageChat = false;
+          _canManageBills = false;
+          _canManageManagers = false;
+          _chatLocked = false;
+          _isBanned = false;
+          _chatMessages = const <SocialCommunityChatMessage>[];
+          _bills = const <SocialCommunityBill>[];
+          _managers = const <SocialCommunityManager>[];
+          _replyingToMessage = null;
+          _chatAttachmentDraft = null;
+          _chatSharedEntityDraft = null;
+          _peerTyping = false;
+          _peerTypingActorName = null;
+          _chatSearchResults = const <SocialCommunityChatMessage>[];
+          _chatSearchLoading = false;
+          _chatSearchError = null;
+          _highlightedChatMessageId = null;
+          _chatLastEventId = null;
+          if (_tab >= 2) {
+            _tab = 0;
+          }
+        });
+        _syncActiveCommunityChatContext();
+        if (!_isGuestSession) {
+          unawaited(
+            SessionExpiryNoticeGate.instance.show(
+              context,
+              messageArabic: 'انتهت الجلسة الحالية. يمكنك متابعة التصفح كزائر.',
+              messageEnglish:
+                  'Your session expired. You can continue browsing as a guest.',
+            ),
+          );
+        }
+        return;
+      }
       setState(() {
         _loading = false;
         _error = mapDioError(
@@ -974,6 +1109,13 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _sendChat() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إرسال رسالة في المحادثة',
+      featureEnglish: 'sending a community chat message',
+    )) {
+      return;
+    }
     final text = _chatCtrl.text.trim();
     final sharedDraft = _chatSharedEntityDraft;
     if ((text.isEmpty &&
@@ -1530,6 +1672,13 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _createAnnouncement() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'نشر إعلان في المجتمع',
+      featureEnglish: 'publishing a community announcement',
+    )) {
+      return;
+    }
     final titleCtrl = TextEditingController();
     final bodyCtrl = TextEditingController();
     final ok = await showDialog<bool>(
@@ -1685,6 +1834,13 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _createBill() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إضافة فاتورة في المجتمع',
+      featureEnglish: 'adding a community bill',
+    )) {
+      return;
+    }
     final titleCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
     final apartmentCtrl = TextEditingController();
@@ -2074,6 +2230,13 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _togglePostLike(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'الإعجاب بالمنشور',
+      featureEnglish: 'liking a post',
+    )) {
+      return;
+    }
     final optimistic = post.copyWith(
       isLiked: !post.isLiked,
       likesCount: (post.likesCount + (post.isLiked ? -1 : 1)).clamp(0, 999999),
@@ -2106,6 +2269,13 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _togglePostSave(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'حفظ المنشور',
+      featureEnglish: 'saving a post',
+    )) {
+      return;
+    }
     final optimistic = post.copyWith(
       isSaved: !post.isSaved,
       savesCount: (post.savesCount + (post.isSaved ? -1 : 1)).clamp(0, 999999),
@@ -2184,6 +2354,13 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _openScopedCreatePostSheet() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إنشاء منشور مجتمع',
+      featureEnglish: 'creating a community post',
+    )) {
+      return;
+    }
     final created = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -2470,6 +2647,13 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _openCreateStorySheet() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إنشاء ستوري مجتمع',
+      featureEnglish: 'creating a community story',
+    )) {
+      return;
+    }
     final created = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,

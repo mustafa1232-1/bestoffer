@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../merchants/models/merchant_model.dart';
 import '../../merchants/ui/merchant_products_screen.dart';
@@ -52,6 +53,13 @@ class _SocialSavedScreenState extends ConsumerState<SocialSavedScreen> {
   }
 
   Future<void> _toggleLike(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'الإعجاب بالمنشور',
+      featureEnglish: 'liking a post',
+    )) {
+      return;
+    }
     await ref.read(socialApiProvider).toggleLike(post.id);
     if (!mounted) return;
     await ref.read(socialSavedControllerProvider.notifier).refresh();
@@ -145,6 +153,13 @@ class _SocialSavedScreenState extends ConsumerState<SocialSavedScreen> {
                       onOpenMerchantLink: () => _openMerchant(item.content),
                       onToggleLike: () => _toggleLike(item.content),
                       onToggleSave: () async {
+                        if (!await requireAuthBeforeAction(
+                          context,
+                          featureArabic: 'إزالة المنشور من المحفوظات',
+                          featureEnglish: 'updating saved content',
+                        )) {
+                          return;
+                        }
                         await notifier.toggleSaved(
                           entityType: item.entityType,
                           entityId: item.entityId,

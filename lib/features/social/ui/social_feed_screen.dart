@@ -2,6 +2,7 @@ import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
@@ -63,6 +64,13 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
   }
 
   Future<void> _openCreateMenu() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'إنشاء منشور أو ستوري',
+      featureEnglish: 'creating a post or story',
+    )) {
+      return;
+    }
     final l10n = context.l10n;
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -156,6 +164,15 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
 
   Future<void> _openCommunityTab(int initialTab) async {
     final l10n = context.l10n;
+    if (initialTab == 2 || initialTab == 3) {
+      if (!await requireAuthBeforeAction(
+        context,
+        featureArabic: initialTab == 2 ? 'محادثة المجتمع' : 'فواتير المجتمع',
+        featureEnglish: initialTab == 2 ? 'community chat' : 'community bills',
+      )) {
+        return;
+      }
+    }
     final scope = _resolvePrimaryCommunityScope();
     if (scope == null) {
       if (!mounted) return;
@@ -181,7 +198,18 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
   }
 
   Future<void> _toggleSave(SocialPost post) {
-    return ref.read(socialControllerProvider.notifier).toggleSave(post);
+    return _toggleSaveAsync(post);
+  }
+
+  Future<void> _toggleSaveAsync(SocialPost post) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'حفظ المنشور',
+      featureEnglish: 'saving a post',
+    )) {
+      return;
+    }
+    await ref.read(socialControllerProvider.notifier).toggleSave(post);
   }
 
   Future<void> _reportPost(SocialPost post) async {
@@ -389,9 +417,18 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
                   loadingMore: state.loadingMorePosts,
                   onOpenComments: (post) =>
                       openSocialComments(context, post: post),
-                  onToggleLike: (post) => ref
-                      .read(socialControllerProvider.notifier)
-                      .toggleLike(post),
+                  onToggleLike: (post) async {
+                    if (!await requireAuthBeforeAction(
+                      context,
+                      featureArabic: 'الإعجاب بالمنشور',
+                      featureEnglish: 'liking a post',
+                    )) {
+                      return;
+                    }
+                    await ref
+                        .read(socialControllerProvider.notifier)
+                        .toggleLike(post);
+                  },
                   onToggleSave: _toggleSave,
                   onReportPost: _reportPost,
                   onOpenMerchantLink: _merchantLinkActionFor,
