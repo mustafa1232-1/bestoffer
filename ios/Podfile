@@ -48,6 +48,13 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+
+      # Disable unused permission_handler macros to prevent Apple rejection
+      # Maslaki does not use App Tracking Transparency or advertising SDKs
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+      defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS']
+      defs << 'PERMISSION_APP_TRACKING_TRANSPARENCY=0' unless defs.include?('PERMISSION_APP_TRACKING_TRANSPARENCY=0')
+      defs << 'PERMISSION_BLUETOOTH=0' unless defs.include?('PERMISSION_BLUETOOTH=0')
     end
   end
 end

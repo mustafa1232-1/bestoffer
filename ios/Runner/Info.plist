@@ -80,6 +80,15 @@
 	<array>
 		<string>location</string>
 		<string>remote-notification</string>
+		<string>processing</string>
+		<string>fetch</string>
+		<string>push-to-talk</string>
+		<string>external-accessory</string>
+		<string>bluetooth-peripheral</string>
+		<string>audio</string>
+		<string>bluetooth-central</string>
+		<string>nearby-interaction</string>
+		<string>voip</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
@@ -97,6 +106,14 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.maslaki.user.refresh</string>
+		<string>com.maslaki.user.processing</string>
+		<string>com.maslaki.user.sync</string>
 	</array>
 </dict>
 </plist>
