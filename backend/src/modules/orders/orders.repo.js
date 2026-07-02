@@ -1,4 +1,5 @@
 ﻿import { pool, q } from "../../config/db.js";
+import { env } from "../../config/env.js";
 import {
   computeOrderFinancialSnapshot,
   getMerchantBillingProfile,
@@ -459,6 +460,8 @@ async function loadProductVariantCatalogTx(client, productIds) {
       catalog = {
         groups: [],
         groupByCode: new Map(),
+        variants: [],
+        variantBySignature: new Map(),
         hasVariants: false,
       };
       byProductId.set(productId, catalog);
@@ -504,6 +507,39 @@ async function loadProductVariantCatalogTx(client, productIds) {
     group.optionById.set(Number(option.optionId), option);
   }
 
+  const variantsResult = await client.query(
+    `SELECT id, product_id, signature, selections_json, sku, barcode, material,
+            price_override, discounted_price_override, stock_quantity, image_url,
+            is_available, sort_order
+     FROM product_variant
+     WHERE product_id = ANY($1::bigint[])
+     ORDER BY sort_order ASC, id ASC`,
+    [normalizedIds]
+  );
+  for (const row of variantsResult.rows) {
+    const productId = Number(row.product_id);
+    let catalog = byProductId.get(productId);
+    if (!catalog) {
+      catalog = {
+        groups: [], groupByCode: new Map(), variants: [],
+        variantBySignature: new Map(), hasVariants: true,
+      };
+      byProductId.set(productId, catalog);
+    }
+    const variant = {
+      variantId: Number(row.id), signature: String(row.signature || ""),
+      selections: Array.isArray(row.selections_json) ? row.selections_json : [],
+      sku: row.sku || null, barcode: row.barcode || null, material: row.material || null,
+      priceOverride: row.price_override == null ? null : Number(row.price_override),
+      discountedPriceOverride: row.discounted_price_override == null ? null : Number(row.discounted_price_override),
+      stockQuantity: Math.max(0, Number(row.stock_quantity || 0)),
+      imageUrl: row.image_url || null, isAvailable: row.is_available !== false,
+    };
+    catalog.variants.push(variant);
+    catalog.variantBySignature.set(variant.signature, variant);
+    catalog.hasVariants = true;
+  }
+
   const fallbackResult = await client.query(
     `SELECT id, metadata_json
      FROM product
@@ -519,6 +555,8 @@ async function loadProductVariantCatalogTx(client, productIds) {
     const catalog = {
       groups: [],
       groupByCode: new Map(),
+      variants: [],
+      variantBySignature: new Map(),
       hasVariants: true,
     };
     for (const groupEntry of fallback.variantGroups) {
@@ -590,12 +628,13 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
   }
 
   const seenGroups = new Set();
+  const seenSelections = new Set();
   const resolvedSelections = [];
   let variantPriceDeltaTotal = 0;
 
   for (const selection of selected.selections) {
     const groupKey = String(selection.groupCode || "").toLowerCase();
-    if (!groupKey || seenGroups.has(groupKey)) {
+    if (!groupKey) {
       const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
       err.status = 400;
       throw err;
@@ -607,6 +646,12 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
       throw err;
     }
     const optionKey = String(selection.optionCode || "").toLowerCase();
+    const selectionKey = `${groupKey}:${optionKey}`;
+    if (seenSelections.has(selectionKey) || (seenGroups.has(groupKey) && group.selectionMode !== "multiple")) {
+      const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
+      err.status = 400;
+      throw err;
+    }
     const option = group.optionByCode.get(optionKey);
     if (!option || option.isAvailable === false) {
       const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
@@ -614,6 +659,7 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
       throw err;
     }
     seenGroups.add(groupKey);
+    seenSelections.add(selectionKey);
     variantPriceDeltaTotal += Number(option.priceDelta || 0);
     resolvedSelections.push({
       groupCode: group.groupCode,
@@ -635,8 +681,38 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
     }
   }
 
+  const managedGroupCodes = new Set(
+    (variantCatalog?.variants || []).flatMap((variant) =>
+      (variant.selections || []).map((entry) => String(entry.groupCode || entry.group_code || "").toLowerCase())
+    )
+  );
+  const combinationSignature = resolvedSelections
+    .filter((entry) => managedGroupCodes.size === 0 || managedGroupCodes.has(String(entry.groupCode).toLowerCase()))
+    .map((entry) => `${String(entry.groupCode).toLowerCase()}:${String(entry.optionCode).toLowerCase()}`)
+    .sort()
+    .join("|");
+  const exactVariant = variantCatalog?.variants?.length
+    ? variantCatalog.variantBySignature.get(combinationSignature)
+    : null;
+  if (variantCatalog?.variants?.length && (!exactVariant || exactVariant.isAvailable === false)) {
+    const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
+    err.status = 400;
+    throw err;
+  }
+  if (exactVariant && exactVariant.stockQuantity < Number(item.quantity || 0)) {
+    const err = new Error("PRODUCT_OUT_OF_STOCK");
+    err.status = 400;
+    throw err;
+  }
+
   const selectedVariantSnapshot = {
-    signature: selected.signature,
+    signature: combinationSignature,
+    variantId: exactVariant?.variantId || null,
+    sku: exactVariant?.sku || null,
+    barcode: exactVariant?.barcode || null,
+    material: exactVariant?.material || null,
+    imageUrl: exactVariant?.imageUrl || resolvedSelections.find((entry) => entry.imageUrl)?.imageUrl || null,
+    stockQuantity: exactVariant?.stockQuantity ?? null,
     selections: resolvedSelections,
     groupCodes: resolvedSelections.map((item) => item.groupCode),
     optionCodes: resolvedSelections.map((item) => item.optionCode),
@@ -649,6 +725,9 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
     hasVariants: true,
     selectedVariantSnapshot,
     variantPriceDeltaTotal: Number(variantPriceDeltaTotal || 0),
+    variantId: exactVariant?.variantId || null,
+    priceOverride: exactVariant?.priceOverride ?? null,
+    discountedPriceOverride: exactVariant?.discountedPriceOverride ?? null,
   };
 }
 
@@ -793,12 +872,103 @@ async function insertOrderItemTx(client, orderId, item) {
   return result.rows[0] || null;
 }
 
+async function transitionInventoryReservationsTx(client, orderId, nextStatus) {
+  const release = nextStatus === "released" || nextStatus === "expired";
+  const eligible = release ? ["pending", "consumed"] :
+    nextStatus === "completed" ? ["pending", "consumed"] : ["pending"];
+  const rows = await client.query(
+    `SELECT * FROM inventory_reservation
+     WHERE order_id = $1 AND status = ANY($2::varchar[])
+     ORDER BY id ASC FOR UPDATE`,
+    [Number(orderId), eligible]
+  );
+  for (const reservation of rows.rows) {
+    if (release) {
+      if (reservation.variant_id != null) {
+        await client.query(
+          `UPDATE product_variant
+           SET stock_quantity = stock_quantity + $2, updated_at = NOW()
+           WHERE id = $1`,
+          [Number(reservation.variant_id), Number(reservation.quantity)]
+        );
+      } else if (reservation.variant_signature) {
+        await client.query(
+          `UPDATE product_variant
+           SET stock_quantity = stock_quantity + $3, updated_at = NOW()
+           WHERE product_id = $1 AND signature = $2`,
+          [Number(reservation.product_id), reservation.variant_signature, Number(reservation.quantity)]
+        );
+      } else {
+        await client.query(
+          `UPDATE store_inventory_item
+           SET quantity = quantity + $3,
+               stock_status = CASE
+                 WHEN quantity + $3 <= COALESCE(reorder_threshold, 0) THEN 'low_stock'
+                 ELSE 'in_stock'
+               END,
+               auto_disabled = FALSE, last_quantity_update_at = NOW(), updated_at = NOW()
+           WHERE merchant_id = $1 AND product_id = $2`,
+          [Number(reservation.merchant_id), Number(reservation.product_id), Number(reservation.quantity)]
+        );
+      }
+    }
+    await client.query(
+      `UPDATE inventory_reservation
+       SET status = $2,
+           consumed_at = CASE WHEN $2 = 'consumed' THEN NOW() ELSE consumed_at END,
+           completed_at = CASE WHEN $2 = 'completed' THEN NOW() ELSE completed_at END,
+           released_at = CASE WHEN $2 IN ('released','expired') THEN NOW() ELSE released_at END,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [Number(reservation.id), nextStatus]
+    );
+  }
+  return rows.rows.length;
+}
+
+export async function expireInventoryReservationsBatch({ limit = 100 } = {}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const due = await client.query(
+      `SELECT id, order_id
+       FROM inventory_reservation
+       WHERE status = 'pending' AND expires_at <= NOW()
+       ORDER BY expires_at ASC, id ASC
+       LIMIT $1 FOR UPDATE SKIP LOCKED`,
+      [Math.max(1, Number(limit || 100))]
+    );
+    let expired = 0;
+    const orderIds = [...new Set(due.rows.map((row) => Number(row.order_id)))];
+    for (const orderId of orderIds) {
+      const orderResult = await client.query(
+        `UPDATE customer_order
+         SET status = 'expired'::order_status, updated_at = NOW()
+         WHERE id = $1 AND status = 'pending'
+         RETURNING id, order_group_id`,
+        [orderId]
+      );
+      if (!orderResult.rows[0]) continue;
+      expired += await transitionInventoryReservationsTx(client, orderId, "expired");
+      await syncOrderGroupStatusTx(client, orderResult.rows[0].order_group_id);
+    }
+    await client.query("COMMIT");
+    return expired;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export const __ordersRepoTestables = Object.freeze({
   buildDynamicInsertParts,
   toDeliveryDetailResponse,
   resolveTrackingViewerMode,
   buildDeliveryEarnings,
   buildDeliveryRatings,
+  transitionInventoryReservationsTx,
 });
 
 export async function listDeliveryAgents() {
@@ -1116,11 +1286,12 @@ async function calculateStoreOrderDraft({
     if (product.free_delivery) hasFreeDeliveryOffer = true;
 
     const activeOffer = activeOfferMap.get(String(item.productId)) || null;
-    const baseUnitPrice = Number(product.price) + Number(variantResolution.variantPriceDeltaTotal || 0);
-    const fallbackDiscountedPrice =
-      product.discounted_price == null
+    const baseUnitPrice = variantResolution.priceOverride ??
+      (Number(product.price) + Number(variantResolution.variantPriceDeltaTotal || 0));
+    const fallbackDiscountedPrice = variantResolution.discountedPriceOverride ??
+      (product.discounted_price == null
         ? null
-        : Number(product.discounted_price) + Number(variantResolution.variantPriceDeltaTotal || 0);
+        : Number(product.discounted_price) + Number(variantResolution.variantPriceDeltaTotal || 0));
     const pricing = applyMerchantOfferPricing({
       baseUnitPrice,
       quantity: Number(item.quantity || 0),
@@ -1161,14 +1332,24 @@ async function calculateStoreOrderDraft({
       modifiersUnitTotal,
       modifiersLineTotal,
       selectedModifiers,
-      selectedVariantSnapshot: variantResolution.selectedVariantSnapshot,
+      selectedVariantSnapshot: variantResolution.selectedVariantSnapshot == null ? null : {
+        ...variantResolution.selectedVariantSnapshot,
+        productName: product.name,
+        finalPrice: unitPrice,
+        quantity: Number(item.quantity || 0),
+      },
       variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
       pricingBreakdown: {
         ...pricing.pricingBreakdown,
         selectedModifiers,
         modifiersUnitTotal,
         modifiersLineTotal,
-        selectedVariantSnapshot: variantResolution.selectedVariantSnapshot,
+        selectedVariantSnapshot: variantResolution.selectedVariantSnapshot == null ? null : {
+          ...variantResolution.selectedVariantSnapshot,
+          productName: product.name,
+          finalPrice: unitPrice,
+          quantity: Number(item.quantity || 0),
+        },
         variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
       },
     });
@@ -1392,13 +1573,13 @@ export async function createOrderWithItems({
       }
 
       const activeOffer = activeOfferMap.get(String(item.productId)) || null;
-      const baseUnitPrice =
-        Number(product.price) + Number(variantResolution.variantPriceDeltaTotal || 0);
-      const fallbackDiscountedPrice =
-        product.discounted_price == null
+      const baseUnitPrice = variantResolution.priceOverride ??
+        (Number(product.price) + Number(variantResolution.variantPriceDeltaTotal || 0));
+      const fallbackDiscountedPrice = variantResolution.discountedPriceOverride ??
+        (product.discounted_price == null
           ? null
           : Number(product.discounted_price) +
-            Number(variantResolution.variantPriceDeltaTotal || 0);
+            Number(variantResolution.variantPriceDeltaTotal || 0));
       const pricing = applyMerchantOfferPricing({
         baseUnitPrice,
         quantity: item.quantity,
@@ -1437,20 +1618,41 @@ export async function createOrderWithItems({
         modifiersUnitTotal,
         modifiersLineTotal,
         selectedModifiers,
-        selectedVariantSnapshot: variantResolution.selectedVariantSnapshot,
+        selectedVariantSnapshot: variantResolution.selectedVariantSnapshot == null ? null : {
+          ...variantResolution.selectedVariantSnapshot,
+          productName: product.name,
+          finalPrice: unitPrice,
+          quantity: Number(item.quantity || 0),
+        },
         variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
         pricingBreakdown: {
           ...pricing.pricingBreakdown,
           selectedModifiers,
           modifiersUnitTotal,
           modifiersLineTotal,
-          selectedVariantSnapshot: variantResolution.selectedVariantSnapshot,
+          selectedVariantSnapshot: variantResolution.selectedVariantSnapshot == null ? null : {
+            ...variantResolution.selectedVariantSnapshot,
+            productName: product.name,
+            finalPrice: unitPrice,
+            quantity: Number(item.quantity || 0),
+          },
           variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
         },
       });
 
-      if (inventoryEnabled && product.inventory_quantity != null) {
+      if (variantResolution.variantId) {
         inventoryAdjustments.push({
+          itemIndex: calculatedItems.length - 1,
+          productId: Number(product.id),
+          variantId: Number(variantResolution.variantId),
+          orderedQuantity: Number(item.quantity || 0),
+          currentQuantity: null,
+          reorderThreshold: 0,
+          manualDisabled: false,
+        });
+      } else if (inventoryEnabled && product.inventory_quantity != null) {
+        inventoryAdjustments.push({
+          itemIndex: calculatedItems.length - 1,
           productId: Number(product.id),
           orderedQuantity: Number(item.quantity || 0),
           currentQuantity: Math.max(0, Number(product.inventory_quantity || 0)),
@@ -1568,55 +1770,53 @@ export async function createOrderWithItems({
       if (persisted) persistedItems.push(persisted);
     }
 
-    const catalogMutated = inventoryEnabled && inventoryAdjustments.length > 0;
+    const catalogMutated = inventoryAdjustments.length > 0;
     if (catalogMutated) {
       for (const item of inventoryAdjustments) {
-        const nextQuantity = Math.max(0, item.currentQuantity - item.orderedQuantity);
-        const nextStatus =
-          item.manualDisabled === true
-            ? "manual_disabled"
-            : nextQuantity <= 0
-              ? "out_of_stock"
-              : nextQuantity <= item.reorderThreshold
-                ? "low_stock"
-                : "in_stock";
-        const autoDisabled =
-          item.manualDisabled === true
-            ? false
-            : nextQuantity <= 0 &&
-              inventorySettings?.daily_update_mode !== "manual_override" &&
-              inventorySettings?.show_all_without_auto_disable !== true &&
-              inventorySettings?.auto_disable_out_of_stock !== false;
-        await client.query(
-          `UPDATE store_inventory_item
-           SET quantity = $3,
-               stock_status = $4,
-               auto_disabled = $5,
-               last_quantity_update_at = NOW(),
-               updated_at = NOW()
-           WHERE merchant_id = $1
-             AND product_id = $2`,
-          [
-            Number(merchantId),
-            Number(item.productId),
-            Number(nextQuantity),
-            nextStatus,
-            autoDisabled,
-          ]
-        );
-
-        if (inventorySettings?.daily_update_mode !== "manual_override") {
-          await client.query(
-            `UPDATE product
-             SET is_available = $2,
-                 updated_at = NOW()
-             WHERE id = $1`,
-            [Number(item.productId), autoDisabled ? false : true]
+        let reserved;
+        if (item.variantId) {
+          reserved = await client.query(
+            `UPDATE product_variant
+             SET stock_quantity = stock_quantity - $2, updated_at = NOW()
+             WHERE id = $1 AND is_available = TRUE AND stock_quantity >= $2
+             RETURNING id, stock_quantity`,
+            [Number(item.variantId), Number(item.orderedQuantity)]
+          );
+        } else {
+          reserved = await client.query(
+            `UPDATE store_inventory_item
+             SET quantity = quantity - $3,
+                 stock_status = CASE
+                   WHEN quantity - $3 <= 0 THEN 'out_of_stock'
+                   WHEN quantity - $3 <= COALESCE(reorder_threshold, $4) THEN 'low_stock'
+                   ELSE 'in_stock'
+                 END,
+                 last_quantity_update_at = NOW(), updated_at = NOW()
+             WHERE merchant_id = $1 AND product_id = $2
+               AND manual_disabled = FALSE AND quantity >= $3
+             RETURNING id, quantity`,
+            [Number(merchantId), Number(item.productId), Number(item.orderedQuantity), Number(item.reorderThreshold || 0)]
           );
         }
+        if (!reserved.rows[0]) {
+          const err = new Error("PRODUCT_OUT_OF_STOCK");
+          err.status = 400;
+          throw err;
+        }
+        const persistedItem = persistedItems[item.itemIndex];
+        await client.query(
+          `INSERT INTO inventory_reservation
+             (order_id, order_item_id, merchant_id, product_id, variant_id, variant_signature, quantity, status, expires_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'pending', NOW() + ($8 * interval '1 minute'))
+           ON CONFLICT (order_item_id) DO NOTHING`,
+          [Number(order.id), Number(persistedItem.id), Number(merchantId), Number(item.productId),
+           item.variantId ? Number(item.variantId) : null,
+           item.variantId ? calculatedItems[item.itemIndex]?.selectedVariantSnapshot?.signature || null : null,
+           Number(item.orderedQuantity), Number(env.orderStockReservationTtlMinutes || 30)]
+        );
       }
 
-      await client.query(
+      if (inventoryEnabled) await client.query(
         `UPDATE inventory_settings
          SET last_stock_update_at = NOW(),
              updated_at = NOW()
@@ -2588,6 +2788,8 @@ export async function cancelOrderByCustomer({
       status: "cancelled_by_customer",
     });
 
+    await transitionInventoryReservationsTx(client, row.id, "released");
+
     await syncOrderGroupStatusTx(client, row.order_group_id);
 
     await client.query("COMMIT");
@@ -3221,6 +3423,13 @@ export async function updateOwnerOrderStatus(
     );
 
     const updated = updateResult.rows[0];
+    if (status === "approved") {
+      await transitionInventoryReservationsTx(client, orderId, "consumed");
+    } else if (status === "delivered") {
+      await transitionInventoryReservationsTx(client, orderId, "completed");
+    } else if (status === "cancelled") {
+      await transitionInventoryReservationsTx(client, orderId, "released");
+    }
     await syncOrderGroupStatusTx(client, updated.order_group_id);
     await syncOrderIncentiveConsumptionForStatusTx(client, {
       orderId: Number(orderId),

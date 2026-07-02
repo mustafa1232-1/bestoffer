@@ -34,6 +34,7 @@ import 'store_printer_settings_screen.dart';
 import 'store_owner_offers_screen.dart';
 import '../models/owner_merchant_model.dart';
 import '../state/owner_controller.dart';
+import 'owner_product_form_sheet.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -285,6 +286,13 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
           requiresPrescription: data.requiresPrescription,
           requiresReview: data.requiresReview,
           sortOrder: data.sortOrder,
+          stockQuantity: data.stockQuantity,
+          attributes: data.attributes,
+          variantGroups: data.variantGroups,
+          variants: data.variants,
+          media: data.media,
+          galleryFiles: data.galleryFiles,
+          variantFiles: data.variantFiles,
         );
   }
 
@@ -891,6 +899,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                         .createCategory(
                                           name: data.name,
                                           sortOrder: data.sortOrder,
+                                          catalogType: data.catalogType,
                                         );
                                   },
                             icon: const Icon(Icons.add),
@@ -919,6 +928,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                       categoryId: category.id,
                                       name: data.name,
                                       sortOrder: data.sortOrder,
+                                      catalogType: data.catalogType,
                                     );
                               },
                               onDelete: () async {
@@ -975,7 +985,8 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                         product: product,
                                         categories: ownerState.categories,
                                         supportsPharmacyWorkflow:
-                                            ownerState.merchant
+                                            ownerState
+                                                .merchant
                                                 ?.supportsPharmacyWorkflow ==
                                             true,
                                       );
@@ -999,9 +1010,15 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                             isAvailable: data.isAvailable,
                                             requiresPrescription:
                                                 data.requiresPrescription,
-                                            requiresReview:
-                                                data.requiresReview,
+                                            requiresReview: data.requiresReview,
                                             sortOrder: data.sortOrder,
+                                            stockQuantity: data.stockQuantity,
+                                            attributes: data.attributes,
+                                            variantGroups: data.variantGroups,
+                                            variants: data.variants,
+                                            media: data.media,
+                                            galleryFiles: data.galleryFiles,
+                                            variantFiles: data.variantFiles,
                                           );
                                     },
                                     onDelete: () async {
@@ -1549,16 +1566,16 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     );
   }
 
-  Future<_ProductFormData?> _openProductSheet(
+  Future<ProductFormData?> _openProductSheet(
     BuildContext context, {
     ProductModel? product,
     required List<ProductCategoryModel> categories,
     bool supportsPharmacyWorkflow = false,
   }) {
-    return showModalBottomSheet<_ProductFormData>(
+    return showModalBottomSheet<ProductFormData>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _ProductFormSheet(
+      builder: (_) => ProductFormSheet(
         product: product,
         categories: categories,
         supportsPharmacyWorkflow: supportsPharmacyWorkflow,
@@ -2410,7 +2427,7 @@ class _CategoryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       dense: true,
-      title: Text(category.name, textDirection: TextDirection.rtl),
+      title: Text(category.displayName, textDirection: TextDirection.rtl),
       subtitle: Text(
         'ترتيب العرض: ${category.sortOrder}',
         textDirection: TextDirection.rtl,
@@ -2579,269 +2596,6 @@ class _InlineStateChip extends StatelessWidget {
   }
 }
 
-class _ProductFormSheet extends StatefulWidget {
-  final ProductModel? product;
-  final List<ProductCategoryModel> categories;
-  final bool supportsPharmacyWorkflow;
-
-  const _ProductFormSheet({
-    this.product,
-    required this.categories,
-    this.supportsPharmacyWorkflow = false,
-  });
-
-  @override
-  State<_ProductFormSheet> createState() => _ProductFormSheetState();
-}
-
-class _ProductFormSheetState extends State<_ProductFormSheet> {
-  late final TextEditingController nameCtrl;
-  late final TextEditingController descCtrl;
-  late final TextEditingController priceCtrl;
-  late final TextEditingController discountCtrl;
-  late final TextEditingController imageCtrl;
-  late final TextEditingController sortCtrl;
-  late final TextEditingController offerCtrl;
-  late bool isAvailable;
-  late bool freeDelivery;
-  late bool requiresPrescription;
-  late bool requiresReview;
-  int? categoryId;
-  LocalImageFile? imageFile;
-
-  @override
-  void initState() {
-    super.initState();
-    final product = widget.product;
-    nameCtrl = TextEditingController(text: product?.name ?? '');
-    descCtrl = TextEditingController(text: product?.description ?? '');
-    priceCtrl = TextEditingController(text: product?.price.toString() ?? '');
-    discountCtrl = TextEditingController(
-      text: product?.discountedPrice?.toString() ?? '',
-    );
-    imageCtrl = TextEditingController(text: product?.imageUrl ?? '');
-    sortCtrl = TextEditingController(
-      text: product?.sortOrder.toString() ?? '0',
-    );
-    offerCtrl = TextEditingController(text: product?.offerLabel ?? '');
-    isAvailable = product?.isAvailable ?? true;
-    freeDelivery = product?.freeDelivery ?? false;
-    requiresPrescription = product?.requiresPrescription ?? false;
-    requiresReview = product?.requiresReview ?? false;
-    categoryId =
-        product?.categoryId ??
-        (widget.categories.isNotEmpty ? widget.categories.first.id : null);
-    imageFile = null;
-  }
-
-  @override
-  void dispose() {
-    nameCtrl.dispose();
-    descCtrl.dispose();
-    priceCtrl.dispose();
-    discountCtrl.dispose();
-    imageCtrl.dispose();
-    sortCtrl.dispose();
-    offerCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isEdit = widget.product != null;
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 14,
-        right: 14,
-        top: 14,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 14,
-      ),
-      child: Directionality(
-        textDirection: TextDirection.rtl,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                isEdit ? 'تعديل المنتج' : 'إضافة منتج',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'اسم المنتج'),
-              ),
-              const SizedBox(height: 10),
-              if (widget.categories.isEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: Colors.orange.withValues(alpha: 0.12),
-                  ),
-                  child: const Text(
-                    'يجب إنشاء قسم واحد على الأقل قبل إضافة منتج جديد.',
-                    textDirection: TextDirection.rtl,
-                  ),
-                )
-              else
-                DropdownButtonFormField<int>(
-                  initialValue: categoryId,
-                  items: widget.categories
-                      .map(
-                        (category) => DropdownMenuItem<int>(
-                          value: category.id,
-                          child: Text(category.name),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setState(() => categoryId = value),
-                  decoration: const InputDecoration(labelText: 'القسم'),
-                ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: descCtrl,
-                decoration: const InputDecoration(labelText: 'الوصف'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: priceCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(labelText: 'السعر'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: discountCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'سعر بعد الخصم (اختياري)',
-                ),
-              ),
-              const SizedBox(height: 10),
-              ImagePickerField(
-                title: 'صورة المنتج (اختيارية)',
-                selectedFile: imageFile,
-                existingImageUrl: imageCtrl.text.trim().isEmpty
-                    ? null
-                    : imageCtrl.text.trim(),
-                onPick: () async {
-                  final picked = await pickImageFromDevice();
-                  if (!mounted || picked == null) return;
-                  setState(() => imageFile = picked);
-                },
-                onClear: imageFile == null && imageCtrl.text.trim().isEmpty
-                    ? null
-                    : () => setState(() {
-                        imageFile = null;
-                        imageCtrl.text = '';
-                      }),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: offerCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'وصف العرض (مثال: كل اثنين والثالث مجانًا)',
-                ),
-              ),
-              SwitchListTile(
-                title: const Text('توصيل مجاني لهذا المنتج'),
-                value: freeDelivery,
-                onChanged: (v) => setState(() => freeDelivery = v),
-              ),
-              if (widget.supportsPharmacyWorkflow)
-                SwitchListTile(
-                  title: Text(
-                    context.lt(
-                      ar: 'يتطلب وصفة',
-                      en: 'Requires prescription',
-                    ),
-                  ),
-                  value: requiresPrescription,
-                  onChanged: (v) => setState(() => requiresPrescription = v),
-                ),
-              if (widget.supportsPharmacyWorkflow)
-                SwitchListTile(
-                  title: Text(
-                    context.lt(
-                      ar: 'يتطلب مراجعة صيدلانية',
-                      en: 'Requires pharmacist review',
-                    ),
-                  ),
-                  value: requiresReview,
-                  onChanged: (v) => setState(() => requiresReview = v),
-                ),
-              const SizedBox(height: 4),
-              TextField(
-                controller: sortCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'ترتيب العرض'),
-              ),
-              SwitchListTile(
-                title: const Text('متاح للبيع'),
-                value: isAvailable,
-                onChanged: (v) => setState(() => isAvailable = v),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    if (nameCtrl.text.trim().isEmpty ||
-                        priceCtrl.text.trim().isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('اسم المنتج والسعر مطلوبان'),
-                        ),
-                      );
-                      return;
-                    }
-                    if (widget.categories.isEmpty || categoryId == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('يجب اختيار قسم قبل حفظ المنتج.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.pop(
-                      context,
-                      _ProductFormData(
-                        name: nameCtrl.text,
-                        description: descCtrl.text,
-                        categoryId: categoryId!,
-                        price: priceCtrl.text,
-                        discountedPrice: discountCtrl.text,
-                        imageUrl: imageCtrl.text,
-                        imageFile: imageFile,
-                        freeDelivery: freeDelivery,
-                        requiresPrescription: requiresPrescription,
-                        requiresReview: requiresReview,
-                        offerLabel: offerCtrl.text,
-                        isAvailable: isAvailable,
-                        sortOrder: int.tryParse(sortCtrl.text.trim()) ?? 0,
-                      ),
-                    );
-                  },
-                  child: Text(isEdit ? 'حفظ التعديلات' : 'إضافة المنتج'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _CategoryFormSheet extends StatefulWidget {
   final ProductCategoryModel? category;
 
@@ -2854,6 +2608,7 @@ class _CategoryFormSheet extends StatefulWidget {
 class _CategoryFormSheetState extends State<_CategoryFormSheet> {
   late final TextEditingController nameCtrl;
   late final TextEditingController sortCtrl;
+  late String catalogType;
 
   @override
   void initState() {
@@ -2862,6 +2617,7 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
     sortCtrl = TextEditingController(
       text: widget.category?.sortOrder.toString() ?? '0',
     );
+    catalogType = widget.category?.catalogType ?? 'generic';
   }
 
   @override
@@ -2896,6 +2652,29 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
               decoration: const InputDecoration(labelText: 'اسم القسم'),
             ),
             const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              initialValue: catalogType,
+              decoration: const InputDecoration(labelText: 'نوع كاتالوج القسم'),
+              items:
+                  const {
+                        'generic': 'عام',
+                        'clothes': 'ملابس',
+                        'furniture': 'أثاث',
+                        'electronics': 'إلكترونيات',
+                        'restaurant': 'مطاعم',
+                        'grocery': 'بقالة',
+                      }.entries
+                      .map(
+                        (entry) => DropdownMenuItem(
+                          value: entry.key,
+                          child: Text(entry.value),
+                        ),
+                      )
+                      .toList(),
+              onChanged: (value) =>
+                  setState(() => catalogType = value ?? 'generic'),
+            ),
+            const SizedBox(height: 10),
             TextField(
               controller: sortCtrl,
               keyboardType: TextInputType.number,
@@ -2917,6 +2696,7 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
                     _CategoryFormData(
                       name: nameCtrl.text,
                       sortOrder: int.tryParse(sortCtrl.text.trim()) ?? 0,
+                      catalogType: catalogType,
                     ),
                   );
                 },
@@ -2930,43 +2710,16 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
   }
 }
 
-class _ProductFormData {
-  final String name;
-  final String description;
-  final int categoryId;
-  final String price;
-  final String discountedPrice;
-  final String imageUrl;
-  final LocalImageFile? imageFile;
-  final bool freeDelivery;
-  final bool requiresPrescription;
-  final bool requiresReview;
-  final String offerLabel;
-  final bool isAvailable;
-  final int sortOrder;
-
-  const _ProductFormData({
-    required this.name,
-    required this.description,
-    required this.categoryId,
-    required this.price,
-    required this.discountedPrice,
-    required this.imageUrl,
-    required this.imageFile,
-    required this.freeDelivery,
-    required this.requiresPrescription,
-    required this.requiresReview,
-    required this.offerLabel,
-    required this.isAvailable,
-    required this.sortOrder,
-  });
-}
-
 class _CategoryFormData {
   final String name;
   final int sortOrder;
+  final String catalogType;
 
-  const _CategoryFormData({required this.name, required this.sortOrder});
+  const _CategoryFormData({
+    required this.name,
+    required this.sortOrder,
+    required this.catalogType,
+  });
 }
 
 class _DeliveryAgentFormData {

@@ -8689,6 +8689,9 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
      )
      SELECT
        p.id AS product_id,
+       p.category_id AS product_category_id,
+       c.name AS category_name,
+       c.sort_order AS category_sort_order,
        p.name AS product_name,
        p.description AS product_description,
        p.image_url AS product_image_url,
@@ -8732,6 +8735,7 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
        END AS proximity_rank
      FROM product p
      JOIN merchant m ON m.id = p.merchant_id
+     LEFT JOIN merchant_category c ON c.id = p.category_id
      LEFT JOIN ratings ON ratings.merchant_id = m.id
      LEFT JOIN product_orders ON product_orders.product_id = p.id
      LEFT JOIN merchant_eta ON merchant_eta.merchant_id = m.id
@@ -8762,46 +8766,55 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
     },
     items: rows.map((row) => {
       const rich = richCatalogMap.get(Number(row.product_id)) || null;
-      return {
-        productId: Number(row.product_id),
-        name: row.product_name,
-        description: row.product_description,
-        imageUrl: rich?.primaryMedia?.imageUrl || row.product_image_url,
-        price: Number(row.base_price || 0),
-        discountedPrice:
-          row.discounted_price == null ? null : Number(row.discounted_price),
-        finalPrice: Number(row.final_price || 0),
-        discountPercent: Number(row.discount_percent || 0),
-        isAvailable: row.is_available === true,
-        freeDelivery: row.free_delivery === true,
-        offerLabel: row.offer_label || null,
-        hasVariants: rich?.hasVariants === true,
-        summaryAttributes: rich?.summaryAttributes || rich?.highlights || [],
-        variantGroups: rich?.variantGroups || [],
-        media: rich?.media || [],
-        primaryMedia: rich?.primaryMedia || null,
-        merchant: {
-          id: Number(row.merchant_id),
-          name: row.merchant_name,
-          type: row.merchant_type,
-          imageUrl: row.merchant_image_url,
-          city: null,
-          block: null,
-          rating: Number(row.merchant_rating || 0),
-          ratingsCount: Number(row.merchant_ratings_count || 0),
-        },
-        stats: {
-          ordersCount: Number(row.orders_count || 0),
-          etaMinutes:
-            row.eta_minutes == null ? null : Number(row.eta_minutes),
-          proximityRank: Number(row.proximity_rank || 2),
-        },
-      };
+      return mapSearchProductResultRow(row, rich);
     }),
     pagination: {
       limit: safeLimit,
       offset: safeOffset,
       nextOffset: hasMore ? safeOffset + safeLimit : null,
+    },
+  };
+}
+
+export function mapSearchProductResultRow(row, rich = null) {
+  return {
+    productId: Number(row.product_id),
+    categoryId:
+      row.product_category_id == null ? null : Number(row.product_category_id),
+    categoryName: row.category_name || null,
+    categorySortOrder:
+      row.category_sort_order == null ? null : Number(row.category_sort_order),
+    name: row.product_name,
+    description: row.product_description,
+    imageUrl: rich?.primaryMedia?.imageUrl || row.product_image_url,
+    price: Number(row.base_price || 0),
+    discountedPrice:
+      row.discounted_price == null ? null : Number(row.discounted_price),
+    finalPrice: Number(row.final_price || 0),
+    discountPercent: Number(row.discount_percent || 0),
+    isAvailable: row.is_available === true,
+    freeDelivery: row.free_delivery === true,
+    offerLabel: row.offer_label || null,
+    hasVariants: rich?.hasVariants === true,
+    summaryAttributes: rich?.summaryAttributes || rich?.highlights || [],
+    variantGroups: rich?.variantGroups || [],
+    variants: rich?.variants || [],
+    media: rich?.media || [],
+    primaryMedia: rich?.primaryMedia || null,
+    merchant: {
+      id: Number(row.merchant_id),
+      name: row.merchant_name,
+      type: row.merchant_type,
+      imageUrl: row.merchant_image_url,
+      city: null,
+      block: null,
+      rating: Number(row.merchant_rating || 0),
+      ratingsCount: Number(row.merchant_ratings_count || 0),
+    },
+    stats: {
+      ordersCount: Number(row.orders_count || 0),
+      etaMinutes: row.eta_minutes == null ? null : Number(row.eta_minutes),
+      proximityRank: Number(row.proximity_rank || 2),
     },
   };
 }

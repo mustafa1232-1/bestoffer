@@ -52,6 +52,47 @@ function parseOptionalJson(value) {
   }
 }
 
+function resolveProductUploadPayload(req, media = [], variantGroups = [], variants = []) {
+  const galleryUrls = (req.files?.galleryFiles || [])
+    .map((file) => buildUploadedFileUrl(req, file))
+    .filter(Boolean);
+  const variantUrls = (req.files?.variantFiles || [])
+    .map((file) => buildUploadedFileUrl(req, file))
+    .filter(Boolean);
+  const resolvedMedia = (media || []).map((entry) => {
+    const index = Number(entry?.uploadIndex);
+    return Number.isInteger(index) && galleryUrls[index]
+      ? { ...entry, imageUrl: galleryUrls[index] }
+      : entry;
+  });
+  const usedGallery = new Set(
+    resolvedMedia.map((entry) => entry?.imageUrl).filter(Boolean)
+  );
+  galleryUrls.forEach((imageUrl, index) => {
+    if (!usedGallery.has(imageUrl)) {
+      resolvedMedia.push({ imageUrl, isPrimary: false, sortOrder: resolvedMedia.length, uploadIndex: index });
+    }
+  });
+  const resolvedVariantGroups = (variantGroups || []).map((group) => {
+    const options = Array.isArray(group?.options)
+      ? group.options.map((option) => {
+          const index = Number(option?.uploadIndex);
+          return Number.isInteger(index) && variantUrls[index]
+            ? { ...option, imageUrl: variantUrls[index] }
+            : option;
+        })
+      : group?.options;
+    return Array.isArray(options) ? { ...group, options } : group;
+  });
+  const resolvedVariants = (variants || []).map((entry) => {
+    const index = Number(entry?.uploadIndex);
+    return Number.isInteger(index) && variantUrls[index]
+      ? { ...entry, imageUrl: variantUrls[index] }
+      : entry;
+  });
+  return { media: resolvedMedia, variantGroups: resolvedVariantGroups, variants: resolvedVariants };
+}
+
 /**
  * ينشئ حساب owner جديداً مع المتجر المرتبط به في خطوة واحدة.
  *
@@ -266,13 +307,15 @@ export async function createProduct(req, res, next) {
     const richCatalog = parseOptionalJson(req.body?.richCatalog);
     const attributes = parseOptionalJson(req.body?.attributes);
     const variantGroups = parseOptionalJson(req.body?.variantGroups);
+    const variants = parseOptionalJson(req.body?.variants);
     const media = parseOptionalJson(req.body?.media);
     const metadataJson = parseOptionalJson(
       req.body?.metadataJson ?? req.body?.metadata_json
     );
+    const uploads = resolveProductUploadPayload(req, media, variantGroups, variants);
     const body = {
       ...req.body,
-      imageUrl: buildUploadedFileUrl(req, req.file) || req.body?.imageUrl,
+      imageUrl: buildUploadedFileUrl(req, req.files?.imageFile?.[0]) || req.body?.imageUrl,
       freeDelivery:
         req.body?.freeDelivery === undefined
           ? undefined
@@ -292,8 +335,13 @@ export async function createProduct(req, res, next) {
       richCatalog:
         richCatalog && typeof richCatalog === "object" ? richCatalog : undefined,
       attributes: Array.isArray(attributes) ? attributes : undefined,
-      variantGroups: Array.isArray(variantGroups) ? variantGroups : undefined,
-      media: Array.isArray(media) ? media : undefined,
+      variantGroups: Array.isArray(variantGroups) ? uploads.variantGroups : undefined,
+      variants: Array.isArray(variants) ? uploads.variants : undefined,
+      stockQuantity:
+        req.body?.stockQuantity === undefined || req.body?.stockQuantity === ""
+          ? undefined
+          : Number(req.body.stockQuantity),
+      media: Array.isArray(media) || uploads.media.length ? uploads.media : undefined,
       metadataJson:
         metadataJson && typeof metadataJson === "object" ? metadataJson : undefined,
     };
@@ -329,13 +377,15 @@ export async function updateProduct(req, res, next) {
     const richCatalog = parseOptionalJson(req.body?.richCatalog);
     const attributes = parseOptionalJson(req.body?.attributes);
     const variantGroups = parseOptionalJson(req.body?.variantGroups);
+    const variants = parseOptionalJson(req.body?.variants);
     const media = parseOptionalJson(req.body?.media);
     const metadataJson = parseOptionalJson(
       req.body?.metadataJson ?? req.body?.metadata_json
     );
+    const uploads = resolveProductUploadPayload(req, media, variantGroups, variants);
     const body = {
       ...req.body,
-      imageUrl: buildUploadedFileUrl(req, req.file) || req.body?.imageUrl,
+      imageUrl: buildUploadedFileUrl(req, req.files?.imageFile?.[0]) || req.body?.imageUrl,
       freeDelivery:
         req.body?.freeDelivery === undefined
           ? undefined
@@ -355,8 +405,13 @@ export async function updateProduct(req, res, next) {
       richCatalog:
         richCatalog && typeof richCatalog === "object" ? richCatalog : undefined,
       attributes: Array.isArray(attributes) ? attributes : undefined,
-      variantGroups: Array.isArray(variantGroups) ? variantGroups : undefined,
-      media: Array.isArray(media) ? media : undefined,
+      variantGroups: Array.isArray(variantGroups) ? uploads.variantGroups : undefined,
+      variants: Array.isArray(variants) ? uploads.variants : undefined,
+      stockQuantity:
+        req.body?.stockQuantity === undefined || req.body?.stockQuantity === ""
+          ? undefined
+          : Number(req.body.stockQuantity),
+      media: Array.isArray(media) || uploads.media.length ? uploads.media : undefined,
       metadataJson:
         metadataJson && typeof metadataJson === "object" ? metadataJson : undefined,
     };

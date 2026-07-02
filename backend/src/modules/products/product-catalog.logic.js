@@ -142,7 +142,13 @@ function normalizeVariantOptionInput(input, index = 0) {
     priceDelta: normalizeOptionalNumber(
       source.priceDelta ?? source.price_delta ?? 0
     ) || 0,
-    imageUrl: normalizeText(source.imageUrl ?? source.image_url, 1000),
+    imageUrl: normalizeText(
+      source.imageUrl ??
+        source.image_url ??
+        source.colorImageUrl ??
+        source.color_image_url,
+      1000
+    ),
     isAvailable: normalizeBool(source.isAvailable ?? source.is_available, true),
     sortOrder: Number.isInteger(Number(source.sortOrder ?? source.sort_order))
       ? Number(source.sortOrder ?? source.sort_order)
@@ -224,6 +230,50 @@ function normalizeMediaInput(input, index = 0) {
   };
 }
 
+function normalizeVariantInput(input, index = 0) {
+  const source = normalizeObject(input);
+  const selections = normalizeArray(source.selections ?? source.options)
+    .map((entry) => {
+      const item = normalizeObject(entry);
+      const groupCode = canonicalAttributeCode(item.groupCode ?? item.group_code ?? item.group);
+      const optionCode = canonicalAttributeCode(item.optionCode ?? item.option_code ?? item.option ?? item.value);
+      if (!groupCode || !optionCode) return null;
+      return { groupCode, optionCode };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.groupCode.localeCompare(b.groupCode));
+  if (!selections.length) return null;
+  const signature = selections.map((item) => `${item.groupCode}:${item.optionCode}`).join("|");
+  const priceOverride = normalizeOptionalNumber(source.priceOverride ?? source.price_override ?? source.price);
+  const discountedPriceOverride = normalizeOptionalNumber(
+    source.discountedPriceOverride ?? source.discounted_price_override ?? source.discountedPrice
+  );
+  const stockQuantity = Math.max(0, Math.trunc(normalizeNumber(source.stockQuantity ?? source.stock_quantity, 0)));
+  return {
+    id: normalizePositiveInt(source.id),
+    signature,
+    selections,
+    sku: normalizeText(source.sku, 120),
+    barcode: normalizeText(source.barcode, 120),
+    material: normalizeText(source.material, 160),
+    priceOverride,
+    discountedPriceOverride,
+    stockQuantity,
+    imageUrl: normalizeText(
+      source.imageUrl ??
+        source.image_url ??
+        source.colorImageUrl ??
+        source.color_image_url,
+      1000
+    ),
+    isAvailable: normalizeBool(source.isAvailable ?? source.is_available, true),
+    sortOrder: Number.isInteger(Number(source.sortOrder ?? source.sort_order))
+      ? Number(source.sortOrder ?? source.sort_order)
+      : index,
+    metadata: normalizeObject(source.metadata ?? source.metadata_json),
+  };
+}
+
 function collectLegacyAttributeValues(body) {
   const attrs = [];
   const push = (code, labelAr, labelEn, value, options = {}) => {
@@ -276,6 +326,7 @@ export function normalizeRichProductPayload(body = {}) {
     body.variantGroups ?? richSource.variantGroups
   );
   const rawMedia = normalizeArray(body.media ?? richSource.media);
+  const rawVariants = normalizeArray(body.variants ?? richSource.variants);
 
   const attributes = [
     ...collectLegacyAttributeValues(body),
@@ -287,10 +338,12 @@ export function normalizeRichProductPayload(body = {}) {
     .filter(Boolean);
 
   const media = rawMedia.map((item, index) => normalizeMediaInput(item, index)).filter(Boolean);
+  const variants = rawVariants.map((item, index) => normalizeVariantInput(item, index)).filter(Boolean);
 
   return {
     attributes,
     variantGroups,
+    variants,
     media,
     metadata:
       body.metadataJson && typeof body.metadataJson === "object"
@@ -306,6 +359,7 @@ export function hasRichProductInput(body = {}) {
     "attributes",
     "summaryAttributes",
     "variantGroups",
+    "variants",
     "media",
     "richCatalog",
     "metadataJson",
@@ -344,6 +398,7 @@ export function validateRichProductPayload(body = {}) {
   if (Array.isArray(body.media) && body.media.length > 30) {
     errors.push("media");
   }
+  if (Array.isArray(body.variants) && body.variants.length > 250) errors.push("variants");
   for (const attr of rich.attributes) {
     if (!attr.code) errors.push("attributes.code");
     if (!attr.valueText) errors.push("attributes.valueText");
@@ -363,6 +418,14 @@ export function validateRichProductPayload(body = {}) {
   for (const media of rich.media) {
     if (!media.imageUrl) errors.push("media.imageUrl");
   }
+  for (const variant of rich.variants) {
+    if (!variant.signature || !variant.selections.length) errors.push("variants.selections");
+    if (variant.priceOverride != null && variant.priceOverride < 0) errors.push("variants.priceOverride");
+    if (variant.discountedPriceOverride != null && variant.discountedPriceOverride < 0) errors.push("variants.discountedPriceOverride");
+    if (variant.priceOverride != null && variant.discountedPriceOverride != null && variant.discountedPriceOverride > variant.priceOverride) {
+      errors.push("variants.discountedPriceOverride");
+    }
+  }
   return { ok: errors.length === 0, errors };
 }
 
@@ -372,6 +435,7 @@ export function buildProductMetadataSnapshot(body = {}) {
     richCatalog: {
       attributes: rich.attributes,
       variantGroups: rich.variantGroups,
+      variants: rich.variants,
       media: rich.media,
     },
     richCatalogVersion: 1,
@@ -487,9 +551,13 @@ export function extractRichCatalogFromMetadata(metadataJson) {
   const media = normalizeArray(richCatalog.media).map((item, index) =>
     normalizeMediaInput(item, index)
   ).filter(Boolean);
+  const variants = normalizeArray(richCatalog.variants).map((item, index) =>
+    normalizeVariantInput(item, index)
+  ).filter(Boolean);
   return {
     attributes,
     variantGroups,
+    variants,
     media,
   };
 }
@@ -516,10 +584,14 @@ export function normalizeProductSnapshotRow(row, catalog = {}) {
   const media = (catalog.media || metadataFallback.media || []).map(
     (item, index) => normalizeMediaInput(item, index)
   ).filter(Boolean);
+  const variants = (catalog.variants || metadataFallback.variants || []).map(
+    (item, index) => normalizeVariantInput(item, index)
+  ).filter(Boolean);
   const primaryMedia = media.find((item) => item.isPrimary) || media[0] || null;
   return {
     attributes,
     variantGroups,
+    variants,
     media,
     primaryMedia,
     metadata,
@@ -538,6 +610,7 @@ export {
   normalizeOptionalNumber,
   normalizePositiveInt,
   normalizeVariantGroupInput,
+  normalizeVariantInput,
   normalizeVariantOptionInput,
   normalizeText,
   parseJsonMaybe,

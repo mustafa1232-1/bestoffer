@@ -486,25 +486,48 @@ class OwnerController extends StateNotifier<OwnerState> {
     required bool requiresPrescription,
     required bool requiresReview,
     required int sortOrder,
+    String? stockQuantity,
+    List<Map<String, dynamic>> attributes = const [],
+    List<Map<String, dynamic>> variantGroups = const [],
+    List<Map<String, dynamic>> variants = const [],
+    List<Map<String, dynamic>> media = const [],
+    List<LocalImageFile> galleryFiles = const [],
+    List<LocalImageFile> variantFiles = const [],
   }) async {
     state = state.copyWith(savingProduct: true, error: null);
     try {
-      await ref.read(ownerApiProvider).createProduct({
-        'name': name.trim(),
-        'description': description.trim(),
-        'categoryId': categoryId,
-        'price': price.trim(),
-        'discountedPrice': discountedPrice.trim().isEmpty
-            ? null
-            : discountedPrice.trim(),
-        'imageUrl': imageUrl.trim(),
-        'freeDelivery': freeDelivery,
-        'offerLabel': offerLabel.trim().isEmpty ? null : offerLabel.trim(),
-        'isAvailable': isAvailable,
-        'requiresPrescription': requiresPrescription,
-        'requiresReview': requiresReview,
-        'sortOrder': sortOrder,
-      }, imageFile: imageFile);
+      await ref
+          .read(ownerApiProvider)
+          .createProduct(
+            {
+              'name': name.trim(),
+              'description': description.trim(),
+              'categoryId': categoryId,
+              'price': price.trim(),
+              'discountedPrice': discountedPrice.trim().isEmpty
+                  ? null
+                  : discountedPrice.trim(),
+              'imageUrl': imageUrl.trim(),
+              'freeDelivery': freeDelivery,
+              'offerLabel': offerLabel.trim().isEmpty
+                  ? null
+                  : offerLabel.trim(),
+              'isAvailable': isAvailable,
+              'requiresPrescription': requiresPrescription,
+              'requiresReview': requiresReview,
+              'sortOrder': sortOrder,
+              'stockQuantity': stockQuantity?.trim().isEmpty == true
+                  ? null
+                  : stockQuantity?.trim(),
+              'attributes': attributes,
+              'variantGroups': variantGroups,
+              'variants': variants,
+              'media': media,
+            },
+            imageFile: imageFile,
+            galleryFiles: galleryFiles,
+            variantFiles: variantFiles,
+          );
 
       await _reloadProducts();
       state = state.copyWith(savingProduct: false);
@@ -534,25 +557,49 @@ class OwnerController extends StateNotifier<OwnerState> {
     required bool requiresPrescription,
     required bool requiresReview,
     required int sortOrder,
+    String? stockQuantity,
+    List<Map<String, dynamic>> attributes = const [],
+    List<Map<String, dynamic>> variantGroups = const [],
+    List<Map<String, dynamic>> variants = const [],
+    List<Map<String, dynamic>> media = const [],
+    List<LocalImageFile> galleryFiles = const [],
+    List<LocalImageFile> variantFiles = const [],
   }) async {
     state = state.copyWith(savingProduct: true, error: null);
     try {
-      await ref.read(ownerApiProvider).updateProduct(productId, {
-        'name': name.trim(),
-        'description': description.trim(),
-        'categoryId': categoryId,
-        'price': price.trim(),
-        'discountedPrice': discountedPrice.trim().isEmpty
-            ? null
-            : discountedPrice.trim(),
-        'imageUrl': imageUrl.trim(),
-        'freeDelivery': freeDelivery,
-        'offerLabel': offerLabel.trim().isEmpty ? null : offerLabel.trim(),
-        'isAvailable': isAvailable,
-        'requiresPrescription': requiresPrescription,
-        'requiresReview': requiresReview,
-        'sortOrder': sortOrder,
-      }, imageFile: imageFile);
+      await ref
+          .read(ownerApiProvider)
+          .updateProduct(
+            productId,
+            {
+              'name': name.trim(),
+              'description': description.trim(),
+              'categoryId': categoryId,
+              'price': price.trim(),
+              'discountedPrice': discountedPrice.trim().isEmpty
+                  ? null
+                  : discountedPrice.trim(),
+              'imageUrl': imageUrl.trim(),
+              'freeDelivery': freeDelivery,
+              'offerLabel': offerLabel.trim().isEmpty
+                  ? null
+                  : offerLabel.trim(),
+              'isAvailable': isAvailable,
+              'requiresPrescription': requiresPrescription,
+              'requiresReview': requiresReview,
+              'sortOrder': sortOrder,
+              'stockQuantity': stockQuantity?.trim().isEmpty == true
+                  ? null
+                  : stockQuantity?.trim(),
+              'attributes': attributes,
+              'variantGroups': variantGroups,
+              'variants': variants,
+              'media': media,
+            },
+            imageFile: imageFile,
+            galleryFiles: galleryFiles,
+            variantFiles: variantFiles,
+          );
 
       await _reloadProducts();
       state = state.copyWith(savingProduct: false);
@@ -697,12 +744,14 @@ class OwnerController extends StateNotifier<OwnerState> {
   Future<void> createCategory({
     required String name,
     required int sortOrder,
+    required String catalogType,
   }) async {
     state = state.copyWith(savingProduct: true, error: null);
     try {
       await ref.read(ownerApiProvider).createCategory({
         'name': name.trim(),
         'sortOrder': sortOrder,
+        'catalogType': catalogType,
       });
       await _reloadCategories();
       state = state.copyWith(savingProduct: false);
@@ -721,12 +770,14 @@ class OwnerController extends StateNotifier<OwnerState> {
     required int categoryId,
     required String name,
     required int sortOrder,
+    required String catalogType,
   }) async {
     state = state.copyWith(savingProduct: true, error: null);
     try {
       await ref.read(ownerApiProvider).updateCategory(categoryId, {
         'name': name.trim(),
         'sortOrder': sortOrder,
+        'catalogType': catalogType,
       });
       await _reloadCategories();
       await _reloadProducts();

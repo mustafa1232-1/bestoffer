@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/currency.dart';
 import '../../products/models/product_model.dart';
+import 'product_summary_card.dart';
 
 Future<List<Map<String, dynamic>>?> showProductVariantPickerSheet(
   BuildContext context, {
@@ -43,6 +44,10 @@ class _ProductVariantPickerSheet extends StatefulWidget {
 class _ProductVariantPickerSheetState
     extends State<_ProductVariantPickerSheet> {
   final Map<String, ProductVariantOptionModel> _selectedByGroup = {};
+  final Map<String, Set<ProductVariantOptionModel>> _multiSelectedByGroup = {};
+
+  String? get _selectedColorCode => _selectedByGroup['color']?.code;
+  String? get _selectedSizeCode => _selectedByGroup['size']?.code;
 
   @override
   void initState() {
@@ -52,6 +57,7 @@ class _ProductVariantPickerSheetState
 
   void _seedSelections() {
     final byGroup = <String, String>{};
+    final requestedByGroup = <String, Set<String>>{};
     for (final entry in widget.initialSelections) {
       final groupCode = '${entry['groupCode'] ?? entry['group_code'] ?? ''}'
           .trim()
@@ -61,10 +67,36 @@ class _ProductVariantPickerSheetState
           .toLowerCase();
       if (groupCode.isNotEmpty && optionCode.isNotEmpty) {
         byGroup[groupCode] = optionCode;
+        requestedByGroup
+            .putIfAbsent(groupCode, () => <String>{})
+            .add(optionCode);
+      }
+    }
+    if (byGroup.isEmpty && widget.product.variants.isNotEmpty) {
+      final available = widget.product.variants.where(
+        (variant) => variant.inStock,
+      );
+      if (available.isNotEmpty) {
+        for (final selection in available.first.selections) {
+          byGroup[selection['groupCode']!.toLowerCase()] =
+              selection['optionCode']!.toLowerCase();
+        }
       }
     }
 
     for (final group in widget.product.variantGroups) {
+      if (group.selectionMode == 'multiple') {
+        final requested =
+            requestedByGroup[group.code.toLowerCase()] ?? const <String>{};
+        _multiSelectedByGroup[group.code] = group.options
+            .where(
+              (option) =>
+                  option.isAvailable &&
+                  requested.contains(option.code.toLowerCase()),
+            )
+            .toSet();
+        continue;
+      }
       final initialCode = byGroup[group.code.toLowerCase()];
       final matching = group.options.firstWhere(
         (option) => option.code.toLowerCase() == initialCode,
@@ -85,7 +117,9 @@ class _ProductVariantPickerSheetState
         _selectedByGroup[group.code] = matching;
         continue;
       }
-      final available = group.options.where((option) => option.isAvailable).toList();
+      final available = group.options
+          .where((option) => option.isAvailable)
+          .toList();
       if (available.isNotEmpty) {
         _selectedByGroup[group.code] = available.first;
       }
@@ -93,15 +127,53 @@ class _ProductVariantPickerSheetState
   }
 
   double get _variantDeltaTotal {
-    return _selectedByGroup.values.fold<double>(
+    final single = _selectedByGroup.values.fold<double>(
       0,
       (sum, option) => sum + option.priceDelta,
     );
+    return _multiSelectedByGroup.values
+        .expand((options) => options)
+        .fold<double>(single, (sum, option) => sum + option.priceDelta);
+  }
+
+  ProductVariantModel? get _selectedVariant =>
+      widget.product.variantForSelections({
+        for (final entry in _selectedByGroup.entries)
+          entry.key: entry.value.code,
+      });
+
+  bool _optionCanLeadToStock(
+    String groupCode,
+    ProductVariantOptionModel option,
+  ) {
+    if (!option.isAvailable) return false;
+    if (widget.product.variantGroups.any(
+      (group) => group.code == groupCode && group.selectionMode == 'multiple',
+    )) {
+      return true;
+    }
+    if (widget.product.variants.isEmpty) return true;
+    final proposed = <String, String>{
+      for (final entry in _selectedByGroup.entries)
+        entry.key.toLowerCase(): entry.value.code.toLowerCase(),
+      groupCode.toLowerCase(): option.code.toLowerCase(),
+    };
+    return widget.product.variants.any((variant) {
+      if (!variant.inStock) return false;
+      final values = {
+        for (final item in variant.selections)
+          item['groupCode']!.toLowerCase(): item['optionCode']!.toLowerCase(),
+      };
+      return proposed.entries.every(
+        (entry) => values[entry.key] == entry.value,
+      );
+    });
   }
 
   List<Map<String, dynamic>> get _selectedPayload {
-    return widget.product.variantGroups
+    final singles = widget.product.variantGroups
         .map((group) {
+          if (group.selectionMode == 'multiple') return null;
           final option = _selectedByGroup[group.code];
           if (option == null) return null;
           return <String, dynamic>{
@@ -116,7 +188,25 @@ class _ProductVariantPickerSheetState
           };
         })
         .whereType<Map<String, dynamic>>()
-        .toList(growable: false);
+        .toList(growable: true);
+    for (final group in widget.product.variantGroups.where(
+      (group) => group.selectionMode == 'multiple',
+    )) {
+      for (final option
+          in _multiSelectedByGroup[group.code] ??
+              const <ProductVariantOptionModel>{}) {
+        singles.add({
+          'groupCode': group.code,
+          'groupLabel': group.title,
+          'optionCode': option.code,
+          'optionLabel': option.title,
+          'optionId': option.optionId,
+          'priceDelta': option.priceDelta,
+          'imageUrl': option.imageUrl,
+        });
+      }
+    }
+    return singles;
   }
 
   ProductVariantOptionModel? _selectedOptionFor(String groupCode) {
@@ -126,7 +216,11 @@ class _ProductVariantPickerSheetState
   @override
   Widget build(BuildContext context) {
     final basePrice = widget.product.discountedPrice ?? widget.product.price;
-    final totalPrice = basePrice + _variantDeltaTotal;
+    final locale = Localizations.localeOf(context);
+    final totalPrice =
+        _selectedVariant?.discountedPriceOverride ??
+        _selectedVariant?.priceOverride ??
+        (basePrice + _variantDeltaTotal);
 
     return SafeArea(
       child: Container(
@@ -153,10 +247,7 @@ class _ProductVariantPickerSheetState
               ),
               const SizedBox(height: 12),
               Text(
-                context.lt(
-                  ar: 'اختر الخيارات',
-                  en: 'Choose options',
-                ),
+                context.lt(ar: 'اختر الخيارات', en: 'Choose options'),
                 textAlign: TextAlign.right,
                 style: const TextStyle(
                   fontSize: 18,
@@ -173,90 +264,34 @@ class _ProductVariantPickerSheetState
                 ),
               ),
               const SizedBox(height: 12),
-              Row(
-                textDirection: TextDirection.rtl,
-                children: [
-                  if ((widget.product.displayImageUrl ?? '').isNotEmpty)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: SizedBox(
-                        width: 76,
-                        height: 76,
-                        child: Image.network(
-                          widget.product.displayImageUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => Container(
-                            color: Colors.white.withValues(alpha: 0.08),
-                            alignment: Alignment.center,
-                            child: const Icon(Icons.image_outlined),
-                          ),
-                        ),
-                      ),
-                    ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          formatIqd(totalPrice),
-                          textDirection: TextDirection.rtl,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        if (_variantDeltaTotal != 0) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            context.lt(
-                              ar: 'تحديث السعر حسب الاختيارات',
-                              en: 'Price updates with selections',
-                            ),
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.7),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
+              ProductSummaryCard(
+                data: ProductSummaryCardData.fromProduct(
+                  widget.product,
+                  locale: locale,
+                  priceTextOverride: formatIqd(totalPrice),
+                  selectedColorCode: _selectedColorCode,
+                  selectedSizeCode: _selectedSizeCode,
+                ),
+                appearance: ProductSummaryCardAppearance.fromContext(context),
+                compact: false,
+                showVariantControls: false,
+                interactiveGallery: false,
+                maxAttributeBadges: 5,
+                maxVariantBadges: 6,
+                maxStatusBadges: 4,
               ),
-              if (widget.product.summaryAttributes.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.end,
-                  children: widget.product.summaryAttributes
-                      .take(5)
-                      .map(
-                        (attr) => Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.08),
-                            ),
-                          ),
-                          child: Text(
-                            '${attr.title}: ${attr.valueText}',
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.white.withValues(alpha: 0.9),
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
+              if (_variantDeltaTotal != 0) ...[
+                const SizedBox(height: 6),
+                Text(
+                  context.lt(
+                    ar: 'تحديث السعر حسب الاختيارات',
+                    en: 'Price updates with selections',
+                  ),
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontSize: 12,
+                  ),
                 ),
               ],
               const SizedBox(height: 16),
@@ -281,17 +316,38 @@ class _ProductVariantPickerSheetState
                         runSpacing: 8,
                         alignment: WrapAlignment.end,
                         children: group.options.map((option) {
-                          final isSelected = selected?.code == option.code;
-                          final enabled = option.isAvailable;
+                          final isMultiple = group.selectionMode == 'multiple';
+                          final isSelected = isMultiple
+                              ? (_multiSelectedByGroup[group.code]?.contains(
+                                      option,
+                                    ) ??
+                                    false)
+                              : selected?.code == option.code;
+                          final enabled = _optionCanLeadToStock(
+                            group.code,
+                            option,
+                          );
                           final useSwatch =
                               (group.displayMode == 'swatches' ||
-                                  (option.swatchHex?.isNotEmpty ?? false));
+                              (option.swatchHex?.isNotEmpty ?? false));
                           return ChoiceChip(
                             selected: isSelected,
                             onSelected: enabled
                                 ? (_) {
                                     setState(() {
-                                      _selectedByGroup[group.code] = option;
+                                      if (isMultiple) {
+                                        final selectedOptions =
+                                            _multiSelectedByGroup.putIfAbsent(
+                                              group.code,
+                                              () =>
+                                                  <ProductVariantOptionModel>{},
+                                            );
+                                        if (!selectedOptions.add(option)) {
+                                          selectedOptions.remove(option);
+                                        }
+                                      } else {
+                                        _selectedByGroup[group.code] = option;
+                                      }
                                     });
                                   }
                                 : null,
@@ -310,7 +366,8 @@ class _ProductVariantPickerSheetState
                                     height: 14,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      color: _parseColor(option.swatchHex) ??
+                                      color:
+                                          _parseColor(option.swatchHex) ??
                                           Colors.white.withValues(alpha: 0.25),
                                       border: Border.all(
                                         color: Colors.white.withValues(
@@ -333,17 +390,20 @@ class _ProductVariantPickerSheetState
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => Navigator.of(context).pop(null),
-                      child: Text(
-                        context.lt(ar: 'إلغاء', en: 'Cancel'),
-                      ),
+                      child: Text(context.lt(ar: 'إلغاء', en: 'Cancel')),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: FilledButton(
-                      onPressed: () {
-                        Navigator.of(context).pop(_selectedPayload);
-                      },
+                      onPressed:
+                          widget.product.variants.isNotEmpty &&
+                              (_selectedVariant == null ||
+                                  !_selectedVariant!.inStock)
+                          ? null
+                          : () {
+                              Navigator.of(context).pop(_selectedPayload);
+                            },
                       child: Text(
                         context.lt(ar: 'اعتماد الاختيارات', en: 'Confirm'),
                       ),

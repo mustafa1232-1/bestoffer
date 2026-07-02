@@ -9,6 +9,7 @@ import {
   normalizeMediaInput,
   normalizeRichProductPayload,
   normalizeVariantGroupInput,
+  normalizeVariantInput,
   normalizeText,
   normalizeObject,
 } from "./product-catalog.logic.js";
@@ -47,7 +48,7 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
   );
   if (!normalizedIds.length) return new Map();
 
-  const [attributesResult, groupsResult, mediaResult] = await Promise.all([
+  const [attributesResult, groupsResult, mediaResult, variantsResult] = await Promise.all([
     client.query(
       `SELECT
          id,
@@ -111,13 +112,22 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
        ORDER BY is_primary DESC, sort_order ASC, id ASC`,
       [normalizedIds]
     ),
+    client.query(
+      `SELECT id, product_id, selections_json, sku, barcode, material,
+              price_override, discounted_price_override, stock_quantity,
+              image_url, is_available, sort_order, metadata_json
+       FROM product_variant
+       WHERE product_id = ANY($1::bigint[])
+       ORDER BY sort_order ASC, id ASC`,
+      [normalizedIds]
+    ),
   ]);
   const catalogByProductId = new Map();
   for (const row of attributesResult.rows) {
     const productId = Number(row.product_id);
     let catalog = catalogByProductId.get(productId);
     if (!catalog) {
-      catalog = { attributes: [], variantGroups: [], media: [] };
+      catalog = { attributes: [], variantGroups: [], variants: [], media: [] };
       catalogByProductId.set(productId, catalog);
     }
     const attrIndex = catalog.attributes.length;
@@ -143,7 +153,7 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
     const productId = Number(row.product_id);
     let catalog = catalogByProductId.get(productId);
     if (!catalog) {
-      catalog = { attributes: [], variantGroups: [], media: [] };
+      catalog = { attributes: [], variantGroups: [], variants: [], media: [] };
       catalogByProductId.set(productId, catalog);
     }
     const key = Number(row.group_id);
@@ -180,7 +190,7 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
     const productId = Number(row.product_id);
     let catalog = catalogByProductId.get(productId);
     if (!catalog) {
-      catalog = { attributes: [], variantGroups: [], media: [] };
+      catalog = { attributes: [], variantGroups: [], variants: [], media: [] };
       catalogByProductId.set(productId, catalog);
     }
     const mediaIndex = catalog.media.length;
@@ -197,6 +207,30 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
       mediaIndex
     );
     if (media) catalog.media.push(media);
+  }
+
+  for (const row of variantsResult.rows) {
+    const productId = Number(row.product_id);
+    let catalog = catalogByProductId.get(productId);
+    if (!catalog) {
+      catalog = { attributes: [], variantGroups: [], variants: [], media: [] };
+      catalogByProductId.set(productId, catalog);
+    }
+    const variant = normalizeVariantInput({
+      id: row.id,
+      selections: row.selections_json,
+      sku: row.sku,
+      barcode: row.barcode,
+      material: row.material,
+      priceOverride: row.price_override,
+      discountedPriceOverride: row.discounted_price_override,
+      stockQuantity: row.stock_quantity,
+      imageUrl: row.image_url,
+      isAvailable: row.is_available,
+      sortOrder: row.sort_order,
+      metadata: row.metadata_json,
+    }, catalog.variants.length);
+    if (variant) catalog.variants.push(variant);
   }
 
   return catalogByProductId;
@@ -269,6 +303,7 @@ export async function syncProductRichCatalogTx(client, productId, dto = {}) {
     ...dto,
     attributes: rich.attributes,
     variantGroups: rich.variantGroups,
+    variants: rich.variants,
     media,
     metadataJson: rich.metadata,
   };
@@ -281,6 +316,9 @@ export async function syncProductRichCatalogTx(client, productId, dto = {}) {
     Number(productId),
   ]);
   await client.query("DELETE FROM product_variant_group WHERE product_id = $1", [
+    Number(productId),
+  ]);
+  await client.query("DELETE FROM product_variant WHERE product_id = $1", [
     Number(productId),
   ]);
   await client.query("DELETE FROM product_media WHERE product_id = $1", [
@@ -347,6 +385,30 @@ export async function syncProductRichCatalogTx(client, productId, dto = {}) {
     }
   }
 
+  for (const variant of rich.variants || []) {
+    await client.query(
+      `INSERT INTO product_variant
+       (product_id, signature, selections_json, sku, barcode, material, price_override,
+        discounted_price_override, stock_quantity, image_url, is_available, sort_order, metadata_json)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [
+        Number(productId),
+        variant.signature,
+        JSON.stringify(variant.selections || []),
+        variant.sku,
+        variant.barcode,
+        variant.material,
+        variant.priceOverride,
+        variant.discountedPriceOverride,
+        Number(variant.stockQuantity || 0),
+        variant.imageUrl,
+        variant.isAvailable !== false,
+        Number(variant.sortOrder || 0),
+        JSON.stringify(variant.metadata || {}),
+      ]
+    );
+  }
+
   for (const mediaItem of media) {
     await client.query(
       `INSERT INTO product_media
@@ -384,6 +446,7 @@ export async function syncProductRichCatalogTx(client, productId, dto = {}) {
     richCatalog: {
       attributes: rich.attributes,
       variantGroups: rich.variantGroups,
+      variants: rich.variants || [],
       media,
       primaryMedia,
     },

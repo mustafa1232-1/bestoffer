@@ -1,6 +1,7 @@
 import { pool, q } from "../../config/db.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import {
+  loadProductRichCatalogByIds,
   syncProductRichCatalogTx,
 } from "../products/products.repo.js";
 
@@ -599,12 +600,12 @@ export async function listOwnerCategories(ownerUserId) {
 
 export async function createOwnerCategory(ownerUserId, dto) {
   const r = await q(
-    `INSERT INTO merchant_category (merchant_id, name, sort_order)
-     SELECT m.id, $2, $3
+    `INSERT INTO merchant_category (merchant_id, name, sort_order, catalog_type)
+     SELECT m.id, $2, $3, $4
      FROM merchant m
      WHERE m.owner_user_id = $1
      RETURNING *`,
-    [ownerUserId, dto.name, dto.sortOrder]
+    [ownerUserId, dto.name, dto.sortOrder, dto.catalogType]
   );
   return r.rows[0] || null;
 }
@@ -637,6 +638,7 @@ export async function updateOwnerCategory(ownerUserId, categoryId, dto) {
   const map = {
     name: "name",
     sortOrder: "sort_order",
+    catalogType: "catalog_type",
   };
 
   const values = [];
@@ -688,16 +690,65 @@ export async function listOwnerProducts(ownerUserId) {
   const r = await q(
     `SELECT
        p.*,
+       si.quantity AS stock_quantity,
        c.name AS category_name,
+       c.catalog_type AS category_catalog_type,
        c.sort_order AS category_sort_order
      FROM product p
      JOIN merchant m ON m.id = p.merchant_id
      LEFT JOIN merchant_category c ON c.id = p.category_id
+     LEFT JOIN store_inventory_item si ON si.merchant_id = p.merchant_id AND si.product_id = p.id
      WHERE m.owner_user_id=$1
      ORDER BY COALESCE(c.sort_order, 999999), COALESCE(c.id, 0), p.sort_order ASC, p.id DESC`,
     [ownerUserId]
   );
   return r.rows;
+}
+
+async function upsertSimpleProductStockTx(client, {
+  merchantId,
+  productId,
+  quantity,
+  actorUserId,
+}) {
+  if (quantity === undefined || quantity === null) return;
+  const normalized = Math.max(0, Math.trunc(Number(quantity) || 0));
+  await client.query(
+    `INSERT INTO inventory_settings (merchant_id, inventory_enabled, daily_update_mode, updated_by_user_id)
+     VALUES ($1, TRUE, 'manual_override', $2)
+     ON CONFLICT (merchant_id) DO UPDATE
+       SET inventory_enabled = TRUE, updated_by_user_id = EXCLUDED.updated_by_user_id, updated_at = NOW()`,
+    [Number(merchantId), Number(actorUserId)]
+  );
+  await client.query(
+    `INSERT INTO store_inventory_item
+       (merchant_id, product_id, quantity, stock_status, last_quantity_update_at, updated_by_user_id)
+     VALUES ($1,$2,$3,$4,NOW(),$5)
+     ON CONFLICT (merchant_id, product_id) DO UPDATE
+       SET quantity = EXCLUDED.quantity,
+           stock_status = EXCLUDED.stock_status,
+           manual_disabled = FALSE,
+           auto_disabled = FALSE,
+           last_quantity_update_at = NOW(),
+           updated_by_user_id = EXCLUDED.updated_by_user_id,
+           updated_at = NOW()`,
+    [
+      Number(merchantId),
+      Number(productId),
+      normalized,
+      normalized <= 0 ? "out_of_stock" : "in_stock",
+      Number(actorUserId),
+    ]
+  );
+}
+
+export async function hydrateOwnerProducts(rows) {
+  const rich = await loadProductRichCatalogByIds((rows || []).map((row) => row.id));
+  return (rows || []).map((row) => ({
+    ...(rich.get(Number(row.id)) || row),
+    stockQuantity: row.stock_quantity == null ? null : Number(row.stock_quantity),
+    categoryCatalogType: row.category_catalog_type || null,
+  }));
 }
 
 export async function createOwnerProduct(ownerUserId, dto) {
@@ -747,6 +798,14 @@ export async function createOwnerProduct(ownerUserId, dto) {
       await syncProductRichCatalogTx(client, product.id, {
         ...dto.richCatalog,
         imageUrl: dto.imageUrl,
+      });
+    }
+    if (product) {
+      await upsertSimpleProductStockTx(client, {
+        merchantId: merchant.id,
+        productId: product.id,
+        quantity: dto.stockQuantity,
+        actorUserId: ownerUserId,
       });
     }
     await client.query("COMMIT");
@@ -806,13 +865,21 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
   if (sets.length === 0) {
     const current = await findOwnerProductById(ownerUserId, productId);
     if (!current) return null;
-    if (richCatalog) {
+    if (richCatalog || dto.stockQuantity !== undefined) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        await syncProductRichCatalogTx(client, productId, {
-          ...richCatalog,
-          imageUrl: current.image_url || dto.imageUrl || null,
+        if (richCatalog) {
+          await syncProductRichCatalogTx(client, productId, {
+            ...richCatalog,
+            imageUrl: current.image_url || dto.imageUrl || null,
+          });
+        }
+        await upsertSimpleProductStockTx(client, {
+          merchantId: current.merchant_id,
+          productId,
+          quantity: dto.stockQuantity,
+          actorUserId: ownerUserId,
         });
         await client.query("COMMIT");
       } catch (error) {
@@ -845,6 +912,14 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
       await syncProductRichCatalogTx(client, productId, {
         ...richCatalog,
         imageUrl: updated.image_url || dto.imageUrl || null,
+      });
+    }
+    if (updated) {
+      await upsertSimpleProductStockTx(client, {
+        merchantId: updated.merchant_id,
+        productId,
+        quantity: dto.stockQuantity,
+        actorUserId: ownerUserId,
       });
     }
     await client.query("COMMIT");

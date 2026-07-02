@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/utils/currency.dart';
 import '../../merchants/models/merchant_model.dart';
 import '../../merchants/ui/merchant_products_screen.dart';
 import '../../orders/state/cart_controller.dart';
 import '../../orders/state/orders_controller.dart';
 import '../../products/models/product_model.dart';
+import '../../products/ui/product_summary_card.dart';
 import '../../products/ui/product_variant_picker_sheet.dart';
-
-import 'package:maslaki/core/media/cached_app_image.dart';
 
 class CustomerGlobalProductSearchScreen extends ConsumerStatefulWidget {
   const CustomerGlobalProductSearchScreen({super.key});
@@ -22,6 +20,7 @@ class CustomerGlobalProductSearchScreen extends ConsumerStatefulWidget {
 class _CustomerGlobalProductSearchScreenState
     extends ConsumerState<CustomerGlobalProductSearchScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
+  final Map<int, ProductSummaryCardSelection> _cardSelections = {};
   bool _loading = false;
   String? _error;
   List<Map<String, dynamic>> _items = const [];
@@ -97,31 +96,47 @@ class _CustomerGlobalProductSearchScreenState
     final payload = <String, dynamic>{
       ...item,
       'id': item['productId'] ?? item['id'],
-      'merchant_id': merchant['id'] ?? item['merchantId'] ?? item['merchant_id'],
+      'merchant_id':
+          merchant['id'] ?? item['merchantId'] ?? item['merchant_id'],
       'merchantId': merchant['id'] ?? item['merchantId'] ?? item['merchant_id'],
       'category_id': item['categoryId'] ?? item['category_id'],
       'categoryId': item['categoryId'] ?? item['category_id'],
       'image_url': item['imageUrl'] ?? item['image_url'],
       'discounted_price':
-          item['discountedPrice'] ?? item['discounted_price'] ?? item['finalPrice'],
+          item['discountedPrice'] ??
+          item['discounted_price'] ??
+          item['finalPrice'],
       'discountedPrice':
-          item['discountedPrice'] ?? item['discounted_price'] ?? item['finalPrice'],
+          item['discountedPrice'] ??
+          item['discounted_price'] ??
+          item['finalPrice'],
       'free_delivery': item['freeDelivery'] ?? item['free_delivery'] ?? false,
       'freeDelivery': item['freeDelivery'] ?? item['free_delivery'] ?? false,
       'requires_prescription':
-          item['requiresPrescription'] ?? item['requires_prescription'] ?? false,
+          item['requiresPrescription'] ??
+          item['requires_prescription'] ??
+          false,
       'requiresPrescription':
-          item['requiresPrescription'] ?? item['requires_prescription'] ?? false,
-      'requires_review': item['requiresReview'] ?? item['requires_review'] ?? false,
-      'requiresReview': item['requiresReview'] ?? item['requires_review'] ?? false,
+          item['requiresPrescription'] ??
+          item['requires_prescription'] ??
+          false,
+      'requires_review':
+          item['requiresReview'] ?? item['requires_review'] ?? false,
+      'requiresReview':
+          item['requiresReview'] ?? item['requires_review'] ?? false,
       'attributes': item['attributes'] ?? const [],
       'summaryAttributes':
-          item['summaryAttributes'] ?? item['summary_attributes'] ?? item['attributes'] ?? const [],
-      'variantGroups': item['variantGroups'] ?? item['variant_groups'] ?? const [],
+          item['summaryAttributes'] ??
+          item['summary_attributes'] ??
+          item['attributes'] ??
+          const [],
+      'variantGroups':
+          item['variantGroups'] ?? item['variant_groups'] ?? const [],
       'media': item['media'] ?? const [],
       'primaryMedia': item['primaryMedia'] ?? item['primary_media'],
       'hasVariants': item['hasVariants'] ?? item['has_variants'],
-      'metadata_json': item['metadata_json'] ?? item['metadataJson'] ?? const {},
+      'metadata_json':
+          item['metadata_json'] ?? item['metadataJson'] ?? const {},
     };
     return ProductModel.fromJson(payload);
   }
@@ -148,11 +163,18 @@ class _CustomerGlobalProductSearchScreenState
     final merchant = Map<String, dynamic>.from(
       item['merchant'] as Map? ?? const {},
     );
-    var variantSelections = const <Map<String, dynamic>>[];
+    final selected =
+        _cardSelections[product.id] ??
+        ProductSummaryCardData.fromProduct(
+          product,
+          locale: Localizations.localeOf(context),
+        ).resolveSelection();
+    var variantSelections = selected.selectedVariantSelections;
     if (product.hasVariants) {
       final picked = await showProductVariantPickerSheet(
         context,
         product: product,
+        initialSelections: variantSelections,
       );
       if (!mounted || picked == null) return;
       variantSelections = picked;
@@ -297,203 +319,89 @@ class _CustomerGlobalProductSearchScreenState
               item['merchant'] as Map? ?? const {},
             );
             final product = _toProduct(item);
-            final hasDiscount = product.hasDiscount;
-            final finalPrice = product.discountedPrice ?? product.price;
-            final basePrice = product.price;
-            final rating = (merchant['rating'] as num?)?.toDouble() ?? 0;
+            final cardData = ProductSummaryCardData.fromProduct(
+              product,
+              locale: Localizations.localeOf(context),
+            );
+            final selection =
+                _cardSelections[product.id] ?? cardData.resolveSelection();
+            _cardSelections[product.id] ??= selection;
             final etaMinutes = (item['stats']?['etaMinutes'] as num?)
                 ?.toDouble();
             final etaLabel = etaMinutes == null
                 ? 'غير محدد'
                 : '${etaMinutes.toStringAsFixed(0)} دقيقة';
-            return Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Row(
+            final merchantName = merchant['name']?.toString() ?? '';
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: ProductSummaryCard.fromProduct(
+                product,
+                key: ValueKey(product.id),
+                appearance: ProductSummaryCardAppearance.fromContext(context),
+                locale: Localizations.localeOf(context),
+                compact: true,
+                heroAspectRatio: 1.36,
+                maxAttributeBadges: 3,
+                maxVariantBadges: 2,
+                maxStatusBadges: 2,
+                selectedColorCode: selection.colorCode,
+                selectedSizeCode: selection.sizeCode,
+                onSelectionChanged: (next) {
+                  setState(() => _cardSelections[product.id] = next);
+                },
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        MerchantProductsScreen(merchant: _toMerchant(item)),
+                  ),
+                ),
+                trailing: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.end,
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: SizedBox(
-                        width: 78,
-                        height: 78,
-                        child:
-                            (product.displayImageUrl?.isNotEmpty ?? false)
-                            ? CachedAppImage(
-                                imageUrl: product.displayImageUrl!,
-                                fit: BoxFit.cover,
-                              )
-                            : Container(
-                                color: Colors.white.withValues(alpha: 0.08),
-                                alignment: Alignment.center,
-                                child: Icon(
-                                  product.hasVariants
-                                      ? Icons.tune_rounded
-                                      : Icons.fastfood_rounded,
-                                ),
-                              ),
+                    if (merchantName.isNotEmpty)
+                      Text(
+                        merchantName,
+                        textDirection: TextDirection.rtl,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white.withValues(alpha: 0.78),
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
+                    if (etaLabel.isNotEmpty)
+                      Text(
+                        '⏱ $etaLabel',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.white.withValues(alpha: 0.68),
+                        ),
+                      ),
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => MerchantProductsScreen(
+                            merchant: _toMerchant(item),
+                          ),
+                        ),
+                      ),
+                      child: const Text('فتح المتجر'),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            product.name,
-                            textDirection: TextDirection.rtl,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            merchant['name']?.toString() ?? '',
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white.withValues(alpha: 0.72),
-                            ),
-                          ),
-                          if (product.summaryAttributes.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              alignment: WrapAlignment.end,
-                              children: product.summaryAttributes
-                                  .take(3)
-                                  .map(
-                                    (attr) => Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 3,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.06,
-                                        ),
-                                        borderRadius: BorderRadius.circular(999),
-                                      ),
-                                      child: Text(
-                                        '${attr.title}: ${attr.valueText}',
-                                        textDirection: TextDirection.rtl,
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.white.withValues(
-                                            alpha: 0.8,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                          ],
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Text(
-                                '⭐ ${rating.toStringAsFixed(1)}',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                '⏱ $etaLabel',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white.withValues(alpha: 0.78),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Text(
-                                formatIqd(finalPrice),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              if (hasDiscount) ...[
-                                const SizedBox(width: 8),
-                                Text(
-                                  formatIqd(basePrice),
-                                  style: TextStyle(
-                                    decoration: TextDecoration.lineThrough,
-                                    color: Colors.white.withValues(alpha: 0.6),
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                              const Spacer(),
-                              if (hasDiscount)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.orange.withValues(
-                                      alpha: 0.18,
-                                    ),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    '-${product.discountPercent ?? 0}%',
-                                  ),
-                                ),
-                              if (product.hasVariants) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.cyan.withValues(alpha: 0.18),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    '${product.variantGroups.length} خيارات',
-                                    style: const TextStyle(fontSize: 10),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              OutlinedButton(
-                                onPressed: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => MerchantProductsScreen(
-                                      merchant: _toMerchant(item),
-                                    ),
-                                  ),
-                                ),
-                                child: const Text('فتح المتجر'),
-                              ),
-                              const SizedBox(width: 8),
-                              FilledButton.icon(
-                                onPressed: () => _addToCart(item),
-                                icon: Icon(
-                                  product.hasVariants
-                                      ? Icons.tune_rounded
-                                      : Icons.add_shopping_cart_rounded,
-                                ),
-                                label: const Text('إضافة'),
-                              ),
-                            ],
-                          ),
-                        ],
+                    FilledButton.icon(
+                      onPressed: () => _addToCart(item),
+                      icon: Icon(
+                        product.hasVariants
+                            ? Icons.tune_rounded
+                            : Icons.add_shopping_cart_rounded,
                       ),
+                      label: const Text('إضافة'),
                     ),
                   ],
                 ),
+                showDescription: false,
+                showVariantControls: true,
+                interactiveGallery: false,
               ),
             );
           }),

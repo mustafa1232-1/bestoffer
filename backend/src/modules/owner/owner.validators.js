@@ -241,6 +241,10 @@ export function validateOwnerProductCreate(body) {
   if (body.media !== undefined && !Array.isArray(body.media)) {
     errors.push("media");
   }
+  if (body.variants !== undefined && !Array.isArray(body.variants)) errors.push("variants");
+  if (body.stockQuantity !== undefined && body.stockQuantity !== null && body.stockQuantity !== "") {
+    if (!Number.isInteger(Number(body.stockQuantity)) || Number(body.stockQuantity) < 0) errors.push("stockQuantity");
+  }
 
   return { ok: errors.length === 0, errors };
 }
@@ -264,7 +268,9 @@ export function validateOwnerProductUpdate(body) {
     body.richCatalog !== undefined ||
     body.attributes !== undefined ||
     body.variantGroups !== undefined ||
-    body.media !== undefined;
+    body.media !== undefined ||
+    body.variants !== undefined ||
+    body.stockQuantity !== undefined;
 
   if (!hasAnyField) errors.push("empty_update");
 
@@ -312,6 +318,10 @@ export function validateOwnerProductUpdate(body) {
   }
   if (body.media !== undefined && !Array.isArray(body.media)) {
     errors.push("media");
+  }
+  if (body.variants !== undefined && !Array.isArray(body.variants)) errors.push("variants");
+  if (body.stockQuantity !== undefined && body.stockQuantity !== null && body.stockQuantity !== "") {
+    if (!Number.isInteger(Number(body.stockQuantity)) || Number(body.stockQuantity) < 0) errors.push("stockQuantity");
   }
 
   return { ok: errors.length === 0, errors };
@@ -482,20 +492,24 @@ export function validateOwnerAssignDelivery(body) {
 
 export function validateOwnerCategoryCreate(body) {
   const errors = [];
+  const catalogTypes = ["generic", "clothes", "furniture", "electronics", "restaurant", "grocery"];
 
   if (!isNonEmptyString(body.name, 120)) errors.push("name");
   if (body.sortOrder !== undefined && !Number.isInteger(Number(body.sortOrder))) errors.push("sortOrder");
+  if (body.catalogType !== undefined && !catalogTypes.includes(body.catalogType)) errors.push("catalogType");
 
   return { ok: errors.length === 0, errors };
 }
 
 export function validateOwnerCategoryUpdate(body) {
   const errors = [];
-  const hasAnyField = body.name !== undefined || body.sortOrder !== undefined;
+  const catalogTypes = ["generic", "clothes", "furniture", "electronics", "restaurant", "grocery"];
+  const hasAnyField = body.name !== undefined || body.sortOrder !== undefined || body.catalogType !== undefined;
 
   if (!hasAnyField) errors.push("empty_update");
   if (body.name !== undefined && !isNonEmptyString(body.name, 120)) errors.push("name");
   if (body.sortOrder !== undefined && !Number.isInteger(Number(body.sortOrder))) errors.push("sortOrder");
+  if (body.catalogType !== undefined && !catalogTypes.includes(body.catalogType)) errors.push("catalogType");
 
   return { ok: errors.length === 0, errors };
 }

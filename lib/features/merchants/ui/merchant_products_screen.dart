@@ -15,6 +15,7 @@ import '../../orders/ui/cart_screen.dart';
 import '../../pharmacy/ui/pharmacy_conversation_screen.dart';
 import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
+import '../../products/ui/product_summary_card.dart';
 import '../../products/ui/product_variant_picker_sheet.dart';
 import 'merchant_product_details_screen.dart';
 import '../models/merchant_model.dart';
@@ -45,6 +46,7 @@ class _MerchantProductsScreenState
     extends ConsumerState<MerchantProductsScreen> {
   AsyncValue<_MerchantProductsData> state = const AsyncValue.loading();
   int? selectedCategoryId;
+  final Map<int, ProductSummaryCardSelection> _cardSelections = {};
   final productSearchCtrl = TextEditingController();
   String productSearchQuery = '';
   bool onlyAvailable = false;
@@ -117,23 +119,27 @@ class _MerchantProductsScreenState
           _MerchantProductsData(products: products, categories: categories),
         ),
       );
-      await ref.read(behaviorApiProvider).trackEvent(
-        eventName: 'shopping.merchant_open',
-        category: 'shopping',
-        action: 'open_merchant',
-        entityType: 'merchant',
-        entityId: widget.merchant.id,
-        metadata: {
-          'merchantId': widget.merchant.id,
-          'merchantName': widget.merchant.name,
-          'merchantType': widget.merchant.type,
-          'activityType': widget.merchant.activityType,
-          'route': widget.merchant.type == 'market' ? 'main_market' : 'shopping',
-          'screenLabel': widget.merchant.name,
-          'recentTitle': 'كنت تتصفح متجر: ${widget.merchant.name}',
-          'recentSubtitle': 'اضغط للعودة إلى ${widget.merchant.name}',
-        },
-      );
+      await ref
+          .read(behaviorApiProvider)
+          .trackEvent(
+            eventName: 'shopping.merchant_open',
+            category: 'shopping',
+            action: 'open_merchant',
+            entityType: 'merchant',
+            entityId: widget.merchant.id,
+            metadata: {
+              'merchantId': widget.merchant.id,
+              'merchantName': widget.merchant.name,
+              'merchantType': widget.merchant.type,
+              'activityType': widget.merchant.activityType,
+              'route': widget.merchant.type == 'market'
+                  ? 'main_market'
+                  : 'shopping',
+              'screenLabel': widget.merchant.name,
+              'recentTitle': 'كنت تتصفح متجر: ${widget.merchant.name}',
+              'recentSubtitle': 'اضغط للعودة إلى ${widget.merchant.name}',
+            },
+          );
     } catch (_) {
       setState(
         () => state = const AsyncValue.error(
@@ -224,37 +230,108 @@ class _MerchantProductsScreenState
   List<Widget> _buildProductCards(
     List<ProductModel> products,
     List<ProductModel> allProducts,
-    Set<int> favoriteProductIds,
   ) {
+    final appearance = ProductSummaryCardAppearance.fromContext(context);
+    final locale = Localizations.localeOf(context);
     return products.map((product) {
-      final canOrder = widget.merchant.isOpen && product.isAvailable;
-      final isFavorite = favoriteProductIds.contains(product.id);
+      final canOrder =
+          widget.merchant.isOpen && product.isAvailable && product.isInStock;
       final usesPharmacyConversation = _requiresPharmacyConversation(product);
+      final cardData = ProductSummaryCardData.fromProduct(
+        product,
+        locale: locale,
+      );
+      final selection =
+          _cardSelections[product.id] ?? cardData.resolveSelection();
+      _cardSelections[product.id] ??= selection;
 
       return Padding(
         padding: const EdgeInsets.only(bottom: 10),
-        child: _ProductCard(
-          product: product,
-          canOrder: canOrder,
-          usesPharmacyConversation: usesPharmacyConversation,
-          isFavorite: isFavorite,
-          showCustomerActions: _canCustomerActions,
-          onOpenDetails: () =>
+        child: ProductSummaryCard.fromProduct(
+          product,
+          key: ValueKey(product.id),
+          appearance: appearance,
+          locale: locale,
+          onTap: () =>
               _openProductDetails(product: product, allProducts: allProducts),
-          onToggleFavorite: _canCustomerActions
-              ? () => ref
-                    .read(ordersControllerProvider.notifier)
-                    .toggleFavoriteProduct(product.id, !isFavorite)
-              : null,
-          onAddToCart: _canCustomerActions && canOrder
-              ? () => _addToCart(product, quantity: 1)
-              : null,
-          closedLabel: widget.merchant.isOpen
-              ? 'غير متوفر حالياً'
-              : 'المتجر مغلق الآن',
+          compact: true,
+          maxAttributeBadges: 2,
+          maxVariantBadges: 3,
+          maxStatusBadges: 3,
+          heroAspectRatio: 1.38,
+          selectedColorCode: selection.colorCode,
+          selectedSizeCode: selection.sizeCode,
+          onSelectionChanged: (next) {
+            setState(() => _cardSelections[product.id] = next);
+          },
+          trailing: _buildProductSummaryTrailing(
+            product: product,
+            canOrder: canOrder,
+            usesPharmacyConversation: usesPharmacyConversation,
+            showActions: _canCustomerActions,
+            selectedVariantSelections: selection.selectedVariantSelections,
+          ),
         ),
       );
     }).toList();
+  }
+
+  Widget _buildProductSummaryTrailing({
+    required ProductModel product,
+    required bool canOrder,
+    required bool usesPharmacyConversation,
+    required bool showActions,
+    required List<Map<String, dynamic>> selectedVariantSelections,
+  }) {
+    final tokens = context.maslakiTokens;
+    final visual = context.visualTheme;
+    if (!showActions) {
+      return Text(
+        canOrder
+            ? 'متاح'
+            : (widget.merchant.isOpen
+                  ? 'غير متوفر حالياً'
+                  : 'المتجر مغلق الآن'),
+        style: TextStyle(
+          color: canOrder ? tokens.success : tokens.danger,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+    return GestureDetector(
+      onTap: canOrder
+          ? () => _addToCart(
+              product,
+              quantity: 1,
+              initialVariantSelections: selectedVariantSelections,
+            )
+          : null,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: canOrder
+              ? visual.accentCyan.withValues(alpha: 0.15)
+              : tokens.borderSubtle.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: canOrder
+                ? visual.accentCyan.withValues(alpha: 0.4)
+                : tokens.borderSubtle,
+          ),
+        ),
+        child: Icon(
+          usesPharmacyConversation
+              ? Icons.chat_bubble_outline_rounded
+              : product.hasVariants
+              ? Icons.tune_rounded
+              : Icons.add_rounded,
+          color: canOrder ? visual.accentCyan : tokens.textMuted,
+          size: 22,
+        ),
+      ),
+    );
   }
 
   List<Widget> _buildProductSections(
@@ -266,11 +343,7 @@ class _MerchantProductsScreenState
     if (visibleProducts.isEmpty) return const [_EmptyProducts()];
 
     if (selectedCategoryId != null) {
-      return _buildProductCards(
-        visibleProducts,
-        allProducts,
-        favoriteProductIds,
-      );
+      return _buildProductCards(visibleProducts, allProducts);
     }
 
     final sections = <Widget>[];
@@ -298,9 +371,7 @@ class _MerchantProductsScreenState
           ),
         ),
       );
-      sections.addAll(
-        _buildProductCards(items, allProducts, favoriteProductIds),
-      );
+      sections.addAll(_buildProductCards(items, allProducts));
     }
 
     if (uncategorized.isNotEmpty) {
@@ -313,9 +384,7 @@ class _MerchantProductsScreenState
           ),
         ),
       );
-      sections.addAll(
-        _buildProductCards(uncategorized, allProducts, favoriteProductIds),
-      );
+      sections.addAll(_buildProductCards(uncategorized, allProducts));
     }
 
     return sections.isEmpty ? const [_EmptyProducts()] : sections;
@@ -731,13 +800,17 @@ class _MerchantProductsScreenState
               ? 'غير متوفر حالياً'
               : 'المتجر مغلق الآن',
           onAddToCart: _canCustomerActions
-              ? (selectedProduct, quantity, {List<Map<String, dynamic>> selectedVariantSelections = const []}) async =>
-                    _addToCart(
-                      selectedProduct,
-                      quantity: quantity,
-                      selectedVariantSelections: selectedVariantSelections,
-                      showFeedback: false,
-                    )
+              ? (
+                  selectedProduct,
+                  quantity, {
+                  List<Map<String, dynamic>> selectedVariantSelections =
+                      const [],
+                }) async => _addToCart(
+                  selectedProduct,
+                  quantity: quantity,
+                  initialVariantSelections: selectedVariantSelections,
+                  showFeedback: false,
+                )
               : null,
           onOpenProduct: (selectedProduct) => _openProductDetails(
             product: selectedProduct,
@@ -787,15 +860,16 @@ class _MerchantProductsScreenState
   Future<void> _addToCart(
     ProductModel product, {
     int quantity = 1,
-    List<Map<String, dynamic>>? selectedVariantSelections,
+    List<Map<String, dynamic>> initialVariantSelections = const [],
     bool showFeedback = true,
   }) async {
     final safeQuantity = quantity < 1 ? 1 : quantity;
-    var variantSelections = selectedVariantSelections;
-    if (product.hasVariants && variantSelections == null) {
+    var variantSelections = initialVariantSelections;
+    if (product.hasVariants) {
       final picked = await showProductVariantPickerSheet(
         context,
         product: product,
+        initialSelections: initialVariantSelections,
       );
       if (!mounted || picked == null) return;
       variantSelections = picked;
@@ -805,7 +879,7 @@ class _MerchantProductsScreenState
       await _openPharmacyConversationForProduct(
         product,
         quantity: safeQuantity,
-        selectedVariantSelections: variantSelections ?? const [],
+        selectedVariantSelections: variantSelections,
       );
       return;
     }
@@ -846,7 +920,7 @@ class _MerchantProductsScreenState
           merchantId: widget.merchant.id,
           merchantName: widget.merchant.name,
           quantity: safeQuantity,
-          selectedVariantSelections: variantSelections ?? const [],
+          selectedVariantSelections: variantSelections,
         );
 
     if (!mounted) return;
@@ -1036,14 +1110,14 @@ class _MerchantProductsScreenState
                       setState(() => productSearchQuery = value),
                   hintText: 'ابحث عن المنتجات',
                   trailing: productSearchQuery.isEmpty
-                        ? null
-                        : IconButton(
-                            onPressed: () {
-                              productSearchCtrl.clear();
-                              setState(() => productSearchQuery = '');
-                            },
-                            icon: const Icon(Icons.close_rounded),
-                          ),
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            productSearchCtrl.clear();
+                            setState(() => productSearchQuery = '');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
                 ),
                 const SizedBox(height: 10),
                 _ProductsDiscoveryToolbar(
@@ -1205,6 +1279,11 @@ class _MerchantProductsScreenState
                                                   ? () => _addToCart(
                                                       product,
                                                       quantity: 1,
+                                                      initialVariantSelections:
+                                                          _cardSelections[product
+                                                                  .id]
+                                                              ?.selectedVariantSelections ??
+                                                          const [],
                                                     )
                                                   : null,
                                               icon: const Icon(
@@ -1806,215 +1885,6 @@ class _SmartBundlePlannerCard extends StatelessWidget {
   }
 }
 
-class _ProductCard extends StatelessWidget {
-  final ProductModel product;
-  final bool canOrder;
-  final bool usesPharmacyConversation;
-  final bool isFavorite;
-  final bool showCustomerActions;
-  final VoidCallback onOpenDetails;
-  final VoidCallback? onToggleFavorite;
-  final VoidCallback? onAddToCart;
-  final String closedLabel;
-
-  const _ProductCard({
-    required this.product,
-    required this.canOrder,
-    required this.usesPharmacyConversation,
-    required this.isFavorite,
-    required this.showCustomerActions,
-    required this.onOpenDetails,
-    required this.onToggleFavorite,
-    required this.onAddToCart,
-    required this.closedLabel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final effectivePrice = product.discountedPrice ?? product.price;
-    final tokens = context.maslakiTokens;
-    final visual = context.visualTheme;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onOpenDetails,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: tokens.cardPrimary.withValues(alpha: 0.7),
-            border: Border.all(
-              color: tokens.borderSubtle.withValues(alpha: 0.4),
-            ),
-          ),
-          child: Row(
-            textDirection: TextDirection.rtl,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Product info (right side in RTL)
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      product.name,
-                      textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                        color: tokens.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    if (product.description?.isNotEmpty == true) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        product.description!,
-                        textDirection: TextDirection.rtl,
-                        textAlign: TextAlign.right,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: tokens.textMuted,
-                          fontSize: 12,
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                    if (product.summaryAttributes.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        alignment: WrapAlignment.end,
-                        children: product.summaryAttributes
-                            .take(3)
-                            .map(
-                              (attr) => _Badge(
-                                text: '${attr.title}: ${attr.valueText}',
-                                color: Colors.white.withValues(alpha: 0.06),
-                                textColor: tokens.textMuted,
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ],
-                    const SizedBox(height: 7),
-                    Row(
-                      textDirection: TextDirection.rtl,
-                      children: [
-                        Text(
-                          '${formatIqd(effectivePrice)} رس',
-                          style: TextStyle(
-                            color: tokens.textPrimary,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14,
-                          ),
-                        ),
-                        if (product.hasDiscount) ...[
-                          const SizedBox(width: 6),
-                          Text(
-                            formatIqd(product.price),
-                            style: TextStyle(
-                              decoration: TextDecoration.lineThrough,
-                              color: tokens.textMuted,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          _Badge(
-                            text: '-${product.discountPercent ?? 0}%',
-                            color: Colors.orange.withValues(alpha: 0.20),
-                            textColor: Colors.orange,
-                          ),
-                          if (product.hasVariants) ...[
-                            const SizedBox(width: 6),
-                            _Badge(
-                              text: '${product.variantGroups.length} خيارات',
-                              color: visual.accentCyan.withValues(alpha: 0.14),
-                              textColor: visual.accentCyan,
-                            ),
-                          ],
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              if (product.requiresPrescription || product.requiresReview) ...[
-                const SizedBox(width: 8),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (product.requiresPrescription)
-                      _Badge(
-                        text: context.lt(
-                          ar: 'وصفة مطلوبة',
-                          en: 'Prescription required',
-                        ),
-                        // ignore: prefer_const_constructors
-                        color: Color(0x1A9C27B0),
-                      ),
-                    if (product.requiresPrescription && product.requiresReview)
-                      const SizedBox(height: 6),
-                    if (product.requiresReview)
-                      _Badge(
-                        text: context.lt(
-                          ar: 'مراجعة صيدلانية',
-                          en: 'Pharmacist review',
-                        ),
-                        color: Color(0x1A03A9F4),
-                      ),
-                  ],
-                ),
-              ],
-              const SizedBox(width: 12),
-              // Add button / status (left side in RTL)
-              if (showCustomerActions)
-                GestureDetector(
-                  onTap: canOrder ? onAddToCart : null,
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: canOrder
-                          ? visual.accentCyan.withValues(alpha: 0.15)
-                          : tokens.borderSubtle.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: canOrder
-                            ? visual.accentCyan.withValues(alpha: 0.4)
-                            : tokens.borderSubtle,
-                      ),
-                    ),
-                    child: Icon(
-                      usesPharmacyConversation
-                          ? Icons.chat_bubble_outline_rounded
-                          : product.hasVariants
-                              ? Icons.tune_rounded
-                              : Icons.add_rounded,
-                      color: canOrder ? visual.accentCyan : tokens.textMuted,
-                      size: 22,
-                    ),
-                  ),
-                )
-              else
-                Text(
-                  canOrder ? 'متاح' : 'غير متاح',
-                  style: TextStyle(
-                    color: canOrder ? tokens.success : tokens.danger,
-                    fontSize: 12,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _Badge extends StatelessWidget {
   final String text;
   final Color color;
@@ -2056,9 +1926,13 @@ class _EmptyProducts extends StatelessWidget {
 }
 
 String _formatVariantSelectionLabel(Map<String, dynamic> entry) {
-  final group = (entry['groupLabel'] ?? entry['groupCode'] ?? '').toString().trim();
+  final group = (entry['groupLabel'] ?? entry['groupCode'] ?? '')
+      .toString()
+      .trim();
   final option =
-      (entry['optionLabel'] ?? entry['optionCode'] ?? entry['value'] ?? '').toString().trim();
+      (entry['optionLabel'] ?? entry['optionCode'] ?? entry['value'] ?? '')
+          .toString()
+          .trim();
   if (group.isEmpty && option.isEmpty) return '';
   if (group.isEmpty) return option;
   if (option.isEmpty) return group;

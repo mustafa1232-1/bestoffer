@@ -194,6 +194,16 @@ export const env = {
   appWorkersTotal: readNumber("APP_WORKERS_TOTAL", 1, { min: 1, max: 32 }),
   host: readString("HOST", "0.0.0.0"),
   port: readNumber("PORT", 3000, { min: 1, max: 65535 }),
+  orderStockReservationTtlMinutes: readNumber(
+    "ORDER_STOCK_RESERVATION_TTL_MINUTES",
+    30,
+    { min: 1, max: 1440 }
+  ),
+  orderStockReservationCleanupIntervalMs: readNumber(
+    "ORDER_STOCK_RESERVATION_CLEANUP_INTERVAL_MS",
+    60000,
+    { min: 5000, max: 3600000 }
+  ),
   externalRailwayScriptRuntime: shouldPreferPublicDatabaseUrl(),
   databaseUrlRaw,
   databasePublicUrl,

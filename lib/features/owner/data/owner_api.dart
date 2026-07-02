@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../../../core/files/local_image_file.dart';
@@ -71,8 +73,15 @@ class OwnerApi {
   Future<Map<String, dynamic>> createProduct(
     Map<String, dynamic> body, {
     LocalImageFile? imageFile,
+    List<LocalImageFile> galleryFiles = const [],
+    List<LocalImageFile> variantFiles = const [],
   }) async {
-    final requestData = await _withOptionalImage(body, imageFile: imageFile);
+    final requestData = await _withProductImages(
+      body,
+      imageFile: imageFile,
+      galleryFiles: galleryFiles,
+      variantFiles: variantFiles,
+    );
     final response = await dio.post('/api/owner/products', data: requestData);
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -103,8 +112,15 @@ class OwnerApi {
     int productId,
     Map<String, dynamic> body, {
     LocalImageFile? imageFile,
+    List<LocalImageFile> galleryFiles = const [],
+    List<LocalImageFile> variantFiles = const [],
   }) async {
-    final requestData = await _withOptionalImage(body, imageFile: imageFile);
+    final requestData = await _withProductImages(
+      body,
+      imageFile: imageFile,
+      galleryFiles: galleryFiles,
+      variantFiles: variantFiles,
+    );
     final response = await dio.put(
       '/api/owner/products/$productId',
       data: requestData,
@@ -699,5 +715,40 @@ Future<Object> _withOptionalImage(
     ...body,
     'imageFile': await imageFile.toMultipartFile(),
   };
+  return FormData.fromMap(map);
+}
+
+Future<Object> _withProductImages(
+  Map<String, dynamic> body, {
+  required LocalImageFile? imageFile,
+  required List<LocalImageFile> galleryFiles,
+  required List<LocalImageFile> variantFiles,
+}) async {
+  if (imageFile == null && galleryFiles.isEmpty && variantFiles.isEmpty) {
+    return body;
+  }
+  final map = <String, dynamic>{...body};
+  for (final key in const [
+    'attributes',
+    'variantGroups',
+    'variants',
+    'media',
+    'metadataJson',
+    'richCatalog',
+  ]) {
+    final value = map[key];
+    if (value is List || value is Map) map[key] = jsonEncode(value);
+  }
+  if (imageFile != null) map['imageFile'] = await imageFile.toMultipartFile();
+  if (galleryFiles.isNotEmpty) {
+    map['galleryFiles'] = await Future.wait(
+      galleryFiles.map((file) => file.toMultipartFile()),
+    );
+  }
+  if (variantFiles.isNotEmpty) {
+    map['variantFiles'] = await Future.wait(
+      variantFiles.map((file) => file.toMultipartFile()),
+    );
+  }
   return FormData.fromMap(map);
 }

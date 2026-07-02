@@ -191,10 +191,21 @@ function mapCategory(c) {
     id: c.id,
     merchantId: c.merchant_id,
     name: c.name,
+    catalogType: c.catalog_type || inferCatalogType(c.name),
     sortOrder: c.sort_order,
     createdAt: c.created_at,
     updatedAt: c.updated_at,
   };
+}
+
+function inferCatalogType(name) {
+  const value = String(name || "").trim().toLowerCase();
+  if (["cloths", "clothes", "clothing", "fashion", "ملابس", "الملابس"].includes(value)) return "clothes";
+  if (["furniture", "اثاث", "أثاث", "الاثاث", "الأثاث"].includes(value)) return "furniture";
+  if (["electronics", "electrical", "الكترونيات", "إلكترونيات", "كهربائيات"].includes(value)) return "electronics";
+  if (["restaurant", "restaurants", "food", "مطعم", "مطاعم"].includes(value)) return "restaurant";
+  if (["grocery", "groceries", "supermarket", "بقالة", "مواد غذائية"].includes(value)) return "grocery";
+  return "generic";
 }
 
 /**
@@ -741,7 +752,8 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
 }
 
 export async function listOwnerProducts(ownerUserId) {
-  return repo.listOwnerProducts(ownerUserId);
+  const rows = await repo.listOwnerProducts(ownerUserId);
+  return repo.hydrateOwnerProducts(rows);
 }
 
 /**
@@ -863,6 +875,7 @@ export async function createOwnerCategory(ownerUserId, dto) {
     created = await repo.createOwnerCategory(ownerUserId, {
       name: dto.name.trim(),
       sortOrder: Number(dto.sortOrder ?? 0),
+      catalogType: dto.catalogType || inferCatalogType(dto.name),
     });
   } catch (e) {
     if (e?.code === "23505" && String(e.constraint || "").includes("merchant_category_merchant_id_name")) {
@@ -887,6 +900,7 @@ export async function updateOwnerCategory(ownerUserId, categoryId, dto) {
   const patch = {};
   if (dto.name !== undefined) patch.name = dto.name.trim();
   if (dto.sortOrder !== undefined) patch.sortOrder = Number(dto.sortOrder);
+  if (dto.catalogType !== undefined) patch.catalogType = dto.catalogType;
 
   let updated;
   try {
@@ -977,6 +991,10 @@ export async function createOwnerProduct(ownerUserId, dto) {
     requiresPrescription: dto.requiresPrescription === true,
     requiresReview: dto.requiresReview === true,
     sortOrder: Number(dto.sortOrder ?? 0),
+    stockQuantity:
+      dto.stockQuantity === undefined || dto.stockQuantity === null || dto.stockQuantity === ""
+        ? null
+        : Math.max(0, Number(dto.stockQuantity)),
     richCatalog,
   });
 
@@ -1012,6 +1030,11 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
     patch.requiresReview = dto.requiresReview === true;
   }
   if (dto.sortOrder !== undefined) patch.sortOrder = Number(dto.sortOrder);
+  if (dto.stockQuantity !== undefined) {
+    patch.stockQuantity = dto.stockQuantity === null || dto.stockQuantity === ""
+      ? null
+      : Math.max(0, Number(dto.stockQuantity));
+  }
   if (richCatalog) patch.richCatalog = richCatalog;
 
   if (dto.categoryId !== undefined) {

@@ -80,7 +80,12 @@ class ProductVariantOptionModel {
       labelEn: parseNullableString(j['label_en'] ?? j['labelEn']),
       swatchHex: parseNullableString(j['swatch_hex'] ?? j['swatchHex']),
       priceDelta: parseDouble(j['price_delta'] ?? j['priceDelta']),
-      imageUrl: parseNullableString(j['image_url'] ?? j['imageUrl']),
+      imageUrl: parseNullableString(
+        j['image_url'] ??
+            j['imageUrl'] ??
+            j['color_image_url'] ??
+            j['colorImageUrl'],
+      ),
       isAvailable: j['is_available'] == null
           ? true
           : parseBool(j['is_available'] ?? j['isAvailable']),
@@ -127,13 +132,23 @@ class ProductVariantGroupModel {
       code: parseString(j['code'] ?? j['group_code'] ?? j['groupCode']),
       labelAr: parseNullableString(j['label_ar'] ?? j['labelAr']),
       labelEn: parseNullableString(j['label_en'] ?? j['labelEn']),
-      displayMode: parseString(j['display_mode'] ?? j['displayMode'], fallback: 'chips'),
-      selectionMode: parseString(j['selection_mode'] ?? j['selectionMode'], fallback: 'single'),
+      displayMode: parseString(
+        j['display_mode'] ?? j['displayMode'],
+        fallback: 'chips',
+      ),
+      selectionMode: parseString(
+        j['selection_mode'] ?? j['selectionMode'],
+        fallback: 'single',
+      ),
       required: j['required'] == null ? true : parseBool(j['required']),
       sortOrder: parseInt(j['sort_order'] ?? j['sortOrder'], fallback: 0),
       metadata: _toMap(j['metadata_json'] ?? j['metadata']),
       options: rawOptions
-          .map((entry) => ProductVariantOptionModel.fromJson(Map<String, dynamic>.from(entry as Map)))
+          .map(
+            (entry) => ProductVariantOptionModel.fromJson(
+              Map<String, dynamic>.from(entry as Map),
+            ),
+          )
           .toList(growable: false),
     );
   }
@@ -142,6 +157,87 @@ class ProductVariantGroupModel {
     return (labelAr?.trim().isNotEmpty == true ? labelAr : labelEn)?.trim() ??
         code;
   }
+}
+
+class ProductVariantModel {
+  final int? id;
+  final String signature;
+  final List<Map<String, String>> selections;
+  final String? sku;
+  final String? barcode;
+  final String? material;
+  final double? priceOverride;
+  final double? discountedPriceOverride;
+  final int stockQuantity;
+  final String? imageUrl;
+  final bool isAvailable;
+  final int sortOrder;
+  final Map<String, dynamic> metadata;
+
+  const ProductVariantModel({
+    this.id,
+    required this.signature,
+    required this.selections,
+    this.sku,
+    this.barcode,
+    this.material,
+    this.priceOverride,
+    this.discountedPriceOverride,
+    required this.stockQuantity,
+    this.imageUrl,
+    required this.isAvailable,
+    required this.sortOrder,
+    required this.metadata,
+  });
+
+  factory ProductVariantModel.fromJson(Map<String, dynamic> j) {
+    final selections = _toList(j['selections'] ?? j['selections_json'])
+        .whereType<Map>()
+        .map(
+          (entry) => <String, String>{
+            'groupCode': parseString(entry['groupCode'] ?? entry['group_code']),
+            'optionCode': parseString(
+              entry['optionCode'] ?? entry['option_code'],
+            ),
+          },
+        )
+        .where(
+          (entry) =>
+              entry['groupCode']!.isNotEmpty && entry['optionCode']!.isNotEmpty,
+        )
+        .toList(growable: false);
+    final signatureParts =
+        selections
+            .map((entry) => '${entry['groupCode']}:${entry['optionCode']}')
+            .toList()
+          ..sort();
+    return ProductVariantModel(
+      id: j['id'] == null ? null : parseInt(j['id']),
+      signature: parseString(
+        j['signature'],
+        fallback: signatureParts.join('|'),
+      ),
+      selections: selections,
+      sku: parseNullableString(j['sku']),
+      barcode: parseNullableString(j['barcode']),
+      material: parseNullableString(j['material']),
+      priceOverride: _parseNullableDouble(
+        j['price_override'] ?? j['priceOverride'],
+      ),
+      discountedPriceOverride: _parseNullableDouble(
+        j['discounted_price_override'] ?? j['discountedPriceOverride'],
+      ),
+      stockQuantity: parseInt(j['stock_quantity'] ?? j['stockQuantity']),
+      imageUrl: parseNullableString(j['image_url'] ?? j['imageUrl']),
+      isAvailable: j['is_available'] == null
+          ? parseBool(j['isAvailable'] ?? true)
+          : parseBool(j['is_available']),
+      sortOrder: parseInt(j['sort_order'] ?? j['sortOrder']),
+      metadata: _toMap(j['metadata_json'] ?? j['metadata']),
+    );
+  }
+
+  bool get inStock => isAvailable && stockQuantity > 0;
 }
 
 class ProductMediaModel {
@@ -211,10 +307,12 @@ class ProductModel {
   final List<ProductAttributeModel> attributes;
   final List<ProductAttributeModel> summaryAttributes;
   final List<ProductVariantGroupModel> variantGroups;
+  final List<ProductVariantModel> variants;
   final List<ProductMediaModel> media;
   final ProductMediaModel? primaryMedia;
   final Map<String, dynamic>? metadata;
   final bool hasVariants;
+  final int? stockQuantity;
 
   const ProductModel({
     required this.id,
@@ -242,21 +340,27 @@ class ProductModel {
     this.attributes = const [],
     this.summaryAttributes = const [],
     this.variantGroups = const [],
+    this.variants = const [],
     this.media = const [],
     this.primaryMedia,
     this.metadata,
     this.hasVariants = false,
+    this.stockQuantity,
   });
 
   factory ProductModel.fromJson(Map<String, dynamic> j) {
     final attributes = _parseAttributes(j);
     final summaryAttributes = _parseSummaryAttributes(j, attributes);
     final variantGroups = _parseVariantGroups(j);
+    final variants = _parseVariants(j);
     final media = _parseMedia(j);
     final primaryMedia = _parsePrimaryMedia(j, media);
-    final imageUrl = parseNullableString(j['image_url'] ?? j['imageUrl']) ??
+    final imageUrl =
+        parseNullableString(j['image_url'] ?? j['imageUrl']) ??
         primaryMedia?.imageUrl;
-    final metadata = _toMap(j['metadata_json'] ?? j['metadataJson'] ?? j['metadata']);
+    final metadata = _toMap(
+      j['metadata_json'] ?? j['metadataJson'] ?? j['metadata'],
+    );
 
     return ProductModel(
       id: parseInt(j['id']),
@@ -271,7 +375,9 @@ class ProductModel {
       name: parseString(j['name']),
       description: parseNullableString(j['description']),
       price: parseDouble(j['price']),
-      discountedPrice: _parseNullableDouble(j['discounted_price'] ?? j['discountedPrice']),
+      discountedPrice: _parseNullableDouble(
+        j['discounted_price'] ?? j['discountedPrice'],
+      ),
       imageUrl: imageUrl,
       freeDelivery: j['free_delivery'] ?? j['freeDelivery'] ?? false,
       offerLabel: parseNullableString(j['offer_label'] ?? j['offerLabel']),
@@ -302,11 +408,17 @@ class ProductModel {
       attributes: attributes,
       summaryAttributes: summaryAttributes,
       variantGroups: variantGroups,
+      variants: variants,
       media: media,
       primaryMedia: primaryMedia,
       metadata: metadata,
-      hasVariants: (j['has_variants'] ?? j['hasVariants'] ?? variantGroups.isNotEmpty) == true ||
+      hasVariants:
+          (j['has_variants'] ?? j['hasVariants'] ?? variantGroups.isNotEmpty) ==
+              true ||
           variantGroups.isNotEmpty,
+      stockQuantity: (j['stock_quantity'] ?? j['stockQuantity']) == null
+          ? null
+          : parseInt(j['stock_quantity'] ?? j['stockQuantity']),
     );
   }
 
@@ -328,6 +440,28 @@ class ProductModel {
   }
 
   String? get displayImageUrl => primaryMedia?.imageUrl ?? imageUrl;
+
+  ProductVariantModel? variantForSelections(Map<String, String> selections) {
+    if (variants.isEmpty) return null;
+    final parts =
+        selections.entries
+            .map(
+              (entry) =>
+                  '${entry.key.toLowerCase()}:${entry.value.toLowerCase()}',
+            )
+            .toList()
+          ..sort();
+    final signature = parts.join('|');
+    for (final variant in variants) {
+      if (variant.signature.toLowerCase() == signature) return variant;
+    }
+    return null;
+  }
+
+  bool get isInStock {
+    if (variants.isNotEmpty) return variants.any((variant) => variant.inStock);
+    return stockQuantity == null || stockQuantity! > 0;
+  }
 }
 
 List<ProductAttributeModel> _parseAttributes(Map<String, dynamic> j) {
@@ -335,7 +469,11 @@ List<ProductAttributeModel> _parseAttributes(Map<String, dynamic> j) {
       ? _toList(j['attributes'])
       : _toList(j['richAttributes']);
   return raw
-      .map((entry) => ProductAttributeModel.fromJson(Map<String, dynamic>.from(entry as Map)))
+      .map(
+        (entry) => ProductAttributeModel.fromJson(
+          Map<String, dynamic>.from(entry as Map),
+        ),
+      )
       .toList(growable: false);
 }
 
@@ -347,7 +485,11 @@ List<ProductAttributeModel> _parseSummaryAttributes(
       j['summary_attributes'] ?? j['summaryAttributes'] ?? j['highlights'];
   if (raw is List) {
     return raw
-        .map((entry) => ProductAttributeModel.fromJson(Map<String, dynamic>.from(entry as Map)))
+        .map(
+          (entry) => ProductAttributeModel.fromJson(
+            Map<String, dynamic>.from(entry as Map),
+          ),
+        )
         .where((attr) => attr.showInCard)
         .toList(growable: false);
   }
@@ -359,14 +501,31 @@ List<ProductVariantGroupModel> _parseVariantGroups(Map<String, dynamic> j) {
       ? _toList(j['variant_groups'])
       : _toList(j['variantGroups']);
   return raw
-      .map((entry) => ProductVariantGroupModel.fromJson(Map<String, dynamic>.from(entry as Map)))
+      .map(
+        (entry) => ProductVariantGroupModel.fromJson(
+          Map<String, dynamic>.from(entry as Map),
+        ),
+      )
+      .toList(growable: false);
+}
+
+List<ProductVariantModel> _parseVariants(Map<String, dynamic> j) {
+  return _toList(j['variants'])
+      .whereType<Map>()
+      .map(
+        (entry) =>
+            ProductVariantModel.fromJson(Map<String, dynamic>.from(entry)),
+      )
       .toList(growable: false);
 }
 
 List<ProductMediaModel> _parseMedia(Map<String, dynamic> j) {
   final raw = _toList(j['media']);
   return raw
-      .map((entry) => ProductMediaModel.fromJson(Map<String, dynamic>.from(entry as Map)))
+      .map(
+        (entry) =>
+            ProductMediaModel.fromJson(Map<String, dynamic>.from(entry as Map)),
+      )
       .toList(growable: false);
 }
 

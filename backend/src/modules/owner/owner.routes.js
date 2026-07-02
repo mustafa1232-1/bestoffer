@@ -31,11 +31,16 @@ ownerRouter.delete("/categories/:categoryId", c.deleteCategory);
 
 ownerRouter.get("/products", c.listProducts);
 ownerRouter.get("/offers", c.listOffers);
-ownerRouter.post("/products", imageUpload.single("imageFile"), c.createProduct);
+const productImageFields = imageUpload.fields([
+  { name: "imageFile", maxCount: 1 },
+  { name: "galleryFiles", maxCount: 30 },
+  { name: "variantFiles", maxCount: 100 },
+]);
+ownerRouter.post("/products", productImageFields, c.createProduct);
 ownerRouter.post("/offers", c.createOffer);
 ownerRouter.put(
   "/products/:productId",
-  imageUpload.single("imageFile"),
+  productImageFields,
   c.updateProduct
 );
 ownerRouter.patch("/offers/:offerId", c.updateOffer);
