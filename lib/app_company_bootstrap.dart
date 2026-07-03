@@ -6,10 +6,14 @@ import 'package:intl/intl.dart';
 
 import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
+import 'core/platform/app_flavor.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/settings/app_settings_controller.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/desktop_dashboard_frame.dart';
+import 'features/accountant/ui/accountant_dashboard_screen.dart';
+import 'features/admin/ui/admin_dashboard_screen.dart';
+import 'features/auth/state/auth_controller.dart';
 import 'features/company/company_portal_text.dart';
 import 'features/company/data/company_api.dart';
 import 'features/company/models/company_models.dart';
@@ -22,6 +26,7 @@ import 'features/company/ui/company_promotions_screen.dart';
 import 'features/company/ui/company_reports_screen.dart';
 import 'features/company/ui/company_settings_screen.dart';
 import 'features/company/ui/company_users_screen.dart';
+import 'features/hr/ui/hr_dashboard_screen.dart';
 import 'l10n/app_localizations.dart';
 
 /// نقطة الإقلاع الخاصة ببوابة الشركات.
@@ -29,24 +34,157 @@ import 'l10n/app_localizations.dart';
 /// تستخدم جلسة منفصلة (`CompanySessionController`) لأن البوابة تملك token
 /// وسياق شركة نشطة مستقلين عن جلسة التطبيق العامة.
 void runCompanyAppBootstrap() {
+  AppFlavorContext.setCurrent(AppFlavor.company);
   WidgetsFlutterBinding.ensureInitialized();
   installAppRuntimeErrorPresentation();
   unawaited(MediaCacheService.instance.scheduleMaintenance());
   runApp(
     ProviderScope(
-      overrides: [appSettingsStorageScopeProvider.overrideWithValue('company')],
+      overrides: [
+        appFlavorProvider.overrideWithValue(AppFlavor.company),
+        appSettingsStorageScopeProvider.overrideWithValue(
+          AppFlavor.company.storageScope,
+        ),
+      ],
       child: const CompanyPortalApp(),
     ),
   );
 }
 
-class CompanyPortalApp extends ConsumerWidget {
+class CompanyPortalApp extends ConsumerStatefulWidget {
   const CompanyPortalApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CompanyPortalApp> createState() => _CompanyPortalAppState();
+}
+
+class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
+  ProviderSubscription<AuthState>? _authStateSub;
+  bool _bootstrapped = false;
+  bool _logoutInFlight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _authStateSub = ref.listenManual<AuthState>(authControllerProvider, (
+      previous,
+      next,
+    ) {
+      _handleAuthStateChanged(previous, next);
+    });
+
+    Future.microtask(() async {
+      await ref.read(authControllerProvider.notifier).bootstrap();
+      if (!mounted) return;
+      await _bootstrapCompanySessionIfNeeded(
+        ref.read(authControllerProvider),
+      );
+      if (!mounted) return;
+      setState(() {
+        _bootstrapped = true;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _authStateSub?.close();
+    super.dispose();
+  }
+
+  bool _hasVerifiedSession(AuthState auth) =>
+      auth.isAuthed && auth.user != null;
+
+  bool _isCompanySurfaceAuth(AuthState auth) {
+    return auth.isBackoffice ||
+        auth.isAccountant ||
+        auth.isHr ||
+        auth.isCompanyPortal;
+  }
+
+  void _handleAuthStateChanged(AuthState? previous, AuthState next) {
+    final wasAuthed = previous == null ? false : _hasVerifiedSession(previous);
+    final isAuthed = _hasVerifiedSession(next);
+
+    if (wasAuthed && !isAuthed) {
+      return;
+    }
+
+    if (isAuthed && _isCompanySurfaceAuth(next)) {
+      unawaited(_bootstrapCompanySessionIfNeeded(next));
+    }
+  }
+
+  Future<void> _bootstrapCompanySessionIfNeeded(AuthState auth) async {
+    if (!mounted || !auth.isCompanyPortal) return;
+    final session = ref.read(companySessionControllerProvider);
+    if (session.isAuthenticated || session.bootstrapping) return;
+
+    await ref.read(companySessionControllerProvider.notifier).bootstrap();
+    if (!mounted) return;
+
+    final refreshed = ref.read(companySessionControllerProvider);
+    if (refreshed.error != null && _hasVerifiedSession(auth)) {
+      if (_logoutInFlight) return;
+      _logoutInFlight = true;
+      try {
+        await ref.read(authControllerProvider.notifier).logout();
+      } finally {
+        _logoutInFlight = false;
+      }
+    }
+  }
+
+  Widget _homeForAuth(AuthState auth, CompanySessionState session) {
+    if (auth.isCompanyPortal) {
+      if (session.isAuthenticated) {
+        return const CompanyShellScreen();
+      }
+      if (session.bootstrapping) {
+        return const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        );
+      }
+      return const CompanyLoginScreen();
+    }
+
+    if (auth.isBackoffice || auth.isSuperAdmin) {
+      return const AdminDashboardScreen();
+    }
+    if (auth.isAccountant) {
+      return const AccountantDashboardScreen();
+    }
+    if (auth.isHr) {
+      return const HrDashboardScreen();
+    }
+    return const CompanyLoginScreen();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsControllerProvider);
+    final auth = ref.watch(authControllerProvider);
+    final session = ref.watch(companySessionControllerProvider);
     Intl.defaultLocale = settings.locale.languageCode;
+
+    if (_hasVerifiedSession(auth) && !_isCompanySurfaceAuth(auth)) {
+      if (!_logoutInFlight) {
+        _logoutInFlight = true;
+        Future.microtask(() async {
+          await ref.read(authControllerProvider.notifier).logout();
+          _logoutInFlight = false;
+        });
+      }
+    } else {
+      _logoutInFlight = false;
+    }
+
+    final home = !_bootstrapped || auth.loading
+        ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+        : (_hasVerifiedSession(auth)
+              ? _homeForAuth(auth, session)
+              : const CompanyLoginScreen());
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       onGenerateTitle: (context) => context.l10n.companyPortalWindowTitle,
@@ -60,25 +198,8 @@ class CompanyPortalApp extends ConsumerWidget {
         if (child == null) return const SizedBox.shrink();
         return AppBackdrop(child: AppResponsiveShell(child: child));
       },
-      home: const CompanyAuthGate(),
+      home: home,
     );
-  }
-}
-
-/// بوابة قرار أولية: loading -> login -> shell بحسب جاهزية جلسة الشركات.
-class CompanyAuthGate extends ConsumerWidget {
-  const CompanyAuthGate({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(companySessionControllerProvider);
-    if (session.bootstrapping) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    if (!session.isAuthenticated) {
-      return const CompanyLoginScreen();
-    }
-    return const CompanyShellScreen();
   }
 }
 
@@ -444,3 +565,5 @@ class _SidebarItem extends StatelessWidget {
     );
   }
 }
+
+

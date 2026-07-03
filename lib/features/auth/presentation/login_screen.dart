@@ -103,12 +103,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       });
       return;
     }
-    final isAllowedInPrimaryApp =
-        !authAfter.isOwner &&
-        !authAfter.isDelivery &&
-        !authAfter.isTaxiCaptain &&
-        !authAfter.isCompanyPortal;
-    if (isAllowedInPrimaryApp) return;
+    if (authAfter.isCustomer) return;
 
     if (authAfter.isAuthed) {
       await ref.read(authControllerProvider.notifier).logout();

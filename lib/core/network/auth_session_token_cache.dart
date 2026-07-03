@@ -1,14 +1,27 @@
+import '../platform/app_flavor.dart';
+
 class AuthSessionTokenCache {
-  static String? _token;
+  static final Map<AppFlavor, String?> _tokens = <AppFlavor, String?>{};
 
-  static String? get currentToken => _token;
-
-  static void setToken(String? token) {
-    final normalized = token?.trim();
-    _token = (normalized == null || normalized.isEmpty) ? null : normalized;
+  static String? currentToken({AppFlavor? flavor}) {
+    final resolvedFlavor = flavor ?? AppFlavorContext.current;
+    return _tokens[resolvedFlavor];
   }
 
-  static void clear() {
-    _token = null;
+  static void setToken(String? token, {AppFlavor? flavor}) {
+    final normalized = token?.trim();
+    final resolvedFlavor = flavor ?? AppFlavorContext.current;
+    _tokens[resolvedFlavor] =
+        (normalized == null || normalized.isEmpty) ? null : normalized;
+  }
+
+  static void clear({AppFlavor? flavor}) {
+    final resolvedFlavor = flavor ?? AppFlavorContext.current;
+    _tokens.remove(resolvedFlavor);
+  }
+
+  static void clearAll() {
+    _tokens.clear();
   }
 }
+

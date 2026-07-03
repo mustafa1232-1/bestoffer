@@ -16,6 +16,7 @@ import 'core/constants/api.dart';
 import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
 import 'core/navigation/app_route_observer.dart';
+import 'core/platform/app_flavor.dart';
 import 'core/platform/app_platform_capabilities.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/notifications/local_notification_service.dart';
@@ -27,12 +28,9 @@ import 'core/sections/section_availability_controller.dart';
 import 'core/settings/app_settings_controller.dart';
 import 'core/storage/secure_storage.dart';
 import 'core/theme/app_theme.dart';
-import 'features/accountant/ui/accountant_dashboard_screen.dart';
-import 'features/admin/ui/admin_dashboard_screen.dart';
 import 'features/auth/state/auth_controller.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/customer/ui/maslaki_user_shell.dart';
-import 'features/hr/ui/hr_dashboard_screen.dart';
 import 'features/notifications/data/notifications_api.dart';
 import 'features/social/ui/social_call_screen.dart';
 import 'features/startup/state/app_startup_controller.dart';
@@ -114,6 +112,7 @@ Future<void> _runAppWithOptionalSentry(Widget app) async {
 /// - Ø¥Ø°Ø§ Ù„Ù… ÙŠÙØªØ­ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ø£Ùˆ ØªØ¹Ø·Ù„ Ù…Ø¨Ø§Ø´Ø±Ø© Ø¨Ø¹Ø¯ Ø§Ù„Ø¥Ù‚Ù„Ø§Ø¹ØŒ Ø§Ø¨Ø¯Ø£ Ù…Ù† Ù‡Ø°Ø§ Ø§Ù„Ù…Ù„Ù Ø«Ù…
 ///   Ø§ÙØ­Øµ `AppStartupController`, `AuthController` ÙˆØªÙ‡ÙŠØ¦Ø© Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±Ø§Øª.
 void runUserAppBootstrap() {
+  AppFlavorContext.setCurrent(AppFlavor.user);
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
     installAppRuntimeErrorPresentation();
@@ -135,8 +134,11 @@ void runUserAppBootstrap() {
     await _runAppWithOptionalSentry(
       ProviderScope(
         overrides: [
+          appFlavorProvider.overrideWithValue(AppFlavor.user),
           appStartupInitialDoneProvider.overrideWithValue(false),
-          appSettingsStorageScopeProvider.overrideWithValue('user'),
+          appSettingsStorageScopeProvider.overrideWithValue(
+            AppFlavor.user.storageScope,
+          ),
         ],
         child: const MaslakiApp(),
       ),
@@ -442,23 +444,11 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   /// Critical notes:
   /// - Ù‡Ø°Ø§ Ù„ÙŠØ³ route guard ÙƒØ§Ù…Ù„Ø§Ù‹ØŒ Ù„ÙƒÙ†Ù‡ Ø£ÙˆÙ„ Ù†Ù‚Ø·Ø© ØªÙ‚Ø³ÙŠÙ… UX Ø­Ø³Ø¨ Ø§Ù„Ø¯ÙˆØ±.
   Widget _homeForAuth(AuthState auth) {
-    if (auth.isSuperAdmin || auth.isAdmin || auth.isDeputyAdmin) {
-      return const AdminDashboardScreen();
-    }
-    if (auth.isAccountant) {
-      return const AccountantDashboardScreen();
-    }
-    if (auth.isHr) {
-      return const HrDashboardScreen();
-    }
     return const MaslakiUserShell();
   }
 
   bool _isUserAppRole(AuthState auth) {
-    return !auth.isOwner &&
-        !auth.isDelivery &&
-        !auth.isTaxiCaptain &&
-        !auth.isCompanyPortal;
+    return auth.isCustomer;
   }
 
   bool _hasVerifiedSession(AuthState auth) =>

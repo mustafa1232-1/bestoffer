@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { normalizeAppSurface } from "./app-surface.js";
 
 function firstHeaderValue(value) {
   if (Array.isArray(value)) return String(value[0] || "").trim();
@@ -18,6 +19,7 @@ export function buildDeviceFingerprint(input) {
     String(input.deviceId || "").trim(),
     String(input.userAgent || "").trim(),
     String(input.platform || "").trim(),
+    String(input.appFlavor || "").trim(),
     String(input.appVersion || "").trim(),
     String(input.model || "").trim(),
   ].join("|");
@@ -31,6 +33,11 @@ export function extractDeviceContext(req) {
     firstHeaderValue(req.headers["x-installation-id"]);
   const userAgent = firstHeaderValue(req.headers["user-agent"]);
   const platform = firstHeaderValue(req.headers["x-client-platform"]);
+  const appFlavorHeader = firstHeaderValue(req.headers["x-app-flavor"]);
+  const appFlavor =
+    normalizeAppSurface(appFlavorHeader) ||
+    normalizeAppSurface(platform) ||
+    null;
   const appVersion = firstHeaderValue(req.headers["x-app-version"]);
   const model = firstHeaderValue(req.headers["x-device-model"]);
   const ipAddress = extractClientIp(req);
@@ -39,6 +46,7 @@ export function extractDeviceContext(req) {
     deviceId,
     userAgent,
     platform,
+    appFlavor,
     appVersion,
     model,
     ipAddress,
@@ -46,9 +54,9 @@ export function extractDeviceContext(req) {
       deviceId,
       userAgent,
       platform,
+      appFlavor,
       appVersion,
       model,
     }),
   };
 }
-

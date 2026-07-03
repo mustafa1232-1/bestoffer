@@ -35,17 +35,22 @@ function hashIdentity(value) {
 function extractAnonymousClientIdentity(req) {
   const headers = req?.headers || {};
   const deviceId = String(headers["x-device-id"] || "").trim();
-  if (deviceId) return `device:${deviceId.slice(0, 128)}`;
+  const appFlavor = String(headers["x-app-flavor"] || "").trim().toLowerCase();
+  if (deviceId) {
+    return `device:${appFlavor || "default"}:${deviceId.slice(0, 128)}`;
+  }
 
   const installationId = String(headers["x-installation-id"] || "").trim();
-  if (installationId) return `install:${installationId.slice(0, 128)}`;
+  if (installationId) {
+    return `install:${appFlavor || "default"}:${installationId.slice(0, 128)}`;
+  }
 
   const userAgent = String(headers["user-agent"] || "").trim().toLowerCase();
   const platform = String(headers["x-client-platform"] || "")
     .trim()
     .toLowerCase();
-  if (!userAgent && !platform) return "";
-  return `ua:${hashIdentity(`${platform}|${userAgent}`)}`;
+  if (!userAgent && !platform && !appFlavor) return "";
+  return `ua:${hashIdentity(`${appFlavor}|${platform}|${userAgent}`)}`;
 }
 
 export function buildRateLimitKey(req, prefix = "global") {

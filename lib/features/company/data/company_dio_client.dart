@@ -24,7 +24,7 @@ class CompanyDioClient {
       ) {
     configureSecureHttpAdapter(dio, SecureNetworkingConfig.current());
     dio.interceptors.add(
-      InterceptorsWrapper(
+        InterceptorsWrapper(
         onRequest: (options, handler) async {
           final token = await store.readToken();
           if (token != null && token.isNotEmpty) {
@@ -32,7 +32,8 @@ class CompanyDioClient {
           }
           final deviceId = await _ensureDeviceId();
           options.headers['X-Device-Id'] = deviceId;
-          options.headers['X-Client-Platform'] = 'company_portal_flutter';
+          options.headers['X-Client-Platform'] = 'flutter:company';
+          options.headers['X-App-Flavor'] = 'company';
           handler.next(options);
         },
       ),

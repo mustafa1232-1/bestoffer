@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../platform/app_flavor.dart';
 import '../platform/app_platform_capabilities.dart';
 import '../../features/accountant/ui/accountant_dashboard_screen.dart';
 import '../../features/admin/ui/admin_ad_board_screen.dart';
@@ -156,6 +157,12 @@ class NotificationNavigation {
     required AuthState auth,
     required NotificationTapPayload payload,
   }) async {
+    if (!_isFlavorAllowedForAuth(AppFlavorContext.current, auth)) {
+      return;
+    }
+    if (auth.isCompanyPortal) {
+      return;
+    }
     final route = _resolveRoute(auth: auth, payload: payload);
     if (route == null) return;
     await navigator.push(route);
@@ -1401,6 +1408,24 @@ class NotificationNavigation {
     }
 
     return allowsScope(roleScope) && allowsModule(targetModule);
+  }
+
+  static bool _isFlavorAllowedForAuth(AppFlavor flavor, AuthState auth) {
+    switch (flavor) {
+      case AppFlavor.user:
+        return auth.isCustomer || auth.isGuest;
+      case AppFlavor.store:
+        return auth.isOwner;
+      case AppFlavor.delivery:
+        return auth.isDelivery;
+      case AppFlavor.taxiCaptain:
+        return auth.isTaxiCaptain;
+      case AppFlavor.company:
+        return auth.isCompanyBackoffice ||
+            auth.isCompanyPortal ||
+            auth.isAccountant ||
+            auth.isHr;
+    }
   }
 
   static MaterialPageRoute<void> _fallbackRouteForRole(

@@ -7,6 +7,11 @@ import {
 import { extractDeviceContext } from "../utils/device-fingerprint.js";
 import { verifyAccessToken } from "../utils/jwt.js";
 import { AppError } from "../utils/errors.js";
+import {
+  normalizeAppSurface,
+  resolveRouteAppSurface,
+  resolveRoleAppSurface,
+} from "../utils/app-surface.js";
 
 const sessionTouchCache = new Map();
 const sessionAccessCache = new Map();
@@ -251,6 +256,30 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
   const tokenJti = payload?.jti ? String(payload.jti) : null;
   const deviceHashInJwt = payload?.dvh ? String(payload.dvh) : null;
   const deviceContext = extractDeviceContext(req);
+  const headerSurface = normalizeAppSurface(
+    req?.headers?.["x-app-flavor"] || req?.headers?.["x-client-platform"]
+  );
+  const routeSurface = resolveRouteAppSurface(req);
+  const roleSurface = resolveRoleAppSurface(role);
+  const claimSurface = normalizeAppSurface(payload?.appSurface);
+
+  if (claimSurface && roleSurface && claimSurface !== roleSurface) {
+    if (strict) throw asInvalidToken();
+    return null;
+  }
+  if (routeSurface) {
+    if (roleSurface !== routeSurface) {
+      if (strict) throw asInvalidToken();
+      return null;
+    }
+    if (headerSurface && headerSurface !== routeSurface) {
+      if (strict) throw asInvalidToken();
+      return null;
+    }
+  } else if (headerSurface && roleSurface && headerSurface !== roleSurface) {
+    if (strict) throw asInvalidToken();
+    return null;
+  }
 
   if (!sessionId) {
     if (!env.authAllowLegacyTokens) {
@@ -261,13 +290,15 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
     return {
       userId,
       role,
-      isSuperAdmin,
-      isTaxiCaptain,
-      sessionId: null,
-      tokenJti,
-      deviceContext,
-    };
-  }
+    isSuperAdmin,
+    isTaxiCaptain,
+    sessionId: null,
+    tokenJti,
+    deviceContext,
+    appSurface: roleSurface,
+    requestSurface: routeSurface || headerSurface || null,
+  };
+}
 
   const sessionCacheKey = buildSessionAccessCacheKey({
     sessionId,
@@ -336,5 +367,7 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
     sessionId,
     tokenJti,
     deviceContext,
+    appSurface: roleSurface,
+    requestSurface: routeSurface || headerSurface || null,
   };
 }

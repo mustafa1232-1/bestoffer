@@ -1,28 +1,17 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../../core/platform/app_flavor.dart';
+import '../../../core/storage/secure_storage.dart';
 
 class CompanySecureStore {
-  static const _storage = FlutterSecureStorage();
-  static const _tokenKey = 'company_access_token';
-  static const _deviceIdKey = 'company_device_id';
-  static const _activeCompanyIdKey = 'company_active_company_id';
-  static final Map<String, String> _volatileValues = {};
+  static const _activeCompanyIdKey = 'active_company_id';
+
+  final SecureStore _store = SecureStore(flavor: AppFlavor.company);
 
   Future<void> saveToken(String token) async {
-    _volatileValues[_tokenKey] = token;
-    try {
-      await _storage.write(key: _tokenKey, value: token);
-    } catch (_) {}
+    await _store.saveToken(token);
   }
 
   Future<String?> readToken() async {
-    try {
-      final value = await _storage.read(key: _tokenKey);
-      if (value != null && value.isNotEmpty) {
-        _volatileValues[_tokenKey] = value;
-        return value;
-      }
-    } catch (_) {}
-    return _volatileValues[_tokenKey];
+    return _store.readToken();
   }
 
   Future<void> saveActiveCompanyId(int companyId) async {
@@ -35,33 +24,19 @@ class CompanySecureStore {
   }
 
   Future<void> clear() async {
-    _volatileValues.remove(_tokenKey);
-    _volatileValues.remove(_activeCompanyIdKey);
-    try {
-      await _storage.delete(key: _tokenKey);
-      await _storage.delete(key: _activeCompanyIdKey);
-    } catch (_) {}
+    await _store.clear();
   }
 
   Future<void> writeString(String key, String value) async {
-    _volatileValues[key] = value;
-    try {
-      await _storage.write(key: key, value: value);
-    } catch (_) {}
+    await _store.writeString(key, value);
   }
 
   Future<String?> readString(String key) async {
-    try {
-      final value = await _storage.read(key: key);
-      if (value != null) {
-        _volatileValues[key] = value;
-        return value;
-      }
-    } catch (_) {}
-    return _volatileValues[key];
+    return _store.readString(key);
   }
 
-  Future<String?> readDeviceId() => readString(_deviceIdKey);
+  Future<String?> readDeviceId() => readString('device_id');
 
-  Future<void> writeDeviceId(String value) => writeString(_deviceIdKey, value);
+  Future<void> writeDeviceId(String value) => writeString('device_id', value);
 }
+

@@ -243,6 +243,7 @@ app.use(
       "X-Device-Id",
       "X-Installation-Id",
       "X-Client-Platform",
+      "X-App-Flavor",
       "X-App-Version",
       "X-Device-Model",
       "X-Request-Timestamp",

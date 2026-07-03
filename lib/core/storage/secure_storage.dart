@@ -2,9 +2,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../network/auth_session_token_cache.dart';
 import '../network/request_signing.dart';
+import '../platform/app_flavor.dart';
 
 class SecureStore {
   static const _storage = FlutterSecureStorage();
+
   static const _tokenKey = 'access_token';
   static const _refreshTokenKey = 'refresh_token';
   static const _guestModeKey = 'guest_mode_active';
@@ -22,29 +24,55 @@ class SecureStore {
     _guestModeKey,
     ..._requestSigningKeys,
   };
+
   static final Map<String, String> _volatileValues = {};
-  static String? _volatileToken;
+  static final Map<AppFlavor, String?> _volatileTokens = {};
+
+  final AppFlavor flavor;
+
+  SecureStore({AppFlavor? flavor})
+    : flavor = flavor ?? AppFlavorContext.current;
+
+  String storageKey(String key) => _storageKeyFor(flavor, key);
+
+  String _storageKeyFor(AppFlavor flavor, String key) {
+    final normalizedKey = key.trim();
+    if (normalizedKey.isEmpty) return normalizedKey;
+    return '${flavor.key}_$normalizedKey';
+  }
+
+  List<String> _fallbackStorageKeys(String key) {
+    if (flavor == AppFlavor.user) {
+      final legacy = key.trim();
+      if (legacy.isNotEmpty) return [legacy];
+    }
+    return const [];
+  }
+
+  List<String> _allStorageKeys(String key) {
+    final scoped = storageKey(key);
+    final fallbacks = _fallbackStorageKeys(key);
+    return [scoped, ...fallbacks.where((value) => value != scoped)];
+  }
 
   Future<void> saveToken(String token) async {
     final previousToken =
-        _volatileToken ??
-        _volatileValues[_tokenKey] ??
-        AuthSessionTokenCache.currentToken;
+        _volatileTokens[flavor] ??
+        _volatileValues[storageKey(_tokenKey)] ??
+        AuthSessionTokenCache.currentToken(flavor: flavor);
     if (previousToken != null && previousToken != token) {
       for (final key in _requestSigningKeys) {
-        _volatileValues.remove(key);
-        try {
-          await _storage.delete(key: key);
-        } catch (_) {
-          // Ignore secure storage cleanup failures.
-        }
+        await delete(key);
       }
     }
-    _volatileValues[_tokenKey] = token;
-    _volatileToken = token;
-    AuthSessionTokenCache.setToken(token);
+
+    final scopedKey = storageKey(_tokenKey);
+    _volatileValues[scopedKey] = token;
+    _volatileTokens[flavor] = token;
+    AuthSessionTokenCache.setToken(token, flavor: flavor);
+
     try {
-      await _storage.write(key: _tokenKey, value: token);
+      await _storage.write(key: scopedKey, value: token);
     } catch (_) {
       // Some Android emulators fail secure keystore init; keep volatile fallback.
     }
@@ -76,21 +104,23 @@ class SecureStore {
   Future<String?> readToken() async {
     final guestMode = await readBool(_guestModeKey) ?? false;
     if (guestMode) {
-      _volatileToken = null;
-      AuthSessionTokenCache.clear();
+      _volatileTokens[flavor] = null;
+      AuthSessionTokenCache.clear(flavor: flavor);
       return null;
     }
+
     final value = await readString(_tokenKey);
     if (value != null && value.isNotEmpty) {
-      _volatileToken = value;
-      AuthSessionTokenCache.setToken(value);
+      _volatileTokens[flavor] = value;
+      AuthSessionTokenCache.setToken(value, flavor: flavor);
       return value;
     }
+
     final fallback =
-        _volatileToken ??
-        _volatileValues[_tokenKey] ??
-        AuthSessionTokenCache.currentToken;
-    AuthSessionTokenCache.setToken(fallback);
+        _volatileTokens[flavor] ??
+        _volatileValues[storageKey(_tokenKey)] ??
+        AuthSessionTokenCache.currentToken(flavor: flavor);
+    AuthSessionTokenCache.setToken(fallback, flavor: flavor);
     return fallback;
   }
 
@@ -102,47 +132,61 @@ class SecureStore {
 
   Future<void> clear() async {
     for (final key in _authScopedKeys) {
-      _volatileValues.remove(key);
+      _volatileValues.remove(storageKey(key));
+      for (final fallback in _fallbackStorageKeys(key)) {
+        _volatileValues.remove(fallback);
+      }
     }
-    _volatileToken = null;
-    AuthSessionTokenCache.clear();
+    _volatileTokens[flavor] = null;
+    AuthSessionTokenCache.clear(flavor: flavor);
     for (final key in _authScopedKeys) {
-      try {
-        await _storage.delete(key: key);
-      } catch (_) {
-        // Ignore clear failures in secure storage.
+      for (final storageName in _allStorageKeys(key)) {
+        try {
+          await _storage.delete(key: storageName);
+        } catch (_) {
+          // Ignore clear failures in secure storage.
+        }
       }
     }
   }
 
   Future<void> writeString(String key, String value) async {
-    _volatileValues[key] = value;
+    final scopedKey = storageKey(key);
+    _volatileValues[scopedKey] = value;
     try {
-      await _storage.write(key: key, value: value);
+      await _storage.write(key: scopedKey, value: value);
     } catch (_) {
       // Fallback to volatile storage only.
     }
   }
 
   Future<String?> readString(String key) async {
-    try {
-      final value = await _storage.read(key: key);
-      if (value != null) {
-        _volatileValues[key] = value;
-        return value;
+    for (final storageName in _allStorageKeys(key)) {
+      try {
+        final value = await _storage.read(key: storageName);
+        if (value != null) {
+          _volatileValues[storageName] = value;
+          return value;
+        }
+      } catch (_) {
+        // Fallback to volatile storage only.
       }
-    } catch (_) {
-      // Fallback to volatile storage only.
+      final cached = _volatileValues[storageName];
+      if (cached != null) {
+        return cached;
+      }
     }
-    return _volatileValues[key];
+    return null;
   }
 
   Future<void> delete(String key) async {
-    _volatileValues.remove(key);
-    try {
-      await _storage.delete(key: key);
-    } catch (_) {
-      // Ignore clear failures in secure storage.
+    for (final storageName in _allStorageKeys(key)) {
+      _volatileValues.remove(storageName);
+      try {
+        await _storage.delete(key: storageName);
+      } catch (_) {
+        // Ignore clear failures in secure storage.
+      }
     }
   }
 
@@ -157,3 +201,4 @@ class SecureStore {
     return null;
   }
 }
+

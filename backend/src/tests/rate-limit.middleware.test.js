@@ -62,6 +62,7 @@ test("buildRateLimitKey uses device identity for anonymous public traffic", () =
     headers: {
       "x-device-id": "device-alpha",
       "x-client-platform": "flutter",
+      "x-app-flavor": "user",
     },
   });
   const reqB = buildReq({
@@ -69,6 +70,7 @@ test("buildRateLimitKey uses device identity for anonymous public traffic", () =
     headers: {
       "x-device-id": "device-beta",
       "x-client-platform": "flutter",
+      "x-app-flavor": "company",
     },
   });
   const reqC = buildReq({
@@ -76,6 +78,7 @@ test("buildRateLimitKey uses device identity for anonymous public traffic", () =
     headers: {
       "x-device-id": "device-alpha",
       "x-client-platform": "flutter",
+      "x-app-flavor": "user",
     },
   });
 
@@ -86,6 +89,30 @@ test("buildRateLimitKey uses device identity for anonymous public traffic", () =
   assert.match(keyA, /^rl:api:2\.2\.2\.2:anon-client:[a-f0-9]{16}$/);
   assert.notEqual(keyA, keyB);
   assert.equal(keyA, keyC);
+});
+
+test("buildRateLimitKey separates anonymous buckets by flavor", () => {
+  const reqUser = buildReq({
+    ip: "2.2.2.2",
+    headers: {
+      "x-device-id": "device-shared",
+      "x-client-platform": "flutter",
+      "x-app-flavor": "user",
+    },
+  });
+  const reqCompany = buildReq({
+    ip: "2.2.2.2",
+    headers: {
+      "x-device-id": "device-shared",
+      "x-client-platform": "flutter",
+      "x-app-flavor": "company",
+    },
+  });
+
+  const keyUser = buildRateLimitKey(reqUser, "api");
+  const keyCompany = buildRateLimitKey(reqCompany, "api");
+
+  assert.notEqual(keyUser, keyCompany);
 });
 
 test("buildRateLimitKey prefers forwarded-for first IP", () => {

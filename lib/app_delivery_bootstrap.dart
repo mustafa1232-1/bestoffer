@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
+import 'core/platform/app_flavor.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/notifications/local_notification_service.dart';
 import 'core/notifications/notification_navigation.dart';
@@ -26,12 +27,16 @@ import 'l10n/app_localizations.dart';
 /// Uses the full delivery feature module (`DeliveryDashboardScreen`) instead of
 /// the lightweight runtime shell.
 void runDeliveryAppBootstrap() {
+  AppFlavorContext.setCurrent(AppFlavor.delivery);
   WidgetsFlutterBinding.ensureInitialized();
   installAppRuntimeErrorPresentation();
   runApp(
     ProviderScope(
       overrides: [
-        appSettingsStorageScopeProvider.overrideWithValue('delivery'),
+        appFlavorProvider.overrideWithValue(AppFlavor.delivery),
+        appSettingsStorageScopeProvider.overrideWithValue(
+          AppFlavor.delivery.storageScope,
+        ),
       ],
       child: const MaslakiDeliveryApp(),
     ),

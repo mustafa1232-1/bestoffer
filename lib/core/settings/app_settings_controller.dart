@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../constants/api.dart';
+import '../platform/app_flavor.dart';
 import '../theme/theme_preset.dart';
 import '../storage/secure_storage.dart';
 
@@ -51,7 +52,7 @@ class AppSettingsState {
 
 final appSettingsControllerProvider =
     StateNotifierProvider<AppSettingsController, AppSettingsState>((ref) {
-      final store = SecureStore();
+      final store = SecureStore(flavor: ref.watch(appFlavorProvider));
       return AppSettingsController(
         store,
         deviceLocale: PlatformDispatcher.instance.locale,
@@ -247,7 +248,8 @@ class AppLocaleRemoteSync {
         options: Options(
           headers: {
             'Authorization': 'Bearer $token',
-            'X-Client-Platform': 'flutter',
+            'X-Client-Platform': store.flavor.clientPlatformTag,
+            'X-App-Flavor': store.flavor.key,
           },
         ),
       );

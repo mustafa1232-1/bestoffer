@@ -13,12 +13,15 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/media/media_cache_service.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/settings/app_settings_controller.dart';
+import '../../../core/platform/app_flavor.dart';
 import '../data/auth_api.dart';
 import '../data/auth_repo_impl.dart';
 import '../domain/auth_repo.dart';
 import '../models/user_model.dart';
 
-final secureStoreProvider = Provider<SecureStore>((ref) => SecureStore());
+final secureStoreProvider = Provider<SecureStore>((ref) {
+  return SecureStore(flavor: ref.watch(appFlavorProvider));
+});
 
 final dioClientProvider = Provider<DioClient>(
   (ref) => DioClient(ref.read(secureStoreProvider)),
@@ -55,6 +58,11 @@ class AuthState {
 
   bool get isOwner => _resolveRole() == 'owner';
 
+  bool get isCustomer {
+    final role = _resolveRole();
+    return role == 'user' || role == 'customer';
+  }
+
   bool get isTaxiCaptain {
     if (user?.isTaxiCaptain == true) return true;
     final role = _resolveRole();
@@ -75,6 +83,9 @@ class AuthState {
   bool get isServiceProvider => _resolveRole() == 'service_provider';
 
   bool get isBackoffice => isAdmin || isDeputyAdmin || isSuperAdmin;
+
+  bool get isCompanyBackoffice =>
+      isBackoffice || isAccountant || isHr || isCompanyPortal;
 
   bool get isSuperAdmin {
     if (user?.isSuperAdmin == true) return true;

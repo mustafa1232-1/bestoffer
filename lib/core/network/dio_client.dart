@@ -5,6 +5,7 @@ import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:maslaki/core/network/auth_session_token_cache.dart';
 import 'package:maslaki/core/network/request_signing.dart';
 import 'package:maslaki/core/network/secure_networking_config.dart';
+import 'package:maslaki/core/platform/app_flavor.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -36,7 +37,9 @@ class DioClient {
             }
             final deviceId = await _ensureDeviceId(store);
             options.headers['X-Device-Id'] = deviceId;
-            options.headers['X-Client-Platform'] = 'flutter';
+            options.headers['X-Client-Platform'] =
+                store.flavor.clientPlatformTag;
+            options.headers['X-App-Flavor'] = store.flavor.key;
             if (!skipAuth &&
                 token != null &&
                 token.isNotEmpty &&
@@ -120,7 +123,9 @@ class DioClient {
   Future<String?>? _accessRefreshFuture;
 
   Future<String?> _readUsableAccessToken() async {
-    final token = await store.readToken() ?? AuthSessionTokenCache.currentToken;
+    final token =
+        await store.readToken() ??
+        AuthSessionTokenCache.currentToken(flavor: store.flavor);
     if (token == null || token.isEmpty) return null;
     if (!_shouldRefreshAccessToken(token)) return token;
     try {
@@ -188,7 +193,8 @@ class DioClient {
             'Accept': 'application/json; charset=utf-8',
             'Authorization': 'Bearer $currentAccessToken',
             'X-Device-Id': deviceId,
-            'X-Client-Platform': 'flutter',
+            'X-Client-Platform': store.flavor.clientPlatformTag,
+            'X-App-Flavor': store.flavor.key,
           },
           extra: const {'skipSigning': true, 'skipAuthRefresh': true},
         ),
@@ -230,7 +236,8 @@ class DioClient {
     }
 
     final currentToken =
-        await store.readToken() ?? AuthSessionTokenCache.currentToken;
+        await store.readToken() ??
+        AuthSessionTokenCache.currentToken(flavor: store.flavor);
     if (currentToken == null || currentToken.isEmpty) return null;
 
     final requestToken = _readBearerHeader(request.headers['Authorization']);
@@ -247,7 +254,8 @@ class DioClient {
     );
     retryOptions.headers['Authorization'] = 'Bearer $nextToken';
     retryOptions.headers['X-Device-Id'] = await _ensureDeviceId(store);
-    retryOptions.headers['X-Client-Platform'] = 'flutter';
+    retryOptions.headers['X-Client-Platform'] = store.flavor.clientPlatformTag;
+    retryOptions.headers['X-App-Flavor'] = store.flavor.key;
     for (final header in const [
       'X-Request-Key-Id',
       'X-Request-Timestamp',
@@ -371,7 +379,9 @@ class DioClient {
   String? _cachedBindingKey;
 
   Future<RequestSigningMaterial?> _readStoredSigningMaterial() async {
-    final token = await store.readToken() ?? AuthSessionTokenCache.currentToken;
+    final token =
+        await store.readToken() ??
+        AuthSessionTokenCache.currentToken(flavor: store.flavor);
     if (token == null || token.isEmpty) {
       await _clearSigningMaterial();
       return null;
@@ -476,14 +486,15 @@ class _RequestSessionBinding {
 }
 
 Future<String> _ensureDeviceId(SecureStore store) async {
+  final key = store.storageKey(DioClient._deviceIdKey);
   final existing = await store.readString(DioClient._deviceIdKey);
   if (existing != null && existing.trim().isNotEmpty) {
     final normalized = existing.trim();
-    await _persistDeviceIdFallback(normalized);
+    await _persistDeviceIdFallback(key, normalized);
     return normalized;
   }
   final prefs = await SharedPreferences.getInstance();
-  final fallback = prefs.getString(DioClient._deviceIdKey);
+  final fallback = prefs.getString(key);
   if (fallback != null && fallback.trim().isNotEmpty) {
     final normalized = fallback.trim();
     await store.writeString(DioClient._deviceIdKey, normalized);
@@ -493,14 +504,14 @@ Future<String> _ensureDeviceId(SecureStore store) async {
   final bytes = List<int>.generate(16, (_) => random.nextInt(256));
   final value = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   await store.writeString(DioClient._deviceIdKey, value);
-  await _persistDeviceIdFallback(value);
+  await _persistDeviceIdFallback(key, value);
   return value;
 }
 
-Future<void> _persistDeviceIdFallback(String value) async {
+Future<void> _persistDeviceIdFallback(String key, String value) async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(DioClient._deviceIdKey, value);
+    await prefs.setString(key, value);
   } catch (_) {
     // The in-memory SecureStore fallback still covers the current process.
   }

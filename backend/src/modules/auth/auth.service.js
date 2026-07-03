@@ -28,6 +28,11 @@ import {
 import { signAccessToken } from "../../shared/utils/jwt.js";
 import { env } from "../../config/env.js";
 import crypto from "crypto";
+import { AppError } from "../../shared/utils/errors.js";
+import {
+  isRoleAllowedForSurface,
+  resolveRoleAppSurface,
+} from "../../shared/utils/app-surface.js";
 import {
   invalidateSessionAccessCacheForSession,
   invalidateSessionAccessCacheForUser,
@@ -231,6 +236,7 @@ async function issueSessionToken(user, deviceContext = {}) {
   const tokenJti = createTokenJti();
   const refreshToken = createRefreshToken();
   const { expiresAt } = buildSessionTimestamps();
+  const appSurface = resolveRoleAppSurface(user.role);
 
   const session = await createUserSession({
     userId: user.id,
@@ -248,6 +254,7 @@ async function issueSessionToken(user, deviceContext = {}) {
       id: user.id,
       role: user.role || "user",
       isSuperAdmin: resolveSuperAdmin(user),
+      appSurface,
     },
     {
       sessionId: session?.id || null,
@@ -278,6 +285,12 @@ export async function register(dto, deviceContext = {}) {
   const phone = normalizePhone(dto.phone);
   const pin = normalizePin(dto.pin);
   const fullName = String(dto.fullName || "").trim();
+  const requestedSurface = deviceContext.appFlavor || null;
+  if (requestedSurface && !isRoleAllowedForSurface("user", requestedSurface)) {
+    const err = new AppError("FORBIDDEN_APP_SURFACE", { status: 403 });
+    err.details = { appSurface: requestedSurface };
+    throw err;
+  }
   const analyticsConsentAccepted = normalizeConsentAccepted(
     dto.analyticsConsentAccepted
   );
@@ -397,6 +410,13 @@ export async function login({ phone, pin }, deviceContext = {}) {
     throw err;
   }
 
+  const requestedSurface = deviceContext.appFlavor || null;
+  if (requestedSurface && !isRoleAllowedForSurface(user.role, requestedSurface)) {
+    const err = new AppError("FORBIDDEN_APP_SURFACE", { status: 403 });
+    err.details = { appSurface: requestedSurface };
+    throw err;
+  }
+
   await resetLoginProtection(user.id);
   const session = await issueSessionToken(user, deviceContext);
 
@@ -430,6 +450,13 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
   if (!row) {
     const err = new Error("INVALID_REFRESH_TOKEN");
     err.status = 401;
+    throw err;
+  }
+
+  const requestedSurface = deviceContext.appFlavor || null;
+  if (requestedSurface && !isRoleAllowedForSurface(row.role, requestedSurface)) {
+    const err = new AppError("FORBIDDEN_APP_SURFACE", { status: 403 });
+    err.details = { appSurface: requestedSurface };
     throw err;
   }
 
@@ -491,6 +518,7 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
       role: row.role || "user",
       isSuperAdmin: resolveSuperAdmin(row),
       isTaxiCaptain: row.is_taxi_captain === true,
+      appSurface: resolveRoleAppSurface(row.role),
     },
     {
       sessionId: session.id,

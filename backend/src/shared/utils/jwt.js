@@ -21,6 +21,7 @@ export function signAccessToken(user, session = {}) {
     sa: user.isSuperAdmin === true,
     tc: user.isTaxiCaptain === true,
   };
+  if (user.appSurface) payload.appSurface = String(user.appSurface);
   if (session.sessionId != null) payload.sid = Number(session.sessionId);
   if (session.tokenJti) payload.jti = String(session.tokenJti);
   if (session.deviceFingerprint) {

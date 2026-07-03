@@ -6,7 +6,7 @@ import '../../../core/settings/app_settings_controller.dart';
 import '../../../core/theme/app_backdrop.dart';
 import '../../../core/widgets/maslaki_brand_mark.dart';
 import '../../../core/widgets/maslaki_wordmark.dart';
-import '../state/company_session_controller.dart';
+import '../../auth/state/auth_controller.dart';
 
 class CompanyLoginScreen extends ConsumerStatefulWidget {
   const CompanyLoginScreen({super.key});
@@ -30,17 +30,31 @@ class _CompanyLoginScreenState extends ConsumerState<CompanyLoginScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     await ref
-        .read(companySessionControllerProvider.notifier)
-        .login(
-          phone: _phoneController.text.trim(),
-          pin: _pinController.text.trim(),
-        );
+        .read(authControllerProvider.notifier)
+        .login(_phoneController.text.trim(), _pinController.text.trim());
+
+    if (!mounted) return;
+    final authAfter = ref.read(authControllerProvider);
+    if (!authAfter.isAuthed || authAfter.error != null) {
+      return;
+    }
+    if (authAfter.isCompanyPortal || authAfter.isCompanyBackoffice) {
+      return;
+    }
+
+    await ref.read(authControllerProvider.notifier).logout();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('This account is not allowed in the company app.'),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final session = ref.watch(companySessionControllerProvider);
+    final auth = ref.watch(authControllerProvider);
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -138,18 +152,18 @@ class _CompanyLoginScreenState extends ConsumerState<CompanyLoginScreen> {
                           },
                           onFieldSubmitted: (_) => _submit(),
                         ),
-                        if (session.error?.isNotEmpty == true) ...[
+                        if (auth.error?.isNotEmpty == true) ...[
                           const SizedBox(height: 14),
                           Text(
-                            session.error!,
+                            auth.error!,
                             style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(color: scheme.error),
                           ),
                         ],
                         const SizedBox(height: 22),
                         FilledButton.icon(
-                          onPressed: session.loggingIn ? null : _submit,
-                          icon: session.loggingIn
+                          onPressed: auth.loading ? null : _submit,
+                          icon: auth.loading
                               ? const SizedBox(
                                   width: 18,
                                   height: 18,
@@ -159,7 +173,7 @@ class _CompanyLoginScreenState extends ConsumerState<CompanyLoginScreen> {
                                 )
                               : const Icon(Icons.login_rounded),
                           label: Text(
-                            session.loggingIn
+                            auth.loading
                                 ? l10n.companyLoginSigningIn
                                 : l10n.companyLoginSubmit,
                           ),

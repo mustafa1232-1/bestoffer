@@ -20,7 +20,7 @@ final companyApiProvider = Provider<CompanyApi>((ref) {
 
 final companySessionControllerProvider =
     StateNotifierProvider<CompanySessionController, CompanySessionState>((ref) {
-      return CompanySessionController(ref)..bootstrap();
+      return CompanySessionController(ref);
     });
 
 /// حالة جلسة بوابة الشركات: المستخدم، العضويات، والشركة النشطة حالياً.
@@ -37,7 +37,7 @@ class CompanySessionState {
   final int? activeCompanyId;
 
   const CompanySessionState({
-    this.bootstrapping = true,
+    this.bootstrapping = false,
     this.loggingIn = false,
     this.error,
     this.user,

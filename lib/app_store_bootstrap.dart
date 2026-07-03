@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
+import 'core/platform/app_flavor.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/notifications/local_notification_service.dart';
 import 'core/notifications/notification_navigation.dart';
@@ -24,11 +25,17 @@ import 'l10n/app_localizations.dart';
 /// Uses the full owner workspace (`OwnerDashboardScreen`) instead of the
 /// lightweight runtime shell.
 void runStoreAppBootstrap() {
+  AppFlavorContext.setCurrent(AppFlavor.store);
   WidgetsFlutterBinding.ensureInitialized();
   installAppRuntimeErrorPresentation();
   runApp(
     ProviderScope(
-      overrides: [appSettingsStorageScopeProvider.overrideWithValue('store')],
+      overrides: [
+        appFlavorProvider.overrideWithValue(AppFlavor.store),
+        appSettingsStorageScopeProvider.overrideWithValue(
+          AppFlavor.store.storageScope,
+        ),
+      ],
       child: const MaslakiStoreApp(),
     ),
   );

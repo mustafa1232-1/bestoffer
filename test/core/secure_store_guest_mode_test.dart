@@ -31,6 +31,6 @@ void main() {
     final token = await store.readToken();
 
     expect(token, isNull);
-    expect(AuthSessionTokenCache.currentToken, isNull);
+    expect(AuthSessionTokenCache.currentToken(), isNull);
   });
 }
