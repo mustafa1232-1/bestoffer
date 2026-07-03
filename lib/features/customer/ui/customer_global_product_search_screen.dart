@@ -5,6 +5,7 @@ import '../../merchants/models/merchant_model.dart';
 import '../../merchants/ui/merchant_products_screen.dart';
 import '../../orders/state/cart_controller.dart';
 import '../../orders/state/orders_controller.dart';
+import '../../orders/ui/cart_screen.dart';
 import '../../products/models/product_model.dart';
 import '../../products/ui/product_summary_card.dart';
 import '../../products/ui/product_variant_picker_sheet.dart';
@@ -158,7 +159,11 @@ class _CustomerGlobalProductSearchScreenState
     );
   }
 
-  Future<void> _addToCart(Map<String, dynamic> item) async {
+  Future<void> _addToCart(
+    Map<String, dynamic> item, {
+    bool openCartAfterAdd = false,
+    bool bypassVariantPickerWhenSelectionComplete = false,
+  }) async {
     final product = _toProduct(item);
     final merchant = Map<String, dynamic>.from(
       item['merchant'] as Map? ?? const {},
@@ -170,7 +175,10 @@ class _CustomerGlobalProductSearchScreenState
           locale: Localizations.localeOf(context),
         ).resolveSelection();
     var variantSelections = selected.selectedVariantSelections;
-    if (product.hasVariants) {
+    final hasCompleteVariantSelection = variantSelections.isNotEmpty;
+    if (product.hasVariants &&
+        (!bypassVariantPickerWhenSelectionComplete ||
+            !hasCompleteVariantSelection)) {
       final picked = await showProductVariantPickerSheet(
         context,
         product: product,
@@ -204,6 +212,22 @@ class _CustomerGlobalProductSearchScreenState
         behavior: SnackBarBehavior.floating,
         content: Text('تمت إضافة ${product.name} إلى السلة'),
       ),
+    );
+    if (openCartAfterAdd && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const CartScreen()),
+        );
+      });
+    }
+  }
+
+  Future<void> _quickOrder(Map<String, dynamic> item) async {
+    await _addToCart(
+      item,
+      openCartAfterAdd: true,
+      bypassVariantPickerWhenSelectionComplete: true,
     );
   }
 
@@ -387,6 +411,11 @@ class _CustomerGlobalProductSearchScreenState
                         ),
                       ),
                       child: const Text('فتح المتجر'),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: () => _quickOrder(item),
+                      icon: const Icon(Icons.flash_on_rounded),
+                      label: const Text('طلب سريع'),
                     ),
                     FilledButton.icon(
                       onPressed: () => _addToCart(item),

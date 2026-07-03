@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:maslaki/features/customer/ui/customer_global_product_search_screen.dart';
 import 'package:maslaki/features/orders/data/orders_api.dart';
+import 'package:maslaki/features/orders/state/cart_controller.dart';
 import 'package:maslaki/features/orders/state/orders_controller.dart';
 import 'package:maslaki/features/products/ui/product_summary_card.dart';
 
@@ -180,6 +181,44 @@ void main() {
             .first,
       );
       expect(blueChip.selected, isTrue);
+    },
+  );
+
+  testWidgets(
+    'quick order opens cart from the selected shared card state',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 2000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [ordersApiProvider.overrideWithValue(_FakeOrdersApi())],
+          child: const MaterialApp(home: CustomerGlobalProductSearchScreen()),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      await tester.enterText(find.byType(TextField), 'قميص');
+      await tester.tap(find.byIcon(Icons.arrow_forward_rounded));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      await tester.tap(find.text('أزرق'));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(find.text('طلب سريع'));
+      await tester.pump(const Duration(milliseconds: 800));
+
+      final element = tester.element(
+        find.byType(CustomerGlobalProductSearchScreen),
+      );
+      final container = ProviderScope.containerOf(element);
+      final cart = container.read(cartControllerProvider);
+      expect(cart.items, hasLength(1));
+      expect(
+        cart.items.first.selectedVariantSelections.any(
+          (selection) => selection['optionCode'] == 'blue',
+        ),
+        isTrue,
+      );
     },
   );
 }
