@@ -271,6 +271,64 @@ void main() {
     expect(cachedImage(tester, '/main.jpg').imageUrl, '/main.jpg');
   });
 
+  test('selection resolves the exact variant id when color and size match', () {
+    final product = buildProduct(
+      name: 'منتج مطابق',
+      categoryName: 'cloths',
+      variantGroups: const [
+        {
+          'code': 'color',
+          'labelAr': 'اللون',
+          'labelEn': 'Color',
+          'displayMode': 'swatches',
+          'selectionMode': 'single',
+          'required': true,
+          'options': [
+            {
+              'code': 'red',
+              'labelAr': 'أحمر',
+              'labelEn': 'Red',
+              'swatchHex': '#FF0000',
+              'isAvailable': true,
+            },
+          ],
+        },
+        {
+          'code': 'size',
+          'labelAr': 'المقاس',
+          'labelEn': 'Size',
+          'displayMode': 'chips',
+          'selectionMode': 'single',
+          'required': true,
+          'options': [
+            {'code': 'm', 'labelAr': 'M', 'labelEn': 'M', 'isAvailable': true},
+          ],
+        },
+      ],
+      variants: const [
+        {
+          'id': 31,
+          'signature': 'color:red|size:m',
+          'selections': [
+            {'groupCode': 'color', 'optionCode': 'red'},
+            {'groupCode': 'size', 'optionCode': 'm'},
+          ],
+          'stockQuantity': 9,
+          'isAvailable': true,
+        },
+      ],
+    );
+
+    final selection = ProductSummaryCardData.fromProduct(
+      product,
+    ).resolveSelection(selectedColorCode: 'red', selectedSizeCode: 'm');
+
+    expect(selection.variantId, 31);
+    expect(selection.selectedVariantSelections, hasLength(2));
+    expect(selection.colorCode, 'red');
+    expect(selection.sizeCode, 'm');
+  });
+
   testWidgets('simple product without variants still renders normally', (
     tester,
   ) async {

@@ -118,7 +118,7 @@ async function main() {
         commissionType: "percentage",
         commissionValue: 10,
         serviceFeeType: "fixed",
-        serviceFeeValue: 250,
+        serviceFeeValue: 500,
         deliveryFeeMode: "dynamic",
         appDeliveryFeeValue: 1000,
         storeDeliveryFeeValue: 0,

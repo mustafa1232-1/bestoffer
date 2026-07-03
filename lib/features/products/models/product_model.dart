@@ -458,6 +458,26 @@ class ProductModel {
     return null;
   }
 
+  ProductVariantModel? variantForSelectionEntries(
+    List<Map<String, dynamic>> selections,
+  ) {
+    if (selections.isEmpty) return null;
+    final normalized = <String, String>{};
+    for (final entry in selections) {
+      final groupCode = parseNullableString(
+        entry['groupCode'] ?? entry['group_code'] ?? entry['group'],
+      )?.trim().toLowerCase();
+      final optionCode = parseNullableString(
+        entry['optionCode'] ?? entry['option_code'] ?? entry['option'],
+      )?.trim().toLowerCase();
+      if (groupCode == null || groupCode.isEmpty) continue;
+      if (optionCode == null || optionCode.isEmpty) continue;
+      normalized[groupCode] = optionCode;
+    }
+    if (normalized.isEmpty) return null;
+    return variantForSelections(normalized);
+  }
+
   bool get isInStock {
     if (variants.isNotEmpty) return variants.any((variant) => variant.inStock);
     return stockQuantity == null || stockQuantity! > 0;

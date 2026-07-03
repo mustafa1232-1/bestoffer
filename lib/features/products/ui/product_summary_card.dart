@@ -91,6 +91,7 @@ class ProductSummaryCardSelection {
   final String? sizeLabel;
   final String? imageUrl;
   final int galleryIndex;
+  final int? variantId;
   final List<Map<String, dynamic>> selectedVariantSelections;
 
   const ProductSummaryCardSelection({
@@ -102,6 +103,7 @@ class ProductSummaryCardSelection {
     required this.sizeLabel,
     required this.imageUrl,
     required this.galleryIndex,
+    required this.variantId,
     required this.selectedVariantSelections,
   });
 
@@ -125,6 +127,7 @@ class ProductSummaryCardData {
   final List<ProductSummaryColorData> colors;
   final List<ProductSummarySizeData> sizes;
   final List<ProductSummaryGalleryImageData> galleryImages;
+  final List<ProductVariantModel> variants;
   final String? selectedColorCode;
   final String? selectedSizeCode;
 
@@ -144,6 +147,7 @@ class ProductSummaryCardData {
     this.colors = const [],
     this.sizes = const [],
     this.galleryImages = const [],
+    this.variants = const [],
     this.selectedColorCode,
     this.selectedSizeCode,
   });
@@ -293,6 +297,7 @@ class ProductSummaryCardData {
       colors: colors,
       sizes: sizes,
       galleryImages: galleryImages,
+      variants: product.variants,
       selectedColorCode: resolvedColorCode,
       selectedSizeCode: resolvedSizeCode,
     );
@@ -338,6 +343,7 @@ class ProductSummaryCardData {
         'optionId': size.optionId,
       });
     }
+    final variant = variantForSelectionEntries(selections);
 
     return ProductSummaryCardSelection(
       colorCode: color?.code,
@@ -348,8 +354,40 @@ class ProductSummaryCardData {
       sizeLabel: size?.label,
       imageUrl: image?.imageUrl ?? imageUrl,
       galleryIndex: imageIndex,
+      variantId: variant?.id,
       selectedVariantSelections: selections,
     );
+  }
+
+  ProductVariantModel? variantForSelectionEntries(
+    List<Map<String, dynamic>> selections,
+  ) {
+    if (variants.isEmpty || selections.isEmpty) return null;
+    final normalized = <String, String>{};
+    for (final entry in selections) {
+      final groupCode = _normalizeCode(
+        entry['groupCode'] ?? entry['group_code'] ?? entry['group'],
+      );
+      final optionCode = _normalizeCode(
+        entry['optionCode'] ?? entry['option_code'] ?? entry['option'],
+      );
+      if (groupCode == null || optionCode == null) continue;
+      normalized[groupCode] = optionCode;
+    }
+    if (normalized.isEmpty) return null;
+    final parts =
+        normalized.entries
+            .map(
+              (entry) =>
+                  '${entry.key.toLowerCase()}:${entry.value.toLowerCase()}',
+            )
+            .toList()
+          ..sort();
+    final signature = parts.join('|');
+    for (final variant in variants) {
+      if (variant.signature.toLowerCase() == signature) return variant;
+    }
+    return null;
   }
 
   ProductSummaryColorData? _resolveColor(String? code) {

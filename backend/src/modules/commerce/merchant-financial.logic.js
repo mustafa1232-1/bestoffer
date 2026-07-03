@@ -4,7 +4,7 @@ const DEFAULT_MERCHANT_BILLING_PROFILE = Object.freeze({
   commissionType: "percentage",
   commissionValue: 10,
   serviceFeeType: "fixed",
-  serviceFeeValue: 250,
+  serviceFeeValue: 500,
   deliveryFeeMode: "dynamic",
   appDeliveryFeeValue: 1000,
   storeDeliveryFeeValue: 0,

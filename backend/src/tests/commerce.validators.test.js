@@ -9,7 +9,7 @@ test("validateMerchantFinancialApprovalTerms accepts empty body with defaults", 
   assert.equal(result.data.commissionType, "percentage");
   assert.equal(result.data.commissionValue, 10);
   assert.equal(result.data.serviceFeeType, "fixed");
-  assert.equal(result.data.serviceFeeValue, 250);
+  assert.equal(result.data.serviceFeeValue, 500);
   assert.equal(result.data.deliveryFeeMode, "dynamic");
 });
 

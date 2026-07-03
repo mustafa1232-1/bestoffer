@@ -448,6 +448,13 @@ export function normalizeVariantSelectionInput(input = {}) {
   const source = Array.isArray(input)
     ? { selections: input }
     : normalizeObject(input);
+  const variantId = normalizePositiveInt(
+    source.variantId ??
+      source.variant_id ??
+      source.selectedVariantId ??
+      source.selected_variant_id ??
+      source.id
+  );
   const rawSelections = normalizeArray(
     source.selections ??
       source.options ??
@@ -533,6 +540,7 @@ export function normalizeVariantSelectionInput(input = {}) {
     signature,
     priceDeltaTotal,
     hasSelections: selections.length > 0,
+    variantId,
     groupCodes: selections.map((item) => item.groupCode),
     optionCodes: selections.map((item) => item.optionCode),
     optionIds: selections.map((item) => item.optionId).filter((value) => value != null),

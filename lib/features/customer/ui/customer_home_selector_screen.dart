@@ -32,7 +32,9 @@ import '../../merchants/state/merchants_controller.dart';
 import '../../merchants/ui/merchant_products_screen.dart';
 import '../../notifications/ui/notifications_screen.dart';
 import '../../orders/state/delivery_address_controller.dart';
+import '../../orders/ui/cart_screen.dart';
 import '../../orders/ui/delivery_addresses_screen.dart';
+import '../../orders/ui/customer_orders_screen.dart';
 import '../../paid_upgrades/state/paid_upgrades_summary_provider.dart';
 import '../../real_estate/ui/real_estate_marketplace_screen.dart';
 import '../../real_estate/ui/real_estate_workspace_screen.dart';
@@ -190,6 +192,27 @@ class _CustomerHomeSelectorScreenState
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+  }
+
+  Future<void> _openCart() async {
+    if (!mounted) return;
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CartScreen()));
+  }
+
+  Future<void> _openOrders() async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'طلباتي',
+      featureEnglish: 'my orders',
+    )) {
+      return;
+    }
+    if (!mounted) return;
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()));
   }
 
   Future<void> _openAddresses() async {
@@ -804,6 +827,7 @@ class _CustomerHomeSelectorScreenState
     final adBoardState = ref.watch(customerAdBoardControllerProvider);
     final recentActivityState = ref.watch(recentActivityControllerProvider);
     final smartExperienceState = ref.watch(customerSmartExperienceProvider);
+    final auth = ref.watch(authControllerProvider);
 
     final selectedAddress = ref.watch(
       deliveryAddressControllerProvider.select(
@@ -969,6 +993,30 @@ class _CustomerHomeSelectorScreenState
               subtitle: recentActivity.resolveTitle(context),
               icon: Icons.history_toggle_off_rounded,
               onTap: () => _openRecentActivity(recentActivity),
+            ),
+          );
+        }
+        shortcuts.add(
+          _HomeSmartShortcutCard(
+            title: context.lt(ar: 'السلة', en: 'Cart'),
+            subtitle: context.lt(
+              ar: 'راجِع المنتجات المختارة قبل إتمام الطلب',
+              en: 'Review selected products before checkout',
+            ),
+            icon: Icons.shopping_cart_outlined,
+            onTap: _openCart,
+          ),
+        );
+        if (auth.isAuthed) {
+          shortcuts.add(
+            _HomeSmartShortcutCard(
+              title: context.lt(ar: 'طلباتي', en: 'My orders'),
+              subtitle: context.lt(
+                ar: 'افتح الطلبات الجارية والسابقة',
+                en: 'Open current and previous orders',
+              ),
+              icon: Icons.receipt_long_rounded,
+              onTap: _openOrders,
             ),
           );
         }

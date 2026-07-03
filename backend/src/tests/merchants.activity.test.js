@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { normalizeActivityType } from "../modules/merchants/store-activity.registry.js";
 import { validateCreateMerchant } from "../modules/merchants/merchants.validators.js";
 import { validateOwnerRegister } from "../modules/owner/owner.validators.js";
 
@@ -50,4 +51,10 @@ test("validateOwnerRegister requires merchantActivityType (no legacy type fallba
     !withCategory.errors.includes("merchantActivityType"),
     `merchantActivityType should be satisfied, got ${JSON.stringify(withCategory.errors)}`
   );
+});
+
+test("normalizeActivityType keeps fashion aliases on the fashion_clothing surface", () => {
+  assert.equal(normalizeActivityType("fashion"), "fashion_clothing");
+  assert.equal(normalizeActivityType("women_fashion"), "fashion_clothing");
+  assert.equal(normalizeActivityType("men_fashion"), "fashion_clothing");
 });

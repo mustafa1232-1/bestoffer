@@ -269,6 +269,7 @@ class _MerchantProductsScreenState
             canOrder: canOrder,
             usesPharmacyConversation: usesPharmacyConversation,
             showActions: _canCustomerActions,
+            selectedVariantId: selection.variantId,
             selectedVariantSelections: selection.selectedVariantSelections,
           ),
         ),
@@ -281,6 +282,7 @@ class _MerchantProductsScreenState
     required bool canOrder,
     required bool usesPharmacyConversation,
     required bool showActions,
+    required int? selectedVariantId,
     required List<Map<String, dynamic>> selectedVariantSelections,
   }) {
     final tokens = context.maslakiTokens;
@@ -305,6 +307,7 @@ class _MerchantProductsScreenState
               product,
               quantity: 1,
               initialVariantSelections: selectedVariantSelections,
+              initialSelectedVariantId: selectedVariantId,
             )
           : null,
       child: Container(
@@ -805,10 +808,12 @@ class _MerchantProductsScreenState
                   quantity, {
                   List<Map<String, dynamic>> selectedVariantSelections =
                       const [],
+                  int? selectedVariantId,
                 }) async => _addToCart(
                   selectedProduct,
                   quantity: quantity,
                   initialVariantSelections: selectedVariantSelections,
+                  initialSelectedVariantId: selectedVariantId,
                   showFeedback: false,
                 )
               : null,
@@ -861,6 +866,7 @@ class _MerchantProductsScreenState
     ProductModel product, {
     int quantity = 1,
     List<Map<String, dynamic>> initialVariantSelections = const [],
+    int? initialSelectedVariantId,
     bool showFeedback = true,
   }) async {
     final safeQuantity = quantity < 1 ? 1 : quantity;
@@ -874,6 +880,9 @@ class _MerchantProductsScreenState
       if (!mounted || picked == null) return;
       variantSelections = picked;
     }
+    final selectedVariant = product.variantForSelectionEntries(
+      variantSelections,
+    );
     if (_requiresPharmacyConversation(product)) {
       if (!widget.merchant.isOpen || !product.isAvailable) return;
       await _openPharmacyConversationForProduct(
@@ -920,6 +929,7 @@ class _MerchantProductsScreenState
           merchantId: widget.merchant.id,
           merchantName: widget.merchant.name,
           quantity: safeQuantity,
+          selectedVariantId: selectedVariant?.id ?? initialSelectedVariantId,
           selectedVariantSelections: variantSelections,
         );
 
@@ -1284,6 +1294,10 @@ class _MerchantProductsScreenState
                                                                   .id]
                                                               ?.selectedVariantSelections ??
                                                           const [],
+                                                      initialSelectedVariantId:
+                                                          _cardSelections[product
+                                                                  .id]
+                                                              ?.variantId,
                                                     )
                                                   : null,
                                               icon: const Icon(

@@ -187,12 +187,16 @@ class _CustomerGlobalProductSearchScreenState
       if (!mounted || picked == null) return;
       variantSelections = picked;
     }
+    final selectedVariant = product.variantForSelectionEntries(
+      variantSelections,
+    );
     final status = ref
         .read(cartControllerProvider.notifier)
         .addItem(
           product: product,
           merchantId: (merchant['id'] as num?)?.toInt() ?? 0,
           merchantName: merchant['name']?.toString() ?? 'متجر',
+          selectedVariantId: selectedVariant?.id ?? selected.variantId,
           selectedVariantSelections: variantSelections,
         );
     if (!mounted) return;
@@ -216,9 +220,9 @@ class _CustomerGlobalProductSearchScreenState
     if (openCartAfterAdd && mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const CartScreen()),
-        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const CartScreen()));
       });
     }
   }

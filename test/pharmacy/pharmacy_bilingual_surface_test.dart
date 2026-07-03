@@ -52,7 +52,13 @@ void main() {
           similarProducts: const [],
           canOrder: true,
           unavailableLabel: 'غير متاح',
-          onAddToCart: (_, _, {List<Map<String, dynamic>> selectedVariantSelections = const []}) async {},
+          onAddToCart:
+              (
+                _,
+                _, {
+                int? selectedVariantId,
+                List<Map<String, dynamic>> selectedVariantSelections = const [],
+              }) async {},
           onOpenProduct: (_) {},
         ),
         const Locale('ar'),
@@ -77,7 +83,13 @@ void main() {
           similarProducts: const [],
           canOrder: true,
           unavailableLabel: 'Unavailable',
-          onAddToCart: (_, _, {List<Map<String, dynamic>> selectedVariantSelections = const []}) async {},
+          onAddToCart:
+              (
+                _,
+                _, {
+                int? selectedVariantId,
+                List<Map<String, dynamic>> selectedVariantSelections = const [],
+              }) async {},
           onOpenProduct: (_) {},
         ),
         const Locale('en'),

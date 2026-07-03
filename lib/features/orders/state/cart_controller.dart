@@ -7,11 +7,11 @@ import '../models/cart_item_model.dart';
 
 enum CartAddStatus { added, storeLimitExceeded }
 
-final cartControllerProvider = StateNotifierProvider<CartController, CartState>((
-  ref,
-) {
-  return CartController();
-});
+final cartControllerProvider = StateNotifierProvider<CartController, CartState>(
+  (ref) {
+    return CartController();
+  },
+);
 
 class CartStoreSection {
   final int merchantId;
@@ -26,21 +26,30 @@ class CartStoreSection {
 
   double get grossSubtotal {
     return items.fold(0, (sum, item) {
-      final pricing = computeProductOfferPricing(item.product, quantity: item.quantity);
+      final pricing = computeProductOfferPricing(
+        item.product,
+        quantity: item.quantity,
+      );
       return sum + pricing.grossLineTotal;
     });
   }
 
   double get productDiscountTotal {
     return items.fold(0, (sum, item) {
-      final pricing = computeProductOfferPricing(item.product, quantity: item.quantity);
+      final pricing = computeProductOfferPricing(
+        item.product,
+        quantity: item.quantity,
+      );
       return sum + pricing.lineDiscountTotal;
     });
   }
 
   double get subtotal {
     return items.fold(0, (sum, item) {
-      final pricing = computeProductOfferPricing(item.product, quantity: item.quantity);
+      final pricing = computeProductOfferPricing(
+        item.product,
+        quantity: item.quantity,
+      );
       return sum + pricing.lineTotal;
     });
   }
@@ -73,7 +82,8 @@ class CartState {
 
   int? get merchantId => storesCount == 1 ? items.first.merchantId : null;
 
-  String? get merchantName => storesCount == 1 ? items.first.merchantName : null;
+  String? get merchantName =>
+      storesCount == 1 ? items.first.merchantName : null;
 
   List<CartStoreSection> get storeSections {
     final grouped = <int, List<CartItemModel>>{};
@@ -100,7 +110,10 @@ class CartState {
   }
 
   double get productDiscountTotal {
-    return storeSections.fold(0, (sum, section) => sum + section.productDiscountTotal);
+    return storeSections.fold(
+      0,
+      (sum, section) => sum + section.productDiscountTotal,
+    );
   }
 
   double get subtotal {
@@ -120,7 +133,10 @@ class CartState {
   int get totalItems => items.fold(0, (sum, item) => sum + item.quantity);
 
   CartState copyWith({List<CartItemModel>? items, String? draftNote}) {
-    return CartState(items: items ?? this.items, draftNote: draftNote ?? this.draftNote);
+    return CartState(
+      items: items ?? this.items,
+      draftNote: draftNote ?? this.draftNote,
+    );
   }
 }
 
@@ -133,6 +149,7 @@ class CartController extends StateNotifier<CartState> {
     required String merchantName,
     int quantity = 1,
     List<Map<String, dynamic>> selectedModifiers = const [],
+    int? selectedVariantId,
     List<Map<String, dynamic>> selectedVariantSelections = const [],
   }) {
     final safeQuantity = quantity < 1 ? 1 : quantity;
@@ -144,19 +161,25 @@ class CartController extends StateNotifier<CartState> {
 
     final keyModifiers = _normalizeModifiers(selectedModifiers);
     final keyVariant = _normalizeModifiers(selectedVariantSelections);
+    final normalizedVariantId =
+        selectedVariantId != null && selectedVariantId > 0
+        ? selectedVariantId
+        : null;
     final nextItems = [...state.items];
     final variantIndex = nextItems.indexWhere(
       (i) =>
           i.product.id == product.id &&
           i.merchantId == merchantId &&
           _modifierKey(i.selectedModifiers) == _modifierKey(keyModifiers) &&
+          i.selectedVariantId == normalizedVariantId &&
           _modifierKey(i.selectedVariantSelections) == _modifierKey(keyVariant),
     );
 
     if (variantIndex >= 0) {
       final current = nextItems[variantIndex];
-      nextItems[variantIndex] =
-          current.copyWith(quantity: current.quantity + safeQuantity);
+      nextItems[variantIndex] = current.copyWith(
+        quantity: current.quantity + safeQuantity,
+      );
     } else {
       nextItems.add(
         CartItemModel(
@@ -165,6 +188,7 @@ class CartController extends StateNotifier<CartState> {
           merchantId: merchantId,
           merchantName: merchantName,
           selectedModifiers: keyModifiers,
+          selectedVariantId: normalizedVariantId,
           selectedVariantSelections: keyVariant,
         ),
       );
@@ -178,15 +202,21 @@ class CartController extends StateNotifier<CartState> {
     int productId, {
     int? merchantId,
     List<Map<String, dynamic>> selectedModifiers = const [],
+    int? selectedVariantId,
     List<Map<String, dynamic>> selectedVariantSelections = const [],
   }) {
     final keyModifiers = _normalizeModifiers(selectedModifiers);
     final keyVariant = _normalizeModifiers(selectedVariantSelections);
+    final normalizedVariantId =
+        selectedVariantId != null && selectedVariantId > 0
+        ? selectedVariantId
+        : null;
     final index = state.items.indexWhere(
       (i) =>
           i.product.id == productId &&
           (merchantId == null || i.merchantId == merchantId) &&
           _modifierKey(i.selectedModifiers) == _modifierKey(keyModifiers) &&
+          i.selectedVariantId == normalizedVariantId &&
           _modifierKey(i.selectedVariantSelections) == _modifierKey(keyVariant),
     );
     if (index < 0) return;
@@ -210,17 +240,25 @@ class CartController extends StateNotifier<CartState> {
     int productId, {
     int? merchantId,
     List<Map<String, dynamic>> selectedModifiers = const [],
+    int? selectedVariantId,
     List<Map<String, dynamic>> selectedVariantSelections = const [],
   }) {
     final keyModifiers = _normalizeModifiers(selectedModifiers);
     final keyVariant = _normalizeModifiers(selectedVariantSelections);
+    final normalizedVariantId =
+        selectedVariantId != null && selectedVariantId > 0
+        ? selectedVariantId
+        : null;
     final nextItems = state.items
         .where(
           (i) =>
               !(i.product.id == productId &&
                   (merchantId == null || i.merchantId == merchantId) &&
-                  _modifierKey(i.selectedModifiers) == _modifierKey(keyModifiers) &&
-                  _modifierKey(i.selectedVariantSelections) == _modifierKey(keyVariant)),
+                  _modifierKey(i.selectedModifiers) ==
+                      _modifierKey(keyModifiers) &&
+                  i.selectedVariantId == normalizedVariantId &&
+                  _modifierKey(i.selectedVariantSelections) ==
+                      _modifierKey(keyVariant)),
         )
         .toList();
     if (nextItems.isEmpty) {
@@ -231,7 +269,9 @@ class CartController extends StateNotifier<CartState> {
   }
 
   void removeStore(int merchantId) {
-    final nextItems = state.items.where((i) => i.merchantId != merchantId).toList();
+    final nextItems = state.items
+        .where((i) => i.merchantId != merchantId)
+        .toList();
     if (nextItems.isEmpty) {
       state = const CartState();
     } else {
@@ -260,14 +300,11 @@ class CartController extends StateNotifier<CartState> {
 
   String _modifierKey(List<Map<String, dynamic>> modifiers) {
     if (modifiers.isEmpty) return "";
-    final normalized = modifiers
-        .map((modifier) {
-          final sorted = modifier.entries.toList()
-            ..sort((a, b) => a.key.compareTo(b.key));
-          return sorted.map((entry) => '${entry.key}:${entry.value}').join('|');
-        })
-        .toList()
-      ..sort();
+    final normalized = modifiers.map((modifier) {
+      final sorted = modifier.entries.toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
+      return sorted.map((entry) => '${entry.key}:${entry.value}').join('|');
+    }).toList()..sort();
     return normalized.join('||');
   }
 }

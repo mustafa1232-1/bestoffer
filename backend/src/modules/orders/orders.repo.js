@@ -601,10 +601,62 @@ async function loadProductVariantCatalogTx(client, productIds) {
   return byProductId;
 }
 
+function buildVariantSelectionSignature(selections) {
+  return (selections || [])
+    .map((entry) =>
+      `${String(entry.groupCode || "").toLowerCase()}:${String(entry.optionCode || "").toLowerCase()}`
+    )
+    .sort()
+    .join("|");
+}
+
+function buildSelectionsFromVariantCatalog(variantCatalog, variant) {
+  const selections = [];
+  for (const selection of Array.isArray(variant?.selections) ? variant.selections : []) {
+    const groupCode = String(selection.groupCode || selection.group_code || "").toLowerCase();
+    const optionCode = String(selection.optionCode || selection.option_code || "").toLowerCase();
+    if (!groupCode || !optionCode) continue;
+    const group = variantCatalog?.groupByCode?.get(groupCode);
+    if (!group) continue;
+    const option = group.optionByCode.get(optionCode);
+    if (!option) continue;
+    selections.push({
+      groupCode: group.groupCode,
+      groupLabel: group.labelAr || group.labelEn || group.groupCode,
+      optionCode: option.optionCode,
+      optionLabel: option.labelAr || option.labelEn || option.optionCode,
+      optionId: Number(option.optionId),
+      swatchHex: option.swatchHex || null,
+      imageUrl: option.imageUrl || null,
+      priceDelta: Number(option.priceDelta || 0),
+    });
+  }
+  const normalized = normalizeVariantSelectionInput({ selections });
+  const colorSelection =
+    normalized.selections.find((entry) => String(entry.groupCode || "").toLowerCase() === "color") ||
+    null;
+  const sizeSelection =
+    normalized.selections.find((entry) => String(entry.groupCode || "").toLowerCase() === "size") ||
+    null;
+  return {
+    ...normalized,
+    selectionSignature: buildVariantSelectionSignature(normalized.selections),
+    colorSelection,
+    sizeSelection,
+  };
+}
+
 function resolveVariantSelectionForItem(product, item, variantCatalog) {
   const selected = normalizeVariantSelectionInput(
     item.selectedVariant ?? item.selectedVariantSelections ?? {}
   );
+  const requestedVariantId = Number(
+    selected.variantId ??
+      item.selectedVariantId ??
+      item.selected_variant_id ??
+      item.variantId ??
+      0
+  ) || null;
   const groups = variantCatalog?.groups || [];
   const hasVariants = groups.length > 0;
 
@@ -618,6 +670,85 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
       hasVariants: false,
       selectedVariantSnapshot: null,
       variantPriceDeltaTotal: 0,
+    };
+  }
+
+  if (requestedVariantId != null) {
+    const exactVariant = (variantCatalog?.variants || []).find(
+      (variant) => Number(variant.variantId) === Number(requestedVariantId)
+    );
+    if (!exactVariant || exactVariant.isAvailable === false) {
+      const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
+      err.status = 400;
+      throw err;
+    }
+
+    const exactSelections = buildSelectionsFromVariantCatalog(
+      variantCatalog,
+      exactVariant
+    );
+    if (selected.hasSelections) {
+      const requestedSignature = buildVariantSelectionSignature(selected.selections);
+      if (requestedSignature !== exactSelections.selectionSignature) {
+        const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
+        err.status = 400;
+        throw err;
+      }
+    }
+
+    for (const group of groups) {
+      if (
+        group.required === true &&
+        !exactSelections.selections.some(
+          (entry) => String(entry.groupCode || "").toLowerCase() === String(group.groupCode || "").toLowerCase()
+        )
+      ) {
+        const err = new Error("PRODUCT_VARIANT_SELECTION_REQUIRED");
+        err.status = 400;
+        throw err;
+      }
+    }
+
+    if (exactVariant.stockQuantity < Number(item.quantity || 0)) {
+      const err = new Error("PRODUCT_OUT_OF_STOCK");
+      err.status = 400;
+      throw err;
+    }
+
+    const combinationSignature = exactSelections.selectionSignature;
+    const selectedVariantSnapshot = {
+      signature: combinationSignature,
+      variantId: exactVariant?.variantId || null,
+      sku: exactVariant?.sku || null,
+      barcode: exactVariant?.barcode || null,
+      material: exactVariant?.material || null,
+      imageUrl:
+        exactVariant?.imageUrl ||
+        exactSelections.colorSelection?.imageUrl ||
+        exactSelections.selections.find((entry) => entry.imageUrl)?.imageUrl ||
+        null,
+      colorCode: exactSelections.colorSelection?.optionCode || null,
+      colorLabel: exactSelections.colorSelection?.optionLabel || null,
+      colorHex: exactSelections.colorSelection?.swatchHex || null,
+      colorImageUrl: exactSelections.colorSelection?.imageUrl || null,
+      sizeCode: exactSelections.sizeSelection?.optionCode || null,
+      sizeLabel: exactSelections.sizeSelection?.optionLabel || null,
+      stockQuantity: exactVariant?.stockQuantity ?? null,
+      selections: exactSelections.selections,
+      groupCodes: exactSelections.selections.map((entry) => entry.groupCode),
+      optionCodes: exactSelections.selections.map((entry) => entry.optionCode),
+      optionIds: exactSelections.selections.map((entry) => entry.optionId),
+      priceDeltaTotal: Number(exactSelections.priceDeltaTotal || 0),
+      productId: Number(product.id),
+    };
+
+    return {
+      hasVariants: true,
+      selectedVariantSnapshot,
+      variantPriceDeltaTotal: Number(exactSelections.priceDeltaTotal || 0),
+      variantId: exactVariant?.variantId || null,
+      priceOverride: exactVariant?.priceOverride ?? null,
+      discountedPriceOverride: exactVariant?.discountedPriceOverride ?? null,
     };
   }
 
@@ -692,7 +823,11 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
     .sort()
     .join("|");
   const exactVariant = variantCatalog?.variants?.length
-    ? variantCatalog.variantBySignature.get(combinationSignature)
+    ? variantCatalog.variantBySignature?.get(combinationSignature) ||
+      variantCatalog.variants.find(
+        (variant) => String(variant.signature || "").toLowerCase() === combinationSignature
+      ) ||
+      null
     : null;
   if (variantCatalog?.variants?.length && (!exactVariant || exactVariant.isAvailable === false)) {
     const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
@@ -711,7 +846,34 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
     sku: exactVariant?.sku || null,
     barcode: exactVariant?.barcode || null,
     material: exactVariant?.material || null,
-    imageUrl: exactVariant?.imageUrl || resolvedSelections.find((entry) => entry.imageUrl)?.imageUrl || null,
+    imageUrl:
+      exactVariant?.imageUrl ||
+      resolvedSelections.find((entry) => entry.imageUrl)?.imageUrl ||
+      null,
+    colorCode:
+      resolvedSelections.find(
+        (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+      )?.optionCode || null,
+    colorLabel:
+      resolvedSelections.find(
+        (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+      )?.optionLabel || null,
+    colorHex:
+      resolvedSelections.find(
+        (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+      )?.swatchHex || null,
+    colorImageUrl:
+      resolvedSelections.find(
+        (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+      )?.imageUrl || null,
+    sizeCode:
+      resolvedSelections.find(
+        (entry) => String(entry.groupCode || "").toLowerCase() === "size"
+      )?.optionCode || null,
+    sizeLabel:
+      resolvedSelections.find(
+        (entry) => String(entry.groupCode || "").toLowerCase() === "size"
+      )?.optionLabel || null,
     stockQuantity: exactVariant?.stockQuantity ?? null,
     selections: resolvedSelections,
     groupCodes: resolvedSelections.map((item) => item.groupCode),
@@ -964,10 +1126,13 @@ export async function expireInventoryReservationsBatch({ limit = 100 } = {}) {
 
 export const __ordersRepoTestables = Object.freeze({
   buildDynamicInsertParts,
+  buildVariantSelectionSignature,
+  buildSelectionsFromVariantCatalog,
   toDeliveryDetailResponse,
   resolveTrackingViewerMode,
   buildDeliveryEarnings,
   buildDeliveryRatings,
+  resolveVariantSelectionForItem,
   transitionInventoryReservationsTx,
 });
 

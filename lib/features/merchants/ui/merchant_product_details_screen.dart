@@ -17,6 +17,7 @@ class MerchantProductDetailsScreen extends StatefulWidget {
     ProductModel product,
     int quantity, {
     List<Map<String, dynamic>> selectedVariantSelections,
+    int? selectedVariantId,
   })?
   onAddToCart;
   final ValueChanged<ProductModel>? onOpenProduct;
@@ -241,6 +242,7 @@ class _MerchantProductDetailsScreenState
       await widget.onAddToCart!(
         widget.product,
         _quantity,
+        selectedVariantId: _selectedVariant?.id,
         selectedVariantSelections: _selectedVariantSelections,
       );
       if (!mounted) return;
@@ -276,9 +278,11 @@ class _MerchantProductDetailsScreenState
         ? await showProductVariantPickerSheet(context, product: product)
         : const <Map<String, dynamic>>[];
     if (!mounted || selections == null) return;
+    final selectedVariant = product.variantForSelectionEntries(selections);
     await widget.onAddToCart!(
       product,
       1,
+      selectedVariantId: selectedVariant?.id,
       selectedVariantSelections: selections,
     );
     if (!mounted) return;

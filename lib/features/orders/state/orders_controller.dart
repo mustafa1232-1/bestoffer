@@ -15,10 +15,7 @@ import 'delivery_address_controller.dart';
 
 final ordersApiProvider = Provider<OrdersApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
-  return OrdersApi(
-    dio,
-    realtime: ref.read(maslakiRealtimeServiceProvider),
-  );
+  return OrdersApi(dio, realtime: ref.read(maslakiRealtimeServiceProvider));
 });
 
 final ordersControllerProvider =
@@ -222,7 +219,9 @@ class OrdersController extends StateNotifier<OrdersState> {
       final cleanedNote = note?.trim();
 
       final payload = <String, dynamic>{
-        'note': (cleanedNote == null || cleanedNote.isEmpty) ? null : cleanedNote,
+        'note': (cleanedNote == null || cleanedNote.isEmpty)
+            ? null
+            : cleanedNote,
         'addressId': selectedAddress.id,
       };
       if (cart.storesCount > 1) {
@@ -237,6 +236,8 @@ class OrdersController extends StateNotifier<OrdersState> {
                         'quantity': i.quantity,
                         if (i.selectedModifiers.isNotEmpty)
                           'selectedModifiers': i.selectedModifiers,
+                        if (i.selectedVariantPayload != null)
+                          'selectedVariant': i.selectedVariantPayload,
                         if (i.selectedVariantSelections.isNotEmpty)
                           'selectedVariantSelections':
                               i.selectedVariantSelections,
@@ -255,6 +256,8 @@ class OrdersController extends StateNotifier<OrdersState> {
                 'quantity': i.quantity,
                 if (i.selectedModifiers.isNotEmpty)
                   'selectedModifiers': i.selectedModifiers,
+                if (i.selectedVariantPayload != null)
+                  'selectedVariant': i.selectedVariantPayload,
                 if (i.selectedVariantSelections.isNotEmpty)
                   'selectedVariantSelections': i.selectedVariantSelections,
               },
@@ -268,7 +271,9 @@ class OrdersController extends StateNotifier<OrdersState> {
         }
       }
 
-      await ref.read(ordersApiProvider).createOrder(payload, imageFile: imageFile);
+      await ref
+          .read(ordersApiProvider)
+          .createOrder(payload, imageFile: imageFile);
 
       ref.read(cartControllerProvider.notifier).clear();
       await loadMyOrders();
@@ -362,7 +367,9 @@ class OrdersController extends StateNotifier<OrdersState> {
   }) async {
     _setStateSafely(state.copyWith(error: null));
     try {
-      await ref.read(ordersApiProvider).cancelOrderByCustomer(
+      await ref
+          .read(ordersApiProvider)
+          .cancelOrderByCustomer(
             orderId: orderId,
             reasonCode: reasonCode,
             reasonText: reasonText,
@@ -387,7 +394,9 @@ class OrdersController extends StateNotifier<OrdersState> {
   }) async {
     _setStateSafely(state.copyWith(error: null));
     try {
-      await ref.read(ordersApiProvider).requestReturnByCustomer(
+      await ref
+          .read(ordersApiProvider)
+          .requestReturnByCustomer(
             orderId: orderId,
             reasonCode: reasonCode,
             reasonText: reasonText,
@@ -398,9 +407,7 @@ class OrdersController extends StateNotifier<OrdersState> {
       _setStateSafely(state.copyWith(error: _mapError(e)));
       return false;
     } catch (_) {
-      _setStateSafely(
-        state.copyWith(error: 'تعذر إرسال طلب الإرجاع الآن.'),
-      );
+      _setStateSafely(state.copyWith(error: 'تعذر إرسال طلب الإرجاع الآن.'));
       return false;
     }
   }

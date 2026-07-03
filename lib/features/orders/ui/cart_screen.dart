@@ -117,16 +117,21 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       setState(() {
         _appliedCoupon = null;
         _couponDiscount = 0;
-        _couponError = mapAnyError(e, fallback: 'الكوبون غير صالح', customMessages: {
-          'COUPON_NOT_FOUND': 'الكوبون غير موجود.',
-          'COUPON_EXPIRED': 'انتهت صلاحية هذا الكوبون.',
-          'COUPON_NOT_STARTED': 'هذا الكوبون غير متاح بعد.',
-          'COUPON_INACTIVE': 'هذا الكوبون غير مفعل حالياً.',
-          'COUPON_NOT_TARGETED': 'هذا الكوبون غير مخصص لحسابك الحالي.',
-          'COUPON_USER_LIMIT_REACHED': 'استنفدت عدد الاستخدامات المسموح بها لهذا الكوبون.',
-          'COUPON_TOTAL_LIMIT_REACHED': 'تم استنفاد هذا الكوبون بالكامل.',
-          'COUPON_NO_TIERS': 'لا توجد شرائح خصم صالحة لهذا الكوبون حالياً.',
-        });
+        _couponError = mapAnyError(
+          e,
+          fallback: 'الكوبون غير صالح',
+          customMessages: {
+            'COUPON_NOT_FOUND': 'الكوبون غير موجود.',
+            'COUPON_EXPIRED': 'انتهت صلاحية هذا الكوبون.',
+            'COUPON_NOT_STARTED': 'هذا الكوبون غير متاح بعد.',
+            'COUPON_INACTIVE': 'هذا الكوبون غير مفعل حالياً.',
+            'COUPON_NOT_TARGETED': 'هذا الكوبون غير مخصص لحسابك الحالي.',
+            'COUPON_USER_LIMIT_REACHED':
+                'استنفدت عدد الاستخدامات المسموح بها لهذا الكوبون.',
+            'COUPON_TOTAL_LIMIT_REACHED': 'تم استنفاد هذا الكوبون بالكامل.',
+            'COUPON_NO_TIERS': 'لا توجد شرائح خصم صالحة لهذا الكوبون حالياً.',
+          },
+        );
         _checkingCoupon = false;
       });
     }
@@ -196,6 +201,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
           withQty.first.product.id,
           merchantId: withQty.first.merchantId,
           selectedModifiers: withQty.first.selectedModifiers,
+          selectedVariantId: withQty.first.selectedVariantId,
           selectedVariantSelections: withQty.first.selectedVariantSelections,
         );
       } else if (sorted.length > 1) {
@@ -203,6 +209,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
           sorted.first.product.id,
           merchantId: sorted.first.merchantId,
           selectedModifiers: sorted.first.selectedModifiers,
+          selectedVariantId: sorted.first.selectedVariantId,
           selectedVariantSelections: sorted.first.selectedVariantSelections,
         );
       } else {
@@ -244,6 +251,8 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                       'quantity': item.quantity,
                       if (item.selectedModifiers.isNotEmpty)
                         'selectedModifiers': item.selectedModifiers,
+                      if (item.selectedVariantPayload != null)
+                        'selectedVariant': item.selectedVariantPayload,
                       if (item.selectedVariantSelections.isNotEmpty)
                         'selectedVariantSelections':
                             item.selectedVariantSelections,
@@ -262,6 +271,8 @@ class _CartScreenState extends ConsumerState<CartScreen> {
               'quantity': item.quantity,
               if (item.selectedModifiers.isNotEmpty)
                 'selectedModifiers': item.selectedModifiers,
+              if (item.selectedVariantPayload != null)
+                'selectedVariant': item.selectedVariantPayload,
               if (item.selectedVariantSelections.isNotEmpty)
                 'selectedVariantSelections': item.selectedVariantSelections,
             },
@@ -323,7 +334,8 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                           ),
                         );
                         final pricing = Map<String, dynamic>.from(
-                          (store['pricing'] as Map? ?? const <String, dynamic>{}),
+                          (store['pricing'] as Map? ??
+                              const <String, dynamic>{}),
                         );
                         return Container(
                           margin: const EdgeInsets.only(bottom: 10),
@@ -347,14 +359,19 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                               ),
                               const SizedBox(height: 6),
                               ...items.map(
-                                (item) => _buildCartReviewItem(item, TextDirection.rtl),
+                                (item) => _buildCartReviewItem(
+                                  item,
+                                  TextDirection.rtl,
+                                ),
                               ),
                               const Divider(height: 18),
                               Row(
                                 children: [
                                   Text(
                                     formatIqd(
-                                      (pricing['totalAmount'] as num?)?.toDouble() ?? 0,
+                                      (pricing['totalAmount'] as num?)
+                                              ?.toDouble() ??
+                                          0,
                                     ),
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w800,
@@ -364,7 +381,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                   const Text(
                                     'إجمالي المتجر',
                                     textDirection: TextDirection.rtl,
-                                    style: TextStyle(fontWeight: FontWeight.w700),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -380,7 +399,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                               _SummaryRow(
                                 'إجمالي قبل الخصم',
                                 formatIqd(
-                                  (totals['grossSubtotal'] as num?)?.toDouble() ?? 0,
+                                  (totals['grossSubtotal'] as num?)
+                                          ?.toDouble() ??
+                                      0,
                                 ),
                               ),
                               _SummaryRow(
@@ -396,20 +417,25 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                               _SummaryRow(
                                 'رسوم الخدمة',
                                 formatIqd(
-                                  (totals['serviceFeeTotal'] as num?)?.toDouble() ?? 0,
+                                  (totals['serviceFeeTotal'] as num?)
+                                          ?.toDouble() ??
+                                      0,
                                 ),
                               ),
                               _SummaryRow(
                                 'أجور التوصيل',
                                 formatIqd(
-                                  (totals['deliveryFeeTotal'] as num?)?.toDouble() ?? 0,
+                                  (totals['deliveryFeeTotal'] as num?)
+                                          ?.toDouble() ??
+                                      0,
                                 ),
                               ),
                               const Divider(),
                               _SummaryRow(
                                 'الإجمالي النهائي',
                                 formatIqd(
-                                  (totals['totalAmount'] as num?)?.toDouble() ?? 0,
+                                  (totals['totalAmount'] as num?)?.toDouble() ??
+                                      0,
                                 ),
                                 bold: true,
                               ),
@@ -453,7 +479,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       return;
     }
     final cart = ref.read(cartControllerProvider);
-    final selectedAddress = ref.read(deliveryAddressControllerProvider).selectedAddress;
+    final selectedAddress = ref
+        .read(deliveryAddressControllerProvider)
+        .selectedAddress;
     if (selectedAddress == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('الرجاء اختيار عنوان التوصيل أولًا.')),
@@ -481,7 +509,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(mapAnyError(e, fallback: 'تعذر مراجعة الطلب الآن'))),
+          SnackBar(
+            content: Text(mapAnyError(e, fallback: 'تعذر مراجعة الطلب الآن')),
+          ),
         );
       }
     } finally {
@@ -530,7 +560,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
 
     return Scaffold(
       appBar: MaslakiTopBar(
-        title: cart.merchantName == null ? 'سلة التسوق' : 'سلة ${cart.merchantName}',
+        title: cart.merchantName == null
+            ? 'سلة التسوق'
+            : 'سلة ${cart.merchantName}',
         subtitle: 'مراجعة الطلب والعنوان والخصومات قبل الإرسال',
         actions: cart.items.isEmpty
             ? const []
@@ -665,10 +697,10 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(12),
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
                           _chip(
                             Icons.storefront_outlined,
                             '${cart.storesCount} متجر',
@@ -796,7 +828,10 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                         .decrementItem(
                                           item.product.id,
                                           merchantId: item.merchantId,
-                                          selectedModifiers: item.selectedModifiers,
+                                          selectedModifiers:
+                                              item.selectedModifiers,
+                                          selectedVariantId:
+                                              item.selectedVariantId,
                                           selectedVariantSelections:
                                               item.selectedVariantSelections,
                                         ),
@@ -811,7 +846,10 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                           product: item.product,
                                           merchantId: item.merchantId,
                                           merchantName: item.merchantName,
-                                          selectedModifiers: item.selectedModifiers,
+                                          selectedModifiers:
+                                              item.selectedModifiers,
+                                          selectedVariantId:
+                                              item.selectedVariantId,
                                           selectedVariantSelections:
                                               item.selectedVariantSelections,
                                         ),
@@ -823,7 +861,10 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                         .removeItem(
                                           item.product.id,
                                           merchantId: item.merchantId,
-                                          selectedModifiers: item.selectedModifiers,
+                                          selectedModifiers:
+                                              item.selectedModifiers,
+                                          selectedVariantId:
+                                              item.selectedVariantId,
                                           selectedVariantSelections:
                                               item.selectedVariantSelections,
                                         ),
@@ -1140,14 +1181,18 @@ Widget _buildCartReviewItem(
   );
   final variantLabel = variantSelections.isEmpty
       ? null
-      : variantSelections.map((selection) {
-          final map = Map<String, dynamic>.from(selection as Map);
-          final group = '${map['groupLabel'] ?? map['groupCode'] ?? ''}'.trim();
-          final option = '${map['optionLabel'] ?? map['optionCode'] ?? ''}'.trim();
-          if (group.isEmpty) return option;
-          if (option.isEmpty) return group;
-          return '$group: $option';
-        }).join(' • ');
+      : variantSelections
+            .map((selection) {
+              final map = Map<String, dynamic>.from(selection as Map);
+              final group = '${map['groupLabel'] ?? map['groupCode'] ?? ''}'
+                  .trim();
+              final option = '${map['optionLabel'] ?? map['optionCode'] ?? ''}'
+                  .trim();
+              if (group.isEmpty) return option;
+              if (option.isEmpty) return group;
+              return '$group: $option';
+            })
+            .join(' • ');
 
   return Padding(
     padding: const EdgeInsets.only(bottom: 6),
@@ -1156,9 +1201,7 @@ Widget _buildCartReviewItem(
       children: [
         Row(
           children: [
-            Text(
-              formatIqd((item['lineTotal'] as num?)?.toDouble() ?? 0),
-            ),
+            Text(formatIqd((item['lineTotal'] as num?)?.toDouble() ?? 0)),
             const Spacer(),
             Expanded(
               child: Text(

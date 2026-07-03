@@ -396,7 +396,20 @@ function getFallbackActivity(activityType, { includeInactive = false } = {}) {
 
 export function normalizeActivityType(value, fallback = null) {
   const normalized = asNonEmptyString(value)?.toLowerCase() || null;
-  return normalized || fallback;
+  if (!normalized) return fallback;
+  if (
+    [
+      "fashion",
+      "clothes",
+      "clothing",
+      "style",
+      "women_fashion",
+      "men_fashion",
+    ].includes(normalized)
+  ) {
+    return "fashion_clothing";
+  }
+  return normalized;
 }
 
 export function normalizeDiscoverySubcategory(value) {

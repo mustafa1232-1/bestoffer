@@ -357,6 +357,29 @@ void main() {
     expect(find.text('Closed Store'), findsNothing);
   });
 
+  testWidgets('home quick access exposes cart and orders shortcuts', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await _pumpHomeSelector(
+      tester,
+      user: _user(),
+      smartSnapshot: const CustomerSmartExperienceSnapshot(
+        insights: <String, dynamic>{},
+        savedPlaces: <Map<String, dynamic>>[],
+        rideHistory: <Map<String, dynamic>>[],
+      ),
+      merchants: <Map<String, dynamic>>[
+        _merchantItem(id: 1, name: 'Open Store'),
+      ],
+    );
+
+    expect(find.text('Cart'), findsOneWidget);
+    expect(find.text('My orders'), findsOneWidget);
+  });
+
   testWidgets('tapping best-store spotlight opens shopping discovery', (
     tester,
   ) async {

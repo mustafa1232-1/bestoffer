@@ -131,26 +131,56 @@ function normalizeItems(items) {
       ? raw.selectedModifiers
       : [];
     const selectedVariant = normalizeVariantSelectionInput(
-      raw.selectedVariant ??
-        raw.selectedVariantSelections ??
-        raw.selectedVariantOptions ??
-        raw.variantSelection ??
-        {}
+      raw.selectedVariant &&
+        typeof raw.selectedVariant === "object" &&
+        !Array.isArray(raw.selectedVariant)
+        ? {
+            ...raw.selectedVariant,
+            variantId:
+              raw.selectedVariant.variantId ??
+              raw.selectedVariantId ??
+              raw.selected_variant_id ??
+              null,
+          }
+        : raw.selectedVariantId != null
+        ? {
+            variantId: raw.selectedVariantId,
+            selections:
+              raw.selectedVariantSelections ??
+              raw.selectedVariantOptions ??
+              raw.variantSelection ??
+              {},
+          }
+        : raw.selectedVariant ??
+          raw.selectedVariantSelections ??
+          raw.selectedVariantOptions ??
+          raw.variantSelection ??
+          {}
     );
     const modifiersKey = JSON.stringify(selectedModifiers);
-    const variantKey = selectedVariant.signature || "";
+    const variantKey = selectedVariant.variantId != null
+      ? `variant:${Number(selectedVariant.variantId)}`
+      : selectedVariant.signature || "";
     const key = `${productId}:${modifiersKey}:${variantKey}`;
     const prev = map.get(key) || {
       productId,
       quantity: 0,
       selectedModifiers,
-      selectedVariant: selectedVariant.hasSelections ? selectedVariant : null,
+      selectedVariant:
+        selectedVariant.hasSelections || selectedVariant.variantId != null
+          ? selectedVariant
+          : null,
     };
     prev.quantity += quantity;
     map.set(key, prev);
   }
   return Array.from(map.values());
 }
+
+export const __ordersServiceTestables = Object.freeze({
+  normalizeItems,
+  normalizeStoreOrders,
+});
 
 function normalizeStoreOrders(dto) {
   const storeOrders = Array.isArray(dto?.storeOrders)

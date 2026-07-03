@@ -184,41 +184,47 @@ void main() {
     },
   );
 
-  testWidgets(
-    'quick order opens cart from the selected shared card state',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(800, 2000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets('quick order opens cart from the selected shared card state', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [ordersApiProvider.overrideWithValue(_FakeOrdersApi())],
-          child: const MaterialApp(home: CustomerGlobalProductSearchScreen()),
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 50));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [ordersApiProvider.overrideWithValue(_FakeOrdersApi())],
+        child: const MaterialApp(home: CustomerGlobalProductSearchScreen()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
 
-      await tester.enterText(find.byType(TextField), 'قميص');
-      await tester.tap(find.byIcon(Icons.arrow_forward_rounded));
-      await tester.pump(const Duration(milliseconds: 200));
+    await tester.enterText(find.byType(TextField), 'قميص');
+    await tester.tap(find.byIcon(Icons.arrow_forward_rounded));
+    await tester.pump(const Duration(milliseconds: 200));
 
-      await tester.tap(find.text('أزرق'));
-      await tester.pump(const Duration(milliseconds: 200));
-      await tester.tap(find.text('طلب سريع'));
-      await tester.pump(const Duration(milliseconds: 800));
+    await tester.tap(find.text('أزرق'));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.text('طلب سريع'));
+    await tester.pump(const Duration(milliseconds: 800));
 
-      final element = tester.element(
-        find.byType(CustomerGlobalProductSearchScreen),
-      );
-      final container = ProviderScope.containerOf(element);
-      final cart = container.read(cartControllerProvider);
-      expect(cart.items, hasLength(1));
-      expect(
-        cart.items.first.selectedVariantSelections.any(
-          (selection) => selection['optionCode'] == 'blue',
-        ),
-        isTrue,
-      );
-    },
-  );
+    final element = tester.element(
+      find.byType(CustomerGlobalProductSearchScreen),
+    );
+    final container = ProviderScope.containerOf(element);
+    final cart = container.read(cartControllerProvider);
+    expect(cart.items, hasLength(1));
+    expect(cart.items.first.selectedVariantId, 202);
+    expect(
+      cart.items.first.selectedVariantSelections.any(
+        (selection) => selection['optionCode'] == 'blue',
+      ),
+      isTrue,
+    );
+    expect(
+      cart.items.first.selectedVariantSelections.any(
+        (selection) => selection['optionCode'] == 'l',
+      ),
+      isTrue,
+    );
+  });
 }
