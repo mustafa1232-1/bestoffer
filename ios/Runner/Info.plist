@@ -42,9 +42,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>يستخدم تطبيق مسلكي الكاميرا لالتقاط الصور والفيديوهات للمنشورات والريلز والستوري وصور الحساب والمنتجات عند الحاجة. | Maslaki uses the camera to capture photos and videos for posts, reels, stories, profile pictures, and product images.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>يستخدم تطبيق مسلكي موقعك في الخلفية لضمان دقة تتبع رحلات التكسي وطلبات التوصيل بشكل مستمر. | Maslaki uses your location in the background to accurately track taxi rides and delivery orders in real time.</string>
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>يستخدم تطبيق مسلكي موقعك في الخلفية لضمان دقة تتبع رحلات التكسي وطلبات التوصيل بشكل مستمر. | Maslaki uses your location in the background to accurately track taxi rides and delivery orders in real time.</string>
+	<string>يستخدم تطبيق مسلكي موقعك في الخلفية لضمان دقة تتبع رحلات التاكسي وطلبات التوصيل بشكل مستمر. | Maslaki uses your location in the background to accurately track taxi rides and delivery orders in real time.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>يستخدم تطبيق مسلكي الموقع لتحديد عنوانك، عرض الخدمات القريبة، تتبع الطلبات، وخدمات التوصيل والتكسي عند استخدام هذه الخدمات. | Maslaki uses your location to determine your address, show nearby services, track orders, and enable delivery and taxi services.</string>
 	<key>NSMicrophoneUsageDescription</key>
@@ -80,15 +78,7 @@
 	<array>
 		<string>location</string>
 		<string>remote-notification</string>
-		<string>processing</string>
-		<string>fetch</string>
-		<string>push-to-talk</string>
-		<string>external-accessory</string>
-		<string>bluetooth-peripheral</string>
 		<string>audio</string>
-		<string>bluetooth-central</string>
-		<string>nearby-interaction</string>
-		<string>voip</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
@@ -109,11 +99,5 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.maslaki.user.refresh</string>
-		<string>com.maslaki.user.processing</string>
-		<string>com.maslaki.user.sync</string>
-	</array>
 </dict>
 </plist>
