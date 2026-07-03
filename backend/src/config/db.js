@@ -725,6 +725,10 @@ export async function ensureSchema() {
         platform     VARCHAR(24),
         app_version  VARCHAR(48),
         device_model VARCHAR(120),
+        locale       VARCHAR(8),
+        auth_session_id BIGINT REFERENCES user_session(id) ON DELETE SET NULL,
+        app_surface  VARCHAR(24),
+        device_fingerprint TEXT,
         is_active    BOOLEAN NOT NULL DEFAULT TRUE,
         last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -733,8 +737,26 @@ export async function ensureSchema() {
     `);
 
     await q(`
+      ALTER TABLE user_push_token
+        ADD COLUMN IF NOT EXISTS locale VARCHAR(8),
+        ADD COLUMN IF NOT EXISTS auth_session_id BIGINT NULL REFERENCES user_session(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS app_surface VARCHAR(24),
+        ADD COLUMN IF NOT EXISTS device_fingerprint TEXT;
+    `);
+
+    await q(`
       CREATE INDEX IF NOT EXISTS idx_user_push_token_user_active
       ON user_push_token (user_id, is_active);
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_user_push_token_user_surface_active
+      ON user_push_token (user_id, app_surface, is_active);
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_user_push_token_session_active
+      ON user_push_token (auth_session_id, is_active);
     `);
 
     await q(`

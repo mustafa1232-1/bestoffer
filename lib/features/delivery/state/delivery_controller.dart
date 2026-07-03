@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:core_maps/core_maps.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../core/network/api_error_mapper.dart';
@@ -11,6 +12,7 @@ import '../../../core/utils/currency.dart';
 import '../../../core/utils/order_status.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../orders/models/order_model.dart';
+import '../../tracking/tracking_map_utils.dart';
 import '../data/delivery_api.dart';
 
 final deliveryApiProvider = Provider<DeliveryApi>((ref) {
@@ -100,7 +102,8 @@ class DeliveryState {
 /// Critical notes:
 /// - source of truth لشاشات الدليفري الحالية والتاريخ والتقارير.
 /// - يوقف polling تلقائياً إذا فقد المستخدم دور الدليفري.
-class DeliveryController extends StateNotifier<DeliveryState> {
+class DeliveryController extends StateNotifier<DeliveryState>
+    with WidgetsBindingObserver {
   final Ref ref;
   Timer? _liveOrdersTimer;
   DateTime? _lastPresenceSyncAt;
@@ -108,8 +111,19 @@ class DeliveryController extends StateNotifier<DeliveryState> {
   bool _presenceSyncInFlight = false;
   bool _disposed = false;
   int _livePollingSubscribers = 0;
+  bool _lifecycleResumed = true;
 
-  DeliveryController(this.ref) : super(const DeliveryState());
+  DeliveryController(this.ref) : super(const DeliveryState()) {
+    WidgetsBinding.instance.addObserver(this);
+    _lifecycleResumed =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleResumed = state == AppLifecycleState.resumed;
+  }
 
   void _setStateSafely(DeliveryState nextState) {
     if (_disposed) return;
@@ -132,18 +146,27 @@ class DeliveryController extends StateNotifier<DeliveryState> {
   }
 
   List<OrderModel> _trackableOrders(List<OrderModel> orders) {
-    return orders.where((order) {
-      final normalized = normalizeOrderStatusForUi(order.status);
-      final hasCourier = order.deliveryUserId != null;
-      return hasCourier &&
-          const {'ready_for_delivery', 'on_the_way', 'arrived'}.contains(
-            normalized,
-          );
-    }).toList(growable: false);
+    return orders
+        .where((order) {
+          final normalized = normalizeOrderStatusForUi(order.status);
+          final hasCourier = order.deliveryUserId != null;
+          return hasCourier &&
+              const {
+                'ready_for_delivery',
+                'on_the_way',
+                'arrived',
+              }.contains(normalized);
+        })
+        .toList(growable: false);
   }
 
   Future<void> _syncCourierPresence({bool force = false}) async {
-    if (_disposed || _presenceSyncInFlight || !_canRunDeliveryPolling()) return;
+    if (_disposed ||
+        _presenceSyncInFlight ||
+        !_lifecycleResumed ||
+        !_canRunDeliveryPolling()) {
+      return;
+    }
     final trackable = _trackableOrders(state.currentOrders);
     if (trackable.isEmpty) return;
     if (!force && _lastPresenceSyncAt != null) {
@@ -165,6 +188,10 @@ class DeliveryController extends StateNotifier<DeliveryState> {
           permissionState == AppLocationPermissionState.serviceDisabled) {
         return;
       }
+      final permissionGranted =
+          permissionState == AppLocationPermissionState.grantedApproximate ||
+          permissionState == AppLocationPermissionState.grantedPrecise;
+      if (!permissionGranted || !_lifecycleResumed) return;
 
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
@@ -172,6 +199,14 @@ class DeliveryController extends StateNotifier<DeliveryState> {
       );
       final api = ref.read(deliveryApiProvider);
       for (final order in trackable) {
+        if (!canPublishCourierLocation(
+          lifecycleResumed: _lifecycleResumed,
+          permissionGranted: permissionGranted,
+          assigned: order.deliveryUserId != null,
+          status: normalizeOrderStatusForUi(order.status),
+        )) {
+          continue;
+        }
         await api.upsertPresence(
           orderId: order.id,
           latitude: position.latitude,
@@ -538,7 +573,9 @@ class DeliveryController extends StateNotifier<DeliveryState> {
   }) async {
     _setStateSafely(state.copyWith(saving: true, error: null));
     try {
-      await ref.read(deliveryApiProvider).requestCancelV2(
+      await ref
+          .read(deliveryApiProvider)
+          .requestCancelV2(
             orderId,
             reasonCode: reasonCode,
             reasonText: reasonText,
@@ -606,6 +643,7 @@ class DeliveryController extends StateNotifier<DeliveryState> {
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     stopLiveOrders(force: true);
     super.dispose();
   }

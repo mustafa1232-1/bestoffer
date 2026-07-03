@@ -30,6 +30,10 @@ import { env } from "../../config/env.js";
 import crypto from "crypto";
 import { AppError } from "../../shared/utils/errors.js";
 import {
+  deactivatePushTokensForSession,
+  deactivatePushTokensForUser,
+} from "../notifications/notifications.repo.js";
+import {
   isRoleAllowedForSurface,
   resolveRoleAppSurface,
 } from "../../shared/utils/app-surface.js";
@@ -618,6 +622,7 @@ export async function logout(userId, sessionId) {
     reason: "logout",
   });
   if (revoked) {
+    await deactivatePushTokensForSession(userId, sessionId);
     await markSessionRevoked(sessionId);
     invalidateSessionAccessCacheForSession({ userId, sessionId });
   }
@@ -631,6 +636,7 @@ export async function logoutAll(userId, currentSessionId = null) {
     reason: "logout_all",
   });
   await markUserSessionsRevokedAfter(userId);
+  await deactivatePushTokensForUser(userId);
   invalidateSessionAccessCacheForUser({
     userId,
     exceptSessionId: currentSessionId,

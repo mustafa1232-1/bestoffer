@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../platform/app_flavor.dart';
@@ -116,6 +117,9 @@ class NotificationNavigation {
       roleScope:
           payload?['roleScope']?.toString() ??
           payload?['role_scope']?.toString(),
+      appSurface:
+          payload?['appSurface']?.toString() ??
+          payload?['app_surface']?.toString(),
       action:
           payload?['action']?.toString() ??
           payload?['target_action']?.toString(),
@@ -157,6 +161,14 @@ class NotificationNavigation {
     required AuthState auth,
     required NotificationTapPayload payload,
   }) async {
+    if (!isPayloadAllowedForFlavor(payload, AppFlavorContext.current)) {
+      if (kDebugMode) {
+        debugPrint(
+          '[notification-router] ignored cross-surface tap intended=${payload.appSurface} current=${AppFlavorContext.current.key}',
+        );
+      }
+      return;
+    }
     if (!_isFlavorAllowedForAuth(AppFlavorContext.current, auth)) {
       return;
     }
@@ -166,6 +178,23 @@ class NotificationNavigation {
     final route = _resolveRoute(auth: auth, payload: payload);
     if (route == null) return;
     await navigator.push(route);
+  }
+
+  static bool isPayloadAllowedForFlavor(
+    NotificationTapPayload payload,
+    AppFlavor flavor,
+  ) {
+    final raw = (payload.appSurface ?? '').trim().toLowerCase();
+    if (raw.isEmpty) return true;
+    final intended = switch (raw) {
+      'customer' => 'user',
+      'owner' || 'merchant' => 'store',
+      'courier' => 'delivery',
+      'taxi_captain' || 'captain' => 'taxi',
+      _ => raw,
+    };
+    final current = flavor == AppFlavor.taxiCaptain ? 'taxi' : flavor.key;
+    return intended == current;
   }
 
   /// يستنتج target screen من الحقول الصريحة أو من notification type.

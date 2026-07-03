@@ -2604,12 +2604,18 @@ export async function findCourierTrackableOrder(courierUserId, orderId) {
     `${orderSelect}
      WHERE o.id = $1
        AND o.delivery_user_id = $2
-       AND o.status IN ('ready_for_delivery','on_the_way','arrived','delivered')
+       AND o.status IN ('ready_for_delivery','on_the_way','arrived')
      LIMIT 1`,
     [Number(orderId), Number(courierUserId)]
   );
   const rows = await attachItems(r.rows);
   return rows[0] || null;
+}
+
+export function isCourierTrackableOrderStatus(status) {
+  return ["ready_for_delivery", "on_the_way", "arrived"].includes(
+    String(status || "").trim().toLowerCase()
+  );
 }
 
 export async function getCustomerOrderTrackingSnapshot(customerUserId, orderId) {

@@ -97,7 +97,7 @@ class _FakePushNotificationService extends PushNotificationService {
   Future<void> initialize() async {}
 
   @override
-  Future<void> syncToken() async {}
+  Future<void> syncToken({required int userId}) async {}
 
   @override
   Future<void> unregisterCurrentToken() async {}

@@ -32,6 +32,7 @@ class NotificationTapPayload {
   final String? target;
   final String? targetModule;
   final String? roleScope;
+  final String? appSurface;
   final String? action;
   final String? quickActionId;
   final String? targetEntity;
@@ -63,6 +64,7 @@ class NotificationTapPayload {
     this.target,
     this.targetModule,
     this.roleScope,
+    this.appSurface,
     this.action,
     this.quickActionId,
     this.targetEntity,
@@ -269,6 +271,9 @@ class LocalNotificationService {
       roleScope:
           notification.payload?['roleScope']?.toString() ??
           notification.payload?['role_scope']?.toString(),
+      appSurface:
+          notification.payload?['appSurface']?.toString() ??
+          notification.payload?['app_surface']?.toString(),
       action:
           notification.payload?['action']?.toString() ??
           notification.payload?['target_action']?.toString(),
@@ -324,6 +329,7 @@ class LocalNotificationService {
     String? target,
     String? targetModule,
     String? roleScope,
+    String? appSurface,
     String? action,
     String? targetEntity,
     int? entityId,
@@ -379,6 +385,7 @@ class LocalNotificationService {
       'target': target,
       'targetModule': targetModule,
       'roleScope': roleScope,
+      'appSurface': appSurface,
       'action': action,
       'targetEntity': targetEntity,
       'entityId': entityId,
@@ -566,6 +573,8 @@ class LocalNotificationService {
             map['targetModule']?.toString() ?? map['target_module']?.toString(),
         roleScope:
             map['roleScope']?.toString() ?? map['role_scope']?.toString(),
+        appSurface:
+            map['appSurface']?.toString() ?? map['app_surface']?.toString(),
         action: map['action']?.toString() ?? map['target_action']?.toString(),
         quickActionId: quickAction.isEmpty ? null : quickAction,
         targetEntity:

@@ -555,18 +555,29 @@ export async function courierUpsertPresence(courierUserId, body = {}) {
       Number(trackedOrder.id)
     );
     if (snapshot) {
-      await emitRealtimeToUser(
-        Number(trackedOrder.customer_user_id),
-        "order_tracking_update",
-        {
+      const trackingEvent = {
           orderId: Number(trackedOrder.id),
           status: trackedOrder.status,
           stage: snapshot.stage,
           latestLocation: snapshot.latestLocation,
           lastUpdatedAt: snapshot.lastUpdatedAt,
           target: "order_tracking",
-        },
-        { channel: "notifications" }
+      };
+      const viewers = new Set(
+        [
+          trackedOrder.customer_user_id,
+          trackedOrder.owner_user_id,
+          trackedOrder.delivery_user_id,
+        ]
+          .map(Number)
+          .filter((id) => Number.isInteger(id) && id > 0)
+      );
+      await Promise.all(
+        [...viewers].map((viewerUserId) =>
+          emitRealtimeToUser(viewerUserId, "order_tracking_update", trackingEvent, {
+            channel: "notifications",
+          })
+        )
       );
     }
   }

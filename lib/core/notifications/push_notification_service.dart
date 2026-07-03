@@ -2,13 +2,17 @@ import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:jwt_decoder/jwt_decoder.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/notifications/data/notifications_api.dart';
 import 'active_chat_context_registry.dart';
 import '../platform/app_platform_capabilities.dart';
+import '../platform/app_flavor.dart';
 import '../storage/secure_storage.dart';
 import 'firebase_runtime_options.dart';
 import 'local_notification_service.dart';
@@ -16,6 +20,81 @@ import 'local_notification_service.dart';
 const _tokenHeartbeatInterval = Duration(minutes: 15);
 const _tokenForceResyncInterval = Duration(hours: 6);
 const _appLocaleStorageKey = 'app_locale';
+
+class PushTokenSessionContext {
+  const PushTokenSessionContext({
+    required this.userId,
+    required this.sessionId,
+    required this.appSurface,
+  });
+
+  final int userId;
+  final int sessionId;
+  final String appSurface;
+}
+
+String canonicalAppSurface(AppFlavor flavor) => switch (flavor) {
+  AppFlavor.user => 'user',
+  AppFlavor.store => 'store',
+  AppFlavor.delivery => 'delivery',
+  AppFlavor.taxiCaptain => 'taxi',
+  AppFlavor.company => 'company',
+};
+
+String? normalizeNotificationAppSurface(String? value) {
+  final normalized = (value ?? '').trim().toLowerCase();
+  return switch (normalized) {
+    'user' || 'customer' => 'user',
+    'store' || 'owner' || 'merchant' => 'store',
+    'delivery' || 'courier' => 'delivery',
+    'taxi' || 'taxi_captain' || 'captain' => 'taxi',
+    'company' => 'company',
+    _ => null,
+  };
+}
+
+bool notificationPayloadMatchesAppFlavor(
+  NotificationTapPayload payload,
+  AppFlavor flavor,
+) {
+  final intended = normalizeNotificationAppSurface(payload.appSurface);
+  return intended == null || intended == canonicalAppSurface(flavor);
+}
+
+PushTokenSessionContext? resolvePushTokenSessionContext({
+  required String accessToken,
+  required int expectedUserId,
+  required AppFlavor flavor,
+}) {
+  try {
+    final claims = JwtDecoder.decode(accessToken);
+    final userId = int.tryParse('${claims['sub'] ?? claims['id'] ?? ''}');
+    final sessionId = int.tryParse('${claims['sid'] ?? ''}');
+    final claimedSurface = normalizeNotificationAppSurface(
+      claims['appSurface']?.toString(),
+    );
+    final expectedSurface = canonicalAppSurface(flavor);
+    if (userId == null ||
+        userId <= 0 ||
+        userId != expectedUserId ||
+        sessionId == null ||
+        sessionId <= 0 ||
+        (claimedSurface != null && claimedSurface != expectedSurface)) {
+      return null;
+    }
+    return PushTokenSessionContext(
+      userId: userId,
+      sessionId: sessionId,
+      appSurface: expectedSurface,
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+void _pushDebugLog(String message) {
+  if (kDebugMode) debugPrint('[push] $message');
+}
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -53,6 +132,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         target: parsed.$3.target,
         targetModule: parsed.$3.targetModule,
         roleScope: parsed.$3.roleScope,
+        appSurface: parsed.$3.appSurface,
         action: parsed.$3.action,
         targetEntity: parsed.$3.targetEntity,
         entityId: parsed.$3.entityId,
@@ -101,6 +181,7 @@ class PushNotificationService {
   String? _lastSyncedToken;
   DateTime? _lastSyncedAt;
   bool _tokenSyncInFlight = false;
+  int? _activeUserId;
 
   Stream<NotificationTapPayload> get tapStream => _tapController.stream;
 
@@ -124,15 +205,24 @@ class PushNotificationService {
 
     final initialMessage = await messaging.getInitialMessage();
     if (initialMessage != null) {
-      _tapController.add(_parseTapPayload(initialMessage));
+      _emitTapIfAllowed(_parseTapPayload(initialMessage), source: 'initial');
     }
 
     _openedAppSub = FirebaseMessaging.onMessageOpenedApp.listen((message) {
-      _tapController.add(_parseTapPayload(message));
+      _emitTapIfAllowed(_parseTapPayload(message), source: 'opened_app');
     });
 
     _foregroundSub = FirebaseMessaging.onMessage.listen((message) async {
       final parsed = _parseRemoteMessagePayload(message);
+      if (!notificationPayloadMatchesAppFlavor(
+        parsed.$3,
+        AppFlavorContext.current,
+      )) {
+        _pushDebugLog(
+          'foreground payload ignored for surface=${parsed.$3.appSurface}',
+        );
+        return;
+      }
       if (!_shouldSuppressForegroundNotification(parsed.$3)) {
         await local.showRaw(
           title: parsed.$1,
@@ -151,6 +241,7 @@ class PushNotificationService {
           target: parsed.$3.target,
           targetModule: parsed.$3.targetModule,
           roleScope: parsed.$3.roleScope,
+          appSurface: parsed.$3.appSurface,
           action: parsed.$3.action,
           targetEntity: parsed.$3.targetEntity,
           entityId: parsed.$3.entityId,
@@ -163,20 +254,23 @@ class PushNotificationService {
 
       // Open urgent realtime overlays immediately while app is foregrounded.
       if (_isUrgentRealtimePayload(parsed.$3)) {
-        _tapController.add(parsed.$3);
+        _emitTapIfAllowed(parsed.$3, source: 'foreground_urgent');
       }
     });
 
     _tokenRefreshSub = messaging.onTokenRefresh.listen((token) {
-      unawaited(_registerTokenSafe(token));
+      final userId = _activeUserId;
+      if (userId != null) unawaited(_registerTokenSafe(token, userId));
     });
 
     _tokenHeartbeatTimer = Timer.periodic(_tokenHeartbeatInterval, (_) {
-      unawaited(syncToken());
+      final userId = _activeUserId;
+      if (userId != null) unawaited(syncToken(userId: userId));
     });
   }
 
-  Future<void> syncToken() async {
+  Future<void> syncToken({required int userId}) async {
+    _activeUserId = userId;
     await initialize();
     if (!appSupportsPushMessaging) return;
     if (!_firebaseReady) return;
@@ -185,13 +279,14 @@ class PushNotificationService {
     try {
       final token = await FirebaseMessaging.instance.getToken();
       if (token == null || token.isEmpty) return;
-      await _registerTokenWithRetry(token);
+      await _registerTokenWithRetry(token, userId);
     } finally {
       _tokenSyncInFlight = false;
     }
   }
 
   Future<void> unregisterCurrentToken() async {
+    _activeUserId = null;
     if (!appSupportsPushMessaging) return;
     if (!_firebaseReady) return;
     final accessToken = await store.readToken();
@@ -221,7 +316,7 @@ class PushNotificationService {
     );
   }
 
-  Future<void> _registerToken(String token) async {
+  Future<void> _registerToken(String token, int userId) async {
     final clean = token.trim();
     if (clean.isEmpty) return;
     final now = DateTime.now();
@@ -233,20 +328,48 @@ class PushNotificationService {
     // Avoid unauthenticated push-token registration requests.
     final accessToken = await store.readToken();
     if (accessToken == null || accessToken.isEmpty) {
+      _pushDebugLog('token sync skipped: no authenticated access token');
+      return;
+    }
+    final session = resolvePushTokenSessionContext(
+      accessToken: accessToken,
+      expectedUserId: userId,
+      flavor: store.flavor,
+    );
+    if (session == null) {
+      _pushDebugLog('token sync skipped: JWT user/session/surface mismatch');
       return;
     }
 
+    final metadata = await Future.wait<Object?>([
+      PackageInfo.fromPlatform(),
+      DeviceInfoPlugin().deviceInfo,
+    ]);
+    final packageInfo = metadata[0] as PackageInfo;
+    final deviceInfo = metadata[1] as BaseDeviceInfo;
+    final deviceData = deviceInfo.data;
+    final deviceModel =
+        '${deviceData['model'] ?? deviceData['product'] ?? deviceData['name'] ?? _platformName()}'
+            .trim();
+
     await api.registerPushToken(
       token: clean,
+      userId: session.userId,
+      sessionId: session.sessionId,
+      appFlavor: session.appSurface,
       platform: _platformName(),
-      deviceModel: _deviceModel(),
+      appVersion: '${packageInfo.version}+${packageInfo.buildNumber}',
+      deviceModel: deviceModel,
       localeCode: await _currentLocaleCode(),
     );
     _lastSyncedToken = clean;
     _lastSyncedAt = now;
+    _pushDebugLog(
+      'token synced user=${session.userId} session=${session.sessionId} surface=${session.appSurface}',
+    );
   }
 
-  Future<void> _registerTokenWithRetry(String token) async {
+  Future<void> _registerTokenWithRetry(String token, int userId) async {
     const delays = <Duration>[
       Duration(milliseconds: 0),
       Duration(milliseconds: 700),
@@ -258,7 +381,7 @@ class PushNotificationService {
         await Future<void>.delayed(delay);
       }
       try {
-        await _registerToken(token);
+        await _registerToken(token, userId);
         return;
       } catch (e) {
         lastError = e;
@@ -269,17 +392,33 @@ class PushNotificationService {
     }
   }
 
-  Future<void> _registerTokenSafe(String token) async {
+  Future<void> _registerTokenSafe(String token, int userId) async {
     try {
-      await _registerTokenWithRetry(token);
+      await _registerTokenWithRetry(token, userId);
     } catch (e) {
-      debugPrint('Push token register failed: $e');
+      _pushDebugLog('token registration failed: $e');
     }
   }
 
   NotificationTapPayload _parseTapPayload(RemoteMessage message) {
     final payload = _parseRemoteMessagePayload(message).$3;
     return payload;
+  }
+
+  void _emitTapIfAllowed(
+    NotificationTapPayload payload, {
+    required String source,
+  }) {
+    if (!notificationPayloadMatchesAppFlavor(
+      payload,
+      AppFlavorContext.current,
+    )) {
+      _pushDebugLog(
+        'tap ignored source=$source intended=${payload.appSurface} current=${canonicalAppSurface(AppFlavorContext.current)}',
+      );
+      return;
+    }
+    _tapController.add(payload);
   }
 
   static Future<bool> _ensureFirebaseInitialized() async {
@@ -303,16 +442,13 @@ class PushNotificationService {
     return appPlatformName;
   }
 
-  static String _deviceModel() {
-    return appPlatformName;
-  }
-
   Future<String> _currentLocaleCode() async {
     final stored = (await store.readString(_appLocaleStorageKey))?.trim();
     if (stored == 'en' || stored == 'ar') {
       return stored!;
     }
-    final device = PlatformDispatcher.instance.locale.languageCode.toLowerCase();
+    final device = PlatformDispatcher.instance.locale.languageCode
+        .toLowerCase();
     return device.startsWith('en') ? 'en' : 'ar';
   }
 
@@ -411,6 +547,9 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
     roleScope:
         _asString(message.data['roleScope']) ??
         _asString(message.data['role_scope']),
+    appSurface:
+        _asString(message.data['appSurface']) ??
+        _asString(message.data['app_surface']),
     action:
         _asString(message.data['action']) ??
         _asString(message.data['target_action']),

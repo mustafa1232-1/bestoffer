@@ -36,14 +36,17 @@ class TaxiLiveTrackingScreen extends ConsumerStatefulWidget {
       _TaxiLiveTrackingScreenState();
 }
 
-class _TaxiLiveTrackingScreenState
-    extends ConsumerState<TaxiLiveTrackingScreen> {
+class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? _envelope;
   bool _loading = true;
   String? _error;
   StreamSubscription<TaxiLiveEvent>? _streamSub;
   Timer? _pollTimer;
   int? _lastEventId;
+  Timer? _reconnectTimer;
+  int _reconnectAttempt = 0;
+  bool _lifecycleResumed = true;
 
   TaxiApi get _taxiApi => ref.read(taxiApiProvider);
 
@@ -53,21 +56,60 @@ class _TaxiLiveTrackingScreenState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _envelope = widget.initialEnvelope;
     _loading = widget.initialEnvelope == null;
     unawaited(_load(silent: widget.initialEnvelope != null));
-    _connectStream();
-    _pollTimer = Timer.periodic(
-      Duration(seconds: _isPublic ? 12 : 6),
-      (_) => unawaited(_load(silent: true)),
-    );
+    _startLiveUpdates();
   }
 
   @override
   void dispose() {
-    _streamSub?.cancel();
-    _pollTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopLiveUpdates();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleResumed = state == AppLifecycleState.resumed;
+    if (_lifecycleResumed) {
+      if (taxiTrackingIsActive(_envelope)) {
+        unawaited(_load(silent: true));
+        _startLiveUpdates();
+      }
+    } else {
+      _stopLiveUpdates();
+    }
+  }
+
+  void _startLiveUpdates() {
+    if (!_lifecycleResumed || !taxiTrackingIsActive(_envelope)) return;
+    _reconnectTimer?.cancel();
+    _connectStream();
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(Duration(seconds: _isPublic ? 12 : 6), (_) {
+      if (_lifecycleResumed && taxiTrackingIsActive(_envelope)) {
+        unawaited(_load(silent: true));
+      }
+    });
+  }
+
+  void _stopLiveUpdates() {
+    _streamSub?.cancel();
+    _streamSub = null;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+  }
+
+  void _scheduleReconnect() {
+    if (!_lifecycleResumed || !taxiTrackingIsActive(_envelope)) return;
+    if (_reconnectTimer?.isActive == true) return;
+    _reconnectAttempt = (_reconnectAttempt + 1).clamp(1, 6);
+    final seconds = <int>[2, 4, 8, 12, 20, 30][_reconnectAttempt - 1];
+    _reconnectTimer = Timer(Duration(seconds: seconds), _startLiveUpdates);
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -76,6 +118,7 @@ class _TaxiLiveTrackingScreenState
         _loading = true;
         _error = null;
       });
+      if (!taxiTrackingIsActive(_envelope)) _stopLiveUpdates();
     }
     try {
       final data =
@@ -111,40 +154,61 @@ class _TaxiLiveTrackingScreenState
             rideId: widget.rideId,
             lastEventId: _lastEventId,
           );
-    _streamSub = stream.listen((event) {
-      if (event.eventId != null) {
-        _lastEventId = event.eventId;
-      }
-      if (_isPublic) {
-        if (event.event == 'taxi_location_update') {
+    _streamSub = stream.listen(
+      (event) {
+        if (!mounted) return;
+        _reconnectAttempt = 0;
+        if (event.eventId != null) {
+          _lastEventId = event.eventId;
+        }
+        if (_isPublic) {
+          if (event.event == 'taxi_location_update') {
+            setState(() {
+              _envelope = mergeTaxiTrackingEvent(_envelope, event.data);
+              _loading = false;
+              _error = null;
+            });
+            if (!taxiTrackingIsActive(_envelope)) _stopLiveUpdates();
+          } else if (event.event == 'resync_required' ||
+              event.event == 'closed') {
+            unawaited(_load(silent: true));
+            _scheduleReconnect();
+          }
+          return;
+        }
+
+        if (event.event == 'resync_required') {
+          unawaited(_load(silent: true));
+          return;
+        }
+
+        final eventRideId =
+            _readInt(event.data['rideId']) ??
+            _readInt(
+              event.data['ride'] is Map
+                  ? (event.data['ride'] as Map)['id']
+                  : null,
+            );
+        if (eventRideId != widget.rideId) return;
+        if (event.event == 'taxi_location_update' ||
+            event.event == 'taxi_ride_update') {
           setState(() {
-            _envelope = trackingMap(event.data) ?? const <String, dynamic>{};
+            _envelope = mergeTaxiTrackingEvent(_envelope, event.data);
             _loading = false;
             _error = null;
           });
-        } else if (event.event == 'resync_required' ||
-            event.event == 'closed') {
+          if (!taxiTrackingIsActive(_envelope)) _stopLiveUpdates();
+        } else if (event.event == 'taxi_bid_update' ||
+            event.event == 'taxi_shared_ride_update') {
           unawaited(_load(silent: true));
         }
-        return;
-      }
-
-      final eventRideId =
-          _readInt(event.data['rideId']) ??
-          _readInt(
-            event.data['ride'] is Map
-                ? (event.data['ride'] as Map)['id']
-                : null,
-          );
-      if (eventRideId != widget.rideId) return;
-      if (event.event == 'taxi_location_update' ||
-          event.event == 'taxi_ride_update' ||
-          event.event == 'taxi_bid_update' ||
-          event.event == 'taxi_shared_ride_update' ||
-          event.event == 'resync_required') {
+      },
+      onError: (error, stack) {
         unawaited(_load(silent: true));
-      }
-    }, onError: (error, stack) => unawaited(_load(silent: true)));
+        _scheduleReconnect();
+      },
+      onDone: _scheduleReconnect,
+    );
   }
 
   Future<void> _shareRide() async {

@@ -153,7 +153,7 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
     if (_pushSyncInFlight || _pushSyncedUserId == userId) return;
     _pushSyncInFlight = true;
     try {
-      await push.syncToken();
+      await push.syncToken(userId: userId);
       _pushSyncedUserId = userId;
     } finally {
       _pushSyncInFlight = false;

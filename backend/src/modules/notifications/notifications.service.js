@@ -1,4 +1,8 @@
 import * as repo from "./notifications.repo.js";
+import {
+  normalizeAppSurface,
+  resolveRoleAppSurface,
+} from "../../shared/utils/app-surface.js";
 
 /**
  * Purpose:
@@ -49,7 +53,41 @@ export async function markAllRead(userId) {
 /**
  * يسجل push token الحالي للجهاز كي يمكن fan-out عبر FCM/APNs لاحقاً.
  */
-export async function registerPushToken(userId, body) {
+export function validatePushTokenContext(authContext, body = {}) {
+  const userId = Number(authContext?.userId);
+  const sessionId = Number(authContext?.sessionId);
+  const appSurface = resolveRoleAppSurface(authContext?.role);
+  const hintedUserId = body?.userId == null ? null : Number(body.userId);
+  const hintedSessionId = body?.sessionId == null ? null : Number(body.sessionId);
+  const hintedSurface = body?.appFlavor == null
+    ? null
+    : normalizeAppSurface(body.appFlavor);
+
+  const mismatch =
+    !Number.isInteger(userId) ||
+    userId <= 0 ||
+    !Number.isInteger(sessionId) ||
+    sessionId <= 0 ||
+    !appSurface ||
+    (hintedUserId != null && hintedUserId !== userId) ||
+    (hintedSessionId != null && hintedSessionId !== sessionId) ||
+    (body?.appFlavor != null && hintedSurface !== appSurface);
+  if (mismatch) {
+    const err = new Error("PUSH_TOKEN_CONTEXT_MISMATCH");
+    err.status = 409;
+    throw err;
+  }
+
+  return {
+    userId,
+    sessionId,
+    appSurface,
+    deviceFingerprint:
+      String(authContext?.deviceContext?.deviceFingerprint || "").trim() || null,
+  };
+}
+
+export async function registerPushToken(authContext, body) {
   const token = String(body?.token || "").trim();
   if (!token) {
     const err = new Error("PUSH_TOKEN_REQUIRED");
@@ -57,8 +95,12 @@ export async function registerPushToken(userId, body) {
     throw err;
   }
 
+  const context = validatePushTokenContext(authContext, body);
   await repo.upsertPushToken({
-    userId,
+    userId: context.userId,
+    authSessionId: context.sessionId,
+    appSurface: context.appSurface,
+    deviceFingerprint: context.deviceFingerprint,
     token,
     platform: body?.platform || null,
     appVersion: body?.appVersion || null,

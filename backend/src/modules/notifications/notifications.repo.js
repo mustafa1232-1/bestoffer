@@ -2,6 +2,10 @@ import admin from "firebase-admin";
 
 import { q } from "../../config/db.js";
 import { emitRealtimeToUser } from "../../shared/realtime/realtime-gateway.js";
+import {
+  normalizeAppSurface,
+  resolveRoleAppSurface,
+} from "../../shared/utils/app-surface.js";
 import { attachNotificationI18n } from "./notification.i18n.js";
 import {
   normalizeNotificationLocale,
@@ -26,6 +30,12 @@ let firebaseMessaging = null;
 const PUSH_MAX_RETRIES = 3;
 const PUSH_RETRY_BASE_DELAY_MS = 500;
 const PUSH_ANOMALY_ALERT_THRESHOLD = 5;
+
+function pushDebug(message, details = null) {
+  if (process.env.NODE_ENV !== "development") return;
+  if (details == null) console.info(`[push] ${message}`);
+  else console.info(`[push] ${message}`, details);
+}
 
 function sleep(ms) {
   return new Promise((resolve) =>
@@ -419,7 +429,13 @@ function stringifyDataValue(value) {
   }
 }
 
-function buildMulticastMessage(notification, tokens, orderId, localizedText) {
+function buildMulticastMessage(
+  notification,
+  tokens,
+  orderId,
+  localizedText,
+  appSurface
+) {
   const target = resolveNotificationTarget(notification, orderId);
   const rideId = resolveRideId(notification);
   const payload = notification?.payload || {};
@@ -478,6 +494,10 @@ function buildMulticastMessage(notification, tokens, orderId, localizedText) {
       payloadVersion: "2",
       notificationId: String(notification.id || ""),
       type: String(notification.type || ""),
+      appSurface: String(appSurface || ""),
+      roleScope: payload.roleScope == null ? "" : String(payload.roleScope),
+      targetModule:
+        payload.targetModule == null ? "" : String(payload.targetModule),
       orderId: orderId == null ? "" : String(orderId),
       target,
       deepLinkTarget: target,
@@ -560,7 +580,12 @@ async function dispatchPushNotification(notification) {
   const userId = Number(notification.user_id ?? notification.userId);
   if (!Number.isFinite(userId) || userId <= 0) return;
 
-  const targets = await listActivePushTargets(userId);
+  const intendedSurface = normalizeAppSurface(
+    notification?.payload?.appSurface || notification?.payload?.app_surface
+  );
+  const targets = (await listActivePushTargets(userId)).filter(
+    (target) => !intendedSurface || target.appSurface === intendedSurface
+  );
   if (!targets.length) return;
 
   const orderId =
@@ -569,22 +594,26 @@ async function dispatchPushNotification(notification) {
     notification.payload?.orderId ??
     null;
 
-  const byLocale = new Map();
+  const byDeliveryContext = new Map();
   for (const target of targets) {
     const token = String(target?.token || "").trim();
     if (!token) continue;
     const locale = normalizeNotificationLocale(target?.locale);
-    if (!byLocale.has(locale)) {
-      byLocale.set(locale, []);
+    const appSurface = normalizeAppSurface(target?.appSurface);
+    if (!appSurface) continue;
+    const key = `${locale}:${appSurface}`;
+    if (!byDeliveryContext.has(key)) {
+      byDeliveryContext.set(key, { locale, appSurface, tokens: [] });
     }
-    byLocale.get(locale).push(token);
+    byDeliveryContext.get(key).tokens.push(token);
   }
 
   const staleTokens = new Set();
   let totalFailedEvents = 0;
   const resolvedTarget = resolveNotificationTarget(notification, orderId);
-  for (const [locale, localeTokens] of byLocale.entries()) {
-    let pendingTokens = [...localeTokens];
+  for (const context of byDeliveryContext.values()) {
+    const { locale, appSurface } = context;
+    let pendingTokens = [...context.tokens];
     const localizedText = renderNotificationTextForLocale({
       locale,
       title: notification.title,
@@ -601,7 +630,13 @@ async function dispatchPushNotification(notification) {
       let response;
       try {
         response = await messaging.sendEachForMulticast(
-          buildMulticastMessage(notification, pendingTokens, orderId, localizedText)
+          buildMulticastMessage(
+            notification,
+            pendingTokens,
+            orderId,
+            localizedText,
+            appSurface
+          )
         );
       } catch (error) {
         const code = error?.code;
@@ -763,11 +798,20 @@ async function dispatchPushNotification(notification) {
       entityId: notification.id,
     });
   }
+  pushDebug("dispatch completed", {
+    notificationId: notification.id,
+    userId,
+    target: resolvedTarget,
+    failedEvents: totalFailedEvents,
+  });
 }
 
 function queuePushNotification(notification) {
   dispatchPushNotification(notification).catch((e) => {
-    console.error("Failed to send push notification", e);
+    pushDebug("dispatch failed", {
+      notificationId: notification?.id || null,
+      error: e?.message || String(e),
+    });
   });
 }
 
@@ -826,6 +870,49 @@ function prepareNotificationInsertRow({
   };
 }
 
+export function buildNotificationAudienceMetadata(role) {
+  const appSurface = resolveRoleAppSurface(role);
+  if (!appSurface) return null;
+  return {
+    appSurface,
+    roleScope: {
+      user: "customer",
+      store: "merchant",
+      delivery: "courier",
+      taxi: "taxi_captain",
+      company: "admin",
+    }[appSurface],
+    targetModule: {
+      user: "customer",
+      store: "merchant",
+      delivery: "courier",
+      taxi: "taxi",
+      company: "admin",
+    }[appSurface],
+  };
+}
+
+async function enrichPreparedNotificationAudiences(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  const userIds = [...new Set(rows.map((row) => Number(row.userId)).filter(Boolean))];
+  const result = await q(
+    `SELECT id, role FROM app_user WHERE id = ANY($1::bigint[])`,
+    [userIds]
+  );
+  const metadataByUserId = new Map(
+    result.rows.map((row) => [Number(row.id), buildNotificationAudienceMetadata(row.role)])
+  );
+  return rows.map((row) => {
+    const metadata = metadataByUserId.get(Number(row.userId));
+    if (!metadata) return row;
+    const payload = row.payloadJson ? JSON.parse(row.payloadJson) : {};
+    payload.appSurface = metadata.appSurface;
+    payload.roleScope ||= metadata.roleScope;
+    payload.targetModule ||= metadata.targetModule;
+    return { ...row, payloadJson: JSON.stringify(payload) };
+  });
+}
+
 function finalizeCreatedNotification(notification) {
   if (!notification) return null;
   void emitRealtimeToUser(Number(notification.user_id), "notification", { notification });
@@ -881,7 +968,8 @@ export async function createNotification({
     payload,
   });
   if (!prepared) return null;
-  const inserted = await insertPreparedNotifications([prepared]);
+  const enriched = await enrichPreparedNotificationAudiences([prepared]);
+  const inserted = await insertPreparedNotifications(enriched);
   return finalizeCreatedNotification(inserted[0] || null);
 }
 
@@ -892,10 +980,11 @@ export async function createNotification({
  * - عند ظهور فقدان جزئي في fan-out راجع logs هذه الدالة أولاً.
  */
 export async function createManyNotifications(rows) {
-  const preparedRows = Array.isArray(rows)
+  let preparedRows = Array.isArray(rows)
     ? rows.map((row) => prepareNotificationInsertRow(row)).filter(Boolean)
     : [];
   if (preparedRows.length <= 0) return [];
+  preparedRows = await enrichPreparedNotificationAudiences(preparedRows);
 
   const created = [];
   const chunkSize = 100;
@@ -1071,6 +1160,9 @@ export async function createNotificationActionEvent({
 export async function upsertPushToken({
   userId,
   token,
+  authSessionId = null,
+  appSurface = null,
+  deviceFingerprint = null,
   platform = null,
   appVersion = null,
   deviceModel = null,
@@ -1081,8 +1173,9 @@ export async function upsertPushToken({
 
   const r = await q(
     `INSERT INTO user_push_token
-      (user_id, push_token, platform, app_version, device_model, locale, is_active, last_seen_at)
-     VALUES ($1,$2,$3,$4,$5,$6,TRUE,NOW())
+      (user_id, push_token, platform, app_version, device_model, locale,
+       auth_session_id, app_surface, device_fingerprint, is_active, last_seen_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,NOW())
      ON CONFLICT (push_token)
      DO UPDATE
        SET user_id = EXCLUDED.user_id,
@@ -1090,6 +1183,9 @@ export async function upsertPushToken({
            app_version = COALESCE(EXCLUDED.app_version, user_push_token.app_version),
            device_model = COALESCE(EXCLUDED.device_model, user_push_token.device_model),
            locale = COALESCE(EXCLUDED.locale, user_push_token.locale),
+           auth_session_id = EXCLUDED.auth_session_id,
+           app_surface = EXCLUDED.app_surface,
+           device_fingerprint = EXCLUDED.device_fingerprint,
            is_active = TRUE,
            last_seen_at = NOW(),
            updated_at = NOW()
@@ -1101,6 +1197,9 @@ export async function upsertPushToken({
       appVersion ? String(appVersion).trim().slice(0, 48) : null,
       deviceModel ? String(deviceModel).trim().slice(0, 120) : null,
       locale ? normalizeNotificationLocale(locale).slice(0, 8) : null,
+      authSessionId ? Number(authSessionId) : null,
+      normalizeAppSurface(appSurface),
+      deviceFingerprint ? String(deviceFingerprint).trim().slice(0, 160) : null,
     ]
   );
 
@@ -1124,11 +1223,16 @@ export async function deactivatePushToken(userId, token) {
 
 export async function listActivePushTokens(userId) {
   const r = await q(
-    `SELECT push_token
-     FROM user_push_token
-     WHERE user_id = $1
-       AND is_active = TRUE
-     ORDER BY last_seen_at DESC`,
+    `SELECT upt.push_token
+     FROM user_push_token upt
+     JOIN user_session us
+       ON us.id = upt.auth_session_id
+      AND us.user_id = upt.user_id
+      AND us.revoked_at IS NULL
+      AND us.expires_at > NOW()
+     WHERE upt.user_id = $1
+       AND upt.is_active = TRUE
+     ORDER BY upt.last_seen_at DESC`,
     [Number(userId)]
   );
 
@@ -1139,11 +1243,16 @@ export async function listActivePushTokens(userId) {
 
 async function listActivePushTargets(userId) {
   const r = await q(
-    `SELECT push_token, locale
-     FROM user_push_token
-     WHERE user_id = $1
-       AND is_active = TRUE
-     ORDER BY last_seen_at DESC`,
+    `SELECT upt.push_token, upt.locale, upt.app_surface
+     FROM user_push_token upt
+     JOIN user_session us
+       ON us.id = upt.auth_session_id
+      AND us.user_id = upt.user_id
+      AND us.revoked_at IS NULL
+      AND us.expires_at > NOW()
+     WHERE upt.user_id = $1
+       AND upt.is_active = TRUE
+     ORDER BY upt.last_seen_at DESC`,
     [Number(userId)]
   );
 
@@ -1151,8 +1260,34 @@ async function listActivePushTargets(userId) {
     .map((row) => ({
       token: String(row.push_token || "").trim(),
       locale: normalizeNotificationLocale(row.locale),
+      appSurface: normalizeAppSurface(row.app_surface),
     }))
-    .filter((row) => row.token);
+    .filter((row) => row.token && row.appSurface);
 }
+
+export async function deactivatePushTokensForSession(userId, sessionId) {
+  const r = await q(
+    `UPDATE user_push_token
+     SET is_active = FALSE, updated_at = NOW()
+     WHERE user_id = $1 AND auth_session_id = $2`,
+    [Number(userId), Number(sessionId)]
+  );
+  return r.rowCount || 0;
+}
+
+export async function deactivatePushTokensForUser(userId) {
+  const r = await q(
+    `UPDATE user_push_token
+     SET is_active = FALSE, updated_at = NOW()
+     WHERE user_id = $1`,
+    [Number(userId)]
+  );
+  return r.rowCount || 0;
+}
+
+export const __notificationsRepoTestables = {
+  buildMulticastMessage,
+  buildNotificationAudienceMetadata,
+};
 
 

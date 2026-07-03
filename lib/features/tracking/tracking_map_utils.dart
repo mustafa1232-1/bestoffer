@@ -65,3 +65,112 @@ LatLng? latLngFromMap(dynamic raw) {
   if (latitude == null || longitude == null) return null;
   return LatLng(latitude, longitude);
 }
+
+const _terminalOrderStatuses = <String>{
+  'delivered',
+  'received',
+  'completed',
+  'cancelled',
+  'failed',
+  'failed_delivery',
+  'returned',
+  'returned_if_needed',
+};
+
+const _terminalTaxiStatuses = <String>{'completed', 'cancelled', 'expired'};
+
+String? _trackingStatus(Map<String, dynamic>? envelope) {
+  final nested = trackingMap(envelope?['order'] ?? envelope?['ride']);
+  return trackingString(
+    nested?['status'] ?? envelope?['status'],
+  )?.toLowerCase();
+}
+
+bool orderTrackingIsActive(Map<String, dynamic>? snapshot) {
+  final status = _trackingStatus(snapshot);
+  return status == null || !_terminalOrderStatuses.contains(status);
+}
+
+bool taxiTrackingIsActive(Map<String, dynamic>? envelope) {
+  final status = _trackingStatus(envelope);
+  return status == null || !_terminalTaxiStatuses.contains(status);
+}
+
+Map<String, dynamic> mergeOrderTrackingEvent(
+  Map<String, dynamic>? current,
+  Map<String, dynamic> event,
+) {
+  final merged = <String, dynamic>{...?current};
+  final eventOrder = trackingMap(event['order']);
+  final currentOrder = trackingMap(merged['order']);
+  if (eventOrder != null) {
+    merged['order'] = <String, dynamic>{...?currentOrder, ...eventOrder};
+  } else if (event['status'] != null && currentOrder != null) {
+    merged['order'] = <String, dynamic>{
+      ...currentOrder,
+      'status': event['status'],
+    };
+  }
+  for (final key in const [
+    'stage',
+    'latestLocation',
+    'lastUpdatedAt',
+    'destination',
+    'courier',
+  ]) {
+    if (event[key] != null) merged[key] = event[key];
+  }
+  return merged;
+}
+
+Map<String, dynamic> mergeTaxiTrackingEvent(
+  Map<String, dynamic>? current,
+  Map<String, dynamic> event,
+) {
+  final merged = <String, dynamic>{...?current};
+  final eventRide = trackingMap(event['ride']);
+  final currentRide = trackingMap(merged['ride']);
+  if (eventRide != null) {
+    merged['ride'] = <String, dynamic>{...?currentRide, ...eventRide};
+  } else if (event['status'] != null && currentRide != null) {
+    merged['ride'] = <String, dynamic>{
+      ...currentRide,
+      'status': event['status'],
+    };
+  }
+  final location = event['location'] ?? event['latestLocation'];
+  if (location != null) merged['latestLocation'] = location;
+  return merged;
+}
+
+bool canPublishCourierLocation({
+  required bool lifecycleResumed,
+  required bool permissionGranted,
+  required bool assigned,
+  required String status,
+}) {
+  return lifecycleResumed &&
+      permissionGranted &&
+      assigned &&
+      const {
+        'ready_for_delivery',
+        'on_the_way',
+        'arrived',
+      }.contains(status.trim().toLowerCase());
+}
+
+bool canPublishTaxiRideLocation({
+  required bool lifecycleResumed,
+  required bool permissionGranted,
+  required bool assigned,
+  required String status,
+}) {
+  return lifecycleResumed &&
+      permissionGranted &&
+      assigned &&
+      const {
+        'captain_assigned',
+        'captain_arriving',
+        'ride_started',
+      }.contains(status.trim().toLowerCase());
+}

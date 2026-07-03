@@ -571,7 +571,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     if (_pushSyncInFlight || _pushSyncedUserId == userId) return;
     _pushSyncInFlight = true;
     try {
-      await push.syncToken();
+      await push.syncToken(userId: userId);
       _pushSyncedUserId = userId;
     } catch (_) {
       // Keep sync best-effort; lifecycle resume will retry if needed.
@@ -856,8 +856,8 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
             : (_hasVerifiedSession(auth)
                   ? _homeForAuth(auth)
                   : auth.isGuest || (auth.token?.trim().isNotEmpty ?? false)
-                      ? const MaslakiUserShell()
-                      : const LoginScreen()),
+                  ? const MaslakiUserShell()
+                  : const LoginScreen()),
       AppStartupPhase.idle ||
       AppStartupPhase.checkingServer ||
       AppStartupPhase.serverCheckFailed => const AppFirstLaunchScreen(),

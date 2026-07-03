@@ -31,7 +31,8 @@ class DeliveryLiveTrackingScreen extends ConsumerStatefulWidget {
 }
 
 class _DeliveryLiveTrackingScreenState
-    extends ConsumerState<DeliveryLiveTrackingScreen> {
+    extends ConsumerState<DeliveryLiveTrackingScreen>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? _snapshot;
   bool _loading = true;
   String? _error;
@@ -39,34 +40,73 @@ class _DeliveryLiveTrackingScreenState
   StreamSubscription<OrderTrackingLiveEvent>? _liveSub;
   StreamSubscription<OrderTrackingLiveEvent>? _publicSub;
   int? _lastTrackingEventId;
+  Timer? _reconnectTimer;
+  int _reconnectAttempt = 0;
+  bool _lifecycleResumed = true;
 
   bool get _isPublic => widget.publicToken != null;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_load());
-    if (_isPublic) {
-      _connectPublicStream();
-      _pollTimer = Timer.periodic(
-        const Duration(seconds: 12),
-        (_) => unawaited(_load(silent: true)),
-      );
-    } else {
-      _connectTrackingStream();
-      _pollTimer = Timer.periodic(
-        const Duration(seconds: 6),
-        (_) => unawaited(_load(silent: true)),
-      );
-    }
+    _startLiveUpdates();
   }
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
-    _liveSub?.cancel();
-    _publicSub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopLiveUpdates();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleResumed = state == AppLifecycleState.resumed;
+    if (_lifecycleResumed) {
+      if (orderTrackingIsActive(_snapshot)) {
+        unawaited(_load(silent: true));
+        _startLiveUpdates();
+      }
+    } else {
+      _stopLiveUpdates();
+    }
+  }
+
+  void _startLiveUpdates() {
+    if (!_lifecycleResumed || !orderTrackingIsActive(_snapshot)) return;
+    _reconnectTimer?.cancel();
+    if (_isPublic) {
+      _connectPublicStream();
+    } else {
+      _connectTrackingStream();
+    }
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(Duration(seconds: _isPublic ? 12 : 6), (_) {
+      if (_lifecycleResumed && orderTrackingIsActive(_snapshot)) {
+        unawaited(_load(silent: true));
+      }
+    });
+  }
+
+  void _stopLiveUpdates() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _liveSub?.cancel();
+    _liveSub = null;
+    _publicSub?.cancel();
+    _publicSub = null;
+  }
+
+  void _scheduleReconnect() {
+    if (!_lifecycleResumed || !orderTrackingIsActive(_snapshot)) return;
+    if (_reconnectTimer?.isActive == true) return;
+    _reconnectAttempt = (_reconnectAttempt + 1).clamp(1, 6);
+    final seconds = <int>[2, 4, 8, 12, 20, 30][_reconnectAttempt - 1];
+    _reconnectTimer = Timer(Duration(seconds: seconds), _startLiveUpdates);
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -75,6 +115,7 @@ class _DeliveryLiveTrackingScreenState
         _loading = true;
         _error = null;
       });
+      if (!orderTrackingIsActive(_snapshot)) _stopLiveUpdates();
     }
 
     try {
@@ -132,16 +173,31 @@ class _DeliveryLiveTrackingScreenState
           orderId: widget.orderId!,
           lastEventId: _lastTrackingEventId,
         )
-        .listen((event) {
-          if (event.eventId != null) {
-            _lastTrackingEventId = event.eventId;
-          }
-          if (event.event == 'order_tracking_update' ||
-              event.event == 'notification' ||
-              event.event == 'resync_required') {
+        .listen(
+          (event) {
+            if (!mounted) return;
+            _reconnectAttempt = 0;
+            if (event.eventId != null) {
+              _lastTrackingEventId = event.eventId;
+            }
+            if (event.event == 'order_tracking_update') {
+              setState(() {
+                _snapshot = mergeOrderTrackingEvent(_snapshot, event.data);
+                _loading = false;
+                _error = null;
+              });
+              if (!orderTrackingIsActive(_snapshot)) _stopLiveUpdates();
+            } else if (event.event == 'notification' ||
+                event.event == 'resync_required') {
+              unawaited(_load(silent: true));
+            }
+          },
+          onError: (error, stack) {
             unawaited(_load(silent: true));
-          }
-        }, onError: (error, stack) => unawaited(_load(silent: true)));
+            _scheduleReconnect();
+          },
+          onDone: _scheduleReconnect,
+        );
   }
 
   void _connectPublicStream() {
@@ -149,20 +205,29 @@ class _DeliveryLiveTrackingScreenState
     _publicSub = ref
         .read(ordersApiProvider)
         .streamPublicTrackingByToken(widget.publicToken!)
-        .listen((event) {
-          if (!mounted) return;
-          if (event.event == 'order_tracking_update') {
-            setState(() {
-              _snapshot = trackingMap(event.data) ?? const <String, dynamic>{};
-              _error = null;
-              _loading = false;
-            });
-            return;
-          }
-          if (event.event == 'resync_required' || event.event == 'closed') {
+        .listen(
+          (event) {
+            if (!mounted) return;
+            _reconnectAttempt = 0;
+            if (event.event == 'order_tracking_update') {
+              setState(() {
+                _snapshot = mergeOrderTrackingEvent(_snapshot, event.data);
+                _error = null;
+                _loading = false;
+              });
+              if (!orderTrackingIsActive(_snapshot)) _stopLiveUpdates();
+              return;
+            }
+            if (event.event == 'resync_required' || event.event == 'closed') {
+              unawaited(_load(silent: true));
+            }
+          },
+          onError: (error, stack) {
             unawaited(_load(silent: true));
-          }
-        }, onError: (error, stack) => unawaited(_load(silent: true)));
+            _scheduleReconnect();
+          },
+          onDone: _scheduleReconnect,
+        );
   }
 
   Future<void> _shareTracking() async {

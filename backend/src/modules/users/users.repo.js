@@ -6,6 +6,10 @@ import {
   markUserSessionsRevokedAfter,
 } from "../../shared/middleware/access-auth.js";
 import { findUserAddressMeta, setUserAccountDisabled } from "../feed/feed.repo.js";
+import {
+  deactivatePushTokensForSession,
+  deactivatePushTokensForUser,
+} from "../notifications/notifications.repo.js";
 
 export async function findMyAccountMeta(userId) {
   return findUserAddressMeta(Number(userId));
@@ -26,6 +30,7 @@ export async function revokeAllMySessions(userId, reason = "account_self_disable
     reason,
   });
   await markUserSessionsRevokedAfter(Number(userId));
+  await deactivatePushTokensForUser(Number(userId));
   invalidateSessionAccessCacheForUser({
     userId: Number(userId),
   });
@@ -43,6 +48,7 @@ export async function revokeMySession({ userId, sessionId }) {
     reason: "session_revoked_by_owner",
   });
   if (revoked) {
+    await deactivatePushTokensForSession(Number(userId), Number(sessionId));
     await markSessionRevoked(Number(sessionId));
     invalidateSessionAccessCacheForSession({
       userId: Number(userId),

@@ -47,6 +47,9 @@ class NotificationsApi {
 
   Future<void> registerPushToken({
     required String token,
+    int? userId,
+    int? sessionId,
+    String? appFlavor,
     String? platform,
     String? appVersion,
     String? deviceModel,
@@ -56,6 +59,9 @@ class NotificationsApi {
       '/api/notifications/push-token',
       data: {
         'token': token,
+        'userId': userId,
+        'sessionId': sessionId,
+        'appFlavor': appFlavor,
         'platform': platform,
         'appVersion': appVersion,
         'deviceModel': deviceModel,

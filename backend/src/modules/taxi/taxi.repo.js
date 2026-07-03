@@ -1196,7 +1196,7 @@ export async function insertRideLocation({
       return { code: "RIDE_NOT_ASSIGNED_TO_CAPTAIN" };
     }
 
-    if (!["captain_assigned", "captain_arriving", "ride_started"].includes(ride.status)) {
+    if (!isTaxiTrackableRideStatus(ride.status)) {
       await client.query("ROLLBACK");
       return { code: "RIDE_NOT_TRACKABLE", currentStatus: ride.status };
     }
@@ -1645,6 +1645,12 @@ export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 3
   );
 
   return r.rows.map(normalizeRide);
+}
+
+export function isTaxiTrackableRideStatus(status) {
+  return ["captain_assigned", "captain_arriving", "ride_started"].includes(
+    String(status || "").trim().toLowerCase()
+  );
 }
 
 export async function declineRideByCaptain({ rideId, captainUserId }) {

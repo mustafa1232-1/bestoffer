@@ -68,7 +68,15 @@ export async function markAllRead(req, res, next) {
 
 export async function registerPushToken(req, res, next) {
   try {
-    await service.registerPushToken(req.userId, req.body || {});
+    await service.registerPushToken(
+      {
+        userId: req.userId,
+        sessionId: req.authSessionId || null,
+        role: req.userRole,
+        deviceContext: req.authDeviceContext || null,
+      },
+      req.body || {}
+    );
     res.status(204).send();
   } catch (e) {
     next(e);

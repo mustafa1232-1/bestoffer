@@ -24,15 +24,13 @@ import '../../auth/state/auth_controller.dart';
 import '../../notifications/ui/notifications_screen.dart';
 import '../../settings/ui/pages/settings_account_screen.dart';
 import '../../settings/ui/pages/settings_support_screen.dart';
+import '../../tracking/tracking_map_utils.dart';
 import '../data/taxi_api.dart';
 import 'taxi_captain_loyalty_screen.dart';
 
 final taxiCaptainApiProvider = Provider<TaxiApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
-  return TaxiApi(
-    dio,
-    realtime: ref.read(maslakiRealtimeServiceProvider),
-  );
+  return TaxiApi(dio, realtime: ref.read(maslakiRealtimeServiceProvider));
 });
 
 final taxiCaptainRouteServiceProvider = Provider<TaxiRouteService>((ref) {
@@ -365,7 +363,8 @@ class TaxiCaptainDashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _TaxiCaptainDashboardScreenState
-    extends ConsumerState<TaxiCaptainDashboardScreen> {
+    extends ConsumerState<TaxiCaptainDashboardScreen>
+    with WidgetsBindingObserver {
   static const _center = LatLng(33.3128, 44.3615);
 
   final _mapController = MapController();
@@ -381,6 +380,7 @@ class _TaxiCaptainDashboardScreenState
   bool _streamConnected = false;
   bool _followMe = true;
   bool _routeLoading = false;
+  bool _lifecycleResumed = true;
   int _tab = 0;
   int _tickCounter = 0;
   int _streamReconnectAttempt = 0;
@@ -681,6 +681,7 @@ class _TaxiCaptainDashboardScreenState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _applyIntentPreset();
     if (widget.initialIntent == TaxiCaptainDashboardIntent.defaultHome) {
       _tab = widget.initialTab.index;
@@ -696,10 +697,17 @@ class _TaxiCaptainDashboardScreenState
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
     _streamSub?.cancel();
     _streamReconnectTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleResumed = state == AppLifecycleState.resumed;
+    if (_lifecycleResumed) unawaited(_tick(full: true));
   }
 
   /// يحمل بيانات الكابتن، الرحلات الحالية، والـ meta اللازمة لبناء اللوحة.
@@ -750,7 +758,7 @@ class _TaxiCaptainDashboardScreenState
   }
 
   Future<void> _tick({bool full = false}) async {
-    if (!mounted) return;
+    if (!mounted || !_lifecycleResumed) return;
     if (_locked && !full) {
       setState(() {
         _loading = false;
@@ -778,7 +786,15 @@ class _TaxiCaptainDashboardScreenState
 
       _currentRideEnvelope = await _api.getCurrentRideForCaptain();
       final rideId = _asInt(_ride?['id']);
-      if (rideId != null && pos != null) {
+      final rideStatus = '${_ride?['status'] ?? ''}';
+      if (rideId != null &&
+          pos != null &&
+          canPublishTaxiRideLocation(
+            lifecycleResumed: _lifecycleResumed,
+            permissionGranted: true,
+            assigned: true,
+            status: rideStatus,
+          )) {
         await _api.updateRideLocation(
           rideId: rideId,
           latitude: pos.latitude,
@@ -1078,6 +1094,7 @@ class _TaxiCaptainDashboardScreenState
   }
 
   Future<Position?> _position() async {
+    if (!_lifecycleResumed) return null;
     final status = await ref
         .read(locationPermissionServiceProvider)
         .getStatus();
