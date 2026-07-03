@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -297,6 +299,7 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
     )) {
       return;
     }
+    if (!mounted) return;
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -346,6 +349,7 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
     )) {
       return;
     }
+    if (!mounted) return;
     final nextCount = await showSocialReelCommentsSheet(
       context,
       reelPost: item.post,
@@ -362,6 +366,7 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
     )) {
       return;
     }
+    if (!mounted) return;
     final posted = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -385,6 +390,7 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
     )) {
       return;
     }
+    if (!mounted) return;
     await showSocialShareSheet(
       context: context,
       entityType: 'reel',
@@ -407,6 +413,7 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
     )) {
       return;
     }
+    if (!mounted) return;
     await showSocialCreatePostSheet(context);
   }
 

@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -83,6 +85,7 @@ class _SocialStoryPublishScreenState
     )) {
       return;
     }
+    if (!mounted) return;
     if (_publishing) return;
     final l10n = context.l10n;
     final draft = ref.read(socialStoryDraftControllerProvider).draft;
@@ -94,7 +97,10 @@ class _SocialStoryPublishScreenState
       });
       return;
     }
-    if (media != null && media.isVideo && _segments.isEmpty && !_loadingSegments) {
+    if (media != null &&
+        media.isVideo &&
+        _segments.isEmpty &&
+        !_loadingSegments) {
       final computed = await StorySegmentationService().buildSegments(media);
       if (computed.isNotEmpty && mounted) {
         setState(() => _segments = computed);
@@ -153,9 +159,7 @@ class _SocialStoryPublishScreenState
             storyStyle: storyStyle,
           );
         }
-      } else if (media != null &&
-          media.isVideo &&
-          _segments.length == 1) {
+      } else if (media != null && media.isVideo && _segments.length == 1) {
         final onlySegment = _segments.first;
         final storyStyle = Map<String, dynamic>.from(baseStyle)
           ..['clipStartSec'] = onlySegment.startSec

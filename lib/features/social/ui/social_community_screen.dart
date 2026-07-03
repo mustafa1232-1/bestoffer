@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'dart:async';
 
 import 'package:core_design_system/core_design_system.dart';
@@ -152,9 +154,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       unawaited(
         requireAuthBeforeAction(
           context,
-          featureArabic: tab == 2
-              ? 'محادثة المجتمع'
-              : 'فواتير المجتمع',
+          featureArabic: tab == 2 ? 'محادثة المجتمع' : 'فواتير المجتمع',
           featureEnglish: tab == 2 ? 'community chat' : 'community bills',
         ),
       );
@@ -443,7 +443,8 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   void _handleAuthStateChanged(AuthState? previous, AuthState next) {
-    final wasAuthed = previous != null && previous.isAuthed && previous.user != null;
+    final wasAuthed =
+        previous != null && previous.isAuthed && previous.user != null;
     final isAuthed = next.isAuthed && next.user != null;
     if (!mounted) return;
 
@@ -989,44 +990,50 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
               (e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)),
             )
             .toList(growable: false);
-        _announcements = List<dynamic>.from(ann['announcements'] as List? ?? const [])
-            .map(
-              (e) => SocialCommunityAnnouncement.fromJson(
-                Map<String, dynamic>.from(e as Map),
-              ),
-            )
-            .toList(growable: false);
-        final parsedChat = List<dynamic>.from(chat['messages'] as List? ?? const [])
-            .map(
-              (e) => SocialCommunityChatMessage.fromJson(
-                Map<String, dynamic>.from(e as Map),
-              ),
-            )
-            .toList(growable: false);
-        parsedChat.sort((a, b) => a.id.compareTo(b.id));
-        _chatMessages = hasSession ? parsedChat : const <SocialCommunityChatMessage>[];
-        _bills = hasSession
-            ? List<dynamic>.from(bills['bills'] as List? ?? const [])
+        _announcements =
+            List<dynamic>.from(ann['announcements'] as List? ?? const [])
                 .map(
-                  (e) => SocialCommunityBill.fromJson(
+                  (e) => SocialCommunityAnnouncement.fromJson(
                     Map<String, dynamic>.from(e as Map),
                   ),
                 )
-                .toList(growable: false)
+                .toList(growable: false);
+        final parsedChat =
+            List<dynamic>.from(chat['messages'] as List? ?? const [])
+                .map(
+                  (e) => SocialCommunityChatMessage.fromJson(
+                    Map<String, dynamic>.from(e as Map),
+                  ),
+                )
+                .toList(growable: false);
+        parsedChat.sort((a, b) => a.id.compareTo(b.id));
+        _chatMessages = hasSession
+            ? parsedChat
+            : const <SocialCommunityChatMessage>[];
+        _bills = hasSession
+            ? List<dynamic>.from(bills['bills'] as List? ?? const [])
+                  .map(
+                    (e) => SocialCommunityBill.fromJson(
+                      Map<String, dynamic>.from(e as Map),
+                    ),
+                  )
+                  .toList(growable: false)
             : const <SocialCommunityBill>[];
         _managers = hasSession
             ? List<dynamic>.from(managers['managers'] as List? ?? const [])
-                .map(
-                  (e) => SocialCommunityManager.fromJson(
-                    Map<String, dynamic>.from(e as Map),
-                  ),
-                )
-                .toList(growable: false)
+                  .map(
+                    (e) => SocialCommunityManager.fromJson(
+                      Map<String, dynamic>.from(e as Map),
+                    ),
+                  )
+                  .toList(growable: false)
             : const <SocialCommunityManager>[];
-        _canManageAnnouncements = hasSession && ann['canManageAnnouncements'] == true;
+        _canManageAnnouncements =
+            hasSession && ann['canManageAnnouncements'] == true;
         _canManageChat = hasSession && chat['canManageChat'] == true;
         _canManageBills = hasSession && bills['canManageBills'] == true;
-        _canManageManagers = hasSession && managers['canManageManagers'] == true;
+        _canManageManagers =
+            hasSession && managers['canManageManagers'] == true;
         _chatLocked = hasSession && chat['chatLocked'] == true;
         _isBanned = hasSession && chat['isBanned'] == true;
         _loading = false;
@@ -1038,9 +1045,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       if (hasSession) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_chatScrollCtrl.hasClients) {
-            _chatScrollCtrl.jumpTo(
-              _chatScrollCtrl.position.maxScrollExtent,
-            );
+            _chatScrollCtrl.jumpTo(_chatScrollCtrl.position.maxScrollExtent);
           }
         });
       }
@@ -1680,6 +1685,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
     )) {
       return;
     }
+    if (!mounted) return;
     final titleCtrl = TextEditingController();
     final bodyCtrl = TextEditingController();
     final ok = await showDialog<bool>(
@@ -1842,6 +1848,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
     )) {
       return;
     }
+    if (!mounted) return;
     final titleCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
     final apartmentCtrl = TextEditingController();
@@ -2362,6 +2369,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
     )) {
       return;
     }
+    if (!mounted) return;
     final created = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -2655,6 +2663,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
     )) {
       return;
     }
+    if (!mounted) return;
     final created = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,

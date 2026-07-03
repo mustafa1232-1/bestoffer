@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -69,6 +71,7 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
     )) {
       return;
     }
+    if (!mounted) return;
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -147,6 +150,7 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
     )) {
       return;
     }
+    if (!mounted) return;
     if (_busySuggestedUserIds.contains(person.user.id) ||
         person.relation.isAccepted) {
       return;

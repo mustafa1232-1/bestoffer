@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -71,6 +73,7 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
     )) {
       return;
     }
+    if (!mounted) return;
     final l10n = context.l10n;
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -173,6 +176,7 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
         return;
       }
     }
+    if (!mounted) return;
     final scope = _resolvePrimaryCommunityScope();
     if (scope == null) {
       if (!mounted) return;
