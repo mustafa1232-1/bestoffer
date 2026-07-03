@@ -6,6 +6,7 @@ import {
   validateRichProductPayload,
 } from "../modules/products/product-catalog.logic.js";
 import {
+  normalizeStockQuantityInput,
   validateOwnerCategoryCreate,
   validateOwnerProductCreate,
 } from "../modules/owner/owner.validators.js";
@@ -48,4 +49,13 @@ test("owner contracts accept catalog type, stock, and rich arrays", () => {
     variants: [],
     media: [],
   }).ok, true);
+});
+
+test("stock quantity input: absent/null/empty means untracked, not zero", () => {
+  assert.equal(normalizeStockQuantityInput(undefined), undefined);
+  assert.equal(normalizeStockQuantityInput(null), undefined);
+  assert.equal(normalizeStockQuantityInput(""), undefined);
+  assert.equal(normalizeStockQuantityInput("0"), 0);
+  assert.equal(normalizeStockQuantityInput("5"), 5);
+  assert.equal(normalizeStockQuantityInput(3), 3);
 });

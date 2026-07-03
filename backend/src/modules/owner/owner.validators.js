@@ -577,3 +577,13 @@ export function validateOwnerStaffSearchQuery(query) {
     },
   };
 }
+
+/**
+ * قيمة المخزون البسيط القادمة من العميل: غياب القيمة أو null أو "" تعني
+ * "لا تتبع/لا تغيّر المخزون" (undefined)، وليست صفراً. تحويل null إلى 0
+ * كان ينشئ store_inventory_item بكمية 0 لمنتجات الـ variants ويمنع بيعها.
+ */
+export function normalizeStockQuantityInput(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  return Number(value);
+}

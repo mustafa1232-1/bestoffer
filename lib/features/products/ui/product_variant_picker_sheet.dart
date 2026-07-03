@@ -384,6 +384,23 @@ class _ProductVariantPickerSheetState
                   ),
                 );
               }),
+              if (widget.product.variants.isNotEmpty &&
+                  (_selectedVariant == null || !_selectedVariant!.inStock))
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, bottom: 6),
+                  child: Text(
+                    context.lt(
+                      ar: 'هذا اللون/المقاس غير متوفر حالياً',
+                      en: 'This color/size is currently unavailable',
+                    ),
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               const SizedBox(height: 8),
               Row(
                 children: [

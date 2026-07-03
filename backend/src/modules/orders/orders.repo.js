@@ -601,6 +601,47 @@ async function loadProductVariantCatalogTx(client, productIds) {
   return byProductId;
 }
 
+/**
+ * PRODUCT_OUT_OF_STOCK مع تفاصيل منظمة تكفي الواجهة لعرض رسالة مفهومة
+ * (اسم المنتج واللون والمقاس والكمية المتاحة) بدل رسالة عامة.
+ */
+function productOutOfStockError({
+  product,
+  variantId = null,
+  colorName = null,
+  size = null,
+  requestedQuantity = 0,
+  availableQuantity = 0,
+}) {
+  const err = new Error("PRODUCT_OUT_OF_STOCK");
+  err.status = 400;
+  err.details = {
+    reason: "OUT_OF_STOCK",
+    productId: Number(product?.id) || null,
+    productName: product?.name || null,
+    variantId: variantId == null ? null : Number(variantId),
+    colorName: colorName || null,
+    size: size || null,
+    requestedQuantity: Math.max(0, Number(requestedQuantity || 0)),
+    availableQuantity: Math.max(0, Number(availableQuantity ?? 0)),
+  };
+  return err;
+}
+
+/**
+ * مخزون المنتج العام (store_inventory_item) يحكم المنتج البسيط فقط.
+ * عندما يُحلّ العنصر إلى variant ملموس فإن مخزون الـ variant هو المرجع،
+ * وصف المنتج العام (غالباً 0 لمنتجات الـ variants) يجب ألا يمنع البيع.
+ */
+function shouldApplyProductInventoryGate({
+  variantResolution,
+  inventoryEnabled,
+  inventoryQuantity,
+}) {
+  if (variantResolution?.variantId) return false;
+  return inventoryEnabled === true && inventoryQuantity != null;
+}
+
 function buildVariantSelectionSignature(selections) {
   return (selections || [])
     .map((entry) =>
@@ -710,9 +751,14 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
     }
 
     if (exactVariant.stockQuantity < Number(item.quantity || 0)) {
-      const err = new Error("PRODUCT_OUT_OF_STOCK");
-      err.status = 400;
-      throw err;
+      throw productOutOfStockError({
+        product,
+        variantId: exactVariant.variantId,
+        colorName: exactSelections.colorSelection?.optionLabel || null,
+        size: exactSelections.sizeSelection?.optionLabel || null,
+        requestedQuantity: item.quantity,
+        availableQuantity: exactVariant.stockQuantity,
+      });
     }
 
     const combinationSignature = exactSelections.selectionSignature;
@@ -835,9 +881,20 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
     throw err;
   }
   if (exactVariant && exactVariant.stockQuantity < Number(item.quantity || 0)) {
-    const err = new Error("PRODUCT_OUT_OF_STOCK");
-    err.status = 400;
-    throw err;
+    throw productOutOfStockError({
+      product,
+      variantId: exactVariant.variantId,
+      colorName:
+        resolvedSelections.find(
+          (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+        )?.optionLabel || null,
+      size:
+        resolvedSelections.find(
+          (entry) => String(entry.groupCode || "").toLowerCase() === "size"
+        )?.optionLabel || null,
+      requestedQuantity: item.quantity,
+      availableQuantity: exactVariant.stockQuantity,
+    });
   }
 
   const selectedVariantSnapshot = {
@@ -1133,6 +1190,7 @@ export const __ordersRepoTestables = Object.freeze({
   buildDeliveryEarnings,
   buildDeliveryRatings,
   resolveVariantSelectionForItem,
+  shouldApplyProductInventoryGate,
   transitionInventoryReservationsTx,
 });
 
@@ -1434,7 +1492,13 @@ async function calculateStoreOrderDraft({
       variantCatalogMap.get(Number(product.id)) || null
     );
 
-    if (inventoryEnabled && product.inventory_quantity != null) {
+    if (
+      shouldApplyProductInventoryGate({
+        variantResolution,
+        inventoryEnabled,
+        inventoryQuantity: product.inventory_quantity,
+      })
+    ) {
       if (product.inventory_manual_disabled === true) {
         const err = new Error("PRODUCT_UNAVAILABLE");
         err.status = 400;
@@ -1442,9 +1506,11 @@ async function calculateStoreOrderDraft({
       }
       const currentQuantity = Math.max(0, Number(product.inventory_quantity || 0));
       if (currentQuantity < Number(item.quantity || 0)) {
-        const err = new Error("PRODUCT_OUT_OF_STOCK");
-        err.status = 400;
-        throw err;
+        throw productOutOfStockError({
+          product,
+          requestedQuantity: item.quantity,
+          availableQuantity: currentQuantity,
+        });
       }
     }
 
@@ -1719,7 +1785,13 @@ export async function createOrderWithItems({
         variantCatalogMap.get(Number(product.id)) || null
       );
 
-      if (inventoryEnabled && product.inventory_quantity != null) {
+      if (
+        shouldApplyProductInventoryGate({
+          variantResolution,
+          inventoryEnabled,
+          inventoryQuantity: product.inventory_quantity,
+        })
+      ) {
         if (product.inventory_manual_disabled === true) {
           const err = new Error("PRODUCT_UNAVAILABLE");
           err.status = 400;
@@ -1727,9 +1799,11 @@ export async function createOrderWithItems({
         }
         const currentQuantity = Math.max(0, Number(product.inventory_quantity || 0));
         if (currentQuantity < Number(item.quantity || 0)) {
-          const err = new Error("PRODUCT_OUT_OF_STOCK");
-          err.status = 400;
-          throw err;
+          throw productOutOfStockError({
+            product,
+            requestedQuantity: item.quantity,
+            availableQuantity: currentQuantity,
+          });
         }
       }
 
@@ -1964,9 +2038,30 @@ export async function createOrderWithItems({
           );
         }
         if (!reserved.rows[0]) {
-          const err = new Error("PRODUCT_OUT_OF_STOCK");
-          err.status = 400;
-          throw err;
+          let availableQuantity = 0;
+          if (item.variantId) {
+            const stockRow = await client.query(
+              `SELECT stock_quantity FROM product_variant WHERE id = $1`,
+              [Number(item.variantId)]
+            );
+            availableQuantity = Number(stockRow.rows[0]?.stock_quantity || 0);
+          } else {
+            const stockRow = await client.query(
+              `SELECT quantity FROM store_inventory_item
+               WHERE merchant_id = $1 AND product_id = $2`,
+              [Number(merchantId), Number(item.productId)]
+            );
+            availableQuantity = Number(stockRow.rows[0]?.quantity || 0);
+          }
+          const calculated = calculatedItems[item.itemIndex] || {};
+          throw productOutOfStockError({
+            product: { id: item.productId, name: calculated.productName },
+            variantId: item.variantId || null,
+            colorName: calculated.selectedVariantSnapshot?.colorLabel || null,
+            size: calculated.selectedVariantSnapshot?.sizeLabel || null,
+            requestedQuantity: item.orderedQuantity,
+            availableQuantity,
+          });
         }
         const persistedItem = persistedItems[item.itemIndex];
         await client.query(

@@ -1,10 +1,26 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/state/auth_controller.dart';
 import '../../behavior/data/behavior_api.dart';
 import '../../taxi/data/taxi_api.dart';
 
+/// لا تُستدعى taxi saved-places/history (وبقية insights) إلا بجلسة عميل
+/// صالحة: الضيف أو token غير موجود يعني 401 مضمونة وضجيجاً في اللوج.
+bool shouldLoadCustomerSmartExperience(AuthState auth) {
+  return auth.isAuthed && !auth.isGuest && auth.isCustomer;
+}
+
 final customerSmartExperienceProvider =
     FutureProvider<CustomerSmartExperienceSnapshot>((ref) async {
+      final auth = ref.watch(authControllerProvider);
+      if (!shouldLoadCustomerSmartExperience(auth)) {
+        return const CustomerSmartExperienceSnapshot(
+          insights: <String, dynamic>{},
+          savedPlaces: <Map<String, dynamic>>[],
+          rideHistory: <Map<String, dynamic>>[],
+        );
+      }
+
       final behaviorApi = ref.read(behaviorApiProvider);
       final taxiApi = ref.read(taxiApiProvider);
 

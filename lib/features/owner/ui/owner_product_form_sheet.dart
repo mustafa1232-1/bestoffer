@@ -868,6 +868,14 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
                             onPressed: () => setState(_syncVariants),
                             child: const Text('توليد تركيبات اللون والمقاس'),
                           ),
+                          const Padding(
+                            padding: EdgeInsets.only(top: 6),
+                            child: Text(
+                              'أدخل المخزون لكل تركيبة. تركيبة بمخزون 0 تظهر للمستخدم كغير متوفرة ولا يمكن طلبها.',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
                           const SizedBox(height: 8),
                           ..._variants.values.map(_variantEditor),
                         ],
@@ -1385,8 +1393,10 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
             )
           : null,
       availabilityBadge: ProductSummaryBadgeData(
-        text: isAvailable ? 'متاح للبيع' : 'غير متاح',
-        kind: isAvailable
+        text: !isAvailable
+            ? 'غير متاح'
+            : (_previewInStock ? 'متاح للبيع' : 'نفد المخزون'),
+        kind: isAvailable && _previewInStock
             ? ProductSummaryBadgeKind.success
             : ProductSummaryBadgeKind.danger,
       ),
@@ -1411,6 +1421,20 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     final parsed = double.tryParse(value);
     if (parsed == null) return value;
     return formatIqd(parsed);
+  }
+
+  /// حالة التوفر الفعلية كما سيراها المستخدم: مع variants يعتمد مخزون
+  /// التركيبات، ومع منتج بسيط يعتمد حقل المخزون (الفارغ = غير متتبع = متاح).
+  bool get _previewInStock {
+    if (_variants.isNotEmpty) {
+      return _variants.values.any(
+        (draft) =>
+            draft.available &&
+            (int.tryParse(draft.stock.text.trim()) ?? 0) > 0,
+      );
+    }
+    final stock = int.tryParse(stockCtrl.text.trim());
+    return stock == null || stock > 0;
   }
 }
 

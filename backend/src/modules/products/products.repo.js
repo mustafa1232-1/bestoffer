@@ -48,26 +48,27 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
   );
   if (!normalizedIds.length) return new Map();
 
-  const [attributesResult, groupsResult, mediaResult, variantsResult] = await Promise.all([
-    client.query(
-      `SELECT
-         id,
-         product_id,
-         attribute_code,
-         label_ar,
-         label_en,
-         value_text,
-         value_unit,
-         show_in_card,
-         show_in_details,
-         sort_order,
-         metadata_json
-       FROM product_attribute
-       WHERE product_id = ANY($1::bigint[])
-       ORDER BY sort_order ASC, id ASC`,
-      [normalizedIds]
-    ),
-    client.query(
+  // نفس pg client داخل transaction: الاستعلامات تنفذ تسلسلياً بشكل صريح.
+  // Promise.all على client واحد يطلق تحذير deprecation في pg ويخفي ترتيب التنفيذ.
+  const attributesResult = await client.query(
+    `SELECT
+       id,
+       product_id,
+       attribute_code,
+       label_ar,
+       label_en,
+       value_text,
+       value_unit,
+       show_in_card,
+       show_in_details,
+       sort_order,
+       metadata_json
+     FROM product_attribute
+     WHERE product_id = ANY($1::bigint[])
+     ORDER BY sort_order ASC, id ASC`,
+    [normalizedIds]
+  );
+  const groupsResult = await client.query(
       `SELECT
          g.id AS group_id,
          g.product_id,
@@ -94,34 +95,33 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
          ON o.group_id = g.id
        WHERE g.product_id = ANY($1::bigint[])
        ORDER BY g.sort_order ASC, g.id ASC, o.sort_order ASC, o.id ASC`,
-      [normalizedIds]
-    ),
-    client.query(
-      `SELECT
-         id,
-         product_id,
-         image_url,
-         alt_text,
-         is_primary,
-         sort_order,
-         variant_group_code,
-         variant_option_code,
-         metadata_json
-       FROM product_media
-       WHERE product_id = ANY($1::bigint[])
-       ORDER BY is_primary DESC, sort_order ASC, id ASC`,
-      [normalizedIds]
-    ),
-    client.query(
-      `SELECT id, product_id, selections_json, sku, barcode, material,
-              price_override, discounted_price_override, stock_quantity,
-              image_url, is_available, sort_order, metadata_json
-       FROM product_variant
-       WHERE product_id = ANY($1::bigint[])
-       ORDER BY sort_order ASC, id ASC`,
-      [normalizedIds]
-    ),
-  ]);
+    [normalizedIds]
+  );
+  const mediaResult = await client.query(
+    `SELECT
+       id,
+       product_id,
+       image_url,
+       alt_text,
+       is_primary,
+       sort_order,
+       variant_group_code,
+       variant_option_code,
+       metadata_json
+     FROM product_media
+     WHERE product_id = ANY($1::bigint[])
+     ORDER BY is_primary DESC, sort_order ASC, id ASC`,
+    [normalizedIds]
+  );
+  const variantsResult = await client.query(
+    `SELECT id, product_id, selections_json, sku, barcode, material,
+            price_override, discounted_price_override, stock_quantity,
+            image_url, is_available, sort_order, metadata_json
+     FROM product_variant
+     WHERE product_id = ANY($1::bigint[])
+     ORDER BY sort_order ASC, id ASC`,
+    [normalizedIds]
+  );
   const catalogByProductId = new Map();
   for (const row of attributesResult.rows) {
     const productId = Number(row.product_id);

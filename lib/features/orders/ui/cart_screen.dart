@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/product_offer_pricing.dart';
 import '../../auth/state/auth_controller.dart';
+import '../logic/order_preview_errors.dart';
 import '../state/cart_controller.dart';
 import '../state/delivery_address_controller.dart';
 import '../state/orders_controller.dart';
@@ -33,6 +34,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
   bool optimizingBudget = false;
   int splitPeople = 1;
   bool openingFinalReview = false;
+  OutOfStockDetails? _outOfStockDetails;
 
   Map<String, dynamic>? _appliedCoupon;
   int _couponDiscount = 0;
@@ -488,7 +490,10 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       );
       return;
     }
-    setState(() => openingFinalReview = true);
+    setState(() {
+      openingFinalReview = true;
+      _outOfStockDetails = null;
+    });
     try {
       final payload = _buildCheckoutPayload(
         cart: cart,
@@ -508,9 +513,16 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       if (mounted && ok) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
+        final outOfStock = OutOfStockDetails.fromError(e);
+        if (outOfStock != null) {
+          setState(() => _outOfStockDetails = outOfStock);
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(mapAnyError(e, fallback: 'تعذر مراجعة الطلب الآن')),
+            content: Text(
+              outOfStock?.userMessage ??
+                  mapAnyError(e, fallback: 'تعذر مراجعة الطلب الآن'),
+            ),
           ),
         );
       }
@@ -747,13 +759,21 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                               item.product,
                               quantity: item.quantity,
                             );
+                            final markedOutOfStock =
+                                _outOfStockDetails?.matchesCartItem(
+                                  productId: item.product.id,
+                                  variantId: item.selectedVariantId,
+                                ) ==
+                                true;
                             return Container(
                               margin: const EdgeInsets.only(bottom: 8),
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.12),
+                                  color: markedOutOfStock
+                                      ? Colors.redAccent.withValues(alpha: 0.7)
+                                      : Colors.white.withValues(alpha: 0.12),
                                 ),
                               ),
                               child: Row(
@@ -769,6 +789,35 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
+                                        if (item
+                                            .variantSelectionsLabel
+                                            .isNotEmpty)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 2,
+                                            ),
+                                            child: Text(
+                                              item.variantSelectionsLabel,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.72,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        if (markedOutOfStock)
+                                          const Padding(
+                                            padding: EdgeInsets.only(top: 4),
+                                            child: Text(
+                                              'هذا الخيار غير متوفر حالياً — احذف المنتج أو اختر لوناً/مقاساً آخر.',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.redAccent,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
                                         if (cart.isMultiStore)
                                           Padding(
                                             padding: const EdgeInsets.only(

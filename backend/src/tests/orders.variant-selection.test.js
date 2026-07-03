@@ -10,6 +10,7 @@ import {
 
 const {
   resolveVariantSelectionForItem,
+  shouldApplyProductInventoryGate,
 } = __ordersRepoTestables;
 
 const { normalizeItems } = __ordersServiceTestables;
@@ -206,6 +207,132 @@ test("selection-only payload still resolves the exact variant", () => {
   assert.equal(result.selectedVariantSnapshot.variantId, 102);
   assert.equal(result.selectedVariantSnapshot.colorCode, "blue");
   assert.equal(result.selectedVariantSnapshot.sizeCode, "s");
+});
+
+test("variant stock equal to requested quantity previews successfully", () => {
+  const result = resolveVariantSelectionForItem(
+    { id: 9, name: "Tee" },
+    { quantity: 4, selectedVariant: { variantId: 101 } },
+    buildVariantCatalog()
+  );
+
+  assert.equal(result.variantId, 101);
+  assert.equal(result.selectedVariantSnapshot.stockQuantity, 4);
+});
+
+test("zero-stock variant returns PRODUCT_OUT_OF_STOCK with structured details", () => {
+  const catalog = buildVariantCatalog();
+  catalog.variants[0].stockQuantity = 0;
+
+  assert.throws(
+    () =>
+      resolveVariantSelectionForItem(
+        { id: 9, name: "mm" },
+        { quantity: 1, selectedVariant: { variantId: 101 } },
+        catalog
+      ),
+    (error) => {
+      assert.equal(error.message, "PRODUCT_OUT_OF_STOCK");
+      assert.equal(error.status, 400);
+      assert.deepEqual(error.details, {
+        reason: "OUT_OF_STOCK",
+        productId: 9,
+        productName: "mm",
+        variantId: 101,
+        colorName: "أحمر",
+        size: "M",
+        requestedQuantity: 1,
+        availableQuantity: 0,
+      });
+      return true;
+    }
+  );
+});
+
+test("requesting more than variant stock is rejected with available quantity", () => {
+  assert.throws(
+    () =>
+      resolveVariantSelectionForItem(
+        { id: 9, name: "Tee" },
+        { quantity: 5, selectedVariant: { variantId: 101 } },
+        buildVariantCatalog()
+      ),
+    (error) => {
+      assert.equal(error.message, "PRODUCT_OUT_OF_STOCK");
+      assert.equal(error.details.requestedQuantity, 5);
+      assert.equal(error.details.availableQuantity, 4);
+      return true;
+    }
+  );
+});
+
+test("typo in display labels does not break resolution when variantId is valid", () => {
+  const result = resolveVariantSelectionForItem(
+    { id: 9, name: "mm" },
+    {
+      quantity: 1,
+      selectedVariant: {
+        variantId: 101,
+        selections: [
+          { groupCode: "color", optionCode: "red", optionLabel: "purpel!!" },
+          { groupCode: "size", optionCode: "m", optionLabel: "XLLL" },
+        ],
+      },
+    },
+    buildVariantCatalog()
+  );
+
+  assert.equal(result.variantId, 101);
+  assert.equal(result.selectedVariantSnapshot.colorLabel, "أحمر");
+});
+
+test("simple product without variants previews without variant errors", () => {
+  const result = resolveVariantSelectionForItem(
+    { id: 5, name: "Simple" },
+    { quantity: 3 },
+    null
+  );
+
+  assert.equal(result.hasVariants, false);
+  assert.equal(result.selectedVariantSnapshot, null);
+});
+
+test("product-level inventory gate is skipped when a concrete variant is resolved", () => {
+  assert.equal(
+    shouldApplyProductInventoryGate({
+      variantResolution: { hasVariants: true, variantId: 101 },
+      inventoryEnabled: true,
+      inventoryQuantity: 0,
+    }),
+    false
+  );
+});
+
+test("product-level inventory gate still applies to simple tracked products", () => {
+  assert.equal(
+    shouldApplyProductInventoryGate({
+      variantResolution: { hasVariants: false, variantId: null },
+      inventoryEnabled: true,
+      inventoryQuantity: 2,
+    }),
+    true
+  );
+  assert.equal(
+    shouldApplyProductInventoryGate({
+      variantResolution: { hasVariants: false, variantId: null },
+      inventoryEnabled: true,
+      inventoryQuantity: null,
+    }),
+    false
+  );
+  assert.equal(
+    shouldApplyProductInventoryGate({
+      variantResolution: { hasVariants: false, variantId: null },
+      inventoryEnabled: false,
+      inventoryQuantity: 5,
+    }),
+    false
+  );
 });
 
 test("normalizeItems keeps separate variants separate in checkout payloads", () => {

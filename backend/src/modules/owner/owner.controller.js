@@ -15,6 +15,7 @@ import {
   validateOwnerProductUpdate,
   validateOwnerRegister,
   validateOwnerStaffSearchQuery,
+  normalizeStockQuantityInput,
 } from "./owner.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 import { extractDeviceContext } from "../../shared/utils/device-fingerprint.js";
@@ -337,10 +338,7 @@ export async function createProduct(req, res, next) {
       attributes: Array.isArray(attributes) ? attributes : undefined,
       variantGroups: Array.isArray(variantGroups) ? uploads.variantGroups : undefined,
       variants: Array.isArray(variants) ? uploads.variants : undefined,
-      stockQuantity:
-        req.body?.stockQuantity === undefined || req.body?.stockQuantity === ""
-          ? undefined
-          : Number(req.body.stockQuantity),
+      stockQuantity: normalizeStockQuantityInput(req.body?.stockQuantity),
       media: Array.isArray(media) || uploads.media.length ? uploads.media : undefined,
       metadataJson:
         metadataJson && typeof metadataJson === "object" ? metadataJson : undefined,
@@ -407,10 +405,7 @@ export async function updateProduct(req, res, next) {
       attributes: Array.isArray(attributes) ? attributes : undefined,
       variantGroups: Array.isArray(variantGroups) ? uploads.variantGroups : undefined,
       variants: Array.isArray(variants) ? uploads.variants : undefined,
-      stockQuantity:
-        req.body?.stockQuantity === undefined || req.body?.stockQuantity === ""
-          ? undefined
-          : Number(req.body.stockQuantity),
+      stockQuantity: normalizeStockQuantityInput(req.body?.stockQuantity),
       media: Array.isArray(media) || uploads.media.length ? uploads.media : undefined,
       metadataJson:
         metadataJson && typeof metadataJson === "object" ? metadataJson : undefined,
