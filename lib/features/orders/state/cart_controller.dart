@@ -54,7 +54,7 @@ class CartStoreSection {
     });
   }
 
-  double get serviceFee => calcServiceFee(subtotal);
+  double get serviceFee => calcEstimatedServiceFee(subtotal);
 
   double get deliveryFee {
     if (items.isEmpty) return 0;

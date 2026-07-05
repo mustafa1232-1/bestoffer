@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/constants/pricing.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
@@ -727,7 +726,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                           ),
                           _chip(
                             Icons.payments_outlined,
-                            'نهائي ${formatIqd(finalTotal)}',
+                            'تقديري ${formatIqd(finalTotal)}',
                           ),
                         ],
                       ),
@@ -1171,8 +1170,8 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                               formatIqd(cart.subtotal),
                             ),
                             _SummaryRow(
-                              'رسوم الخدمة (${formatIqd(serviceFeeIqd)})',
-                              formatIqd(cart.serviceFee),
+                              'رسوم الخدمة التقديرية',
+                              formatIqd(cart.serviceFee, withCode: false),
                             ),
                             _SummaryRow(
                               cart.deliveryFee <= 0
@@ -1188,7 +1187,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                               ),
                             const Divider(),
                             _SummaryRow(
-                              'الإجمالي النهائي',
+                              'الإجمالي التقديري',
                               formatIqd(finalTotal),
                               bold: true,
                             ),

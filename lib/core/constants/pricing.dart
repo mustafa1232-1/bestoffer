@@ -1,11 +1,13 @@
-const int serviceFeeIqd = 500;
+// Temporary UI estimate only. Backend preview remains the source of truth
+// before order confirmation and final reporting.
+const int estimatedServiceFeeIqd = 500;
 const int deliveryFeeIqd = 1000;
 
-double calcServiceFee(double subtotal) {
+double calcEstimatedServiceFee(double subtotal) {
   if (subtotal <= 0) return 0;
-  return serviceFeeIqd.toDouble();
+  return estimatedServiceFeeIqd.toDouble();
 }
 
 double calcOrderTotal(double subtotal) {
-  return subtotal + calcServiceFee(subtotal) + deliveryFeeIqd;
+  return subtotal + calcEstimatedServiceFee(subtotal) + deliveryFeeIqd;
 }
