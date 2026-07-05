@@ -112,16 +112,21 @@ export async function searchSocial({
       posts: postRows.map(mapSocialPostProductRow),
       reels: reelRows.map(mapSocialPostProductRow),
       hashtags: hashtagRows.map(mapHashtagRow),
-      merchants: merchantRows.map((row) => ({
-        id: Number(row.id),
-        name: row.name || "",
-        type: row.type || "market",
-        phone: row.phone || "",
-        imageUrl: row.image_url || null,
-        reviewPostsCount: Number(row.review_posts_count || 0),
-      })),
+      merchants: merchantRows.map(mapSocialMerchantSearchResultRow),
       reviews: reviewRows.map(mapSocialPostProductRow),
       suggestedPeople: Array.isArray(suggested?.users) ? suggested.users : [],
     },
+  };
+}
+
+export function mapSocialMerchantSearchResultRow(row) {
+  return {
+    id: Number(row.id),
+    name: row.name || "",
+    type: row.type || "market",
+    activityType: row.activity_type || row.type || "market",
+    phone: row.phone || "",
+    imageUrl: row.image_url || null,
+    reviewPostsCount: Number(row.review_posts_count || 0),
   };
 }

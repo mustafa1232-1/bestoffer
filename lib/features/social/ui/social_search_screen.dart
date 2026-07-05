@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../merchants/models/merchant_model.dart';
+import '../../merchants/utils/catalog_taxonomy.dart';
 import '../../merchants/ui/merchant_products_screen.dart';
 import '../models/social_models.dart';
 import '../state/social_search_controller.dart';
@@ -133,7 +134,12 @@ class _SocialSearchScreenState extends ConsumerState<SocialSearchScreen> {
             : null,
       ),
       title: Text(merchant.name),
-      subtitle: Text(merchant.type),
+      subtitle: Text(
+        merchantScopeTag(
+          merchantType: merchant.type,
+          activityType: merchant.activityType,
+        ),
+      ),
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -142,6 +148,7 @@ class _SocialSearchScreenState extends ConsumerState<SocialSearchScreen> {
                 id: merchant.id,
                 name: merchant.name,
                 type: merchant.type,
+                activityType: merchant.activityType,
                 phone: merchant.phone,
                 imageUrl: merchant.imageUrl,
                 isOpen: true,

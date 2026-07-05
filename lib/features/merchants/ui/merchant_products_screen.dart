@@ -17,6 +17,7 @@ import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
 import '../../products/ui/product_summary_card.dart';
 import '../../products/ui/product_variant_picker_sheet.dart';
+import '../utils/catalog_taxonomy.dart';
 import 'merchant_product_details_screen.dart';
 import '../models/merchant_model.dart';
 import '../state/merchants_controller.dart';
@@ -104,19 +105,28 @@ class _MerchantProductsScreenState
             ),
           )
           .toList();
+      final visibleCategories = filterCategoriesForActivity(
+        categories,
+        widget.merchant.activityType,
+      );
 
       final availableCategoryIds = products
           .map((p) => p.categoryId)
           .whereType<int>()
           .toSet();
+      final visibleCategoryIds = visibleCategories.map((c) => c.id).toSet();
       if (selectedCategoryId != null &&
-          !availableCategoryIds.contains(selectedCategoryId)) {
+          (!availableCategoryIds.contains(selectedCategoryId) ||
+              !visibleCategoryIds.contains(selectedCategoryId))) {
         selectedCategoryId = null;
       }
 
       setState(
         () => state = AsyncValue.data(
-          _MerchantProductsData(products: products, categories: categories),
+          _MerchantProductsData(
+            products: products,
+            categories: visibleCategories,
+          ),
         ),
       );
       await ref
@@ -153,12 +163,18 @@ class _MerchantProductsScreenState
   List<ProductModel> _buildVisibleProducts(
     List<ProductModel> products,
     Set<int> favoriteProductIds,
+    Set<int> allowedCategoryIds,
   ) {
     final q = productSearchQuery.trim().toLowerCase();
 
     var list = selectedCategoryId == null
         ? [...products]
         : products.where((p) => p.categoryId == selectedCategoryId).toList();
+
+    list = list.where((product) {
+      final categoryId = product.categoryId;
+      return categoryId != null && allowedCategoryIds.contains(categoryId);
+    }).toList();
 
     if (q.isNotEmpty) {
       list = list.where((product) {
@@ -978,7 +994,10 @@ class _MerchantProductsScreenState
         subtitle:
             widget.merchant.tagline ??
             widget.merchant.description ??
-            widget.merchant.activityType,
+            merchantScopeTag(
+              merchantType: widget.merchant.type,
+              activityType: widget.merchant.activityType,
+            ),
         leading: IconButton(
           icon: Icon(
             Icons.arrow_forward_ios_rounded,
@@ -1082,18 +1101,22 @@ class _MerchantProductsScreenState
         onRefresh: _load,
         child: state.when(
           data: (data) {
+            final visibleCategoryIds = data.categories.map((c) => c.id).toSet();
             final visibleProducts = _buildVisibleProducts(
               data.products,
               orders.favoriteProductIds,
+              visibleCategoryIds,
             );
-            final productCounts = _countProductsByCategory(data.products);
+            final productCounts = _countProductsByCategory(visibleProducts);
             final productSections = _buildProductSections(
               visibleProducts,
-              data.products,
+              visibleProducts,
               data.categories,
               orders.favoriteProductIds,
             );
-            final discountHighlights = _buildDiscountHighlights(data.products);
+            final discountHighlights = _buildDiscountHighlights(
+              visibleProducts,
+            );
 
             return ListView(
               padding: const EdgeInsets.all(12),
@@ -1109,7 +1132,7 @@ class _MerchantProductsScreenState
                 _CategoryFilterRow(
                   categories: data.categories,
                   selectedCategoryId: selectedCategoryId,
-                  totalProductsCount: data.products.length,
+                  totalProductsCount: visibleProducts.length,
                   productCounts: productCounts,
                   onSelect: (id) => setState(() => selectedCategoryId = id),
                 ),
@@ -1155,7 +1178,7 @@ class _MerchantProductsScreenState
                     onStyleChanged: (value) =>
                         setState(() => smartBundleStyle = value),
                     onGenerate: () =>
-                        _generateAndApplySmartBundle(data.products),
+                        _generateAndApplySmartBundle(visibleProducts),
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -1179,7 +1202,7 @@ class _MerchantProductsScreenState
                           borderRadius: BorderRadius.circular(12),
                           onTap: () => _openProductDetails(
                             product: product,
-                            allProducts: data.products,
+                            allProducts: visibleProducts,
                           ),
                           child: Ink(
                             width: 210,

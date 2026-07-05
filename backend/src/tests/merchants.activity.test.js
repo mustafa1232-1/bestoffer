@@ -20,6 +20,20 @@ test("validateCreateMerchant accepts a body with explicit activityType", () => {
   assert.equal(result.ok, true, JSON.stringify(result.errors));
 });
 
+test("validateCreateMerchant rejects missing type", () => {
+  const body = baseCreateBody();
+  delete body.type;
+  const result = validateCreateMerchant(body);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("type"), JSON.stringify(result.errors));
+});
+
+test("validateCreateMerchant rejects invalid type", () => {
+  const result = validateCreateMerchant(baseCreateBody({ type: "pharmacy" }));
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("type"), JSON.stringify(result.errors));
+});
+
 test("validateCreateMerchant rejects a merchant with no activityType (no silent default)", () => {
   const body = baseCreateBody();
   delete body.activityType;

@@ -13,6 +13,7 @@ import * as repo from "./owner.repo.js";
 import { env } from "../../config/env.js";
 import { validateBasmayaAddress } from "../../shared/utils/basmaya-address.js";
 import { createNotification } from "../notifications/notifications.repo.js";
+import { AppError } from "../../shared/utils/errors.js";
 import {
   buildMerchantOfferLabel,
   computeMerchantOfferState,
@@ -25,11 +26,18 @@ import {
 import crypto from "crypto";
 import {
   buildMerchantCapabilities,
+  inferActivityTypeFromMerchantType,
   normalizeActivityType,
   normalizeDiscoverySubcategoryList,
   requireActivityConfig,
   requireValidDiscoverySelection,
 } from "../merchants/store-activity.registry.js";
+import {
+  inferCatalogTypeFromName,
+  isCatalogTypeAllowedForActivity,
+  normalizeCatalogType,
+  resolveCategoryCatalogType,
+} from "../merchants/catalog-taxonomy.js";
 
 /**
  * Purpose: منطق أعمال صاحب المتجر كاملاً: التسجيل، المتجر، المنتجات، العروض، الفريق، الطلبات، والتحصيلات.
@@ -191,13 +199,39 @@ function mapCategory(c) {
     id: c.id,
     merchantId: c.merchant_id,
     name: c.name,
-    catalogType: c.catalog_type || inferCatalogType(c.name),
+    catalogType: resolveCategoryCatalogType(c),
     sortOrder: c.sort_order,
     createdAt: c.created_at,
     updatedAt: c.updated_at,
   };
 }
 
+function resolveMerchantActivityType(merchant) {
+  return (
+    normalizeActivityType(merchant?.activityType ?? merchant?.activity_type) ||
+    inferActivityTypeFromMerchantType(merchant?.type) ||
+    "market"
+  );
+}
+
+function throwCategoryScopeError(field) {
+  throw new AppError("VALIDATION_ERROR", {
+    status: 400,
+    details: {
+      fields: {
+        [field]: "INVALID_CATEGORY_FOR_STORE_TYPE",
+      },
+    },
+  });
+}
+
+function assertCategoryCatalogScope(activityType, catalogType, field = "catalogType") {
+  if (!isCatalogTypeAllowedForActivity(activityType, catalogType)) {
+    throwCategoryScopeError(field);
+  }
+}
+
+// eslint-disable-next-line no-unused-vars
 function inferCatalogType(name) {
   const value = String(name || "").trim().toLowerCase();
   if (["cloths", "clothes", "clothing", "fashion", "ملابس", "الملابس"].includes(value)) return "clothes";
@@ -870,12 +904,24 @@ export async function listOwnerCategories(ownerUserId) {
  * ينشئ تصنيفاً جديداً ويحوّل أخطاء unique constraint إلى code مفهوم للواجهة.
  */
 export async function createOwnerCategory(ownerUserId, dto) {
+  const ownerMerchant = await getOwnerMerchant(ownerUserId);
+  const merchantActivityType = resolveMerchantActivityType(ownerMerchant);
+  const resolvedCatalogType = normalizeCatalogType(
+    dto.catalogType || inferCatalogTypeFromName(dto.name),
+    "generic"
+  );
+  assertCategoryCatalogScope(
+    merchantActivityType,
+    resolvedCatalogType,
+    "catalogType"
+  );
+
   let created;
   try {
     created = await repo.createOwnerCategory(ownerUserId, {
       name: dto.name.trim(),
       sortOrder: Number(dto.sortOrder ?? 0),
-      catalogType: dto.catalogType || inferCatalogType(dto.name),
+      catalogType: resolvedCatalogType,
     });
   } catch (e) {
     if (e?.code === "23505" && String(e.constraint || "").includes("merchant_category_merchant_id_name")) {
@@ -897,10 +943,20 @@ export async function createOwnerCategory(ownerUserId, dto) {
 }
 
 export async function updateOwnerCategory(ownerUserId, categoryId, dto) {
+  const ownerMerchant = await getOwnerMerchant(ownerUserId);
+  const merchantActivityType = resolveMerchantActivityType(ownerMerchant);
   const patch = {};
   if (dto.name !== undefined) patch.name = dto.name.trim();
   if (dto.sortOrder !== undefined) patch.sortOrder = Number(dto.sortOrder);
-  if (dto.catalogType !== undefined) patch.catalogType = dto.catalogType;
+  if (dto.catalogType !== undefined) {
+    const nextCatalogType = normalizeCatalogType(dto.catalogType, null);
+    assertCategoryCatalogScope(
+      merchantActivityType,
+      nextCatalogType,
+      "catalogType"
+    );
+    patch.catalogType = nextCatalogType;
+  }
 
   let updated;
   try {
@@ -967,12 +1023,19 @@ export async function createOwnerProduct(ownerUserId, dto) {
     throw err;
   }
 
+  const ownerMerchant = await getOwnerMerchant(ownerUserId);
+  const merchantActivityType = resolveMerchantActivityType(ownerMerchant);
   const category = await repo.findOwnerCategoryById(ownerUserId, categoryId);
   if (!category) {
     const err = new Error("CATEGORY_NOT_FOUND");
     err.status = 404;
     throw err;
   }
+  assertCategoryCatalogScope(
+    merchantActivityType,
+    resolveCategoryCatalogType(category),
+    "categoryId"
+  );
 
   const richCatalog = hasRichProductInput(dto)
     ? normalizeRichProductPayload(dto)
@@ -1016,6 +1079,34 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
   const richCatalog = hasRichProductInput(dto)
     ? normalizeRichProductPayload(dto)
     : null;
+  const ownerMerchant = await getOwnerMerchant(ownerUserId);
+  const merchantActivityType = resolveMerchantActivityType(ownerMerchant);
+  const current = await repo.findOwnerProductById(ownerUserId, productId);
+  if (!current) {
+    const err = new Error("PRODUCT_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+  const effectiveCategoryId =
+    dto.categoryId !== undefined
+      ? toPositiveIntOrNull(dto.categoryId)
+      : toPositiveIntOrNull(current.category_id);
+  if (effectiveCategoryId === null) {
+    const err = new Error("CATEGORY_REQUIRED");
+    err.status = 400;
+    throw err;
+  }
+  const category = await repo.findOwnerCategoryById(ownerUserId, effectiveCategoryId);
+  if (!category) {
+    const err = new Error("CATEGORY_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+  assertCategoryCatalogScope(
+    merchantActivityType,
+    resolveCategoryCatalogType(category),
+    "categoryId"
+  );
 
   if (dto.name !== undefined) patch.name = dto.name.trim();
   if (dto.description !== undefined) patch.description = normalizeOptional(dto.description);
@@ -1038,19 +1129,7 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
   if (richCatalog) patch.richCatalog = richCatalog;
 
   if (dto.categoryId !== undefined) {
-    const categoryId = toPositiveIntOrNull(dto.categoryId);
-    if (categoryId === null) {
-      const err = new Error("CATEGORY_REQUIRED");
-      err.status = 400;
-      throw err;
-    }
-    const category = await repo.findOwnerCategoryById(ownerUserId, categoryId);
-    if (!category) {
-      const err = new Error("CATEGORY_NOT_FOUND");
-      err.status = 404;
-      throw err;
-    }
-    patch.categoryId = categoryId;
+    patch.categoryId = effectiveCategoryId;
   }
 
   if (dto.price !== undefined) {
@@ -1069,13 +1148,6 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
   }
 
   if (patch.price !== undefined || patch.discountedPrice !== undefined) {
-    const current = await repo.findOwnerProductById(ownerUserId, productId);
-    if (!current) {
-      const err = new Error("PRODUCT_NOT_FOUND");
-      err.status = 404;
-      throw err;
-    }
-
     const basePrice = patch.price ?? Number(current.price);
     const nextDiscount = patch.discountedPrice ?? (current.discounted_price === null ? null : Number(current.discounted_price));
     if (nextDiscount !== null && nextDiscount > basePrice) {

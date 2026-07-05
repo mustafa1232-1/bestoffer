@@ -540,6 +540,7 @@ class SocialMerchantOption {
   final int id;
   final String name;
   final String type;
+  final String activityType;
   final String phone;
   final String? imageUrl;
   final bool canReview;
@@ -551,6 +552,7 @@ class SocialMerchantOption {
     required this.id,
     required this.name,
     required this.type,
+    this.activityType = 'market',
     required this.phone,
     required this.imageUrl,
     this.canReview = false,
@@ -564,6 +566,10 @@ class SocialMerchantOption {
         id: parseInt(j['id']),
         name: parseString(j['name']),
         type: parseString(j['type'], fallback: 'market'),
+        activityType: parseString(
+          j['activityType'] ?? j['activity_type'],
+          fallback: parseString(j['type'], fallback: 'market'),
+        ),
         phone: parseString(j['phone']),
         imageUrl: parseNullableString(j['imageUrl'] ?? j['image_url']),
         canReview: parseBool(j['canReview'] ?? j['can_review']),

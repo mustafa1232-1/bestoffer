@@ -9,6 +9,7 @@ import '../../orders/ui/cart_screen.dart';
 import '../../products/models/product_model.dart';
 import '../../products/ui/product_summary_card.dart';
 import '../../products/ui/product_variant_picker_sheet.dart';
+import '../../merchants/utils/catalog_taxonomy.dart';
 
 class CustomerGlobalProductSearchScreen extends ConsumerStatefulWidget {
   const CustomerGlobalProductSearchScreen({super.key});
@@ -150,6 +151,11 @@ class _CustomerGlobalProductSearchScreenState
       id: (merchant['id'] as num?)?.toInt() ?? 0,
       name: merchant['name']?.toString() ?? 'متجر',
       type: merchant['type']?.toString() ?? 'market',
+      activityType:
+          merchant['activityType']?.toString() ??
+          merchant['activity_type']?.toString() ??
+          merchant['type']?.toString() ??
+          'market',
       imageUrl: merchant['imageUrl']?.toString(),
       isOpen: true,
       hasDiscountOffer:
@@ -347,6 +353,7 @@ class _CustomerGlobalProductSearchScreenState
               item['merchant'] as Map? ?? const {},
             );
             final product = _toProduct(item);
+            final merchantModel = _toMerchant(item);
             final cardData = ProductSummaryCardData.fromProduct(
               product,
               locale: Localizations.localeOf(context),
@@ -380,7 +387,7 @@ class _CustomerGlobalProductSearchScreenState
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) =>
-                        MerchantProductsScreen(merchant: _toMerchant(item)),
+                        MerchantProductsScreen(merchant: merchantModel),
                   ),
                 ),
                 trailing: Wrap(
@@ -398,6 +405,21 @@ class _CustomerGlobalProductSearchScreenState
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                    Chip(
+                      label: Text(
+                        merchantScopeTag(
+                          merchantType: merchantModel.type,
+                          activityType: merchantModel.activityType,
+                        ),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      backgroundColor: Colors.white.withValues(alpha: 0.06),
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.24),
+                      ),
+                      labelStyle: const TextStyle(fontSize: 11),
+                    ),
                     if (etaLabel.isNotEmpty)
                       Text(
                         '⏱ $etaLabel',

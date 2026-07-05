@@ -18,6 +18,7 @@
     "security:runtime:check": "node src/scripts/securityRuntimeCheck.js",
     "permissions:check": "node src/scripts/rolePermissionCheck.js",
     "flow:check": "node src/scripts/flowIntegrityCheck.js",
+    "audit:store-category-separation": "node src/scripts/auditStoreCategorySeparation.js",
     "e2e:order:check": "node src/scripts/orderE2ECheck.js",
     "e2e:taxi:check": "node src/scripts/taxiE2ECheck.js",
     "e2e:community:check": "node src/scripts/communityE2ECheck.js",

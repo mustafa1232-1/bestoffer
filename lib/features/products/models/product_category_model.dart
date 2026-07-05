@@ -56,7 +56,7 @@ String _catalogType(dynamic raw, dynamic name) {
     'restaurant',
     'grocery',
   };
-  if (allowed.contains(explicit)) return explicit;
+  if (allowed.contains(explicit) && explicit != 'generic') return explicit;
   final value = '${name ?? ''}'.trim().toLowerCase();
   if (const {
     'cloths',
@@ -98,6 +98,7 @@ String _catalogType(dynamic raw, dynamic name) {
   }.contains(value)) {
     return 'grocery';
   }
+  if (allowed.contains(explicit)) return explicit;
   return 'generic';
 }
 

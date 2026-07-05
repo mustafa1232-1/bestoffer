@@ -28,6 +28,7 @@ import '../../orders/models/order_model.dart';
 import '../../pharmacy/ui/pharmacy_conversation_screen.dart';
 import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
+import '../../merchants/utils/catalog_taxonomy.dart';
 import '../../settings/ui/pages/settings_account_screen.dart';
 import '../../settings/ui/pages/settings_support_screen.dart';
 import 'store_printer_settings_screen.dart';
@@ -266,6 +267,10 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     final data = await _openProductSheet(
       context,
       categories: ownerState.categories,
+      merchantActivityType:
+          ownerState.merchant?.activityType ??
+          ownerState.merchant?.type ??
+          'market',
       supportsPharmacyWorkflow:
           ownerState.merchant?.supportsPharmacyWorkflow == true,
     );
@@ -892,6 +897,10 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                 : () async {
                                     final data = await _openCategorySheet(
                                       context,
+                                      merchantActivityType:
+                                          ownerState.merchant?.activityType ??
+                                          ownerState.merchant?.type ??
+                                          'market',
                                     );
                                     if (data == null) return;
                                     await ref
@@ -920,6 +929,10 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                 final data = await _openCategorySheet(
                                   context,
                                   category: category,
+                                  merchantActivityType:
+                                      ownerState.merchant?.activityType ??
+                                      ownerState.merchant?.type ??
+                                      'market',
                                 );
                                 if (data == null) return;
                                 await ref
@@ -984,6 +997,10 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                         context,
                                         product: product,
                                         categories: ownerState.categories,
+                                        merchantActivityType:
+                                            ownerState.merchant?.activityType ??
+                                            ownerState.merchant?.type ??
+                                            'market',
                                         supportsPharmacyWorkflow:
                                             ownerState
                                                 .merchant
@@ -1571,6 +1588,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     ProductModel? product,
     required List<ProductCategoryModel> categories,
     bool supportsPharmacyWorkflow = false,
+    required String merchantActivityType,
   }) {
     return showModalBottomSheet<ProductFormData>(
       context: context,
@@ -1578,6 +1596,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
       builder: (_) => ProductFormSheet(
         product: product,
         categories: categories,
+        merchantActivityType: merchantActivityType,
         supportsPharmacyWorkflow: supportsPharmacyWorkflow,
       ),
     );
@@ -1586,11 +1605,15 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   Future<_CategoryFormData?> _openCategorySheet(
     BuildContext context, {
     ProductCategoryModel? category,
+    required String merchantActivityType,
   }) {
     return showModalBottomSheet<_CategoryFormData>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _CategoryFormSheet(category: category),
+      builder: (_) => _CategoryFormSheet(
+        category: category,
+        merchantActivityType: merchantActivityType,
+      ),
     );
   }
 
@@ -2598,8 +2621,9 @@ class _InlineStateChip extends StatelessWidget {
 
 class _CategoryFormSheet extends StatefulWidget {
   final ProductCategoryModel? category;
+  final String merchantActivityType;
 
-  const _CategoryFormSheet({this.category});
+  const _CategoryFormSheet({this.category, required this.merchantActivityType});
 
   @override
   State<_CategoryFormSheet> createState() => _CategoryFormSheetState();
@@ -2617,7 +2641,12 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
     sortCtrl = TextEditingController(
       text: widget.category?.sortOrder.toString() ?? '0',
     );
-    catalogType = widget.category?.catalogType ?? 'generic';
+    final allowedTypes = allowedCatalogTypesForActivity(
+      widget.merchantActivityType,
+    );
+    catalogType =
+        widget.category?.catalogType ??
+        (allowedTypes.isEmpty ? 'generic' : allowedTypes.first);
   }
 
   @override
@@ -2630,6 +2659,13 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.category != null;
+    final allowedTypes = allowedCatalogTypesForActivity(
+      widget.merchantActivityType,
+    );
+    final currentIsAllowed = isCatalogTypeAllowedForActivity(
+      widget.merchantActivityType,
+      catalogType,
+    );
     return Padding(
       padding: EdgeInsets.only(
         left: 14,
@@ -2653,27 +2689,35 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
-              initialValue: catalogType,
+              initialValue: currentIsAllowed ? catalogType : null,
               decoration: const InputDecoration(labelText: 'نوع كاتالوج القسم'),
-              items:
-                  const {
-                        'generic': 'عام',
-                        'clothes': 'ملابس',
-                        'furniture': 'أثاث',
-                        'electronics': 'إلكترونيات',
-                        'restaurant': 'مطاعم',
-                        'grocery': 'بقالة',
-                      }.entries
-                      .map(
-                        (entry) => DropdownMenuItem(
-                          value: entry.key,
-                          child: Text(entry.value),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) =>
-                  setState(() => catalogType = value ?? 'generic'),
+              items: allowedTypes
+                  .map(
+                    (type) => DropdownMenuItem(
+                      value: type,
+                      child: Text(catalogTypeLabel(type)),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) => setState(
+                () => catalogType =
+                    value ??
+                    (allowedTypes.isEmpty ? 'generic' : allowedTypes.first),
+              ),
             ),
+            if (!currentIsAllowed)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'نوع القسم الحالي لا يطابق نوع المتجر / Current section type does not match this store type.',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             const SizedBox(height: 10),
             TextField(
               controller: sortCtrl,
@@ -2688,6 +2732,19 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
                   if (nameCtrl.text.trim().isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('اسم القسم مطلوب')),
+                    );
+                    return;
+                  }
+                  if (!isCatalogTypeAllowedForActivity(
+                    widget.merchantActivityType,
+                    catalogType,
+                  )) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'نوع القسم المختار لا يتوافق مع نوع المتجر / Selected section type does not match this store type.',
+                        ),
+                      ),
                     );
                     return;
                   }

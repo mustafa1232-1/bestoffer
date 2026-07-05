@@ -68,6 +68,7 @@ export async function searchMerchantsSocial({ query, limit = 12 }) {
        m.id,
        m.name,
        m.type,
+       m.activity_type,
        m.image_url,
        m.phone,
        COALESCE((

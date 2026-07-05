@@ -35,6 +35,7 @@ class _FakeOrdersApi extends OrdersApi {
             'id': 5,
             'name': 'متجر الألوان',
             'type': 'market',
+            'activityType': 'fashion_clothing',
             'rating': 4.8,
           },
           'categoryId': 7,
@@ -168,6 +169,7 @@ void main() {
 
       expect(find.byType(ProductSummaryCard), findsOneWidget);
       expect(find.text('Clothes / ملابس'), findsOneWidget);
+      expect(find.textContaining('fashion_clothing'), findsOneWidget);
 
       await tester.tap(find.text('أزرق'));
       await tester.pump(const Duration(milliseconds: 300));

@@ -22,6 +22,7 @@ test("search payload exposes rich product fields and category metadata", () => {
     merchant_id: 2,
     merchant_name: "متجر",
     merchant_type: "market",
+    merchant_activity_type: "fashion_clothing",
     merchant_image_url: "/merchant.jpg",
     merchant_rating: 4.7,
     merchant_ratings_count: 18,
@@ -48,6 +49,7 @@ test("search payload exposes rich product fields and category metadata", () => {
   assert.deepEqual(item.variantGroups, rich.variantGroups);
   assert.deepEqual(item.variants, rich.variants);
   assert.deepEqual(item.media, rich.media);
+  assert.equal(item.merchant.activityType, "fashion_clothing");
   assert.equal(item.merchant.rating, 4.7);
   assert.equal(item.stats.etaMinutes, 32);
 });

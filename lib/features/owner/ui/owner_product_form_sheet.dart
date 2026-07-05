@@ -4,6 +4,7 @@ import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
 import '../../../core/widgets/image_picker_field.dart';
 import '../../../core/utils/currency.dart';
+import '../../merchants/utils/catalog_taxonomy.dart';
 import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
 import '../../products/ui/product_summary_card.dart';
@@ -57,12 +58,14 @@ class ProductFormData {
 class ProductFormSheet extends StatefulWidget {
   final ProductModel? product;
   final List<ProductCategoryModel> categories;
+  final String merchantActivityType;
   final bool supportsPharmacyWorkflow;
 
   const ProductFormSheet({
     super.key,
     this.product,
     required this.categories,
+    required this.merchantActivityType,
     this.supportsPharmacyWorkflow = false,
   });
 
@@ -103,6 +106,25 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
 
   String get _catalogType => _category?.catalogType ?? 'generic';
 
+  List<ProductCategoryModel> get _visibleCategories =>
+      filterCategoriesForActivity(
+        widget.categories,
+        widget.merchantActivityType,
+      );
+
+  bool get _hasVisibleCategory => _visibleCategories.isNotEmpty;
+
+  bool get _selectedCategoryIsVisible =>
+      categoryId != null &&
+      _visibleCategories.any((category) => category.id == categoryId);
+
+  String get _categoryValidationMessage {
+    if (!_hasVisibleCategory) {
+      return 'لا توجد فئات متوافقة مع نوع المتجر / No compatible categories for this store type.';
+    }
+    return 'الفئة المختارة لا تتوافق مع نوع المتجر / Selected category does not match this store type.';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -125,9 +147,10 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     freeDelivery = product?.freeDelivery ?? false;
     requiresPrescription = product?.requiresPrescription ?? false;
     requiresReview = product?.requiresReview ?? false;
+    final visibleCategories = _visibleCategories;
     categoryId =
         product?.categoryId ??
-        (widget.categories.isEmpty ? null : widget.categories.first.id);
+        (visibleCategories.isEmpty ? null : visibleCategories.first.id);
     _existingMedia = (product?.media ?? const [])
         .where((item) => !item.isPrimary)
         .map(
@@ -459,10 +482,11 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
   void _submit() {
     if (nameCtrl.text.trim().isEmpty ||
         priceCtrl.text.trim().isEmpty ||
-        categoryId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اسم المنتج والقسم والسعر مطلوبة')),
-      );
+        categoryId == null ||
+        !_selectedCategoryIsVisible) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_categoryValidationMessage)));
       return;
     }
     final variantFiles = <LocalImageFile>[];
@@ -550,8 +574,10 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
                         children: [
                           _field(nameCtrl, 'اسم المنتج'),
                           DropdownButtonFormField<int>(
-                            initialValue: categoryId,
-                            items: widget.categories
+                            initialValue: _selectedCategoryIsVisible
+                                ? categoryId
+                                : null,
+                            items: _visibleCategories
                                 .map(
                                   (category) => DropdownMenuItem(
                                     value: category.id,
@@ -567,6 +593,19 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
                               labelText: 'القسم',
                             ),
                           ),
+                          if (!_selectedCategoryIsVisible)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                _categoryValidationMessage,
+                                textDirection: TextDirection.rtl,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           _field(descCtrl, 'الوصف', lines: 2),
                         ],
                       ),
@@ -1429,8 +1468,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     if (_variants.isNotEmpty) {
       return _variants.values.any(
         (draft) =>
-            draft.available &&
-            (int.tryParse(draft.stock.text.trim()) ?? 0) > 0,
+            draft.available && (int.tryParse(draft.stock.text.trim()) ?? 0) > 0,
       );
     }
     final stock = int.tryParse(stockCtrl.text.trim());

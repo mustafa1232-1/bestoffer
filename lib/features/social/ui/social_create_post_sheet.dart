@@ -7,6 +7,7 @@ import '../../../core/auth/auth_guard.dart';
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../merchants/utils/catalog_taxonomy.dart';
 import '../creator/creator_adapters.dart';
 import '../creator/creator_models.dart';
 import '../creator/social_camera_creator_screen.dart';
@@ -115,28 +116,6 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
     setState(() => _postKind = kind);
     if (kind == 'merchant_review') {
       _loadMerchants(_merchantSearchCtrl.text);
-    }
-  }
-
-  String _merchantTypeLabel(String type) {
-    final l10n = context.l10n;
-    switch (type.trim().toLowerCase()) {
-      case 'restaurant':
-        return l10n.socialCreatePostMerchantTypeRestaurant;
-      case 'sweets':
-      case 'dessert':
-        return l10n.socialCreatePostMerchantTypeDesserts;
-      case 'cafe':
-      case 'coffee':
-        return l10n.socialCreatePostMerchantTypeCoffee;
-      case 'electronics':
-        return l10n.socialCreatePostMerchantTypeElectronics;
-      case 'pharmacy':
-        return l10n.socialCreatePostMerchantTypePharmacy;
-      case 'market':
-        return l10n.socialCreatePostMerchantTypeMarket;
-      default:
-        return l10n.socialCreatePostMerchantTypeStore;
     }
   }
 
@@ -425,7 +404,10 @@ class _SocialCreatePostSheetState extends ConsumerState<SocialCreatePostSheet> {
                               ),
                               subtitle: Text(
                                 [
-                                  _merchantTypeLabel(merchant.type),
+                                  merchantScopeTag(
+                                    merchantType: merchant.type,
+                                    activityType: merchant.activityType,
+                                  ),
                                   if ((merchant.eligibilityLabel ?? '')
                                       .trim()
                                       .isNotEmpty)
