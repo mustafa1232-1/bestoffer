@@ -1140,7 +1140,9 @@ class _StoreOwnerOrdersScreenState
                               final ok = await controller.assignCourierFlowV2(
                                 orderId: order.id,
                                 courierUserId: selectedDelivery,
-                                assignmentMode: 'manual',
+                                // Keep the store-selected audit type aligned with the
+                                // backend E2E flow for explicit owner dispatch.
+                                assignmentMode: 'store_selected',
                               );
                               if (!ok || !mounted) return;
                               messenger.showSnackBar(
