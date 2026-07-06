@@ -267,6 +267,14 @@ function normalizeVariantInput(input, index = 0) {
       1000
     ),
     isAvailable: normalizeBool(source.isAvailable ?? source.is_available, true),
+    unavailableReason: normalizeText(
+      source.unavailableReason ?? source.unavailable_reason,
+      500
+    ),
+    unavailableUntil: normalizeText(
+      source.unavailableUntil ?? source.unavailable_until,
+      80
+    ),
     sortOrder: Number.isInteger(Number(source.sortOrder ?? source.sort_order))
       ? Number(source.sortOrder ?? source.sort_order)
       : index,

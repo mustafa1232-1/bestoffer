@@ -171,6 +171,8 @@ class ProductVariantModel {
   final int stockQuantity;
   final String? imageUrl;
   final bool isAvailable;
+  final String? unavailableReason;
+  final DateTime? unavailableUntil;
   final int sortOrder;
   final Map<String, dynamic> metadata;
 
@@ -186,6 +188,8 @@ class ProductVariantModel {
     required this.stockQuantity,
     this.imageUrl,
     required this.isAvailable,
+    this.unavailableReason,
+    this.unavailableUntil,
     required this.sortOrder,
     required this.metadata,
   });
@@ -232,6 +236,12 @@ class ProductVariantModel {
       isAvailable: j['is_available'] == null
           ? parseBool(j['isAvailable'] ?? true)
           : parseBool(j['is_available']),
+      unavailableReason: parseNullableString(
+        j['unavailable_reason'] ?? j['unavailableReason'],
+      ),
+      unavailableUntil: _parseNullableDateTime(
+        j['unavailable_until'] ?? j['unavailableUntil'],
+      ),
       sortOrder: parseInt(j['sort_order'] ?? j['sortOrder']),
       metadata: _toMap(j['metadata_json'] ?? j['metadata']),
     );
@@ -303,6 +313,8 @@ class ProductModel {
   final int? activeOfferBuyQuantity;
   final int? activeOfferGetQuantity;
   final bool isAvailable;
+  final String? unavailableReason;
+  final DateTime? unavailableUntil;
   final bool trackStock;
   final String? stockMode;
   final int sortOrder;
@@ -338,6 +350,8 @@ class ProductModel {
     this.activeOfferBuyQuantity,
     this.activeOfferGetQuantity,
     required this.isAvailable,
+    this.unavailableReason,
+    this.unavailableUntil,
     this.trackStock = false,
     this.stockMode,
     required this.sortOrder,
@@ -407,7 +421,15 @@ class ProductModel {
       activeOfferGetQuantity: _parseNullableInt(
         j['active_offer_get_quantity'] ?? j['activeOfferGetQuantity'],
       ),
-      isAvailable: j['is_available'] ?? j['isAvailable'] ?? true,
+      isAvailable: j['is_available'] == null
+          ? parseBool(j['isAvailable'] ?? true)
+          : parseBool(j['is_available']),
+      unavailableReason: parseNullableString(
+        j['unavailable_reason'] ?? j['unavailableReason'],
+      ),
+      unavailableUntil: _parseNullableDateTime(
+        j['unavailable_until'] ?? j['unavailableUntil'],
+      ),
       trackStock: parseBool(
         j['track_stock'] ??
             j['trackStock'] ??
@@ -518,6 +540,8 @@ class ProductModel {
   bool get isInStock {
     return canBeOrdered;
   }
+
+  bool get isOrderable => canBeOrdered;
 
   bool get canBeOrdered {
     if (!isAvailable) return false;
@@ -646,4 +670,11 @@ dynamic _parseJsonMaybe(dynamic value, [dynamic fallback]) {
   } catch (_) {
     return fallback;
   }
+}
+
+DateTime? _parseNullableDateTime(dynamic value) {
+  if (value == null) return null;
+  final raw = value.toString().trim();
+  if (raw.isEmpty) return null;
+  return DateTime.tryParse(raw);
 }

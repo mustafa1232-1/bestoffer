@@ -464,6 +464,16 @@ export async function ensureSchema() {
     `);
 
     await q(`
+      ALTER TABLE IF EXISTS product
+      ADD COLUMN IF NOT EXISTS unavailable_reason TEXT;
+    `);
+
+    await q(`
+      ALTER TABLE IF EXISTS product
+      ADD COLUMN IF NOT EXISTS unavailable_until TIMESTAMPTZ;
+    `);
+
+    await q(`
       CREATE TABLE IF NOT EXISTS product_variant_option (
         id BIGSERIAL PRIMARY KEY,
         group_id BIGINT NOT NULL REFERENCES product_variant_group(id) ON DELETE CASCADE,
@@ -489,6 +499,16 @@ export async function ensureSchema() {
     await q(`
       CREATE INDEX IF NOT EXISTS idx_product_variant_option_group_sort
       ON product_variant_option (group_id, is_available, sort_order, id);
+    `);
+
+    await q(`
+      ALTER TABLE IF EXISTS product_variant
+      ADD COLUMN IF NOT EXISTS unavailable_reason TEXT;
+    `);
+
+    await q(`
+      ALTER TABLE IF EXISTS product_variant
+      ADD COLUMN IF NOT EXISTS unavailable_until TIMESTAMPTZ;
     `);
 
     await q(`

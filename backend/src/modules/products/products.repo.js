@@ -116,7 +116,8 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
   const variantsResult = await client.query(
     `SELECT id, product_id, selections_json, sku, barcode, material,
             price_override, discounted_price_override, stock_quantity,
-            image_url, is_available, sort_order, metadata_json
+            image_url, is_available, unavailable_reason, unavailable_until,
+            sort_order, metadata_json
      FROM product_variant
      WHERE product_id = ANY($1::bigint[])
      ORDER BY sort_order ASC, id ASC`,
@@ -227,6 +228,8 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
       stockQuantity: row.stock_quantity,
       imageUrl: row.image_url,
       isAvailable: row.is_available,
+      unavailableReason: row.unavailable_reason,
+      unavailableUntil: row.unavailable_until,
       sortOrder: row.sort_order,
       metadata: row.metadata_json,
     }, catalog.variants.length);
@@ -389,8 +392,9 @@ export async function syncProductRichCatalogTx(client, productId, dto = {}) {
     await client.query(
       `INSERT INTO product_variant
        (product_id, signature, selections_json, sku, barcode, material, price_override,
-        discounted_price_override, stock_quantity, image_url, is_available, sort_order, metadata_json)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        discounted_price_override, stock_quantity, image_url, is_available,
+        unavailable_reason, unavailable_until, sort_order, metadata_json)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       [
         Number(productId),
         variant.signature,
@@ -403,6 +407,8 @@ export async function syncProductRichCatalogTx(client, productId, dto = {}) {
         Number(variant.stockQuantity || 0),
         variant.imageUrl,
         variant.isAvailable !== false,
+        variant.unavailableReason || null,
+        variant.unavailableUntil || null,
         Number(variant.sortOrder || 0),
         JSON.stringify(variant.metadata || {}),
       ]

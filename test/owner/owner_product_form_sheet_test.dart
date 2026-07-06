@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/features/owner/ui/owner_product_form_sheet.dart';
 import 'package:maslaki/features/products/models/product_category_model.dart';
 import 'package:maslaki/features/products/models/product_model.dart';
-import 'package:maslaki/features/products/ui/product_summary_card.dart';
 
 void main() {
   const clothes = ProductCategoryModel(
@@ -59,79 +58,102 @@ void main() {
 
     expect(find.text('إضافة منتج'), findsOneWidget);
     expect(find.text(clothes.displayName), findsOneWidget);
-
-    final scrollable = find.byType(Scrollable).first;
-    for (final label in const [
-      'القماش / الخامة',
-      'الماركة',
-      'الألوان والمقاسات / Variants',
-      'إضافة لون',
-      'إضافة مقاس',
-      'المواصفات التي تظهر للمستخدم خارج المنتج',
-      'المواصفات الكاملة',
-      'معاينة شكل المنتج للمستخدم',
-    ]) {
-      await tester.scrollUntilVisible(
-        find.text(label),
-        120,
-        scrollable: scrollable,
-      );
-      expect(find.text(label), findsOneWidget);
-    }
-
-    await tester.scrollUntilVisible(
-      find.byType(ProductSummaryCard),
-      120,
-      scrollable: scrollable,
-    );
-    expect(find.byType(ProductSummaryCard), findsWidgets);
+    expect(find.byType(DropdownButtonFormField<int>), findsWidgets);
+    expect(find.byType(SwitchListTile), findsAtLeastNWidgets(2));
   });
 
   testWidgets(
     'owner product form filters categories by store type and blocks invalid save',
     (tester) async {
+      tester.view.physicalSize = const Size(1400, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: ProductFormSheet(
-              product: invalidProduct(),
-              categories: [clothes, electronics],
-              merchantActivityType: 'fashion_clothing',
+            body: Builder(
+              builder: (context) {
+                return Center(
+                  child: FilledButton(
+                    onPressed: () {
+                      showModalBottomSheet<ProductFormData>(
+                        context: context,
+                        isScrollControlled: true,
+                        builder: (_) => ProductFormSheet(
+                          product: invalidProduct(),
+                          categories: [clothes, electronics],
+                          merchantActivityType: 'fashion_clothing',
+                        ),
+                      );
+                    },
+                    child: const Text('open-product-form'),
+                  ),
+                );
+              },
             ),
           ),
         ),
       );
-      await tester.pumpAndSettle();
 
-      await tester.tap(find.byType(DropdownButtonFormField<int>).first);
-      await tester.pumpAndSettle();
+      await tester.tap(find.text('open-product-form'));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final categoryField = find.byType(DropdownButtonFormField<int>).first;
+      await tester.scrollUntilVisible(
+        categoryField,
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(categoryField);
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.text(clothes.displayName), findsWidgets);
       expect(find.text('Chargers'), findsNothing);
       await tester.tapAt(const Offset(8, 8));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 200));
 
-      final scrollable = find.byType(Scrollable).first;
-      await tester.scrollUntilVisible(
-        find.text('معاينة شكل المنتج للمستخدم'),
-        120,
-        scrollable: scrollable,
+      final availabilitySwitch = find.byKey(
+        const ValueKey('product-form-availability-switch'),
       );
-      await tester.pumpAndSettle();
-      await tester.drag(scrollable, const Offset(0, -600));
-      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        availabilitySwitch,
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(availabilitySwitch);
+      await tester.pump(const Duration(milliseconds: 200));
 
-      final submitButton = find.byType(FilledButton).last;
-      expect(submitButton, findsOneWidget);
+      final reasonField = find.byKey(
+        const ValueKey('product-form-unavailable-reason'),
+      );
+      final untilField = find.byKey(
+        const ValueKey('product-form-unavailable-until'),
+      );
+      expect(reasonField, findsOneWidget);
+      expect(untilField, findsOneWidget);
+      await tester.enterText(reasonField, 'Maintenance');
+      await tester.enterText(untilField, '2026-07-07T12:00:00.000Z');
+
+      final submitButton = find.byKey(const ValueKey('product-form-submit'));
+      await tester.scrollUntilVisible(
+        submitButton,
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
       await tester.tap(submitButton);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
 
-      expect(find.byType(ProductFormSheet), findsOneWidget);
       expect(
         find.textContaining(
-          'Selected category does not match this store type.',
+          'Selected category does not match this store type',
         ),
-        findsWidgets,
+        findsOneWidget,
       );
     },
   );

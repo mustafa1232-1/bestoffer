@@ -213,6 +213,8 @@ export function validateOwnerProductCreate(body) {
   if (body.freeDelivery !== undefined && typeof body.freeDelivery !== "boolean") errors.push("freeDelivery");
   if (!isOptionalString(body.offerLabel, 80)) errors.push("offerLabel");
   if (body.isAvailable !== undefined && typeof body.isAvailable !== "boolean") errors.push("isAvailable");
+  if (!isOptionalString(body.unavailableReason, 500)) errors.push("unavailableReason");
+  if (!isIsoDate(body.unavailableUntil)) errors.push("unavailableUntil");
   if (
     body.requiresPrescription !== undefined &&
     typeof body.requiresPrescription !== "boolean"
@@ -261,6 +263,8 @@ export function validateOwnerProductUpdate(body) {
     body.freeDelivery !== undefined ||
     body.offerLabel !== undefined ||
     body.isAvailable !== undefined ||
+    body.unavailableReason !== undefined ||
+    body.unavailableUntil !== undefined ||
     body.requiresPrescription !== undefined ||
     body.requiresReview !== undefined ||
     body.sortOrder !== undefined ||
@@ -291,6 +295,10 @@ export function validateOwnerProductUpdate(body) {
   if (body.freeDelivery !== undefined && typeof body.freeDelivery !== "boolean") errors.push("freeDelivery");
   if (body.offerLabel !== undefined && !isOptionalString(body.offerLabel, 80)) errors.push("offerLabel");
   if (body.isAvailable !== undefined && typeof body.isAvailable !== "boolean") errors.push("isAvailable");
+  if (body.unavailableReason !== undefined && !isOptionalString(body.unavailableReason, 500)) {
+    errors.push("unavailableReason");
+  }
+  if (!isIsoDate(body.unavailableUntil)) errors.push("unavailableUntil");
   if (
     body.requiresPrescription !== undefined &&
     typeof body.requiresPrescription !== "boolean"
@@ -486,6 +494,17 @@ export function validateOwnerAssignDelivery(body) {
     !Number.isInteger(Number(body?.deliveryUserId))
   ) {
     errors.push("deliveryUserId");
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+export function validateOwnerMarkOrderItemUnavailable(body) {
+  const errors = [];
+  if (!isOptionalString(body?.unavailableReason, 500)) {
+    errors.push("unavailableReason");
+  }
+  if (!isIsoDate(body?.unavailableUntil)) {
+    errors.push("unavailableUntil");
   }
   return { ok: errors.length === 0, errors };
 }

@@ -29,6 +29,8 @@ class ProductFormData {
   final bool requiresReview;
   final String offerLabel;
   final bool isAvailable;
+  final String unavailableReason;
+  final String unavailableUntil;
   final int sortOrder;
 
   const ProductFormData({
@@ -51,6 +53,8 @@ class ProductFormData {
     required this.requiresReview,
     required this.offerLabel,
     required this.isAvailable,
+    required this.unavailableReason,
+    required this.unavailableUntil,
     required this.sortOrder,
   });
 }
@@ -82,6 +86,8 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
   late final TextEditingController stockCtrl;
   late final TextEditingController sortCtrl;
   late final TextEditingController offerCtrl;
+  late final TextEditingController unavailableReasonCtrl;
+  late final TextEditingController unavailableUntilCtrl;
   final Map<String, TextEditingController> _attributeCtrls = {};
   final List<_SpecDraft> _shortSpecs = [];
   final List<_SpecDraft> _fullSpecs = [];
@@ -144,6 +150,12 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     );
     offerCtrl = TextEditingController(text: product?.offerLabel ?? '');
     isAvailable = product?.isAvailable ?? true;
+    unavailableReasonCtrl = TextEditingController(
+      text: product?.unavailableReason ?? '',
+    );
+    unavailableUntilCtrl = TextEditingController(
+      text: product?.unavailableUntil?.toIso8601String() ?? '',
+    );
     freeDelivery = product?.freeDelivery ?? false;
     requiresPrescription = product?.requiresPrescription ?? false;
     requiresReview = product?.requiresReview ?? false;
@@ -228,6 +240,8 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
       stockCtrl,
       sortCtrl,
       offerCtrl,
+      unavailableReasonCtrl,
+      unavailableUntilCtrl,
     ]) {
       controller.dispose();
     }
@@ -472,8 +486,18 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
         'discountedPriceOverride': double.tryParse(draft.discount.text.trim()),
         'stockQuantity': int.tryParse(draft.stock.text.trim()) ?? 0,
         'imageUrl': draft.imageUrl,
-        'uploadIndex': ?uploadIndex,
+        'uploadIndex': uploadIndex,
         'isAvailable': draft.available,
+        'unavailableReason': draft.available
+            ? null
+            : draft.unavailableReason.text.trim().isEmpty
+            ? null
+            : draft.unavailableReason.text.trim(),
+        'unavailableUntil': draft.available
+            ? null
+            : draft.unavailableUntil.text.trim().isEmpty
+            ? null
+            : draft.unavailableUntil.text.trim(),
         'sortOrder': entry.key,
       };
     }).toList();
@@ -523,6 +547,8 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
         requiresReview: requiresReview,
         offerLabel: offerCtrl.text.trim(),
         isAvailable: isAvailable,
+        unavailableReason: isAvailable ? '' : unavailableReasonCtrl.text.trim(),
+        unavailableUntil: isAvailable ? '' : unavailableUntilCtrl.text.trim(),
         sortOrder: int.tryParse(sortCtrl.text.trim()) ?? 0,
       ),
     );
@@ -696,11 +722,32 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
                           ),
                           _field(sortCtrl, 'ترتيب العرض', number: true),
                           SwitchListTile(
+                            key: const ValueKey(
+                              'product-form-availability-switch',
+                            ),
                             title: const Text('متاح للبيع'),
                             value: isAvailable,
                             onChanged: (value) =>
                                 setState(() => isAvailable = value),
                           ),
+                          if (!isAvailable) ...[
+                            _field(
+                              unavailableReasonCtrl,
+                              'سبب عدم الإتاحة / Unavailable reason',
+                              lines: 2,
+                              key: const ValueKey(
+                                'product-form-unavailable-reason',
+                              ),
+                            ),
+                            _field(
+                              unavailableUntilCtrl,
+                              'غير متاح حتى / Unavailable until (ISO 8601)',
+                              number: false,
+                              key: const ValueKey(
+                                'product-form-unavailable-until',
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       if (_activeFields.isNotEmpty)
@@ -993,6 +1040,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
                       ),
                       const SizedBox(height: 12),
                       FilledButton(
+                        key: const ValueKey('product-form-submit'),
                         onPressed: _submit,
                         child: Padding(
                           padding: const EdgeInsets.all(14),
@@ -1034,7 +1082,9 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     String label, {
     bool number = false,
     int lines = 1,
+    Key? key,
   }) => TextField(
+    key: key,
     controller: controller,
     maxLines: lines,
     keyboardType: number
@@ -1267,6 +1317,18 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
               ),
             ],
           ),
+          if (!draft.available) ...[
+            const SizedBox(height: 8),
+            _field(
+              draft.unavailableReason,
+              'سبب عدم الإتاحة / Unavailable reason',
+              lines: 2,
+            ),
+            _field(
+              draft.unavailableUntil,
+              'غير متاح حتى / Unavailable until (ISO 8601)',
+            ),
+          ],
         ],
       ),
     ),
@@ -1403,6 +1465,16 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
           text: 'يتطلب مراجعة صيدلانية',
           kind: ProductSummaryBadgeKind.status,
         ),
+      if (!isAvailable && unavailableReasonCtrl.text.trim().isNotEmpty)
+        ProductSummaryBadgeData(
+          text: unavailableReasonCtrl.text.trim(),
+          kind: ProductSummaryBadgeKind.status,
+        ),
+      if (!isAvailable && unavailableUntilCtrl.text.trim().isNotEmpty)
+        ProductSummaryBadgeData(
+          text: 'حتى ${unavailableUntilCtrl.text.trim()}',
+          kind: ProductSummaryBadgeKind.status,
+        ),
       if (_variants.isNotEmpty)
         ProductSummaryBadgeData(
           text: '${_variants.length} تركيبة',
@@ -1534,6 +1606,8 @@ class _VariantDraft {
   final TextEditingController price;
   final TextEditingController discount;
   final TextEditingController stock;
+  final TextEditingController unavailableReason;
+  final TextEditingController unavailableUntil;
   String? imageUrl;
   LocalImageFile? imageFile;
   bool available;
@@ -1545,6 +1619,8 @@ class _VariantDraft {
     String price = '',
     String discount = '',
     String stock = '0',
+    String unavailableReason = '',
+    String unavailableUntil = '',
     this.imageUrl,
     this.available = true,
   }) : sku = TextEditingController(text: sku),
@@ -1552,7 +1628,9 @@ class _VariantDraft {
        material = TextEditingController(text: material),
        price = TextEditingController(text: price),
        discount = TextEditingController(text: discount),
-       stock = TextEditingController(text: stock);
+       stock = TextEditingController(text: stock),
+       unavailableReason = TextEditingController(text: unavailableReason),
+       unavailableUntil = TextEditingController(text: unavailableUntil);
   factory _VariantDraft.fromModel(ProductVariantModel model) => _VariantDraft(
     signature: model.signature,
     sku: model.sku ?? '',
@@ -1561,6 +1639,8 @@ class _VariantDraft {
     price: model.priceOverride?.toString() ?? '',
     discount: model.discountedPriceOverride?.toString() ?? '',
     stock: model.stockQuantity.toString(),
+    unavailableReason: model.unavailableReason ?? '',
+    unavailableUntil: model.unavailableUntil?.toIso8601String() ?? '',
     imageUrl: model.imageUrl,
     available: model.isAvailable,
   );
@@ -1571,6 +1651,8 @@ class _VariantDraft {
     price.dispose();
     discount.dispose();
     stock.dispose();
+    unavailableReason.dispose();
+    unavailableUntil.dispose();
   }
 }
 

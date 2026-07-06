@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS product (
   free_delivery    BOOLEAN NOT NULL DEFAULT FALSE,
   offer_label      VARCHAR(80),
   is_available     BOOLEAN NOT NULL DEFAULT true,
+  unavailable_reason TEXT,
+  unavailable_until TIMESTAMPTZ,
   sort_order       INTEGER NOT NULL DEFAULT 0,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -44,6 +44,22 @@ import 'package:maslaki/core/media/cached_app_image.dart';
 /// Depends on: `ownerControllerProvider`, الشاشات الفرعية للإعدادات والطباعة والكوپونات والموارد البشرية والمحاسبة.
 /// Critical notes: الشاشة تحمل منطق UI كثيفاً وبعضه legacy؛ لذلك يجب إبقاء source of truth في `OwnerController` وليس داخل عناصر الواجهة.
 /// Maintenance notes: إذا علقت الواجهة أو ظهرت تنبيهات طلبات متكررة افحص `bootstrap/startLiveOrders` في controller ثم `_syncPendingOrderAlerts`.
+enum OwnerProductAvailabilityFilter { all, available, unavailable }
+
+List<ProductModel> filterOwnerProductsByAvailability(
+  List<ProductModel> products,
+  OwnerProductAvailabilityFilter filter,
+) {
+  switch (filter) {
+    case OwnerProductAvailabilityFilter.available:
+      return products.where((product) => product.isAvailable).toList();
+    case OwnerProductAvailabilityFilter.unavailable:
+      return products.where((product) => !product.isAvailable).toList();
+    case OwnerProductAvailabilityFilter.all:
+      return products.toList();
+  }
+}
+
 enum OwnerDashboardTab { dashboard, profile, store, orders, catalog }
 
 enum _OwnerTab { dashboard, profile, store, orders, catalog }
@@ -73,6 +89,8 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   final serviceAreaCtrl = TextEditingController();
   LocalImageFile? merchantImageFile;
   _OwnerTab activeTab = _OwnerTab.dashboard;
+  OwnerProductAvailabilityFilter _productAvailabilityFilter =
+      OwnerProductAvailabilityFilter.all;
 
   String merchantType = 'restaurant';
   bool isOpen = true;
@@ -288,6 +306,8 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
           freeDelivery: data.freeDelivery,
           offerLabel: data.offerLabel,
           isAvailable: data.isAvailable,
+          unavailableReason: data.unavailableReason,
+          unavailableUntil: data.unavailableUntil,
           requiresPrescription: data.requiresPrescription,
           requiresReview: data.requiresReview,
           sortOrder: data.sortOrder,
@@ -414,6 +434,10 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     final auth = ref.watch(authControllerProvider);
     String lt(String ar, String en) => context.localizedText(ar: ar, en: en);
     final merchant = ownerState.merchant;
+    final catalogProducts = filterOwnerProductsByAvailability(
+      ownerState.products,
+      _productAvailabilityFilter,
+    );
     final drawerItems = <AppUserDrawerItem>[
       AppUserDrawerItem(
         icon: Icons.dashboard_outlined,
@@ -884,6 +908,48 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                   ),
                 if (activeTab == _OwnerTab.catalog) const SizedBox(height: 14),
                 if (activeTab == _OwnerTab.catalog)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.end,
+                      children: [
+                        FilterChip(
+                          label: const Text('الكل / All'),
+                          selected:
+                              _productAvailabilityFilter ==
+                              OwnerProductAvailabilityFilter.all,
+                          onSelected: (_) => setState(
+                            () => _productAvailabilityFilter =
+                                OwnerProductAvailabilityFilter.all,
+                          ),
+                        ),
+                        FilterChip(
+                          label: const Text('متاح / Available'),
+                          selected:
+                              _productAvailabilityFilter ==
+                              OwnerProductAvailabilityFilter.available,
+                          onSelected: (_) => setState(
+                            () => _productAvailabilityFilter =
+                                OwnerProductAvailabilityFilter.available,
+                          ),
+                        ),
+                        FilterChip(
+                          label: const Text('غير متاح / Unavailable'),
+                          selected:
+                              _productAvailabilityFilter ==
+                              OwnerProductAvailabilityFilter.unavailable,
+                          onSelected: (_) => setState(
+                            () => _productAvailabilityFilter =
+                                OwnerProductAvailabilityFilter.unavailable,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (activeTab == _OwnerTab.catalog) const SizedBox(height: 10),
+                if (activeTab == _OwnerTab.catalog)
                   _SectionCard(
                     title: 'إدارة التصنيفات',
                     child: Column(
@@ -982,13 +1048,13 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                 if (activeTab == _OwnerTab.catalog)
                   _SectionCard(
                     title: 'إدارة المنتجات',
-                    child: ownerState.products.isEmpty
+                    child: catalogProducts.isEmpty
                         ? const Padding(
                             padding: EdgeInsets.symmetric(vertical: 20),
                             child: Text('لا توجد منتجات بعد'),
                           )
                         : Column(
-                            children: ownerState.products
+                            children: catalogProducts
                                 .map(
                                   (product) => _ProductTile(
                                     product: product,
@@ -1025,6 +1091,10 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                             freeDelivery: data.freeDelivery,
                                             offerLabel: data.offerLabel,
                                             isAvailable: data.isAvailable,
+                                            unavailableReason:
+                                                data.unavailableReason,
+                                            unavailableUntil:
+                                                data.unavailableUntil,
                                             requiresPrescription:
                                                 data.requiresPrescription,
                                             requiresReview: data.requiresReview,
@@ -1068,6 +1138,23 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                             .deleteProduct(product.id);
                                       }
                                     },
+                                    onRestoreAvailability:
+                                        ownerState.savingProduct ||
+                                            product.isAvailable
+                                        ? null
+                                        : () async {
+                                            await ref
+                                                .read(
+                                                  ownerControllerProvider
+                                                      .notifier,
+                                                )
+                                                .updateProductAvailability(
+                                                  productId: product.id,
+                                                  isAvailable: true,
+                                                  unavailableReason: null,
+                                                  unavailableUntil: null,
+                                                );
+                                          },
                                   ),
                                 )
                                 .toList(),
@@ -2470,11 +2557,13 @@ class _ProductTile extends StatelessWidget {
   final ProductModel product;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback? onRestoreAvailability;
 
   const _ProductTile({
     required this.product,
     required this.onEdit,
     required this.onDelete,
+    this.onRestoreAvailability,
   });
 
   @override
@@ -2520,6 +2609,13 @@ class _ProductTile extends StatelessWidget {
                 : 'السعر: ${formatIqd(effectivePrice)}',
             textDirection: TextDirection.rtl,
           ),
+          if (!product.isAvailable &&
+              product.unavailableReason?.trim().isNotEmpty == true)
+            Text(
+              product.unavailableReason!.trim(),
+              textDirection: TextDirection.rtl,
+              style: const TextStyle(fontSize: 12),
+            ),
           Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -2563,6 +2659,12 @@ class _ProductTile extends StatelessWidget {
             color: product.isAvailable ? Colors.green : Colors.redAccent,
             size: 18,
           ),
+          if (!product.isAvailable && onRestoreAvailability != null)
+            IconButton(
+              onPressed: onRestoreAvailability,
+              tooltip: 'استعادة التوفر',
+              icon: const Icon(Icons.restore),
+            ),
           IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
           IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
         ],

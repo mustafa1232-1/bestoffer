@@ -13,6 +13,7 @@ import {
   validateOwnerOfferUpdate,
   validateOwnerProductCreate,
   validateOwnerProductUpdate,
+  validateOwnerMarkOrderItemUnavailable,
   validateOwnerRegister,
   validateOwnerStaffSearchQuery,
   normalizeStockQuantityInput,
@@ -427,6 +428,32 @@ export async function updateProduct(req, res, next) {
   }
 }
 
+export async function updateProductAvailability(req, res, next) {
+  try {
+    const body = {
+      ...req.body,
+      isAvailable:
+        req.body?.isAvailable === undefined
+          ? undefined
+          : parseBooleanInput(req.body?.isAvailable),
+    };
+
+    const v = validateOwnerProductUpdate(body);
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const product = await service.updateOwnerProduct(
+      req.userId,
+      Number(req.params.productId),
+      body
+    );
+    res.json(product);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function updateOffer(req, res, next) {
   try {
     const v = validateOwnerOfferUpdate(req.body || {});
@@ -666,10 +693,19 @@ export async function assignDelivery(req, res, next) {
 
 export async function markOrderItemUnavailable(req, res, next) {
   try {
+    const body = {
+      unavailableReason: req.body?.unavailableReason,
+      unavailableUntil: req.body?.unavailableUntil,
+    };
+    const v = validateOwnerMarkOrderItemUnavailable(body);
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
     const product = await service.markOrderItemUnavailable(
       req.userId,
       req.params.orderId,
-      req.params.productId
+      req.params.productId,
+      body
     );
     res.json({ product });
   } catch (e) {

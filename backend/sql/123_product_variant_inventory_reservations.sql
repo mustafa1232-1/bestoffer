@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS product_variant (
   stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
   image_url TEXT,
   is_available BOOLEAN NOT NULL DEFAULT TRUE,
+  unavailable_reason TEXT,
+  unavailable_until TIMESTAMPTZ,
   sort_order INTEGER NOT NULL DEFAULT 0,
   metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -765,16 +765,18 @@ export async function createOwnerProduct(ownerUserId, dto) {
           name,
           description,
           price,
-          discounted_price,
-          image_url,
-          free_delivery,
-          offer_label,
-          is_available,
-          requires_prescription,
-          requires_review,
-          sort_order
-        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        discounted_price,
+        image_url,
+        free_delivery,
+        offer_label,
+        is_available,
+        unavailable_reason,
+        unavailable_until,
+        requires_prescription,
+        requires_review,
+        sort_order
+      )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING *`,
       [
         merchant.id,
@@ -787,6 +789,8 @@ export async function createOwnerProduct(ownerUserId, dto) {
         dto.freeDelivery,
         dto.offerLabel,
         dto.isAvailable,
+        dto.unavailableReason,
+        dto.unavailableUntil,
         dto.requiresPrescription === true,
         dto.requiresReview === true,
         dto.sortOrder,
@@ -846,6 +850,8 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
     freeDelivery: "free_delivery",
     offerLabel: "offer_label",
     isAvailable: "is_available",
+    unavailableReason: "unavailable_reason",
+    unavailableUntil: "unavailable_until",
     requiresPrescription: "requires_prescription",
     requiresReview: "requires_review",
     sortOrder: "sort_order",
@@ -946,7 +952,61 @@ export async function deleteOwnerProduct(ownerUserId, productId) {
   return !!r.rows[0];
 }
 
-export async function markOrderedProductUnavailable(ownerUserId, orderId, productId) {
+export async function updateOwnerProductVariantAvailability(ownerUserId, productId, variantId, dto) {
+  const map = {
+    isAvailable: "is_available",
+    unavailableReason: "unavailable_reason",
+    unavailableUntil: "unavailable_until",
+  };
+
+  const values = [];
+  const sets = [];
+  let idx = 1;
+
+  for (const [key, column] of Object.entries(map)) {
+    if (dto[key] !== undefined) {
+      values.push(dto[key]);
+      sets.push(`${column}=$${idx++}`);
+    }
+  }
+
+  const current = await q(
+    `SELECT v.*
+     FROM product_variant v
+     JOIN product p ON p.id = v.product_id
+     JOIN merchant m ON m.id = p.merchant_id
+     WHERE v.id = $1
+       AND p.id = $2
+       AND m.owner_user_id = $3
+     LIMIT 1`,
+    [Number(variantId), Number(productId), Number(ownerUserId)]
+  );
+  if (!current.rows[0]) return null;
+  if (sets.length === 0) return current.rows[0];
+
+  values.push(variantId, productId, ownerUserId);
+  const r = await q(
+    `UPDATE product_variant v
+     SET ${sets.join(", ")},
+         updated_at = NOW()
+     FROM product p
+     JOIN merchant m ON m.id = p.merchant_id
+     WHERE v.id = $${idx}
+       AND v.product_id = p.id
+       AND p.id = $${idx + 1}
+       AND m.owner_user_id = $${idx + 2}
+     RETURNING v.*`,
+    values
+  );
+  return r.rows[0] || null;
+}
+
+export async function markOrderedProductUnavailable(
+  ownerUserId,
+  orderId,
+  productId,
+  dto = {}
+) {
   const client = await pool.connect();
 
   try {
@@ -959,7 +1019,10 @@ export async function markOrderedProductUnavailable(ownerUserId, orderId, produc
          o.merchant_id,
          m.name AS merchant_name,
          oi.product_id,
-         oi.product_name
+         oi.product_name,
+         p.is_available AS previous_is_available,
+         p.unavailable_reason AS previous_unavailable_reason,
+         p.unavailable_until AS previous_unavailable_until
        FROM customer_order o
        JOIN merchant m
          ON m.id = o.merchant_id
@@ -984,9 +1047,19 @@ export async function markOrderedProductUnavailable(ownerUserId, orderId, produc
     await client.query(
       `UPDATE product
        SET is_available = FALSE,
+           unavailable_reason = COALESCE($2, 'ORDER_PREPARATION_UNAVAILABLE'),
+           unavailable_until = $3,
            updated_at = NOW()
        WHERE id = $1`,
-      [Number(productId)]
+      [
+        Number(productId),
+        dto.unavailableReason == null || String(dto.unavailableReason).trim() === ""
+          ? null
+          : String(dto.unavailableReason).trim(),
+        dto.unavailableUntil == null || String(dto.unavailableUntil).trim() === ""
+          ? null
+          : String(dto.unavailableUntil).trim(),
+      ]
     );
 
     await client.query("COMMIT");

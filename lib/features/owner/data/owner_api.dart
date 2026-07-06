@@ -86,6 +86,17 @@ class OwnerApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> updateProductAvailability(
+    int productId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await dio.patch(
+      '/api/owner/products/$productId/availability',
+      data: body,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<List<dynamic>> listOffers() async {
     final response = await dio.get('/api/owner/offers');
     return List<dynamic>.from(response.data as List);

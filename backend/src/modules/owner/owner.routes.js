@@ -43,6 +43,7 @@ ownerRouter.put(
   productImageFields,
   c.updateProduct
 );
+ownerRouter.patch("/products/:productId/availability", c.updateProductAvailability);
 ownerRouter.patch("/offers/:offerId", c.updateOffer);
 ownerRouter.delete("/products/:productId", c.deleteProduct);
 ownerRouter.delete("/offers/:offerId", c.deleteOffer);

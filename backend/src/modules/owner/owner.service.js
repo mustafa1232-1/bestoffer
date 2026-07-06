@@ -6,6 +6,7 @@ import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
 import { createUserSession, pruneUserSessions } from "../auth/auth.repo.js";
 import * as analyticsRepo from "../../shared/analytics/commerce-analytics.repo.js";
 import * as commerceRepo from "../commerce/commerce.repo.js";
+import * as companyRepo from "../company/company.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
 import { invalidateOrderListCacheForUser } from "../orders/orders.service.js";
 import * as offersRepo from "./merchant-offers.repo.js";
@@ -23,6 +24,7 @@ import {
   hasRichProductInput,
   normalizeRichProductPayload,
 } from "../products/product-catalog.logic.js";
+import { loadProductRichCatalogById } from "../products/products.repo.js";
 import crypto from "crypto";
 import {
   buildMerchantCapabilities,
@@ -125,6 +127,14 @@ function normalizeOptional(v) {
   return out.length ? out : null;
 }
 
+function normalizeIsoDateOrNull(v) {
+  const normalized = normalizeOptional(v);
+  if (normalized === null) return null;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
 function normalizeDigits(value) {
   return String(value || "")
     .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
@@ -150,6 +160,154 @@ function toPositiveIntOrNull(v) {
   const n = Number(v);
   if (!Number.isInteger(n) || n <= 0) return null;
   return n;
+}
+
+function snapshotAvailability(entity) {
+  if (!entity) {
+    return {
+      isAvailable: true,
+      unavailableReason: null,
+      unavailableUntil: null,
+    };
+  }
+  return {
+    isAvailable: entity.isAvailable !== false && entity.is_available !== false,
+    unavailableReason: normalizeOptional(
+      entity.unavailableReason ?? entity.unavailable_reason
+    ),
+    unavailableUntil: normalizeIsoDateOrNull(
+      entity.unavailableUntil ?? entity.unavailable_until
+    ),
+  };
+}
+
+function availabilityKey(entity, index = 0) {
+  if (entity?.id != null) return `id:${Number(entity.id)}`;
+  return `signature:${String(entity?.signature || index)}`;
+}
+
+function snapshotsDiffer(before, after) {
+  return (
+    before.isAvailable !== after.isAvailable ||
+    before.unavailableReason !== after.unavailableReason ||
+    before.unavailableUntil !== after.unavailableUntil
+  );
+}
+
+function buildAvailabilityAuditValue(snapshot) {
+  return {
+    isAvailable: snapshot.isAvailable,
+    unavailableReason: snapshot.unavailableReason,
+    unavailableUntil: snapshot.unavailableUntil,
+  };
+}
+
+async function insertAvailabilityAuditLog({
+  merchantId,
+  productId,
+  actorUserId,
+  actorRole = "owner",
+  actionKey,
+  summary,
+  oldValue = {},
+  newValue = {},
+  variantId = null,
+  reason = null,
+  unavailableUntil = null,
+  note = null,
+}) {
+  await companyRepo.insertInventoryAuditLog({
+    merchantId,
+    productId,
+    actorUserId,
+    actorRole,
+    actorContext: "owner_portal",
+    actionKey,
+    summary,
+    variantId,
+    reason,
+    unavailableUntil,
+    oldValue,
+    newValue,
+    note,
+  });
+}
+
+async function recordProductAvailabilityChange({
+  actorUserId,
+  merchantId,
+  productId,
+  productName,
+  beforeProduct,
+  afterProduct,
+  beforeRichCatalog,
+  afterRichCatalog,
+}) {
+  const before = snapshotAvailability(beforeProduct);
+  const after = snapshotAvailability(afterProduct);
+  const records = [];
+
+  if (snapshotsDiffer(before, after)) {
+    records.push(
+      insertAvailabilityAuditLog({
+        merchantId,
+        productId,
+        actorUserId,
+        actionKey: "owner.product.availability.updated",
+        summary: `${productName || "Product"} availability updated`,
+        oldValue: buildAvailabilityAuditValue(before),
+        newValue: buildAvailabilityAuditValue(after),
+        reason: after.unavailableReason,
+        unavailableUntil: after.unavailableUntil,
+      })
+    );
+  }
+
+  const beforeVariants = Array.isArray(beforeRichCatalog?.variants)
+    ? beforeRichCatalog.variants
+    : [];
+  const afterVariants = Array.isArray(afterRichCatalog?.variants)
+    ? afterRichCatalog.variants
+    : [];
+  const beforeByKey = new Map(
+    beforeVariants.map((variant, index) => [
+      availabilityKey(variant, index),
+      snapshotAvailability(variant),
+    ])
+  );
+
+  afterVariants.forEach((variant, index) => {
+    const afterVariant = snapshotAvailability(variant);
+    const key = availabilityKey(variant, index);
+    const beforeVariant = beforeByKey.get(key) || {
+      isAvailable: true,
+      unavailableReason: null,
+      unavailableUntil: null,
+    };
+    if (!snapshotsDiffer(beforeVariant, afterVariant)) return;
+    records.push(
+      insertAvailabilityAuditLog({
+        merchantId,
+        productId,
+        actorUserId,
+        variantId: variant.id ?? null,
+        actionKey: "owner.product.variant.availability.updated",
+        summary: `${productName || "Product"} variant availability updated`,
+        oldValue: buildAvailabilityAuditValue(beforeVariant),
+        newValue: buildAvailabilityAuditValue(afterVariant),
+        reason: afterVariant.unavailableReason,
+        unavailableUntil: afterVariant.unavailableUntil,
+      })
+    );
+  });
+
+  if (records.length > 0) {
+    const settled = await Promise.allSettled(records);
+    const rejected = settled.filter((entry) => entry.status === "rejected");
+    if (rejected.length > 0) {
+      console.error("AVAILABILITY_AUDIT_LOG_FAILED", rejected[0].reason);
+    }
+  }
 }
 
 function normalizeConsentAccepted(value) {
@@ -1040,6 +1198,8 @@ export async function createOwnerProduct(ownerUserId, dto) {
   const richCatalog = hasRichProductInput(dto)
     ? normalizeRichProductPayload(dto)
     : null;
+  const unavailableReason = normalizeOptional(dto.unavailableReason);
+  const unavailableUntil = normalizeIsoDateOrNull(dto.unavailableUntil);
 
   const product = await repo.createOwnerProduct(ownerUserId, {
     name: dto.name.trim(),
@@ -1051,6 +1211,8 @@ export async function createOwnerProduct(ownerUserId, dto) {
     freeDelivery: dto.freeDelivery === true,
     offerLabel: normalizeOptional(dto.offerLabel),
     isAvailable: dto.isAvailable ?? true,
+    unavailableReason,
+    unavailableUntil,
     requiresPrescription: dto.requiresPrescription === true,
     requiresReview: dto.requiresReview === true,
     sortOrder: Number(dto.sortOrder ?? 0),
@@ -1068,6 +1230,21 @@ export async function createOwnerProduct(ownerUserId, dto) {
   }
   await invalidateMerchantCatalogCache(product.merchant_id);
 
+  await recordProductAvailabilityChange({
+    actorUserId: ownerUserId,
+    merchantId: product.merchant_id,
+    productId: product.id,
+    productName: product.name,
+    beforeProduct: null,
+    afterProduct: {
+      isAvailable: product.is_available !== false,
+      unavailableReason,
+      unavailableUntil,
+    },
+    beforeRichCatalog: null,
+    afterRichCatalog: richCatalog,
+  });
+
   return product;
 }
 
@@ -1078,6 +1255,9 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
   const patch = {};
   const richCatalog = hasRichProductInput(dto)
     ? normalizeRichProductPayload(dto)
+    : null;
+  const previousRichCatalog = richCatalog
+    ? await loadProductRichCatalogById(productId)
     : null;
   const ownerMerchant = await getOwnerMerchant(ownerUserId);
   const merchantActivityType = resolveMerchantActivityType(ownerMerchant);
@@ -1113,6 +1293,12 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
   if (dto.imageUrl !== undefined) patch.imageUrl = normalizeOptional(dto.imageUrl);
   if (dto.offerLabel !== undefined) patch.offerLabel = normalizeOptional(dto.offerLabel);
   if (dto.isAvailable !== undefined) patch.isAvailable = dto.isAvailable;
+  if (dto.unavailableReason !== undefined) {
+    patch.unavailableReason = normalizeOptional(dto.unavailableReason);
+  }
+  if (dto.unavailableUntil !== undefined) {
+    patch.unavailableUntil = normalizeIsoDateOrNull(dto.unavailableUntil);
+  }
   if (dto.freeDelivery !== undefined) patch.freeDelivery = dto.freeDelivery === true;
   if (dto.requiresPrescription !== undefined) {
     patch.requiresPrescription = dto.requiresPrescription === true;
@@ -1163,6 +1349,16 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
     err.status = 404;
     throw err;
   }
+  await recordProductAvailabilityChange({
+    actorUserId: ownerUserId,
+    merchantId: updated.merchant_id,
+    productId: updated.id,
+    productName: updated.name,
+    beforeProduct: current,
+    afterProduct: updated,
+    beforeRichCatalog: previousRichCatalog,
+    afterRichCatalog: richCatalog,
+  });
   await invalidateMerchantCatalogCache(updated.merchant_id);
   return updated;
 }
@@ -1654,17 +1850,51 @@ export async function assignDelivery(
 /**
  * يعلّم عنصر طلب واحداً كغير متوفر ويرولد إشعاراً للعميل المتأثر.
  */
-export async function markOrderItemUnavailable(ownerUserId, orderId, productId) {
+export async function markOrderItemUnavailable(
+  ownerUserId,
+  orderId,
+  productId,
+  dto = {}
+) {
+  const nextUnavailableReason =
+    normalizeOptional(dto.unavailableReason) || "ORDER_PREPARATION_UNAVAILABLE";
+  const nextUnavailableUntil = normalizeIsoDateOrNull(dto.unavailableUntil);
   const target = await repo.markOrderedProductUnavailable(
     ownerUserId,
     Number(orderId),
-    Number(productId)
+    Number(productId),
+    dto
   );
 
   if (!target) {
     const err = new Error("ORDER_ITEM_NOT_FOUND");
     err.status = 404;
     throw err;
+  }
+
+  try {
+    await insertAvailabilityAuditLog({
+      merchantId: target.merchant_id,
+      productId: Number(target.product_id),
+      actorUserId: ownerUserId,
+      actorRole: "owner",
+      actionKey: "owner.order_item.marked_unavailable",
+      summary: `Marked ${target.product_name || "product"} unavailable while preparing order #${target.order_id}`,
+      oldValue: {
+        isAvailable: target.previous_is_available !== false,
+        unavailableReason: normalizeOptional(target.previous_unavailable_reason),
+        unavailableUntil: normalizeIsoDateOrNull(target.previous_unavailable_until),
+      },
+      newValue: {
+        isAvailable: false,
+        unavailableReason: nextUnavailableReason,
+        unavailableUntil: nextUnavailableUntil,
+      },
+      reason: nextUnavailableReason,
+      unavailableUntil: nextUnavailableUntil,
+    });
+  } catch (error) {
+    console.error("ORDER_ITEM_UNAVAILABLE_AUDIT_LOG_FAILED", error);
   }
 
   await createNotification({
@@ -1686,6 +1916,14 @@ export async function markOrderItemUnavailable(ownerUserId, orderId, productId) 
 
   return repo.findOwnerProductById(ownerUserId, Number(productId));
 }
+
+export const __ownerServiceTestables = Object.freeze({
+  normalizeIsoDateOrNull,
+  snapshotAvailability,
+  snapshotsDiffer,
+  buildAvailabilityAuditValue,
+  availabilityKey,
+});
 
 export async function ownerAnalytics(ownerUserId) {
   return analyticsRepo.getOwnerAnalytics(ownerUserId);

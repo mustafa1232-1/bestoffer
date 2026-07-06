@@ -361,6 +361,14 @@ test("product-level inventory gate still applies to simple tracked products", ()
     shouldApplyProductInventoryGate({
       variantResolution: { hasVariants: false, variantId: null },
       inventoryEnabled: true,
+      inventoryQuantity: 0,
+    }),
+    true
+  );
+  assert.equal(
+    shouldApplyProductInventoryGate({
+      variantResolution: { hasVariants: false, variantId: null },
+      inventoryEnabled: true,
       inventoryQuantity: null,
     }),
     false
@@ -370,6 +378,14 @@ test("product-level inventory gate still applies to simple tracked products", ()
       variantResolution: { hasVariants: false, variantId: null },
       inventoryEnabled: false,
       inventoryQuantity: 5,
+    }),
+    false
+  );
+  assert.equal(
+    shouldApplyProductInventoryGate({
+      variantResolution: { hasVariants: false, variantId: null },
+      inventoryEnabled: false,
+      inventoryQuantity: 0,
     }),
     false
   );

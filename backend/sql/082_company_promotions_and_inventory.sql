@@ -145,6 +145,10 @@ CREATE TABLE IF NOT EXISTS inventory_audit_log (
   summary TEXT NOT NULL,
   old_value JSONB NOT NULL DEFAULT '{}'::jsonb,
   new_value JSONB NOT NULL DEFAULT '{}'::jsonb,
+  actor_role VARCHAR(40),
+  variant_id BIGINT,
+  reason TEXT,
+  unavailable_until TIMESTAMPTZ,
   note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

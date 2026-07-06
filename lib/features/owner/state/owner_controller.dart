@@ -483,6 +483,8 @@ class OwnerController extends StateNotifier<OwnerState> {
     required bool freeDelivery,
     required String offerLabel,
     required bool isAvailable,
+    String? unavailableReason,
+    String? unavailableUntil,
     required bool requiresPrescription,
     required bool requiresReview,
     required int sortOrder,
@@ -513,6 +515,12 @@ class OwnerController extends StateNotifier<OwnerState> {
                   ? null
                   : offerLabel.trim(),
               'isAvailable': isAvailable,
+              'unavailableReason': unavailableReason?.trim().isEmpty == true
+                  ? null
+                  : unavailableReason?.trim(),
+              'unavailableUntil': unavailableUntil?.trim().isEmpty == true
+                  ? null
+                  : unavailableUntil?.trim(),
               'requiresPrescription': requiresPrescription,
               'requiresReview': requiresReview,
               'sortOrder': sortOrder,
@@ -554,6 +562,8 @@ class OwnerController extends StateNotifier<OwnerState> {
     required bool freeDelivery,
     required String offerLabel,
     required bool isAvailable,
+    String? unavailableReason,
+    String? unavailableUntil,
     required bool requiresPrescription,
     required bool requiresReview,
     required int sortOrder,
@@ -585,6 +595,12 @@ class OwnerController extends StateNotifier<OwnerState> {
                   ? null
                   : offerLabel.trim(),
               'isAvailable': isAvailable,
+              'unavailableReason': unavailableReason?.trim().isEmpty == true
+                  ? null
+                  : unavailableReason?.trim(),
+              'unavailableUntil': unavailableUntil?.trim().isEmpty == true
+                  ? null
+                  : unavailableUntil?.trim(),
               'requiresPrescription': requiresPrescription,
               'requiresReview': requiresReview,
               'sortOrder': sortOrder,
@@ -601,6 +617,35 @@ class OwnerController extends StateNotifier<OwnerState> {
             variantFiles: variantFiles,
           );
 
+      await _reloadProducts();
+      state = state.copyWith(savingProduct: false);
+    } on DioException catch (e) {
+      state = state.copyWith(savingProduct: false, error: _mapError(e));
+    } catch (_) {
+      state = state.copyWith(
+        savingProduct: false,
+        error: _ownerText('product_update_failed'),
+      );
+    }
+  }
+
+  Future<void> updateProductAvailability({
+    required int productId,
+    required bool isAvailable,
+    String? unavailableReason,
+    String? unavailableUntil,
+  }) async {
+    state = state.copyWith(savingProduct: true, error: null);
+    try {
+      await ref.read(ownerApiProvider).updateProductAvailability(productId, {
+        'isAvailable': isAvailable,
+        'unavailableReason': unavailableReason?.trim().isEmpty == true
+            ? null
+            : unavailableReason?.trim(),
+        'unavailableUntil': unavailableUntil?.trim().isEmpty == true
+            ? null
+            : unavailableUntil?.trim(),
+      });
       await _reloadProducts();
       state = state.copyWith(savingProduct: false);
     } on DioException catch (e) {
