@@ -10,6 +10,9 @@ class OutOfStockDetails {
   final String? size;
   final int requestedQuantity;
   final int availableQuantity;
+  final String? reason;
+  final String? backendUserMessageAr;
+  final String? backendUserMessageEn;
 
   const OutOfStockDetails({
     this.productId,
@@ -19,6 +22,9 @@ class OutOfStockDetails {
     this.size,
     this.requestedQuantity = 0,
     this.availableQuantity = 0,
+    this.reason,
+    this.backendUserMessageAr,
+    this.backendUserMessageEn,
   });
 
   static OutOfStockDetails? fromError(Object error) {
@@ -26,7 +32,9 @@ class OutOfStockDetails {
     final data = error.response?.data;
     if (data is! Map) return null;
     final code = '${data['message'] ?? ''}'.trim().toUpperCase();
-    if (code != 'PRODUCT_OUT_OF_STOCK') return null;
+    if (code != 'PRODUCT_OUT_OF_STOCK' && code != 'PRODUCT_UNAVAILABLE') {
+      return null;
+    }
     final details = data['details'];
     if (details is! Map) return const OutOfStockDetails();
     return OutOfStockDetails(
@@ -37,22 +45,63 @@ class OutOfStockDetails {
       size: _toText(details['size']),
       requestedQuantity: _toInt(details['requestedQuantity']) ?? 0,
       availableQuantity: _toInt(details['availableQuantity']) ?? 0,
+      reason: _toText(details['reason']),
+      backendUserMessageAr: _toText(details['userMessageAr']),
+      backendUserMessageEn: _toText(details['userMessageEn']),
     );
   }
 
   /// رسالة عربية جاهزة للعرض بدون تفاصيل تقنية.
   String get userMessage {
+    if (backendUserMessageAr != null &&
+        backendUserMessageAr!.trim().isNotEmpty) {
+      return backendUserMessageAr!;
+    }
     final variantParts = <String>[
       if (colorName != null) 'باللون $colorName',
       if (size != null) 'بالمقاس $size',
     ];
-    final variantText =
-        variantParts.isEmpty ? '' : ' ${variantParts.join(' و')}';
-    final productText = productName == null ? 'هذا المنتج' : 'المنتج "$productName"';
-    if (availableQuantity <= 0) {
+    final variantText = variantParts.isEmpty
+        ? ''
+        : ' ${variantParts.join(' و')}';
+    final productText = productName == null
+        ? 'هذا المنتج'
+        : 'المنتج "$productName"';
+    if ((reason ?? '').toUpperCase() == 'VARIANT_UNAVAILABLE' ||
+        (reason ?? '').toUpperCase() == 'MANUAL_DISABLED' ||
+        availableQuantity <= 0) {
       return '$productText$variantText غير متوفر حالياً. احذفه من السلة أو اختر خياراً آخر.';
     }
     return 'الكمية المطلوبة من $productText$variantText غير متوفرة. المتاح: $availableQuantity';
+  }
+
+  String get userMessageEnglish {
+    if (backendUserMessageEn != null &&
+        backendUserMessageEn!.trim().isNotEmpty) {
+      return backendUserMessageEn!;
+    }
+    final variantParts = <String>[
+      if (colorName != null) 'with color $colorName',
+      if (size != null) 'size $size',
+    ];
+    final variantText = variantParts.isEmpty
+        ? ''
+        : ' ${variantParts.join(' and ')}';
+    final productText = productName == null
+        ? 'This product'
+        : 'Product "$productName"';
+    if ((reason ?? '').toUpperCase() == 'VARIANT_UNAVAILABLE' ||
+        (reason ?? '').toUpperCase() == 'MANUAL_DISABLED' ||
+        availableQuantity <= 0) {
+      return '$productText$variantText is currently unavailable. Remove it from the cart or choose another option.';
+    }
+    return 'The requested quantity for $productText$variantText is unavailable. Available: $availableQuantity';
+  }
+
+  String messageForLanguageCode(String languageCode) {
+    final normalized = languageCode.trim().toLowerCase();
+    if (normalized.startsWith('en')) return userMessageEnglish;
+    return userMessage;
   }
 
   /// هل ينطبق هذا الخطأ على عنصر سلة معيّن؟

@@ -54,26 +54,40 @@ void main() {
     expect(parsed!.userMessage, contains('المتاح: 3'));
   });
 
-  test('other error codes are ignored', () {
+  test('parses PRODUCT_UNAVAILABLE details from backend', () {
     final requestOptions = RequestOptions(path: '/api/orders/preview');
     final error = DioException(
       requestOptions: requestOptions,
       response: Response(
         requestOptions: requestOptions,
         statusCode: 400,
-        data: {'message': 'PRODUCT_UNAVAILABLE'},
+        data: {
+          'message': 'PRODUCT_UNAVAILABLE',
+          'details': {
+            'reason': 'VARIANT_UNAVAILABLE',
+            'productId': 8,
+            'productName': 'Shirt',
+            'variantId': 99,
+            'requestedQuantity': 0,
+            'availableQuantity': 0,
+            'userMessageAr': 'المنتج "Shirt" غير متاح حالياً.',
+            'userMessageEn': 'Product "Shirt" is currently unavailable.',
+          },
+        },
       ),
     );
 
-    expect(OutOfStockDetails.fromError(error), isNull);
+    final parsed = OutOfStockDetails.fromError(error);
+    expect(parsed, isNotNull);
+    expect(parsed!.productId, 8);
+    expect(parsed.variantId, 99);
+    expect(parsed.userMessage, contains('غير متاح حالياً'));
+    expect(parsed.userMessageEnglish, contains('currently unavailable'));
     expect(OutOfStockDetails.fromError(Exception('boom')), isNull);
   });
 
   test('matchesCartItem targets the exact variant line', () {
-    const parsed = OutOfStockDetails(
-      productId: 9,
-      variantId: 101,
-    );
+    const parsed = OutOfStockDetails(productId: 9, variantId: 101);
 
     expect(parsed.matchesCartItem(productId: 9, variantId: 101), isTrue);
     expect(parsed.matchesCartItem(productId: 9, variantId: 102), isFalse);

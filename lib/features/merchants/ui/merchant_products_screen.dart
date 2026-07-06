@@ -43,6 +43,29 @@ enum _ProductsSortMode {
 
 enum _SmartBundleStyle { balanced, budget, offers, variety }
 
+List<ProductModel> filterMerchantDiscountHighlights(
+  List<ProductModel> products,
+) {
+  return products
+      .where((product) => product.hasDiscount)
+      .where((product) => product.isAvailable && product.isInStock)
+      .toList(growable: false);
+}
+
+List<ProductModel> filterMerchantSmartBundleCandidates(
+  List<ProductModel> products, {
+  required bool supportsPharmacyWorkflow,
+}) {
+  return products
+      .where((product) => product.isAvailable && product.isInStock)
+      .where((product) => !product.hasVariants)
+      .where(
+        (product) =>
+            !supportsPharmacyWorkflow || !product.requiresPharmacyConversation,
+      )
+      .toList(growable: false);
+}
+
 class _MerchantProductsScreenState
     extends ConsumerState<MerchantProductsScreen> {
   AsyncValue<_MerchantProductsData> state = const AsyncValue.loading();
@@ -410,9 +433,7 @@ class _MerchantProductsScreenState
   }
 
   List<ProductModel> _buildDiscountHighlights(List<ProductModel> products) {
-    final discounted = products
-        .where((product) => product.hasDiscount)
-        .toList();
+    final discounted = filterMerchantDiscountHighlights(products).toList();
     discounted.sort((a, b) {
       final aDiscount = a.discountPercent ?? 0;
       final bDiscount = b.discountPercent ?? 0;
@@ -535,14 +556,10 @@ class _MerchantProductsScreenState
     required List<ProductModel> products,
     required Set<int> favoriteProductIds,
   }) {
-    final available = products
-        .where(
-          (p) =>
-              p.isAvailable &&
-              !_requiresPharmacyConversation(p) &&
-              !p.hasVariants,
-        )
-        .toList();
+    final available = filterMerchantSmartBundleCandidates(
+      products,
+      supportsPharmacyWorkflow: widget.merchant.supportsPharmacyWorkflow,
+    );
     if (available.isEmpty) return const <ProductModel>[];
 
     final budget = _parseSmartBudget();

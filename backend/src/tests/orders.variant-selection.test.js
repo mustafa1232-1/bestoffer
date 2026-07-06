@@ -11,6 +11,7 @@ import {
 const {
   resolveVariantSelectionForItem,
   shouldApplyProductInventoryGate,
+  productUnavailableError,
 } = __ordersRepoTestables;
 
 const { normalizeItems } = __ordersServiceTestables;
@@ -264,6 +265,45 @@ test("requesting more than variant stock is rejected with available quantity", (
       return true;
     }
   );
+});
+
+test("unavailable variant returns PRODUCT_UNAVAILABLE with structured details", () => {
+  const catalog = buildVariantCatalog();
+  catalog.variants[0].isAvailable = false;
+
+  assert.throws(
+    () =>
+      resolveVariantSelectionForItem(
+        { id: 9, name: "mm" },
+        { quantity: 1, selectedVariant: { variantId: 101 } },
+        catalog
+      ),
+    (error) => {
+      assert.equal(error.message, "PRODUCT_UNAVAILABLE");
+      assert.equal(error.status, 400);
+      assert.equal(error.details.reason, "VARIANT_UNAVAILABLE");
+      assert.equal(error.details.productId, 9);
+      assert.equal(error.details.variantId, 101);
+      assert.match(error.details.userMessageAr, /غير متاح حالياً/);
+      assert.match(error.details.userMessageEn, /currently unavailable/i);
+      return true;
+    }
+  );
+});
+
+test("productUnavailableError returns structured details", () => {
+  const err = productUnavailableError({
+    product: { id: 12, name: "Lamp" },
+    variantId: 44,
+    reason: "MANUAL_DISABLED",
+  });
+
+  assert.equal(err.message, "PRODUCT_UNAVAILABLE");
+  assert.equal(err.status, 400);
+  assert.equal(err.details.productId, 12);
+  assert.equal(err.details.variantId, 44);
+  assert.equal(err.details.reason, "MANUAL_DISABLED");
+  assert.match(err.details.userMessageAr, /Lamp/);
 });
 
 test("typo in display labels does not break resolution when variantId is valid", () => {

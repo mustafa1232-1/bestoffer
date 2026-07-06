@@ -628,6 +628,33 @@ function productOutOfStockError({
   return err;
 }
 
+function productUnavailableError({
+  product,
+  variantId = null,
+  colorName = null,
+  size = null,
+  reason = "UNAVAILABLE",
+}) {
+  const productName = product?.name || null;
+  const userMessageAr = `${productName ? `المنتج "${productName}"` : "هذا المنتج"} غير متاح حالياً.`;
+  const userMessageEn = `${productName ? `Product "${productName}"` : "This product"} is currently unavailable.`;
+  const err = new Error("PRODUCT_UNAVAILABLE");
+  err.status = 400;
+  err.details = {
+    reason,
+    productId: Number(product?.id) || null,
+    productName,
+    variantId: variantId == null ? null : Number(variantId),
+    colorName: colorName || null,
+    size: size || null,
+    requestedQuantity: 0,
+    availableQuantity: 0,
+    userMessageAr,
+    userMessageEn,
+  };
+  return err;
+}
+
 /**
  * مخزون المنتج العام (store_inventory_item) يحكم المنتج البسيط فقط.
  * عندما يُحلّ العنصر إلى variant ملموس فإن مخزون الـ variant هو المرجع،
@@ -718,10 +745,19 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
     const exactVariant = (variantCatalog?.variants || []).find(
       (variant) => Number(variant.variantId) === Number(requestedVariantId)
     );
-    if (!exactVariant || exactVariant.isAvailable === false) {
+    if (!exactVariant) {
       const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
       err.status = 400;
       throw err;
+    }
+    if (exactVariant.isAvailable === false) {
+      throw productUnavailableError({
+        product,
+        variantId: exactVariant.variantId,
+        colorName: null,
+        size: null,
+        reason: "VARIANT_UNAVAILABLE",
+      });
     }
 
     const exactSelections = buildSelectionsFromVariantCatalog(
@@ -876,6 +912,21 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
       null
     : null;
   if (variantCatalog?.variants?.length && (!exactVariant || exactVariant.isAvailable === false)) {
+    if (exactVariant && exactVariant.isAvailable === false) {
+      throw productUnavailableError({
+        product,
+        variantId: exactVariant.variantId,
+        colorName:
+          resolvedSelections.find(
+            (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+          )?.optionLabel || null,
+        size:
+          resolvedSelections.find(
+            (entry) => String(entry.groupCode || "").toLowerCase() === "size"
+          )?.optionLabel || null,
+        reason: "VARIANT_UNAVAILABLE",
+      });
+    }
     const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
     err.status = 400;
     throw err;
@@ -1191,6 +1242,8 @@ export const __ordersRepoTestables = Object.freeze({
   buildDeliveryRatings,
   resolveVariantSelectionForItem,
   shouldApplyProductInventoryGate,
+  productOutOfStockError,
+  productUnavailableError,
   transitionInventoryReservationsTx,
 });
 
@@ -1481,9 +1534,7 @@ async function calculateStoreOrderDraft({
       throw err;
     }
     if (!product.is_available) {
-      const err = new Error("PRODUCT_UNAVAILABLE");
-      err.status = 400;
-      throw err;
+      throw productUnavailableError({ product });
     }
 
     const variantResolution = resolveVariantSelectionForItem(
@@ -1500,9 +1551,7 @@ async function calculateStoreOrderDraft({
       })
     ) {
       if (product.inventory_manual_disabled === true) {
-        const err = new Error("PRODUCT_UNAVAILABLE");
-        err.status = 400;
-        throw err;
+        throw productUnavailableError({ product, reason: "MANUAL_DISABLED" });
       }
       const currentQuantity = Math.max(0, Number(product.inventory_quantity || 0));
       if (currentQuantity < Number(item.quantity || 0)) {
@@ -1774,9 +1823,7 @@ export async function createOrderWithItems({
         throw err;
       }
       if (!product.is_available) {
-        const err = new Error("PRODUCT_UNAVAILABLE");
-        err.status = 400;
-        throw err;
+        throw productUnavailableError({ product });
       }
 
       const variantResolution = resolveVariantSelectionForItem(
@@ -1793,9 +1840,7 @@ export async function createOrderWithItems({
         })
       ) {
         if (product.inventory_manual_disabled === true) {
-          const err = new Error("PRODUCT_UNAVAILABLE");
-          err.status = 400;
-          throw err;
+          throw productUnavailableError({ product, reason: "MANUAL_DISABLED" });
         }
         const currentQuantity = Math.max(0, Number(product.inventory_quantity || 0));
         if (currentQuantity < Number(item.quantity || 0)) {

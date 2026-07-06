@@ -109,6 +109,7 @@ class _FakeOrdersApi extends OrdersApi {
 
   final int previewServiceFee;
   final bool failPreview;
+  Map<String, dynamic>? previewErrorData;
   int previewCalls = 0;
   int createCalls = 0;
   Map<String, dynamic>? lastPreviewPayload;
@@ -124,6 +125,17 @@ class _FakeOrdersApi extends OrdersApi {
     lastPreviewPayload = Map<String, dynamic>.from(body);
     if (failPreview) {
       throw Exception('preview failed');
+    }
+    if (previewErrorData != null) {
+      final requestOptions = RequestOptions(path: '/api/orders/preview');
+      throw DioException(
+        requestOptions: requestOptions,
+        response: Response(
+          requestOptions: requestOptions,
+          statusCode: 400,
+          data: previewErrorData,
+        ),
+      );
     }
     return _buildPreviewResponse();
   }
@@ -443,4 +455,44 @@ void main() {
     expect(harness.api.createCalls, 0);
     expect(harness.container.read(ordersControllerProvider).orders, isEmpty);
   });
+
+  testWidgets(
+    'preview PRODUCT_UNAVAILABLE blocks checkout and shows the exact item',
+    (tester) async {
+      final api = _FakeOrdersApi(previewServiceFee: 750)
+        ..previewErrorData = <String, dynamic>{
+          'message': 'PRODUCT_UNAVAILABLE',
+          'details': <String, dynamic>{
+            'reason': 'MANUAL_DISABLED',
+            'productId': 100,
+            'productName': 'Test Product',
+            'variantId': null,
+            'requestedQuantity': 1,
+            'availableQuantity': 0,
+            'userMessageAr': 'المنتج \"Test Product\" غير متاح حالياً.',
+            'userMessageEn':
+                'Product \"Test Product\" is currently unavailable.',
+          },
+        };
+
+      final harness = await _pumpCartScreen(tester, api: api);
+
+      await _startFinalReview(tester);
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        if (find
+            .textContaining('currently unavailable')
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+      }
+
+      expect(find.textContaining('Test Product'), findsWidgets);
+      expect(find.textContaining('currently unavailable'), findsWidgets);
+      expect(api.previewCalls, 1);
+      expect(api.createCalls, 0);
+      expect(harness.container.read(ordersControllerProvider).orders, isEmpty);
+    },
+  );
 }

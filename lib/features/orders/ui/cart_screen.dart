@@ -516,10 +516,15 @@ class _CartScreenState extends ConsumerState<CartScreen> {
         if (outOfStock != null) {
           setState(() => _outOfStockDetails = outOfStock);
         }
+        final localeMessage = outOfStock == null
+            ? null
+            : outOfStock.messageForLanguageCode(
+                Localizations.localeOf(context).languageCode,
+              );
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              outOfStock?.userMessage ??
+              localeMessage ??
                   mapAnyError(e, fallback: 'تعذر مراجعة الطلب الآن'),
             ),
           ),
@@ -806,11 +811,19 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                             ),
                                           ),
                                         if (markedOutOfStock)
-                                          const Padding(
-                                            padding: EdgeInsets.only(top: 4),
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 4,
+                                            ),
                                             child: Text(
-                                              'هذا الخيار غير متوفر حالياً — احذف المنتج أو اختر لوناً/مقاساً آخر.',
-                                              style: TextStyle(
+                                              _outOfStockDetails
+                                                      ?.messageForLanguageCode(
+                                                        Localizations.localeOf(
+                                                          context,
+                                                        ).languageCode,
+                                                      ) ??
+                                                  'هذا الخيار غير متوفر حالياً — احذف المنتج أو اختر لوناً/مقاساً آخر.',
+                                              style: const TextStyle(
                                                 fontSize: 12,
                                                 color: Colors.redAccent,
                                                 fontWeight: FontWeight.w700,
