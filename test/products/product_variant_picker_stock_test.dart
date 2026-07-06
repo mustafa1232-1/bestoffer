@@ -3,13 +3,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/features/products/models/product_model.dart';
 import 'package:maslaki/features/products/ui/product_variant_picker_sheet.dart';
 
-ProductModel _productWithVariantStock(int stock) {
+ProductModel _productWithVariantStock(
+  int stock, {
+  bool trackStock = true,
+  bool variantIsAvailable = true,
+}) {
   return ProductModel.fromJson({
     'id': 9,
     'merchantId': 2,
     'name': 'mm',
     'price': 75000,
     'is_available': true,
+    'trackStock': trackStock,
+    'stockMode': trackStock ? 'tracked' : 'untracked',
     'variantGroups': [
       {
         'code': 'color',
@@ -44,7 +50,7 @@ ProductModel _productWithVariantStock(int stock) {
           {'groupCode': 'size', 'optionCode': 'xl'},
         ],
         'stockQuantity': stock,
-        'isAvailable': true,
+        'isAvailable': variantIsAvailable,
       },
     ],
   });
@@ -80,10 +86,7 @@ void main() {
       find.widgetWithText(FilledButton, 'Confirm'),
     );
     expect(confirm.onPressed, isNotNull);
-    expect(
-      find.text('This color/size is currently unavailable'),
-      findsNothing,
-    );
+    expect(find.text('This color/size is currently unavailable'), findsNothing);
   });
 
   testWidgets('confirm is disabled with a clear message when stock is zero', (
@@ -105,4 +108,35 @@ void main() {
     expect(_productWithVariantStock(0).isInStock, isFalse);
     expect(_productWithVariantStock(5).isInStock, isTrue);
   });
+
+  testWidgets('untracked variant with zero stock remains selectable', (
+    tester,
+  ) async {
+    await _openPicker(tester, _productWithVariantStock(0, trackStock: false));
+
+    final confirm = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Confirm'),
+    );
+    expect(confirm.onPressed, isNotNull);
+    expect(find.text('This color/size is currently unavailable'), findsNothing);
+  });
+
+  testWidgets(
+    'unavailable variant with stock is blocked in checkout selection',
+    (tester) async {
+      await _openPicker(
+        tester,
+        _productWithVariantStock(5, variantIsAvailable: false),
+      );
+
+      final confirm = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Confirm'),
+      );
+      expect(confirm.onPressed, isNull);
+      expect(
+        find.text('This color/size is currently unavailable'),
+        findsOneWidget,
+      );
+    },
+  );
 }

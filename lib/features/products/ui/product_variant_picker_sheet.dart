@@ -74,7 +74,7 @@ class _ProductVariantPickerSheetState
     }
     if (byGroup.isEmpty && widget.product.variants.isNotEmpty) {
       final available = widget.product.variants.where(
-        (variant) => variant.inStock,
+        (variant) => widget.product.canOrderVariant(variant),
       );
       if (available.isNotEmpty) {
         for (final selection in available.first.selections) {
@@ -159,7 +159,7 @@ class _ProductVariantPickerSheetState
       groupCode.toLowerCase(): option.code.toLowerCase(),
     };
     return widget.product.variants.any((variant) {
-      if (!variant.inStock) return false;
+      if (!widget.product.canOrderVariant(variant)) return false;
       final values = {
         for (final item in variant.selections)
           item['groupCode']!.toLowerCase(): item['optionCode']!.toLowerCase(),
@@ -385,7 +385,8 @@ class _ProductVariantPickerSheetState
                 );
               }),
               if (widget.product.variants.isNotEmpty &&
-                  (_selectedVariant == null || !_selectedVariant!.inStock))
+                  (_selectedVariant == null ||
+                      !widget.product.canOrderVariant(_selectedVariant!)))
                 Padding(
                   padding: const EdgeInsets.only(top: 2, bottom: 6),
                   child: Text(
@@ -416,7 +417,9 @@ class _ProductVariantPickerSheetState
                       onPressed:
                           widget.product.variants.isNotEmpty &&
                               (_selectedVariant == null ||
-                                  !_selectedVariant!.inStock)
+                                  !widget.product.canOrderVariant(
+                                    _selectedVariant!,
+                                  ))
                           ? null
                           : () {
                               Navigator.of(context).pop(_selectedPayload);

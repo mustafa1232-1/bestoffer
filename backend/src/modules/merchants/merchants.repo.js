@@ -531,6 +531,11 @@ export async function getPublicMerchantProducts(merchantId, { limit = 200, offse
   const r = await q(
     `SELECT
        p.*,
+       COALESCE(s.inventory_enabled, FALSE) AS track_stock,
+       CASE
+         WHEN COALESCE(s.inventory_enabled, FALSE) = TRUE THEN 'tracked'
+         ELSE 'untracked'
+       END AS stock_mode,
        CASE
          WHEN s.inventory_enabled = TRUE
            AND s.daily_update_mode <> 'manual_override'

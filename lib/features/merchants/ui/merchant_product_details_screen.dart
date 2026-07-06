@@ -63,7 +63,7 @@ class _MerchantProductDetailsScreenState
     _selectedByGroup.clear();
     _multiSelectedByGroup.clear();
     final availableVariant = widget.product.variants.where(
-      (variant) => variant.inStock,
+      (variant) => widget.product.canOrderVariant(variant),
     );
     final seeded = availableVariant.isEmpty
         ? const <String, String>{}
@@ -122,7 +122,7 @@ class _MerchantProductDetailsScreenState
       groupCode.toLowerCase(): option.code.toLowerCase(),
     };
     return widget.product.variants.any((variant) {
-      if (!variant.inStock) return false;
+      if (!widget.product.canOrderVariant(variant)) return false;
       final values = {
         for (final item in variant.selections)
           item['groupCode']!.toLowerCase(): item['optionCode']!.toLowerCase(),
@@ -231,7 +231,8 @@ class _MerchantProductDetailsScreenState
       return;
     }
     if (widget.product.variants.isNotEmpty &&
-        (_selectedVariant == null || !_selectedVariant!.inStock)) {
+        (_selectedVariant == null ||
+            !widget.product.canOrderVariant(_selectedVariant!))) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('هذه التركيبة غير متوفرة حالياً')),
       );
@@ -440,7 +441,9 @@ class _MerchantProductDetailsScreenState
     final appearance = ProductSummaryCardAppearance.fromContext(context);
     final locale = Localizations.localeOf(context);
     final canSubmitCurrentSelection =
-        !widget.product.hasVariants || _selectedVariant?.inStock == true;
+        !widget.product.hasVariants ||
+        (_selectedVariant != null &&
+            widget.product.canOrderVariant(_selectedVariant!));
     final summaryData = ProductSummaryCardData.fromProduct(
       widget.product,
       locale: locale,
@@ -649,9 +652,7 @@ class _MerchantProductDetailsScreenState
                 itemBuilder: (context, index) {
                   final item = widget.similarProducts[index];
                   final canOrderSimilar =
-                      widget.merchant.isOpen &&
-                      item.isAvailable &&
-                      item.isInStock;
+                      widget.merchant.isOpen && item.canBeOrdered;
                   return ProductSummaryCard.fromProduct(
                     item,
                     appearance: appearance,

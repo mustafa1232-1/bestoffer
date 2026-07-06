@@ -21,6 +21,8 @@ void main() {
     List<Map<String, dynamic>> variantGroups = const [],
     List<Map<String, dynamic>> variants = const [],
     List<Map<String, dynamic>> media = const [],
+    bool trackStock = false,
+    String? stockMode,
   }) {
     return ProductModel.fromJson({
       'id': 1,
@@ -34,6 +36,8 @@ void main() {
       'isInStock': true,
       'sortOrder': 0,
       'imageUrl': imageUrl,
+      'trackStock': trackStock,
+      'stockMode': stockMode ?? (trackStock ? 'tracked' : 'untracked'),
       'attributes': attributes,
       'variantGroups': variantGroups,
       'variants': variants,
@@ -356,5 +360,97 @@ void main() {
     expect(find.text('المقاس'), findsNothing);
     expect(find.byType(CachedAppImage), findsOneWidget);
     expect(cachedImage(tester, '/main.jpg').imageUrl, '/main.jpg');
+  });
+
+  test('tracked zero-stock variants do not preselect in quick order flows', () {
+    final product = buildProduct(
+      name: 'Ù…Ù†ØªØ¬ ØºÙŠØ± Ù…ØªØ§Ø­',
+      categoryName: 'cloths',
+      trackStock: true,
+      stockMode: 'tracked',
+      variantGroups: const [
+        {
+          'code': 'color',
+          'labelAr': 'Ø§Ù„Ù„ÙˆÙ†',
+          'labelEn': 'Color',
+          'displayMode': 'swatches',
+          'selectionMode': 'single',
+          'required': true,
+          'options': [
+            {
+              'code': 'red',
+              'labelAr': 'Ø£Ø­Ù…Ø±',
+              'labelEn': 'Red',
+              'swatchHex': '#FF0000',
+              'isAvailable': true,
+            },
+          ],
+        },
+      ],
+      variants: const [
+        {
+          'id': 41,
+          'signature': 'color:red',
+          'selections': [
+            {'groupCode': 'color', 'optionCode': 'red'},
+          ],
+          'stockQuantity': 0,
+          'isAvailable': true,
+        },
+      ],
+    );
+
+    final selection = ProductSummaryCardData.fromProduct(
+      product,
+    ).resolveSelection();
+
+    expect(selection.variantId, isNull);
+    expect(selection.selectedVariantSelections, isEmpty);
+  });
+
+  test('untracked zero-stock variants can still be preselected', () {
+    final product = buildProduct(
+      name: 'Ù…Ù†ØªØ¬ Ù…ØªØ§Ø­ Ù…Ø¹ ØªØªØ¨Ø¹ Ù…ØºÙ„Ù‚',
+      categoryName: 'cloths',
+      trackStock: false,
+      stockMode: 'untracked',
+      variantGroups: const [
+        {
+          'code': 'color',
+          'labelAr': 'Ø§Ù„Ù„ÙˆÙ†',
+          'labelEn': 'Color',
+          'displayMode': 'swatches',
+          'selectionMode': 'single',
+          'required': true,
+          'options': [
+            {
+              'code': 'red',
+              'labelAr': 'Ø£Ø­Ù…Ø±',
+              'labelEn': 'Red',
+              'swatchHex': '#FF0000',
+              'isAvailable': true,
+            },
+          ],
+        },
+      ],
+      variants: const [
+        {
+          'id': 42,
+          'signature': 'color:red',
+          'selections': [
+            {'groupCode': 'color', 'optionCode': 'red'},
+          ],
+          'stockQuantity': 0,
+          'isAvailable': true,
+        },
+      ],
+    );
+
+    final selection = ProductSummaryCardData.fromProduct(
+      product,
+    ).resolveSelection();
+
+    expect(selection.variantId, 42);
+    expect(selection.selectedVariantSelections, isNotEmpty);
   });
 }

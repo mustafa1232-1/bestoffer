@@ -8594,6 +8594,19 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
   const minRating = Number.isFinite(Number(query?.minRating))
     ? Number(query.minRating)
     : null;
+  const orderableSql = `
+    CASE
+      WHEN COALESCE(s.inventory_enabled, FALSE) = TRUE THEN
+        CASE
+          WHEN COALESCE(si.manual_disabled, FALSE) = TRUE THEN FALSE
+          WHEN COALESCE(si.auto_disabled, FALSE) = TRUE THEN FALSE
+          WHEN COALESCE(si.stock_status, 'in_stock') = 'manual_disabled' THEN FALSE
+          WHEN COALESCE(si.quantity, 0) <= 0 THEN FALSE
+          ELSE p.is_available
+        END
+      ELSE p.is_available
+    END
+  `;
 
   const userResult = await q(
     `SELECT city, block
@@ -8616,7 +8629,7 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
     params.push(merchantType);
     where.push(`m.type::text = $${params.length}`);
   }
-  if (onlyAvailable) where.push("p.is_available = TRUE");
+  if (onlyAvailable) where.push(`(${orderableSql}) = TRUE`);
   if (onlyDiscounted) {
     where.push("(p.discounted_price IS NOT NULL AND p.discounted_price < p.price)");
   }
@@ -8704,6 +8717,13 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
          ELSE 0
        END AS discount_percent,
        p.is_available,
+       COALESCE(s.inventory_enabled, FALSE) AS track_stock,
+       CASE
+         WHEN COALESCE(s.inventory_enabled, FALSE) = TRUE THEN 'tracked'
+         ELSE 'untracked'
+       END AS stock_mode,
+       COALESCE(si.quantity, NULL) AS inventory_quantity,
+       COALESCE(si.stock_status, NULL) AS inventory_stock_status,
        p.free_delivery,
        p.offer_label,
        m.id AS merchant_id,
@@ -8737,6 +8757,10 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
      FROM product p
      JOIN merchant m ON m.id = p.merchant_id
      LEFT JOIN merchant_category c ON c.id = p.category_id
+     LEFT JOIN inventory_settings s ON s.merchant_id = p.merchant_id
+     LEFT JOIN store_inventory_item si
+       ON si.merchant_id = p.merchant_id
+      AND si.product_id = p.id
      LEFT JOIN ratings ON ratings.merchant_id = m.id
      LEFT JOIN product_orders ON product_orders.product_id = p.id
      LEFT JOIN merchant_eta ON merchant_eta.merchant_id = m.id
@@ -8794,6 +8818,10 @@ export function mapSearchProductResultRow(row, rich = null) {
     finalPrice: Number(row.final_price || 0),
     discountPercent: Number(row.discount_percent || 0),
     isAvailable: row.is_available === true,
+    trackStock: row.track_stock === true,
+    stockMode: row.stock_mode || null,
+    stockQuantity:
+      row.inventory_quantity == null ? null : Number(row.inventory_quantity),
     freeDelivery: row.free_delivery === true,
     offerLabel: row.offer_label || null,
     hasVariants: rich?.hasVariants === true,

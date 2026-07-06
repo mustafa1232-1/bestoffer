@@ -48,7 +48,7 @@ List<ProductModel> filterMerchantDiscountHighlights(
 ) {
   return products
       .where((product) => product.hasDiscount)
-      .where((product) => product.isAvailable && product.isInStock)
+      .where((product) => product.canBeOrdered)
       .toList(growable: false);
 }
 
@@ -57,7 +57,7 @@ List<ProductModel> filterMerchantSmartBundleCandidates(
   required bool supportsPharmacyWorkflow,
 }) {
   return products
-      .where((product) => product.isAvailable && product.isInStock)
+      .where((product) => product.canBeOrdered)
       .where((product) => !product.hasVariants)
       .where(
         (product) =>
@@ -209,7 +209,7 @@ class _MerchantProductsScreenState
     }
 
     if (onlyAvailable) {
-      list = list.where((product) => product.isAvailable).toList();
+      list = list.where((product) => product.canBeOrdered).toList();
     }
 
     if (onlyOffers) {
@@ -273,8 +273,7 @@ class _MerchantProductsScreenState
     final appearance = ProductSummaryCardAppearance.fromContext(context);
     final locale = Localizations.localeOf(context);
     return products.map((product) {
-      final canOrder =
-          widget.merchant.isOpen && product.isAvailable && product.isInStock;
+      final canOrder = widget.merchant.isOpen && product.canBeOrdered;
       final usesPharmacyConversation = _requiresPharmacyConversation(product);
       final cardData = ProductSummaryCardData.fromProduct(
         product,
@@ -508,7 +507,7 @@ class _MerchantProductsScreenState
 
   int _productScore(ProductModel product, Set<int> favoriteProductIds) {
     var score = 0;
-    if (product.isAvailable) score += 40;
+    if (product.canBeOrdered) score += 40;
     if (favoriteProductIds.contains(product.id)) score += 35;
     if (product.hasDiscount) score += 25;
     if (product.freeDelivery) score += 18;
@@ -806,8 +805,8 @@ class _MerchantProductsScreenState
     final merged = <ProductModel>[...sameCategory, ...differentCategory];
 
     merged.sort((a, b) {
-      final availabilityDiff = (b.isAvailable ? 1 : 0).compareTo(
-        a.isAvailable ? 1 : 0,
+      final availabilityDiff = (b.canBeOrdered ? 1 : 0).compareTo(
+        a.canBeOrdered ? 1 : 0,
       );
       if (availabilityDiff != 0) return availabilityDiff;
       final aPrice = _effectivePrice(a);
@@ -822,7 +821,7 @@ class _MerchantProductsScreenState
     required ProductModel product,
     required List<ProductModel> allProducts,
   }) async {
-    final canOrder = widget.merchant.isOpen && product.isAvailable;
+    final canOrder = widget.merchant.isOpen && product.canBeOrdered;
     final similar = _buildSimilarProducts(product, allProducts);
 
     await Navigator.of(context).push(
@@ -917,7 +916,7 @@ class _MerchantProductsScreenState
       variantSelections,
     );
     if (_requiresPharmacyConversation(product)) {
-      if (!widget.merchant.isOpen || !product.isAvailable) return;
+      if (!widget.merchant.isOpen || !product.canBeOrdered) return;
       await _openPharmacyConversationForProduct(
         product,
         quantity: safeQuantity,
@@ -1325,7 +1324,7 @@ class _MerchantProductsScreenState
                                             child: IconButton.filledTonal(
                                               onPressed:
                                                   widget.merchant.isOpen &&
-                                                      product.isAvailable
+                                                      product.canBeOrdered
                                                   ? () => _addToCart(
                                                       product,
                                                       quantity: 1,

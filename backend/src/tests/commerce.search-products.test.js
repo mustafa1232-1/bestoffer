@@ -17,6 +17,10 @@ test("search payload exposes rich product fields and category metadata", () => {
     final_price: 15000,
     discount_percent: 25,
     is_available: true,
+    track_stock: true,
+    stock_mode: "tracked",
+    inventory_quantity: 0,
+    inventory_stock_status: "out_of_stock",
     free_delivery: false,
     offer_label: "عرض خاص",
     merchant_id: 2,
@@ -46,6 +50,9 @@ test("search payload exposes rich product fields and category metadata", () => {
   assert.equal(item.categorySortOrder, 4);
   assert.equal(item.imageUrl, "/red.jpg");
   assert.equal(item.hasVariants, true);
+  assert.equal(item.trackStock, true);
+  assert.equal(item.stockMode, "tracked");
+  assert.equal(item.stockQuantity, 0);
   assert.deepEqual(item.variantGroups, rich.variantGroups);
   assert.deepEqual(item.variants, rich.variants);
   assert.deepEqual(item.media, rich.media);

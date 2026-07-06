@@ -303,6 +303,8 @@ class ProductModel {
   final int? activeOfferBuyQuantity;
   final int? activeOfferGetQuantity;
   final bool isAvailable;
+  final bool trackStock;
+  final String? stockMode;
   final int sortOrder;
   final List<ProductAttributeModel> attributes;
   final List<ProductAttributeModel> summaryAttributes;
@@ -336,6 +338,8 @@ class ProductModel {
     this.activeOfferBuyQuantity,
     this.activeOfferGetQuantity,
     required this.isAvailable,
+    this.trackStock = false,
+    this.stockMode,
     required this.sortOrder,
     this.attributes = const [],
     this.summaryAttributes = const [],
@@ -404,6 +408,14 @@ class ProductModel {
         j['active_offer_get_quantity'] ?? j['activeOfferGetQuantity'],
       ),
       isAvailable: j['is_available'] ?? j['isAvailable'] ?? true,
+      trackStock: parseBool(
+        j['track_stock'] ??
+            j['trackStock'] ??
+            j['inventory_enabled'] ??
+            j['inventoryEnabled'] ??
+            false,
+      ),
+      stockMode: parseNullableString(j['stock_mode'] ?? j['stockMode']),
       sortOrder: parseInt(j['sort_order'] ?? j['sortOrder']),
       attributes: attributes,
       summaryAttributes: summaryAttributes,
@@ -416,9 +428,19 @@ class ProductModel {
           (j['has_variants'] ?? j['hasVariants'] ?? variantGroups.isNotEmpty) ==
               true ||
           variantGroups.isNotEmpty,
-      stockQuantity: (j['stock_quantity'] ?? j['stockQuantity']) == null
+      stockQuantity:
+          (j['stock_quantity'] ??
+                  j['stockQuantity'] ??
+                  j['inventory_quantity'] ??
+                  j['inventoryQuantity']) ==
+              null
           ? null
-          : parseInt(j['stock_quantity'] ?? j['stockQuantity']),
+          : parseInt(
+              j['stock_quantity'] ??
+                  j['stockQuantity'] ??
+                  j['inventory_quantity'] ??
+                  j['inventoryQuantity'],
+            ),
     );
   }
 
@@ -440,6 +462,21 @@ class ProductModel {
   }
 
   String? get displayImageUrl => primaryMedia?.imageUrl ?? imageUrl;
+
+  bool get _isTrackedStock {
+    final mode = stockMode?.trim().toLowerCase();
+    if (mode == 'tracked') return true;
+    if (mode == 'untracked') return false;
+    return trackStock;
+  }
+
+  bool get isStockTracked => _isTrackedStock;
+
+  bool canOrderVariant(ProductVariantModel variant) {
+    if (!isAvailable || !variant.isAvailable) return false;
+    if (!isStockTracked) return true;
+    return variant.stockQuantity > 0;
+  }
 
   ProductVariantModel? variantForSelections(Map<String, String> selections) {
     if (variants.isEmpty) return null;
@@ -479,8 +516,16 @@ class ProductModel {
   }
 
   bool get isInStock {
-    if (variants.isNotEmpty) return variants.any((variant) => variant.inStock);
-    return stockQuantity == null || stockQuantity! > 0;
+    return canBeOrdered;
+  }
+
+  bool get canBeOrdered {
+    if (!isAvailable) return false;
+    if (variants.isNotEmpty) {
+      return variants.any((variant) => canOrderVariant(variant));
+    }
+    if (!isStockTracked) return true;
+    return stockQuantity != null && stockQuantity! > 0;
   }
 }
 

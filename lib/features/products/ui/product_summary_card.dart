@@ -247,7 +247,9 @@ class ProductSummaryCardData {
           ),
           kind: ProductSummaryBadgeKind.status,
         ),
-      if (!product.hasVariants && product.stockQuantity != null)
+      if (!product.hasVariants &&
+          product.isStockTracked &&
+          product.stockQuantity != null)
         ProductSummaryBadgeData(
           text: _localizedText(
             locale,
@@ -391,27 +393,31 @@ class ProductSummaryCardData {
   }
 
   ProductSummaryColorData? _resolveColor(String? code) {
+    final availableColors = colors
+        .where((color) => color.available)
+        .toList(growable: false);
+    if (availableColors.isEmpty) return null;
     final normalized = _normalizeCode(code);
-    if (normalized == null) return colors.isEmpty ? null : colors.first;
-    for (final color in colors) {
+    if (normalized == null) return availableColors.first;
+    for (final color in availableColors) {
       if (_sameCode(color.code, normalized)) return color;
     }
-    return colors.isEmpty ? null : colors.first;
+    return availableColors.first;
   }
 
   ProductSummarySizeData? _resolveSize({
     required String? colorCode,
     required String? requestedSizeCode,
   }) {
-    if (sizes.isEmpty) return null;
     final eligible = availableSizesForColor(colorCode);
+    if (eligible.isEmpty) return null;
     final normalizedRequested = _normalizeCode(requestedSizeCode);
     if (normalizedRequested != null) {
       for (final size in eligible) {
         if (_sameCode(size.code, normalizedRequested)) return size;
       }
     }
-    return eligible.isNotEmpty ? eligible.first : sizes.first;
+    return eligible.first;
   }
 
   List<ProductSummarySizeData> availableSizesForColor(String? colorCode) {
@@ -533,7 +539,7 @@ _buildVariantAvailability(ProductModel product) {
   final sizesWithStock = <String>{};
 
   for (final variant in product.variants) {
-    if (!variant.inStock) continue;
+    if (!product.canOrderVariant(variant)) continue;
     String? colorCode;
     String? sizeCode;
     for (final selection in variant.selections) {
