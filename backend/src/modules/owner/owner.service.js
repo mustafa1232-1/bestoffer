@@ -1410,7 +1410,7 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
     : null;
   const ownerMerchant = await getOwnerMerchant(ownerUserId);
   const merchantActivityType = resolveMerchantActivityType(ownerMerchant);
-  const current = await repo.findOwnerProductById(ownerUserId, productId);
+  const current = await repo.findMerchantProductById(ownerMerchant.id, productId);
   if (!current) {
     const err = new Error("PRODUCT_NOT_FOUND");
     err.status = 404;
@@ -1457,7 +1457,10 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
     err.status = 400;
     throw err;
   }
-  const category = await repo.findOwnerCategoryById(ownerUserId, effectiveCategoryId);
+  const category = await repo.findMerchantCategoryById(
+    ownerMerchant.id,
+    effectiveCategoryId
+  );
   if (!category) {
     const err = new Error("CATEGORY_NOT_FOUND");
     err.status = 404;
@@ -1524,7 +1527,12 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
     }
   }
 
-  const updated = await repo.updateOwnerProduct(ownerUserId, productId, patch);
+  const updated = await repo.updateOwnerProduct(
+    ownerUserId,
+    ownerMerchant.id,
+    productId,
+    patch
+  );
   if (!updated) {
     const err = new Error("PRODUCT_NOT_FOUND");
     err.status = 404;
@@ -2035,7 +2043,7 @@ export async function assignDelivery(
   const merchant = await getOwnerMerchant(ownerUserId);
   await ensureMerchantPermission(ownerUserId, merchant.id, "assign_delivery");
   const updated = await ordersRepo.assignDeliveryToOwnerOrder(
-    ownerUserId,
+    merchant.id,
     Number(orderId),
     deliveryUserId == null ? null : Number(deliveryUserId),
     { assignmentMode }
@@ -2144,7 +2152,11 @@ export async function ownerAnalytics(ownerUserId) {
 export async function printOrdersReport(ownerUserId, period) {
   const normalizedPeriod = String(period || "day").toLowerCase();
   const merchant = await getOwnerMerchant(ownerUserId);
-  await ensureMerchantPermission(ownerUserId, merchant.id, "view_reports");
+  await ensureMerchantPermission(
+    ownerUserId,
+    merchant.id,
+    "view_financial_reports"
+  );
   return ordersRepo.listOwnerOrdersForReport(ownerUserId, normalizedPeriod);
 }
 

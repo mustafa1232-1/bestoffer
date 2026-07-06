@@ -622,6 +622,17 @@ export async function findOwnerCategoryById(ownerUserId, categoryId) {
   return r.rows[0] || null;
 }
 
+export async function findMerchantCategoryById(merchantId, categoryId) {
+  const r = await q(
+    `SELECT c.*
+     FROM merchant_category c
+     WHERE c.id = $1
+       AND c.merchant_id = $2`,
+    [categoryId, merchantId]
+  );
+  return r.rows[0] || null;
+}
+
 export async function countOwnerProductsByCategory(ownerUserId, categoryId) {
   const r = await q(
     `SELECT COUNT(*)::int AS count
@@ -838,7 +849,23 @@ export async function findOwnerProductById(ownerUserId, productId) {
   return r.rows[0] || null;
 }
 
-export async function updateOwnerProduct(ownerUserId, productId, dto) {
+export async function findMerchantProductById(merchantId, productId) {
+  const r = await q(
+    `SELECT
+       p.*,
+       c.name AS category_name,
+       c.sort_order AS category_sort_order
+     FROM product p
+     JOIN merchant m ON m.id = p.merchant_id
+     LEFT JOIN merchant_category c ON c.id = p.category_id
+     WHERE p.id=$1
+       AND m.id=$2`,
+    [productId, merchantId]
+  );
+  return r.rows[0] || null;
+}
+
+export async function updateOwnerProduct(actorUserId, merchantId, productId, dto) {
   const richCatalog = dto.richCatalog || null;
   const map = {
     name: "name",
@@ -869,7 +896,7 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
   }
 
   if (sets.length === 0) {
-    const current = await findOwnerProductById(ownerUserId, productId);
+    const current = await findMerchantProductById(merchantId, productId);
     if (!current) return null;
     if (richCatalog || dto.stockQuantity !== undefined) {
       const client = await pool.connect();
@@ -885,7 +912,7 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
           merchantId: current.merchant_id,
           productId,
           quantity: dto.stockQuantity,
-          actorUserId: ownerUserId,
+          actorUserId,
         });
         await client.query("COMMIT");
       } catch (error) {
@@ -898,7 +925,7 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
     return current;
   }
 
-  values.push(productId, ownerUserId);
+  values.push(productId, merchantId);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -908,7 +935,7 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
        FROM merchant m
        WHERE p.id=$${idx}
          AND p.merchant_id=m.id
-         AND m.owner_user_id=$${idx + 1}
+         AND m.id=$${idx + 1}
        RETURNING p.*`,
       values
     );
@@ -921,12 +948,12 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
       });
     }
     if (updated) {
-      await upsertSimpleProductStockTx(client, {
-        merchantId: updated.merchant_id,
-        productId,
-        quantity: dto.stockQuantity,
-        actorUserId: ownerUserId,
-      });
+        await upsertSimpleProductStockTx(client, {
+          merchantId: updated.merchant_id,
+          productId,
+          quantity: dto.stockQuantity,
+          actorUserId,
+        });
     }
     await client.query("COMMIT");
     return updated;

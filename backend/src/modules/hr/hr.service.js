@@ -354,8 +354,7 @@ async function ensureMerchantPermission(actor, merchantId, permission) {
     actor?.isSuperAdmin === true ||
     role === "admin" ||
     role === "deputy_admin" ||
-    role === "call_center" ||
-    role === "hr"
+    role === "call_center"
   ) {
     return;
   }

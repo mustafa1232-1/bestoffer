@@ -3882,7 +3882,7 @@ export async function assignDeliveryToOwnerOrder(
        FROM customer_order o
        JOIN merchant m ON m.id = o.merchant_id
        WHERE o.id=$1
-         AND m.owner_user_id=$2
+         AND m.id=$2
        FOR UPDATE`,
       [Number(orderId), Number(ownerUserId)]
     );

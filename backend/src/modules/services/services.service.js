@@ -1106,7 +1106,7 @@ export async function inviteProviderEmployee({ userId, userRole }, dto) {
         imageUrl: null,
         role: 'service_provider',
         analyticsConsentGranted: true,
-        analyticsConsentVersion: 'service_provider_employee_invite_v1',
+        analyticsConsentVersion: 'service_provider_employee_v1',
         analyticsConsentGrantedAt: new Date().toISOString(),
         chatQualityReviewConsent: true,
       }),
