@@ -11,6 +11,51 @@ function toOptionalTrimmed(value, max = 3000) {
   return value.trim().slice(0, max);
 }
 
+function toOptionalEmail(value) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") return null;
+  const email = value.trim().slice(0, 320);
+  if (!email) return null;
+  return email;
+}
+
+function toOptionalPermissionList(value) {
+  if (value === undefined || value === null || value === "") return null;
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (entry == null ? "" : String(entry).trim()))
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((entry) => (entry == null ? "" : String(entry).trim()))
+          .filter(Boolean);
+      }
+    } catch {
+      return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+  }
+  if (value && typeof value === "object") {
+    if (Array.isArray(value.permissions)) {
+      return value.permissions
+        .map((entry) => (entry == null ? "" : String(entry).trim()))
+        .filter(Boolean);
+    }
+    if (Array.isArray(value.permissions_json)) {
+      return value.permissions_json
+        .map((entry) => (entry == null ? "" : String(entry).trim()))
+        .filter(Boolean);
+    }
+  }
+  return null;
+}
+
 function toOptionalInt(value) {
   if (value === undefined || value === null || value === "") return null;
   const n = Number(value);
@@ -41,6 +86,8 @@ export function validateUpsertEmployee(body = {}) {
   const merchantId = toOptionalInt(body.merchantId);
   const employeeUserId = toOptionalInt(body.employeeUserId);
   const roleTag = toNonEmptyTrimmed(body.roleTag ?? "staff", 80);
+  const displayName = toOptionalTrimmed(body.displayName, 180);
+  const contactEmail = toOptionalEmail(body.contactEmail);
   const employmentType = toNonEmptyTrimmed(body.employmentType ?? "full_time", 32);
   const baseSalary = toOptionalNumber(body.baseSalary);
   const currency = toNonEmptyTrimmed(body.currency ?? "IQD", 10);
@@ -48,6 +95,7 @@ export function validateUpsertEmployee(body = {}) {
   const isActive = toOptionalBool(body.isActive);
   const shiftStartTime = toOptionalTrimmed(body.shiftStartTime, 20);
   const shiftEndTime = toOptionalTrimmed(body.shiftEndTime, 20);
+  const permissions = toOptionalPermissionList(body.permissions);
 
   if (employeeUserId == null || employeeUserId <= 0) errors.push("employeeUserId");
   if (!roleTag) errors.push("roleTag");
@@ -68,6 +116,8 @@ export function validateUpsertEmployee(body = {}) {
       merchantId,
       employeeUserId,
       roleTag,
+      displayName,
+      contactEmail,
       employmentType,
       baseSalary,
       currency,
@@ -76,7 +126,67 @@ export function validateUpsertEmployee(body = {}) {
       shiftEndTime,
       joinedAt: toOptionalTrimmed(body.joinedAt, 32),
       isActive: isActive ?? true,
+      archivedAt: toOptionalTrimmed(body.archivedAt, 64),
       notes: toOptionalTrimmed(body.notes, 3000),
+      permissions,
+    },
+  };
+}
+
+export function validateInviteEmployee(body = {}) {
+  const errors = [];
+  const merchantId = toOptionalInt(body.merchantId);
+  const fullName = toNonEmptyTrimmed(body.fullName, 180);
+  const phone = toNonEmptyTrimmed(body.phone, 32);
+  const pin = toNonEmptyTrimmed(body.pin, 8);
+  const roleTag = toNonEmptyTrimmed(body.roleTag ?? "staff", 80);
+  const displayName = toOptionalTrimmed(body.displayName, 180);
+  const contactEmail = toOptionalEmail(body.contactEmail);
+  const employmentType = toNonEmptyTrimmed(body.employmentType ?? "full_time", 32);
+  const baseSalary = toOptionalNumber(body.baseSalary);
+  const currency = toNonEmptyTrimmed(body.currency ?? "IQD", 10);
+  const workDaysPerWeek = toOptionalInt(body.workDaysPerWeek);
+  const isActive = toOptionalBool(body.isActive);
+  const shiftStartTime = toOptionalTrimmed(body.shiftStartTime, 20);
+  const shiftEndTime = toOptionalTrimmed(body.shiftEndTime, 20);
+  const permissions = toOptionalPermissionList(body.permissions);
+
+  if (!fullName) errors.push("fullName");
+  if (!phone) errors.push("phone");
+  if (!pin) errors.push("pin");
+  if (!roleTag) errors.push("roleTag");
+  if (!employmentType) errors.push("employmentType");
+  if (baseSalary == null || baseSalary < 0) errors.push("baseSalary");
+  if (!currency) errors.push("currency");
+  if (workDaysPerWeek == null || workDaysPerWeek < 1 || workDaysPerWeek > 7) {
+    errors.push("workDaysPerWeek");
+  }
+  if (body.isActive !== undefined && isActive == null) errors.push("isActive");
+  if (body.shiftStartTime !== undefined && !shiftStartTime) errors.push("shiftStartTime");
+  if (body.shiftEndTime !== undefined && !shiftEndTime) errors.push("shiftEndTime");
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      merchantId,
+      fullName,
+      phone,
+      pin,
+      roleTag,
+      displayName,
+      contactEmail,
+      employmentType,
+      baseSalary,
+      currency,
+      workDaysPerWeek,
+      shiftStartTime,
+      shiftEndTime,
+      joinedAt: toOptionalTrimmed(body.joinedAt, 32),
+      isActive: isActive ?? true,
+      archivedAt: toOptionalTrimmed(body.archivedAt, 64),
+      notes: toOptionalTrimmed(body.notes, 3000),
+      permissions,
     },
   };
 }

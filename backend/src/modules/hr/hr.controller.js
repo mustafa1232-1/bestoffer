@@ -7,6 +7,7 @@ import {
   validateCreateSalaryAction,
   validateDecideAdvanceRequest,
   validateDecideLeaveRequest,
+  validateInviteEmployee,
   validatePayrollBuild,
   validateSelfAttendance,
   validateUpdateSalaryActionStatus,
@@ -62,6 +63,35 @@ export async function upsertEmployee(req, res, next) {
       });
     }
     const out = await service.upsertEmployee(actorFromReq(req), v.value);
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function inviteEmployee(req, res, next) {
+  try {
+    const v = validateInviteEmployee(req.body || {});
+    if (!v.ok) {
+      return res.status(400).json({
+        message: "VALIDATION_ERROR",
+        fields: v.errors,
+      });
+    }
+    const out = await service.inviteEmployee(actorFromReq(req), v.value);
+    res.status(201).json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listEmployeeActivityLogs(req, res, next) {
+  try {
+    const out = await service.listEmployeeActivityLogs(actorFromReq(req), {
+      merchantId: toIntOrNull(req.query?.merchantId),
+      employeeUserId: toIntOrNull(req.query?.employeeUserId),
+      limit: Number(req.query?.limit || 120),
+    });
     res.json(out);
   } catch (error) {
     next(error);

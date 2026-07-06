@@ -752,15 +752,236 @@ class ServiceRequestModel {
   }
 }
 
+class ServiceProviderEmployeeProfileModel {
+  final int id;
+  final String roleTag;
+  final String? displayName;
+  final String? contactEmail;
+  final List<String> permissions;
+  final Map<String, bool> permissionMap;
+  final bool isActive;
+  final String? archivedAt;
+  final String? notes;
+  final int? invitedByUserId;
+  final int? updatedByUserId;
+
+  const ServiceProviderEmployeeProfileModel({
+    required this.id,
+    required this.roleTag,
+    required this.displayName,
+    required this.contactEmail,
+    required this.permissions,
+    required this.permissionMap,
+    required this.isActive,
+    required this.archivedAt,
+    required this.notes,
+    required this.invitedByUserId,
+    required this.updatedByUserId,
+  });
+
+  factory ServiceProviderEmployeeProfileModel.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    final permissions = (json['permissions'] is List)
+        ? List<dynamic>.from(json['permissions'] as List)
+            .map((value) => '$value')
+            .where((value) => value.trim().isNotEmpty)
+            .toList(growable: false)
+        : const <String>[];
+    final permissionMap = json['permissionMap'] is Map
+        ? Map<String, bool>.from(
+            (json['permissionMap'] as Map).map(
+              (key, value) => MapEntry('$key', value == true),
+            ),
+          )
+        : <String, bool>{
+            for (final permission in permissions) permission: true,
+          };
+    return ServiceProviderEmployeeProfileModel(
+      id: parseInt(json['id']),
+      roleTag: parseString(json['roleTag'], fallback: 'staff'),
+      displayName: parseNullableString(json['displayName']),
+      contactEmail: parseNullableString(json['contactEmail']),
+      permissions: permissions,
+      permissionMap: permissionMap,
+      isActive: parseBool(json['isActive'], fallback: true),
+      archivedAt: parseNullableString(json['archivedAt']),
+      notes: parseNullableString(json['notes']),
+      invitedByUserId: parseNullableInt(json['invitedByUserId']),
+      updatedByUserId: parseNullableInt(json['updatedByUserId']),
+    );
+  }
+}
+
+class ServiceProviderEmployeeModel {
+  final int userId;
+  final String fullName;
+  final String phone;
+  final String role;
+  final String? imageUrl;
+  final String? displayName;
+  final String? contactEmail;
+  final ServiceProviderEmployeeProfileModel? profile;
+
+  const ServiceProviderEmployeeModel({
+    required this.userId,
+    required this.fullName,
+    required this.phone,
+    required this.role,
+    required this.imageUrl,
+    required this.displayName,
+    required this.contactEmail,
+    required this.profile,
+  });
+
+  factory ServiceProviderEmployeeModel.fromJson(Map<String, dynamic> json) {
+    final profileJson = json['profile'] is Map
+        ? Map<String, dynamic>.from(json['profile'] as Map)
+        : json['employeeProfile'] is Map
+        ? Map<String, dynamic>.from(json['employeeProfile'] as Map)
+        : null;
+    return ServiceProviderEmployeeModel(
+      userId: parseInt(json['userId']),
+      fullName: parseString(json['fullName']),
+      phone: parseString(json['phone']),
+      role: parseString(json['role'], fallback: 'service_provider'),
+      imageUrl: parseNullableString(json['imageUrl']),
+      displayName: parseNullableString(json['displayName']),
+      contactEmail: parseNullableString(json['contactEmail']),
+      profile: profileJson == null
+          ? null
+          : ServiceProviderEmployeeProfileModel.fromJson(profileJson),
+    );
+  }
+}
+
+class ServiceProviderEmployeeActivityLogModel {
+  final int id;
+  final String workspaceKind;
+  final int workspaceId;
+  final int? employeeProfileId;
+  final int employeeUserId;
+  final String employeeFullName;
+  final String employeePhone;
+  final int? actorUserId;
+  final String? actorFullName;
+  final String actorRole;
+  final String actionKey;
+  final String? reason;
+  final Map<String, dynamic> oldValue;
+  final Map<String, dynamic> newValue;
+  final String? note;
+  final String? createdAt;
+
+  const ServiceProviderEmployeeActivityLogModel({
+    required this.id,
+    required this.workspaceKind,
+    required this.workspaceId,
+    required this.employeeProfileId,
+    required this.employeeUserId,
+    required this.employeeFullName,
+    required this.employeePhone,
+    required this.actorUserId,
+    required this.actorFullName,
+    required this.actorRole,
+    required this.actionKey,
+    required this.reason,
+    required this.oldValue,
+    required this.newValue,
+    required this.note,
+    required this.createdAt,
+  });
+
+  factory ServiceProviderEmployeeActivityLogModel.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return ServiceProviderEmployeeActivityLogModel(
+      id: parseInt(json['id']),
+      workspaceKind: parseString(json['workspaceKind'], fallback: 'service_provider'),
+      workspaceId: parseInt(json['workspaceId']),
+      employeeProfileId: parseNullableInt(json['employeeProfileId']),
+      employeeUserId: parseInt(json['employeeUserId']),
+      employeeFullName: parseString(json['employeeFullName']),
+      employeePhone: parseString(json['employeePhone']),
+      actorUserId: parseNullableInt(json['actorUserId']),
+      actorFullName: parseNullableString(json['actorFullName']),
+      actorRole: parseString(json['actorRole'], fallback: ''),
+      actionKey: parseString(json['actionKey'], fallback: ''),
+      reason: parseNullableString(json['reason']),
+      oldValue: json['oldValue'] is Map
+          ? Map<String, dynamic>.from(json['oldValue'] as Map)
+          : <String, dynamic>{},
+      newValue: json['newValue'] is Map
+          ? Map<String, dynamic>.from(json['newValue'] as Map)
+          : <String, dynamic>{},
+      note: parseNullableString(json['note']),
+      createdAt: parseNullableString(json['createdAt']),
+    );
+  }
+}
+
+class ServiceProviderWorkspaceAccessModel {
+  final bool isOwner;
+  final List<String> permissions;
+  final Map<String, bool> permissionMap;
+  final ServiceProviderEmployeeProfileModel? employeeProfile;
+
+  const ServiceProviderWorkspaceAccessModel({
+    required this.isOwner,
+    required this.permissions,
+    required this.permissionMap,
+    required this.employeeProfile,
+  });
+
+  factory ServiceProviderWorkspaceAccessModel.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    final permissions = (json['permissions'] is List)
+        ? List<dynamic>.from(json['permissions'] as List)
+            .map((value) => '$value')
+            .where((value) => value.trim().isNotEmpty)
+            .toList(growable: false)
+        : const <String>[];
+    final permissionMap = json['permissionMap'] is Map
+        ? Map<String, bool>.from(
+            (json['permissionMap'] as Map).map(
+              (key, value) => MapEntry('$key', value == true),
+            ),
+          )
+        : <String, bool>{
+            for (final permission in permissions) permission: true,
+          };
+    final employeeProfile = json['employeeProfile'] is Map
+        ? ServiceProviderEmployeeProfileModel.fromJson(
+            Map<String, dynamic>.from(json['employeeProfile'] as Map),
+          )
+        : null;
+    return ServiceProviderWorkspaceAccessModel(
+      isOwner: parseBool(json['isOwner']),
+      permissions: permissions,
+      permissionMap: permissionMap,
+      employeeProfile: employeeProfile,
+    );
+  }
+}
+
 class ServiceProviderWorkspaceModel {
   final ServiceProviderProfileModel provider;
   final Map<String, int> requestCounts;
   final List<ServicePromotionModel> promotions;
+  final ServiceProviderWorkspaceAccessModel? access;
+  final List<ServiceProviderEmployeeModel> employees;
+  final List<ServiceProviderEmployeeActivityLogModel> activityLogs;
+  final List<String> availablePermissions;
 
   const ServiceProviderWorkspaceModel({
     required this.provider,
     required this.requestCounts,
     required this.promotions,
+    required this.access,
+    required this.employees,
+    required this.activityLogs,
+    required this.availablePermissions,
   });
 
   factory ServiceProviderWorkspaceModel.fromJson(Map<String, dynamic> json) {
@@ -778,6 +999,28 @@ class ServiceProviderWorkspaceModel {
       'activePromotions': json['promotions'],
     };
 
+    final employees = (json['employees'] is List)
+        ? List<dynamic>.from(json['employees'] as List)
+            .whereType<Map>()
+            .map(
+              (e) => ServiceProviderEmployeeModel.fromJson(
+                Map<String, dynamic>.from(e),
+              ),
+            )
+            .toList(growable: false)
+        : const <ServiceProviderEmployeeModel>[];
+
+    final activityLogs = (json['activityLogs'] is List)
+        ? List<dynamic>.from(json['activityLogs'] as List)
+            .whereType<Map>()
+            .map(
+              (e) => ServiceProviderEmployeeActivityLogModel.fromJson(
+                Map<String, dynamic>.from(e),
+              ),
+            )
+            .toList(growable: false)
+        : const <ServiceProviderEmployeeActivityLogModel>[];
+
     return ServiceProviderWorkspaceModel(
       provider: ServiceProviderProfileModel.fromJson(stitched),
       requestCounts: (json['requestCounts'] is Map)
@@ -790,13 +1033,26 @@ class ServiceProviderWorkspaceModel {
       promotions: (json['promotions'] is List)
           ? List<dynamic>.from(json['promotions'] as List)
                 .whereType<Map>()
-                .map(
+              .map(
                   (e) => ServicePromotionModel.fromJson(
                     Map<String, dynamic>.from(e),
                   ),
                 )
-                .toList()
+                .toList(growable: false)
           : const <ServicePromotionModel>[],
+      access: json['access'] is Map
+          ? ServiceProviderWorkspaceAccessModel.fromJson(
+              Map<String, dynamic>.from(json['access'] as Map),
+            )
+          : null,
+      employees: employees,
+      activityLogs: activityLogs,
+      availablePermissions: (json['availablePermissions'] is List)
+          ? List<dynamic>.from(json['availablePermissions'] as List)
+              .map((value) => '$value')
+              .where((value) => value.trim().isNotEmpty)
+              .toList(growable: false)
+          : const <String>[],
     );
   }
 }

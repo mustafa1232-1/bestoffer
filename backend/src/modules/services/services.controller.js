@@ -12,6 +12,9 @@ import {
   validateAdminSubscriptionOfferBody,
   validateAdminSubscriptionRejectBody,
   validateOfferingBody,
+  validateProviderEmployeeActivityLogQuery,
+  validateProviderEmployeeInviteBody,
+  validateProviderEmployeeUpsertBody,
   validatePaginationQuery,
   validatePortfolioBody,
   validatePromotionBody,
@@ -216,6 +219,65 @@ export async function updateProviderProfile(req, res, next) {
         coverImageUrl: firstUploadedUrl(req, 'coverFile') || null,
       },
     });
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listProviderEmployees(req, res, next) {
+  try {
+    const v = validatePaginationQuery(req.query || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.listProviderEmployees(
+      { userId: req.userId, userRole: req.userRole },
+      {
+        search: req.query?.search || '',
+        limit: v.value.limit,
+      }
+    );
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function inviteProviderEmployee(req, res, next) {
+  try {
+    const v = validateProviderEmployeeInviteBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.inviteProviderEmployee(
+      { userId: req.userId, userRole: req.userRole },
+      v.value
+    );
+    res.status(201).json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function upsertProviderEmployee(req, res, next) {
+  try {
+    const v = validateProviderEmployeeUpsertBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.upsertProviderEmployee(
+      { userId: req.userId, userRole: req.userRole },
+      v.value
+    );
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listProviderEmployeeActivityLogs(req, res, next) {
+  try {
+    const v = validateProviderEmployeeActivityLogQuery(req.query || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.listProviderEmployeeActivityLogs(
+      { userId: req.userId, userRole: req.userRole },
+      v.value
+    );
     res.json(out);
   } catch (error) {
     next(error);

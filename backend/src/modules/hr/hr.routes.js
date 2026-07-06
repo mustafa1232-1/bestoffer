@@ -9,7 +9,9 @@ hrRouter.use(requireAuth);
 
 hrRouter.get("/dashboard", c.dashboard);
 hrRouter.get("/employees", c.listEmployees);
+hrRouter.post("/employees/invite", c.inviteEmployee);
 hrRouter.post("/employees/upsert", c.upsertEmployee);
+hrRouter.get("/employees/activity-log", c.listEmployeeActivityLogs);
 
 hrRouter.get("/attendance", c.listAttendance);
 hrRouter.post("/attendance/upsert", c.upsertAttendance);

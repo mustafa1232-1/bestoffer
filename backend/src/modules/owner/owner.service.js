@@ -19,6 +19,7 @@ import {
   buildMerchantOfferLabel,
   computeMerchantOfferState,
 } from "./merchant-offers.logic.js";
+import { hasPermission } from "../../shared/workspaces/employee-permissions.js";
 import { invalidateMerchantCatalogCache } from "../merchants/merchants.repo.js";
 import {
   hasRichProductInput,
@@ -127,6 +128,10 @@ function normalizeOptional(v) {
   return out.length ? out : null;
 }
 
+function normalizeRole(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function normalizeIsoDateOrNull(v) {
   const normalized = normalizeOptional(v);
   if (normalized === null) return null;
@@ -147,6 +152,106 @@ function normalizePhone(value) {
 
 function normalizePin(value) {
   return normalizeDigits(value).replace(/[^\d]/g, "");
+}
+
+async function ensureMerchantPermission(ownerUserId, merchantId, permission) {
+  const resolvedMerchantId = Number(merchantId);
+  if (!Number.isInteger(resolvedMerchantId) || resolvedMerchantId <= 0) {
+    throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
+  }
+
+  const ownerMerchant = await repo.findMerchantByOwnerUserId(Number(ownerUserId));
+  if (ownerMerchant && Number(ownerMerchant.id) === resolvedMerchantId) {
+    return;
+  }
+
+  const profile = await repo.findEmployeeProfileForMerchant({
+    merchantId: resolvedMerchantId,
+    employeeUserId: Number(ownerUserId),
+  });
+  if (!profile || profile.is_active !== true || profile.archived_at) {
+    throw new AppError("FORBIDDEN_MERCHANT_EMPLOYEE_ONLY", { status: 403 });
+  }
+  if (!hasPermission(profile.permissions_json, permission)) {
+    throw new AppError("FORBIDDEN_MERCHANT_PERMISSION", { status: 403 });
+  }
+}
+
+async function ensureMerchantAnyPermission(ownerUserId, merchantId, permissions) {
+  const requiredPermissions = Array.isArray(permissions)
+    ? permissions.map((permission) => String(permission || "").trim()).filter(Boolean)
+    : [String(permissions || "").trim()].filter(Boolean);
+  if (requiredPermissions.length === 0) {
+    throw new AppError("FORBIDDEN_MERCHANT_PERMISSION", { status: 403 });
+  }
+
+  const resolvedMerchantId = Number(merchantId);
+  if (!Number.isInteger(resolvedMerchantId) || resolvedMerchantId <= 0) {
+    throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
+  }
+
+  const ownerMerchant = await repo.findMerchantByOwnerUserId(Number(ownerUserId));
+  if (ownerMerchant && Number(ownerMerchant.id) === resolvedMerchantId) {
+    return;
+  }
+
+  const profile = await repo.findEmployeeProfileForMerchant({
+    merchantId: resolvedMerchantId,
+    employeeUserId: Number(ownerUserId),
+  });
+  if (!profile || profile.is_active !== true || profile.archived_at) {
+    throw new AppError("FORBIDDEN_MERCHANT_EMPLOYEE_ONLY", { status: 403 });
+  }
+
+  if (
+    !requiredPermissions.some((permission) =>
+      hasPermission(profile.permissions_json, permission)
+    )
+  ) {
+    throw new AppError("FORBIDDEN_MERCHANT_PERMISSION", { status: 403 });
+  }
+}
+
+function normalizeOrderStatus(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function requiredOrderStatusPermissions(nextStatus) {
+  switch (normalizeOrderStatus(nextStatus)) {
+    case "approved":
+      return ["accept_orders", "change_order_status"];
+    case "preparing":
+    case "ready_for_delivery":
+      return ["prepare_orders", "change_order_status"];
+    case "cancelled":
+      return ["reject_orders", "change_order_status"];
+    default:
+      return ["change_order_status"];
+  }
+}
+
+function nextProductAvailabilitySnapshot(currentProduct, dto = {}) {
+  return snapshotAvailability({
+    isAvailable:
+      dto.isAvailable === undefined
+        ? currentProduct?.is_available
+        : dto.isAvailable,
+    unavailableReason:
+      dto.unavailableReason === undefined
+        ? currentProduct?.unavailable_reason
+        : dto.unavailableReason,
+    unavailableUntil:
+      dto.unavailableUntil === undefined
+        ? currentProduct?.unavailable_until
+        : dto.unavailableUntil,
+  });
+}
+
+function productAvailabilityChanged(currentProduct, dto = {}) {
+  return snapshotsDiffer(
+    snapshotAvailability(currentProduct),
+    nextProductAvailabilitySnapshot(currentProduct, dto)
+  );
 }
 
 function toNumberOrNull(v) {
@@ -733,7 +838,9 @@ export async function registerOwner(dto, deviceContext = {}) {
  * يعيد المتجر المرتبط بصاحب المتجر الحالي أو يرمي `MERCHANT_NOT_FOUND`.
  */
 export async function getOwnerMerchant(ownerUserId) {
-  const merchant = await repo.findMerchantByOwnerUserId(ownerUserId);
+  const merchant =
+    (await repo.findMerchantByOwnerUserId(ownerUserId)) ||
+    (await repo.findMerchantByEmployeeUserId(ownerUserId));
   if (!merchant) {
     const err = new Error("MERCHANT_NOT_FOUND");
     err.status = 404;
@@ -817,7 +924,12 @@ export async function rejectOwnerFinancialTerms(ownerUserId, note = null) {
  * يحدّث بيانات المتجر الأساسية بعد تطبيع الحقول الاختيارية والهواتف.
  */
 export async function updateOwnerMerchant(ownerUserId, dto) {
-  const currentMerchant = await repo.findMerchantByOwnerUserId(ownerUserId);
+  const currentMerchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(
+    ownerUserId,
+    Number(currentMerchant.id),
+    "manage_store_profile"
+  );
   if (!currentMerchant) {
     const err = new Error("MERCHANT_NOT_FOUND");
     err.status = 404;
@@ -944,6 +1056,8 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
 }
 
 export async function listOwnerProducts(ownerUserId) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "view_products");
   const rows = await repo.listOwnerProducts(ownerUserId);
   return repo.hydrateOwnerProducts(rows);
 }
@@ -952,7 +1066,8 @@ export async function listOwnerProducts(ownerUserId) {
  * يسرد عروض المتجر بعد التأكد من وجود merchant مرتبط بالحساب.
  */
 export async function listOwnerOffers(ownerUserId) {
-  await getOwnerMerchant(ownerUserId);
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_offers");
   const rows = await offersRepo.listOwnerOffers(ownerUserId);
   return rows.map(mapOffer);
 }
@@ -964,7 +1079,8 @@ export async function listOwnerOffers(ownerUserId) {
  * هذه المنتجات للمتجر نفسه، لا مجرد وجودها العام في القاعدة.
  */
 export async function createOwnerOffer(ownerUserId, dto) {
-  await getOwnerMerchant(ownerUserId);
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_offers");
   const productIds = Array.isArray(dto.productIds)
     ? [...new Set(dto.productIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))]
     : [];
@@ -1005,7 +1121,8 @@ export async function createOwnerOffer(ownerUserId, dto) {
  * يحدّث العرض مع دعم تغيير المنتجات المرتبطة به والتحقق من سلامة القيم الرقمية.
  */
 export async function updateOwnerOffer(ownerUserId, offerId, dto) {
-  await getOwnerMerchant(ownerUserId);
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_offers");
   if (dto.productIds !== undefined) {
     const productIds = Array.isArray(dto.productIds)
       ? [...new Set(dto.productIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))]
@@ -1045,6 +1162,8 @@ export async function updateOwnerOffer(ownerUserId, offerId, dto) {
 }
 
 export async function deleteOwnerOffer(ownerUserId, offerId) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_offers");
   const ok = await offersRepo.deleteOwnerOffer(ownerUserId, Number(offerId));
   if (!ok) {
     const err = new Error("OFFER_NOT_FOUND");
@@ -1054,6 +1173,8 @@ export async function deleteOwnerOffer(ownerUserId, offerId) {
 }
 
 export async function listOwnerCategories(ownerUserId) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "view_products");
   const rows = await repo.listOwnerCategories(ownerUserId);
   return rows.map(mapCategory);
 }
@@ -1063,6 +1184,11 @@ export async function listOwnerCategories(ownerUserId) {
  */
 export async function createOwnerCategory(ownerUserId, dto) {
   const ownerMerchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(
+    ownerUserId,
+    ownerMerchant.id,
+    "manage_store_profile"
+  );
   const merchantActivityType = resolveMerchantActivityType(ownerMerchant);
   const resolvedCatalogType = normalizeCatalogType(
     dto.catalogType || inferCatalogTypeFromName(dto.name),
@@ -1102,6 +1228,11 @@ export async function createOwnerCategory(ownerUserId, dto) {
 
 export async function updateOwnerCategory(ownerUserId, categoryId, dto) {
   const ownerMerchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(
+    ownerUserId,
+    ownerMerchant.id,
+    "manage_store_profile"
+  );
   const merchantActivityType = resolveMerchantActivityType(ownerMerchant);
   const patch = {};
   if (dto.name !== undefined) patch.name = dto.name.trim();
@@ -1139,6 +1270,11 @@ export async function updateOwnerCategory(ownerUserId, categoryId, dto) {
 
 export async function deleteOwnerCategory(ownerUserId, categoryId) {
   const ownerMerchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(
+    ownerUserId,
+    ownerMerchant.id,
+    "manage_store_profile"
+  );
   const linkedProductsCount = await repo.countOwnerProductsByCategory(ownerUserId, categoryId);
   if (linkedProductsCount > 0) {
     const err = new Error("CATEGORY_HAS_PRODUCTS");
@@ -1182,6 +1318,7 @@ export async function createOwnerProduct(ownerUserId, dto) {
   }
 
   const ownerMerchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, ownerMerchant.id, "create_products");
   const merchantActivityType = resolveMerchantActivityType(ownerMerchant);
   const category = await repo.findOwnerCategoryById(ownerUserId, categoryId);
   if (!category) {
@@ -1200,6 +1337,18 @@ export async function createOwnerProduct(ownerUserId, dto) {
     : null;
   const unavailableReason = normalizeOptional(dto.unavailableReason);
   const unavailableUntil = normalizeIsoDateOrNull(dto.unavailableUntil);
+  const nextAvailability = snapshotAvailability({
+    isAvailable: dto.isAvailable ?? true,
+    unavailableReason,
+    unavailableUntil,
+  });
+  if (snapshotsDiffer(snapshotAvailability(), nextAvailability)) {
+    await ensureMerchantPermission(
+      ownerUserId,
+      ownerMerchant.id,
+      "change_product_availability"
+    );
+  }
 
   const product = await repo.createOwnerProduct(ownerUserId, {
     name: dto.name.trim(),
@@ -1266,6 +1415,38 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
     const err = new Error("PRODUCT_NOT_FOUND");
     err.status = 404;
     throw err;
+  }
+  const requiresEditProducts =
+    dto.name !== undefined ||
+    dto.description !== undefined ||
+    dto.imageUrl !== undefined ||
+    dto.categoryId !== undefined ||
+    dto.freeDelivery !== undefined ||
+    dto.offerLabel !== undefined ||
+    dto.requiresPrescription !== undefined ||
+    dto.requiresReview !== undefined ||
+    dto.sortOrder !== undefined ||
+    dto.stockQuantity !== undefined ||
+    dto.price !== undefined ||
+    dto.discountedPrice !== undefined ||
+    richCatalog !== null ||
+    dto.attributes !== undefined ||
+    dto.variantGroups !== undefined ||
+    dto.variants !== undefined ||
+    dto.media !== undefined;
+  if (requiresEditProducts) {
+    await ensureMerchantPermission(
+      ownerUserId,
+      ownerMerchant.id,
+      "edit_products"
+    );
+  }
+  if (productAvailabilityChanged(current, dto)) {
+    await ensureMerchantPermission(
+      ownerUserId,
+      ownerMerchant.id,
+      "change_product_availability"
+    );
   }
   const effectiveCategoryId =
     dto.categoryId !== undefined
@@ -1365,6 +1546,7 @@ export async function updateOwnerProduct(ownerUserId, productId, dto) {
 
 export async function deleteOwnerProduct(ownerUserId, productId) {
   const ownerMerchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, ownerMerchant.id, "delete_products");
   const ok = await repo.deleteOwnerProduct(ownerUserId, productId);
   if (!ok) {
     const err = new Error("PRODUCT_NOT_FOUND");
@@ -1391,7 +1573,8 @@ export async function listHrStaff(ownerUserId) {
 }
 
 export async function searchStaffUsers(ownerUserId, { search = "", limit = 100 } = {}) {
-  const merchant = await repo.findMerchantByOwnerUserId(Number(ownerUserId));
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_employees");
   if (!merchant) {
     const err = new Error("MERCHANT_NOT_FOUND");
     err.status = 404;
@@ -1417,7 +1600,8 @@ export async function createDeliveryAgent(ownerUserId, dto) {
     throw err;
   }
 
-  const merchant = await repo.findMerchantByOwnerUserId(Number(ownerUserId));
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_employees");
   if (!merchant) {
     const err = new Error("MERCHANT_NOT_FOUND");
     err.status = 404;
@@ -1501,7 +1685,8 @@ export async function createDeliveryAgent(ownerUserId, dto) {
  * يعيد استخدام حساب موجود ويربطه بالمتجر كسائق delivery بعد فحص الأهلية.
  */
 export async function assignExistingDeliveryAgent(ownerUserId, userId) {
-  const merchant = await repo.findMerchantByOwnerUserId(Number(ownerUserId));
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_employees");
   if (!merchant) {
     const err = new Error("MERCHANT_NOT_FOUND");
     err.status = 404;
@@ -1552,7 +1737,8 @@ export async function createAccountant(ownerUserId, dto) {
     throw err;
   }
 
-  const merchant = await repo.findMerchantByOwnerUserId(Number(ownerUserId));
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_employees");
   if (!merchant) {
     const err = new Error("MERCHANT_NOT_FOUND");
     err.status = 404;
@@ -1630,7 +1816,8 @@ export async function createAccountant(ownerUserId, dto) {
  * يربط حساباً موجوداً بالمتجر كـ accountant بعد تعديل الدور عند الحاجة.
  */
 export async function assignExistingAccountant(ownerUserId, userId) {
-  const merchant = await repo.findMerchantByOwnerUserId(Number(ownerUserId));
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_employees");
   if (!merchant) {
     const err = new Error("MERCHANT_NOT_FOUND");
     err.status = 404;
@@ -1675,7 +1862,8 @@ export async function createHrStaff(ownerUserId, dto) {
     throw err;
   }
 
-  const merchant = await repo.findMerchantByOwnerUserId(Number(ownerUserId));
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_employees");
   if (!merchant) {
     const err = new Error("MERCHANT_NOT_FOUND");
     err.status = 404;
@@ -1753,7 +1941,8 @@ export async function createHrStaff(ownerUserId, dto) {
  * يربط حساباً موجوداً بالمتجر كموظف HR بعد اجتياز checks الأهلية.
  */
 export async function assignExistingHrStaff(ownerUserId, userId) {
-  const merchant = await repo.findMerchantByOwnerUserId(Number(ownerUserId));
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "manage_employees");
   if (!merchant) {
     const err = new Error("MERCHANT_NOT_FOUND");
     err.status = 404;
@@ -1788,10 +1977,14 @@ export async function assignExistingHrStaff(ownerUserId, userId) {
 }
 
 export async function listCurrentOrders(ownerUserId) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "view_orders");
   return ordersRepo.listOwnerCurrentOrders(ownerUserId);
 }
 
 export async function listOrderHistory(ownerUserId, archiveDate) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "view_orders");
   return ordersRepo.listOwnerOrderHistory(ownerUserId, archiveDate || null);
 }
 
@@ -1809,6 +2002,12 @@ export async function updateOrderStatus(
   estimatedPrepMinutes,
   estimatedDeliveryMinutes
 ) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantAnyPermission(
+    ownerUserId,
+    merchant.id,
+    requiredOrderStatusPermissions(status)
+  );
   const updated = await ordersRepo.updateOwnerOrderStatus(
     ownerUserId,
     Number(orderId),
@@ -1833,6 +2032,8 @@ export async function assignDelivery(
   deliveryUserId,
   assignmentMode = "platform_delivery"
 ) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "assign_delivery");
   const updated = await ordersRepo.assignDeliveryToOwnerOrder(
     ownerUserId,
     Number(orderId),
@@ -1856,6 +2057,13 @@ export async function markOrderItemUnavailable(
   productId,
   dto = {}
 ) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "prepare_orders");
+  await ensureMerchantPermission(
+    ownerUserId,
+    merchant.id,
+    "mark_order_item_unavailable"
+  );
   const nextUnavailableReason =
     normalizeOptional(dto.unavailableReason) || "ORDER_PREPARATION_UNAVAILABLE";
   const nextUnavailableUntil = normalizeIsoDateOrNull(dto.unavailableUntil);
@@ -1923,14 +2131,20 @@ export const __ownerServiceTestables = Object.freeze({
   snapshotsDiffer,
   buildAvailabilityAuditValue,
   availabilityKey,
+  requiredOrderStatusPermissions,
+  productAvailabilityChanged,
 });
 
 export async function ownerAnalytics(ownerUserId) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "view_reports");
   return analyticsRepo.getOwnerAnalytics(ownerUserId);
 }
 
 export async function printOrdersReport(ownerUserId, period) {
   const normalizedPeriod = String(period || "day").toLowerCase();
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "view_reports");
   return ordersRepo.listOwnerOrdersForReport(ownerUserId, normalizedPeriod);
 }
 
@@ -1938,6 +2152,12 @@ export async function printOrdersReport(ownerUserId, period) {
  * يعيد ملخص المستحقات المفتوحة لصاحب المتجر.
  */
 export async function settlementSummary(ownerUserId) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(
+    ownerUserId,
+    merchant.id,
+    "view_financial_reports"
+  );
   return analyticsRepo.getOwnerOutstanding(ownerUserId);
 }
 
@@ -1945,6 +2165,12 @@ export async function settlementSummary(ownerUserId) {
  * ينشئ طلب تسوية مالية جديداً إذا كان المتجر موجوداً.
  */
 export async function requestSettlement(ownerUserId, note) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(
+    ownerUserId,
+    merchant.id,
+    "view_financial_reports"
+  );
   const out = await analyticsRepo.createOwnerSettlementRequest(
     ownerUserId,
     note?.trim()

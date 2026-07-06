@@ -1001,6 +1001,91 @@ export async function updateOwnerProductVariantAvailability(ownerUserId, product
   return r.rows[0] || null;
 }
 
+export async function findMerchantByEmployeeUserId(employeeUserId) {
+  const r = await q(
+    `SELECT
+       m.id,
+       m.name,
+       m.type,
+       m.activity_type,
+       m.discovery_subcategory,
+       m.discovery_select_all,
+       m.service_flags_json,
+       m.supports_chat,
+       m.supports_attachments,
+       m.supports_pharmacy_workflow,
+       m.badges_json,
+       m.description,
+       m.phone,
+       m.image_url,
+       m.is_open,
+       m.is_approved,
+       m.approval_status,
+       m.approved_by_user_id,
+       m.approved_at,
+       m.owner_user_id,
+       m.tagline,
+       m.working_hours,
+       m.service_area_note,
+       m.created_at,
+       m.updated_at,
+       m.financial_terms_sent_at,
+       m.financial_terms_accepted_at,
+       m.financial_terms_rejected_at,
+       m.financial_terms_snapshot_json,
+       m.financial_terms_rejection_note,
+       ep.id AS employee_profile_id,
+       ep.role_tag,
+       ep.display_name,
+       ep.contact_email,
+       ep.permissions_json,
+       ep.is_active,
+       ep.archived_at
+     FROM merchant_employee_profile ep
+     JOIN merchant m ON m.id = ep.merchant_id
+     WHERE ep.employee_user_id = $1
+       AND ep.is_active = TRUE
+       AND ep.archived_at IS NULL
+       AND m.is_disabled = FALSE
+     ORDER BY ep.updated_at DESC, ep.id DESC
+     LIMIT 1`,
+    [Number(employeeUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function findEmployeeProfileForMerchant({
+  merchantId,
+  employeeUserId,
+}) {
+  const r = await q(
+    `SELECT *
+     FROM merchant_employee_profile
+     WHERE merchant_id = $1
+       AND employee_user_id = $2
+       AND is_active = TRUE
+       AND archived_at IS NULL
+     LIMIT 1`,
+    [Number(merchantId), Number(employeeUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function findAnyEmployeeProfileForMerchant({
+  merchantId,
+  employeeUserId,
+}) {
+  const r = await q(
+    `SELECT *
+     FROM merchant_employee_profile
+     WHERE merchant_id = $1
+       AND employee_user_id = $2
+     LIMIT 1`,
+    [Number(merchantId), Number(employeeUserId)]
+  );
+  return r.rows[0] || null;
+}
+
 export async function markOrderedProductUnavailable(
   ownerUserId,
   orderId,

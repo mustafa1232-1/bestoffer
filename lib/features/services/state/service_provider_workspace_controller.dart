@@ -52,24 +52,40 @@ class ServiceProviderWorkspaceController
   ServiceProviderWorkspaceController(this.ref)
     : super(const ServiceProviderWorkspaceState()) {
     loadWorkspace();
-    loadRequests();
   }
 
   Future<void> loadWorkspace() async {
     state = state.copyWith(loadingWorkspace: true, clearError: true);
     try {
       final raw = await ref.read(servicesApiProvider).getProviderWorkspace();
+      final workspace = ServiceProviderWorkspaceModel.fromJson(raw);
       state = state.copyWith(
         loadingWorkspace: false,
-        workspace: ServiceProviderWorkspaceModel.fromJson(raw),
+        workspace: workspace,
         clearError: true,
       );
+      final canViewRequests =
+          workspace.access?.isOwner == true ||
+          workspace.access?.permissionMap['view_service_requests'] == true;
+      if (canViewRequests) {
+        await loadRequests();
+      } else {
+        state = state.copyWith(requests: const <ServiceRequestModel>[]);
+      }
     } catch (e) {
       state = state.copyWith(loadingWorkspace: false, error: '$e');
     }
   }
 
   Future<void> loadRequests({String? status}) async {
+    final workspace = state.workspace;
+    final canViewRequests =
+        workspace?.access?.isOwner == true ||
+        workspace?.access?.permissionMap['view_service_requests'] == true;
+    if (!canViewRequests) {
+      state = state.copyWith(requests: const <ServiceRequestModel>[]);
+      return;
+    }
     state = state.copyWith(loadingRequests: true, clearError: true);
     try {
       final rows = await ref
@@ -82,6 +98,24 @@ class ServiceProviderWorkspaceController
       );
     } catch (e) {
       state = state.copyWith(loadingRequests: false, error: '$e');
+    }
+  }
+
+  Future<void> inviteEmployee(Map<String, dynamic> payload) async {
+    try {
+      await ref.read(servicesApiProvider).inviteProviderEmployee(payload);
+      await loadWorkspace();
+    } catch (e) {
+      state = state.copyWith(error: '$e');
+    }
+  }
+
+  Future<void> upsertEmployee(Map<String, dynamic> payload) async {
+    try {
+      await ref.read(servicesApiProvider).upsertProviderEmployee(payload);
+      await loadWorkspace();
+    } catch (e) {
+      state = state.copyWith(error: '$e');
     }
   }
 

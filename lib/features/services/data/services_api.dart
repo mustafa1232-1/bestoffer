@@ -156,6 +156,54 @@ class ServicesApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> listProviderEmployees({
+    String search = '',
+    int limit = 120,
+  }) async {
+    final response = await _dio.get(
+      '/api/services/provider/employees',
+      queryParameters: {
+        if (search.trim().isNotEmpty) 'search': search.trim(),
+        'limit': limit,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> inviteProviderEmployee(
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _dio.post(
+      '/api/services/provider/employees/invite',
+      data: body,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> upsertProviderEmployee(
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _dio.post(
+      '/api/services/provider/employees/upsert',
+      data: body,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> listProviderEmployeeActivityLog({
+    int? employeeUserId,
+    int limit = 120,
+  }) async {
+    final response = await _dio.get(
+      '/api/services/provider/employees/activity-log',
+      queryParameters: {
+        if (employeeUserId != null) 'employeeUserId': employeeUserId,
+        'limit': limit,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> createProviderSubscriptionRequest(
     Map<String, dynamic> body, {
     LocalImageFile? logoFile,

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
+import '../../../core/workspaces/workspace_permissions.dart';
 import '../data/services_api.dart';
 import '../models/service_models.dart';
 import '../state/service_provider_workspace_controller.dart';
@@ -22,15 +23,30 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
         .watch(sectionAvailabilityControllerProvider)
         .entryFor(AppSectionKeys.services, displayName: 'الخدمات');
     final workspace = state.workspace;
-    final visibleRequests =
-        servicesSection.isBlocked
-            ? state.requests
-                .where(
-                  (request) => !<String>{'completed', 'cancelled', 'rejected'}
-                      .contains(request.status.trim().toLowerCase()),
-                )
-                .toList(growable: false)
-            : state.requests;
+    final access = workspace?.access;
+    final canCreateServices =
+        access?.isOwner == true ||
+        access?.permissionMap['create_services'] == true;
+    final canViewRequests =
+        access?.isOwner == true ||
+        access?.permissionMap['view_service_requests'] == true;
+    final canManageEmployees =
+        access?.isOwner == true ||
+        access?.permissionMap['manage_employees'] == true;
+    final canViewAuditLog =
+        access?.isOwner == true ||
+        access?.permissionMap['view_audit_log'] == true;
+    final visibleRequests = canViewRequests
+        ? (servicesSection.isBlocked
+              ? state.requests
+                  .where(
+                    (request) =>
+                        !<String>{'completed', 'cancelled', 'rejected'}
+                            .contains(request.status.trim().toLowerCase()),
+                  )
+                  .toList(growable: false)
+              : state.requests)
+        : const <ServiceRequestModel>[];
     if (servicesSection.isBlocked && !servicesSection.allowExistingActiveAccess) {
       return SectionUnavailableScreen(entry: servicesSection);
     }
@@ -49,7 +65,7 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
           ),
         ],
       ),
-      floatingActionButton: servicesSection.isOpen
+      floatingActionButton: servicesSection.isOpen && canCreateServices
           ? FloatingActionButton.extended(
               heroTag: null,
               onPressed: () => _showCreateOfferingDialog(context, ref),
@@ -123,6 +139,14 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
               _offeringsSection(workspace.provider.offerings),
               const SizedBox(height: 12),
               _promotionsSection(workspace.promotions),
+              const SizedBox(height: 12),
+              _employeesSection(
+                context,
+                ref,
+                workspace: workspace,
+                canManageEmployees: canManageEmployees,
+                canViewAuditLog: canViewAuditLog,
+              ),
             ],
             const SizedBox(height: 12),
             const Text(
@@ -135,7 +159,19 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                 padding: EdgeInsets.all(12),
                 child: Center(child: CircularProgressIndicator()),
               ),
-            if (!state.loadingRequests && visibleRequests.isEmpty)
+            if (workspace != null && !canViewRequests)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(14),
+                  child: Text(
+                    'ليس لديك صلاحية عرض الطلبات / You do not have permission to view service requests.',
+                  ),
+                ),
+              ),
+            if (workspace != null &&
+                canViewRequests &&
+                !state.loadingRequests &&
+                visibleRequests.isEmpty)
               const Card(
                 child: Padding(
                   padding: EdgeInsets.all(14),
@@ -301,6 +337,503 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _employeesSection(
+    BuildContext context,
+    WidgetRef ref, {
+    required ServiceProviderWorkspaceModel workspace,
+    required bool canManageEmployees,
+    required bool canViewAuditLog,
+  }) {
+    final employees = workspace.employees;
+    final activityLogs = workspace.activityLogs;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'الموظفون / Employees',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                ),
+                if (canManageEmployees)
+                  FilledButton.tonalIcon(
+                    onPressed: () =>
+                        _openServiceProviderEmployeeDialog(context, ref, workspace),
+                    icon: const Icon(Icons.person_add_alt_1_outlined),
+                    label: const Text('دعوة'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (!canManageEmployees)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  'لا تملك صلاحية إدارة الموظفين / You cannot manage employees.',
+                ),
+              ),
+            if (employees.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 6),
+                child: Text('لا يوجد موظفون بعد.'),
+              )
+            else
+              ...employees.map(
+                (employee) => _employeeCard(
+                  context,
+                  ref,
+                  workspace: workspace,
+                  employee: employee,
+                  canManageEmployees: canManageEmployees,
+                ),
+              ),
+            if (canViewAuditLog) ...[
+              const SizedBox(height: 12),
+              Text(
+                'سجل النشاط / Activity log',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              if (activityLogs.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 6),
+                  child: Text('لا يوجد سجل نشاط بعد.'),
+                )
+              else
+                ...activityLogs.take(12).map(
+                  (row) => Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      leading: const Icon(Icons.history_rounded),
+                      title: Text(
+                        '${row.employeeFullName} • ${row.actionKey}',
+                      ),
+                      subtitle: Text(
+                        [
+                          if ((row.actorFullName ?? '').trim().isNotEmpty)
+                            'By: ${row.actorFullName}',
+                          if ((row.reason ?? '').trim().isNotEmpty)
+                            'Reason: ${row.reason}',
+                          if ((row.createdAt ?? '').trim().isNotEmpty)
+                            '${row.createdAt}',
+                        ].join('\n'),
+                      ),
+                      isThreeLine: true,
+                    ),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _employeeCard(
+    BuildContext context,
+    WidgetRef ref, {
+    required ServiceProviderWorkspaceModel workspace,
+    required ServiceProviderEmployeeModel employee,
+    required bool canManageEmployees,
+  }) {
+    final profile = employee.profile;
+    final permissions = profile?.permissions ?? const <String>[];
+    final isActive = profile?.isActive ?? true;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: canManageEmployees
+            ? () => _openServiceProviderEmployeeDialog(
+                  context,
+                  ref,
+                  workspace,
+                  employee: employee,
+                )
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      employee.fullName,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      color: isActive
+                          ? Colors.green.withValues(alpha: 0.12)
+                          : Colors.orange.withValues(alpha: 0.12),
+                    ),
+                    child: Text(
+                      isActive ? 'نشط / Active' : 'موقوف / Inactive',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(employee.phone),
+              if ((employee.displayName ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('Display name: ${employee.displayName}'),
+              ],
+              if ((employee.contactEmail ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('Email: ${employee.contactEmail}'),
+              ],
+              const SizedBox(height: 4),
+              Text('Role: ${profile?.roleTag ?? employee.role}'),
+              if ((profile?.notes ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('Notes: ${profile!.notes}'),
+              ],
+              if (permissions.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _permissionChips(
+                  context,
+                  permissions,
+                  kind: WorkspacePermissionKind.serviceProvider,
+                ),
+              ],
+              if (canManageEmployees) ...[
+                const SizedBox(height: 10),
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openServiceProviderEmployeeDialog(
+                      context,
+                      ref,
+                      workspace,
+                      employee: employee,
+                    ),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('تعديل'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _permissionChips(
+    BuildContext context,
+    List<String> permissions, {
+    WorkspacePermissionKind kind = WorkspacePermissionKind.serviceProvider,
+  }) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: permissions
+          .map(
+            (permission) => Chip(
+              label: Text(
+                workspacePermissionLabelFor(context, permission, kind: kind),
+              ),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Widget _permissionSelector(
+    BuildContext context, {
+    required Set<String> selected,
+    required ValueChanged<String> onToggle,
+  }) {
+    final catalog =
+        workspacePermissionCatalog(WorkspacePermissionKind.serviceProvider);
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: catalog
+          .map(
+            (permission) => FilterChip(
+              selected: selected.contains(permission),
+              label: Text(
+                workspacePermissionLabelFor(
+                  context,
+                  permission,
+                  kind: WorkspacePermissionKind.serviceProvider,
+                ),
+              ),
+              onSelected: (_) {
+                onToggle(permission);
+              },
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Future<void> _openServiceProviderEmployeeDialog(
+    BuildContext context,
+    WidgetRef ref,
+    ServiceProviderWorkspaceModel workspace, {
+    ServiceProviderEmployeeModel? employee,
+  }) async {
+    final profile = employee?.profile;
+    final isInvite = employee == null;
+    final fullNameCtrl = TextEditingController(text: employee?.fullName ?? '');
+    final phoneCtrl = TextEditingController(text: employee?.phone ?? '');
+    final pinCtrl = TextEditingController();
+    final displayNameCtrl = TextEditingController(
+      text: profile?.displayName ?? employee?.displayName ?? '',
+    );
+    final emailCtrl = TextEditingController(
+      text: profile?.contactEmail ?? employee?.contactEmail ?? '',
+    );
+    final roleCtrl = TextEditingController(
+      text: profile?.roleTag ?? employee?.role ?? 'staff',
+    );
+    final notesCtrl = TextEditingController(text: profile?.notes ?? '');
+    final reasonCtrl = TextEditingController();
+    final selectedPermissions = <String>{
+      if (profile?.permissions != null) ...profile!.permissions,
+    };
+    var isActive = profile?.isActive ?? true;
+    String? dialogError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(
+                isInvite
+                    ? 'دعوة موظف / Invite employee'
+                    : 'تعديل موظف / Edit employee',
+              ),
+              content: SizedBox(
+                width: 540,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (dialogError != null) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.red.withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: Text(
+                            dialogError!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      if (isInvite) ...[
+                        TextField(
+                          controller: fullNameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'الاسم الكامل / Full name',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: phoneCtrl,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                            labelText: 'الهاتف / Phone',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: pinCtrl,
+                          keyboardType: TextInputType.number,
+                          obscureText: true,
+                          decoration: const InputDecoration(
+                            labelText: 'PIN / رمز الدخول',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      TextField(
+                        controller: displayNameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'الاسم المعروض / Display name',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: emailCtrl,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'البريد الإلكتروني / Email',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: roleCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Role tag',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: notesCtrl,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Notes / ملاحظات',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: reasonCtrl,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Reason / السبب',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'الصلاحيات / Permissions',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _permissionSelector(
+                        context,
+                        selected: selectedPermissions,
+                        onToggle: (permission) {
+                          setDialogState(() {
+                            if (selectedPermissions.contains(permission)) {
+                              selectedPermissions.remove(permission);
+                            } else {
+                              selectedPermissions.add(permission);
+                            }
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Active / نشط'),
+                        value: isActive,
+                        onChanged: (value) => setDialogState(() => isActive = value),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('إلغاء'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final roleTag = roleCtrl.text.trim().isEmpty
+                        ? 'staff'
+                        : roleCtrl.text.trim();
+                    if (isInvite) {
+                      if (fullNameCtrl.text.trim().isEmpty) {
+                        setDialogState(() => dialogError = 'Full name is required.');
+                        return;
+                      }
+                      if (phoneCtrl.text.trim().isEmpty) {
+                        setDialogState(() => dialogError = 'Phone is required.');
+                        return;
+                      }
+                      if (pinCtrl.text.trim().isEmpty) {
+                        setDialogState(() => dialogError = 'PIN is required.');
+                        return;
+                      }
+                      await ref
+                          .read(serviceProviderWorkspaceControllerProvider.notifier)
+                          .inviteEmployee({
+                            'fullName': fullNameCtrl.text.trim(),
+                            'phone': phoneCtrl.text.trim(),
+                            'pin': pinCtrl.text.trim(),
+                            'roleTag': roleTag,
+                            if (displayNameCtrl.text.trim().isNotEmpty)
+                              'displayName': displayNameCtrl.text.trim(),
+                            if (emailCtrl.text.trim().isNotEmpty)
+                              'contactEmail': emailCtrl.text.trim(),
+                            if (notesCtrl.text.trim().isNotEmpty)
+                              'notes': notesCtrl.text.trim(),
+                            if (reasonCtrl.text.trim().isNotEmpty)
+                              'reason': reasonCtrl.text.trim(),
+                            'isActive': isActive,
+                            if (selectedPermissions.isNotEmpty)
+                              'permissions':
+                                  selectedPermissions.toList(growable: false),
+                          });
+                    } else {
+                      final employeeUserId = employee?.userId;
+                      if (employeeUserId == null || employeeUserId <= 0) {
+                        setDialogState(() => dialogError = 'Employee is required.');
+                        return;
+                      }
+                      await ref
+                          .read(serviceProviderWorkspaceControllerProvider.notifier)
+                          .upsertEmployee({
+                            'employeeUserId': employeeUserId,
+                            'roleTag': roleTag,
+                            if (displayNameCtrl.text.trim().isNotEmpty)
+                              'displayName': displayNameCtrl.text.trim(),
+                            if (emailCtrl.text.trim().isNotEmpty)
+                              'contactEmail': emailCtrl.text.trim(),
+                            if (notesCtrl.text.trim().isNotEmpty)
+                              'notes': notesCtrl.text.trim(),
+                            if (reasonCtrl.text.trim().isNotEmpty)
+                              'reason': reasonCtrl.text.trim(),
+                            'isActive': isActive,
+                            if (selectedPermissions.isNotEmpty)
+                              'permissions':
+                                  selectedPermissions.toList(growable: false),
+                          });
+                    }
+                    final latest =
+                        ref.read(serviceProviderWorkspaceControllerProvider);
+                    if (latest.error != null) {
+                      setDialogState(() => dialogError = latest.error);
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: Text(isInvite ? 'دعوة' : 'حفظ'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

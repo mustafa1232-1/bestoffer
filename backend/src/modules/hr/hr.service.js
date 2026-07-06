@@ -1,6 +1,14 @@
 import { AppError } from "../../shared/utils/errors.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import * as repo from "./hr.repo.js";
+import {
+  buildWorkspacePermissionPayload,
+  hasPermission,
+  STORE_EMPLOYEE_PERMISSION_KEYS,
+} from "../../shared/workspaces/employee-permissions.js";
+import { createUser, findUserByPhone } from "../auth/auth.repo.js";
+import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
+import { hashPin } from "../../shared/utils/hash.js";
 
 const MANAGER_ROLES = new Set(["owner", "admin", "deputy_admin", "call_center", "hr"]);
 
@@ -40,6 +48,20 @@ function asTrimmed(value, fallback = "") {
   return out || fallback;
 }
 
+function normalizeDigits(value) {
+  return String(value || "")
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+}
+
+function normalizePhone(value) {
+  return normalizeDigits(value).replace(/[^\d]/g, "");
+}
+
+function normalizePin(value) {
+  return normalizeDigits(value).replace(/[^\d]/g, "");
+}
+
 function mapMerchant(row) {
   if (!row) return null;
   return {
@@ -50,7 +72,41 @@ function mapMerchant(row) {
   };
 }
 
+function mapEmployeeProfileRow(row) {
+  if (!row) return null;
+  const permissions = Array.isArray(row.permissions_json)
+    ? row.permissions_json
+    : [];
+  const permissionPayload = buildWorkspacePermissionPayload(
+    permissions,
+    "merchant"
+  );
+  return {
+    id: Number(row.id),
+    roleTag: row.role_tag || "staff",
+    displayName: row.display_name || null,
+    contactEmail: row.contact_email || null,
+    permissions,
+    permissionMap: permissionPayload.permissionMap,
+    employmentType: row.employment_type || "full_time",
+    baseSalary: row.base_salary == null ? 0 : Number(row.base_salary || 0),
+    currency: row.currency || "IQD",
+    workDaysPerWeek: Number(row.work_days_per_week || 6),
+    shiftStartTime: row.shift_start_time || null,
+    shiftEndTime: row.shift_end_time || null,
+    joinedAt: row.joined_at || null,
+    isActive: row.profile_is_active !== false && row.is_active !== false,
+    archivedAt: row.archived_at || null,
+    notes: row.notes || null,
+    invitedByUserId:
+      row.invited_by_user_id == null ? null : Number(row.invited_by_user_id),
+    updatedByUserId:
+      row.updated_by_user_id == null ? null : Number(row.updated_by_user_id),
+  };
+}
+
 function mapEmployee(row) {
+  const profile = mapEmployeeProfileRow(row);
   return {
     userId: Number(row.id),
     fullName: row.full_name,
@@ -59,27 +115,36 @@ function mapEmployee(row) {
     imageUrl: row.image_url || null,
     workTitle: row.work_title || null,
     workCompany: row.work_company || null,
+    displayName: row.display_name || row.full_name || null,
+    contactEmail: row.contact_email || null,
     flags: {
       isDeliveryAgent: row.is_delivery_agent === true,
       isAccountant: row.is_accountant === true,
       isHrStaff: row.is_hr_staff === true,
     },
-    profile: row.employee_profile_id
-      ? {
-          id: Number(row.employee_profile_id),
-          roleTag: row.role_tag || "staff",
-          employmentType: row.employment_type || "full_time",
-          baseSalary:
-            row.base_salary == null ? 0 : Number(row.base_salary || 0),
-          currency: row.currency || "IQD",
-          workDaysPerWeek: Number(row.work_days_per_week || 6),
-          shiftStartTime: row.shift_start_time || null,
-          shiftEndTime: row.shift_end_time || null,
-          joinedAt: row.joined_at || null,
-          isActive: row.profile_is_active !== false,
-          notes: row.notes || null,
-        }
-      : null,
+    profile: row.employee_profile_id ? profile : null,
+  };
+}
+
+function mapEmployeeActivityLog(row) {
+  return {
+    id: Number(row.id),
+    workspaceKind: row.workspace_kind || "merchant",
+    workspaceId: Number(row.workspace_id),
+    employeeProfileId:
+      row.employee_profile_id == null ? null : Number(row.employee_profile_id),
+    employeeUserId: Number(row.employee_user_id),
+    employeeFullName: row.employee_full_name || "",
+    employeePhone: row.employee_phone || "",
+    actorUserId: row.actor_user_id == null ? null : Number(row.actor_user_id),
+    actorFullName: row.actor_full_name || null,
+    actorRole: row.actor_role || "",
+    actionKey: row.action_key || "",
+    reason: row.reason || null,
+    oldValue: row.old_value && typeof row.old_value === "object" ? row.old_value : {},
+    newValue: row.new_value && typeof row.new_value === "object" ? row.new_value : {},
+    note: row.note || null,
+    createdAt: row.created_at || null,
   };
 }
 
@@ -260,7 +325,9 @@ async function resolveMerchantForManagement(actor, merchantId = null) {
   }
 
   if (role === "owner") {
-    const merchant = await repo.findOwnerMerchantByUserId(actorUserId);
+    const merchant =
+      (await repo.findOwnerMerchantByUserId(actorUserId)) ||
+      (await repo.findMerchantByEmployeeUserId(actorUserId));
     if (!merchant) {
       throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
     }
@@ -268,7 +335,9 @@ async function resolveMerchantForManagement(actor, merchantId = null) {
   }
 
   if (role === "hr") {
-    const merchant = await repo.findHrMerchantByUserId(actorUserId);
+    const merchant =
+      (await repo.findHrMerchantByUserId(actorUserId)) ||
+      (await repo.findMerchantByEmployeeUserId(actorUserId));
     if (!merchant) {
       throw new AppError("HR_MERCHANT_NOT_FOUND", { status: 404 });
     }
@@ -276,6 +345,40 @@ async function resolveMerchantForManagement(actor, merchantId = null) {
   }
 
   throw new AppError("FORBIDDEN_HR_MANAGEMENT", { status: 403 });
+}
+
+async function ensureMerchantPermission(actor, merchantId, permission) {
+  const actorUserId = toActorUserId(actor);
+  const role = normalizeRole(actor?.role);
+  if (
+    actor?.isSuperAdmin === true ||
+    role === "admin" ||
+    role === "deputy_admin" ||
+    role === "call_center" ||
+    role === "hr"
+  ) {
+    return;
+  }
+
+  const ownerMerchant = await repo.findOwnerMerchantByUserId(actorUserId);
+  if (ownerMerchant && Number(ownerMerchant.id) === Number(merchantId)) {
+    return;
+  }
+
+  const profile = await repo.findEmployeeProfileForMerchant({
+    merchantId,
+    employeeUserId: actorUserId,
+  });
+  if (!profile || profile.is_active !== true || profile.archived_at) {
+    throw new AppError("FORBIDDEN_MERCHANT_EMPLOYEE_ONLY", { status: 403 });
+  }
+
+  const permissions = Array.isArray(profile.permissions_json)
+    ? profile.permissions_json
+    : [];
+  if (!hasPermission(permissions, permission)) {
+    throw new AppError("FORBIDDEN_MERCHANT_PERMISSION", { status: 403 });
+  }
 }
 
 function assertPayrollDraftStatus(batch) {
@@ -298,6 +401,7 @@ export async function getDashboard(actor, { merchantId } = {}) {
 
 export async function listEmployees(actor, { merchantId, search, limit }) {
   const merchant = await resolveMerchantForManagement(actor, merchantId);
+  await ensureMerchantPermission(actor, merchant.id, "manage_employees");
   const rows = await repo.listMerchantEmployees({
     merchantId: merchant.id,
     search,
@@ -306,11 +410,13 @@ export async function listEmployees(actor, { merchantId, search, limit }) {
   return {
     merchant: mapMerchant(merchant),
     items: rows.map(mapEmployee),
+    availablePermissions: STORE_EMPLOYEE_PERMISSION_KEYS,
   };
 }
 
 export async function upsertEmployee(actor, dto) {
   const merchant = await resolveMerchantForManagement(actor, dto.merchantId);
+  await ensureMerchantPermission(actor, merchant.id, "manage_employees");
   const actorUserId = toActorUserId(actor);
   const employeeUserId = Number(dto.employeeUserId);
   if (!Number.isInteger(employeeUserId) || employeeUserId <= 0) {
@@ -324,11 +430,24 @@ export async function upsertEmployee(actor, dto) {
     1,
     Math.min(7, Number(dto.workDaysPerWeek || 6) || 6)
   );
+  const permissions = Array.isArray(dto.permissions)
+    ? dto.permissions
+    : [];
+  const permissionPayload = buildWorkspacePermissionPayload(
+    permissions,
+    "merchant"
+  );
+  const previousProfile = await repo.findAnyEmployeeProfileForMerchant({
+    merchantId: merchant.id,
+    employeeUserId,
+  });
 
   const out = await repo.upsertEmployeeProfile({
     merchantId: merchant.id,
     employeeUserId,
     roleTag,
+    displayName: dto.displayName || null,
+    contactEmail: dto.contactEmail || null,
     employmentType,
     baseSalary,
     currency,
@@ -337,13 +456,163 @@ export async function upsertEmployee(actor, dto) {
     shiftEndTime: dto.shiftEndTime || null,
     joinedAt: toDateOnly(dto.joinedAt, null),
     isActive: dto.isActive !== false,
+    archivedAt: dto.archivedAt || (dto.isActive === false ? new Date().toISOString() : null),
     notes: dto.notes || null,
+    permissions: permissionPayload.permissions,
+    invitedByUserId: dto.invitedByUserId == null ? actorUserId : Number(dto.invitedByUserId),
     updatedByUserId: actorUserId,
+  });
+
+  await repo.insertEmployeeActivityLog({
+    workspaceKind: "merchant",
+    workspaceId: merchant.id,
+    employeeProfileId: Number(out.id),
+    employeeUserId,
+    actorUserId,
+    actorRole: normalizeRole(actor?.role),
+    actionKey: "merchant.employee.updated",
+    reason: dto.reason || null,
+    oldValue: previousProfile
+      ? {
+          displayName: previousProfile.display_name || null,
+          contactEmail: previousProfile.contact_email || null,
+          permissions: Array.isArray(previousProfile.permissions_json)
+            ? previousProfile.permissions_json
+            : [],
+          isActive: previousProfile.is_active === true,
+          archivedAt: previousProfile.archived_at || null,
+        }
+      : {},
+    newValue: {
+      displayName: out.display_name || null,
+      contactEmail: out.contact_email || null,
+      permissions: permissionPayload.permissions,
+      isActive: out.is_active === true,
+      archivedAt: out.archived_at || null,
+    },
+    note: dto.notes || null,
   });
 
   return {
     merchant: mapMerchant(merchant),
-    profile: out,
+    profile: mapEmployeeProfileRow(out),
+  };
+}
+
+export async function inviteEmployee(actor, dto) {
+  const merchant = await resolveMerchantForManagement(actor, dto.merchantId);
+  await ensureMerchantPermission(actor, merchant.id, "manage_employees");
+  const actorUserId = toActorUserId(actor);
+
+  const phone = normalizePhone(dto.phone);
+  const pin = normalizePin(dto.pin);
+  const fullName = String(dto.fullName || "").trim();
+  const displayName = String(dto.displayName || fullName || "").trim();
+  const contactEmail = String(dto.contactEmail || "").trim() || null;
+  if (!fullName) {
+    throw new AppError("FULL_NAME_REQUIRED", { status: 400 });
+  }
+  if (!/^\d{8,20}$/.test(phone)) {
+    throw new AppError("PHONE_INVALID", { status: 400 });
+  }
+  if (!/^\d{4,8}$/.test(pin)) {
+    throw new AppError("PIN_INVALID", { status: 400 });
+  }
+
+  const existing = await findUserByPhone(phone);
+  if (existing) {
+    throw new AppError("PHONE_EXISTS", { status: 409 });
+  }
+
+  const pinHash = await hashPin(pin);
+  const created = await runWithGeneratedAppUserUsername({
+    fullName,
+    phone,
+    execute: (username) =>
+      createUser({
+        fullName,
+        username,
+        phone,
+        pinHash,
+        block: "A",
+        buildingNumber: "A101",
+        apartment: "101",
+        imageUrl: null,
+        role: "owner",
+        analyticsConsentGranted: true,
+        analyticsConsentVersion: "merchant_employee_invite_v1",
+        analyticsConsentGrantedAt: new Date(),
+        chatQualityReviewConsent: true,
+      }),
+  });
+
+  const permissions = buildWorkspacePermissionPayload(
+    dto.permissions,
+    "merchant"
+  ).permissions;
+  const out = await repo.upsertEmployeeProfile({
+    merchantId: merchant.id,
+    employeeUserId: Number(created.id),
+    roleTag: String(dto.roleTag || "staff").trim().slice(0, 80) || "staff",
+    displayName,
+    contactEmail,
+    employmentType: String(dto.employmentType || "full_time").trim().slice(0, 32) || "full_time",
+    baseSalary: Number(dto.baseSalary || 0),
+    currency: String(dto.currency || "IQD").trim().slice(0, 10) || "IQD",
+    workDaysPerWeek: Math.max(1, Math.min(7, Number(dto.workDaysPerWeek || 6) || 6)),
+    shiftStartTime: dto.shiftStartTime || null,
+    shiftEndTime: dto.shiftEndTime || null,
+    joinedAt: dto.joinedAt || null,
+    isActive: dto.isActive !== false,
+    archivedAt: dto.archivedAt || null,
+    notes: dto.notes || null,
+    permissions,
+    invitedByUserId: actorUserId,
+    updatedByUserId: actorUserId,
+  });
+
+  await repo.insertEmployeeActivityLog({
+    workspaceKind: "merchant",
+    workspaceId: merchant.id,
+    employeeProfileId: Number(out.id),
+    employeeUserId: Number(created.id),
+    actorUserId,
+    actorRole: normalizeRole(actor?.role),
+    actionKey: "merchant.employee.invited",
+    reason: dto.reason || null,
+    oldValue: {},
+    newValue: {
+      displayName: out.display_name || displayName,
+      contactEmail: out.contact_email || contactEmail,
+      permissions,
+      isActive: out.is_active === true,
+    },
+    note: dto.notes || null,
+  });
+
+  return {
+    merchant: mapMerchant(merchant),
+    user: {
+      id: Number(created.id),
+      fullName: created.full_name,
+      phone: created.phone,
+      role: created.role,
+    },
+    profile: mapEmployeeProfileRow(out),
+  };
+}
+
+export async function listEmployeeActivityLogs(actor, { merchantId, employeeUserId, limit } = {}) {
+  const merchant = await resolveMerchantForManagement(actor, merchantId);
+  await ensureMerchantPermission(actor, merchant.id, "view_audit_log");
+  const rows = await repo.listEmployeeActivityLogs({
+    merchantId: merchant.id,
+    employeeUserId: employeeUserId == null ? null : Number(employeeUserId),
+    limit,
+  });
+  return {
+    merchant: mapMerchant(merchant),
+    items: rows.map(mapEmployeeActivityLog),
   };
 }
 

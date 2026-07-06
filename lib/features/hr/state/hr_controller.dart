@@ -25,6 +25,7 @@ class HrState {
   final List<Map<String, dynamic>> leaveRequests;
   final List<Map<String, dynamic>> salaryActions;
   final List<Map<String, dynamic>> advanceRequests;
+  final List<Map<String, dynamic>> employeeActivityLogs;
   final List<Map<String, dynamic>> attendanceArchive;
   final String? error;
   final String? successMessage;
@@ -41,6 +42,7 @@ class HrState {
     this.leaveRequests = const [],
     this.salaryActions = const [],
     this.advanceRequests = const [],
+    this.employeeActivityLogs = const [],
     this.attendanceArchive = const [],
     this.error,
     this.successMessage,
@@ -58,6 +60,7 @@ class HrState {
     List<Map<String, dynamic>>? leaveRequests,
     List<Map<String, dynamic>>? salaryActions,
     List<Map<String, dynamic>>? advanceRequests,
+    List<Map<String, dynamic>>? employeeActivityLogs,
     List<Map<String, dynamic>>? attendanceArchive,
     String? error,
     String? successMessage,
@@ -74,6 +77,7 @@ class HrState {
       leaveRequests: leaveRequests ?? this.leaveRequests,
       salaryActions: salaryActions ?? this.salaryActions,
       advanceRequests: advanceRequests ?? this.advanceRequests,
+      employeeActivityLogs: employeeActivityLogs ?? this.employeeActivityLogs,
       attendanceArchive: attendanceArchive ?? this.attendanceArchive,
       error: error,
       successMessage: successMessage,
@@ -111,6 +115,7 @@ class HrController extends StateNotifier<HrState> {
       final leaveRequestsFuture = api.listLeaveRequests(limit: 120);
       final salaryActionsFuture = api.listSalaryActions(limit: 200);
       final advanceRequestsFuture = api.listAdvanceRequests(limit: 120);
+      final activityLogsFuture = api.listEmployeeActivityLogs(limit: 120);
       final now = DateTime.now();
       final archiveFuture = api.getAttendanceArchive(
         periodYear: now.year,
@@ -124,6 +129,7 @@ class HrController extends StateNotifier<HrState> {
         leaveRequestsFuture,
         salaryActionsFuture,
         advanceRequestsFuture,
+        activityLogsFuture,
         archiveFuture,
       ]);
       final dashboard = await dashboardFuture;
@@ -133,6 +139,7 @@ class HrController extends StateNotifier<HrState> {
       final leaveRequests = await leaveRequestsFuture;
       final salaryActions = await salaryActionsFuture;
       final advanceRequests = await advanceRequestsFuture;
+      final activityLogs = await activityLogsFuture;
       final archive = await archiveFuture;
       state = state.copyWith(
         loading: false,
@@ -158,6 +165,9 @@ class HrController extends StateNotifier<HrState> {
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList(growable: false),
         advanceRequests: ((advanceRequests['items'] as List?) ?? const [])
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList(growable: false),
+        employeeActivityLogs: ((activityLogs['items'] as List?) ?? const [])
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList(growable: false),
         attendanceArchive: ((archive['attendance'] as List?) ?? const [])
@@ -197,17 +207,23 @@ class HrController extends StateNotifier<HrState> {
     required String roleTag,
     required num baseSalary,
     required int workDaysPerWeek,
+    String? displayName,
+    String? contactEmail,
     String? employmentType,
     String? shiftStartTime,
     String? shiftEndTime,
     bool isActive = true,
     String? notes,
+    List<String> permissions = const [],
+    String? reason,
   }) async {
     state = state.copyWith(saving: true, error: null, successMessage: null);
     try {
       await ref.read(hrApiProvider).upsertEmployee({
         'employeeUserId': employeeUserId,
         'roleTag': roleTag,
+        if (displayName != null) 'displayName': displayName,
+        if (contactEmail != null) 'contactEmail': contactEmail,
         'employmentType': employmentType ?? 'full_time',
         'baseSalary': baseSalary,
         'workDaysPerWeek': workDaysPerWeek,
@@ -215,6 +231,8 @@ class HrController extends StateNotifier<HrState> {
         'shiftEndTime': shiftEndTime,
         'isActive': isActive,
         'notes': notes,
+        if (permissions.isNotEmpty) 'permissions': permissions,
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
       });
       await bootstrap();
       state = state.copyWith(
@@ -230,6 +248,60 @@ class HrController extends StateNotifier<HrState> {
       state = state.copyWith(
         saving: false,
         error: _tr('تعذر تحديث الملف.', 'Failed to update profile.'),
+      );
+    }
+  }
+
+  Future<void> inviteEmployee({
+    required String fullName,
+    required String phone,
+    required String pin,
+    required String roleTag,
+    required num baseSalary,
+    required int workDaysPerWeek,
+    String? displayName,
+    String? contactEmail,
+    String? employmentType,
+    String? shiftStartTime,
+    String? shiftEndTime,
+    bool isActive = true,
+    String? notes,
+    List<String> permissions = const [],
+    String? reason,
+  }) async {
+    state = state.copyWith(saving: true, error: null, successMessage: null);
+    try {
+      await ref.read(hrApiProvider).inviteEmployee({
+        'fullName': fullName,
+        'phone': phone,
+        'pin': pin,
+        'roleTag': roleTag,
+        if (displayName != null) 'displayName': displayName,
+        if (contactEmail != null) 'contactEmail': contactEmail,
+        'employmentType': employmentType ?? 'full_time',
+        'baseSalary': baseSalary,
+        'workDaysPerWeek': workDaysPerWeek,
+        'shiftStartTime': shiftStartTime,
+        'shiftEndTime': shiftEndTime,
+        'isActive': isActive,
+        'notes': notes,
+        if (permissions.isNotEmpty) 'permissions': permissions,
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      });
+      await bootstrap();
+      state = state.copyWith(
+        saving: false,
+        successMessage: _tr(
+          'تمت دعوة الموظف وتسجيل صلاحياته.',
+          'Employee invited and permissions saved.',
+        ),
+      );
+    } on DioException catch (e) {
+      state = state.copyWith(saving: false, error: _mapError(e));
+    } catch (_) {
+      state = state.copyWith(
+        saving: false,
+        error: _tr('تعذر دعوة الموظف.', 'Failed to invite employee.'),
       );
     }
   }

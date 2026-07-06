@@ -37,6 +37,27 @@ class HrApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> inviteEmployee(Map<String, dynamic> body) async {
+    final response = await dio.post('/api/hr/employees/invite', data: body);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> listEmployeeActivityLogs({
+    int? merchantId,
+    int? employeeUserId,
+    int limit = 120,
+  }) async {
+    final response = await dio.get(
+      '/api/hr/employees/activity-log',
+      queryParameters: {
+        if (merchantId != null) 'merchantId': merchantId,
+        if (employeeUserId != null) 'employeeUserId': employeeUserId,
+        'limit': limit,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> listAttendance({
     int? merchantId,
     int? employeeUserId,

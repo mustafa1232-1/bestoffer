@@ -20,6 +20,12 @@ function toIsoOrNull(value) {
   return d.toISOString();
 }
 
+function clampLimit(value, fallback = 100) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
+  return Math.min(200, parsed);
+}
+
 function asObj(value) {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value;
   return {};
@@ -448,11 +454,11 @@ async function fetchActivePromotionMap(client, providerIds = []) {
   return map;
 }
 
-async function getProviderByUserId(client, userId) {
+async function findOwnerProviderByUserIdInternal(client, userId) {
   const uid = toInt(userId);
   if (!uid) return null;
   const r = await client.query(
-    `SELECT
+     `SELECT
        p.*,
        c.name AS main_category_name,
        u.id AS owner_id,
@@ -466,6 +472,48 @@ async function getProviderByUserId(client, userId) {
     [uid]
   );
   return mapProvider(r.rows[0] || null);
+}
+
+async function findProviderEmployeeAccessByUserId(client, userId) {
+  const uid = toInt(userId);
+  if (!uid) return null;
+  const r = await client.query(
+    `SELECT
+       p.*,
+       c.name AS main_category_name,
+       u.id AS owner_id,
+       u.full_name AS owner_full_name,
+       u.image_url AS owner_image_url,
+       ep.id AS employee_profile_id,
+       ep.role_tag AS employee_role_tag,
+       ep.display_name AS employee_display_name,
+       ep.contact_email AS employee_contact_email,
+       ep.permissions_json,
+       ep.is_active AS employee_is_active,
+       ep.archived_at AS employee_archived_at,
+       ep.notes,
+       ep.invited_by_user_id,
+       ep.updated_by_user_id
+     FROM service_provider_employee_profile ep
+     JOIN service_provider_profiles p ON p.id = ep.provider_id
+     LEFT JOIN service_categories c ON c.id = p.main_category_id
+     LEFT JOIN app_user u ON u.id = p.user_id
+     WHERE ep.employee_user_id = $1
+       AND ep.is_active = TRUE
+       AND ep.archived_at IS NULL
+       AND p.is_active = TRUE
+     ORDER BY ep.updated_at DESC, ep.id DESC
+     LIMIT 1`,
+    [uid]
+  );
+  return r.rows[0] || null;
+}
+
+async function getProviderByUserId(client, userId) {
+  const direct = await findOwnerProviderByUserIdInternal(client, userId);
+  if (direct) return direct;
+  const employee = await findProviderEmployeeAccessByUserId(client, userId);
+  return employee ? mapProvider(employee) : null;
 }
 
 async function getProviderById(client, providerId) {
@@ -997,6 +1045,47 @@ export async function getProviderProfileByUserId(userId) {
   const client = await pool.connect();
   try {
     return await getProviderByUserId(client, userId);
+  } finally {
+    client.release();
+  }
+}
+
+export async function findOwnerProviderByUserId(userId) {
+  const client = await pool.connect();
+  try {
+    return await findOwnerProviderByUserIdInternal(client, userId);
+  } finally {
+    client.release();
+  }
+}
+
+export async function findProviderByEmployeeUserId(userId) {
+  const client = await pool.connect();
+  try {
+    const row = await findProviderEmployeeAccessByUserId(client, userId);
+    if (!row) return null;
+    return {
+      provider: mapProvider(row),
+      employeeProfile: {
+        id: row.employee_profile_id == null ? null : Number(row.employee_profile_id),
+        roleTag: row.employee_role_tag || 'staff',
+        displayName: row.employee_display_name || null,
+        contactEmail: row.employee_contact_email || null,
+        permissions: Array.isArray(row.permissions_json) ? row.permissions_json : [],
+        permissionMap: Object.fromEntries(
+          (Array.isArray(row.permissions_json) ? row.permissions_json : []).map(
+            (permission) => [String(permission || ''), true]
+          )
+        ),
+        isActive: row.employee_is_active === true,
+        archivedAt: row.employee_archived_at || null,
+        notes: row.notes || null,
+        invitedByUserId:
+          row.invited_by_user_id == null ? null : Number(row.invited_by_user_id),
+        updatedByUserId:
+          row.updated_by_user_id == null ? null : Number(row.updated_by_user_id),
+      },
+    };
   } finally {
     client.release();
   }
@@ -2733,6 +2822,226 @@ export async function listProviderWorkspace(userId) {
   } finally {
     client.release();
   }
+}
+
+export async function findEmployeeProfileForProvider({
+  providerId,
+  employeeUserId,
+}) {
+  const r = await q(
+    `SELECT *
+     FROM service_provider_employee_profile
+     WHERE provider_id = $1
+       AND employee_user_id = $2
+       AND is_active = TRUE
+       AND archived_at IS NULL
+     LIMIT 1`,
+    [Number(providerId), Number(employeeUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function findAnyEmployeeProfileForProvider({
+  providerId,
+  employeeUserId,
+}) {
+  const r = await q(
+    `SELECT *
+     FROM service_provider_employee_profile
+     WHERE provider_id = $1
+       AND employee_user_id = $2
+     LIMIT 1`,
+    [Number(providerId), Number(employeeUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function listProviderEmployees({
+  providerId,
+  search = '',
+  limit = 120,
+}) {
+  const safeLimit = clampLimit(limit, 120);
+  const params = [Number(providerId)];
+  let searchClause = '';
+  const normalizedSearch = String(search || '').trim();
+  if (normalizedSearch) {
+    params.push(`%${normalizedSearch}%`);
+    searchClause =
+      "AND (u.full_name ILIKE $2 OR COALESCE(ep.display_name, '') ILIKE $2 OR COALESCE(ep.contact_email, '') ILIKE $2 OR regexp_replace(u.phone, '[^0-9]', '', 'g') ILIKE $2)";
+  }
+  params.push(safeLimit);
+  const limitIndex = params.length;
+
+  const r = await q(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.phone,
+       u.role,
+       u.image_url,
+       ep.id AS employee_profile_id,
+       ep.role_tag,
+       ep.display_name,
+       ep.contact_email,
+       ep.permissions_json,
+       ep.is_active,
+       ep.archived_at,
+       ep.notes,
+       ep.invited_by_user_id,
+       ep.updated_by_user_id,
+       ep.created_at,
+       ep.updated_at
+     FROM service_provider_employee_profile ep
+     JOIN app_user u ON u.id = ep.employee_user_id
+     WHERE ep.provider_id = $1
+       ${searchClause}
+     ORDER BY ep.updated_at DESC, ep.id DESC
+     LIMIT $${limitIndex}`,
+    params
+  );
+  return r.rows;
+}
+
+export async function upsertProviderEmployeeProfile({
+  providerId,
+  employeeUserId,
+  roleTag,
+  displayName,
+  contactEmail,
+  permissions,
+  isActive,
+  archivedAt,
+  notes,
+  invitedByUserId,
+  updatedByUserId,
+}) {
+  const r = await q(
+    `INSERT INTO service_provider_employee_profile
+      (
+        provider_id,
+        employee_user_id,
+        role_tag,
+        display_name,
+        contact_email,
+        permissions_json,
+        is_active,
+        archived_at,
+        notes,
+        invited_by_user_id,
+        updated_by_user_id,
+        created_at,
+        updated_at
+      )
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,NOW(),NOW())
+     ON CONFLICT (provider_id, employee_user_id)
+     DO UPDATE SET
+       role_tag = EXCLUDED.role_tag,
+       display_name = EXCLUDED.display_name,
+       contact_email = EXCLUDED.contact_email,
+       permissions_json = EXCLUDED.permissions_json,
+       is_active = EXCLUDED.is_active,
+       archived_at = EXCLUDED.archived_at,
+       notes = EXCLUDED.notes,
+       invited_by_user_id = COALESCE(EXCLUDED.invited_by_user_id, service_provider_employee_profile.invited_by_user_id),
+       updated_by_user_id = EXCLUDED.updated_by_user_id,
+       updated_at = NOW()
+     RETURNING *`,
+    [
+      Number(providerId),
+      Number(employeeUserId),
+      String(roleTag || 'staff').slice(0, 80),
+      displayName ? String(displayName).slice(0, 180) : null,
+      contactEmail ? String(contactEmail).slice(0, 320) : null,
+      JSON.stringify(Array.isArray(permissions) ? permissions : []),
+      isActive !== false,
+      archivedAt || null,
+      notes ? String(notes).slice(0, 3000) : null,
+      invitedByUserId == null ? null : Number(invitedByUserId),
+      updatedByUserId == null ? null : Number(updatedByUserId),
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function listProviderEmployeeActivityLogs({
+  providerId,
+  employeeUserId = null,
+  limit = 120,
+}) {
+  const safeLimit = clampLimit(limit, 120);
+  const params = [Number(providerId)];
+  const clauses = ["al.workspace_kind = 'service_provider'", "al.workspace_id = $1"];
+  if (employeeUserId != null) {
+    params.push(Number(employeeUserId));
+    clauses.push(`al.employee_user_id = $${params.length}`);
+  }
+  params.push(safeLimit);
+  const limitIndex = params.length;
+
+  const r = await q(
+    `SELECT
+       al.*,
+       u.full_name AS employee_full_name,
+       u.phone AS employee_phone,
+       actor.full_name AS actor_full_name
+     FROM workspace_employee_activity_log al
+     JOIN app_user u ON u.id = al.employee_user_id
+     LEFT JOIN app_user actor ON actor.id = al.actor_user_id
+     WHERE ${clauses.join(" AND ")}
+     ORDER BY al.created_at DESC, al.id DESC
+     LIMIT $${limitIndex}`,
+    params
+  );
+  return r.rows;
+}
+
+export async function insertProviderEmployeeActivityLog({
+  workspaceKind = 'service_provider',
+  workspaceId,
+  employeeProfileId = null,
+  employeeUserId,
+  actorUserId = null,
+  actorRole = '',
+  actionKey,
+  reason = null,
+  oldValue = {},
+  newValue = {},
+  note = null,
+}) {
+  const r = await q(
+    `INSERT INTO workspace_employee_activity_log
+      (
+        workspace_kind,
+        workspace_id,
+        employee_profile_id,
+        employee_user_id,
+        actor_user_id,
+        actor_role,
+        action_key,
+        reason,
+        old_value,
+        new_value,
+        note,
+        created_at
+      )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,NOW())
+     RETURNING *`,
+    [
+      String(workspaceKind || 'service_provider').slice(0, 24),
+      Number(workspaceId),
+      employeeProfileId == null ? null : Number(employeeProfileId),
+      Number(employeeUserId),
+      actorUserId == null ? null : Number(actorUserId),
+      String(actorRole || '').slice(0, 40),
+      String(actionKey || '').slice(0, 120),
+      reason ? String(reason).slice(0, 3000) : null,
+      JSON.stringify(oldValue || {}),
+      JSON.stringify(newValue || {}),
+      note ? String(note).slice(0, 3000) : null,
+    ]
+  );
+  return r.rows[0] || null;
 }
 
 export async function saveProvider(userId, providerId) {

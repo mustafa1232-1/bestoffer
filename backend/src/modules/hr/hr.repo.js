@@ -15,6 +15,13 @@ function toNullableDate(value) {
   return d.toISOString().slice(0, 10);
 }
 
+function toNullableTimestamp(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 function monthBounds(periodYear, periodMonth) {
   const year = Number(periodYear);
   const month = Number(periodMonth);
@@ -112,6 +119,33 @@ export async function findMerchantById(merchantId) {
   return r.rows[0] || null;
 }
 
+export async function findMerchantByEmployeeUserId(employeeUserId) {
+  const r = await q(
+    `SELECT
+       m.id,
+       m.name,
+       m.type,
+       m.owner_user_id,
+       ep.id AS employee_profile_id,
+       ep.role_tag,
+       ep.display_name,
+       ep.contact_email,
+       ep.permissions_json,
+       ep.is_active,
+       ep.archived_at
+     FROM merchant_employee_profile ep
+     JOIN merchant m ON m.id = ep.merchant_id
+     WHERE ep.employee_user_id = $1
+       AND ep.is_active = TRUE
+       AND ep.archived_at IS NULL
+       AND m.is_disabled = FALSE
+     ORDER BY ep.updated_at DESC, ep.id DESC
+     LIMIT 1`,
+    [Number(employeeUserId)]
+  );
+  return r.rows[0] || null;
+}
+
 export async function listMerchantEmployees({
   merchantId,
   search = "",
@@ -124,7 +158,7 @@ export async function listMerchantEmployees({
   if (normalizedSearch) {
     params.push(`%${normalizedSearch}%`);
     searchClause =
-      "AND (u.full_name ILIKE $2 OR regexp_replace(u.phone, '[^0-9]', '', 'g') ILIKE $2)";
+      "AND (u.full_name ILIKE $2 OR COALESCE(ep.display_name, '') ILIKE $2 OR COALESCE(ep.contact_email, '') ILIKE $2 OR regexp_replace(u.phone, '[^0-9]', '', 'g') ILIKE $2)";
   }
   params.push(safeLimit);
   const limitIndex = params.length;
@@ -165,6 +199,11 @@ export async function listMerchantEmployees({
        u.work_company,
        ep.id AS employee_profile_id,
        ep.role_tag,
+       ep.display_name,
+       ep.contact_email,
+       ep.permissions_json,
+       ep.archived_at,
+       ep.invited_by_user_id,
        ep.employment_type,
        ep.base_salary,
        ep.currency,
@@ -268,6 +307,8 @@ export async function upsertEmployeeProfile({
   merchantId,
   employeeUserId,
   roleTag,
+  displayName,
+  contactEmail,
   employmentType,
   baseSalary,
   currency,
@@ -276,7 +317,10 @@ export async function upsertEmployeeProfile({
   shiftEndTime,
   joinedAt,
   isActive,
+  archivedAt,
   notes,
+  permissions,
+  invitedByUserId,
   updatedByUserId,
 }) {
   const r = await q(
@@ -285,6 +329,9 @@ export async function upsertEmployeeProfile({
         merchant_id,
         employee_user_id,
         role_tag,
+        display_name,
+        contact_email,
+        permissions_json,
         employment_type,
         base_salary,
         currency,
@@ -293,15 +340,20 @@ export async function upsertEmployeeProfile({
         shift_end_time,
         joined_at,
         is_active,
+        archived_at,
         notes,
+        invited_by_user_id,
         updated_by_user_id,
         created_at,
         updated_at
       )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW(),NOW())
      ON CONFLICT (merchant_id, employee_user_id)
      DO UPDATE SET
        role_tag = EXCLUDED.role_tag,
+       display_name = EXCLUDED.display_name,
+       contact_email = EXCLUDED.contact_email,
+       permissions_json = EXCLUDED.permissions_json,
        employment_type = EXCLUDED.employment_type,
        base_salary = EXCLUDED.base_salary,
        currency = EXCLUDED.currency,
@@ -310,7 +362,9 @@ export async function upsertEmployeeProfile({
        shift_end_time = EXCLUDED.shift_end_time,
        joined_at = EXCLUDED.joined_at,
        is_active = EXCLUDED.is_active,
+       archived_at = EXCLUDED.archived_at,
        notes = EXCLUDED.notes,
+       invited_by_user_id = COALESCE(EXCLUDED.invited_by_user_id, merchant_employee_profile.invited_by_user_id),
        updated_by_user_id = EXCLUDED.updated_by_user_id,
        updated_at = NOW()
      RETURNING *`,
@@ -318,6 +372,9 @@ export async function upsertEmployeeProfile({
       Number(merchantId),
       Number(employeeUserId),
       String(roleTag || "staff").slice(0, 80),
+      displayName ? String(displayName).slice(0, 180) : null,
+      contactEmail ? String(contactEmail).slice(0, 320) : null,
+      JSON.stringify(Array.isArray(permissions) ? permissions : []),
       String(employmentType || "full_time").slice(0, 32),
       Number(baseSalary || 0),
       String(currency || "IQD").slice(0, 10),
@@ -326,7 +383,9 @@ export async function upsertEmployeeProfile({
       shiftEndTime || null,
       toNullableDate(joinedAt),
       isActive !== false,
+      toNullableTimestamp(archivedAt),
       notes ? String(notes).slice(0, 3000) : null,
+      Number(invitedByUserId) || null,
       Number(updatedByUserId) || null,
     ]
   );
@@ -457,6 +516,23 @@ export async function findEmployeeProfileForMerchant({
      FROM merchant_employee_profile
      WHERE merchant_id = $1
        AND employee_user_id = $2
+       AND is_active = TRUE
+       AND archived_at IS NULL
+     LIMIT 1`,
+    [Number(merchantId), Number(employeeUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function findAnyEmployeeProfileForMerchant({
+  merchantId,
+  employeeUserId,
+}) {
+  const r = await q(
+    `SELECT *
+     FROM merchant_employee_profile
+     WHERE merchant_id = $1
+       AND employee_user_id = $2
      LIMIT 1`,
     [Number(merchantId), Number(employeeUserId)]
   );
@@ -473,6 +549,7 @@ export async function listEmployeeProfilesByUserId(userId) {
      JOIN merchant m ON m.id = ep.merchant_id
      WHERE ep.employee_user_id = $1
        AND ep.is_active = TRUE
+       AND ep.archived_at IS NULL
        AND m.is_disabled = FALSE
      ORDER BY ep.updated_at DESC, ep.id DESC`,
     [Number(userId)]
@@ -491,11 +568,92 @@ export async function listActiveEmployeeProfiles(merchantId) {
      JOIN app_user u ON u.id = ep.employee_user_id
      WHERE ep.merchant_id = $1
        AND ep.is_active = TRUE
+       AND ep.archived_at IS NULL
        AND u.is_account_disabled = FALSE
      ORDER BY ep.role_tag ASC, u.full_name ASC, ep.employee_user_id ASC`,
     [Number(merchantId)]
   );
   return r.rows;
+}
+
+export async function listEmployeeActivityLogs({
+  merchantId,
+  employeeUserId = null,
+  limit = 120,
+}) {
+  const safeLimit = clampLimit(limit, 120);
+  const params = [Number(merchantId)];
+  const clauses = ["al.workspace_kind = 'merchant'", "al.workspace_id = $1"];
+  if (employeeUserId != null) {
+    params.push(Number(employeeUserId));
+    clauses.push(`al.employee_user_id = $${params.length}`);
+  }
+  params.push(safeLimit);
+  const limitIndex = params.length;
+
+  const r = await q(
+    `SELECT
+       al.*,
+       u.full_name AS employee_full_name,
+       u.phone AS employee_phone,
+       actor.full_name AS actor_full_name
+     FROM workspace_employee_activity_log al
+     JOIN app_user u ON u.id = al.employee_user_id
+     LEFT JOIN app_user actor ON actor.id = al.actor_user_id
+     WHERE ${clauses.join(" AND ")}
+     ORDER BY al.created_at DESC, al.id DESC
+     LIMIT $${limitIndex}`,
+    params
+  );
+  return r.rows;
+}
+
+export async function insertEmployeeActivityLog({
+  workspaceKind,
+  workspaceId,
+  employeeProfileId = null,
+  employeeUserId,
+  actorUserId = null,
+  actorRole = "",
+  actionKey,
+  reason = null,
+  oldValue = {},
+  newValue = {},
+  note = null,
+}) {
+  const r = await q(
+    `INSERT INTO workspace_employee_activity_log
+      (
+        workspace_kind,
+        workspace_id,
+        employee_profile_id,
+        employee_user_id,
+        actor_user_id,
+        actor_role,
+        action_key,
+        reason,
+        old_value,
+        new_value,
+        note,
+        created_at
+      )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,NOW())
+     RETURNING *`,
+    [
+      String(workspaceKind || "merchant").slice(0, 24),
+      Number(workspaceId),
+      employeeProfileId == null ? null : Number(employeeProfileId),
+      Number(employeeUserId),
+      actorUserId == null ? null : Number(actorUserId),
+      String(actorRole || "").slice(0, 40),
+      String(actionKey || "").slice(0, 120),
+      reason ? String(reason).slice(0, 3000) : null,
+      JSON.stringify(oldValue || {}),
+      JSON.stringify(newValue || {}),
+      note ? String(note).slice(0, 3000) : null,
+    ]
+  );
+  return r.rows[0] || null;
 }
 
 export async function createOrReusePayrollBatch({

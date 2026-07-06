@@ -7,6 +7,7 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/widgets/app_user_drawer.dart';
 import '../../../core/widgets/desktop_dashboard_frame.dart';
+import '../../../core/workspaces/workspace_permissions.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../jobs/ui/jobs_hub_screen.dart';
 import '../../notifications/ui/notifications_bell.dart';
@@ -165,6 +166,76 @@ class _HrDashboardScreenState extends ConsumerState<HrDashboardScreen> {
     return _employeeStubFromRow(row);
   }
 
+  List<String> _merchantPermissionCatalog() {
+    return workspacePermissionCatalog(WorkspacePermissionKind.merchant);
+  }
+
+  List<String> _permissionListFromProfile(Map<String, dynamic> profile) {
+    final raw = profile['permissions'] ?? profile['permissions_json'];
+    if (raw is List) {
+      return raw.map((value) => '$value').where((value) => value.trim().isNotEmpty).toList(growable: false);
+    }
+    return const <String>[];
+  }
+
+  Widget _permissionChips(
+    BuildContext context,
+    List<String> permissions, {
+    bool dense = true,
+  }) {
+    if (permissions.isEmpty) {
+      return Text(
+        'لا توجد صلاحيات محددة بعد / No permissions selected',
+        style: TextStyle(color: Theme.of(context).hintColor),
+      );
+    }
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: permissions
+          .map(
+            (permission) => Chip(
+              visualDensity: dense ? VisualDensity.compact : VisualDensity.standard,
+              label: Text(
+                workspacePermissionLabelFor(
+                  context,
+                  permission,
+                  kind: WorkspacePermissionKind.merchant,
+                ),
+              ),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Widget _permissionSelector(
+    BuildContext context, {
+    required Set<String> selected,
+    required void Function(String permission, bool enabled) onChanged,
+  }) {
+    final catalog = _merchantPermissionCatalog();
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: catalog
+          .map(
+            (permission) => FilterChip(
+              selected: selected.contains(permission),
+              label: Text(
+                workspacePermissionLabelFor(
+                  context,
+                  permission,
+                  kind: WorkspacePermissionKind.merchant,
+                ),
+              ),
+              onSelected: (enabled) => onChanged(permission, enabled),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
   String _title(BuildContext context) {
     switch (_tab) {
       case _HrTab.dashboard:
@@ -252,13 +323,42 @@ class _HrDashboardScreenState extends ConsumerState<HrDashboardScreen> {
   }
 
   Future<void> _openEmployeeEditor(Map<String, dynamic> employee) async {
-    final userId = int.tryParse('${employee['userId'] ?? ''}');
-    if (userId == null || userId <= 0) return;
-    final profile = employee['profile'] is Map
-        ? Map<String, dynamic>.from(employee['profile'] as Map)
+    await _openEmployeeFormDialog(employee: employee, inviteMode: false);
+  }
+
+  Future<void> _openEmployeeInviteDialog() async {
+    await _openEmployeeFormDialog(inviteMode: true);
+  }
+
+  Future<void> _openEmployeeFormDialog({
+    Map<String, dynamic>? employee,
+    required bool inviteMode,
+  }) async {
+    final profile = employee?['profile'] is Map
+        ? Map<String, dynamic>.from(employee!['profile'] as Map)
         : const <String, dynamic>{};
+    final userId = inviteMode
+        ? null
+        : int.tryParse('${employee?['userId'] ?? ''}');
+    if (!inviteMode && (userId == null || userId <= 0)) return;
+
+    final fullNameCtrl = TextEditingController(
+      text: inviteMode
+          ? ''
+          : '${employee?['fullName'] ?? context.l10n.hrDashboardEmployee}',
+    );
+    final phoneCtrl = TextEditingController(
+      text: inviteMode ? '' : '${employee?['phone'] ?? ''}',
+    );
+    final pinCtrl = TextEditingController();
+    final displayNameCtrl = TextEditingController(
+      text: '${profile['displayName'] ?? employee?['displayName'] ?? ''}',
+    );
+    final contactEmailCtrl = TextEditingController(
+      text: '${profile['contactEmail'] ?? employee?['contactEmail'] ?? ''}',
+    );
     final roleCtrl = TextEditingController(
-      text: '${profile['roleTag'] ?? employee['role'] ?? 'staff'}',
+      text: '${profile['roleTag'] ?? employee?['role'] ?? 'staff'}',
     );
     final salaryCtrl = TextEditingController(
       text: '${profile['baseSalary'] ?? 0}',
@@ -272,72 +372,181 @@ class _HrDashboardScreenState extends ConsumerState<HrDashboardScreen> {
     final shiftEndCtrl = TextEditingController(
       text: '${profile['shiftEndTime'] ?? ''}',
     );
-    final noteCtrl = TextEditingController(text: '${profile['notes'] ?? ''}');
+    final notesCtrl = TextEditingController(text: '${profile['notes'] ?? ''}');
+    final reasonCtrl = TextEditingController();
+    final selectedPermissions = <String>{
+      ..._permissionListFromProfile(profile),
+    };
     final bool initialActive = profile['isActive'] != false;
     var isActive = initialActive;
+    String? dialogError;
 
     await showDialog<void>(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: Text(
-            '${context.l10n.hrDashboardUpdate} ${employee['fullName'] ?? context.l10n.hrDashboardEmployee}',
+            inviteMode
+                ? 'دعوة موظف جديد / Invite employee'
+                : '${context.l10n.hrDashboardUpdate} ${employee?['fullName'] ?? context.l10n.hrDashboardEmployee}',
           ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: roleCtrl,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.hrDashboardRoleTag,
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (dialogError != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: Colors.red.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: Text(
+                        '$dialogError',
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (inviteMode) ...[
+                    TextField(
+                      controller: fullNameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'الاسم الكامل / Full name',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: phoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'الهاتف / Phone',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: pinCtrl,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'PIN / رمز الدخول',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  TextField(
+                    controller: displayNameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'الاسم المعروض / Display name',
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: salaryCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.hrDashboardBaseSalary,
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: contactEmailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'البريد الإلكتروني / Contact email',
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: daysCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.hrDashboardWorkDaysWeek,
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: roleCtrl,
+                    decoration: InputDecoration(
+                      labelText: context.l10n.hrDashboardRoleTag,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: shiftStartCtrl,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.hrDashboardShiftStartHhMm,
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: salaryCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: context.l10n.hrDashboardBaseSalary,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: shiftEndCtrl,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.hrDashboardShiftEndHhMm,
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: daysCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: context.l10n.hrDashboardWorkDaysWeek,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: noteCtrl,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.ownerFinancialRequestNotes,
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: shiftStartCtrl,
+                    decoration: InputDecoration(
+                      labelText: context.l10n.hrDashboardShiftStartHhMm,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(context.l10n.socialProfileManageActive),
-                  value: isActive,
-                  onChanged: (value) => setDialogState(() => isActive = value),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: shiftEndCtrl,
+                    decoration: InputDecoration(
+                      labelText: context.l10n.hrDashboardShiftEndHhMm,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: notesCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'ملاحظات / Notes',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'سبب التعديل / Reason',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'الصلاحيات / Permissions',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _permissionSelector(
+                    context,
+                    selected: selectedPermissions,
+                    onChanged: (permission, enabled) {
+                      setDialogState(() {
+                        if (enabled) {
+                          selectedPermissions.add(permission);
+                        } else {
+                          selectedPermissions.remove(permission);
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(context.l10n.socialProfileManageActive),
+                    value: isActive,
+                    onChanged: (value) => setDialogState(() => isActive = value),
+                  ),
+                  if (selectedPermissions.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _permissionChips(
+                      context,
+                      selectedPermissions.toList(growable: false),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
           actions: [
@@ -349,29 +558,90 @@ class _HrDashboardScreenState extends ConsumerState<HrDashboardScreen> {
               onPressed: () async {
                 final salary = num.tryParse(salaryCtrl.text.trim()) ?? 0;
                 final days = int.tryParse(daysCtrl.text.trim()) ?? 6;
-                await ref
-                    .read(hrControllerProvider.notifier)
-                    .upsertEmployeeProfile(
-                      employeeUserId: userId,
-                      roleTag: roleCtrl.text.trim().isEmpty
-                          ? 'staff'
-                          : roleCtrl.text.trim(),
-                      baseSalary: salary,
-                      workDaysPerWeek: days,
-                      shiftStartTime: shiftStartCtrl.text.trim().isEmpty
-                          ? null
-                          : shiftStartCtrl.text.trim(),
-                      shiftEndTime: shiftEndCtrl.text.trim().isEmpty
-                          ? null
-                          : shiftEndCtrl.text.trim(),
-                      isActive: isActive,
-                      notes: noteCtrl.text.trim().isEmpty
-                          ? null
-                          : noteCtrl.text.trim(),
-                    );
+                final roleTag = roleCtrl.text.trim().isEmpty
+                    ? 'staff'
+                    : roleCtrl.text.trim();
+                if (inviteMode) {
+                  if (fullNameCtrl.text.trim().isEmpty) {
+                    setDialogState(() => dialogError = 'الاسم الكامل مطلوب.');
+                    return;
+                  }
+                  if (phoneCtrl.text.trim().isEmpty) {
+                    setDialogState(() => dialogError = 'رقم الهاتف مطلوب.');
+                    return;
+                  }
+                  if (pinCtrl.text.trim().isEmpty) {
+                    setDialogState(() => dialogError = 'رمز PIN مطلوب.');
+                    return;
+                  }
+                  await ref.read(hrControllerProvider.notifier).inviteEmployee(
+                        fullName: fullNameCtrl.text.trim(),
+                        phone: phoneCtrl.text.trim(),
+                        pin: pinCtrl.text.trim(),
+                        roleTag: roleTag,
+                        baseSalary: salary,
+                        workDaysPerWeek: days,
+                        displayName: displayNameCtrl.text.trim().isEmpty
+                            ? null
+                            : displayNameCtrl.text.trim(),
+                        contactEmail: contactEmailCtrl.text.trim().isEmpty
+                            ? null
+                            : contactEmailCtrl.text.trim(),
+                        shiftStartTime: shiftStartCtrl.text.trim().isEmpty
+                            ? null
+                            : shiftStartCtrl.text.trim(),
+                        shiftEndTime: shiftEndCtrl.text.trim().isEmpty
+                            ? null
+                            : shiftEndCtrl.text.trim(),
+                        isActive: isActive,
+                        notes: notesCtrl.text.trim().isEmpty
+                            ? null
+                            : notesCtrl.text.trim(),
+                        permissions:
+                            selectedPermissions.toList(growable: false),
+                        reason: reasonCtrl.text.trim().isEmpty
+                            ? null
+                            : reasonCtrl.text.trim(),
+                      );
+                } else {
+                  await ref
+                      .read(hrControllerProvider.notifier)
+                      .upsertEmployeeProfile(
+                        employeeUserId: userId!,
+                        roleTag: roleTag,
+                        baseSalary: salary,
+                        workDaysPerWeek: days,
+                        displayName: displayNameCtrl.text.trim().isEmpty
+                            ? null
+                            : displayNameCtrl.text.trim(),
+                        contactEmail: contactEmailCtrl.text.trim().isEmpty
+                            ? null
+                            : contactEmailCtrl.text.trim(),
+                        shiftStartTime: shiftStartCtrl.text.trim().isEmpty
+                            ? null
+                            : shiftStartCtrl.text.trim(),
+                        shiftEndTime: shiftEndCtrl.text.trim().isEmpty
+                            ? null
+                            : shiftEndCtrl.text.trim(),
+                        isActive: isActive,
+                        notes: notesCtrl.text.trim().isEmpty
+                            ? null
+                            : notesCtrl.text.trim(),
+                        permissions:
+                            selectedPermissions.toList(growable: false),
+                        reason: reasonCtrl.text.trim().isEmpty
+                            ? null
+                            : reasonCtrl.text.trim(),
+                      );
+                }
+                final latest = ref.read(hrControllerProvider);
+                if (latest.error != null) {
+                  setDialogState(() => dialogError = latest.error);
+                  return;
+                }
                 if (mounted) Navigator.of(context).pop();
               },
-              child: Text(context.l10n.commonSave),
+              child: Text(inviteMode ? 'دعوة' : context.l10n.commonSave),
             ),
           ],
         ),
@@ -1094,6 +1364,27 @@ class _HrDashboardScreenState extends ConsumerState<HrDashboardScreen> {
                       ),
                     ],
                     if (_tab == _HrTab.employees) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              context.l10n.hrDashboardEmployeeDirectory,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          FilledButton.icon(
+                            onPressed: state.saving
+                                ? null
+                                : _openEmployeeInviteDialog,
+                            icon: const Icon(Icons.person_add_alt_1_outlined),
+                            label: const Text('دعوة موظف'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
                       if (state.employees.isEmpty)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 20),
@@ -1109,6 +1400,10 @@ class _HrDashboardScreenState extends ConsumerState<HrDashboardScreen> {
                           final salary =
                               num.tryParse('${profile['baseSalary'] ?? 0}') ??
                               0;
+                          final permissions = _permissionListFromProfile(
+                            profile,
+                          );
+                          final isActive = profile['isActive'] != false;
                           return Card(
                             clipBehavior: Clip.antiAlias,
                             child: InkWell(
@@ -1119,14 +1414,59 @@ class _HrDashboardScreenState extends ConsumerState<HrDashboardScreen> {
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
                                   children: [
-                                    Text(
-                                      '${employee['fullName'] ?? '-'}',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                      ),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '${employee['fullName'] ?? '-'}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                            color: isActive
+                                                ? Colors.green.withValues(
+                                                    alpha: 0.12,
+                                                  )
+                                                : Colors.orange.withValues(
+                                                    alpha: 0.12,
+                                                  ),
+                                          ),
+                                          child: Text(
+                                            isActive
+                                                ? 'نشط / Active'
+                                                : 'موقوف / Inactive',
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                     const SizedBox(height: 4),
                                     Text('${employee['phone'] ?? ''}'),
+                                    if ('${profile['displayName'] ?? ''}'
+                                        .trim()
+                                        .isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${context.l10n.commonName}: ${profile['displayName']}',
+                                      ),
+                                    ],
+                                    if ('${profile['contactEmail'] ?? ''}'
+                                        .trim()
+                                        .isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Email: ${profile['contactEmail']}',
+                                      ),
+                                    ],
                                     const SizedBox(height: 4),
                                     Text(
                                       '${context.l10n.hrDashboardRole}: ${profile['roleTag'] ?? employee['role'] ?? '-'}',
@@ -1135,6 +1475,10 @@ class _HrDashboardScreenState extends ConsumerState<HrDashboardScreen> {
                                       '${context.l10n.commonSalary}: ${formatIqd(salary)}',
                                     ),
                                     const SizedBox(height: 10),
+                                    if (permissions.isNotEmpty) ...[
+                                      _permissionChips(context, permissions),
+                                      const SizedBox(height: 10),
+                                    ],
                                     Wrap(
                                       spacing: 8,
                                       runSpacing: 8,
@@ -1180,6 +1524,47 @@ class _HrDashboardScreenState extends ConsumerState<HrDashboardScreen> {
                                   ],
                                 ),
                               ),
+                            ),
+                          );
+                        }),
+                      const SizedBox(height: 16),
+                      Text(
+                        'سجل النشاط / Activity log',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (state.employeeActivityLogs.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Text('لا يوجد سجل نشاط بعد.'),
+                        )
+                      else
+                        ...state.employeeActivityLogs.take(12).map((row) {
+                          return Card(
+                            child: ListTile(
+                              leading: const Icon(Icons.history_rounded),
+                              title: Text(
+                                '${row['employeeFullName'] ?? '-'} • ${row['actionKey'] ?? '-'}',
+                              ),
+                              subtitle: Text(
+                                [
+                                  if ('${row['actorFullName'] ?? ''}'
+                                      .trim()
+                                      .isNotEmpty)
+                                    'By: ${row['actorFullName']}',
+                                  if ('${row['reason'] ?? ''}'
+                                      .trim()
+                                      .isNotEmpty)
+                                    'Reason: ${row['reason']}',
+                                  if ('${row['createdAt'] ?? ''}'
+                                      .trim()
+                                      .isNotEmpty)
+                                    '${row['createdAt']}',
+                                ].join('\n'),
+                              ),
+                              isThreeLine: true,
                             ),
                           );
                         }),

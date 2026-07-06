@@ -15,6 +15,11 @@ import {
   SERVICE_PRICING_MODELS,
 } from './services.constants.js';
 import * as repo from './services.repo.js';
+import {
+  buildWorkspacePermissionPayload,
+  hasPermission,
+  SERVICE_PROVIDER_EMPLOYEE_PERMISSION_KEYS,
+} from '../../shared/workspaces/employee-permissions.js';
 
 function normalizeDigits(value) {
   return String(value || '')
@@ -30,6 +35,18 @@ function normalizePin(value) {
   return normalizeDigits(value).replace(/[^\d]/g, '');
 }
 
+function normalizeRole(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function toActorUserId(actor) {
+  const id = Number(actor?.userId || 0);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new AppError('UNAUTHORIZED', { status: 401 });
+  }
+  return id;
+}
+
 function mapUserForResponse(user) {
   if (!user) return null;
   return {
@@ -42,6 +59,67 @@ function mapUserForResponse(user) {
     buildingNumber: user.building_number || user.buildingNumber || '',
     apartment: user.apartment || '',
     imageUrl: user.image_url || user.imageUrl || null,
+  };
+}
+
+function mapProviderEmployeeProfileRow(row) {
+  if (!row) return null;
+  const payload = buildWorkspacePermissionPayload(
+    row.permissions_json,
+    'service_provider'
+  );
+  return {
+    id: Number(row.id),
+    roleTag: row.role_tag || 'staff',
+    displayName: row.display_name || null,
+    contactEmail: row.contact_email || null,
+    permissions: payload.permissions,
+    permissionMap: payload.permissionMap,
+    isActive: row.is_active !== false,
+    archivedAt: row.archived_at || null,
+    notes: row.notes || null,
+    invitedByUserId:
+      row.invited_by_user_id == null ? null : Number(row.invited_by_user_id),
+    updatedByUserId:
+      row.updated_by_user_id == null ? null : Number(row.updated_by_user_id),
+  };
+}
+
+function mapProviderEmployeeRow(row) {
+  if (!row) return null;
+  return {
+    userId: Number(row.id),
+    fullName: row.full_name || '',
+    phone: row.phone || '',
+    role: row.role || 'service_provider',
+    imageUrl: row.image_url || null,
+    displayName: row.display_name || row.full_name || null,
+    contactEmail: row.contact_email || null,
+    profile: row.employee_profile_id ? mapProviderEmployeeProfileRow(row) : null,
+  };
+}
+
+function mapProviderEmployeeActivityLog(row) {
+  return {
+    id: Number(row.id),
+    workspaceKind: row.workspace_kind || 'service_provider',
+    workspaceId: Number(row.workspace_id),
+    employeeProfileId:
+      row.employee_profile_id == null ? null : Number(row.employee_profile_id),
+    employeeUserId: Number(row.employee_user_id),
+    employeeFullName: row.employee_full_name || '',
+    employeePhone: row.employee_phone || '',
+    actorUserId: row.actor_user_id == null ? null : Number(row.actor_user_id),
+    actorFullName: row.actor_full_name || null,
+    actorRole: row.actor_role || '',
+    actionKey: row.action_key || '',
+    reason: row.reason || null,
+    oldValue:
+      row.old_value && typeof row.old_value === 'object' ? row.old_value : {},
+    newValue:
+      row.new_value && typeof row.new_value === 'object' ? row.new_value : {},
+    note: row.note || null,
+    createdAt: row.created_at || null,
   };
 }
 
@@ -181,6 +259,50 @@ function assertRoleIsServiceProvider(userRole) {
   if (String(userRole || '').toLowerCase() !== 'service_provider') {
     throw new AppError('FORBIDDEN_SERVICE_PROVIDER_ONLY', { status: 403 });
   }
+}
+
+async function resolveProviderAccess({ userId, userRole }) {
+  assertRoleIsServiceProvider(userRole);
+  const actorUserId = toActorUserId({ userId });
+  const ownerProvider = await repo.findOwnerProviderByUserId(actorUserId);
+  if (ownerProvider) {
+    const ownerPermissions = buildWorkspacePermissionPayload(
+      SERVICE_PROVIDER_EMPLOYEE_PERMISSION_KEYS,
+      'service_provider'
+    );
+    return {
+      provider: ownerProvider,
+      isOwner: true,
+      employeeProfile: null,
+      permissions: ownerPermissions.permissions,
+      permissionMap: ownerPermissions.permissionMap,
+    };
+  }
+
+  const employeeAccess = await repo.findProviderByEmployeeUserId(actorUserId);
+  if (!employeeAccess?.provider) {
+    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+  }
+
+  return {
+    provider: employeeAccess.provider,
+    isOwner: false,
+    employeeProfile: employeeAccess.employeeProfile || null,
+    permissions: employeeAccess.employeeProfile?.permissions || [],
+    permissionMap: buildWorkspacePermissionPayload(
+      employeeAccess.employeeProfile?.permissions || [],
+      'service_provider'
+    ).permissionMap,
+  };
+}
+
+async function ensureProviderPermission(actor, permission) {
+  const access = await resolveProviderAccess(actor);
+  if (access.isOwner) return access;
+  if (!hasPermission(access.employeeProfile?.permissions || [], permission)) {
+    throw new AppError('FORBIDDEN_SERVICE_PROVIDER_PERMISSION', { status: 403 });
+  }
+  return access;
 }
 
 export async function registerServiceProvider(dto, assets = {}, _deviceContext = {}) {
@@ -565,23 +687,65 @@ export async function getPublicOffering(offeringId, viewerUserId = null) {
 }
 
 export async function getProviderWorkspace({ userId, userRole }) {
-  assertRoleIsServiceProvider(userRole);
+  const access = await resolveProviderAccess({ userId, userRole });
   const workspace = await repo.listProviderWorkspace(userId);
   if (!workspace) {
     throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
   }
-  return workspace;
+  const canViewRequests = access.isOwner || hasPermission(access.permissions, 'view_service_requests');
+  const canManageEmployees = access.isOwner || hasPermission(access.permissions, 'manage_employees');
+  const canViewAuditLog = access.isOwner || hasPermission(access.permissions, 'view_audit_log');
+  const employeePermissions = access.isOwner
+    ? SERVICE_PROVIDER_EMPLOYEE_PERMISSION_KEYS
+    : access.permissions;
+  const permissionPayload = buildWorkspacePermissionPayload(
+    employeePermissions,
+    'service_provider'
+  );
+
+  const employees = canManageEmployees
+    ? await repo.listProviderEmployees({
+        providerId: workspace.provider.id,
+        limit: 120,
+      })
+    : [];
+  const activityLogs = canViewAuditLog
+    ? await repo.listProviderEmployeeActivityLogs({
+        providerId: workspace.provider.id,
+        limit: 120,
+      })
+    : [];
+
+  return {
+    ...workspace,
+    requestCounts: canViewRequests ? workspace.requestCounts : {},
+    availablePermissions: SERVICE_PROVIDER_EMPLOYEE_PERMISSION_KEYS,
+    access: {
+      isOwner: access.isOwner,
+      permissions: permissionPayload.permissions,
+      permissionMap: permissionPayload.permissionMap,
+      employeeProfile: access.employeeProfile || null,
+    },
+    employees: employees.map(mapProviderEmployeeRow),
+    activityLogs: activityLogs.map(mapProviderEmployeeActivityLog),
+  };
 }
 
 export async function getProviderProfile({ userId, userRole }) {
-  assertRoleIsServiceProvider(userRole);
+  await resolveProviderAccess({ userId, userRole });
   return ensureProviderExists(userId);
 }
 
 export async function updateProviderProfile({ userId, userRole, dto, assets = {} }) {
-  assertRoleIsServiceProvider(userRole);
+  const access = await ensureProviderPermission(
+    { userId, userRole },
+    'manage_service_profile'
+  );
   const profile = await repo.updateProviderProfile({ userId, dto, assets });
   if (!profile) {
+    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+  }
+  if (!access.provider) {
     throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
   }
   return profile;
@@ -593,7 +757,7 @@ export async function createOffering({
   dto,
   mediaUrls = [],
 }) {
-  assertRoleIsServiceProvider(userRole);
+  await ensureProviderPermission({ userId, userRole }, 'create_services');
   const offering = await repo.createOfferingForProvider({
     userId,
     dto,
@@ -626,7 +790,7 @@ export async function updateOffering({
   dto,
   mediaUrls = [],
 }) {
-  assertRoleIsServiceProvider(userRole);
+  await ensureProviderPermission({ userId, userRole }, 'edit_services');
   const offering = await repo.updateOfferingForProvider({
     userId,
     offeringId,
@@ -645,7 +809,7 @@ export async function replaceOfferingPricing({
   offeringId,
   pricingOptions,
 }) {
-  assertRoleIsServiceProvider(userRole);
+  await ensureProviderPermission({ userId, userRole }, 'edit_services');
   if (!Array.isArray(pricingOptions) || pricingOptions.length === 0) {
     throw new AppError('VALIDATION_ERROR', {
       status: 400,
@@ -673,7 +837,7 @@ export async function replaceOfferingPricing({
 }
 
 export async function createPromotion({ userId, userRole, dto }) {
-  assertRoleIsServiceProvider(userRole);
+  await ensureProviderPermission({ userId, userRole }, 'manage_offers');
   const promotion = await repo.createPromotionForProvider({ userId, dto });
   if (!promotion) {
     throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
@@ -687,7 +851,7 @@ export async function createPortfolioItem({
   dto,
   mediaUrl,
 }) {
-  assertRoleIsServiceProvider(userRole);
+  await ensureProviderPermission({ userId, userRole }, 'edit_services');
   if (!mediaUrl) {
     throw new AppError('VALIDATION_ERROR', {
       status: 400,
@@ -706,7 +870,7 @@ export async function createPortfolioItem({
 }
 
 export async function deletePortfolioItem({ userId, userRole, portfolioId }) {
-  assertRoleIsServiceProvider(userRole);
+  await ensureProviderPermission({ userId, userRole }, 'edit_services');
   const ok = await repo.deletePortfolioItemForProvider({ userId, portfolioId });
   if (!ok) {
     throw new AppError('SERVICE_PORTFOLIO_ITEM_NOT_FOUND', { status: 404 });
@@ -725,12 +889,12 @@ export async function listMyCategorySuggestions({ userId, userRole, query }) {
 }
 
 export async function listProviderRequests({ userId, userRole, query }) {
-  assertRoleIsServiceProvider(userRole);
+  await ensureProviderPermission({ userId, userRole }, 'view_service_requests');
   return repo.listProviderRequestsByUser({ userId, query });
 }
 
 export async function createQuote({ userId, userRole, requestId, dto }) {
-  assertRoleIsServiceProvider(userRole);
+  await ensureProviderPermission({ userId, userRole }, 'view_service_requests');
   const quote = await repo.createQuoteForRequest({
     userId,
     requestId,
@@ -764,7 +928,16 @@ export async function updateRequestStatusByProvider({
   requestId,
   dto,
 }) {
-  assertRoleIsServiceProvider(userRole);
+  const normalizedStatus = String(dto.status || '').trim().toLowerCase();
+  if (normalizedStatus === 'rejected') {
+    await ensureProviderPermission({ userId, userRole }, 'reject_service_requests');
+  } else if (
+    ['accepted', 'scheduled', 'in_progress', 'completed'].includes(normalizedStatus)
+  ) {
+    await ensureProviderPermission({ userId, userRole }, 'accept_service_requests');
+  } else {
+    await ensureProviderPermission({ userId, userRole }, 'view_service_requests');
+  }
   const updated = await repo.updateRequestStatusByProviderUser({
     userId,
     requestId,
@@ -791,6 +964,220 @@ export async function updateRequestStatusByProvider({
     }).catch(() => {});
   }
   return updated;
+}
+
+export async function listProviderEmployees(
+  { userId, userRole },
+  { search = '', limit = 120 } = {}
+) {
+  const access = await ensureProviderPermission(
+    { userId, userRole },
+    'manage_employees'
+  );
+  const rows = await repo.listProviderEmployees({
+    providerId: access.provider.id,
+    search,
+    limit,
+  });
+  return {
+    provider: access.provider,
+    items: rows.map(mapProviderEmployeeRow),
+    availablePermissions: SERVICE_PROVIDER_EMPLOYEE_PERMISSION_KEYS,
+    access: {
+      isOwner: access.isOwner,
+      permissions: access.permissions,
+      permissionMap: access.permissionMap,
+      employeeProfile: access.employeeProfile || null,
+    },
+  };
+}
+
+export async function upsertProviderEmployee({ userId, userRole }, dto) {
+  const access = await ensureProviderPermission(
+    { userId, userRole },
+    'manage_employees'
+  );
+  const actorUserId = toActorUserId({ userId });
+  const employeeUserId = Number(dto.employeeUserId);
+  if (!Number.isInteger(employeeUserId) || employeeUserId <= 0) {
+    throw new AppError('EMPLOYEE_REQUIRED', { status: 400 });
+  }
+
+  const permissions = buildWorkspacePermissionPayload(
+    dto.permissions,
+    'service_provider'
+  ).permissions;
+  const previousProfile = await repo.findAnyEmployeeProfileForProvider({
+    providerId: access.provider.id,
+    employeeUserId,
+  });
+  const archivedAt =
+    dto.archivedAt || (dto.isActive === false ? new Date().toISOString() : null);
+  const out = await repo.upsertProviderEmployeeProfile({
+    providerId: access.provider.id,
+    employeeUserId,
+    roleTag: String(dto.roleTag || 'staff').trim().slice(0, 80) || 'staff',
+    displayName: dto.displayName || null,
+    contactEmail: dto.contactEmail || null,
+    permissions,
+    isActive: dto.isActive !== false,
+    archivedAt,
+    notes: dto.notes || null,
+    invitedByUserId: dto.invitedByUserId == null ? actorUserId : Number(dto.invitedByUserId),
+    updatedByUserId: actorUserId,
+  });
+
+  await repo.insertProviderEmployeeActivityLog({
+    workspaceKind: 'service_provider',
+    workspaceId: access.provider.id,
+    employeeProfileId: Number(out.id),
+    employeeUserId,
+    actorUserId,
+    actorRole: normalizeRole(userRole),
+    actionKey: 'service_provider.employee.updated',
+    reason: dto.reason || null,
+    oldValue: previousProfile
+      ? {
+          displayName: previousProfile.display_name || null,
+          contactEmail: previousProfile.contact_email || null,
+          permissions: Array.isArray(previousProfile.permissions_json)
+            ? previousProfile.permissions_json
+            : [],
+          isActive: previousProfile.is_active === true,
+          archivedAt: previousProfile.archived_at || null,
+        }
+      : {},
+    newValue: {
+      displayName: out.display_name || null,
+      contactEmail: out.contact_email || null,
+      permissions,
+      isActive: out.is_active === true,
+      archivedAt: out.archived_at || null,
+    },
+    note: dto.notes || null,
+  });
+
+  return {
+    provider: access.provider,
+    profile: mapProviderEmployeeProfileRow(out),
+  };
+}
+
+export async function inviteProviderEmployee({ userId, userRole }, dto) {
+  const access = await ensureProviderPermission(
+    { userId, userRole },
+    'manage_employees'
+  );
+  const actorUserId = toActorUserId({ userId });
+  const phone = normalizePhone(dto.phone);
+  const pin = normalizePin(dto.pin);
+  const fullName = String(dto.fullName || '').trim();
+  const displayName = String(dto.displayName || fullName || '').trim();
+  const contactEmail = String(dto.contactEmail || '').trim() || null;
+
+  if (!fullName) {
+    throw new AppError('FULL_NAME_REQUIRED', { status: 400 });
+  }
+  if (!/^\d{8,20}$/.test(phone)) {
+    throw new AppError('PHONE_INVALID', { status: 400 });
+  }
+  if (!/^\d{4,8}$/.test(pin)) {
+    throw new AppError('PIN_INVALID', { status: 400 });
+  }
+
+  const existing = await findUserByPhone(phone);
+  if (existing) {
+    throw new AppError('PHONE_EXISTS', { status: 409 });
+  }
+
+  const pinHash = await hashPin(pin);
+  const created = await runWithGeneratedAppUserUsername({
+    fullName,
+    phone,
+    execute: (username) =>
+      createUser({
+        fullName,
+        username,
+        phone,
+        pinHash,
+        block: 'A',
+        buildingNumber: 'A101',
+        apartment: '101',
+        imageUrl: null,
+        role: 'service_provider',
+        analyticsConsentGranted: true,
+        analyticsConsentVersion: 'service_provider_employee_invite_v1',
+        analyticsConsentGrantedAt: new Date().toISOString(),
+        chatQualityReviewConsent: true,
+      }),
+  });
+
+  const permissions = buildWorkspacePermissionPayload(
+    dto.permissions,
+    'service_provider'
+  ).permissions;
+  const out = await repo.upsertProviderEmployeeProfile({
+    providerId: access.provider.id,
+    employeeUserId: Number(created.id),
+    roleTag: String(dto.roleTag || 'staff').trim().slice(0, 80) || 'staff',
+    displayName,
+    contactEmail,
+    permissions,
+    isActive: dto.isActive !== false,
+    archivedAt: dto.archivedAt || null,
+    notes: dto.notes || null,
+    invitedByUserId: actorUserId,
+    updatedByUserId: actorUserId,
+  });
+
+  await repo.insertProviderEmployeeActivityLog({
+    workspaceKind: 'service_provider',
+    workspaceId: access.provider.id,
+    employeeProfileId: Number(out.id),
+    employeeUserId: Number(created.id),
+    actorUserId,
+    actorRole: normalizeRole(userRole),
+    actionKey: 'service_provider.employee.invited',
+    reason: dto.reason || null,
+    oldValue: {},
+    newValue: {
+      displayName: out.display_name || displayName,
+      contactEmail: out.contact_email || contactEmail,
+      permissions,
+      isActive: out.is_active === true,
+    },
+    note: dto.notes || null,
+  });
+
+  return {
+    provider: access.provider,
+    user: {
+      id: Number(created.id),
+      fullName: created.full_name,
+      phone: created.phone,
+      role: created.role,
+    },
+    profile: mapProviderEmployeeProfileRow(out),
+  };
+}
+
+export async function listProviderEmployeeActivityLogs(
+  { userId, userRole },
+  { employeeUserId = null, limit = 120 } = {}
+) {
+  const access = await ensureProviderPermission(
+    { userId, userRole },
+    'view_audit_log'
+  );
+  const rows = await repo.listProviderEmployeeActivityLogs({
+    providerId: access.provider.id,
+    employeeUserId: employeeUserId == null ? null : Number(employeeUserId),
+    limit,
+  });
+  return {
+    provider: access.provider,
+    items: rows.map(mapProviderEmployeeActivityLog),
+  };
 }
 
 export async function createServiceRequest({

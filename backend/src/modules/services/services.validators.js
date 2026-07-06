@@ -48,7 +48,14 @@ function asBool(value, fallback = false) {
 
 function asBoolOrNull(value) {
   if (value === undefined || value === null || value === '') return null;
-  return asBool(value, false);
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false;
+  }
+  return null;
 }
 
 function asStringArray(value, { maxItems = 40, itemMax = 80 } = {}) {
@@ -61,6 +68,43 @@ function asStringArray(value, { maxItems = 40, itemMax = 80 } = {}) {
     if (out.length >= maxItems) break;
   }
   return out;
+}
+
+function toOptionalPermissionList(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (entry == null ? '' : String(entry).trim()))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((entry) => (entry == null ? '' : String(entry).trim()))
+          .filter(Boolean);
+      }
+    } catch {
+      return value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+  }
+  if (value && typeof value === 'object') {
+    if (Array.isArray(value.permissions)) {
+      return value.permissions
+        .map((entry) => (entry == null ? '' : String(entry).trim()))
+        .filter(Boolean);
+    }
+    if (Array.isArray(value.permissions_json)) {
+      return value.permissions_json
+        .map((entry) => (entry == null ? '' : String(entry).trim()))
+        .filter(Boolean);
+    }
+  }
+  return null;
 }
 
 function normalizeSort(sort) {
@@ -340,6 +384,93 @@ export function validateProviderProfileUpdateBody(body = {}) {
       fullName: undefined,
       phone: undefined,
       pin: undefined,
+    },
+  };
+}
+
+export function validateProviderEmployeeInviteBody(body = {}) {
+  const errors = [];
+  const fullName = asString(body.fullName, 180);
+  const phone = asString(body.phone, 32);
+  const pin = asString(body.pin, 12);
+  const roleTag = asString(body.roleTag ?? 'staff', 80) || 'staff';
+  const displayName = asString(body.displayName, 180);
+  const contactEmail = asString(body.contactEmail, 320);
+  const permissions = toOptionalPermissionList(body.permissions);
+  const isActive = asBoolOrNull(body.isActive);
+  const archivedAt = asString(body.archivedAt, 64);
+  const notes = asString(body.notes, 3000);
+  const reason = asString(body.reason, 3000);
+
+  if (!fullName) errors.push('fullName');
+  if (!phone) errors.push('phone');
+  if (!pin || !/^\d{4,8}$/.test(pin)) errors.push('pin');
+  if (body.isActive !== undefined && isActive == null) errors.push('isActive');
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      fullName,
+      phone,
+      pin,
+      roleTag,
+      displayName,
+      contactEmail,
+      permissions,
+      isActive: isActive ?? true,
+      archivedAt,
+      notes,
+      reason,
+    },
+  };
+}
+
+export function validateProviderEmployeeUpsertBody(body = {}) {
+  const errors = [];
+  const employeeUserId = asInt(body.employeeUserId, { min: 1 });
+  const roleTag = asString(body.roleTag ?? 'staff', 80) || 'staff';
+  const displayName = asString(body.displayName, 180);
+  const contactEmail = asString(body.contactEmail, 320);
+  const permissions = toOptionalPermissionList(body.permissions);
+  const isActive = asBoolOrNull(body.isActive);
+  const archivedAt = asString(body.archivedAt, 64);
+  const notes = asString(body.notes, 3000);
+  const reason = asString(body.reason, 3000);
+
+  if (!employeeUserId) errors.push('employeeUserId');
+  if (body.isActive !== undefined && isActive == null) errors.push('isActive');
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      employeeUserId,
+      roleTag,
+      displayName,
+      contactEmail,
+      permissions,
+      isActive: isActive ?? true,
+      archivedAt,
+      notes,
+      reason,
+    },
+  };
+}
+
+export function validateProviderEmployeeActivityLogQuery(query = {}) {
+  const errors = [];
+  const employeeUserId = asInt(query.employeeUserId, { min: 1 });
+  const limit = asInt(query.limit, { min: 1, max: 200 }) || 120;
+  if (query.employeeUserId != null && employeeUserId == null) {
+    errors.push('employeeUserId');
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      employeeUserId,
+      limit,
     },
   };
 }

@@ -48,6 +48,10 @@ servicesProviderRouter.post(
 
 servicesProviderRouter.use(requireAuth, requireServiceProvider);
 servicesProviderRouter.get('/workspace', c.getProviderWorkspace);
+servicesProviderRouter.get('/employees', c.listProviderEmployees);
+servicesProviderRouter.post('/employees/invite', c.inviteProviderEmployee);
+servicesProviderRouter.post('/employees/upsert', c.upsertProviderEmployee);
+servicesProviderRouter.get('/employees/activity-log', c.listProviderEmployeeActivityLogs);
 servicesProviderRouter.get('/profile', c.getProviderProfile);
 servicesProviderRouter.patch(
   '/profile',
