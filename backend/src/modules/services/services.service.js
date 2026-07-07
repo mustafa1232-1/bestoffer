@@ -1202,12 +1202,39 @@ export async function createServiceRequest({
       title: 'Ø·Ù„Ø¨ Ø®Ø¯Ù…Ø© Ø¬Ø¯ÙŠØ¯',
       body: `Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯ Ù…Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ø®ØµÙˆØµ ${created.offeringName || 'Ø®Ø¯Ù…Ø©'}.`,
       payload: {
-        target: 'services_provider_requests',
+        target: 'service_request_details',
         targetModule: 'customer',
         requestId: created.id,
         requiresAction: true,
       },
     }).catch(() => {});
+  }
+
+  const providerEmployees = await repo
+    .listActiveProviderNotificationRecipients({
+      providerId: created.providerId,
+      requiredPermissions: [
+        'view_service_requests',
+        'accept_service_requests',
+        'reject_service_requests',
+      ],
+    })
+    .catch(() => []);
+  if (providerEmployees.length > 0) {
+    await createManyNotifications(
+      providerEmployees.map((employee) => ({
+        userId: Number(employee.userId),
+        type: 'services.request.created',
+        title: 'Ø·Ù„Ø¨ Ø®Ø¯Ù…Ø© Ø¬Ø¯ÙŠØ¯',
+        body: `Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯ Ù…Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ø®ØµÙˆØµ ${created.offeringName || 'Ø®Ø¯Ù…Ø©'}.`,
+        payload: {
+          target: 'service_request_details',
+          targetModule: 'customer',
+          requestId: created.id,
+          requiresAction: true,
+        },
+      }))
+    ).catch(() => {});
   }
 
   return created;

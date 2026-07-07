@@ -1,5 +1,6 @@
 import { pool, q } from "../../config/db.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
+import { hasPermission } from "../../shared/workspaces/employee-permissions.js";
 import {
   loadProductRichCatalogByIds,
   syncProductRichCatalogTx,
@@ -1111,6 +1112,55 @@ export async function findAnyEmployeeProfileForMerchant({
     [Number(merchantId), Number(employeeUserId)]
   );
   return r.rows[0] || null;
+}
+
+export async function listActiveMerchantNotificationRecipients({
+  merchantId,
+  requiredPermissions = [],
+} = {}) {
+  const permissions = Array.isArray(requiredPermissions)
+    ? requiredPermissions
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+
+  const r = await q(
+    `SELECT
+       u.id AS user_id,
+       ep.permissions_json,
+       ep.merchant_id,
+       ep.is_active,
+       ep.archived_at,
+       u.is_account_disabled,
+       m.owner_user_id
+     FROM merchant_employee_profile ep
+     JOIN app_user u ON u.id = ep.employee_user_id
+     JOIN merchant m ON m.id = ep.merchant_id
+     WHERE ep.merchant_id = $1
+       AND ep.is_active = TRUE
+       AND ep.archived_at IS NULL
+       AND COALESCE(u.is_account_disabled, FALSE) = FALSE
+       AND m.is_disabled = FALSE
+       AND u.id <> m.owner_user_id
+     ORDER BY ep.updated_at DESC, ep.id DESC`,
+    [Number(merchantId)]
+  );
+
+  return r.rows
+    .map((row) => ({
+      userId: Number(row.user_id),
+      merchantId: Number(row.merchant_id),
+      permissions: Array.isArray(row.permissions_json)
+        ? row.permissions_json
+        : [],
+    }))
+    .filter((row) => {
+      if (!Number.isInteger(row.userId) || row.userId <= 0) return false;
+      if (!permissions.length) return true;
+      return permissions.some((permission) =>
+        hasPermission(row.permissions, permission)
+      );
+    });
 }
 
 export async function markOrderedProductUnavailable(

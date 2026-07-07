@@ -169,7 +169,7 @@ class NotificationNavigation {
       }
       return;
     }
-    if (!_isFlavorAllowedForAuth(AppFlavorContext.current, auth)) {
+    if (!isFlavorAllowedForAuth(AppFlavorContext.current, auth)) {
       return;
     }
     if (auth.isCompanyPortal) {
@@ -1178,6 +1178,11 @@ class NotificationNavigation {
         return MaterialPageRoute(builder: (_) => const MerchantDashboardPage());
       }
       if (target == 'merchant_orders_current' || target == 'owner_orders') {
+        if (orderId != null && orderId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => MerchantOrderDetailsPage(orderId: orderId),
+          );
+        }
         return MaterialPageRoute(
           builder: (_) => const MerchantOrdersCurrentPage(),
         );
@@ -1439,10 +1444,10 @@ class NotificationNavigation {
     return allowsScope(roleScope) && allowsModule(targetModule);
   }
 
-  static bool _isFlavorAllowedForAuth(AppFlavor flavor, AuthState auth) {
+  static bool isFlavorAllowedForAuth(AppFlavor flavor, AuthState auth) {
     switch (flavor) {
       case AppFlavor.user:
-        return auth.isCustomer || auth.isGuest;
+        return auth.isCustomer || auth.isGuest || auth.isServiceProvider;
       case AppFlavor.store:
         return auth.isOwner;
       case AppFlavor.delivery:

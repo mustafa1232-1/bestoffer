@@ -97,6 +97,7 @@ export function resolveRoleAppSurface(role) {
   if (normalized === "owner" || normalized === "merchant") return "store";
   if (normalized === "delivery" || normalized === "courier") return "delivery";
   if (normalized === "taxi" || normalized === "taxi_captain") return "taxi";
+  if (normalized === "service_provider") return "user";
   if (
     normalized === "company_portal" ||
     normalized === "admin" ||
@@ -115,4 +116,3 @@ export function isRoleAllowedForSurface(role, surface) {
   if (!normalizedSurface) return false;
   return resolveRoleAppSurface(role) === normalizedSurface;
 }
-

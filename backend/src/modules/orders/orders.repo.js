@@ -16,6 +16,9 @@ import {
   markOfferUsageByOrderTx,
 } from "../owner/merchant-offers.repo.js";
 import {
+  listActiveMerchantNotificationRecipients,
+} from "../owner/owner.repo.js";
+import {
   extractRichCatalogFromMetadata,
   normalizeVariantSelectionInput,
 } from "../products/product-catalog.logic.js";
@@ -1335,6 +1338,34 @@ async function notifyDeliveryPoolForOrder({
   );
 }
 
+async function buildMerchantOrderNotifications({
+  merchantId,
+  merchantName,
+  orderId,
+  status,
+}) {
+  const recipients = await listActiveMerchantNotificationRecipients({
+    merchantId,
+    requiredPermissions: ["view_orders", "accept_orders", "prepare_orders"],
+  });
+  if (!recipients.length) return [];
+
+  return recipients.map((recipient) => ({
+    userId: Number(recipient.userId),
+    type: "owner_new_order",
+    title: "طلب جديد",
+    body: `طلب جديد رقم #${orderId} لدى ${merchantName}`,
+    orderId: Number(orderId),
+    merchantId: Number(merchantId),
+    payload: {
+      orderId: Number(orderId),
+      status,
+      requiresAction: true,
+      target: "merchant_order_details",
+    },
+  }));
+}
+
 export async function ensureDeliveryAccountApproved(deliveryUserId) {
   await q(
     `UPDATE app_user
@@ -2186,6 +2217,12 @@ export async function createOrderWithItems({
 
     if (!suppressNotifications) {
       queueOrderSideEffect(async () => {
+        const employeeNotifications = await buildMerchantOrderNotifications({
+          merchantId: Number(merchant.id),
+          merchantName: merchant.name,
+          orderId: order.id,
+          status: order.status,
+        });
         await createManyNotifications([
           {
             userId: customer.id,
@@ -2211,9 +2248,11 @@ export async function createOrderWithItems({
                   orderId: order.id,
                   status: order.status,
                   requiresAction: true,
+                  target: "merchant_order_details",
                 },
               }
             : null,
+          ...employeeNotifications,
         ].filter(Boolean));
 
         await notifyDeliveryPoolForOrder({
@@ -2478,6 +2517,18 @@ export async function createOrderGroupWithItems({
     await client.query("COMMIT");
 
     queueOrderSideEffect(async () => {
+      const employeeNotifications = (
+        await Promise.all(
+          childOrders.map((child) =>
+            buildMerchantOrderNotifications({
+              merchantId: Number(child.merchant_id || 0),
+              merchantName: String(child.merchant_name || ""),
+              orderId: Number(child.id),
+              status: String(child.status || "pending"),
+            })
+          )
+        )
+      ).flat();
       await createManyNotifications(
         [
           {
@@ -2510,10 +2561,12 @@ export async function createOrderGroupWithItems({
                     status: String(child.status || "pending"),
                     orderGroupId: Number(orderGroup.id),
                     requiresAction: true,
+                    target: "merchant_order_details",
                   },
                 }
               : null,
           ]),
+          ...employeeNotifications,
         ].filter(Boolean)
       );
 
@@ -3878,6 +3931,7 @@ export async function assignDeliveryToOwnerOrder(
          o.merchant_id,
          o.status,
          o.customer_user_id,
+         o.delivery_user_id,
          m.name AS merchant_name
        FROM customer_order o
        JOIN merchant m ON m.id = o.merchant_id
@@ -3892,6 +3946,10 @@ export async function assignDeliveryToOwnerOrder(
       await client.query("ROLLBACK");
       return false;
     }
+    const previousDeliveryUserId =
+      current.delivery_user_id == null ? null : Number(current.delivery_user_id);
+    const nextDeliveryUserId =
+      deliveryUserId == null ? null : Number(deliveryUserId);
 
     if (!["approved", "preparing", "ready_for_delivery"].includes(current.status)) {
       throw new AppError(
@@ -3936,23 +3994,60 @@ export async function assignDeliveryToOwnerOrder(
 
     await client.query("COMMIT");
 
+    const deliveryNotifications = [];
+    if (
+      normalizedMode === "platform_delivery" &&
+      nextDeliveryUserId != null &&
+      nextDeliveryUserId > 0
+    ) {
+      deliveryNotifications.push({
+        userId: nextDeliveryUserId,
+        type: "delivery_assigned_by_owner",
+        title: "تم إسناد طلب جديد إليك",
+        body: `تم إسناد الطلب #${current.id} من ${current.merchant_name} إليك.`,
+        orderId: current.id,
+        merchantId: current.merchant_id,
+        payload: {
+          orderId: current.id,
+          assignedBy: "owner",
+          assignmentMode: normalizedMode,
+          requiresAction: current.status === "ready_for_delivery",
+        },
+      });
+    }
+    if (
+      previousDeliveryUserId != null &&
+      previousDeliveryUserId > 0 &&
+      previousDeliveryUserId !== nextDeliveryUserId
+    ) {
+      deliveryNotifications.push({
+        userId: previousDeliveryUserId,
+        type:
+          nextDeliveryUserId == null
+            ? "delivery_order_removed"
+            : "delivery_order_reassigned",
+        title:
+          nextDeliveryUserId == null
+            ? "تم سحب الطلب من جدولك"
+            : "تم تغيير إسناد الطلب",
+        body:
+          nextDeliveryUserId == null
+            ? `تم سحب الطلب #${current.id} من جدول التسليم الخاص بك.`
+            : `تمت إعادة إسناد الطلب #${current.id} إلى مندوب آخر.`,
+        orderId: current.id,
+        merchantId: current.merchant_id,
+        payload: {
+          orderId: current.id,
+          assignmentMode: normalizedMode,
+          previousDeliveryUserId,
+          nextDeliveryUserId,
+          target: "courier_notifications",
+        },
+      });
+    }
+
     await createManyNotifications([
-      normalizedMode === "platform_delivery"
-        ? {
-            userId: Number(deliveryUserId),
-            type: "delivery_assigned_by_owner",
-            title: "تم إسناد طلب جديد إليك",
-            body: `تم إسناد الطلب #${current.id} من ${current.merchant_name} إليك.`,
-            orderId: current.id,
-            merchantId: current.merchant_id,
-            payload: {
-              orderId: current.id,
-              assignedBy: "owner",
-              assignmentMode: normalizedMode,
-              requiresAction: current.status === "ready_for_delivery",
-            },
-          }
-        : null,
+      ...deliveryNotifications,
       {
         userId: current.customer_user_id,
         type: "customer_delivery_assigned",

@@ -1,4 +1,5 @@
 import { pool, q } from '../../config/db.js';
+import { hasPermission } from '../../shared/workspaces/employee-permissions.js';
 
 function toInt(value) {
   const parsed = Number(value);
@@ -2901,6 +2902,55 @@ export async function listProviderEmployees({
     params
   );
   return r.rows;
+}
+
+export async function listActiveProviderNotificationRecipients({
+  providerId,
+  requiredPermissions = [],
+} = {}) {
+  const permissions = Array.isArray(requiredPermissions)
+    ? requiredPermissions
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+
+  const r = await q(
+    `SELECT
+       u.id AS user_id,
+       ep.permissions_json,
+       ep.provider_id,
+       ep.is_active,
+       ep.archived_at,
+       u.is_account_disabled,
+       p.user_id AS owner_user_id
+     FROM service_provider_employee_profile ep
+     JOIN app_user u ON u.id = ep.employee_user_id
+     JOIN service_provider_profiles p ON p.id = ep.provider_id
+     WHERE ep.provider_id = $1
+       AND ep.is_active = TRUE
+       AND ep.archived_at IS NULL
+       AND COALESCE(u.is_account_disabled, FALSE) = FALSE
+       AND p.is_active = TRUE
+       AND u.id <> p.user_id
+     ORDER BY ep.updated_at DESC, ep.id DESC`,
+    [Number(providerId)]
+  );
+
+  return r.rows
+    .map((row) => ({
+      userId: Number(row.user_id),
+      providerId: Number(row.provider_id),
+      permissions: Array.isArray(row.permissions_json)
+        ? row.permissions_json
+        : [],
+    }))
+    .filter((row) => {
+      if (!Number.isInteger(row.userId) || row.userId <= 0) return false;
+      if (!permissions.length) return true;
+      return permissions.some((permission) =>
+        hasPermission(row.permissions, permission)
+      );
+    });
 }
 
 export async function upsertProviderEmployeeProfile({

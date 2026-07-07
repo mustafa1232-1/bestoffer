@@ -1,7 +1,30 @@
 import 'dart:io';
 
+import 'package:maslaki/core/platform/app_flavor.dart';
 import 'package:maslaki/core/notifications/notification_navigation.dart';
+import 'package:maslaki/features/auth/models/user_model.dart';
+import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+AuthState _serviceProviderAuth() {
+  return AuthState(
+    user: UserModel(
+      id: 1,
+      fullName: 'Service Provider',
+      phone: '0770000000',
+      role: 'service_provider',
+      block: 'A',
+      buildingNumber: '101',
+      apartment: '1',
+      imageUrl: null,
+      workTitle: null,
+      workCompany: null,
+      preferredLocale: 'ar',
+      isSuperAdmin: false,
+    ),
+    token: 'token',
+  );
+}
 
 void main() {
   group('Notification routing resolver', () {
@@ -132,6 +155,34 @@ void main() {
       expect(target, 'order_tracking');
       expect(module, 'merchant');
     });
+
+    test(
+      'Service provider auth is allowed on user flavor and owner order notifications open details',
+      () {
+        final auth = _serviceProviderAuth();
+        expect(
+          NotificationNavigation.isFlavorAllowedForAuth(
+            AppFlavor.user,
+            auth,
+          ),
+          true,
+        );
+
+        final target = NotificationNavigation.resolveTarget(
+          rawTarget: 'merchant_order_details',
+          type: 'owner_new_order',
+          orderId: 19,
+        );
+        final module = NotificationNavigation.resolveModule(
+          rawModule: null,
+          roleScope: 'merchant',
+          rawTarget: target,
+          type: 'owner_new_order',
+        );
+        expect(target, 'merchant_order_details');
+        expect(module, 'merchant');
+      },
+    );
 
     test('Admin payment notifications resolve to admin payment requests', () {
       final target = NotificationNavigation.resolveTarget(

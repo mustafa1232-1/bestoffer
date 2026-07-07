@@ -3,7 +3,12 @@ import test from "node:test";
 
 import { env } from "../config/env.js";
 import { resolveAccessAuth } from "../shared/middleware/access-auth.js";
-import { normalizeAppSurface, resolveRequestAppSurface, isRoleAllowedForSurface } from "../shared/utils/app-surface.js";
+import {
+  isRoleAllowedForSurface,
+  normalizeAppSurface,
+  resolveRequestAppSurface,
+  resolveRoleAppSurface,
+} from "../shared/utils/app-surface.js";
 import { signAccessToken } from "../shared/utils/jwt.js";
 
 test("normalizeAppSurface maps legacy aliases to the new surfaces", () => {
@@ -43,6 +48,8 @@ test("role to surface mapping rejects cross-flavor access", () => {
   assert.equal(isRoleAllowedForSurface("accountant", "company"), true);
   assert.equal(isRoleAllowedForSurface("user", "company"), false);
   assert.equal(isRoleAllowedForSurface("owner", "store"), true);
+  assert.equal(isRoleAllowedForSurface("service_provider", "user"), true);
+  assert.equal(resolveRoleAppSurface("service_provider"), "user");
 });
 
 test("resolveAccessAuth rejects mismatched request surface before session lookup", async () => {

@@ -30,6 +30,29 @@ test("push registration uses authenticated session and canonical role surface", 
   );
 });
 
+test("service provider push registration resolves to the user app surface", () => {
+  const ctx = validatePushTokenContext(
+    {
+      userId: 88,
+      sessionId: 91,
+      role: "service_provider",
+      deviceContext: { deviceFingerprint: "provider-device" },
+    },
+    {
+      userId: 88,
+      sessionId: 91,
+      appFlavor: "user",
+    }
+  );
+
+  assert.deepEqual(ctx, {
+    userId: 88,
+    sessionId: 91,
+    appSurface: "user",
+    deviceFingerprint: "provider-device",
+  });
+});
+
 test("push registration rejects user, session, and flavor hints that mismatch auth", () => {
   for (const body of [
     { userId: 41 },
@@ -53,6 +76,11 @@ test("notification audience metadata maps order and taxi roles to isolated surfa
   assert.equal(buildNotificationAudienceMetadata("owner").appSurface, "store");
   assert.equal(buildNotificationAudienceMetadata("delivery").appSurface, "delivery");
   assert.equal(buildNotificationAudienceMetadata("taxi_captain").appSurface, "taxi");
+  assert.deepEqual(buildNotificationAudienceMetadata("service_provider"), {
+    appSurface: "user",
+    roleScope: "customer",
+    targetModule: "customer",
+  });
 });
 
 test("push message carries the canonical target app surface", () => {
