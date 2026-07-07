@@ -299,6 +299,11 @@ class OwnerController extends StateNotifier<OwnerState> {
         analytics: analyticsResponse,
         settlementSummary: settlementSummaryResponse,
       );
+      await loadMerchantOpsOverviewV2(
+        period: 'all',
+        silent: true,
+      ).catchError((_) {});
+      await loadMerchantReceivablesV2(silent: true).catchError((_) {});
       _lastBootstrapAt = DateTime.now();
     } on DioException catch (e) {
       state = state.copyWith(loading: false, error: _mapError(e));
@@ -1041,7 +1046,7 @@ class OwnerController extends StateNotifier<OwnerState> {
 
   /// يجمع مؤشرات التشغيل v2 المتعددة في استدعاء واحد للواجهة.
   Future<void> loadMerchantOpsOverviewV2({
-    String period = 'day',
+    String period = 'all',
     String? from,
     String? to,
     bool silent = false,

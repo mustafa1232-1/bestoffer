@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+// ignore_for_file: use_build_context_synchronously, unused_element, unused_element_parameter
 
 import 'dart:async';
 
@@ -31,8 +31,12 @@ import '../../products/models/product_model.dart';
 import '../../merchants/utils/catalog_taxonomy.dart';
 import '../../settings/ui/pages/settings_account_screen.dart';
 import '../../settings/ui/pages/settings_support_screen.dart';
+import 'store_owner_couriers_screen.dart';
+import 'store_owner_kpis_screen.dart';
+import 'store_owner_receivables_screen.dart';
 import 'store_printer_settings_screen.dart';
 import 'store_owner_offers_screen.dart';
+import 'widgets/owner_dashboard_overview_panel.dart';
 import '../models/owner_merchant_model.dart';
 import '../state/owner_controller.dart';
 import 'owner_product_form_sheet.dart';
@@ -321,7 +325,6 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
         );
   }
 
-  // ignore: unused_element
   Future<void> _openCreateDeliveryAgentSheet() async {
     final data = await _openDeliveryAgentSheet(context);
     if (data == null || !mounted) return;
@@ -411,6 +414,277 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const AccountantDashboardScreen()),
     );
+  }
+
+  Future<void> _openKpisWorkspace() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const StoreOwnerKpisScreen()));
+  }
+
+  Future<void> _openReceivablesWorkspace() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const StoreOwnerReceivablesScreen()),
+    );
+  }
+
+  Future<void> _openCouriersWorkspace() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const StoreOwnerCouriersScreen()));
+  }
+
+  String _periodTitleLabel(String period) {
+    switch (period) {
+      case 'day':
+        return 'تفاصيل اليوم';
+      case 'week':
+        return 'تفاصيل الأسبوع';
+      case 'month':
+        return 'تفاصيل الشهر';
+      case 'all':
+        return 'الإجمالي';
+      default:
+        return 'تفاصيل التقرير';
+    }
+  }
+
+  Future<void> _openPeriodReportDetails({
+    required String period,
+    required String title,
+  }) async {
+    try {
+      final raw = await ref
+          .read(ownerApiProvider)
+          .ordersPrintReport(period: period);
+      final orders = raw
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(growable: false);
+      final summary = buildOwnerPeriodReportSummary(
+        orders.map((row) => OrderModel.fromJson(row)).toList(growable: false),
+      );
+      if (!mounted) return;
+
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              12,
+              16,
+              16 + MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: SingleChildScrollView(
+              child: Directionality(
+                textDirection: TextDirection.rtl,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                            textAlign: TextAlign.right,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cardWidth = constraints.maxWidth > 700
+                            ? (constraints.maxWidth - 12) / 2
+                            : constraints.maxWidth;
+                        final items = <_ReportStatItem>[
+                          _ReportStatItem(
+                            label: 'عدد الطلبات',
+                            value: '${summary.ordersCount}',
+                            accent: const Color(0xFF3E7BFA),
+                          ),
+                          _ReportStatItem(
+                            label: 'إجمالي المبيعات',
+                            value: formatIqd(summary.grossSales),
+                            accent: const Color(0xFF2AA876),
+                          ),
+                          _ReportStatItem(
+                            label: 'المجموع الفرعي',
+                            value: formatIqd(summary.subtotal),
+                            accent: const Color(0xFFE97A2E),
+                          ),
+                          _ReportStatItem(
+                            label: 'رسوم الخدمة المخزنة',
+                            value: formatIqd(summary.serviceFee),
+                            accent: const Color(0xFF9C4DCC),
+                          ),
+                          _ReportStatItem(
+                            label: 'أجور التوصيل',
+                            value: formatIqd(summary.deliveryFee),
+                            accent: const Color(0xFFCC6B8E),
+                          ),
+                          _ReportStatItem(
+                            label: 'متوسط الطلب',
+                            value: formatIqd(summary.avgOrderValue),
+                            accent: const Color(0xFF6C8FF5),
+                          ),
+                          _ReportStatItem(
+                            label: 'الطلبات المكتملة',
+                            value: '${summary.completedOrders}',
+                            accent: const Color(0xFF4C78DD),
+                          ),
+                          _ReportStatItem(
+                            label: 'الطلبات الملغاة',
+                            value: '${summary.cancelledOrders}',
+                            accent: const Color(0xFFD05A5A),
+                          ),
+                        ];
+                        return Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: items
+                              .map(
+                                (item) => SizedBox(
+                                  width: cardWidth,
+                                  child: _ReportStatCard(item: item),
+                                ),
+                              )
+                              .toList(growable: false),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    _SectionCard(
+                      title: 'ملخص الفترة',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: summary.summaryLines
+                            .map(
+                              (line) => Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Text(
+                                  line,
+                                  textDirection: TextDirection.rtl,
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            try {
+                              await printOrdersReceiptReport(
+                                title: title,
+                                summaryLines: summary.summaryLines,
+                                orders: orders,
+                              );
+                            } catch (e) {
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'تعذر طباعة التقرير. ($e)',
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.print_outlined),
+                          label: const Text('طباعة التقرير'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            try {
+                              await exportOrdersExcelReport(
+                                title: title,
+                                summaryLines: summary.summaryLines,
+                                orders: orders,
+                              );
+                            } catch (e) {
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'تعذر تصدير ملف Excel. ($e)',
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.table_chart_outlined),
+                          label: const Text('تصدير Excel'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _SectionCard(
+                      title: 'أحدث الطلبات',
+                      child: orders.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Text(
+                                'لا توجد طلبات ضمن هذه الفترة.',
+                                textAlign: TextAlign.center,
+                              ),
+                            )
+                          : Column(
+                              children: orders
+                                  .take(6)
+                                  .map((row) {
+                                    final order = OrderModel.fromJson(row);
+                                    return ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      title: Text(
+                                        'طلب #${order.id} - ${order.customerFullName}',
+                                        textDirection: TextDirection.rtl,
+                                      ),
+                                      subtitle: Text(
+                                        '${order.status} • ${formatIqd(order.totalAmount)}',
+                                        textDirection: TextDirection.rtl,
+                                      ),
+                                      trailing: const Icon(
+                                        Icons.chevron_left_rounded,
+                                      ),
+                                    );
+                                  })
+                                  .toList(growable: false),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'تعذر فتح ${_periodTitleLabel(period)}. ($e)',
+            textDirection: TextDirection.rtl,
+          ),
+        ),
+      );
+    }
   }
 
   String _ownerTabTitle() {
@@ -796,71 +1070,28 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                 if (activeTab == _OwnerTab.dashboard)
                   const SizedBox(height: 14),
                 if (activeTab == _OwnerTab.dashboard)
-                  _SectionCard(
-                    title: 'ملخص سريع',
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _OwnerMetricTile(
-                          icon: Icons.receipt_long_outlined,
-                          label: 'الطلبات الحالية',
-                          value: '${ownerState.currentOrders.length}',
-                          onTap: () => _setOwnerTab(_OwnerTab.orders),
-                        ),
-                        _OwnerMetricTile(
-                          icon: Icons.history_toggle_off_rounded,
-                          label: 'الطلبات السابقة',
-                          value: '${ownerState.historyOrders.length}',
-                          onTap: () => _setOwnerTab(_OwnerTab.orders),
-                        ),
-                        _OwnerMetricTile(
-                          icon: Icons.delivery_dining_rounded,
-                          label: 'مندوبو التوصيل',
-                          value: '${ownerState.deliveryAgents.length}',
-                        ),
-                        _OwnerMetricTile(
-                          icon: Icons.grid_view_rounded,
-                          label: 'التصنيفات',
-                          value: '${ownerState.categories.length}',
-                          onTap: () => _setOwnerTab(_OwnerTab.catalog),
-                        ),
-                        _OwnerMetricTile(
-                          icon: Icons.inventory_2_outlined,
-                          label: 'المنتجات',
-                          value: '${ownerState.products.length}',
-                          onTap: () => _setOwnerTab(_OwnerTab.catalog),
-                        ),
-                      ],
-                    ),
-                  ),
-                if (activeTab == _OwnerTab.dashboard)
-                  const SizedBox(height: 14),
-                if (activeTab == _OwnerTab.dashboard)
-                  _SectionCard(
-                    title: 'المؤشرات المالية',
-                    child: _OwnerInsights(
-                      analytics: ownerState.analytics,
-                      settlementSummary: ownerState.settlementSummary,
-                      saving: ownerState.savingOrder,
-                      onOpenDetails:
-                          ({
-                            required title,
-                            required lines,
-                            required reportPeriod,
-                          }) {
-                            return _openAnalyticsDetails(
-                              title: title,
-                              lines: lines,
-                              reportPeriod: reportPeriod,
-                            );
-                          },
-                      onRequestSettlement: () async {
-                        await ref
-                            .read(ownerControllerProvider.notifier)
-                            .requestSettlement();
-                      },
-                    ),
+                  OwnerDashboardOverviewPanel(
+                    state: ownerState,
+                    saving: ownerState.savingOrder,
+                    onOpenPeriodReport: ({required period, required title}) {
+                      return _openPeriodReportDetails(
+                        period: period,
+                        title: title,
+                      );
+                    },
+                    onOpenCurrentOrders: () => _setOwnerTab(_OwnerTab.orders),
+                    onOpenCatalog: () => _setOwnerTab(_OwnerTab.catalog),
+                    onOpenAddProduct: () => _openCreateProduct(ownerState),
+                    onOpenKpis: _openKpisWorkspace,
+                    onOpenReceivables: _openReceivablesWorkspace,
+                    onOpenCouriers: _openCouriersWorkspace,
+                    onOpenHr: _openHrWorkspace,
+                    onOpenPrinterSettings: _openStorePrinterSettings,
+                    onRequestSettlement: () async {
+                      await ref
+                          .read(ownerControllerProvider.notifier)
+                          .requestSettlement();
+                    },
                   ),
                 if (activeTab == _OwnerTab.orders) const SizedBox(height: 14),
                 if (activeTab == _OwnerTab.orders)
@@ -2255,6 +2486,57 @@ class _FinancialTermsTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReportStatItem {
+  final String label;
+  final String value;
+  final Color accent;
+
+  const _ReportStatItem({
+    required this.label,
+    required this.value,
+    required this.accent,
+  });
+}
+
+class _ReportStatCard extends StatelessWidget {
+  final _ReportStatItem item;
+
+  const _ReportStatCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: item.accent.withValues(alpha: 0.12),
+        border: Border.all(color: item.accent.withValues(alpha: 0.24)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.analytics_outlined, color: item.accent),
+          const SizedBox(height: 10),
+          Text(
+            item.label,
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            item.value,
+            textDirection: TextDirection.rtl,
+            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+          ),
+        ],
       ),
     );
   }
