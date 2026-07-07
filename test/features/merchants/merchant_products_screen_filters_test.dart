@@ -18,7 +18,7 @@ ProductModel _product({
     'merchantId': 2,
     'name': name,
     'price': 10000,
-    if (discountedPrice != null) 'discountedPrice': discountedPrice,
+    'discountedPrice': ?discountedPrice,
     'isAvailable': isAvailable,
     'stockQuantity': stockQuantity,
     'trackStock': trackStock,

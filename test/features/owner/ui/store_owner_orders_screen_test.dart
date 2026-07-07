@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/delivery/models/delivery_agent_model.dart';
 import 'package:maslaki/features/owner/data/owner_api.dart';
 import 'package:maslaki/features/orders/models/order_model.dart';
@@ -148,11 +147,11 @@ void main() {
               return controller;
             }),
           ],
-          child: MaterialApp(
-            locale: const Locale('en'),
+          child: const MaterialApp(
+            locale: Locale('en'),
             supportedLocales: AppLocalizations.supportedLocales,
             localizationsDelegates: AppLocalizations.localizationsDelegates,
-            home: const StoreOwnerOrdersScreen(),
+            home: StoreOwnerOrdersScreen(),
           ),
         ),
       );

@@ -516,9 +516,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
         if (outOfStock != null) {
           setState(() => _outOfStockDetails = outOfStock);
         }
-        final localeMessage = outOfStock == null
-            ? null
-            : outOfStock.messageForLanguageCode(
+        final localeMessage = outOfStock?.messageForLanguageCode(
                 Localizations.localeOf(context).languageCode,
               );
         ScaffoldMessenger.of(context).showSnackBar(

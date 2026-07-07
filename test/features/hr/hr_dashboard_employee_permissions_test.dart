@@ -51,18 +51,18 @@ class _FakeNotificationsController extends NotificationsController {
 
 class _FakeHrController extends HrController {
   _FakeHrController(super.ref) {
-    state = HrState(
+    state = const HrState(
       merchant: <String, dynamic>{'name': 'BestOffer Store'},
-      stats: const <String, dynamic>{},
-      employees: const <Map<String, dynamic>>[],
-      attendance: const <Map<String, dynamic>>[],
-      payrollBatches: const <Map<String, dynamic>>[],
-      payrollItems: const <Map<String, dynamic>>[],
-      leaveRequests: const <Map<String, dynamic>>[],
-      salaryActions: const <Map<String, dynamic>>[],
-      advanceRequests: const <Map<String, dynamic>>[],
-      employeeActivityLogs: const <Map<String, dynamic>>[],
-      attendanceArchive: const <Map<String, dynamic>>[],
+      stats: <String, dynamic>{},
+      employees: <Map<String, dynamic>>[],
+      attendance: <Map<String, dynamic>>[],
+      payrollBatches: <Map<String, dynamic>>[],
+      payrollItems: <Map<String, dynamic>>[],
+      leaveRequests: <Map<String, dynamic>>[],
+      salaryActions: <Map<String, dynamic>>[],
+      advanceRequests: <Map<String, dynamic>>[],
+      employeeActivityLogs: <Map<String, dynamic>>[],
+      attendanceArchive: <Map<String, dynamic>>[],
     );
   }
 
@@ -84,11 +84,11 @@ void main() {
           ),
           hrControllerProvider.overrideWith((ref) => _FakeHrController(ref)),
         ],
-        child: MaterialApp(
-          locale: const Locale('en'),
+        child: const MaterialApp(
+          locale: Locale('en'),
           supportedLocales: AppLocalizations.supportedLocales,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
-          home: const HrDashboardScreen(),
+          home: HrDashboardScreen(),
         ),
       ),
     );

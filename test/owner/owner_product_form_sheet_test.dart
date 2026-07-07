@@ -84,7 +84,7 @@ void main() {
                         isScrollControlled: true,
                         builder: (_) => ProductFormSheet(
                           product: invalidProduct(),
-                          categories: [clothes, electronics],
+                          categories: const [clothes, electronics],
                           merchantActivityType: 'fashion_clothing',
                         ),
                       );

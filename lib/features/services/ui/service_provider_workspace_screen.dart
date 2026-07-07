@@ -794,8 +794,8 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                                   selectedPermissions.toList(growable: false),
                           });
                     } else {
-                      final employeeUserId = employee?.userId;
-                      if (employeeUserId == null || employeeUserId <= 0) {
+                      final employeeUserId = employee.userId;
+                      if (employeeUserId <= 0) {
                         setDialogState(() => dialogError = 'Employee is required.');
                         return;
                       }

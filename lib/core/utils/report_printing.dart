@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:excel/excel.dart';
 import 'package:flutter/foundation.dart';
@@ -281,16 +280,6 @@ Future<Uint8List> buildOrdersReportExcelBytes({
   }
 
   return Uint8List.fromList(fileBytes);
-}
-
-Future<pw.ThemeData?> _loadOrdersReportTheme() async {
-  try {
-    final regularFont = await PdfGoogleFonts.notoNaskhArabicRegular();
-    final boldFont = await PdfGoogleFonts.notoNaskhArabicBold();
-    return pw.ThemeData.withFont(base: regularFont, bold: boldFont);
-  } catch (_) {
-    return null;
-  }
 }
 
 Future<void> printOrdersReceiptReport({

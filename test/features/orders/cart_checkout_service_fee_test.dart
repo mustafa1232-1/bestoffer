@@ -469,9 +469,9 @@ void main() {
             'variantId': null,
             'requestedQuantity': 1,
             'availableQuantity': 0,
-            'userMessageAr': 'المنتج \"Test Product\" غير متاح حالياً.',
+            'userMessageAr': 'المنتج "Test Product" غير متاح حالياً.',
             'userMessageEn':
-                'Product \"Test Product\" is currently unavailable.',
+                'Product "Test Product" is currently unavailable.',
           },
         };
 
