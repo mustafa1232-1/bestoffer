@@ -531,6 +531,66 @@ test("workspace employee permission enforcement", async (t) => {
       assert.equal(approvedOrder.error, null);
       assert.equal(approvedOrder.res.statusCode, 204);
 
+      const trackedProduct = await ownerService.createOwnerProduct(
+        storeFixture.user.id,
+        {
+          name: `Tracked Milk ${makeSuffix("tracked-")}`,
+          categoryId: storeCategory.id,
+          price: 1200,
+          description: "Tracked inventory product",
+          isAvailable: true,
+          stockQuantity: 2,
+          sortOrder: 2,
+        }
+      );
+      const trackedOrder = await ordersService.createOrder(customer.id, {
+        merchantId: storeMerchantId,
+        addressId: customerAddress.id,
+        items: [{ productId: Number(trackedProduct.id), quantity: 1 }],
+      });
+      trackedIds.orderIds.push(Number(trackedOrder.id));
+
+      const approvedTrackedOrder = await invoke(
+        ownerController.updateOrderStatus,
+        ownerReq(
+          {
+            status: "approved",
+            estimatedPrepMinutes: 15,
+          },
+          { orderId: String(trackedOrder.id) }
+        )
+      );
+      assert.equal(approvedTrackedOrder.error, null);
+      assert.equal(approvedTrackedOrder.res.statusCode, 204);
+
+      const zeroStockProduct = await ownerService.createOwnerProduct(
+        storeFixture.user.id,
+        {
+          name: `Zero Stock ${makeSuffix("zero-stock-")}`,
+          categoryId: storeCategory.id,
+          price: 900,
+          description: "Tracked out-of-stock product",
+          isAvailable: true,
+          stockQuantity: 0,
+          sortOrder: 3,
+        }
+      );
+      await assert.rejects(
+        () =>
+          ordersService.createOrder(customer.id, {
+            merchantId: storeMerchantId,
+            addressId: customerAddress.id,
+            items: [{ productId: Number(zeroStockProduct.id), quantity: 1 }],
+          }),
+        (error) => {
+          assert.equal(error.message, "PRODUCT_OUT_OF_STOCK");
+          assert.equal(error.status, 400);
+          assert.equal(error.details.reason, "OUT_OF_STOCK");
+          assert.equal(error.details.availableQuantity, 0);
+          return true;
+        }
+      );
+
       const assignedDelivery = await invoke(
         ownerController.assignDelivery,
         actorReq(

@@ -1195,9 +1195,10 @@ async function insertOrderItemTx(client, orderId, item) {
 }
 
 async function transitionInventoryReservationsTx(client, orderId, nextStatus) {
-  const release = nextStatus === "released" || nextStatus === "expired";
+  const nextStatusValue = String(nextStatus || "").trim().toLowerCase();
+  const release = nextStatusValue === "released" || nextStatusValue === "expired";
   const eligible = release ? ["pending", "consumed"] :
-    nextStatus === "completed" ? ["pending", "consumed"] : ["pending"];
+    nextStatusValue === "completed" ? ["pending", "consumed"] : ["pending"];
   const rows = await client.query(
     `SELECT * FROM inventory_reservation
      WHERE order_id = $1 AND status = ANY($2::varchar[])
@@ -1236,13 +1237,13 @@ async function transitionInventoryReservationsTx(client, orderId, nextStatus) {
     }
     await client.query(
       `UPDATE inventory_reservation
-       SET status = $2,
-           consumed_at = CASE WHEN $2 = 'consumed' THEN NOW() ELSE consumed_at END,
-           completed_at = CASE WHEN $2 = 'completed' THEN NOW() ELSE completed_at END,
-           released_at = CASE WHEN $2 IN ('released','expired') THEN NOW() ELSE released_at END,
+       SET status = $2::varchar(16),
+           consumed_at = CASE WHEN $2::varchar(16) = 'consumed' THEN NOW() ELSE consumed_at END,
+           completed_at = CASE WHEN $2::varchar(16) = 'completed' THEN NOW() ELSE completed_at END,
+           released_at = CASE WHEN $2::varchar(16) IN ('released','expired') THEN NOW() ELSE released_at END,
            updated_at = NOW()
-       WHERE id = $1`,
-      [Number(reservation.id), nextStatus]
+        WHERE id = $1`,
+      [Number(reservation.id), nextStatusValue]
     );
   }
   return rows.rows.length;

@@ -24,4 +24,17 @@ test("releasing a variant reservation restores the exact variant once", async ()
   assert.equal(first, 1);
   assert.equal(second, 0);
   assert.equal(calls.filter((call) => call.sql.includes("stock_quantity = stock_quantity +")).length, 1);
+
+  const statusUpdateCall = calls.find((call) =>
+    String(call.sql).includes("UPDATE inventory_reservation")
+  );
+  assert.ok(statusUpdateCall, "transitionInventoryReservationsTx must update reservation status");
+  assert.ok(
+    String(statusUpdateCall.sql).includes("status = $2::varchar(16)"),
+    "reservation status parameter must be cast explicitly"
+  );
+  assert.ok(
+    String(statusUpdateCall.sql).includes("CASE WHEN $2::varchar(16) = 'consumed'"),
+    "reservation status comparisons must reuse the explicit cast"
+  );
 });

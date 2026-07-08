@@ -133,33 +133,33 @@ export async function getDeliveryAnalytics(deliveryUserId) {
     const since = periodStart(range);
     const r = await q(
       `SELECT
-         COUNT(*)::int AS delivered_orders_count,
-         COALESCE(SUM(total_amount), 0) AS delivered_total_amount,
-         COALESCE(SUM(delivery_fee), 0) AS delivery_fees,
-         COALESCE(SUM(service_fee), 0) AS service_fee_amount,
-         COALESCE(SUM(store_net_received_amount), 0) AS store_net_received_amount,
-         COALESCE(SUM(app_due_from_delivery), 0) AS app_due_from_delivery,
-         COALESCE(SUM(difference_amount), 0) AS difference_amount,
-         COALESCE(SUM(COALESCE(inv.commission_amount, 0)), 0) AS commission_amount,
-         COALESCE(AVG(delivery_rating), 0) AS avg_rating,
-         COALESCE(
-           SUM(
-             CASE
-               WHEN estimated_delivery_minutes IS NOT NULL
-                AND picked_up_at IS NOT NULL
-                AND delivered_at IS NOT NULL
-                AND (EXTRACT(EPOCH FROM (delivered_at - picked_up_at)) / 60) <= estimated_delivery_minutes
-               THEN 1
-               ELSE 0
-             END
-           ),
-           0
-         )::int AS on_time_deliveries
-       FROM customer_order
-       LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = customer_order.id
-       WHERE delivery_user_id = $1
-         AND status = 'delivered'
-         ${since ? `AND delivered_at >= ${since}` : ""}`,
+          COUNT(*)::int AS delivered_orders_count,
+          COALESCE(SUM(o.total_amount), 0) AS delivered_total_amount,
+          COALESCE(SUM(o.delivery_fee), 0) AS delivery_fees,
+          COALESCE(SUM(o.service_fee), 0) AS service_fee_amount,
+          COALESCE(SUM(o.store_net_received_amount), 0) AS store_net_received_amount,
+          COALESCE(SUM(o.app_due_from_delivery), 0) AS app_due_from_delivery,
+          COALESCE(SUM(o.difference_amount), 0) AS difference_amount,
+          COALESCE(SUM(COALESCE(inv.commission_amount, 0)), 0) AS commission_amount,
+          COALESCE(AVG(o.delivery_rating), 0) AS avg_rating,
+          COALESCE(
+            SUM(
+              CASE
+                WHEN o.estimated_delivery_minutes IS NOT NULL
+                 AND o.picked_up_at IS NOT NULL
+                 AND o.delivered_at IS NOT NULL
+                 AND (EXTRACT(EPOCH FROM (o.delivered_at - o.picked_up_at)) / 60) <= o.estimated_delivery_minutes
+                THEN 1
+                ELSE 0
+              END
+            ),
+            0
+          )::int AS on_time_deliveries
+        FROM customer_order o
+        LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
+        WHERE o.delivery_user_id = $1
+          AND o.status = 'delivered'
+          ${since ? `AND o.delivered_at >= ${since}` : ""}`,
       [deliveryUserId]
     );
     const row = r.rows[0];

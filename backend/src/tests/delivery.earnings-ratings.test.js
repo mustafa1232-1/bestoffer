@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import * as deliveryService from "../modules/delivery/delivery.service.js";
 import { __ordersRepoTestables } from "../modules/orders/orders.repo.js";
 
 const { buildDeliveryEarnings, buildDeliveryRatings } = __ordersRepoTestables;
@@ -211,12 +212,23 @@ test("getDeliveryAnalytics includes financial settlement totals", () => {
   const body = src.slice(start, start + 2000);
 
   for (const column of [
-    "service_fee_amount",
-    "store_net_received_amount",
-    "app_due_from_delivery",
-    "difference_amount",
-    "commission_amount",
+    "o.total_amount",
+    "o.delivery_fee",
+    "o.service_fee",
+    "o.store_net_received_amount",
+    "o.app_due_from_delivery",
+    "o.difference_amount",
+    "inv.commission_amount",
   ]) {
     assert.ok(body.includes(column), `getDeliveryAnalytics must select ${column}`);
+  }
+});
+
+test("delivery analytics service executes successfully on PostgreSQL", async () => {
+  const out = await deliveryService.analytics(987654321);
+
+  for (const key of ["day", "week", "month", "year", "all"]) {
+    assert.ok(out[key], `analytics output must include ${key}`);
+    assert.equal(Number(out[key].delivered_orders_count || 0) >= 0, true);
   }
 });
