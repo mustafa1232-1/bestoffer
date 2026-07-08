@@ -29,4 +29,34 @@ void main() {
       expect(model.invoiceStatus, 'paid');
     },
   );
+
+  test(
+    'MerchantReceivableInvoiceModel exposes monthly subscription settlement amounts for owner reports',
+    () {
+      final model = MerchantReceivableInvoiceModel.fromJson({
+        'id': 8,
+        'order_id': 43,
+        'invoice_number': 'INV-43',
+        'issued_at': '2026-07-05T11:00:00.000Z',
+        'order_status': 'delivered',
+        'subtotal': 10000,
+        'commission_amount': 0,
+        'service_fee_amount': 500,
+        'app_delivery_fee_amount': 1000,
+        'store_delivery_fee_amount': 0,
+        'app_receivable_amount': 500,
+        'store_net_amount': 10000,
+        'store_net_received_amount': 10000,
+        'app_due_from_delivery': 500,
+        'difference_amount': 0,
+        'paid_amount': 0,
+        'outstanding_amount': 500,
+        'invoice_status': 'unpaid',
+      });
+
+      expect(model.effectiveStoreNetReceivedAmount, 10000);
+      expect(model.effectiveAppDueFromDelivery, 500);
+      expect(model.serviceFeeAmount, 500);
+    },
+  );
 }

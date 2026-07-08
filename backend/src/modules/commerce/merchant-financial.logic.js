@@ -292,24 +292,20 @@ function buildCashSettlementAmounts({
   storeDeliveryFeeAmount,
 }) {
   const discountedSubtotal = roundMoney(Math.max(0, subtotal - couponDiscountTotal));
-  const appDueFromDelivery = roundMoney(
-    commissionAmount + serviceFeeAmount + roundMoney(appDeliveryFeeAmount)
+  const deliveryEarningAmount = roundMoney(
+    roundMoney(appDeliveryFeeAmount) + roundMoney(storeDeliveryFeeAmount)
   );
+  const appDueFromDelivery = roundMoney(commissionAmount + serviceFeeAmount);
   const storeNetReceivedAmount = roundMoney(
     Math.max(
       0,
-      discountedSubtotal -
-        commissionAmount -
-        serviceFeeAmount -
-        roundMoney(appDeliveryFeeAmount) +
-        roundMoney(storeDeliveryFeeAmount)
+      discountedSubtotal - commissionAmount
     )
   );
   const customerTotalAmount = roundMoney(
     discountedSubtotal +
       serviceFeeAmount +
-      roundMoney(appDeliveryFeeAmount) +
-      roundMoney(storeDeliveryFeeAmount)
+      deliveryEarningAmount
   );
 
   return {
@@ -317,6 +313,7 @@ function buildCashSettlementAmounts({
     storeNetReceivedAmount,
     appDueFromDelivery,
     customerTotalAmount,
+    deliveryEarningAmount,
   };
 }
 
@@ -408,69 +405,25 @@ function resolveDeliveryBreakdown({
 }
 
 export function computeOrderFinancialSnapshot(order, profileInput = {}) {
-  const profile = normalizeMerchantBillingProfile(profileInput);
   const snapshotSource = normalizeJsonObject(order?.financial_config_snapshot_json);
-  if (snapshotSource?.appReceivableAmount != null) {
-    const subtotal = roundMoney(snapshotSource.subtotal ?? order?.subtotal);
-    const delivery = roundMoney(snapshotSource.deliveryFee ?? order?.delivery_fee);
-    const serviceFeeAmount = roundMoney(snapshotSource.serviceFeeAmount);
-    const commissionAmount = roundMoney(snapshotSource.commissionAmount);
-    const appDeliveryFeeAmount = roundMoney(snapshotSource.appDeliveryFeeAmount);
-    const storeDeliveryFeeAmount = roundMoney(snapshotSource.storeDeliveryFeeAmount);
-    const couponDiscountTotal = resolveCouponDiscountTotal(
-      order,
-      subtotal,
-      serviceFeeAmount,
-      delivery
-    );
-    const cashAmounts = buildCashSettlementAmounts({
-      subtotal,
-      couponDiscountTotal,
-      commissionAmount,
-      serviceFeeAmount,
-      appDeliveryFeeAmount,
-      storeDeliveryFeeAmount,
-    });
-    return {
-      ...snapshotSource,
-      commissionModel: snapshotSource.commissionModel || profile.commissionModel,
-      profileVersion: Math.max(1, Number(snapshotSource.profileVersion || profile.profileVersion) || 1),
-      commissionAmount,
-      serviceFeeAmount,
-      appDeliveryFeeAmount,
-      storeDeliveryFeeAmount,
-      appReceivableAmount: roundMoney(snapshotSource.appReceivableAmount),
-      storeNetAmount: cashAmounts.storeNetReceivedAmount,
-      subtotal,
-      couponDiscountTotal,
-      deliveryFee: delivery,
-      customerTotalAmount: cashAmounts.customerTotalAmount,
-      storeNetReceivedAmount: cashAmounts.storeNetReceivedAmount,
-      appDueFromDelivery: cashAmounts.appDueFromDelivery,
-      deliveryCashAmount: delivery,
-      monthlySubscriptionAmount: roundMoney(
-        snapshotSource.monthlySubscriptionAmount ??
-          profile.monthlySubscriptionAmount
-      ),
-      storeCashConfirmed: snapshotSource.storeCashConfirmed === true,
-      storeCashConfirmedAt: snapshotSource.storeCashConfirmedAt || null,
-      storeCashConfirmedByUserId:
-        snapshotSource.storeCashConfirmedByUserId ??
-        snapshotSource.storeCashConfirmedBy ??
-        null,
-      amountReceivedActual: roundMoney(snapshotSource.amountReceivedActual ?? 0),
-      differenceAmount: roundMoney(snapshotSource.differenceAmount ?? 0),
-      differenceReason: snapshotSource.differenceReason || null,
-      settlementStatus:
-        snapshotSource.settlementStatus || "pending_store_confirmation",
-    };
-  }
+  const profile = normalizeMerchantBillingProfile(
+    snapshotSource || profileInput
+  );
 
   const subtotal = roundMoney(order?.subtotal);
-  const explicitServiceFee = roundMoney(order?.service_fee);
-  const explicitDeliveryFee = roundMoney(order?.delivery_fee);
-  const commissionAmount = resolveCommissionAmount(subtotal, profile);
-  const serviceFeeAmount = resolveServiceFeeAmount(subtotal, explicitServiceFee, profile);
+  const explicitServiceFee = roundMoney(
+    order?.service_fee ?? snapshotSource?.serviceFeeAmount ?? 0
+  );
+  const explicitDeliveryFee = roundMoney(
+    order?.delivery_fee ?? snapshotSource?.deliveryFee ?? 0
+  );
+  const commissionAmount = roundMoney(
+    snapshotSource?.commissionAmount ?? resolveCommissionAmount(subtotal, profile)
+  );
+  const serviceFeeAmount = roundMoney(
+    snapshotSource?.serviceFeeAmount ??
+      resolveServiceFeeAmount(subtotal, explicitServiceFee, profile)
+  );
   const delivery = resolveDeliveryBreakdown({
     order,
     profile,
@@ -529,19 +482,24 @@ export function computeOrderFinancialSnapshot(order, profileInput = {}) {
     customerTotalAmount: cashAmounts.customerTotalAmount,
     storeNetReceivedAmount: cashAmounts.storeNetReceivedAmount,
     appDueFromDelivery: cashAmounts.appDueFromDelivery,
+    deliveryEarningAmount: cashAmounts.deliveryEarningAmount,
     deliveryCashAmount: delivery.deliveryFee,
-    storeCashConfirmed: false,
-    storeCashConfirmedAt: null,
-    storeCashConfirmedByUserId: null,
-    amountReceivedActual: 0,
-    differenceAmount: 0,
-    differenceReason: null,
-    settlementStatus: "pending_store_confirmation",
+    storeCashConfirmed: snapshotSource?.storeCashConfirmed === true,
+    storeCashConfirmedAt: snapshotSource?.storeCashConfirmedAt || null,
+    storeCashConfirmedByUserId:
+      snapshotSource?.storeCashConfirmedByUserId ??
+      snapshotSource?.storeCashConfirmedBy ??
+      null,
+    amountReceivedActual: roundMoney(snapshotSource?.amountReceivedActual ?? 0),
+    differenceAmount: roundMoney(snapshotSource?.differenceAmount ?? 0),
+    differenceReason: snapshotSource?.differenceReason || null,
+    settlementStatus:
+      snapshotSource?.settlementStatus || "pending_store_confirmation",
     settlementCycle: profile.settlementCycle,
     distributionPolicy: profile.distributionPolicy,
     gracePeriodDays: profile.gracePeriodDays,
     profileVersion: profile.profileVersion,
-    effectiveFrom: profile.effectiveFrom,
+    effectiveFrom: snapshotSource?.effectiveFrom || profile.effectiveFrom,
     issuedAt,
   };
 }
@@ -570,6 +528,7 @@ export function buildDeliveryCashSettlementSnapshot(orderRows = [], profileInput
     commissionAmount: 0,
     serviceFeeAmount: 0,
     deliveryFeeAmount: 0,
+    deliveryEarningAmount: 0,
     customerTotalAmount: 0,
     storeNetReceivedAmount: 0,
     appDueFromDelivery: 0,
@@ -592,6 +551,9 @@ export function buildDeliveryCashSettlementSnapshot(orderRows = [], profileInput
     );
     summary.deliveryFeeAmount = roundMoney(
       summary.deliveryFeeAmount + roundMoney(snapshot.deliveryFee ?? 0)
+    );
+    summary.deliveryEarningAmount = roundMoney(
+      summary.deliveryEarningAmount + roundMoney(snapshot.deliveryCashAmount ?? 0)
     );
     summary.customerTotalAmount = roundMoney(
       summary.customerTotalAmount + roundMoney(snapshot.customerTotalAmount ?? 0)

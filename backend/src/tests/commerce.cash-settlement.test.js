@@ -13,8 +13,8 @@ function buildOrder(overrides = {}) {
     subtotal: 10000,
     service_fee: 500,
     delivery_fee: 1000,
-    coupon_discount_total: 250,
-    total_amount: 11250,
+    coupon_discount_total: 0,
+    total_amount: 11500,
     delivery_type: "delivery",
     courier_source: "app",
     has_free_delivery: false,
@@ -53,28 +53,33 @@ test("monthly subscription keeps commission at zero while service fee stays stor
 
   assert.equal(snapshot.commissionAmount, 0);
   assert.equal(snapshot.serviceFeeAmount, 500);
-  assert.equal(snapshot.customerTotalAmount, 11250);
-  assert.equal(snapshot.storeNetReceivedAmount, 8250);
-  assert.equal(snapshot.appDueFromDelivery, 1500);
+  assert.equal(snapshot.deliveryCashAmount, 1000);
+  assert.equal(snapshot.customerTotalAmount, 11500);
+  assert.equal(snapshot.storeNetReceivedAmount, 10000);
+  assert.equal(snapshot.appDueFromDelivery, 500);
 });
 
-test("delivery cash settlement snapshot keeps stored service fee and coupon math", () => {
+test("percentage delivery cash settlement snapshot keeps stored service fee, coupon math, and delivery earning separate", () => {
   const snapshot = buildDeliveryCashSettlementSnapshot([
-    buildOrder(),
+    buildOrder({
+      coupon_discount_total: 250,
+      total_amount: 11250,
+    }),
   ], buildProfile({
-    commission_model: "monthly_subscription",
-    monthly_subscription_amount: 30000,
+    commission_model: "percentage",
+    monthly_subscription_amount: 0,
   }));
 
   assert.equal(snapshot.ordersCount, 1);
   assert.equal(snapshot.subtotalAmount, 10000);
   assert.equal(snapshot.couponDiscountTotal, 250);
-  assert.equal(snapshot.commissionModel, "monthly_subscription");
-  assert.equal(snapshot.commissionAmount, 0);
+  assert.equal(snapshot.commissionModel, "percentage");
+  assert.equal(snapshot.commissionAmount, 1000);
   assert.equal(snapshot.serviceFeeAmount, 500);
   assert.equal(snapshot.deliveryFeeAmount, 1000);
   assert.equal(snapshot.customerTotalAmount, 11250);
-  assert.equal(snapshot.storeNetReceivedAmount, 8250);
+  assert.equal(snapshot.deliveryEarningAmount, 1000);
+  assert.equal(snapshot.storeNetReceivedAmount, 8750);
   assert.equal(snapshot.appDueFromDelivery, 1500);
 });
 
@@ -112,21 +117,21 @@ test("courier end-day readiness blocks while an open settlement remains", () => 
 
 test("store cash confirmation snapshot records received status and difference review", () => {
   const confirmed = resolveStoreCashConfirmationSnapshot({
-    expectedAmount: 8250,
-    actualAmount: 8200,
+    expectedAmount: 8750,
+    actualAmount: 8700,
     reason: "short cash",
     actorUserId: 77,
   });
 
   assert.equal(confirmed.storeCashConfirmed, true);
-  assert.equal(confirmed.amountReceivedActual, 8200);
+  assert.equal(confirmed.amountReceivedActual, 8700);
   assert.equal(confirmed.differenceAmount, -50);
   assert.equal(confirmed.differenceReason, "short cash");
   assert.equal(confirmed.settlementStatus, "difference_review");
 
   const exact = resolveStoreCashConfirmationSnapshot({
-    expectedAmount: 8250,
-    actualAmount: 8250,
+    expectedAmount: 8750,
+    actualAmount: 8750,
     actorUserId: 77,
   });
 

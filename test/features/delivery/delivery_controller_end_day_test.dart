@@ -149,7 +149,7 @@ void main() {
         'archiveDate': '2026-07-05',
         'ordersCount': 3,
         'totalAmount': 11250,
-        'storeNetReceivedAmount': 8250,
+        'storeNetReceivedAmount': 8750,
         'appDueFromDelivery': 1500,
       },
     );
