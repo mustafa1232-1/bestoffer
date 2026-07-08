@@ -236,9 +236,30 @@ function periodStartExpression(period) {
       return "DATE_TRUNC('month', NOW())";
     case "year":
       return "DATE_TRUNC('year', NOW())";
+    case "all":
+      return null;
     default:
       return null;
   }
+}
+
+function normalizeReportPeriod(period) {
+  const normalized = String(period || "day").trim().toLowerCase();
+  switch (normalized) {
+    case "day":
+    case "week":
+    case "month":
+    case "year":
+    case "all":
+      return normalized;
+    default:
+      return null;
+  }
+}
+
+function buildReportTimeFilter(period, column = "o.created_at") {
+  const since = periodStartExpression(normalizeReportPeriod(period));
+  return since ? `${column} >= ${since}` : null;
 }
 
 function normalizeAdminOrderOverviewStatus(status) {
@@ -1239,6 +1260,9 @@ export const __ordersRepoTestables = Object.freeze({
   buildDynamicInsertParts,
   buildVariantSelectionSignature,
   buildSelectionsFromVariantCatalog,
+  normalizeReportPeriod,
+  periodStartExpression,
+  buildReportTimeFilter,
   toDeliveryDetailResponse,
   resolveTrackingViewerMode,
   buildDeliveryEarnings,
@@ -3427,16 +3451,17 @@ export async function listOwnerOrderHistory(ownerUserId, archiveDate) {
 }
 
 export async function listAdminOrdersForReport(period) {
-  const since = periodStartExpression(period);
-  if (!since) {
+  const normalizedPeriod = normalizeReportPeriod(period);
+  if (!normalizedPeriod) {
     const err = new Error("INVALID_PERIOD");
     err.status = 400;
     throw err;
   }
+  const timeFilter = buildReportTimeFilter(normalizedPeriod);
 
   const r = await q(
     `${orderSelect}
-     WHERE o.created_at >= ${since}
+     ${timeFilter ? `WHERE ${timeFilter}` : ""}
      ORDER BY o.created_at DESC`,
     []
   );
@@ -3646,17 +3671,18 @@ export async function listAdminMerchantOrdersOverview({
 }
 
 export async function listOwnerOrdersForReport(ownerUserId, period) {
-  const since = periodStartExpression(period);
-  if (!since) {
+  const normalizedPeriod = normalizeReportPeriod(period);
+  if (!normalizedPeriod) {
     const err = new Error("INVALID_PERIOD");
     err.status = 400;
     throw err;
   }
+  const timeFilter = buildReportTimeFilter(normalizedPeriod);
 
   const r = await q(
     `${orderSelect}
      WHERE m.owner_user_id = $1
-       AND o.created_at >= ${since}
+       ${timeFilter ? `AND ${timeFilter}` : ""}
      ORDER BY o.created_at DESC`,
     [ownerUserId]
   );

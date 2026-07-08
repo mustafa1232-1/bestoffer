@@ -190,15 +190,15 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                       summaryLines: lines,
                       orders: orders,
                     );
-                  } catch (e) {
+                  } catch (_) {
                     try {
                       await printSimpleReport(title: title, lines: lines);
                     } catch (_) {}
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
+                      const SnackBar(
                         content: Text(
-                          'تعذر فتح تقرير الطباعة على هذا الجهاز. تمت طباعة النسخة النصية بدلًا منه. ($e)',
+                          'تعذر فتح تقرير الطباعة على هذا الجهاز. تمت طباعة نسخة نصية بديلة. / Unable to open the print report on this device. A text fallback was printed.',
                         ),
                       ),
                     );
@@ -222,10 +222,14 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                       summaryLines: lines,
                       orders: orders,
                     );
-                  } catch (e) {
+                  } catch (_) {
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('تعذر تصدير ملف Excel. ($e)')),
+                      const SnackBar(
+                        content: Text(
+                          'تعذر تصدير ملف Excel في الوقت الحالي. حاول مرة أخرى. / Unable to export the Excel file right now. Please try again.',
+                        ),
+                      ),
                     );
                   }
                 },
@@ -596,9 +600,9 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                             } catch (e) {
                               if (!mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
+                                const SnackBar(
                                   content: Text(
-                                    'تعذر طباعة التقرير. ($e)',
+                                    'تعذر طباعة التقرير. / Unable to print the report right now.',
                                     textDirection: TextDirection.rtl,
                                   ),
                                 ),
@@ -619,9 +623,9 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                             } catch (e) {
                               if (!mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
+                                const SnackBar(
                                   content: Text(
-                                    'تعذر تصدير ملف Excel. ($e)',
+                                    'تعذر تصدير ملف Excel. / Unable to export the Excel report right now.',
                                     textDirection: TextDirection.rtl,
                                   ),
                                 ),
@@ -679,7 +683,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'تعذر فتح ${_periodTitleLabel(period)}. ($e)',
+            'تعذر فتح ${_periodTitleLabel(period)}. / Unable to open the selected report period right now.',
             textDirection: TextDirection.rtl,
           ),
         ),
@@ -2566,7 +2570,9 @@ class _OwnerInsights extends StatelessWidget {
   Widget build(BuildContext context) {
     final day = _readPeriod(analytics['day']);
     final month = _readPeriod(analytics['month']);
+    final allTime = _readPeriod(analytics['all']);
     final year = _readPeriod(analytics['year']);
+    final reportAllTime = allTime.ordersCount > 0 ? allTime : year;
 
     final outstanding = _readNum(settlementSummary?['outstandingAmount']);
     final ordersCount = _readNum(settlementSummary?['ordersCount']).toInt();
@@ -2649,13 +2655,13 @@ class _OwnerInsights extends StatelessWidget {
           },
         ),
         _InsightLine(
-          'السنة',
-          '${year.ordersCount} طلب | التوصيل ${formatIqd(year.deliveryFees)}',
+          'الإجمالي',
+          '${reportAllTime.ordersCount} طلب | التوصيل ${formatIqd(reportAllTime.deliveryFees)}',
           onTap: () {
             onOpenDetails(
-              title: 'تفاصيل مؤشرات السنة',
-              lines: detailsForPeriod('تفاصيل السنة', year),
-              reportPeriod: 'year',
+              title: 'تفاصيل المؤشرات الإجمالية',
+              lines: detailsForPeriod('تفاصيل الإجمالي', reportAllTime),
+              reportPeriod: 'all',
             );
           },
         ),
@@ -2674,7 +2680,7 @@ class _OwnerInsights extends StatelessWidget {
                 else
                   'لا يوجد طلب تسديد نشط',
               ],
-              reportPeriod: 'year',
+              reportPeriod: 'all',
             );
           },
         ),

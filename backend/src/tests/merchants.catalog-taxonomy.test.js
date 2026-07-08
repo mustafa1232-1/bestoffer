@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   filterCategoriesForActivity,
+  getDefaultCatalogTypeForActivity,
   getAllowedCatalogTypesForActivity,
   isCatalogTypeAllowedForActivity,
   resolveCategoryCatalogType,
@@ -47,6 +48,14 @@ test("restaurant sections do not keep unrelated catalog types", () => {
 
   const filtered = filterCategoriesForActivity(categories, "restaurant");
   assert.deepEqual(filtered.map((item) => item.id), [1]);
+});
+
+test("default catalog type follows the store activity taxonomy", () => {
+  assert.equal(getDefaultCatalogTypeForActivity("restaurant"), "restaurant");
+  assert.equal(getDefaultCatalogTypeForActivity("coffee_drinks"), "restaurant");
+  assert.equal(getDefaultCatalogTypeForActivity("fashion_clothing"), "clothes");
+  assert.equal(getDefaultCatalogTypeForActivity("supermarket"), "grocery");
+  assert.equal(getDefaultCatalogTypeForActivity("home_kitchen"), "furniture");
 });
 
 test("legacy category names can still be inferred from safe names", () => {

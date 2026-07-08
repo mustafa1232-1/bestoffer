@@ -3,15 +3,22 @@ import { createManyNotifications } from "../notifications/notifications.repo.js"
 
 function periodStart(range) {
   if (range === "day") return "DATE_TRUNC('day', NOW())";
+  if (range === "week") return "DATE_TRUNC('week', NOW())";
   if (range === "month") return "DATE_TRUNC('month', NOW())";
-  return "DATE_TRUNC('year', NOW())";
+  if (range === "year") return "DATE_TRUNC('year', NOW())";
+  return null;
 }
 
+export const __analyticsRepoTestables = Object.freeze({
+  periodStart,
+});
+
 async function queryTotals(whereSql, whereParams, timeColumn = "o.created_at") {
-  const ranges = ["day", "month", "year"];
+  const ranges = ["day", "week", "month", "year", "all"];
   const out = {};
 
   for (const range of ranges) {
+    const since = periodStart(range);
     const r = await q(
       `SELECT
          COUNT(*)::int AS orders_count,
@@ -30,7 +37,7 @@ async function queryTotals(whereSql, whereParams, timeColumn = "o.created_at") {
        FROM customer_order o
        LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
        WHERE ${whereSql}
-         AND ${timeColumn} >= ${periodStart(range)}`,
+         ${since ? `AND ${timeColumn} >= ${since}` : ""}`,
       whereParams
     );
 
@@ -46,7 +53,8 @@ export async function getAdminAnalytics() {
 
 export async function getOwnerAnalytics(ownerUserId) {
   const out = {};
-  for (const range of ["day", "month", "year"]) {
+  for (const range of ["day", "week", "month", "year", "all"]) {
+    const since = periodStart(range);
     const r = await q(
       `SELECT
          COUNT(*)::int AS orders_count,
@@ -61,7 +69,7 @@ export async function getOwnerAnalytics(ownerUserId) {
        JOIN merchant m ON m.id = o.merchant_id
        LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
        WHERE m.owner_user_id = $1
-         AND o.created_at >= ${periodStart(range)}`,
+         ${since ? `AND o.created_at >= ${since}` : ""}`,
       [ownerUserId]
     );
     out[range] = r.rows[0];
@@ -121,7 +129,8 @@ export async function getOwnerAnalytics(ownerUserId) {
 
 export async function getDeliveryAnalytics(deliveryUserId) {
   const out = {};
-  for (const range of ["day", "month", "year"]) {
+  for (const range of ["day", "week", "month", "year", "all"]) {
+    const since = periodStart(range);
     const r = await q(
       `SELECT
          COUNT(*)::int AS delivered_orders_count,
@@ -144,7 +153,7 @@ export async function getDeliveryAnalytics(deliveryUserId) {
        FROM customer_order
        WHERE delivery_user_id = $1
          AND status = 'delivered'
-         AND delivered_at >= ${periodStart(range)}`,
+         ${since ? `AND delivered_at >= ${since}` : ""}`,
       [deliveryUserId]
     );
     const row = r.rows[0];

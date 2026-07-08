@@ -2,6 +2,7 @@
 import { pool, q } from "../config/db.js";
 import {
   inferCatalogTypeFromName,
+  getDefaultCatalogTypeForActivity,
   isCatalogTypeAllowedForActivity,
   normalizeCatalogType,
 } from "../modules/merchants/catalog-taxonomy.js";
@@ -26,17 +27,31 @@ function safeCatalogType(row) {
   const merchantActivityType = normalizeActivityType(row.activity_type);
   const activityKnown =
     merchantActivityType.length > 0 && row.activity_is_known === true;
+  const defaultCatalogType = getDefaultCatalogTypeForActivity(merchantActivityType);
+  const source = normalizeActivityType(row.source);
+  const sourceIsTemplate = source === "template";
+  const templateFixTarget = sourceIsTemplate ? defaultCatalogType : inferred;
 
   return {
     stored,
     inferred,
+    defaultCatalogType,
     merchantActivityType,
     activityKnown,
+    source,
     canFix:
       activityKnown &&
       stored === "generic" &&
-      inferred !== "generic" &&
-      isCatalogTypeAllowedForActivity(merchantActivityType, inferred),
+      templateFixTarget !== "generic" &&
+      isCatalogTypeAllowedForActivity(
+        merchantActivityType,
+        templateFixTarget
+      ),
+    targetCatalogType: activityKnown
+      ? sourceIsTemplate
+        ? defaultCatalogType
+        : inferred
+      : "generic",
   };
 }
 
@@ -62,6 +77,7 @@ async function main() {
        c.merchant_id,
        c.name,
        c.catalog_type,
+       c.source,
        m.name AS merchant_name,
        m.type AS merchant_type,
        m.activity_type,
@@ -113,9 +129,11 @@ async function main() {
       merchantName: row.merchant_name || "",
       merchantType: row.merchant_type || "",
       activityType: classification.merchantActivityType,
+      source: classification.source,
       name: row.name || "",
       storedCatalogType: classification.stored,
       inferredCatalogType: classification.inferred,
+      targetCatalogType: classification.targetCatalogType,
       action: classification.canFix ? "update-catalog-type" : "review",
     };
     categoryById.set(record.id, record);
@@ -174,7 +192,7 @@ async function main() {
           `UPDATE merchant_category
            SET catalog_type = $1
            WHERE id = $2`,
-          [item.inferredCatalogType, item.id]
+          [item.targetCatalogType, item.id]
         );
       }
       await client.query("COMMIT");

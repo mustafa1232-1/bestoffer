@@ -1,6 +1,7 @@
 import { pool, q } from "../../config/db.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import { getRedisClient } from "../../config/redis.js";
+import { getDefaultCatalogTypeForActivity } from "./catalog-taxonomy.js";
 
 const MERCHANT_PRODUCTS_TTL = 120; // 2 minutes
 const MERCHANT_CATEGORIES_TTL = 300; // 5 minutes
@@ -1315,6 +1316,16 @@ export async function listStoreActivityInternalTemplates(activityType) {
 }
 
 export async function ensureMerchantDefaultInternalCategories(merchantId) {
+  const merchantResult = await q(
+    `SELECT activity_type
+     FROM merchant
+     WHERE id = $1
+     LIMIT 1`,
+    [Number(merchantId)]
+  );
+  const defaultCatalogType = getDefaultCatalogTypeForActivity(
+    merchantResult.rows[0]?.activity_type
+  );
   await q(
     `WITH target AS (
        SELECT m.id AS merchant_id, m.activity_type
@@ -1329,7 +1340,16 @@ export async function ensureMerchantDefaultInternalCategories(merchantId) {
        ) AS has_any
      )
      INSERT INTO merchant_category
-       (merchant_id, name, sort_order, order_index, icon, is_active, source)
+       (
+         merchant_id,
+         name,
+         sort_order,
+         order_index,
+         icon,
+         is_active,
+         source,
+         catalog_type
+       )
      SELECT
        t.merchant_id,
        tpl.name_ar,
@@ -1337,13 +1357,14 @@ export async function ensureMerchantDefaultInternalCategories(merchantId) {
        tpl.order_index,
        tpl.icon,
        TRUE,
-       'template'
+       'template',
+       $2
      FROM target t
      JOIN has_categories hc ON hc.has_any = FALSE
      JOIN store_activity_internal_category_template tpl
        ON tpl.activity_type = t.activity_type
       AND tpl.is_active = TRUE
      ON CONFLICT (merchant_id, name) DO NOTHING`,
-    [Number(merchantId)]
+    [Number(merchantId), defaultCatalogType]
   );
 }

@@ -2150,7 +2150,7 @@ export async function ownerAnalytics(ownerUserId) {
 }
 
 export async function printOrdersReport(ownerUserId, period) {
-  const normalizedPeriod = String(period || "day").toLowerCase();
+  const normalizedPeriod = String(period || "day").trim().toLowerCase();
   const merchant = await getOwnerMerchant(ownerUserId);
   await ensureMerchantPermission(
     ownerUserId,

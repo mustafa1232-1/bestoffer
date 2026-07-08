@@ -87,6 +87,10 @@ export function getAllowedCatalogTypesForActivity(activityType) {
   return [...allowed];
 }
 
+export function getDefaultCatalogTypeForActivity(activityType) {
+  return getAllowedCatalogTypesForActivity(activityType)[0] || "generic";
+}
+
 export function isCatalogTypeAllowedForActivity(activityType, catalogType) {
   const normalizedCatalogType = normalizeCatalogType(catalogType, null);
   if (!normalizedCatalogType) return false;

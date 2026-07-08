@@ -177,7 +177,11 @@ class OwnerDashboardMetrics {
     final dashboardKpis = _mapOrNull(state.merchantDashboardV2['kpis']);
     final analyticsDay = _periodFromRaw(state.analytics['day']);
     final analyticsMonth = _periodFromRaw(state.analytics['month']);
+    final analyticsAll = _periodFromRaw(state.analytics['all']);
     final analyticsYear = _periodFromRaw(state.analytics['year']);
+    final analyticsLifetime = analyticsAll.ordersCount > 0
+        ? analyticsAll
+        : analyticsYear;
     final outstandingSource = _mapOrNull(state.settlementSummary) ?? const {};
     final topProducts = state.merchantTopProductsV2
         .map(OwnerRankRow.fromProductJson)
@@ -191,7 +195,7 @@ class OwnerDashboardMetrics {
     final totalOrders = _intValue(
       dashboardKpis?['totalOrders'] ??
           dashboardKpis?['total_orders'] ??
-          analyticsYear.ordersCount,
+          analyticsLifetime.ordersCount,
     );
     final totalSales = _doubleValue(
       dashboardKpis?['grossSales'] ??
@@ -202,7 +206,7 @@ class OwnerDashboardMetrics {
     final completedOrders = _intValue(
       dashboardKpis?['completedOrders'] ??
           dashboardKpis?['completed_orders'] ??
-          analyticsYear.ordersCount,
+          analyticsLifetime.ordersCount,
     );
     final cancelledOrders = _intValue(
       dashboardKpis?['cancelledOrders'] ??
@@ -230,7 +234,9 @@ class OwnerDashboardMetrics {
     final todayOrders = analyticsDay.ordersCount;
     final monthOrders = analyticsMonth.ordersCount;
     final yearOrders = analyticsYear.ordersCount;
-    final totalTrendOrders = totalOrders > 0 ? totalOrders : yearOrders;
+    final totalTrendOrders = totalOrders > 0
+        ? totalOrders
+        : analyticsLifetime.ordersCount;
     final trendPoints = [
       OwnerTrendPoint('اليوم', todayOrders),
       OwnerTrendPoint('الشهر', monthOrders),
@@ -505,10 +511,8 @@ class _OwnerHeroPanel extends StatelessWidget {
                       label: 'إجمالي المبيعات',
                       value: formatIqd(metrics.totalSales),
                       accent: const Color(0xFF2AA876),
-                      onTap: () => onOpenPeriodReport(
-                        period: 'all',
-                        title: 'الإجمالي',
-                      ),
+                      onTap: () =>
+                          onOpenPeriodReport(period: 'all', title: 'الإجمالي'),
                     ),
                   ),
                   SizedBox(
