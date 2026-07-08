@@ -14,6 +14,11 @@ class OwnerApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> getMonthlySubscriptionSummary() async {
+    final response = await dio.get('/api/owner/subscription/summary');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> acceptFinancialTerms() async {
     final response = await dio.post(
       '/api/owner/merchant/financial-terms/accept',

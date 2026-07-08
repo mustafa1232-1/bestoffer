@@ -740,6 +740,15 @@ export async function settlementSummary(req, res, next) {
   }
 }
 
+export async function monthlySubscriptionSummary(req, res, next) {
+  try {
+    const out = await service.monthlySubscriptionSummary(req.userId);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
 /**
  * ينشئ طلب تسوية/تحصيل مالي لصاحب المتجر.
  */

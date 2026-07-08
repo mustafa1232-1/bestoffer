@@ -34,6 +34,7 @@ import {
   paidUpgradesRouter,
 } from "./modules/paid-upgrades/paid-upgrades.routes.js";
 import { pharmacyRouter } from "./modules/pharmacy/pharmacy.routes.js";
+import { subscriptionsAdminRouter } from "./modules/subscriptions/subscriptions.routes.js";
 import { productsRouter } from "./modules/products/products.routes.js";
 import { realtimeRouter } from "./modules/realtime/realtime.routes.js";
 import { securityRouter } from "./modules/security/security.routes.js";
@@ -181,6 +182,7 @@ function mountApiSurface(prefix = "/api") {
   app.post(`${prefix}/system/crash-events`, adminOpsController.reportCrashEvent);
   app.use(prefix, commerceRouter);
   app.use(`${prefix}/admin/paid-upgrades`, paidUpgradesAdminRouter);
+  app.use(`${prefix}/admin/merchant-subscriptions`, subscriptionsAdminRouter);
   app.use(`${prefix}/admin/real-estate`, realEstateAdminRouter);
   app.use(`${prefix}/admin/services`, servicesAdminRouter);
   app.use(`${prefix}/admin/sections`, sectionAvailabilityAdminRouter);

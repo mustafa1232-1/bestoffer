@@ -70,6 +70,7 @@ ownerRouter.patch("/orders/:orderId/items/:productId/unavailable", c.markOrderIt
 ownerRouter.get("/analytics", c.analytics);
 ownerRouter.get("/orders/print-report", c.printOrdersReport);
 ownerRouter.get("/settlements/summary", c.settlementSummary);
+ownerRouter.get("/subscription/summary", c.monthlySubscriptionSummary);
 ownerRouter.post(
   "/settlements/request",
   requireSensitiveWriteSignature,

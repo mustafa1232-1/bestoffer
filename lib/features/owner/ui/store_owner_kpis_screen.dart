@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/currency.dart';
+import '../../subscriptions/ui/monthly_subscription_card.dart';
 import '../models/merchant_financial_request_model.dart';
 import '../models/merchant_receivable_invoice_model.dart';
 import '../state/owner_controller.dart';
@@ -21,6 +22,7 @@ class _StoreOwnerKpisScreenState extends ConsumerState<StoreOwnerKpisScreen> {
   bool _loading = false;
   String? _error;
   List<MerchantReceivableInvoiceModel> _invoices = const [];
+  Map<String, dynamic>? _subscriptionSummary;
 
   @override
   void initState() {
@@ -41,11 +43,21 @@ class _StoreOwnerKpisScreenState extends ConsumerState<StoreOwnerKpisScreen> {
         onlyOpen: false,
       );
       await controller.loadMerchantReceivablesV2(silent: true);
+      // Subscription debt is optional and permission-gated; a failure here
+      // (e.g. employee without financial permission) must not break the screen.
+      Map<String, dynamic>? subscriptionSummary;
+      try {
+        subscriptionSummary =
+            await ref.read(ownerApiProvider).getMonthlySubscriptionSummary();
+      } catch (_) {
+        subscriptionSummary = null;
+      }
       if (!mounted) return;
       setState(() {
         _invoices = invoicesRaw
             .map(MerchantReceivableInvoiceModel.fromJson)
             .toList(growable: false);
+        _subscriptionSummary = subscriptionSummary;
         _loading = false;
       });
     } catch (_) {
@@ -284,6 +296,7 @@ class _StoreOwnerKpisScreenState extends ConsumerState<StoreOwnerKpisScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            if (!_loading) MonthlySubscriptionCard(summary: _subscriptionSummary),
             if (_loading)
               const Padding(
                 padding: EdgeInsets.only(top: 40),

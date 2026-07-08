@@ -6,6 +6,8 @@ import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
 import { createUserSession, pruneUserSessions } from "../auth/auth.repo.js";
 import * as analyticsRepo from "../../shared/analytics/commerce-analytics.repo.js";
 import * as commerceRepo from "../commerce/commerce.repo.js";
+import * as subscriptionsService from "../subscriptions/subscriptions.service.js";
+import { getMerchantBillingProfile } from "../commerce/merchant-financial.logic.js";
 import * as companyRepo from "../company/company.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
 import { invalidateOrderListCacheForUser } from "../orders/orders.service.js";
@@ -2171,6 +2173,26 @@ export async function settlementSummary(ownerUserId) {
     "view_financial_reports"
   );
   return analyticsRepo.getOwnerOutstanding(ownerUserId);
+}
+
+/**
+ * Store-side view of the merchant's own monthly subscription debt. Requires the
+ * financial-reports permission so store employees without financial access
+ * (and disabled employees) cannot see subscription financials. Read-only and
+ * strictly scoped to the caller's merchant. Kept separate from per-order cash
+ * settlement (settlementSummary above).
+ */
+export async function monthlySubscriptionSummary(ownerUserId) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(
+    ownerUserId,
+    merchant.id,
+    "view_financial_reports"
+  );
+  const profile = await getMerchantBillingProfile(merchant.id);
+  return subscriptionsService.getMerchantSubscriptionSummary(merchant.id, {
+    billingModel: profile.commissionModel,
+  });
 }
 
 /**

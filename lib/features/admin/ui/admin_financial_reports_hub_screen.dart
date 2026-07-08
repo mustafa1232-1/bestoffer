@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
+import '../../subscriptions/ui/admin_merchant_subscriptions_screen.dart';
 import '../models/admin_financial_kpi_model.dart';
 import '../state/admin_controller.dart';
 import 'admin_collections_report_screen.dart';
@@ -46,6 +48,14 @@ class _AdminFinancialReportsHubScreenState
   void _openReceivables() {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const AdminReceivablesReportScreen()),
+    );
+  }
+
+  void _openMerchantSubscriptions() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const AdminMerchantSubscriptionsScreen(),
+      ),
     );
   }
 
@@ -108,6 +118,20 @@ class _AdminFinancialReportsHubScreenState
                     ),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: _openReceivables,
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.calendar_month_outlined),
+                    title: Text(context.lt(
+                      ar: 'اشتراكات المتاجر الشهرية',
+                      en: 'Merchant monthly subscriptions',
+                    )),
+                    subtitle: Text(context.lt(
+                      ar: 'إصدار الفواتير واستلام مدفوعات الاشتراك الشهري.',
+                      en: 'Generate invoices and collect monthly subscription payments.',
+                    )),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: _openMerchantSubscriptions,
                   ),
                 ],
               ),
