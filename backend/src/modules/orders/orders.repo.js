@@ -249,12 +249,22 @@ function periodStartExpression(period) {
 function normalizeReportPeriod(period) {
   const normalized = String(period || "day").trim().toLowerCase();
   switch (normalized) {
+    // Canonical values.
     case "day":
     case "week":
     case "month":
     case "year":
     case "all":
       return normalized;
+    // Accepted aliases so the dashboard/report surfaces can send friendlier
+    // labels without tripping INVALID_PERIOD. All map to a canonical bucket.
+    case "today":
+      return "day";
+    case "total":
+    case "lifetime":
+    case "all_time":
+    case "alltime":
+      return "all";
     default:
       return null;
   }

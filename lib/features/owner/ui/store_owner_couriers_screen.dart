@@ -192,12 +192,14 @@ class _StoreOwnerCouriersScreenState
                           runSpacing: 8,
                           children: [
                             OutlinedButton.icon(
-                              onPressed: () => ref
-                                  .read(ownerControllerProvider.notifier)
-                                  .patchMerchantCourierV2(
-                                    courierUserId: userId,
-                                    isActive: !isActive,
-                                  ),
+                              onPressed: userId <= 0
+                                  ? null
+                                  : () => ref
+                                        .read(ownerControllerProvider.notifier)
+                                        .patchMerchantCourierV2(
+                                          courierUserId: userId,
+                                          isActive: !isActive,
+                                        ),
                               icon: const Icon(
                                 Icons.power_settings_new_rounded,
                               ),
@@ -208,12 +210,14 @@ class _StoreOwnerCouriersScreenState
                               ),
                             ),
                             OutlinedButton.icon(
-                              onPressed: () => ref
-                                  .read(ownerControllerProvider.notifier)
-                                  .patchMerchantCourierV2(
-                                    courierUserId: userId,
-                                    availabilityStatus: 'available',
-                                  ),
+                              onPressed: userId <= 0
+                                  ? null
+                                  : () => ref
+                                        .read(ownerControllerProvider.notifier)
+                                        .patchMerchantCourierV2(
+                                          courierUserId: userId,
+                                          availabilityStatus: 'available',
+                                        ),
                               icon: const Icon(
                                 Icons.check_circle_outline_rounded,
                               ),

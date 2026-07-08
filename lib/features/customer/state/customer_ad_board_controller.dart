@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/state/auth_controller.dart';
 import '../../merchants/state/merchants_controller.dart';
 import '../models/customer_ad_board_item.dart';
 
@@ -17,8 +18,23 @@ class CustomerAdBoardController
 
   CustomerAdBoardController(this.ref) : super(const AsyncValue.loading());
 
+  /// The ad board is a customer-only surface: the backend guards
+  /// `GET /api/merchants/ad-board` with `requireCustomer` (role `user` only).
+  /// Calling it from a non-customer session (owner/store/admin/hr/delivery)
+  /// returns 403 FORBIDDEN_CUSTOMER_ONLY and spams production logs, so we skip
+  /// the request entirely for those sessions and present an empty board.
+  bool _isCustomerSession() {
+    final role = ref.read(authControllerProvider).user?.role;
+    return role != null && role.trim().toLowerCase() == 'user';
+  }
+
   Future<void> load({String? type, bool force = false}) {
     final normalizedType = type?.trim().toLowerCase();
+    if (!_isCustomerSession()) {
+      _loadedType = normalizedType;
+      state = const AsyncValue.data(<CustomerAdBoardItem>[]);
+      return Future.value();
+    }
     final hasLoadedCurrent = _loadedType == normalizedType && state.hasValue;
     if (!force && hasLoadedCurrent) {
       return Future.value();

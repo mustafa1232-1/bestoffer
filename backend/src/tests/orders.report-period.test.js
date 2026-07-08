@@ -26,3 +26,22 @@ test("owner report periods support all-time without forcing a date filter", () =
     "o.created_at >= DATE_TRUNC('year', NOW())"
   );
 });
+
+test("owner report period accepts friendly aliases without INVALID_PERIOD", () => {
+  // 'all' family -> all-time, no restrictive date window.
+  for (const alias of ["all", "total", "lifetime", "all_time", "alltime", "ALL", " Total "]) {
+    assert.equal(normalizeReportPeriod(alias), "all", `alias ${alias}`);
+    assert.equal(buildReportTimeFilter(alias), null, `alias ${alias} filter`);
+  }
+  // 'today' -> day.
+  assert.equal(normalizeReportPeriod("today"), "day");
+  assert.equal(normalizeReportPeriod("TODAY"), "day");
+  assert.equal(
+    buildReportTimeFilter("today"),
+    "o.created_at >= DATE_TRUNC('day', NOW())"
+  );
+  // Genuinely invalid values still return null so the controller can raise a
+  // controlled 400 INVALID_PERIOD (never a crash).
+  assert.equal(normalizeReportPeriod("quarter"), null);
+  assert.equal(normalizeReportPeriod(""), "day"); // empty defaults to day
+});

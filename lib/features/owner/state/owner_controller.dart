@@ -1235,6 +1235,20 @@ class OwnerController extends StateNotifier<OwnerState> {
     String? availabilityStatus,
     String? vehicleType,
   }) async {
+    // Guard against an unselected/invalid courier (e.g. a row with a missing
+    // user_id that parses to 0). Without this the app would PATCH
+    // /api/merchant/couriers/0 and get a raw 400 from the backend.
+    if (courierUserId <= 0) {
+      state = state.copyWith(
+        savingOrder: false,
+        error: resolveLocalizedText(
+          (l10n) => l10n.localeName.toLowerCase().startsWith('ar')
+              ? 'يرجى اختيار مندوب صحيح أولاً.'
+              : 'Please select a valid courier first.',
+        ),
+      );
+      return false;
+    }
     state = state.copyWith(savingOrder: true, error: null);
     try {
       await ref
