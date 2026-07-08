@@ -106,6 +106,11 @@ class DeliveryApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> endDayReadiness() async {
+    final response = await dio.get('/api/delivery/end-day/readiness');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> analytics() async {
     final response = await dio.get('/api/delivery/analytics');
     return Map<String, dynamic>.from(response.data as Map);

@@ -193,6 +193,8 @@ ON courier_competition_progress(courier_user_id, updated_at DESC);
 CREATE TABLE IF NOT EXISTS merchant_billing_profile (
   merchant_id BIGINT PRIMARY KEY REFERENCES merchant(id) ON DELETE CASCADE,
   commission_rate NUMERIC(6,4) NOT NULL DEFAULT 0.10,
+  commission_model VARCHAR(32) NOT NULL DEFAULT 'percentage',
+  monthly_subscription_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   service_fee_mode VARCHAR(30) NOT NULL DEFAULT 'fixed',
   service_fee_value NUMERIC(12,2) NOT NULL DEFAULT 500,
   delivery_fee_mode VARCHAR(30) NOT NULL DEFAULT 'fixed',
@@ -206,6 +208,20 @@ CREATE TABLE IF NOT EXISTS merchant_billing_profile (
   updated_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'merchant_billing_profile_commission_model_check'
+  ) THEN
+    ALTER TABLE merchant_billing_profile
+      ADD CONSTRAINT merchant_billing_profile_commission_model_check
+      CHECK (commission_model IN ('percentage', 'monthly_subscription'));
+  END IF;
+END
+$$;
 
 INSERT INTO merchant_billing_profile(merchant_id)
 SELECT m.id

@@ -130,6 +130,15 @@ export async function endDay(req, res, next) {
   }
 }
 
+export async function endDayReadiness(req, res, next) {
+  try {
+    const summary = await service.endDayReadiness(req.userId);
+    res.json(summary);
+  } catch (e) {
+    next(e);
+  }
+}
+
 /**
  * يعيد analytics خاصة بالمندوب الحالي.
  */

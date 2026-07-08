@@ -13,6 +13,13 @@ function parsePositiveAmount(value) {
   return n;
 }
 
+function parseNonNegativeAmount(value) {
+  if (value == null || `${value}`.trim() === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 function parseLimit(value, fallback = 100) {
   const n = Number(value);
   if (!Number.isInteger(n) || n <= 0) return fallback;
@@ -94,8 +101,18 @@ export async function confirmPendingSettlement(req, res, next) {
       return badRequest(res, ["settlementId"]);
     }
 
+    const actualAmount = parseNonNegativeAmount(req.body?.actualAmount);
+    if (req.body?.actualAmount != null && `${req.body?.actualAmount}`.trim() !== "" && actualAmount == null) {
+      return badRequest(res, ["actualAmount"]);
+    }
+
     const out = await service.confirmSettlement(actorFromReq(req), settlementId, {
       note: req.body?.note,
+      actualAmount,
+      differenceReason:
+        typeof req.body?.differenceReason === "string"
+          ? req.body.differenceReason
+          : null,
     });
     return res.json(out);
   } catch (error) {

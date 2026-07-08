@@ -2050,18 +2050,47 @@ async function ensureOrderFinancialSnapshotTx(client, orderRow, profile = null) 
       Number(existingSnapshot.storeDeliveryFeeAmount || 0) !== Number(recomputed.storeDeliveryFeeAmount || 0) ||
       Number(existingSnapshot.appReceivableAmount || 0) !== Number(recomputed.appReceivableAmount || 0) ||
       Number(existingSnapshot.storeNetAmount || 0) !== Number(recomputed.storeNetAmount || 0);
+    const needsBackfill =
+      orderRow.store_net_received_amount == null ||
+      orderRow.app_due_from_delivery == null ||
+      orderRow.store_cash_confirmed == null ||
+      orderRow.amount_received_actual == null ||
+      orderRow.difference_amount == null ||
+      orderRow.difference_reason == null ||
+      orderRow.settlement_status == null;
 
-    if (!snapshotChanged) {
+    if (!snapshotChanged && !needsBackfill) {
       return recomputed;
     }
 
     const refreshed = await client.query(
       `UPDATE customer_order
-       SET financial_config_snapshot_json = $2::jsonb,
+       SET store_net_received_amount = $2,
+           app_due_from_delivery = $3,
+           store_cash_confirmed = $4,
+           store_cash_confirmed_at = $5::timestamptz,
+           store_cash_confirmed_by_user_id = $6,
+           amount_received_actual = $7,
+           difference_amount = $8,
+           difference_reason = $9,
+           settlement_status = $10,
+           financial_config_snapshot_json = $11::jsonb,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
-      [Number(orderRow.id), JSON.stringify(recomputed)]
+      [
+        Number(orderRow.id),
+        recomputed.storeNetReceivedAmount,
+        recomputed.appDueFromDelivery,
+        recomputed.storeCashConfirmed === true,
+        recomputed.storeCashConfirmedAt || null,
+        recomputed.storeCashConfirmedByUserId,
+        recomputed.amountReceivedActual,
+        recomputed.differenceAmount,
+        recomputed.differenceReason || null,
+        recomputed.settlementStatus || "pending_store_confirmation",
+        JSON.stringify(recomputed),
+      ]
     );
     const next = refreshed.rows[0] || orderRow;
     return computeOrderFinancialSnapshot(next, recomputed);
@@ -2077,13 +2106,31 @@ async function ensureOrderFinancialSnapshotTx(client, orderRow, profile = null) 
            WHEN COALESCE(service_fee, 0) <= 0 THEN $2
            ELSE service_fee
          END,
-         financial_profile_version = $3,
-         financial_config_snapshot_json = $4::jsonb
+         store_net_received_amount = $3,
+         app_due_from_delivery = $4,
+         store_cash_confirmed = $5,
+         store_cash_confirmed_at = $6::timestamptz,
+         store_cash_confirmed_by_user_id = $7,
+         amount_received_actual = $8,
+         difference_amount = $9,
+         difference_reason = $10,
+         settlement_status = $11,
+         financial_profile_version = $12,
+         financial_config_snapshot_json = $13::jsonb
      WHERE id = $1
      RETURNING *`,
     [
       Number(orderRow.id),
       snapshot.serviceFeeAmount,
+      snapshot.storeNetReceivedAmount,
+      snapshot.appDueFromDelivery,
+      snapshot.storeCashConfirmed === true,
+      snapshot.storeCashConfirmedAt || null,
+      snapshot.storeCashConfirmedByUserId,
+      snapshot.amountReceivedActual,
+      snapshot.differenceAmount,
+      snapshot.differenceReason || null,
+      snapshot.settlementStatus || "pending_store_confirmation",
       snapshot.profileVersion,
       JSON.stringify(snapshot),
     ]
@@ -2169,6 +2216,10 @@ async function upsertMerchantReceivableInvoiceTx(client, orderRow, profile = nul
            store_delivery_fee_amount = $10,
            app_receivable_amount = $11,
            store_net_amount = $12,
+           store_net_received_amount = $13,
+           app_due_from_delivery = $14,
+           difference_amount = $15,
+           difference_reason = $16,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -2185,6 +2236,10 @@ async function upsertMerchantReceivableInvoiceTx(client, orderRow, profile = nul
         snapshot.storeDeliveryFeeAmount,
         snapshot.appReceivableAmount,
         snapshot.storeNetAmount,
+        snapshot.storeNetReceivedAmount,
+        snapshot.appDueFromDelivery,
+        snapshot.differenceAmount ?? 0,
+        snapshot.differenceReason ?? null,
       ]
     );
     return syncReceivableInvoiceStatusTx(client, Number(updated.rows[0].id));
@@ -2204,13 +2259,17 @@ async function upsertMerchantReceivableInvoiceTx(client, orderRow, profile = nul
         store_delivery_fee_amount,
         app_receivable_amount,
         store_net_amount,
+        store_net_received_amount,
+        app_due_from_delivery,
+        difference_amount,
+        difference_reason,
         paid_amount,
         outstanding_amount,
         invoice_status,
         created_at,
         updated_at
       )
-     VALUES ($1,$2,$3,$4::timestamptz,$5,$6,$7,$8,$9,$10,$11,$12,0,$11,'unpaid',NOW(),NOW())
+     VALUES ($1,$2,$3,$4::timestamptz,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,0,$11,'unpaid',NOW(),NOW())
      RETURNING *`,
     [
       Number(orderRow.merchant_id),
@@ -2225,6 +2284,10 @@ async function upsertMerchantReceivableInvoiceTx(client, orderRow, profile = nul
       snapshot.storeDeliveryFeeAmount,
       snapshot.appReceivableAmount,
       snapshot.storeNetAmount,
+      snapshot.storeNetReceivedAmount,
+      snapshot.appDueFromDelivery,
+      snapshot.differenceAmount ?? 0,
+      snapshot.differenceReason ?? null,
     ]
   );
   return inserted.rows[0] || null;
@@ -2279,6 +2342,14 @@ async function listMerchantReceivableInvoicesTx(
     store_delivery_fee_amount: round2(toNumber(row.store_delivery_fee_amount, 0)),
     app_receivable_amount: round2(toNumber(row.app_receivable_amount, 0)),
     store_net_amount: round2(toNumber(row.store_net_amount, 0)),
+    store_net_received_amount: round2(
+      toNumber(row.store_net_received_amount, row.store_net_amount || 0)
+    ),
+    app_due_from_delivery: round2(
+      toNumber(row.app_due_from_delivery, row.app_receivable_amount || 0)
+    ),
+    difference_amount: round2(toNumber(row.difference_amount, 0)),
+    difference_reason: row.difference_reason || null,
     paid_amount: round2(toNumber(row.paid_amount, 0)),
     outstanding_amount: round2(toNumber(row.outstanding_amount, 0)),
   }));
@@ -2294,6 +2365,9 @@ function summarizeInvoiceRows(invoiceRows = []) {
     storeDeliveryFeeAmount: 0,
     appReceivableAmount: 0,
     storeNetAmount: 0,
+    storeNetReceivedAmount: 0,
+    appDueFromDelivery: 0,
+    differenceAmount: 0,
     oldestIssuedAt: invoiceRows[0]?.issued_at || null,
     latestIssuedAt: invoiceRows[invoiceRows.length - 1]?.issued_at || null,
   };
@@ -2309,6 +2383,13 @@ function summarizeInvoiceRows(invoiceRows = []) {
     );
     summary.appReceivableAmount += round2(toNumber(row.outstanding_amount, 0));
     summary.storeNetAmount += round2(toNumber(row.store_net_amount, 0));
+    summary.storeNetReceivedAmount += round2(
+      toNumber(row.store_net_received_amount, row.store_net_amount || 0)
+    );
+    summary.appDueFromDelivery += round2(
+      toNumber(row.app_due_from_delivery, row.app_receivable_amount || 0)
+    );
+    summary.differenceAmount += round2(toNumber(row.difference_amount, 0));
   }
   return {
     invoicesCount: summary.invoicesCount,
@@ -2319,6 +2400,9 @@ function summarizeInvoiceRows(invoiceRows = []) {
     storeDeliveryFeeAmount: round2(summary.storeDeliveryFeeAmount),
     appReceivableAmount: round2(summary.appReceivableAmount),
     storeNetAmount: round2(summary.storeNetAmount),
+    storeNetReceivedAmount: round2(summary.storeNetReceivedAmount),
+    appDueFromDelivery: round2(summary.appDueFromDelivery),
+    differenceAmount: round2(summary.differenceAmount),
     oldestIssuedAt: summary.oldestIssuedAt,
     latestIssuedAt: summary.latestIssuedAt,
   };
@@ -6252,6 +6336,8 @@ export async function updateMerchantBillingProfile({
   commissionType = null,
   commissionValue = null,
   commissionRate = null,
+  commissionModel = null,
+  monthlySubscriptionAmount = null,
   serviceFeeType = null,
   serviceFeeMode = null,
   serviceFeeValue = null,
@@ -6288,12 +6374,25 @@ export async function updateMerchantBillingProfile({
       ...previousProfile,
       commissionType:
         commissionType == null ? previousProfile.commissionType : String(commissionType),
+      commissionModel:
+        commissionModel == null
+          ? previousProfile.commissionModel
+          : String(commissionModel),
       commissionValue:
         commissionValue == null
           ? commissionRate == null
             ? previousProfile.commissionValue
             : round2(toNumber(commissionRate, previousProfile.commissionRate) * 100)
           : round2(toNumber(commissionValue, previousProfile.commissionValue)),
+      monthlySubscriptionAmount:
+        monthlySubscriptionAmount == null
+          ? previousProfile.monthlySubscriptionAmount
+          : round2(
+              toNumber(
+                monthlySubscriptionAmount,
+                previousProfile.monthlySubscriptionAmount
+              )
+            ),
       serviceFeeType:
         serviceFeeType == null
           ? serviceFeeMode == null
@@ -6334,8 +6433,10 @@ export async function updateMerchantBillingProfile({
       profileVersion: Math.max(1, Number(previousProfile.profileVersion || 0) + 1),
     };
     nextProfile.commissionType = normalizeMerchantBillingProfile(nextProfile).commissionType;
+    nextProfile.commissionModel = normalizeMerchantBillingProfile(nextProfile).commissionModel;
     nextProfile.serviceFeeType = normalizeMerchantBillingProfile(nextProfile).serviceFeeType;
     nextProfile.deliveryFeeMode = normalizeMerchantBillingProfile(nextProfile).deliveryFeeMode;
+    nextProfile.monthlySubscriptionAmount = normalizeMerchantBillingProfile(nextProfile).monthlySubscriptionAmount;
 
     const upserted = await client.query(
       `INSERT INTO merchant_billing_profile
@@ -6344,6 +6445,8 @@ export async function updateMerchantBillingProfile({
           commission_type,
           commission_value,
           commission_rate,
+          commission_model,
+          monthly_subscription_amount,
           service_fee_type,
           service_fee_mode,
           service_fee_value,
@@ -6363,13 +6466,15 @@ export async function updateMerchantBillingProfile({
         )
        VALUES
         (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::timestamptz,$18,$19,NOW()
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::timestamptz,$19,$20,$21,NOW()
         )
        ON CONFLICT (merchant_id)
        DO UPDATE
          SET commission_type = EXCLUDED.commission_type,
              commission_value = EXCLUDED.commission_value,
              commission_rate = EXCLUDED.commission_rate,
+             commission_model = EXCLUDED.commission_model,
+             monthly_subscription_amount = EXCLUDED.monthly_subscription_amount,
              service_fee_type = EXCLUDED.service_fee_type,
              service_fee_mode = EXCLUDED.service_fee_mode,
              service_fee_value = EXCLUDED.service_fee_value,
@@ -6394,6 +6499,8 @@ export async function updateMerchantBillingProfile({
         nextProfile.commissionType === "percentage"
           ? round2(nextProfile.commissionValue / 100)
           : 0,
+        nextProfile.commissionModel,
+        nextProfile.monthlySubscriptionAmount,
         nextProfile.serviceFeeType,
         nextProfile.serviceFeeType === "percentage" ? "percentage" : "fixed",
         nextProfile.serviceFeeValue,
@@ -6496,12 +6603,14 @@ export async function submitMerchantFinancialTermsForApproval({
       client,
       adminUserId,
       merchantId,
-      commissionType: patch.commissionType ?? null,
-      commissionValue: patch.commissionValue ?? null,
-      commissionRate: patch.commissionRate ?? null,
-      serviceFeeType: patch.serviceFeeType ?? null,
-      serviceFeeMode: patch.serviceFeeMode ?? null,
-      serviceFeeValue: patch.serviceFeeValue ?? null,
+    commissionType: patch.commissionType ?? null,
+    commissionValue: patch.commissionValue ?? null,
+    commissionRate: patch.commissionRate ?? null,
+    commissionModel: patch.commissionModel ?? null,
+    monthlySubscriptionAmount: patch.monthlySubscriptionAmount ?? null,
+    serviceFeeType: patch.serviceFeeType ?? null,
+    serviceFeeMode: patch.serviceFeeMode ?? null,
+    serviceFeeValue: patch.serviceFeeValue ?? null,
       deliveryFeeMode: patch.deliveryFeeMode ?? null,
       appDeliveryFeeValue: patch.appDeliveryFeeValue ?? null,
       storeDeliveryFeeValue: patch.storeDeliveryFeeValue ?? null,

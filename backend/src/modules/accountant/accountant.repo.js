@@ -63,6 +63,15 @@ export async function listPendingDeliverySettlements(merchantId, limit = 100) {
        s.archive_date,
        s.orders_count,
        s.total_amount,
+       s.store_net_received_amount,
+       s.app_due_from_delivery,
+       s.store_cash_confirmed,
+       s.store_cash_confirmed_at,
+       s.store_cash_confirmed_by_user_id,
+       s.amount_received_actual,
+       s.difference_amount,
+       s.difference_reason,
+       s.settlement_status,
        s.status,
        s.requested_at,
        s.received_at,
@@ -102,7 +111,9 @@ async function cashSummaryWithClient(client, merchantId) {
 
   const pending = await client.query(
     `SELECT
-       COALESCE(SUM(total_amount), 0) AS pending_amount,
+       COALESCE(SUM(store_net_received_amount), 0) AS pending_amount,
+       COALESCE(SUM(total_amount), 0) AS pending_gross_amount,
+       COALESCE(SUM(app_due_from_delivery), 0) AS pending_app_due_amount,
        COUNT(*)::int AS pending_count
      FROM delivery_cash_settlement
      WHERE merchant_id = $1
@@ -115,6 +126,8 @@ async function cashSummaryWithClient(client, merchantId) {
     totalCredit: toNum(cash.rows[0]?.total_credit),
     totalDebit: toNum(cash.rows[0]?.total_debit),
     pendingAmount: toNum(pending.rows[0]?.pending_amount),
+    pendingGrossAmount: toNum(pending.rows[0]?.pending_gross_amount),
+    pendingAppDueAmount: toNum(pending.rows[0]?.pending_app_due_amount),
     pendingCount: Number(pending.rows[0]?.pending_count || 0),
   };
 }
@@ -246,6 +259,8 @@ export async function confirmDeliverySettlementReceipt({
   merchantId,
   accountantUserId,
   settlementId,
+  actualAmount = null,
+  differenceReason = null,
   note,
 }) {
   const client = await pool.connect();
@@ -260,6 +275,15 @@ export async function confirmDeliverySettlementReceipt({
          s.archive_date,
          s.orders_count,
          s.total_amount,
+         s.store_net_received_amount,
+         s.app_due_from_delivery,
+         s.store_cash_confirmed,
+         s.store_cash_confirmed_at,
+         s.store_cash_confirmed_by_user_id,
+         s.amount_received_actual,
+         s.difference_amount,
+         s.difference_reason,
+         s.settlement_status,
          s.status,
          s.requested_at,
          u.full_name AS delivery_full_name,
@@ -274,19 +298,42 @@ export async function confirmDeliverySettlementReceipt({
     );
     const row = found.rows[0];
     if (!row) return null;
+    const expectedAmount = toNum(row.store_net_received_amount ?? row.total_amount);
+    const resolvedActualAmount =
+      actualAmount == null || Number.isNaN(Number(actualAmount))
+        ? expectedAmount
+        : toNum(actualAmount, expectedAmount);
+    const differenceAmount = toNum(resolvedActualAmount - expectedAmount);
+    const resolvedReason =
+      differenceReason != null && String(differenceReason).trim().length
+        ? String(differenceReason).trim().slice(0, 1000)
+        : null;
+    const settlementStatus =
+      Math.abs(differenceAmount) > 0.009 ? "difference_review" : "received";
 
     const updated = await client.query(
       `UPDATE delivery_cash_settlement
        SET status = 'received',
+           settlement_status = $3,
+           store_cash_confirmed = TRUE,
+           store_cash_confirmed_at = NOW(),
+           store_cash_confirmed_by_user_id = $2,
+           amount_received_actual = $4,
+           difference_amount = $5,
+           difference_reason = COALESCE($6, difference_reason),
            received_by_user_id = $2,
            received_at = NOW(),
-           note = COALESCE($3, note),
+           note = COALESCE($7, note),
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
       [
         Number(settlementId),
         Number(accountantUserId),
+        settlementStatus,
+        resolvedActualAmount,
+        differenceAmount,
+        resolvedReason,
         note ? String(note).slice(0, 1000) : null,
       ]
     );
@@ -308,11 +355,11 @@ export async function confirmDeliverySettlementReceipt({
        VALUES ($1,'delivery_settlement','credit',$2,$3,$4,$5,$6,$7,NOW())`,
       [
         Number(merchantId),
-        toNum(row.total_amount),
+        resolvedActualAmount,
         Number(row.delivery_user_id),
         Number(row.id),
         row.archive_date,
-        note ? String(note).slice(0, 1000) : null,
+        note ? String(note).slice(0, 1000) : resolvedReason,
         Number(accountantUserId),
       ]
     );

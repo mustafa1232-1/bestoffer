@@ -39,6 +39,7 @@ class DeliveryState {
   final Map<String, dynamic> competitionsHistoryV2;
   final Map<String, dynamic> competitionProgressV2;
   final Map<String, dynamic> competitionAchievementsV2;
+  final Map<String, dynamic> endDayReadiness;
   final String? error;
   final String? lastArchiveMessage;
 
@@ -55,6 +56,7 @@ class DeliveryState {
     this.competitionsHistoryV2 = const {},
     this.competitionProgressV2 = const {},
     this.competitionAchievementsV2 = const {},
+    this.endDayReadiness = const {},
     this.error,
     this.lastArchiveMessage,
   });
@@ -72,6 +74,7 @@ class DeliveryState {
     Map<String, dynamic>? competitionsHistoryV2,
     Map<String, dynamic>? competitionProgressV2,
     Map<String, dynamic>? competitionAchievementsV2,
+    Map<String, dynamic>? endDayReadiness,
     String? error,
     String? lastArchiveMessage,
   }) {
@@ -91,6 +94,7 @@ class DeliveryState {
           competitionProgressV2 ?? this.competitionProgressV2,
       competitionAchievementsV2:
           competitionAchievementsV2 ?? this.competitionAchievementsV2,
+      endDayReadiness: endDayReadiness ?? this.endDayReadiness,
       error: error,
       lastArchiveMessage: lastArchiveMessage ?? this.lastArchiveMessage,
     );
@@ -252,6 +256,9 @@ class DeliveryController extends StateNotifier<DeliveryState>
       final competitionAchievementsFuture = api
           .competitionAchievementsSummaryV2()
           .catchError((_) => <String, dynamic>{});
+      final endDayReadinessFuture = api.endDayReadiness().catchError(
+        (_) => <String, dynamic>{'canEndDay': true, 'openSettlements': <dynamic>[]},
+      );
 
       await Future.wait([
         ordersFuture,
@@ -263,6 +270,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
         competitionsHistoryFuture,
         competitionProgressFuture,
         competitionAchievementsFuture,
+        endDayReadinessFuture,
       ]);
 
       final ordersResponse = await ordersFuture;
@@ -274,6 +282,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
       final competitionsHistoryV2 = await competitionsHistoryFuture;
       final competitionProgressV2 = await competitionProgressFuture;
       final competitionAchievementsV2 = await competitionAchievementsFuture;
+      final endDayReadiness = await endDayReadinessFuture;
 
       final allOrders = ordersResponse
           .map((e) => OrderModel.fromJson(Map<String, dynamic>.from(e as Map)))
@@ -331,6 +340,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
           competitionsHistoryV2: competitionsHistoryV2,
           competitionProgressV2: competitionProgressV2,
           competitionAchievementsV2: competitionAchievementsV2,
+          endDayReadiness: Map<String, dynamic>.from(endDayReadiness),
         ),
       );
       unawaited(_syncCourierPresence());
@@ -368,6 +378,9 @@ class DeliveryController extends StateNotifier<DeliveryState>
       final competitionAchievementsFuture = api
           .competitionAchievementsSummaryV2()
           .catchError((_) => <String, dynamic>{'summary': <String, dynamic>{}});
+      final endDayReadinessFuture = api.endDayReadiness().catchError(
+        (_) => <String, dynamic>{'canEndDay': true, 'openSettlements': <dynamic>[]},
+      );
 
       await Future.wait([
         currentFuture,
@@ -377,6 +390,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
         competitionsHistoryFuture,
         competitionProgressFuture,
         competitionAchievementsFuture,
+        endDayReadinessFuture,
       ]);
 
       final currentResponse = await currentFuture;
@@ -386,6 +400,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
       final competitionsHistoryV2 = await competitionsHistoryFuture;
       final competitionProgressV2 = await competitionProgressFuture;
       final competitionAchievementsV2 = await competitionAchievementsFuture;
+      final endDayReadiness = await endDayReadinessFuture;
 
       final allOrders = currentResponse
           .map((e) => OrderModel.fromJson(Map<String, dynamic>.from(e as Map)))
@@ -414,6 +429,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
           competitionsHistoryV2: competitionsHistoryV2,
           competitionProgressV2: competitionProgressV2,
           competitionAchievementsV2: competitionAchievementsV2,
+          endDayReadiness: Map<String, dynamic>.from(endDayReadiness),
           error: null,
         ),
       );
@@ -603,9 +619,38 @@ class DeliveryController extends StateNotifier<DeliveryState>
 
   Future<void> markDelivered(int orderId) => deliveredOrder(orderId);
 
+  Map<String, dynamic> _normalizeReadiness(Map<String, dynamic>? value) {
+    return value == null ? const <String, dynamic>{} : Map<String, dynamic>.from(value);
+  }
+
+  String _deliveryEndDayBlockedMessage(Map<String, dynamic> readiness) {
+    final outstanding = num.tryParse('${readiness['outstandingAmount'] ?? 0}') ?? 0;
+    final openSettlements = List<dynamic>.from(
+      readiness['openSettlements'] as List? ?? const [],
+    );
+    return openSettlements.isEmpty
+        ? 'لا يمكن إنهاء اليوم / Cannot close the day while a pending settlement is still open: ${formatIqd(outstanding)}.'
+        : 'لا يمكن إنهاء اليوم / Cannot close the day while ${openSettlements.length} pending settlement(s) remain open. Outstanding amount: ${formatIqd(outstanding)}.';
+  }
+
   Future<void> endDay() async {
     _setStateSafely(state.copyWith(saving: true, error: null));
     try {
+      final readiness = _normalizeReadiness(
+        await ref.read(deliveryApiProvider).endDayReadiness(),
+      );
+      _setStateSafely(state.copyWith(endDayReadiness: readiness));
+      final canEndDay = readiness['canEndDay'] == true;
+      if (!canEndDay) {
+        _setStateSafely(
+          state.copyWith(
+            saving: false,
+            error: _deliveryEndDayBlockedMessage(readiness),
+          ),
+        );
+        return;
+      }
+
       final summary = await ref.read(deliveryApiProvider).endDay();
       final count = summary['ordersCount'] ?? 0;
       final date = summary['archiveDate'] ?? '';

@@ -38,6 +38,15 @@ CREATE TABLE IF NOT EXISTS delivery_cash_settlement (
   archive_date DATE NOT NULL,
   orders_count INTEGER NOT NULL DEFAULT 0 CHECK (orders_count >= 0),
   total_amount NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+  store_net_received_amount NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (store_net_received_amount >= 0),
+  app_due_from_delivery NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (app_due_from_delivery >= 0),
+  store_cash_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+  store_cash_confirmed_at TIMESTAMPTZ,
+  store_cash_confirmed_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+  amount_received_actual NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (amount_received_actual >= 0),
+  difference_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  difference_reason TEXT,
+  settlement_status VARCHAR(40) NOT NULL DEFAULT 'pending_store_confirmation',
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
   requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   received_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
@@ -45,7 +54,8 @@ CREATE TABLE IF NOT EXISTS delivery_cash_settlement (
   note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CHECK (status IN ('pending', 'received', 'cancelled'))
+  CHECK (status IN ('pending', 'received', 'cancelled')),
+  CHECK (settlement_status IN ('pending_store_confirmation', 'received', 'difference_review', 'closed', 'cancelled'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_delivery_cash_settlement_merchant_pending
@@ -72,4 +82,3 @@ CREATE TABLE IF NOT EXISTS merchant_cash_ledger_entry (
 
 CREATE INDEX IF NOT EXISTS idx_merchant_cash_ledger_entry_merchant_created
   ON merchant_cash_ledger_entry (merchant_id, created_at DESC, id DESC);
-

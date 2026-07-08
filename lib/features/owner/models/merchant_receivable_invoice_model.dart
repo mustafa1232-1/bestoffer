@@ -11,6 +11,12 @@ class MerchantReceivableInvoiceModel {
   final double storeDeliveryFeeAmount;
   final double appReceivableAmount;
   final double storeNetAmount;
+  final double storeNetReceivedAmount;
+  final double appDueFromDelivery;
+  final double differenceAmount;
+  final String? differenceReason;
+  final bool storeCashConfirmed;
+  final String settlementStatus;
   final double paidAmount;
   final double outstandingAmount;
   final String invoiceStatus;
@@ -28,6 +34,12 @@ class MerchantReceivableInvoiceModel {
     required this.storeDeliveryFeeAmount,
     required this.appReceivableAmount,
     required this.storeNetAmount,
+    required this.storeNetReceivedAmount,
+    required this.appDueFromDelivery,
+    required this.differenceAmount,
+    this.differenceReason,
+    required this.storeCashConfirmed,
+    required this.settlementStatus,
     required this.paidAmount,
     required this.outstandingAmount,
     required this.invoiceStatus,
@@ -52,9 +64,29 @@ class MerchantReceivableInvoiceModel {
       storeDeliveryFeeAmount: _toDouble(json['store_delivery_fee_amount']),
       appReceivableAmount: _toDouble(json['app_receivable_amount']),
       storeNetAmount: _toDouble(json['store_net_amount']),
+      storeNetReceivedAmount: _toDouble(
+        json['store_net_received_amount'] ?? json['storeNetReceivedAmount'],
+      ),
+      appDueFromDelivery: _toDouble(
+        json['app_due_from_delivery'] ?? json['appDueFromDelivery'],
+      ),
+      differenceAmount: _toDouble(
+        json['difference_amount'] ?? json['differenceAmount'],
+      ),
+      differenceReason:
+          json['difference_reason']?.toString() ?? json['differenceReason']?.toString(),
+      storeCashConfirmed:
+          json['store_cash_confirmed'] == true || json['storeCashConfirmed'] == true,
+      settlementStatus: '${json['settlement_status'] ?? json['settlementStatus'] ?? 'pending_store_confirmation'}',
       paidAmount: _toDouble(json['paid_amount']),
       outstandingAmount: _toDouble(json['outstanding_amount']),
       invoiceStatus: '${json['invoice_status'] ?? 'unpaid'}',
     );
   }
+
+  double get effectiveStoreNetReceivedAmount =>
+      storeNetReceivedAmount > 0 ? storeNetReceivedAmount : storeNetAmount;
+
+  double get effectiveAppDueFromDelivery =>
+      appDueFromDelivery > 0 ? appDueFromDelivery : appReceivableAmount;
 }

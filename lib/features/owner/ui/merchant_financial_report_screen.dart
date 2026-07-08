@@ -263,9 +263,9 @@ class _MerchantFinancialReportScreenState
       case MerchantFinancialReportType.storeDelivery:
         return invoice.storeDeliveryFeeAmount;
       case MerchantFinancialReportType.netSales:
-        return invoice.storeNetAmount;
+        return invoice.effectiveStoreNetReceivedAmount;
       case MerchantFinancialReportType.appDue:
-        return invoice.appReceivableAmount;
+        return invoice.effectiveAppDueFromDelivery;
       case MerchantFinancialReportType.remaining:
         return invoice.outstandingAmount;
       case MerchantFinancialReportType.paidAmount:
@@ -441,6 +441,12 @@ class _MerchantFinancialReportScreenState
                     title: Text('${invoice.invoiceNumber} - #${invoice.orderId}'),
                     subtitle: Text(
                       '${l10n.commonMetric}: ${formatIqd(_metricValue(invoice))}\n'
+                      'Service fee: ${formatIqd(invoice.serviceFeeAmount)}\n'
+                      'Commission: ${formatIqd(invoice.commissionAmount)}\n'
+                      'Delivery fee: ${formatIqd(invoice.appDeliveryFeeAmount + invoice.storeDeliveryFeeAmount)}\n'
+                      'Store net received: ${formatIqd(invoice.effectiveStoreNetReceivedAmount)}\n'
+                      'App due from delivery: ${formatIqd(invoice.effectiveAppDueFromDelivery)}\n'
+                      'Difference: ${formatIqd(invoice.differenceAmount)}\n'
                       '${l10n.commonRemaining}: ${formatIqd(invoice.outstandingAmount)}',
                     ),
                     trailing: Text(

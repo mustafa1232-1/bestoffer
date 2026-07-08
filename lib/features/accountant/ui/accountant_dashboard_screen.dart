@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/widgets/app_user_drawer.dart';
 import '../../auth/state/auth_controller.dart';
@@ -253,6 +254,175 @@ class _AccountantDashboardScreenState
     ).showSnackBar(SnackBar(content: Text(successMessage!)));
   }
 
+  Future<void> _showSettlementConfirmDialog({
+    required Map<String, dynamic> item,
+  }) async {
+    final l10n = context.l10n;
+    final expectedAmount =
+        num.tryParse('${item['storeNetReceivedAmount'] ?? item['totalAmount'] ?? 0}') ??
+        0;
+    final actualAmountCtrl = TextEditingController(
+      text: expectedAmount.toStringAsFixed(0),
+    );
+    final reasonCtrl = TextEditingController();
+    final scrollCoordinator = FormScrollCoordinator();
+    final fieldErrors = <String, String>{};
+    String? formError;
+    var submitting = false;
+
+    void clearFieldError(
+      String field,
+      void Function(VoidCallback fn) setDialogState,
+    ) {
+      if (!fieldErrors.containsKey(field)) return;
+      setDialogState(() => fieldErrors.remove(field));
+    }
+
+    _suppressTransientMessages = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            Future<void> submit() async {
+              if (submitting) return;
+              final actualAmount = num.tryParse(actualAmountCtrl.text.trim());
+              if (actualAmount == null || actualAmount < 0) {
+                setDialogState(() {
+                  fieldErrors['actualAmount'] = l10n.validationAmountInvalid;
+                  formError = l10n.validationReviewRequiredFields;
+                });
+                await scrollCoordinator.focusFirstError(const ['actualAmount']);
+                return;
+              }
+
+              setDialogState(() {
+                submitting = true;
+                formError = null;
+                fieldErrors.remove('actualAmount');
+              });
+
+              await ref
+                  .read(accountantControllerProvider.notifier)
+                  .confirmSettlement(
+                    settlementId: (item['id'] as num).toInt(),
+                    actualAmount: actualAmount,
+                    differenceReason: reasonCtrl.text.trim().isEmpty
+                        ? null
+                        : reasonCtrl.text.trim(),
+                    note: reasonCtrl.text.trim().isEmpty
+                        ? null
+                        : reasonCtrl.text.trim(),
+                  );
+              if (!mounted) return;
+
+              final next = ref.read(accountantControllerProvider);
+              if (next.error != null && next.error!.trim().isNotEmpty) {
+                setDialogState(() {
+                  submitting = false;
+                  formError = next.error;
+                });
+                return;
+              }
+
+              if (!dialogContext.mounted) return;
+              Navigator.of(dialogContext).pop();
+            }
+
+            return AlertDialog(
+              title: Text(
+                context.lt(
+                  ar: 'تأكيد استلام التسوية',
+                  en: 'Confirm settlement receipt',
+                ),
+                textDirection: Directionality.of(dialogContext),
+              ),
+              content: SizedBox(
+                width: 380,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FormErrorBanner(message: formError),
+                    Text(
+                      '${item['deliveryFullName'] ?? '-'} - ${item['deliveryPhone'] ?? ''}',
+                      textDirection: TextDirection.rtl,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${context.lt(ar: "المبلغ المتوقع", en: "Expected amount")}: ${formatIqd(expectedAmount)}',
+                      textDirection: TextDirection.rtl,
+                    ),
+                    const SizedBox(height: 12),
+                    scrollCoordinator.anchor(
+                      'actualAmount',
+                      TextField(
+                        controller: actualAmountCtrl,
+                        focusNode: scrollCoordinator.focusNodeFor('actualAmount'),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        onChanged: (_) =>
+                            clearFieldError('actualAmount', setDialogState),
+                        decoration: InputDecoration(
+                          labelText: context.lt(
+                            ar: 'المبلغ الفعلي',
+                            en: 'Actual amount',
+                          ),
+                          errorText: fieldErrors['actualAmount'],
+                        ),
+                        textDirection: TextDirection.ltr,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: reasonCtrl,
+                      decoration: InputDecoration(
+                        labelText: context.lt(
+                          ar: 'سبب الفرق (اختياري)',
+                          en: 'Difference reason (optional)',
+                        ),
+                      ),
+                      maxLines: 2,
+                      textDirection: Directionality.of(dialogContext),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: submitting
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: Text(l10n.commonCancel),
+                ),
+                ElevatedButton(
+                  onPressed: submitting ? null : submit,
+                  child: submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(
+                          context.lt(
+                            ar: 'تأكيد الاستلام',
+                            en: 'Confirm receipt',
+                          ),
+                        ),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    } finally {
+      _suppressTransientMessages = false;
+      scrollCoordinator.dispose();
+      actualAmountCtrl.dispose();
+      reasonCtrl.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(accountantControllerProvider);
@@ -428,21 +598,27 @@ class _AccountantDashboardScreenState
                                   'المبلغ: ${formatIqd(item['totalAmount'])}',
                                   textDirection: TextDirection.rtl,
                                 ),
+                                Text(
+                                  'المستلم المتوقع: ${formatIqd(item['storeNetReceivedAmount'] ?? item['store_net_received_amount'] ?? item['totalAmount'])}',
+                                  textDirection: TextDirection.rtl,
+                                ),
+                                Text(
+                                  'ذمة التطبيق: ${formatIqd(item['appDueFromDelivery'] ?? item['app_due_from_delivery'] ?? 0)}',
+                                  textDirection: TextDirection.rtl,
+                                ),
+                                Text(
+                                  'الفرق: ${formatIqd(item['differenceAmount'] ?? item['difference_amount'] ?? 0)}',
+                                  textDirection: TextDirection.rtl,
+                                ),
                                 const SizedBox(height: 8),
                                 Align(
                                   alignment: Alignment.centerRight,
                                   child: ElevatedButton.icon(
                                     onPressed: state.saving
                                         ? null
-                                        : () => ref
-                                              .read(
-                                                accountantControllerProvider
-                                                    .notifier,
-                                              )
-                                              .confirmSettlement(
-                                                settlementId:
-                                                    (item['id'] as num).toInt(),
-                                              ),
+                                        : () => _showSettlementConfirmDialog(
+                                              item: item,
+                                            ),
                                     icon: const Icon(Icons.verified_outlined),
                                     label: const Text('تأكيد الاستلام'),
                                   ),

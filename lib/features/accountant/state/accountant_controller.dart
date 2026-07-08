@@ -114,12 +114,19 @@ class AccountantController extends StateNotifier<AccountantState> {
   Future<void> confirmSettlement({
     required int settlementId,
     String? note,
+    num? actualAmount,
+    String? differenceReason,
   }) async {
     state = state.copyWith(saving: true, error: null, successMessage: null);
     try {
       await ref
           .read(accountantApiProvider)
-          .confirmSettlement(settlementId: settlementId, note: note);
+          .confirmSettlement(
+            settlementId: settlementId,
+            note: note,
+            actualAmount: actualAmount,
+            differenceReason: differenceReason,
+          );
       await bootstrap();
       state = state.copyWith(
         saving: false,

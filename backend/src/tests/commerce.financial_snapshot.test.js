@@ -3,12 +3,16 @@ import test from "node:test";
 
 import { computeOrderFinancialSnapshot } from "../modules/commerce/merchant-financial.logic.js";
 
-function buildSnapshot(serviceFeeValue) {
+function buildSnapshot(serviceFeeValue, { totalAmount = null, couponDiscountTotal = 0 } = {}) {
+  const resolvedTotalAmount =
+    totalAmount ?? 10000 + serviceFeeValue + 1000 - couponDiscountTotal;
   return computeOrderFinancialSnapshot(
     {
       subtotal: 10000,
       service_fee: 0,
       delivery_fee: 1000,
+      coupon_discount_total: couponDiscountTotal,
+      total_amount: resolvedTotalAmount,
       delivery_type: "delivery",
       courier_source: "app",
       has_free_delivery: false,

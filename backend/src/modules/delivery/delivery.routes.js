@@ -25,6 +25,7 @@ deliveryRouter.patch("/orders/:orderId/claim", c.claimOrder);
 deliveryRouter.patch("/orders/:orderId/start", c.startOrder);
 deliveryRouter.patch("/orders/:orderId/arrived", c.markArrived);
 deliveryRouter.patch("/orders/:orderId/delivered", c.markDelivered);
+deliveryRouter.get("/end-day/readiness", c.endDayReadiness);
 deliveryRouter.post("/end-day", c.endDay);
 deliveryRouter.get("/analytics", c.analytics);
 deliveryRouter.get("/earnings", c.earnings);

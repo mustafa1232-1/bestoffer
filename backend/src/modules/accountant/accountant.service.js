@@ -24,6 +24,17 @@ function mapSettlement(row) {
     archiveDate: row.archive_date,
     ordersCount: Number(row.orders_count || 0),
     totalAmount: Number(row.total_amount || 0),
+    storeNetReceivedAmount: Number(row.store_net_received_amount || 0),
+    appDueFromDelivery: Number(row.app_due_from_delivery || 0),
+    storeCashConfirmed: row.store_cash_confirmed === true,
+    storeCashConfirmedAt: row.store_cash_confirmed_at || null,
+    storeCashConfirmedByUserId: row.store_cash_confirmed_by_user_id
+      ? Number(row.store_cash_confirmed_by_user_id)
+      : null,
+    amountReceivedActual: Number(row.amount_received_actual || 0),
+    differenceAmount: Number(row.difference_amount || 0),
+    differenceReason: row.difference_reason || null,
+    settlementStatus: row.settlement_status || "pending_store_confirmation",
     status: row.status,
     requestedAt: row.requested_at,
     receivedAt: row.received_at || null,
@@ -214,7 +225,11 @@ export async function addExpense(actorOrUserId, { amount, note }) {
   };
 }
 
-export async function confirmSettlement(actorOrUserId, settlementId, { note }) {
+export async function confirmSettlement(
+  actorOrUserId,
+  settlementId,
+  { note, actualAmount = null, differenceReason = null } = {}
+) {
   const actor = resolveActor(actorOrUserId);
   const merchant = await resolveMerchant(actor);
   const out = await repo.confirmDeliverySettlementReceipt({
@@ -222,6 +237,8 @@ export async function confirmSettlement(actorOrUserId, settlementId, { note }) {
     accountantUserId: actor.userId,
     settlementId: Number(settlementId),
     note,
+    actualAmount,
+    differenceReason,
   });
   if (!out) {
     const err = new Error("DELIVERY_SETTLEMENT_NOT_FOUND");
@@ -229,18 +246,38 @@ export async function confirmSettlement(actorOrUserId, settlementId, { note }) {
     throw err;
   }
 
+  const expectedAmount = Number(
+    out.settlement.store_net_received_amount ?? out.settlement.total_amount ?? 0
+  );
+  const actualAmountValue = Number(
+    out.settlement.amount_received_actual ?? expectedAmount
+  );
+  const differenceAmount = Number(out.settlement.difference_amount || 0);
+  const differenceReasonValue = out.settlement.difference_reason || null;
+  const ownerNotificationBody =
+    differenceAmount === 0
+      ? `تم تأكيد استلام ذمة الدلفري بقيمة ${expectedAmount.toFixed(0)} د.ع.`
+      : `تم تأكيد الاستلام بقيمة ${actualAmountValue.toFixed(
+          0
+        )} د.ع. ويوجد فرق ${differenceAmount.toFixed(0)} د.ع.`;
+
   await createManyNotifications(
     [
       merchant.owner_user_id
         ? {
             userId: Number(merchant.owner_user_id),
             type: "owner_delivery_cash_received",
-            title: "تأكيد استلام ذمة الدلفري",
-            body: `تم تأكيد استلام ذمة دلفري بقيمة ${Number(out.settlement.total_amount || 0).toFixed(0)} د.ع`,
+            title: "تم تأكيد استلام ذمة الدلفري",
+            body: ownerNotificationBody,
             payload: {
               settlementId: Number(out.settlement.id),
               deliveryUserId: out.deliveryUserId,
-              amount: Number(out.settlement.total_amount || 0),
+              amount: actualAmountValue,
+              expectedAmount,
+              differenceAmount,
+              differenceReason: differenceReasonValue,
+              appDueFromDelivery: Number(out.settlement.app_due_from_delivery || 0),
+              settlementStatus: out.settlement.settlement_status || "received",
               target: "owner_dashboard",
             },
           }
@@ -249,10 +286,17 @@ export async function confirmSettlement(actorOrUserId, settlementId, { note }) {
         userId: out.deliveryUserId,
         type: "delivery_cash_settlement_received",
         title: "تم استلام ذمتك اليومية",
-        body: `تم تأكيد استلام ذمتك اليومية بتاريخ ${out.settlement.archive_date}.`,
+        body:
+          differenceAmount === 0
+            ? `تم تأكيد استلام ذمتك اليومية بتاريخ ${out.settlement.archive_date}.`
+            : `تم تأكيد استلام ذمتك اليومية بتاريخ ${out.settlement.archive_date} مع وجود فرق ${differenceAmount.toFixed(0)} د.ع.`,
         payload: {
           settlementId: Number(out.settlement.id),
           merchantId: Number(merchant.id),
+          amount: actualAmountValue,
+          expectedAmount,
+          differenceAmount,
+          differenceReason: differenceReasonValue,
           target: "delivery_dashboard",
         },
       },

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/currency.dart';
 import '../models/merchant_financial_request_model.dart';
 import '../models/merchant_receivable_invoice_model.dart';
@@ -93,12 +94,18 @@ class _StoreOwnerKpisScreenState extends ConsumerState<StoreOwnerKpisScreen> {
   );
 
   double get _netSalesForStore =>
-      _invoices.fold<double>(0, (sum, invoice) => sum + invoice.storeNetAmount);
+      _invoices.fold<double>(
+        0,
+        (sum, invoice) => sum + invoice.effectiveStoreNetReceivedAmount,
+      );
 
   double get _netDueToApp => _invoices.fold<double>(
     0,
-    (sum, invoice) => sum + invoice.appReceivableAmount,
+    (sum, invoice) => sum + invoice.effectiveAppDueFromDelivery,
   );
+
+  double get _totalDifference =>
+      _invoices.fold<double>(0, (sum, invoice) => sum + invoice.differenceAmount);
 
   double get _confirmedPaidAmount => _confirmedStorePayments.fold<double>(
     0,
@@ -246,6 +253,13 @@ class _StoreOwnerKpisScreenState extends ConsumerState<StoreOwnerKpisScreen> {
         value: formatIqd(_remainingDueToApp),
         icon: Icons.warning_amber_rounded,
         color: const Color(0xFFC76B12),
+        type: MerchantFinancialReportType.remaining,
+      ),
+      (
+        title: context.lt(ar: 'إجمالي الفروقات', en: 'Total differences'),
+        value: formatIqd(_totalDifference),
+        icon: Icons.balance_outlined,
+        color: const Color(0xFF7C4DFF),
         type: MerchantFinancialReportType.remaining,
       ),
     ];

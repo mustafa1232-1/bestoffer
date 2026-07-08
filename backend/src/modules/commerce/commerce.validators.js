@@ -789,6 +789,8 @@ export function validateBillingProfilePatch(body = {}) {
   const commissionType = toOptionalString(body.commissionType, 20);
   const commissionValue = toOptionalNumber(body.commissionValue);
   const commissionRate = toOptionalNumber(body.commissionRate);
+  const commissionModel = toOptionalString(body.commissionModel, 32);
+  const monthlySubscriptionAmount = toOptionalNumber(body.monthlySubscriptionAmount);
   const serviceFeeType = toOptionalString(body.serviceFeeType, 30);
   const serviceFeeMode = toOptionalString(body.serviceFeeMode, 20);
   const serviceFeeValue = toOptionalNumber(body.serviceFeeValue);
@@ -809,11 +811,20 @@ export function validateBillingProfilePatch(body = {}) {
   ) {
     errors.push("commissionType");
   }
+  if (
+    commissionModel &&
+    !["percentage", "monthly_subscription"].includes(commissionModel.toLowerCase())
+  ) {
+    errors.push("commissionModel");
+  }
   if (commissionRate != null && (commissionRate < 0 || commissionRate > 1)) {
     errors.push("commissionRate");
   }
   if (commissionValue != null && commissionValue < 0) {
     errors.push("commissionValue");
+  }
+  if (monthlySubscriptionAmount != null && monthlySubscriptionAmount < 0) {
+    errors.push("monthlySubscriptionAmount");
   }
   if (
     serviceFeeType &&
@@ -852,6 +863,8 @@ export function validateBillingProfilePatch(body = {}) {
       commissionType: commissionType ? commissionType.toLowerCase() : null,
       commissionValue,
       commissionRate,
+      commissionModel: commissionModel ? commissionModel.toLowerCase() : null,
+      monthlySubscriptionAmount,
       serviceFeeType: serviceFeeType ? serviceFeeType.toLowerCase() : null,
       serviceFeeMode: serviceFeeMode ? serviceFeeMode.toLowerCase() : null,
       serviceFeeValue,
@@ -873,6 +886,8 @@ export function validateMerchantFinancialApprovalTerms(body = {}) {
   const normalizedBody = {
     commissionType: "percentage",
     commissionValue: 10,
+    commissionModel: "percentage",
+    monthlySubscriptionAmount: 0,
     serviceFeeType: "fixed",
     serviceFeeValue: 500,
     deliveryFeeMode: "dynamic",
@@ -889,6 +904,8 @@ export function validateMerchantFinancialApprovalTerms(body = {}) {
   const requiredFields = [
     "commissionType",
     "commissionValue",
+    "commissionModel",
+    "monthlySubscriptionAmount",
     "serviceFeeType",
     "serviceFeeValue",
     "deliveryFeeMode",

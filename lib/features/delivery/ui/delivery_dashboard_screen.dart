@@ -164,6 +164,8 @@ class _DeliveryDashboardScreenState
         _handleDashboardPop();
       },
       child: Scaffold(
+        // End-day readiness is fetched from backend so we can block closure
+        // before the submit request if the delivery still owes the store.
         key: _scaffoldKey,
         drawer: AppUserDrawer(
           title: _tabTitle(),
@@ -273,7 +275,7 @@ class _DeliveryDashboardScreenState
                 activeTab == _DeliveryTab.current
             ? FloatingActionButton.extended(
                 heroTag: null,
-                onPressed: state.saving
+                onPressed: state.saving || state.endDayReadiness['canEndDay'] == false
                     ? null
                     : () async {
                         await ref
@@ -311,6 +313,56 @@ class _DeliveryDashboardScreenState
     }
   }
 
+  Widget _buildEndDayReadinessCard(DeliveryState state) {
+    final readiness = state.endDayReadiness;
+    if (readiness.isEmpty || readiness['canEndDay'] == true) {
+      return const SizedBox.shrink();
+    }
+
+    final outstanding =
+        num.tryParse('${readiness['outstandingAmount'] ?? 0}') ?? 0;
+    final openSettlements = List<dynamic>.from(
+      readiness['openSettlements'] as List? ?? const [],
+    );
+
+    return Card(
+      color: Colors.red.withValues(alpha: 0.08),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              context.lt(
+                ar: 'لا يمكن إنهاء اليوم الآن',
+                en: 'You cannot close the day yet',
+              ),
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              context.lt(
+                ar: 'هناك ذمة/ذمم بانتظار الاستلام بقيمة ${formatIqd(outstanding)}.',
+                en: 'There is still an open settlement total of ${formatIqd(outstanding)}.',
+              ),
+            ),
+            if (openSettlements.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ...openSettlements.take(3).map(
+                (row) => Text(
+                  context.lt(
+                    ar: 'طلب تسوية #${row['id']} - ${formatIqd(row['appDueFromDelivery'] ?? row['app_due_from_delivery'] ?? row['totalAmount'] ?? row['total_amount'] ?? 0)}',
+                    en: 'Settlement #${row['id']} - ${formatIqd(row['appDueFromDelivery'] ?? row['app_due_from_delivery'] ?? row['totalAmount'] ?? row['total_amount'] ?? 0)}',
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDashboardBody(DeliveryState state) {
     final l10n = context.l10n;
     final metrics = _CourierDashboardMetrics.fromState(state);
@@ -318,6 +370,8 @@ class _DeliveryDashboardScreenState
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        _buildEndDayReadinessCard(state),
+        const SizedBox(height: 8),
         _DeliveryInsights(analytics: state.analytics),
         const SizedBox(height: 12),
         Wrap(

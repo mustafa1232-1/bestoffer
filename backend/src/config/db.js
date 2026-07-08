@@ -1479,6 +1479,168 @@ export async function ensureSchema() {
       CREATE INDEX IF NOT EXISTS idx_taxi_captain_profile_edit_request_status
       ON taxi_captain_profile_edit_request (captain_user_id, status, requested_at DESC);
     `);
+
+    await q(`
+      ALTER TABLE merchant_billing_profile
+      ADD COLUMN IF NOT EXISTS commission_model VARCHAR(32),
+      ADD COLUMN IF NOT EXISTS monthly_subscription_amount NUMERIC(12,2);
+    `);
+
+    await q(`
+      UPDATE merchant_billing_profile
+      SET commission_model = COALESCE(
+            commission_model,
+            CASE
+              WHEN COALESCE(monthly_subscription_amount, 0) > 0 THEN 'monthly_subscription'
+              ELSE 'percentage'
+            END
+          ),
+          monthly_subscription_amount = COALESCE(monthly_subscription_amount, 0)
+      WHERE commission_model IS NULL
+         OR monthly_subscription_amount IS NULL;
+    `);
+
+    await q(`
+      ALTER TABLE merchant_billing_profile
+      ALTER COLUMN commission_model SET DEFAULT 'percentage',
+      ALTER COLUMN commission_model SET NOT NULL,
+      ALTER COLUMN monthly_subscription_amount SET DEFAULT 0,
+      ALTER COLUMN monthly_subscription_amount SET NOT NULL;
+    `);
+
+    await q(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'merchant_billing_profile_commission_model_check'
+        ) THEN
+          ALTER TABLE merchant_billing_profile
+            ADD CONSTRAINT merchant_billing_profile_commission_model_check
+            CHECK (commission_model IN ('percentage', 'monthly_subscription'));
+        END IF;
+      END
+      $$;
+    `);
+
+    await q(`
+      ALTER TABLE customer_order
+      ADD COLUMN IF NOT EXISTS store_net_received_amount NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS app_due_from_delivery NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS store_cash_confirmed BOOLEAN,
+      ADD COLUMN IF NOT EXISTS store_cash_confirmed_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS store_cash_confirmed_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS amount_received_actual NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS difference_amount NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS difference_reason TEXT,
+      ADD COLUMN IF NOT EXISTS settlement_status VARCHAR(40);
+    `);
+
+    await q(`
+      UPDATE customer_order
+      SET store_net_received_amount = COALESCE(store_net_received_amount, total_amount),
+          app_due_from_delivery = COALESCE(app_due_from_delivery, total_amount),
+          store_cash_confirmed = COALESCE(store_cash_confirmed, FALSE),
+          amount_received_actual = COALESCE(amount_received_actual, 0),
+          difference_amount = COALESCE(difference_amount, 0),
+          settlement_status = COALESCE(settlement_status, 'pending_store_confirmation')
+      WHERE store_net_received_amount IS NULL
+         OR app_due_from_delivery IS NULL
+         OR store_cash_confirmed IS NULL
+         OR amount_received_actual IS NULL
+         OR difference_amount IS NULL
+         OR settlement_status IS NULL;
+    `);
+
+    await q(`
+      ALTER TABLE customer_order
+      ALTER COLUMN store_net_received_amount SET DEFAULT 0,
+      ALTER COLUMN store_net_received_amount SET NOT NULL,
+      ALTER COLUMN app_due_from_delivery SET DEFAULT 0,
+      ALTER COLUMN app_due_from_delivery SET NOT NULL,
+      ALTER COLUMN store_cash_confirmed SET DEFAULT FALSE,
+      ALTER COLUMN store_cash_confirmed SET NOT NULL,
+      ALTER COLUMN amount_received_actual SET DEFAULT 0,
+      ALTER COLUMN amount_received_actual SET NOT NULL,
+      ALTER COLUMN difference_amount SET DEFAULT 0,
+      ALTER COLUMN difference_amount SET NOT NULL,
+      ALTER COLUMN settlement_status SET DEFAULT 'pending_store_confirmation',
+      ALTER COLUMN settlement_status SET NOT NULL;
+    `);
+
+    await q(`
+      ALTER TABLE delivery_cash_settlement
+      ADD COLUMN IF NOT EXISTS store_net_received_amount NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS app_due_from_delivery NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS store_cash_confirmed BOOLEAN,
+      ADD COLUMN IF NOT EXISTS store_cash_confirmed_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS store_cash_confirmed_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS amount_received_actual NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS difference_amount NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS difference_reason TEXT,
+      ADD COLUMN IF NOT EXISTS settlement_status VARCHAR(40);
+    `);
+
+    await q(`
+      UPDATE delivery_cash_settlement
+      SET store_net_received_amount = COALESCE(store_net_received_amount, total_amount),
+          app_due_from_delivery = COALESCE(app_due_from_delivery, total_amount),
+          store_cash_confirmed = COALESCE(store_cash_confirmed, FALSE),
+          amount_received_actual = COALESCE(amount_received_actual, 0),
+          difference_amount = COALESCE(difference_amount, 0),
+          settlement_status = COALESCE(settlement_status, 'pending_store_confirmation')
+      WHERE store_net_received_amount IS NULL
+         OR app_due_from_delivery IS NULL
+         OR store_cash_confirmed IS NULL
+         OR amount_received_actual IS NULL
+         OR difference_amount IS NULL
+         OR settlement_status IS NULL;
+    `);
+
+    await q(`
+      ALTER TABLE delivery_cash_settlement
+      ALTER COLUMN store_net_received_amount SET DEFAULT 0,
+      ALTER COLUMN store_net_received_amount SET NOT NULL,
+      ALTER COLUMN app_due_from_delivery SET DEFAULT 0,
+      ALTER COLUMN app_due_from_delivery SET NOT NULL,
+      ALTER COLUMN store_cash_confirmed SET DEFAULT FALSE,
+      ALTER COLUMN store_cash_confirmed SET NOT NULL,
+      ALTER COLUMN amount_received_actual SET DEFAULT 0,
+      ALTER COLUMN amount_received_actual SET NOT NULL,
+      ALTER COLUMN difference_amount SET DEFAULT 0,
+      ALTER COLUMN difference_amount SET NOT NULL,
+      ALTER COLUMN settlement_status SET DEFAULT 'pending_store_confirmation',
+      ALTER COLUMN settlement_status SET NOT NULL;
+    `);
+
+    await q(`
+      ALTER TABLE merchant_receivable_invoice
+      ADD COLUMN IF NOT EXISTS store_net_received_amount NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS app_due_from_delivery NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS difference_amount NUMERIC(12,2),
+      ADD COLUMN IF NOT EXISTS difference_reason TEXT;
+    `);
+
+    await q(`
+      UPDATE merchant_receivable_invoice
+      SET store_net_received_amount = COALESCE(store_net_received_amount, store_net_amount),
+          app_due_from_delivery = COALESCE(app_due_from_delivery, app_receivable_amount),
+          difference_amount = COALESCE(difference_amount, 0)
+      WHERE store_net_received_amount IS NULL
+         OR app_due_from_delivery IS NULL
+         OR difference_amount IS NULL;
+    `);
+
+    await q(`
+      ALTER TABLE merchant_receivable_invoice
+      ALTER COLUMN store_net_received_amount SET DEFAULT 0,
+      ALTER COLUMN store_net_received_amount SET NOT NULL,
+      ALTER COLUMN app_due_from_delivery SET DEFAULT 0,
+      ALTER COLUMN app_due_from_delivery SET NOT NULL,
+      ALTER COLUMN difference_amount SET DEFAULT 0,
+      ALTER COLUMN difference_amount SET NOT NULL;
+    `);
   })();
 
   return ensureSchemaPromise;

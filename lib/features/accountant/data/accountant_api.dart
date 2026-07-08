@@ -21,10 +21,21 @@ class AccountantApi {
   Future<Map<String, dynamic>> confirmSettlement({
     required int settlementId,
     String? note,
+    num? actualAmount,
+    String? differenceReason,
   }) async {
+    final data = <String, dynamic>{'note': note};
+    if (actualAmount != null) {
+      data['actualAmount'] = actualAmount;
+    }
+    final trimmedDifferenceReason = differenceReason?.trim();
+    if (trimmedDifferenceReason != null && trimmedDifferenceReason.isNotEmpty) {
+      data['differenceReason'] = trimmedDifferenceReason;
+    }
+
     final response = await dio.post(
       '/api/accountant/pending-delivery-settlements/$settlementId/confirm',
-      data: {'note': note},
+      data: data,
     );
     return Map<String, dynamic>.from(response.data as Map);
   }

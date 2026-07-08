@@ -1,7 +1,9 @@
 ﻿import { pool, q } from "../../config/db.js";
 import { env } from "../../config/env.js";
 import {
+  buildDeliveryCashSettlementSnapshot,
   computeOrderFinancialSnapshot,
+  evaluateCourierEndDayReadiness,
   getMerchantBillingProfile,
 } from "../commerce/merchant-financial.logic.js";
 import {
@@ -1105,6 +1107,21 @@ async function insertCustomerOrderTx(
     ["service_fee", serviceFee],
     ["delivery_fee", deliveryFee],
     ["total_amount", totalAmount],
+    ["store_net_received_amount", financialSnapshot.storeNetReceivedAmount],
+    ["app_due_from_delivery", financialSnapshot.appDueFromDelivery],
+    ["store_cash_confirmed", financialSnapshot.storeCashConfirmed === true],
+    [
+      "store_cash_confirmed_at",
+      financialSnapshot.storeCashConfirmedAt || null,
+    ],
+    [
+      "store_cash_confirmed_by_user_id",
+      financialSnapshot.storeCashConfirmedByUserId ?? null,
+    ],
+    ["amount_received_actual", financialSnapshot.amountReceivedActual || 0],
+    ["difference_amount", financialSnapshot.differenceAmount || 0],
+    ["difference_reason", financialSnapshot.differenceReason || null],
+    ["settlement_status", financialSnapshot.settlementStatus || "pending_store_confirmation"],
     ["pricing_breakdown_json", JSON.stringify(pricingBreakdown)],
     ["financial_profile_version", financialSnapshot.profileVersion],
     ["financial_config_snapshot_json", JSON.stringify(financialSnapshot)],
@@ -4823,6 +4840,36 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
       ? Number(merchantScope.rows[0].owner_user_id)
       : null;
 
+    if (merchantId) {
+      const pendingSettlements = await client.query(
+        `SELECT
+           id,
+           status,
+           settlement_status,
+           total_amount,
+           store_net_received_amount,
+           app_due_from_delivery
+         FROM delivery_cash_settlement
+         WHERE merchant_id = $1
+           AND delivery_user_id = $2
+           AND status = 'pending'
+         ORDER BY requested_at ASC, id ASC`,
+        [merchantId, Number(deliveryUserId)]
+      );
+      const readiness = evaluateCourierEndDayReadiness(pendingSettlements.rows);
+      if (!readiness.canEndDay) {
+        const err = new Error("DELIVERY_DAY_HAS_OPEN_SETTLEMENTS");
+        err.status = 409;
+        err.details = {
+          merchantId,
+          deliveryUserId: Number(deliveryUserId),
+          outstandingAmount: readiness.outstandingAmount,
+          openSettlements: readiness.openSettlements,
+        };
+        throw err;
+      }
+    }
+
     const deliveredRows = await client.query(
       `UPDATE customer_order
        SET archived_by_delivery=TRUE,
@@ -4832,15 +4879,19 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
          AND archived_by_delivery=FALSE
          AND DATE(delivered_at)=$2
          AND ($3::bigint IS NULL OR merchant_id = $3)
-       RETURNING total_amount`,
+       RETURNING *`,
       [Number(deliveryUserId), date, merchantId]
     );
 
     const ordersCount = deliveredRows.rows.length;
-    const totalAmount = deliveredRows.rows.reduce(
-      (sum, row) => sum + Number(row.total_amount || 0),
-      0
+    const profile = merchantId
+      ? await getMerchantBillingProfile(merchantId)
+      : null;
+    const settlementSnapshot = buildDeliveryCashSettlementSnapshot(
+      deliveredRows.rows,
+      profile || {}
     );
+    const totalAmount = settlementSnapshot.totalAmount;
     archivedOrdersCount = ordersCount;
     archivedTotalAmount = totalAmount;
 
@@ -4857,50 +4908,44 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
 
     let pendingSettlementId = null;
     if (merchantId && ordersCount > 0 && totalAmount > 0) {
-      const pending = await client.query(
-        `SELECT id
-         FROM delivery_cash_settlement
-         WHERE merchant_id = $1
-           AND delivery_user_id = $2
-           AND archive_date = $3
-           AND status = 'pending'
-         ORDER BY id DESC
-         LIMIT 1
-         FOR UPDATE`,
-        [merchantId, Number(deliveryUserId), date]
+      const inserted = await client.query(
+        `INSERT INTO delivery_cash_settlement
+          (
+            merchant_id,
+            delivery_user_id,
+            archive_date,
+            orders_count,
+            total_amount,
+            store_net_received_amount,
+            app_due_from_delivery,
+            store_cash_confirmed,
+            store_cash_confirmed_at,
+            store_cash_confirmed_by_user_id,
+            amount_received_actual,
+            difference_amount,
+            difference_reason,
+            settlement_status,
+            status,
+            requested_at,
+            created_at,
+            updated_at
+          )
+         VALUES
+          (
+            $1,$2,$3,$4,$5,$6,$7,FALSE,NULL,NULL,0,0,NULL,'pending_store_confirmation','pending',NOW(),NOW(),NOW()
+          )
+         RETURNING id`,
+        [
+          merchantId,
+          Number(deliveryUserId),
+          date,
+          ordersCount,
+          totalAmount,
+          settlementSnapshot.storeNetReceivedAmount,
+          settlementSnapshot.appDueFromDelivery,
+        ]
       );
-
-      if (pending.rows[0]?.id) {
-        const updated = await client.query(
-          `UPDATE delivery_cash_settlement
-           SET orders_count = orders_count + $2,
-               total_amount = total_amount + $3,
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING id`,
-          [Number(pending.rows[0].id), ordersCount, totalAmount]
-        );
-        pendingSettlementId = Number(updated.rows[0]?.id || pending.rows[0].id);
-      } else {
-        const inserted = await client.query(
-          `INSERT INTO delivery_cash_settlement
-            (
-              merchant_id,
-              delivery_user_id,
-              archive_date,
-              orders_count,
-              total_amount,
-              status,
-              requested_at,
-              created_at,
-              updated_at
-            )
-           VALUES ($1,$2,$3,$4,$5,'pending',NOW(),NOW(),NOW())
-           RETURNING id`,
-          [merchantId, Number(deliveryUserId), date, ordersCount, totalAmount]
-        );
-        pendingSettlementId = Number(inserted.rows[0]?.id || 0);
-      }
+      pendingSettlementId = Number(inserted.rows[0]?.id || 0);
 
       const recipients = await client.query(
         `SELECT accountant_user_id
@@ -4917,6 +4962,8 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
         archiveDate: date,
         ordersCount,
         totalAmount,
+        storeNetReceivedAmount: settlementSnapshot.storeNetReceivedAmount,
+        appDueFromDelivery: settlementSnapshot.appDueFromDelivery,
         pendingSettlementId,
         accountantUserIds: recipients.rows.map((row) => Number(row.accountant_user_id)),
       };
@@ -4930,12 +4977,15 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
           userId: accountantUserId,
           type: "accountant_delivery_settlement_pending",
           title: "ذمة دلفري بانتظار الاستلام",
-          body: `يوجد مبلغ ${Number(notifyPayload.totalAmount || 0).toFixed(0)} د.ع بانتظار التأكيد.`,
+          body: `يوجد مبلغ ${Number(notifyPayload.storeNetReceivedAmount || 0).toFixed(0)} د.ع بانتظار تأكيد المتجر، والذمة الإجمالية ${Number(notifyPayload.totalAmount || 0).toFixed(0)} د.ع.`,
           payload: {
             settlementId: notifyPayload.pendingSettlementId,
             merchantId: notifyPayload.merchantId,
             deliveryUserId: notifyPayload.deliveryUserId,
             archiveDate: notifyPayload.archiveDate,
+            totalAmount: notifyPayload.totalAmount,
+            storeNetReceivedAmount: notifyPayload.storeNetReceivedAmount,
+            appDueFromDelivery: notifyPayload.appDueFromDelivery,
             target: "accountant_dashboard",
           },
         })),
@@ -4946,12 +4996,15 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
           userId: notifyPayload.ownerUserId,
           type: "owner_delivery_settlement_pending",
           title: "ذمة دلفري جديدة",
-          body: `الدلفري أنهى يومه بمبلغ ${Number(notifyPayload.totalAmount || 0).toFixed(0)} د.ع.`,
+          body: `الدلفري أنهى يومه بذمة إجمالية ${Number(notifyPayload.totalAmount || 0).toFixed(0)} د.ع، والمتوقع تسليم ${Number(notifyPayload.storeNetReceivedAmount || 0).toFixed(0)} د.ع للمتجر.`,
           payload: {
             settlementId: notifyPayload.pendingSettlementId,
             merchantId: notifyPayload.merchantId,
             deliveryUserId: notifyPayload.deliveryUserId,
             archiveDate: notifyPayload.archiveDate,
+            totalAmount: notifyPayload.totalAmount,
+            storeNetReceivedAmount: notifyPayload.storeNetReceivedAmount,
+            appDueFromDelivery: notifyPayload.appDueFromDelivery,
             target: "owner_dashboard",
           },
         });
@@ -4966,12 +5019,67 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
       archiveDate: date,
       ordersCount: archivedOrdersCount,
       totalAmount: archivedTotalAmount,
+      storeNetReceivedAmount: settlementSnapshot.storeNetReceivedAmount,
+      appDueFromDelivery: settlementSnapshot.appDueFromDelivery,
       merchantId: notifyPayload?.merchantId || null,
       pendingSettlementId: notifyPayload?.pendingSettlementId || null,
     };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getDeliveryEndDayReadiness(deliveryUserId) {
+  const client = await pool.connect();
+  try {
+    const merchantScope = await client.query(
+      `SELECT
+         mda.merchant_id
+       FROM merchant_delivery_agent mda
+       JOIN merchant m ON m.id = mda.merchant_id
+       WHERE mda.delivery_user_id = $1
+         AND mda.is_active = TRUE
+       ORDER BY mda.updated_at DESC, mda.created_at DESC
+       LIMIT 1`,
+      [Number(deliveryUserId)]
+    );
+    const merchantId = merchantScope.rows[0]?.merchant_id
+      ? Number(merchantScope.rows[0].merchant_id)
+      : null;
+    if (!merchantId) {
+      return {
+        canEndDay: true,
+        outstandingAmount: 0,
+        openSettlements: [],
+        merchantId: null,
+      };
+    }
+
+    const pendingSettlements = await client.query(
+      `SELECT
+         id,
+         status,
+         settlement_status,
+         total_amount,
+         store_net_received_amount,
+         app_due_from_delivery,
+         archive_date
+       FROM delivery_cash_settlement
+       WHERE merchant_id = $1
+         AND delivery_user_id = $2
+         AND status = 'pending'
+       ORDER BY requested_at ASC, id ASC`,
+      [merchantId, Number(deliveryUserId)]
+    );
+
+    const readiness = evaluateCourierEndDayReadiness(pendingSettlements.rows);
+    return {
+      ...readiness,
+      merchantId,
+    };
   } finally {
     client.release();
   }

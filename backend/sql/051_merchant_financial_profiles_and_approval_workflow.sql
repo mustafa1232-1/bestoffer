@@ -49,6 +49,8 @@ ON merchant(approval_status, is_disabled, created_at DESC, id DESC);
 ALTER TABLE merchant_billing_profile
   ADD COLUMN IF NOT EXISTS commission_type VARCHAR(20),
   ADD COLUMN IF NOT EXISTS commission_value NUMERIC(12,2),
+  ADD COLUMN IF NOT EXISTS commission_model VARCHAR(32),
+  ADD COLUMN IF NOT EXISTS monthly_subscription_amount NUMERIC(12,2),
   ADD COLUMN IF NOT EXISTS service_fee_type VARCHAR(30),
   ADD COLUMN IF NOT EXISTS app_delivery_fee_value NUMERIC(12,2),
   ADD COLUMN IF NOT EXISTS store_delivery_fee_value NUMERIC(12,2),
@@ -63,6 +65,14 @@ SET commission_type = COALESCE(commission_type, 'percentage'),
       commission_value,
       ROUND(COALESCE(commission_rate, 0) * 100.0, 2)
     ),
+    commission_model = COALESCE(
+      commission_model,
+      CASE
+        WHEN COALESCE(monthly_subscription_amount, 0) > 0 THEN 'monthly_subscription'
+        ELSE 'percentage'
+      END
+    ),
+    monthly_subscription_amount = COALESCE(monthly_subscription_amount, 0),
     service_fee_type = COALESCE(service_fee_type, COALESCE(service_fee_mode, 'fixed')),
     app_delivery_fee_value = COALESCE(app_delivery_fee_value, COALESCE(delivery_fee_value, 0)),
     store_delivery_fee_value = COALESCE(store_delivery_fee_value, 0),
@@ -75,6 +85,10 @@ ALTER TABLE merchant_billing_profile
   ALTER COLUMN commission_type SET NOT NULL,
   ALTER COLUMN commission_value SET DEFAULT 10,
   ALTER COLUMN commission_value SET NOT NULL,
+  ALTER COLUMN commission_model SET DEFAULT 'percentage',
+  ALTER COLUMN commission_model SET NOT NULL,
+  ALTER COLUMN monthly_subscription_amount SET DEFAULT 0,
+  ALTER COLUMN monthly_subscription_amount SET NOT NULL,
   ALTER COLUMN service_fee_type SET DEFAULT 'fixed',
   ALTER COLUMN service_fee_type SET NOT NULL,
   ALTER COLUMN app_delivery_fee_value SET DEFAULT 0,
@@ -96,6 +110,16 @@ BEGIN
     ALTER TABLE merchant_billing_profile
       ADD CONSTRAINT merchant_billing_profile_commission_type_check
       CHECK (commission_type IN ('percentage', 'fixed'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'merchant_billing_profile_commission_model_check'
+  ) THEN
+    ALTER TABLE merchant_billing_profile
+      ADD CONSTRAINT merchant_billing_profile_commission_model_check
+      CHECK (commission_model IN ('percentage', 'monthly_subscription'));
   END IF;
 
   IF NOT EXISTS (
@@ -138,7 +162,16 @@ ON merchant_billing_profile_audit(merchant_id, profile_version DESC, created_at 
 ALTER TABLE customer_order
   ADD COLUMN IF NOT EXISTS service_fee NUMERIC(12,2) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS financial_profile_version BIGINT,
-  ADD COLUMN IF NOT EXISTS financial_config_snapshot_json JSONB;
+  ADD COLUMN IF NOT EXISTS financial_config_snapshot_json JSONB,
+  ADD COLUMN IF NOT EXISTS store_net_received_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS app_due_from_delivery NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS store_cash_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS store_cash_confirmed_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS store_cash_confirmed_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS amount_received_actual NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS difference_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS difference_reason TEXT,
+  ADD COLUMN IF NOT EXISTS settlement_status VARCHAR(40) NOT NULL DEFAULT 'pending_store_confirmation';
 
 CREATE INDEX IF NOT EXISTS idx_customer_order_financial_profile_version
 ON customer_order(merchant_id, financial_profile_version);

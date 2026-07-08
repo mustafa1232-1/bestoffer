@@ -197,6 +197,10 @@ export async function endDay(deliveryUserId, date) {
   return ordersRepo.endDeliveryDay(deliveryUserId, date || null);
 }
 
+export async function endDayReadiness(deliveryUserId) {
+  return ordersRepo.getDeliveryEndDayReadiness(deliveryUserId);
+}
+
 export async function analytics(deliveryUserId) {
   return analyticsRepo.getDeliveryAnalytics(deliveryUserId);
 }
