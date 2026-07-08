@@ -30,8 +30,10 @@ export async function insertOpsAuditLog({
   metadata = {},
   ipAddress = null,
   userAgent = null,
+  client = null,
 }) {
-  const result = await q(
+  const db = client && typeof client.query === "function" ? client : { query: q };
+  const result = await db.query(
     `INSERT INTO ops_audit_logs
       (
         actor_user_id,

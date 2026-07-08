@@ -275,7 +275,8 @@ class _DeliveryDashboardScreenState
                 activeTab == _DeliveryTab.current
             ? FloatingActionButton.extended(
                 heroTag: null,
-                onPressed: state.saving || state.endDayReadiness['canEndDay'] == false
+                onPressed:
+                    state.saving || state.endDayReadiness['canEndDay'] == false
                     ? null
                     : () async {
                         await ref
@@ -321,6 +322,11 @@ class _DeliveryDashboardScreenState
 
     final outstanding =
         num.tryParse('${readiness['outstandingAmount'] ?? 0}') ?? 0;
+    final totalAppDue = num.tryParse('${readiness['totalAppDue'] ?? 0}') ?? 0;
+    final totalDifferenceDue =
+        num.tryParse('${readiness['totalDifferenceDue'] ?? 0}') ?? 0;
+    final blockingReasonAr = '${readiness['blockingReasonAr'] ?? ''}'.trim();
+    final blockingReasonEn = '${readiness['blockingReasonEn'] ?? ''}'.trim();
     final openSettlements = List<dynamic>.from(
       readiness['openSettlements'] as List? ?? const [],
     );
@@ -346,16 +352,41 @@ class _DeliveryDashboardScreenState
                 en: 'There is still an open settlement total of ${formatIqd(outstanding)}.',
               ),
             ),
+            if (blockingReasonAr.isNotEmpty || blockingReasonEn.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                [
+                  if (blockingReasonAr.isNotEmpty) blockingReasonAr,
+                  if (blockingReasonEn.isNotEmpty) blockingReasonEn,
+                ].join(' / '),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ],
+            const SizedBox(height: 6),
+            Text(
+              context.lt(
+                ar: 'ذمة التطبيق: ${formatIqd(totalAppDue)}',
+                en: 'App due: ${formatIqd(totalAppDue)}',
+              ),
+            ),
+            Text(
+              context.lt(
+                ar: 'الفروقات غير المغلقة: ${formatIqd(totalDifferenceDue)}',
+                en: 'Unresolved differences: ${formatIqd(totalDifferenceDue)}',
+              ),
+            ),
             if (openSettlements.isNotEmpty) ...[
               const SizedBox(height: 8),
-              ...openSettlements.take(3).map(
-                (row) => Text(
-                  context.lt(
-                    ar: 'طلب تسوية #${row['id']} - ${formatIqd(row['appDueFromDelivery'] ?? row['app_due_from_delivery'] ?? row['totalAmount'] ?? row['total_amount'] ?? 0)}',
-                    en: 'Settlement #${row['id']} - ${formatIqd(row['appDueFromDelivery'] ?? row['app_due_from_delivery'] ?? row['totalAmount'] ?? row['total_amount'] ?? 0)}',
+              ...openSettlements
+                  .take(3)
+                  .map(
+                    (row) => Text(
+                      context.lt(
+                        ar: 'طلب تسوية #${row['id']} - ${formatIqd(row['appDueFromDelivery'] ?? row['app_due_from_delivery'] ?? row['totalAmount'] ?? row['total_amount'] ?? 0)}',
+                        en: 'Settlement #${row['id']} - ${formatIqd(row['appDueFromDelivery'] ?? row['app_due_from_delivery'] ?? row['totalAmount'] ?? row['total_amount'] ?? 0)}',
+                      ),
+                    ),
                   ),
-                ),
-              ),
             ],
           ],
         ),
@@ -787,11 +818,35 @@ class _InsightTile extends StatelessWidget {
           '${period.deliveredOrdersCount}',
         ),
       ),
-      subtitle: Text(
-        l10n.deliveryInsightFeesRating(
-          formatIqd(period.deliveryFees),
-          period.avgRating.toStringAsFixed(1),
-        ),
+      subtitle: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l10n.deliveryInsightFeesRating(
+              formatIqd(period.deliveryFees),
+              period.avgRating.toStringAsFixed(1),
+            ),
+          ),
+          Text(
+            context.lt(
+              ar: 'رسوم الخدمة: ${formatIqd(period.serviceFeeAmount)} | ذمة التطبيق: ${formatIqd(period.appDueFromDelivery)}',
+              en: 'Service fee: ${formatIqd(period.serviceFeeAmount)} | App due: ${formatIqd(period.appDueFromDelivery)}',
+            ),
+          ),
+          Text(
+            context.lt(
+              ar: 'العمولة: ${formatIqd(period.commissionAmount)} | المستلم للمتجر: ${formatIqd(period.storeNetReceivedAmount)}',
+              en: 'Commission: ${formatIqd(period.commissionAmount)} | Store net: ${formatIqd(period.storeNetReceivedAmount)}',
+            ),
+          ),
+          Text(
+            context.lt(
+              ar: 'الفروقات: ${formatIqd(period.differenceAmount)}',
+              en: 'Differences: ${formatIqd(period.differenceAmount)}',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -800,11 +855,21 @@ class _InsightTile extends StatelessWidget {
 class _DeliveryPeriod {
   final int deliveredOrdersCount;
   final double deliveryFees;
+  final double serviceFeeAmount;
+  final double commissionAmount;
+  final double storeNetReceivedAmount;
+  final double appDueFromDelivery;
+  final double differenceAmount;
   final double avgRating;
 
   const _DeliveryPeriod({
     this.deliveredOrdersCount = 0,
     this.deliveryFees = 0,
+    this.serviceFeeAmount = 0,
+    this.commissionAmount = 0,
+    this.storeNetReceivedAmount = 0,
+    this.appDueFromDelivery = 0,
+    this.differenceAmount = 0,
     this.avgRating = 0,
   });
 
@@ -820,6 +885,26 @@ class _DeliveryPeriod {
         'delivery_fees',
         'deliveryFees',
         'todayEarnings',
+      ]),
+      serviceFeeAmount: _readDouble(map, const [
+        'service_fee_amount',
+        'serviceFeeAmount',
+      ]),
+      commissionAmount: _readDouble(map, const [
+        'commission_amount',
+        'commissionAmount',
+      ]),
+      storeNetReceivedAmount: _readDouble(map, const [
+        'store_net_received_amount',
+        'storeNetReceivedAmount',
+      ]),
+      appDueFromDelivery: _readDouble(map, const [
+        'app_due_from_delivery',
+        'appDueFromDelivery',
+      ]),
+      differenceAmount: _readDouble(map, const [
+        'difference_amount',
+        'differenceAmount',
       ]),
       avgRating: _readDouble(map, const [
         'avg_rating',

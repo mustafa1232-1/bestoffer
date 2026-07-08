@@ -119,6 +119,45 @@ class _DeliveryEarningsScreenState
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _MetricChip(
+                        label: context.lt(
+                          ar: 'Ø±Ø³ÙˆÙ… Ø§Ù„Ø®Ø¯Ù…Ø©',
+                          en: 'Service fee',
+                        ),
+                        value: formatIqd(_money(_data?['serviceFeeSum'])),
+                      ),
+                      _MetricChip(
+                        label: context.lt(
+                          ar: 'Ø°Ù…Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚',
+                          en: 'App due',
+                        ),
+                        value: formatIqd(
+                          _money(_data?['appDueFromDeliverySum']),
+                        ),
+                      ),
+                      _MetricChip(
+                        label: context.lt(
+                          ar: 'Ø§Ù„ÙØ±ÙˆÙ‚Ø§Øª',
+                          en: 'Differences',
+                        ),
+                        value: formatIqd(_money(_data?['differenceAmountSum'])),
+                      ),
+                      _MetricChip(
+                        label: context.lt(
+                          ar: 'ØµØ§ÙÙŠ Ø§Ù„Ù…ØªØ¬Ø±',
+                          en: 'Store net',
+                        ),
+                        value: formatIqd(
+                          _money(_data?['storeNetReceivedAmountSum']),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 14),
                   if (rows.isEmpty)
                     _EmptyState(
@@ -138,8 +177,18 @@ class _DeliveryEarningsScreenState
                             '#${_int(row['orderNumber'])} · ${_str(row['merchantName']) ?? '-'}',
                             style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
-                          subtitle: Text(
-                            '${_str(row['customerName']) ?? '-'} · ${_str(row['deliveredAt']) ?? ''}',
+                          subtitle: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${_str(row['customerName']) ?? '-'} · ${_str(row['deliveredAt']) ?? ''}',
+                              ),
+                              Text(
+                                '${context.lt(ar: "رسوم الخدمة", en: "Service fee")}: ${formatIqd(_money(row['serviceFee']))} · ${context.lt(ar: "ذمة التطبيق", en: "App due")}: ${formatIqd(_money(row['appDueFromDelivery']))} · ${context.lt(ar: "الفروقات", en: "Differences")}: ${formatIqd(_money(row['differenceAmount']))}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
                           ),
                           trailing: Column(
                             mainAxisAlignment: MainAxisAlignment.center,

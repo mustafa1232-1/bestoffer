@@ -50,6 +50,10 @@ void main() {
         'completedTodayCount': 1,
         'completedMonthCount': 2,
         'deliveryFeeSum': 5000,
+        'serviceFeeSum': 750,
+        'appDueFromDeliverySum': 1000,
+        'differenceAmountSum': 25,
+        'storeNetReceivedAmountSum': 8750,
         'rows': [
           {
             'orderId': 101,
@@ -58,6 +62,9 @@ void main() {
             'merchantName': 'Merch',
             'deliveredAt': '2026-06-15',
             'deliveryFee': 3000,
+            'serviceFee': 500,
+            'appDueFromDelivery': 1000,
+            'differenceAmount': 25,
             'totalInvoice': 14000,
             'paymentMethod': 'cash',
             'status': 'delivered',
@@ -73,6 +80,8 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.textContaining('#101'), findsOneWidget);
     expect(find.textContaining('Merch'), findsOneWidget);
+    expect(find.textContaining('Service fee'), findsWidgets);
+    expect(find.textContaining('App due'), findsWidgets);
   });
 
   testWidgets('earnings screen shows an empty state (not a fake zero list)', (

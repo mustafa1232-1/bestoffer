@@ -65,7 +65,9 @@ String? _buildValidationMessage(dynamic data, AppLocalizations l10n) {
 
   final formCode = parsed.formCode?.trim().toUpperCase();
   if (formCode != null && formCode.isNotEmpty) {
-    lines.add(resolveApiErrorCodeMessage(l10n, formCode) ?? l10n.apiValidationError);
+    lines.add(
+      resolveApiErrorCodeMessage(l10n, formCode) ?? l10n.apiValidationError,
+    );
   }
 
   final compact = lines
@@ -112,6 +114,10 @@ String _validationFieldMessage(AppLocalizations l10n, String field) {
       return l10n.validationSelectionModeRequired;
     case 'selectedInvoiceIds':
       return l10n.validationSelectedInvoiceIdsRequired;
+    case 'differenceReason':
+      return l10n.localeName.startsWith('ar')
+          ? 'يرجى إدخال سبب الفرق عند اختلاف المبلغ.'
+          : 'Enter a reason when the amount differs.';
     case 'targetAmount':
       return l10n.validationTargetAmountInvalid;
     case 'referenceCode':

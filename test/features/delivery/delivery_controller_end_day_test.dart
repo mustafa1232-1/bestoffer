@@ -5,10 +5,8 @@ import 'package:maslaki/features/delivery/data/delivery_api.dart';
 import 'package:maslaki/features/delivery/state/delivery_controller.dart';
 
 class _FakeDeliveryApi extends DeliveryApi {
-  _FakeDeliveryApi({
-    required this.readiness,
-    required this.endDayResponse,
-  }) : super(Dio());
+  _FakeDeliveryApi({required this.readiness, required this.endDayResponse})
+    : super(Dio());
 
   final Map<String, dynamic> readiness;
   final Map<String, dynamic> endDayResponse;
@@ -106,37 +104,79 @@ class _FakeDeliveryApi extends DeliveryApi {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('delivery end day is blocked while an open settlement remains', () async {
-    final api = _FakeDeliveryApi(
-      readiness: const {
-        'canEndDay': false,
-        'outstandingAmount': 1500,
-        'openSettlements': [
-          {
-            'id': 1,
-            'appDueFromDelivery': 1500,
-            'settlementStatus': 'pending_store_confirmation',
-            'status': 'pending',
-          },
-        ],
-      },
-      endDayResponse: const <String, dynamic>{},
-    );
-    final container = ProviderContainer(
-      overrides: [deliveryApiProvider.overrideWithValue(api)],
-    );
-    addTearDown(container.dispose);
+  test(
+    'delivery end day is blocked while an open settlement remains',
+    () async {
+      final api = _FakeDeliveryApi(
+        readiness: const {
+          'canEndDay': false,
+          'outstandingAmount': 1500,
+          'openSettlements': [
+            {
+              'id': 1,
+              'appDueFromDelivery': 1500,
+              'settlementStatus': 'pending_store_confirmation',
+              'status': 'pending',
+            },
+          ],
+        },
+        endDayResponse: const <String, dynamic>{},
+      );
+      final container = ProviderContainer(
+        overrides: [deliveryApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
 
-    await container.read(deliveryControllerProvider.notifier).endDay();
+      await container.read(deliveryControllerProvider.notifier).endDay();
 
-    final state = container.read(deliveryControllerProvider);
-    expect(api.readinessCalls, 1);
-    expect(api.endDayCalls, 0);
-    expect(state.saving, false);
-    expect(state.error, isNotNull);
-    expect(state.error, contains('Cannot close the day'));
-    expect(state.endDayReadiness['canEndDay'], false);
-  });
+      final state = container.read(deliveryControllerProvider);
+      expect(api.readinessCalls, 1);
+      expect(api.endDayCalls, 0);
+      expect(state.saving, false);
+      expect(state.error, isNotNull);
+      expect(state.error, contains('Cannot close the day'));
+      expect(state.endDayReadiness['canEndDay'], false);
+    },
+  );
+
+  test(
+    'delivery end day is blocked while difference review remains open',
+    () async {
+      final api = _FakeDeliveryApi(
+        readiness: const {
+          'canEndDay': false,
+          'outstandingAmount': 1550,
+          'totalAppDue': 1500,
+          'totalDifferenceDue': 50,
+          'blockingReasonEn':
+              'There are unresolved cash settlements or an open difference review.',
+          'openSettlements': [
+            {
+              'id': 9,
+              'appDueFromDelivery': 1500,
+              'differenceAmount': 50,
+              'settlementStatus': 'difference_review',
+              'status': 'received',
+            },
+          ],
+        },
+        endDayResponse: const <String, dynamic>{},
+      );
+      final container = ProviderContainer(
+        overrides: [deliveryApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(deliveryControllerProvider.notifier).endDay();
+
+      final state = container.read(deliveryControllerProvider);
+      expect(api.readinessCalls, 1);
+      expect(api.endDayCalls, 0);
+      expect(state.error, contains('Cannot close the day'));
+      expect(state.error, contains('difference review'));
+      expect(state.endDayReadiness['totalDifferenceDue'], 50);
+    },
+  );
 
   test('delivery end day submits once readiness is clear', () async {
     final api = _FakeDeliveryApi(

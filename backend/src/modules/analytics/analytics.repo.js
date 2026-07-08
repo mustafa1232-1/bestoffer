@@ -136,6 +136,11 @@ export async function getDeliveryAnalytics(deliveryUserId) {
          COUNT(*)::int AS delivered_orders_count,
          COALESCE(SUM(total_amount), 0) AS delivered_total_amount,
          COALESCE(SUM(delivery_fee), 0) AS delivery_fees,
+         COALESCE(SUM(service_fee), 0) AS service_fee_amount,
+         COALESCE(SUM(store_net_received_amount), 0) AS store_net_received_amount,
+         COALESCE(SUM(app_due_from_delivery), 0) AS app_due_from_delivery,
+         COALESCE(SUM(difference_amount), 0) AS difference_amount,
+         COALESCE(SUM(COALESCE(inv.commission_amount, 0)), 0) AS commission_amount,
          COALESCE(AVG(delivery_rating), 0) AS avg_rating,
          COALESCE(
            SUM(
@@ -151,6 +156,7 @@ export async function getDeliveryAnalytics(deliveryUserId) {
            0
          )::int AS on_time_deliveries
        FROM customer_order
+       LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = customer_order.id
        WHERE delivery_user_id = $1
          AND status = 'delivered'
          ${since ? `AND delivered_at >= ${since}` : ""}`,

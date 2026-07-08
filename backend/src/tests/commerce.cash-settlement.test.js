@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
@@ -115,6 +117,28 @@ test("courier end-day readiness blocks while an open settlement remains", () => 
   assert.equal(readiness.openSettlements[0].appDueFromDelivery, 1500);
 });
 
+test("courier end-day readiness blocks unresolved difference reviews", () => {
+  const readiness = evaluateCourierEndDayReadiness([
+    {
+      id: 9,
+      status: "received",
+      settlementStatus: "difference_review",
+      totalAmount: 11250,
+      storeNetReceivedAmount: 8750,
+      appDueFromDelivery: 1500,
+      differenceAmount: 50,
+      differenceReason: "cash count mismatch",
+    },
+  ]);
+
+  assert.equal(readiness.canEndDay, false);
+  assert.equal(readiness.outstandingAmount, 1550);
+  assert.equal(readiness.totalAppDue, 1500);
+  assert.equal(readiness.totalDifferenceDue, 50);
+  assert.equal(readiness.openSettlements.length, 1);
+  assert.equal(readiness.openSettlements[0].settlementStatus, "difference_review");
+});
+
 test("store cash confirmation snapshot records received status and difference review", () => {
   const confirmed = resolveStoreCashConfirmationSnapshot({
     expectedAmount: 8750,
@@ -137,4 +161,44 @@ test("store cash confirmation snapshot records received status and difference re
 
   assert.equal(exact.differenceAmount, 0);
   assert.equal(exact.settlementStatus, "received");
+});
+
+test("store cash confirmation requires a reason when amounts differ", () => {
+  assert.throws(
+    () =>
+      resolveStoreCashConfirmationSnapshot({
+        expectedAmount: 8750,
+        actualAmount: 8700,
+        actorUserId: 77,
+      }),
+    (error) => {
+      assert.equal(error.message, "VALIDATION_ERROR");
+      assert.equal(error.status, 400);
+      assert.equal(error.details.fields.differenceReason, "DIFFERENCE_REASON_REQUIRED");
+      return true;
+    }
+  );
+});
+
+test("courier end-day SQL keeps unresolved difference reviews in the blocking set", () => {
+  const repoPath = fileURLToPath(
+    new URL("../modules/orders/orders.repo.js", import.meta.url)
+  );
+  const src = readFileSync(repoPath, "utf8");
+  const start = src.indexOf("export async function endDeliveryDay");
+  assert.ok(start >= 0, "endDeliveryDay must exist");
+  const body = src.slice(start, start + 2600);
+
+  assert.ok(
+    body.includes("status IN ('pending', 'received')"),
+    "endDeliveryDay must consider both pending and received settlements"
+  );
+  assert.ok(
+    body.includes("difference_amount") && body.includes("difference_reason"),
+    "endDeliveryDay must load unresolved difference metadata"
+  );
+  assert.ok(
+    body.includes("courier_end_day_blocked"),
+    "endDeliveryDay must audit blocked closures"
+  );
 });

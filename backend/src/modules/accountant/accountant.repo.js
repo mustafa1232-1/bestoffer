@@ -1,4 +1,6 @@
 import { pool, q } from "../../config/db.js";
+import { resolveStoreCashConfirmationSnapshot } from "../commerce/merchant-financial.logic.js";
+import { insertOpsAuditLog } from "../../ops/auditLog.js";
 
 function toNum(value, fallback = 0) {
   const n = Number(value);
@@ -299,17 +301,15 @@ export async function confirmDeliverySettlementReceipt({
     const row = found.rows[0];
     if (!row) return null;
     const expectedAmount = toNum(row.store_net_received_amount ?? row.total_amount);
-    const resolvedActualAmount =
-      actualAmount == null || Number.isNaN(Number(actualAmount))
-        ? expectedAmount
-        : toNum(actualAmount, expectedAmount);
-    const differenceAmount = toNum(resolvedActualAmount - expectedAmount);
-    const resolvedReason =
-      differenceReason != null && String(differenceReason).trim().length
-        ? String(differenceReason).trim().slice(0, 1000)
-        : null;
-    const settlementStatus =
-      Math.abs(differenceAmount) > 0.009 ? "difference_review" : "received";
+    const snapshot = resolveStoreCashConfirmationSnapshot({
+      expectedAmount,
+      actualAmount:
+        actualAmount == null || Number.isNaN(Number(actualAmount))
+          ? expectedAmount
+          : toNum(actualAmount, expectedAmount),
+      reason: differenceReason,
+      actorUserId: accountantUserId,
+    });
 
     const updated = await client.query(
       `UPDATE delivery_cash_settlement
@@ -320,7 +320,7 @@ export async function confirmDeliverySettlementReceipt({
            store_cash_confirmed_by_user_id = $2,
            amount_received_actual = $4,
            difference_amount = $5,
-           difference_reason = COALESCE($6, difference_reason),
+           difference_reason = $6,
            received_by_user_id = $2,
            received_at = NOW(),
            note = COALESCE($7, note),
@@ -330,10 +330,10 @@ export async function confirmDeliverySettlementReceipt({
       [
         Number(settlementId),
         Number(accountantUserId),
-        settlementStatus,
-        resolvedActualAmount,
-        differenceAmount,
-        resolvedReason,
+        snapshot.settlementStatus,
+        snapshot.amountReceivedActual,
+        snapshot.differenceAmount,
+        snapshot.differenceReason,
         note ? String(note).slice(0, 1000) : null,
       ]
     );
@@ -355,14 +355,37 @@ export async function confirmDeliverySettlementReceipt({
        VALUES ($1,'delivery_settlement','credit',$2,$3,$4,$5,$6,$7,NOW())`,
       [
         Number(merchantId),
-        resolvedActualAmount,
+        snapshot.amountReceivedActual,
         Number(row.delivery_user_id),
         Number(row.id),
         row.archive_date,
-        note ? String(note).slice(0, 1000) : resolvedReason,
+        note ? String(note).slice(0, 1000) : snapshot.differenceReason,
         Number(accountantUserId),
       ]
     );
+
+    await insertOpsAuditLog({
+      actorUserId: Number(accountantUserId),
+      actorRole: "accountant",
+      action:
+        snapshot.settlementStatus === "difference_review"
+          ? "delivery_cash_settlement_difference_review"
+          : "delivery_cash_settlement_received",
+      targetType: "delivery_cash_settlement",
+      targetId: Number(row.id),
+      metadata: {
+        merchantId: Number(merchantId),
+        deliveryUserId: Number(row.delivery_user_id),
+        archiveDate: row.archive_date,
+        expectedAmount,
+        actualAmount: snapshot.amountReceivedActual,
+        differenceAmount: snapshot.differenceAmount,
+        differenceReason: snapshot.differenceReason,
+        settlementStatus: snapshot.settlementStatus,
+        appDueFromDelivery: Number(row.app_due_from_delivery || 0),
+      },
+      client,
+    });
 
     const summary = await cashSummaryWithClient(client, merchantId);
 

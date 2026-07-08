@@ -259,7 +259,9 @@ class _AccountantDashboardScreenState
   }) async {
     final l10n = context.l10n;
     final expectedAmount =
-        num.tryParse('${item['storeNetReceivedAmount'] ?? item['totalAmount'] ?? 0}') ??
+        num.tryParse(
+          '${item['storeNetReceivedAmount'] ?? item['totalAmount'] ?? 0}',
+        ) ??
         0;
     final actualAmountCtrl = TextEditingController(
       text: expectedAmount.toStringAsFixed(0),
@@ -295,11 +297,27 @@ class _AccountantDashboardScreenState
                 await scrollCoordinator.focusFirstError(const ['actualAmount']);
                 return;
               }
+              final amountDiff = (actualAmount - expectedAmount).abs();
+              final reasonText = reasonCtrl.text.trim();
+              if (amountDiff > 0.009 && reasonText.isEmpty) {
+                setDialogState(() {
+                  fieldErrors['differenceReason'] = context.lt(
+                    ar: 'أدخل سبب الفرق عند اختلاف المبلغ.',
+                    en: 'Enter a reason when the amount differs.',
+                  );
+                  formError = l10n.validationReviewRequiredFields;
+                });
+                await scrollCoordinator.focusFirstError(const [
+                  'differenceReason',
+                ]);
+                return;
+              }
 
               setDialogState(() {
                 submitting = true;
                 formError = null;
                 fieldErrors.remove('actualAmount');
+                fieldErrors.remove('differenceReason');
               });
 
               await ref
@@ -307,12 +325,8 @@ class _AccountantDashboardScreenState
                   .confirmSettlement(
                     settlementId: (item['id'] as num).toInt(),
                     actualAmount: actualAmount,
-                    differenceReason: reasonCtrl.text.trim().isEmpty
-                        ? null
-                        : reasonCtrl.text.trim(),
-                    note: reasonCtrl.text.trim().isEmpty
-                        ? null
-                        : reasonCtrl.text.trim(),
+                    differenceReason: reasonText.isEmpty ? null : reasonText,
+                    note: reasonText.isEmpty ? null : reasonText,
                   );
               if (!mounted) return;
 
@@ -357,7 +371,9 @@ class _AccountantDashboardScreenState
                       'actualAmount',
                       TextField(
                         controller: actualAmountCtrl,
-                        focusNode: scrollCoordinator.focusNodeFor('actualAmount'),
+                        focusNode: scrollCoordinator.focusNodeFor(
+                          'actualAmount',
+                        ),
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
@@ -376,11 +392,17 @@ class _AccountantDashboardScreenState
                     const SizedBox(height: 8),
                     TextField(
                       controller: reasonCtrl,
+                      focusNode: scrollCoordinator.focusNodeFor(
+                        'differenceReason',
+                      ),
+                      onChanged: (_) =>
+                          clearFieldError('differenceReason', setDialogState),
                       decoration: InputDecoration(
                         labelText: context.lt(
-                          ar: 'سبب الفرق (اختياري)',
-                          en: 'Difference reason (optional)',
+                          ar: 'سبب الفرق (مطلوب عند اختلاف المبلغ)',
+                          en: 'Difference reason (required if amounts differ)',
                         ),
+                        errorText: fieldErrors['differenceReason'],
                       ),
                       maxLines: 2,
                       textDirection: Directionality.of(dialogContext),
@@ -617,8 +639,8 @@ class _AccountantDashboardScreenState
                                     onPressed: state.saving
                                         ? null
                                         : () => _showSettlementConfirmDialog(
-                                              item: item,
-                                            ),
+                                            item: item,
+                                          ),
                                     icon: const Icon(Icons.verified_outlined),
                                     label: const Text('تأكيد الاستلام'),
                                   ),

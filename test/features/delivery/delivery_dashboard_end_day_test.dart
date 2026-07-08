@@ -148,6 +148,8 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.textContaining('You cannot close the day yet'), findsOneWidget);
+    expect(find.textContaining('App due:'), findsWidgets);
+    expect(find.textContaining('Unresolved differences:'), findsWidgets);
 
     final fab = tester.widget<FloatingActionButton>(
       find.byType(FloatingActionButton),

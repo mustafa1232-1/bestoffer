@@ -257,7 +257,10 @@ class DeliveryController extends StateNotifier<DeliveryState>
           .competitionAchievementsSummaryV2()
           .catchError((_) => <String, dynamic>{});
       final endDayReadinessFuture = api.endDayReadiness().catchError(
-        (_) => <String, dynamic>{'canEndDay': true, 'openSettlements': <dynamic>[]},
+        (_) => <String, dynamic>{
+          'canEndDay': true,
+          'openSettlements': <dynamic>[],
+        },
       );
 
       await Future.wait([
@@ -379,7 +382,10 @@ class DeliveryController extends StateNotifier<DeliveryState>
           .competitionAchievementsSummaryV2()
           .catchError((_) => <String, dynamic>{'summary': <String, dynamic>{}});
       final endDayReadinessFuture = api.endDayReadiness().catchError(
-        (_) => <String, dynamic>{'canEndDay': true, 'openSettlements': <dynamic>[]},
+        (_) => <String, dynamic>{
+          'canEndDay': true,
+          'openSettlements': <dynamic>[],
+        },
       );
 
       await Future.wait([
@@ -620,17 +626,31 @@ class DeliveryController extends StateNotifier<DeliveryState>
   Future<void> markDelivered(int orderId) => deliveredOrder(orderId);
 
   Map<String, dynamic> _normalizeReadiness(Map<String, dynamic>? value) {
-    return value == null ? const <String, dynamic>{} : Map<String, dynamic>.from(value);
+    return value == null
+        ? const <String, dynamic>{}
+        : Map<String, dynamic>.from(value);
   }
 
   String _deliveryEndDayBlockedMessage(Map<String, dynamic> readiness) {
-    final outstanding = num.tryParse('${readiness['outstandingAmount'] ?? 0}') ?? 0;
+    final outstanding =
+        num.tryParse('${readiness['outstandingAmount'] ?? 0}') ?? 0;
+    final appDue = num.tryParse('${readiness['totalAppDue'] ?? 0}') ?? 0;
+    final differenceDue =
+        num.tryParse('${readiness['totalDifferenceDue'] ?? 0}') ?? 0;
     final openSettlements = List<dynamic>.from(
       readiness['openSettlements'] as List? ?? const [],
     );
+    final blockingReasonAr = '${readiness['blockingReasonAr'] ?? ''}'.trim();
+    final blockingReasonEn = '${readiness['blockingReasonEn'] ?? ''}'.trim();
+    final reasonText = [
+      if (blockingReasonAr.isNotEmpty) blockingReasonAr,
+      if (blockingReasonEn.isNotEmpty) blockingReasonEn,
+    ].join(' / ');
+    final amountText =
+        'App due: ${formatIqd(appDue)} | Differences: ${formatIqd(differenceDue)} | Outstanding: ${formatIqd(outstanding)}';
     return openSettlements.isEmpty
-        ? 'لا يمكن إنهاء اليوم / Cannot close the day while a pending settlement is still open: ${formatIqd(outstanding)}.'
-        : 'لا يمكن إنهاء اليوم / Cannot close the day while ${openSettlements.length} pending settlement(s) remain open. Outstanding amount: ${formatIqd(outstanding)}.';
+        ? 'لا يمكن إنهاء اليوم / Cannot close the day yet. $reasonText. $amountText'
+        : 'لا يمكن إنهاء اليوم / Cannot close the day while ${openSettlements.length} settlement(s) remain open. $reasonText. $amountText';
   }
 
   Future<void> endDay() async {
@@ -681,6 +701,10 @@ class DeliveryController extends StateNotifier<DeliveryState>
     return mapDioErrorL10n(
       e,
       fallbackBuilder: (l10n) => l10n.commonServerConnectionFailed,
+      customMessages: const {
+        'DELIVERY_DAY_HAS_OPEN_SETTLEMENTS':
+            'لا يمكن إنهاء اليوم / Cannot close the day while unresolved cash settlements remain open.',
+      },
       appendRequestId: true,
     );
   }

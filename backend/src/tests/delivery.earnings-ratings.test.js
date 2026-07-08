@@ -14,7 +14,13 @@ test("earnings sum delivery fees and split today/month from delivered orders", (
       id: 1,
       status: "delivered",
       delivery_fee: 3000,
+      service_fee: 500,
       total_amount: 14000,
+      store_net_received_amount: 9500,
+      app_due_from_delivery: 1000,
+      difference_amount: 0,
+      settlement_status: "received",
+      store_cash_confirmed: true,
       payment_method: "cash",
       delivered_at: new Date(2026, 5, 15, 9, 0, 0), // today
       customer_name: "A",
@@ -24,7 +30,13 @@ test("earnings sum delivery fees and split today/month from delivered orders", (
       id: 2,
       status: "completed",
       delivery_fee: 2000,
+      service_fee: 250,
       total_amount: 10000,
+      store_net_received_amount: 7000,
+      app_due_from_delivery: 500,
+      difference_amount: 50,
+      settlement_status: "difference_review",
+      store_cash_confirmed: false,
       delivered_at: new Date(2026, 5, 3, 9, 0, 0), // this month, not today
       customer_name: "B",
       merchant_name: "M",
@@ -33,7 +45,13 @@ test("earnings sum delivery fees and split today/month from delivered orders", (
       id: 3,
       status: "delivered",
       delivery_fee: 5000,
+      service_fee: 125,
       total_amount: 20000,
+      store_net_received_amount: 15000,
+      app_due_from_delivery: 1500,
+      difference_amount: 25,
+      settlement_status: "received",
+      store_cash_confirmed: true,
       delivered_at: new Date(2026, 3, 3, 9, 0, 0), // April (old)
       customer_name: "C",
       merchant_name: "M",
@@ -44,11 +62,21 @@ test("earnings sum delivery fees and split today/month from delivered orders", (
   assert.equal(out.todayEarnings, 3000);
   assert.equal(out.monthEarnings, 5000);
   assert.equal(out.deliveryFeeSum, 10000);
+  assert.equal(out.serviceFeeSum, 875);
+  assert.equal(out.appDueFromDeliverySum, 3000);
+  assert.equal(out.storeNetReceivedAmountSum, 31500);
+  assert.equal(out.differenceAmountSum, 75);
+  assert.equal(out.storeCashConfirmedCount, 2);
   assert.equal(out.completedTodayCount, 1);
   assert.equal(out.completedMonthCount, 2);
   assert.equal(out.rows.length, 3);
   assert.equal(out.rows[0].orderId, 1);
   assert.equal(out.rows[0].deliveryFee, 3000);
+  assert.equal(out.rows[0].serviceFee, 500);
+  assert.equal(out.rows[0].storeNetReceivedAmount, 9500);
+  assert.equal(out.rows[0].appDueFromDelivery, 1000);
+  assert.equal(out.rows[0].differenceAmount, 0);
+  assert.equal(out.rows[0].settlementStatus, "received");
   assert.equal(out.rows[0].totalInvoice, 14000);
   assert.equal(out.rows[0].paymentMethod, "cash");
 });
@@ -140,7 +168,7 @@ test("getDeliveryEarnings casts the order_status enum to text (no 42883)", () =>
   const src = readFileSync(repoPath, "utf8");
   const start = src.indexOf("export async function getDeliveryEarnings");
   assert.ok(start >= 0, "getDeliveryEarnings must exist");
-  const body = src.slice(start, start + 1200);
+  const body = src.slice(start);
 
   assert.ok(
     body.includes("o.status::text = ANY($2::text[])"),
@@ -150,4 +178,45 @@ test("getDeliveryEarnings casts the order_status enum to text (no 42883)", () =>
     !/o\.status = ANY\(\$2::text\[\]\)/.test(body),
     "the un-cast enum=text comparison must not be present"
   );
+});
+
+test("getDeliveryEarnings selects service fee and cash settlement columns", () => {
+  const repoPath = fileURLToPath(
+    new URL("../modules/orders/orders.repo.js", import.meta.url)
+  );
+  const src = readFileSync(repoPath, "utf8");
+  const start = src.indexOf("export async function getDeliveryEarnings");
+  assert.ok(start >= 0, "getDeliveryEarnings must exist");
+  const body = src.slice(start, start + 1800);
+
+  for (const column of [
+    "o.service_fee",
+    "o.store_net_received_amount",
+    "o.app_due_from_delivery",
+    "o.difference_amount",
+    "o.settlement_status",
+    "o.store_cash_confirmed",
+  ]) {
+    assert.ok(body.includes(column), `getDeliveryEarnings must select ${column}`);
+  }
+});
+
+test("getDeliveryAnalytics includes financial settlement totals", () => {
+  const repoPath = fileURLToPath(
+    new URL("../modules/analytics/analytics.repo.js", import.meta.url)
+  );
+  const src = readFileSync(repoPath, "utf8");
+  const start = src.indexOf("export async function getDeliveryAnalytics");
+  assert.ok(start >= 0, "getDeliveryAnalytics must exist");
+  const body = src.slice(start, start + 2000);
+
+  for (const column of [
+    "service_fee_amount",
+    "store_net_received_amount",
+    "app_due_from_delivery",
+    "difference_amount",
+    "commission_amount",
+  ]) {
+    assert.ok(body.includes(column), `getDeliveryAnalytics must select ${column}`);
+  }
 });

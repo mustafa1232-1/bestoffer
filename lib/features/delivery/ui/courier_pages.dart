@@ -553,6 +553,10 @@ class _CourierMetricsPageState extends ConsumerState<_CourierMetricsPage> {
       'avg_delivery_rating',
     ]);
     final reports = Map<String, dynamic>.from(state.reportsV2);
+    final reportSummary = Map<String, dynamic>.from(
+      (reports['summary'] as Map?) ?? reports,
+    );
+    final reportPeriods = _courierReportPeriods(reportSummary);
 
     return Scaffold(
       appBar: AppBar(
@@ -582,12 +586,60 @@ class _CourierMetricsPageState extends ConsumerState<_CourierMetricsPage> {
                 title: l10n.deliveryCourierAverageRating,
                 value: averageRating.toStringAsFixed(1),
               ),
-            ] else if (reports.isEmpty) ...[
+            ] else if (reportPeriods.isEmpty) ...[
               _Empty(text: l10n.deliveryCourierNoReportData),
             ] else ...[
-              ...reports.entries.map(
-                (entry) =>
-                    _MetricCard(title: entry.key, value: '${entry.value}'),
+              ...reportPeriods.map(
+                (period) => Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          period.label,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 8),
+                        _MetricCard(
+                          title: l10n.deliveryCourierTodayFees,
+                          value: formatIqd(period.deliveryFees),
+                        ),
+                        _MetricCard(
+                          title: l10n.deliveryCourierCompletedToday,
+                          value: '${period.deliveredOrdersCount}',
+                        ),
+                        _MetricCard(
+                          title: l10n.deliveryCourierAverageRating,
+                          value: period.avgRating.toStringAsFixed(1),
+                        ),
+                        _MetricCard(
+                          title: context.lt(
+                            ar: 'رسوم الخدمة',
+                            en: 'Service fee',
+                          ),
+                          value: formatIqd(period.serviceFeeAmount),
+                        ),
+                        _MetricCard(
+                          title: context.lt(ar: 'العمولة', en: 'Commission'),
+                          value: formatIqd(period.commissionAmount),
+                        ),
+                        _MetricCard(
+                          title: context.lt(ar: 'ذمة التطبيق', en: 'App due'),
+                          value: formatIqd(period.appDueFromDelivery),
+                        ),
+                        _MetricCard(
+                          title: context.lt(ar: 'الفروقات', en: 'Differences'),
+                          value: formatIqd(period.differenceAmount),
+                        ),
+                        _MetricCard(
+                          title: context.lt(ar: 'صافي المتجر', en: 'Store net'),
+                          value: formatIqd(period.storeNetReceivedAmount),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ],
           ],
@@ -648,6 +700,92 @@ int _readMetricInt(
     if (parsed != null) return parsed;
   }
   return fallback;
+}
+
+List<_CourierReportPeriod> _courierReportPeriods(Map<String, dynamic> summary) {
+  const keys = ['day', 'week', 'month', 'year', 'all'];
+  return [
+    for (final key in keys)
+      if (summary[key] is Map)
+        _CourierReportPeriod.fromMap(
+          key,
+          Map<String, dynamic>.from(summary[key] as Map),
+        ),
+  ];
+}
+
+class _CourierReportPeriod {
+  final String key;
+  final String label;
+  final int deliveredOrdersCount;
+  final double deliveryFees;
+  final double serviceFeeAmount;
+  final double commissionAmount;
+  final double storeNetReceivedAmount;
+  final double appDueFromDelivery;
+  final double differenceAmount;
+  final double avgRating;
+
+  const _CourierReportPeriod({
+    required this.key,
+    required this.label,
+    required this.deliveredOrdersCount,
+    required this.deliveryFees,
+    required this.serviceFeeAmount,
+    required this.commissionAmount,
+    required this.storeNetReceivedAmount,
+    required this.appDueFromDelivery,
+    required this.differenceAmount,
+    required this.avgRating,
+  });
+
+  factory _CourierReportPeriod.fromMap(String key, Map<String, dynamic> map) {
+    final label = switch (key) {
+      'day' => 'Today / اليوم',
+      'week' => 'Week / الأسبوع',
+      'month' => 'Month / الشهر',
+      'year' => 'Year / السنة',
+      _ => 'All time / الكل',
+    };
+    return _CourierReportPeriod(
+      key: key,
+      label: label,
+      deliveredOrdersCount: _readMetricInt(map, const [
+        'delivered_orders_count',
+        'deliveredOrdersCount',
+      ]),
+      deliveryFees: _readMetricDouble(map, const [
+        'delivery_fees',
+        'deliveryFees',
+        'todayEarnings',
+      ]),
+      serviceFeeAmount: _readMetricDouble(map, const [
+        'service_fee_amount',
+        'serviceFeeAmount',
+      ]),
+      commissionAmount: _readMetricDouble(map, const [
+        'commission_amount',
+        'commissionAmount',
+      ]),
+      storeNetReceivedAmount: _readMetricDouble(map, const [
+        'store_net_received_amount',
+        'storeNetReceivedAmount',
+      ]),
+      appDueFromDelivery: _readMetricDouble(map, const [
+        'app_due_from_delivery',
+        'appDueFromDelivery',
+      ]),
+      differenceAmount: _readMetricDouble(map, const [
+        'difference_amount',
+        'differenceAmount',
+      ]),
+      avgRating: _readMetricDouble(map, const [
+        'avg_rating',
+        'avgRating',
+        'avg_delivery_rating',
+      ]),
+    );
+  }
 }
 
 class _OfferCard extends StatelessWidget {

@@ -6,6 +6,7 @@ import {
   evaluateCourierEndDayReadiness,
   getMerchantBillingProfile,
 } from "../commerce/merchant-financial.logic.js";
+import { insertOpsAuditLog } from "../../ops/auditLog.js";
 import {
   calcDiscount,
   findValidCouponByIdOrCode,
@@ -4469,13 +4470,31 @@ function buildDeliveryEarnings(orderRows, referenceDate) {
   let completedTodayCount = 0;
   let completedMonthCount = 0;
   let deliveryFeeSum = 0;
+  let serviceFeeSum = 0;
+  let appDueFromDeliverySum = 0;
+  let storeNetReceivedAmountSum = 0;
+  let differenceAmountSum = 0;
+  let storeCashConfirmedCount = 0;
   const rows = [];
   for (const o of orderRows) {
     const fee = Number(o.delivery_fee || 0);
+    const serviceFee = Number(o.service_fee || 0);
+    const storeNetReceivedAmount = Number(
+      o.store_net_received_amount || 0
+    );
+    const appDueFromDelivery = Number(o.app_due_from_delivery || 0);
+    const differenceAmount = Number(o.difference_amount || 0);
     const when =
       o.delivered_at || o.customer_confirmed_at || o.created_at || null;
     const whenDate = when ? new Date(when) : null;
     deliveryFeeSum += fee;
+    serviceFeeSum += serviceFee;
+    appDueFromDeliverySum += appDueFromDelivery;
+    storeNetReceivedAmountSum += storeNetReceivedAmount;
+    differenceAmountSum += differenceAmount;
+    if (o.store_cash_confirmed === true) {
+      storeCashConfirmedCount += 1;
+    }
     if (whenDate && whenDate >= startOfMonth) {
       monthEarnings += fee;
       completedMonthCount += 1;
@@ -4491,7 +4510,13 @@ function buildDeliveryEarnings(orderRows, referenceDate) {
       merchantName: o.merchant_name || null,
       deliveredAt: when,
       deliveryFee: fee,
+      serviceFee,
       totalInvoice: Number(o.total_amount || 0),
+      storeNetReceivedAmount,
+      appDueFromDelivery,
+      differenceAmount,
+      settlementStatus: o.settlement_status || null,
+      storeCashConfirmed: o.store_cash_confirmed === true,
       paymentMethod: o.payment_method || null,
       status: o.status || null,
     });
@@ -4502,6 +4527,11 @@ function buildDeliveryEarnings(orderRows, referenceDate) {
     completedTodayCount,
     completedMonthCount,
     deliveryFeeSum,
+    serviceFeeSum,
+    appDueFromDeliverySum,
+    storeNetReceivedAmountSum,
+    differenceAmountSum,
+    storeCashConfirmedCount,
     rows,
   };
 }
@@ -4541,7 +4571,9 @@ export async function getDeliveryEarnings(deliveryUserId) {
   // previously caused a 42703 "column o.payment_method does not exist" 500.
   // paymentMethod is therefore returned as null while keeping the response shape.
   const result = await q(
-    `SELECT o.id, o.status, o.delivery_fee, o.total_amount,
+    `SELECT o.id, o.status, o.delivery_fee, o.service_fee, o.total_amount,
+            o.store_net_received_amount, o.app_due_from_delivery,
+            o.difference_amount, o.settlement_status, o.store_cash_confirmed,
             o.delivered_at, o.customer_confirmed_at, o.created_at,
             c.full_name AS customer_name,
             m.name AS merchant_name
@@ -4848,22 +4880,49 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
            settlement_status,
            total_amount,
            store_net_received_amount,
-           app_due_from_delivery
+           app_due_from_delivery,
+           difference_amount,
+           difference_reason
          FROM delivery_cash_settlement
          WHERE merchant_id = $1
            AND delivery_user_id = $2
-           AND status = 'pending'
+           AND status IN ('pending', 'received')
+           AND COALESCE(settlement_status, 'pending_store_confirmation') NOT IN ('closed', 'cancelled')
          ORDER BY requested_at ASC, id ASC`,
         [merchantId, Number(deliveryUserId)]
       );
       const readiness = evaluateCourierEndDayReadiness(pendingSettlements.rows);
       if (!readiness.canEndDay) {
+        try {
+          await insertOpsAuditLog({
+            actorUserId: Number(deliveryUserId),
+            actorRole: "delivery",
+            action: "courier_end_day_blocked",
+            targetType: "delivery_day",
+            targetId: `${merchantId}:${date}`,
+            metadata: {
+              merchantId,
+              deliveryUserId: Number(deliveryUserId),
+              archiveDate: date,
+              outstandingAmount: readiness.outstandingAmount,
+              totalAppDue: readiness.totalAppDue,
+              totalDifferenceDue: readiness.totalDifferenceDue,
+              openSettlements: readiness.openSettlements,
+            },
+          });
+        } catch (_) {
+          // Best-effort audit logging; the block itself must still win.
+        }
         const err = new Error("DELIVERY_DAY_HAS_OPEN_SETTLEMENTS");
         err.status = 409;
         err.details = {
           merchantId,
           deliveryUserId: Number(deliveryUserId),
           outstandingAmount: readiness.outstandingAmount,
+          totalAppDue: readiness.totalAppDue,
+          totalDifferenceDue: readiness.totalDifferenceDue,
+          blockingReasonAr: readiness.blockingReasonAr,
+          blockingReasonEn: readiness.blockingReasonEn,
           openSettlements: readiness.openSettlements,
         };
         throw err;
@@ -4946,6 +5005,25 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
         ]
       );
       pendingSettlementId = Number(inserted.rows[0]?.id || 0);
+
+      await insertOpsAuditLog({
+        actorUserId: Number(deliveryUserId),
+        actorRole: "delivery",
+        action: "delivery_cash_settlement_created",
+        targetType: "delivery_cash_settlement",
+        targetId: pendingSettlementId,
+        metadata: {
+          merchantId,
+          deliveryUserId: Number(deliveryUserId),
+          archiveDate: date,
+          ordersCount,
+          totalAmount,
+          storeNetReceivedAmount: settlementSnapshot.storeNetReceivedAmount,
+          appDueFromDelivery: settlementSnapshot.appDueFromDelivery,
+          settlementStatus: settlementSnapshot.settlementStatus,
+        },
+        client,
+      });
 
       const recipients = await client.query(
         `SELECT accountant_user_id
@@ -5066,11 +5144,14 @@ export async function getDeliveryEndDayReadiness(deliveryUserId) {
          total_amount,
          store_net_received_amount,
          app_due_from_delivery,
+         difference_amount,
+         difference_reason,
          archive_date
        FROM delivery_cash_settlement
        WHERE merchant_id = $1
          AND delivery_user_id = $2
-         AND status = 'pending'
+         AND status IN ('pending', 'received')
+         AND COALESCE(settlement_status, 'pending_store_confirmation') NOT IN ('closed', 'cancelled')
        ORDER BY requested_at ASC, id ASC`,
       [merchantId, Number(deliveryUserId)]
     );

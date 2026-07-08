@@ -1,4 +1,5 @@
 import { q } from "../../config/db.js";
+import { AppError } from "../../shared/utils/errors.js";
 
 const DEFAULT_MERCHANT_BILLING_PROFILE = Object.freeze({
   commissionType: "percentage",
@@ -604,13 +605,20 @@ export function resolveStoreCashConfirmationSnapshot({
   const expected = roundMoney(expectedAmount);
   const actual = roundMoney(actualAmount);
   const differenceAmount = roundMoney(actual - expected);
+  const normalizedReason = reason == null ? null : String(reason).trim().slice(0, 1000) || null;
+  if (Math.abs(differenceAmount) > 0.009 && !normalizedReason) {
+    throw new AppError("VALIDATION_ERROR", {
+      status: 400,
+      details: { fields: { differenceReason: "DIFFERENCE_REASON_REQUIRED" } },
+    });
+  }
   return {
     storeCashConfirmed: true,
     storeCashConfirmedAt: new Date().toISOString(),
     storeCashConfirmedByUserId: actorUserId == null ? null : Number(actorUserId),
     amountReceivedActual: actual,
     differenceAmount,
-    differenceReason: reason ? String(reason).trim().slice(0, 1000) || null : null,
+    differenceReason: normalizedReason,
     settlementStatus: Math.abs(differenceAmount) > 0
       ? "difference_review"
       : "received",
@@ -624,32 +632,75 @@ export function evaluateCourierEndDayReadiness(settlements = []) {
     const settlementStatus = String(row.settlementStatus || row.settlement_status || "")
       .trim()
       .toLowerCase();
-    return status === "pending" && settlementStatus !== "closed" && settlementStatus !== "cancelled";
+    const isClosedSettlement = ["received", "closed", "cancelled"].includes(
+      settlementStatus
+    );
+    if (isClosedSettlement) {
+      return false;
+    }
+    return (
+      status === "pending" ||
+      settlementStatus === "pending_store_confirmation" ||
+      settlementStatus === "difference_review"
+    );
   });
-  const outstandingAmount = roundMoney(
+  const totalAppDue = roundMoney(
     openSettlements.reduce(
       (sum, row) =>
         sum +
         roundMoney(
           row.appDueFromDelivery ??
             row.app_due_from_delivery ??
-            row.totalAmount ??
-            row.total_amount ??
             0
         ),
       0
     )
   );
+  const totalDifferenceDue = roundMoney(
+    openSettlements.reduce(
+      (sum, row) =>
+        sum +
+        roundMoney(
+          Math.abs(
+            row.differenceAmount ??
+              row.difference_amount ??
+              0
+          )
+        ),
+      0
+    )
+  );
+  const outstandingAmount = roundMoney(totalAppDue + totalDifferenceDue);
   return {
     canEndDay: openSettlements.length === 0,
     outstandingAmount,
+    totalAppDue,
+    totalDifferenceDue,
+    blockingReasonAr:
+      openSettlements.length > 0
+        ? "يوجد تسويات نقدية غير محسومة أو فرق غير مغلق بعد."
+        : null,
+    blockingReasonEn:
+      openSettlements.length > 0
+        ? "There are unresolved cash settlements or an open difference review."
+        : null,
     openSettlements: openSettlements.map((row) => ({
       id: Number(row.id || 0) || null,
       archiveDate: row.archiveDate || row.archive_date || null,
       totalAmount: roundMoney(row.totalAmount ?? row.total_amount ?? 0),
+      storeNetReceivedAmount: roundMoney(
+        row.storeNetReceivedAmount ??
+          row.store_net_received_amount ??
+          0
+      ),
       appDueFromDelivery: roundMoney(
         row.appDueFromDelivery ?? row.app_due_from_delivery ?? 0
       ),
+      differenceAmount: roundMoney(
+        row.differenceAmount ?? row.difference_amount ?? 0
+      ),
+      differenceReason:
+        row.differenceReason ?? row.difference_reason ?? null,
       settlementStatus:
         row.settlementStatus || row.settlement_status || "pending_store_confirmation",
       status: String(row.status || "").trim().toLowerCase() || "pending",
