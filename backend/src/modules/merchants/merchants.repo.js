@@ -269,6 +269,7 @@ export async function createMerchantWithOwnerLink({
           name,
           type,
           activity_type,
+          store_department,
           discovery_subcategory,
           discovery_select_all,
           description,
@@ -284,12 +285,13 @@ export async function createMerchantWithOwnerLink({
           supports_pharmacy_workflow,
           badges_json
         )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,$10,NOW(),$11::jsonb,$12,$13,$14,$15::jsonb)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,NOW(),$12::jsonb,$13,$14,$15,$16::jsonb)
        RETURNING id`,
       [
         merchant.name,
         merchant.type,
         merchant.activityType,
+        merchant.storeDepartment || null,
         merchant.discoverySubcategory,
         discoverySelectAll,
         merchant.description,
@@ -376,6 +378,17 @@ export async function getAllMerchants(type, search, options = {}) {
   if (activityType) {
     values.push(activityType);
     where.push(`m.activity_type = $${values.length}`);
+  }
+
+  const department =
+    typeof options.department === "string"
+      ? options.department.trim().toLowerCase()
+      : "";
+  if (department === "men" || department === "women") {
+    values.push(department);
+    // A store is in the customer section if its department matches OR it is
+    // unisex (sells both). needs_review / NULL never appear in a section.
+    where.push(`m.store_department IN ($${values.length}, 'unisex')`);
   }
 
   if (discoverySubcategory) {

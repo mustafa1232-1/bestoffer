@@ -12,6 +12,7 @@ import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_field_error_resolver.dart';
 import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/widgets/image_picker_field.dart';
 import '../../merchants/models/store_activity_model.dart';
@@ -45,8 +46,11 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
   bool _loadingActivities = false;
   bool _loadingDiscoveryOptions = false;
   String? _selectedActivityType;
+  String? _selectedDepartment; // 'men' | 'women', required for fashion stores.
   final Set<String> _selectedDiscoverySubcategories = <String>{};
   bool _discoverySelectAll = false;
+
+  bool get _isFashionActivity => _selectedActivityType == 'fashion_clothing';
   String? selectedBlock;
   String? selectedBuilding;
   String? selectedApartment;
@@ -330,6 +334,16 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
       );
     }
 
+    // Fashion/clothing stores must pick a department (رجالي / نسائي).
+    if (selectedActivity != null &&
+        selectedActivity.activityType == 'fashion_clothing' &&
+        (_selectedDepartment == null || _selectedDepartment!.isEmpty)) {
+      nextErrors['merchantDepartment'] = context.lt(
+        ar: 'اختر القسم: رجالي أو نسائي',
+        en: 'Choose a department: Men or Women',
+      );
+    }
+
     if (merchantNameCtrl.text.trim().isEmpty) {
       nextErrors['merchantName'] = l10n.ownerRegisterMerchantNameRequired;
     }
@@ -559,6 +573,54 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ],
+        if (_isFashionActivity) ...[
+          const SizedBox(height: 12),
+          _scrollCoordinator.anchor(
+            'merchantDepartment',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.lt(ar: 'القسم', en: 'Department'),
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    ChoiceChip(
+                      key: const Key('owner_department_women'),
+                      label: Text(context.lt(ar: 'نسائي', en: 'Women')),
+                      selected: _selectedDepartment == 'women',
+                      onSelected: (_) => setState(() {
+                        _selectedDepartment = 'women';
+                        _fieldErrors.remove('merchantDepartment');
+                        _formError = null;
+                      }),
+                    ),
+                    ChoiceChip(
+                      key: const Key('owner_department_men'),
+                      label: Text(context.lt(ar: 'رجالي', en: 'Men')),
+                      selected: _selectedDepartment == 'men',
+                      onSelected: (_) => setState(() {
+                        _selectedDepartment = 'men';
+                        _fieldErrors.remove('merchantDepartment');
+                        _formError = null;
+                      }),
+                    ),
+                  ],
+                ),
+                if (_errorOf('merchantDepartment') != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _errorOf('merchantDepartment')!,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
         if (selectedActivity != null &&
             selectedActivity.hasDiscoverySubcategories) ...[
           const SizedBox(height: 12),
@@ -696,6 +758,8 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
         'merchantName': merchantNameCtrl.text,
         'merchantType': _resolvedMerchantType,
         'merchantActivityType': selectedActivity.activityType,
+        if (selectedActivity.activityType == 'fashion_clothing')
+          'merchantDepartment': _selectedDepartment,
         if (selectedActivity.hasDiscoverySubcategories)
           'merchantDiscoverySubcategory':
               _selectedDiscoverySubcategories.isEmpty

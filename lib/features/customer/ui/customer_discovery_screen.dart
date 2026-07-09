@@ -26,7 +26,7 @@ import 'customer_food_hub_screen.dart';
 import 'customer_home_shopping_hub_screen.dart';
 import 'customer_main_market_screen.dart';
 import 'customer_personalization_dialog.dart';
-import 'customer_style_hub_screen.dart';
+import 'fashion_market_screen.dart';
 import '../../merchants/state/merchants_controller.dart';
 import '../../orders/state/cart_controller.dart';
 import '../../orders/ui/cart_screen.dart';
@@ -206,7 +206,7 @@ class _CustomerDiscoveryScreenState
     switch (hub.id) {
       case 'style':
         await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const CustomerStyleHubScreen()),
+          MaterialPageRoute(builder: (_) => const FashionMarketScreen()),
         );
         return;
       case 'food':

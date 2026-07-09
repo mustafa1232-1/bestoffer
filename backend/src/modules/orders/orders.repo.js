@@ -1303,6 +1303,21 @@ export const __ordersRepoTestables = Object.freeze({
   transitionInventoryReservationsTx,
 });
 
+/**
+ * Lightweight snapshot used to distinguish "already claimed by another courier"
+ * from "not available" after an atomic claim loses the race.
+ */
+export async function getOrderAssignmentSnapshot(orderId) {
+  const r = await q(
+    `SELECT id, status::text AS status, delivery_user_id
+     FROM customer_order
+     WHERE id = $1
+     LIMIT 1`,
+    [Number(orderId)]
+  );
+  return r.rows[0] || null;
+}
+
 export async function listDeliveryAgents() {
   const r = await q(
     `SELECT u.id, u.full_name, u.phone
@@ -1312,6 +1327,9 @@ export async function listDeliveryAgents() {
        AND u.delivery_account_approved = TRUE
        AND u.is_account_disabled = FALSE
        AND COALESCE(cp.driver_type, 'app_driver') = 'app_driver'
+       -- Prefer online/available couriers; unknown status is treated as
+       -- eligible so the pool is never empty due to a missing profile row.
+       AND COALESCE(LOWER(cp.availability_status), 'online') NOT IN ('offline', 'busy', 'unavailable')
        AND NOT EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp
@@ -1334,6 +1352,7 @@ async function listNearbyDeliveryAgentsByBlock(block) {
        AND u.delivery_account_approved = TRUE
        AND u.is_account_disabled = FALSE
        AND COALESCE(cp.driver_type, 'app_driver') = 'app_driver'
+       AND COALESCE(LOWER(cp.availability_status), 'online') NOT IN ('offline', 'busy', 'unavailable')
        AND u.block IS NOT NULL
        AND UPPER(TRIM(u.block)) = UPPER(TRIM($1))
        AND NOT EXISTS (
@@ -1386,6 +1405,7 @@ async function notifyDeliveryPoolForOrder({
         expandedPool,
         block: String(customerBlock || "").trim().toUpperCase(),
         requiresAction,
+        target: "delivery_order_details",
       },
     }))
   );

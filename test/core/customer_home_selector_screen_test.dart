@@ -70,6 +70,7 @@ class _FakeMerchantsApi extends MerchantsApi {
     String? search,
     String? activityType,
     String? discoverySubcategory,
+    String? department,
   }) async {
     return items;
   }

@@ -33,10 +33,12 @@ class MerchantsController
     String? search,
     String? activityType,
     String? discoverySubcategory,
+    String? department,
     bool force = false,
   }) async {
     if ((activityType == null || activityType.trim().isEmpty) &&
-        (discoverySubcategory == null || discoverySubcategory.trim().isEmpty)) {
+        (discoverySubcategory == null || discoverySubcategory.trim().isEmpty) &&
+        (department == null || department.trim().isEmpty)) {
       return load(type: type, search: search, force: force);
     }
     return _performLoad(
@@ -44,6 +46,7 @@ class MerchantsController
       search: search,
       activityType: activityType,
       discoverySubcategory: discoverySubcategory,
+      department: department,
       force: force,
     );
   }
@@ -53,16 +56,21 @@ class MerchantsController
     String? search,
     String? activityType,
     String? discoverySubcategory,
+    String? department,
     bool force = false,
   }) async {
     final requestedType = _normalizeMerchantType(type);
     final requestedActivity = _normalizeActivityType(activityType);
     final requestedDiscovery = _normalizeDiscovery(discoverySubcategory);
+    final departmentRaw = department?.trim().toLowerCase();
+    final requestedDepartment =
+        departmentRaw == 'men' || departmentRaw == 'women' ? departmentRaw : null;
     final normalizedSearch = search?.trim().toLowerCase();
     final requestKey = [
       requestedType ?? '',
       requestedActivity ?? '',
       requestedDiscovery ?? '',
+      requestedDepartment ?? '',
       normalizedSearch ?? '',
     ].join('|');
 
@@ -82,6 +90,7 @@ class MerchantsController
           search: search,
           activityType: requestedActivity,
           discoverySubcategory: requestedDiscovery,
+          department: requestedDepartment,
         );
         final merchants = _parseMerchants(primaryList);
 

@@ -208,6 +208,7 @@ export async function list(req, res, next) {
       activityType: req.query.activityType ?? req.query.activity_type,
       discoverySubcategory:
         req.query.discoverySubcategory ?? req.query.discovery_subcategory,
+      department: req.query.department ?? req.query.store_department,
     });
     writeHotBrowseResponse(req.query, data);
     res.json(data);

@@ -16,6 +16,7 @@ class MerchantsApi {
     String? search,
     String? activityType,
     String? discoverySubcategory,
+    String? department,
   }) async {
     final normalizedSearch = search?.trim();
     final params = <String, dynamic>{};
@@ -24,6 +25,9 @@ class MerchantsApi {
     }
     if (activityType != null && activityType.trim().isNotEmpty) {
       params['activityType'] = activityType.trim();
+    }
+    if (department != null && department.trim().isNotEmpty) {
+      params['department'] = department.trim().toLowerCase();
     }
     if (discoverySubcategory != null &&
         discoverySubcategory.trim().isNotEmpty) {

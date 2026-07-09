@@ -74,6 +74,7 @@ class AuthRepoImpl implements AuthRepo {
     required String merchantName,
     required String merchantType,
     required String merchantActivityType,
+    String? merchantDepartment,
     String? merchantDiscoverySubcategory,
     List<String>? merchantDiscoverySubcategories,
     bool? merchantDiscoverySelectAll,
@@ -116,6 +117,9 @@ class AuthRepoImpl implements AuthRepo {
     }
     if (apartment != null && apartment.trim().isNotEmpty) {
       payload['apartment'] = apartment.trim();
+    }
+    if (merchantDepartment != null && merchantDepartment.trim().isNotEmpty) {
+      payload['merchantDepartment'] = merchantDepartment.trim().toLowerCase();
     }
     if (merchantDiscoverySubcategory != null &&
         merchantDiscoverySubcategory.trim().isNotEmpty) {

@@ -22,6 +22,7 @@ import {
   requireActivityConfig,
   requireValidDiscoverySelection,
 } from "./store-activity.registry.js";
+import { resolveStoreDepartmentForWrite } from "./store-department.logic.js";
 
 const merchantBrowseInflight = new Map();
 
@@ -53,11 +54,13 @@ function merchantBrowseInflightKey({
   search,
   activityType,
   discoverySubcategory,
+  department,
 }) {
   return JSON.stringify([
     String(type || "all"),
     String(search || ""),
     String(activityType || ""),
+    String(department || ""),
     String(discoverySubcategory || ""),
   ]);
 }
@@ -145,6 +148,12 @@ export async function createMerchant(dto, approvedByUserId) {
     });
   }
 
+  // Fashion/clothing stores must declare a customer department (رجالي / نسائي).
+  const storeDepartment = resolveStoreDepartmentForWrite({
+    activityType: activityConfig.activityType,
+    department: dto.department,
+  });
+
   const discoverySelection = await requireValidDiscoverySelection(
     activityConfig.activityType,
     {
@@ -165,6 +174,7 @@ export async function createMerchant(dto, approvedByUserId) {
     name: dto.name.trim(),
     type: dto.type,
     activityType: activityConfig.activityType,
+    storeDepartment,
     discoverySubcategory: discoverySelection.legacyDiscoverySubcategory || null,
     discoverySubcategories: discoverySelection.discoverySubcategories,
     discoverySelectAll: discoverySelection.discoverySelectAll === true,
@@ -251,12 +261,16 @@ export async function listMerchants(type, search, options = {}) {
   const requestedDiscoverySubcategory = normalizeRegistryDiscoverySubcategory(
     options.discoverySubcategory
   );
+  const departmentRaw = normalizeOptional(options.department)?.toLowerCase();
+  const requestedDepartment =
+    departmentRaw === "men" || departmentRaw === "women" ? departmentRaw : null;
   const cacheContext = {
     type: requestedType,
     search:
       typeof search === "string" && search.trim().length ? search.trim() : null,
     activityType: requestedActivityType,
     discoverySubcategory: requestedDiscoverySubcategory,
+    department: requestedDepartment,
   };
   const cached = await repo.getCachedMerchantBrowseList(cacheContext);
   if (Array.isArray(cached)) {
@@ -271,12 +285,14 @@ export async function listMerchants(type, search, options = {}) {
     const rows = await repo.getAllMerchants(requestedType, search, {
       activityType: requestedActivityType,
       discoverySubcategory: requestedDiscoverySubcategory,
+      department: requestedDepartment,
     });
 
     const mapped = rows.map((row) => ({
       ...row,
       type: normalizePublicMerchantType(row.type) || "market",
       activityType: normalizeRegistryActivityType(row.activity_type) || "market",
+      department: row.store_department || null,
       discoverySubcategory: normalizeRegistryDiscoverySubcategory(
         row.discovery_subcategory
       ),

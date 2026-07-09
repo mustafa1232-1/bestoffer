@@ -380,6 +380,7 @@ class AuthController extends StateNotifier<AuthState> {
             merchantName: merchantName,
             merchantType: merchantType,
             merchantActivityType: merchantActivityType,
+            merchantDepartment: optionalTrimmed(dto['merchantDepartment']),
             merchantDiscoverySubcategory: optionalTrimmed(
               dto['merchantDiscoverySubcategory'],
             ),

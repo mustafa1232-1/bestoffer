@@ -34,6 +34,7 @@ class MerchantsListScreen extends ConsumerStatefulWidget {
   final String? initialType;
   final String? initialActivityType;
   final String? initialDiscoverySubcategory;
+  final String? initialDepartment;
   final String initialSearchQuery;
   final List<String> requiredAnyKeywords;
   final String? overrideTitle;
@@ -51,6 +52,7 @@ class MerchantsListScreen extends ConsumerStatefulWidget {
     this.initialType,
     this.initialActivityType,
     this.initialDiscoverySubcategory,
+    this.initialDepartment,
     this.initialSearchQuery = '',
     this.requiredAnyKeywords = const [],
     this.overrideTitle,
@@ -160,6 +162,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
             search: _serverSideSearch,
             activityType: selectedActivityType,
             discoverySubcategory: selectedDiscoverySubcategory,
+            department: widget.initialDepartment,
           );
       await ref.read(deliveryAddressControllerProvider.notifier).bootstrap();
       await _loadDiscoveryForType(auth: auth, type: filterType);

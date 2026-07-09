@@ -94,6 +94,7 @@ class _FakeAuthRepo implements AuthRepo {
     required String merchantName,
     required String merchantType,
     required String merchantActivityType,
+    String? merchantDepartment,
     String? merchantDiscoverySubcategory,
     List<String>? merchantDiscoverySubcategories,
     bool? merchantDiscoverySelectAll,

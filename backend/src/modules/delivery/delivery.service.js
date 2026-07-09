@@ -156,6 +156,18 @@ export async function claimOrder(deliveryUserId, orderId) {
     10
   );
   if (!updated) {
+    // The atomic claim lost the race. Distinguish "already taken by another
+    // courier" (controlled 409) from a genuinely unavailable order (404).
+    const snapshot = await ordersRepo.getOrderAssignmentSnapshot(Number(orderId));
+    if (
+      snapshot &&
+      snapshot.delivery_user_id != null &&
+      Number(snapshot.delivery_user_id) !== Number(deliveryUserId)
+    ) {
+      const err = new Error("ORDER_ALREADY_ASSIGNED");
+      err.status = 409;
+      throw err;
+    }
     const err = new Error("ORDER_NOT_AVAILABLE");
     err.status = 404;
     throw err;

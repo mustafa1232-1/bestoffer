@@ -12,7 +12,7 @@ import 'customer_electronics_hub_screen.dart';
 import 'customer_food_hub_screen.dart';
 import 'customer_global_product_search_screen.dart';
 import 'customer_home_shopping_hub_screen.dart';
-import 'customer_style_hub_screen.dart';
+import 'fashion_market_screen.dart';
 
 class CustomerMainMarketScreen extends ConsumerStatefulWidget {
   const CustomerMainMarketScreen({super.key});
@@ -58,7 +58,7 @@ class _CustomerMainMarketScreenState
         return;
       case 'style':
         Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const CustomerStyleHubScreen()),
+          MaterialPageRoute(builder: (_) => const FashionMarketScreen()),
         );
         return;
       case 'food':

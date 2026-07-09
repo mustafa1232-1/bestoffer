@@ -43,6 +43,10 @@ import {
   normalizeCatalogType,
   resolveCategoryCatalogType,
 } from "../merchants/catalog-taxonomy.js";
+import {
+  activityRequiresDepartment,
+  resolveStoreDepartmentForWrite,
+} from "../merchants/store-department.logic.js";
 
 /**
  * Purpose: منطق أعمال صاحب المتجر كاملاً: التسجيل، المتجر، المنتجات، العروض، الفريق، الطلبات، والتحصيلات.
@@ -87,6 +91,7 @@ function mapMerchant(m) {
     name: m.name,
     type: m.type,
     activityType: m.activity_type || null,
+    department: m.store_department || null,
     discoverySubcategory: m.discovery_subcategory || null,
     discoverySubcategories,
     discoverySelectAll: m.discovery_select_all === true,
@@ -700,6 +705,12 @@ export async function registerOwner(dto, deviceContext = {}) {
   // (no silent inference from merchant base type for new stores).
   const requestedActivityType = normalizeActivityType(dto.merchantActivityType);
   const activityConfig = await requireActivityConfig(requestedActivityType);
+  // Fashion/clothing stores must declare a customer department (رجالي / نسائي).
+  // Non-fashion stores keep department null. Throws VALIDATION_ERROR otherwise.
+  const merchantDepartment = resolveStoreDepartmentForWrite({
+    activityType: activityConfig.activityType,
+    department: dto.merchantDepartment,
+  });
   const normalizedDiscoverySubcategoriesInput = normalizeDiscoverySubcategoryList(
     dto.merchantDiscoverySubcategories
   );
@@ -799,6 +810,7 @@ export async function registerOwner(dto, deviceContext = {}) {
         merchantName,
         merchantType: activityConfig.baseType,
         merchantActivityType: activityConfig.activityType,
+        merchantDepartment,
         merchantDiscoverySubcategory:
           merchantDiscoverySelection.legacyDiscoverySubcategory,
         merchantDiscoverySubcategories:
@@ -970,6 +982,29 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
   }
 
   patch.activityType = nextActivityType;
+
+  // Department (رجالي / نسائي) for fashion stores.
+  if (activityRequiresDepartment(nextActivityType)) {
+    if (dto.department !== undefined) {
+      // Explicit change -> strict validation (men/women/unisex only).
+      patch.storeDepartment = resolveStoreDepartmentForWrite({
+        activityType: nextActivityType,
+        department: dto.department,
+      });
+    } else if (currentMerchant.store_department == null) {
+      // Legacy fashion store never classified -> must classify before saving.
+      const err = new Error("VALIDATION_ERROR");
+      err.status = 400;
+      err.fields = ["department"];
+      err.details = { fields: { department: "DEPARTMENT_REQUIRED" } };
+      throw err;
+    }
+    // else: keep the existing department (including 'needs_review') so
+    // unrelated edits are not blocked.
+  } else if (dto.activityType !== undefined) {
+    // Switched away from fashion -> department no longer applies.
+    patch.storeDepartment = null;
+  }
 
   const hasDiscoveryUpdate =
     dto.discoverySubcategory !== undefined ||
