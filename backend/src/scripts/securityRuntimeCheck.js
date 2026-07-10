@@ -325,6 +325,18 @@ async function main() {
       "SUPER_ADMIN_USER_SURFACE_LOGIN_DID_NOT_RETURN_SUPER_ADMIN_USER"
     );
   }
+  superAdminUserSurface.token = String(superUserSurfaceLogin.data?.token || "");
+  const superUserSurfaceAdminAnalytics = await request(
+    cfg.baseUrl,
+    superAdminUserSurface,
+    "GET",
+    "/api/admin/analytics"
+  );
+  assertStatus(
+    superUserSurfaceAdminAnalytics,
+    200,
+    "super admin user-surface admin analytics"
+  );
 
   const superAdminBlockedSurface = createActor(
     "security-super-admin-blocked-surface",
@@ -354,8 +366,6 @@ async function main() {
       }`
     );
   }
-
-  superAdminUserSurface.token = String(superUserSurfaceLogin.data?.token || "");
 
   await cleanup(cfg.baseUrl, superAdmin, cfg.runTag);
 

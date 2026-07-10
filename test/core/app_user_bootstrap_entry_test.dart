@@ -11,6 +11,7 @@ import 'package:maslaki/core/sections/section_availability_controller.dart';
 import 'package:maslaki/core/settings/app_settings_controller.dart';
 import 'package:maslaki/core/theme/theme_preset.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
+import 'package:maslaki/features/admin/ui/admin_dashboard_screen.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/customer/ui/customer_home_selector_screen.dart';
@@ -204,7 +205,7 @@ void main() {
   );
 
   testWidgets(
-    'authenticated super admin stays in the user shell without auto logout',
+    'authenticated super admin opens the admin dashboard from the user app',
     (tester) async {
       late _FakeAuthController authController;
 
@@ -244,8 +245,9 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 250));
 
-      expect(find.byType(MaslakiUserShell), findsOneWidget);
-      expect(find.byType(CustomerHomeSelectorScreen), findsOneWidget);
+      expect(find.byType(AdminDashboardScreen), findsOneWidget);
+      expect(find.byType(MaslakiUserShell), findsNothing);
+      expect(find.byType(CustomerHomeSelectorScreen), findsNothing);
       expect(authController.logoutCalls, 0);
     },
   );

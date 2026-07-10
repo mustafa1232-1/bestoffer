@@ -83,6 +83,9 @@ function isSuperAdminUserSurfaceBypass({
   if (routeSurface === "user") {
     return headerSurface == null || headerSurface === "user";
   }
+  if (routeSurface === "company") {
+    return headerSurface == null || headerSurface === "user";
+  }
   return routeSurface == null && headerSurface === "user";
 }
 

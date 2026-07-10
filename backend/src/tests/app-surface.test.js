@@ -55,7 +55,7 @@ test("role to surface mapping rejects cross-flavor access", () => {
   assert.equal(resolveRoleAppSurface("call_center"), "company");
 });
 
-test("resolveAccessAuth allows super_admin on the user surface but blocks other surfaces", async () => {
+test("resolveAccessAuth allows super_admin on the user surface for user and company routes but blocks other surfaces", async () => {
   const jwtSecretSnapshot = env.jwtSecret;
   const legacySnapshot = env.authAllowLegacyTokens;
   try {
@@ -106,6 +106,47 @@ test("resolveAccessAuth allows super_admin on the user surface but blocks other 
           (error) =>
             error?.message === "FORBIDDEN_APP_SURFACE" && error?.status === 403
         );
+  } finally {
+    env.jwtSecret = jwtSecretSnapshot;
+    env.authAllowLegacyTokens = legacySnapshot;
+  }
+});
+
+test("resolveAccessAuth allows super_admin on the user surface to reach company routes", async () => {
+  const jwtSecretSnapshot = env.jwtSecret;
+  const legacySnapshot = env.authAllowLegacyTokens;
+  try {
+    if (!env.jwtSecret || String(env.jwtSecret).length < 32) {
+      env.jwtSecret = "unit-test-jwt-secret-0000000000000000";
+    }
+    env.authAllowLegacyTokens = true;
+
+    const token = signAccessToken(
+      {
+        id: 99,
+        role: "admin",
+        isSuperAdmin: true,
+        appSurface: "company",
+      },
+      {}
+    );
+
+    const req = {
+      headers: {
+        authorization: `Bearer ${token}`,
+        "x-app-flavor": "user",
+        "x-client-platform": "flutter:user",
+        "user-agent": "unit-test",
+      },
+      originalUrl: "/api/admin/analytics",
+    };
+
+    const auth = await resolveAccessAuth(req, { strict: true });
+    assert.equal(auth.userId, 99);
+    assert.equal(auth.role, "admin");
+    assert.equal(auth.isSuperAdmin, true);
+    assert.equal(auth.appSurface, "company");
+    assert.equal(auth.requestSurface, "company");
   } finally {
     env.jwtSecret = jwtSecretSnapshot;
     env.authAllowLegacyTokens = legacySnapshot;

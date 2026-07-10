@@ -30,6 +30,7 @@ import 'core/storage/secure_storage.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/state/auth_controller.dart';
 import 'features/auth/presentation/login_screen.dart';
+import 'features/admin/ui/admin_dashboard_screen.dart';
 import 'features/customer/ui/maslaki_user_shell.dart';
 import 'features/notifications/data/notifications_api.dart';
 import 'features/social/ui/social_call_screen.dart';
@@ -444,6 +445,9 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   /// Critical notes:
   /// - Ù‡Ø°Ø§ Ù„ÙŠØ³ route guard ÙƒØ§Ù…Ù„Ø§Ù‹ØŒ Ù„ÙƒÙ†Ù‡ Ø£ÙˆÙ„ Ù†Ù‚Ø·Ø© ØªÙ‚Ø³ÙŠÙ… UX Ø­Ø³Ø¨ Ø§Ù„Ø¯ÙˆØ±.
   Widget _homeForAuth(AuthState auth) {
+    if (auth.isSuperAdmin) {
+      return const AdminDashboardScreen();
+    }
     return const MaslakiUserShell();
   }
 
