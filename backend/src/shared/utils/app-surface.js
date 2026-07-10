@@ -77,9 +77,6 @@ export function resolveRouteAppSurface(reqOrPath) {
   if (/^\/api\/delivery(?:\/|$)/.test(path)) {
     return "delivery";
   }
-  if (/^\/api\/taxi(?:\/|$)/.test(path)) {
-    return "taxi";
-  }
   return null;
 }
 

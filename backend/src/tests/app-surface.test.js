@@ -98,6 +98,45 @@ test("resolveAccessAuth rejects authenticated surface mismatches with FORBIDDEN_
   }
 });
 
+test("resolveAccessAuth allows customer taxi polling routes on the user surface", async () => {
+  const jwtSecretSnapshot = env.jwtSecret;
+  const legacySnapshot = env.authAllowLegacyTokens;
+  try {
+    if (!env.jwtSecret || String(env.jwtSecret).length < 32) {
+      env.jwtSecret = "unit-test-jwt-secret-0000000000000000";
+    }
+    env.authAllowLegacyTokens = true;
+
+    const token = signAccessToken(
+      {
+        id: 99,
+        role: "user",
+        isSuperAdmin: false,
+        appSurface: "user",
+      },
+      {}
+    );
+
+    const req = {
+      headers: {
+        authorization: `Bearer ${token}`,
+        "x-app-flavor": "user",
+        "x-client-platform": "flutter:user",
+        "user-agent": "unit-test",
+      },
+      originalUrl: "/api/taxi/rides/current",
+    };
+
+    const auth = await resolveAccessAuth(req, { strict: true });
+    assert.equal(auth.role, "user");
+    assert.equal(auth.appSurface, "user");
+    assert.equal(auth.requestSurface, "user");
+  } finally {
+    env.jwtSecret = jwtSecretSnapshot;
+    env.authAllowLegacyTokens = legacySnapshot;
+  }
+});
+
 test("resolveAccessAuth enforces role, route, and claim surfaces instead of trusting X-App-Flavor alone", async () => {
   const jwtSecretSnapshot = env.jwtSecret;
   try {
