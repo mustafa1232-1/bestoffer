@@ -285,6 +285,7 @@ class _CartTestHarness {
 Future<_CartTestHarness> _pumpCartScreen(
   WidgetTester tester, {
   required _FakeOrdersApi api,
+  CartController Function()? cartControllerBuilder,
 }) async {
   await tester.binding.setSurfaceSize(const Size(1280, 5200));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -304,12 +305,14 @@ Future<_CartTestHarness> _pumpCartScreen(
         ),
         ordersApiProvider.overrideWithValue(api),
         cartControllerProvider.overrideWith((ref) {
-          final controller = CartController();
-          controller.addItem(
-            product: _testProduct(),
-            merchantId: 77,
-            merchantName: 'Test Merchant',
-          );
+          final controller = cartControllerBuilder?.call() ?? CartController();
+          if (cartControllerBuilder == null) {
+            controller.addItem(
+              product: _testProduct(),
+              merchantId: 77,
+              merchantName: 'Test Merchant',
+            );
+          }
           return controller;
         }),
       ],
@@ -379,6 +382,55 @@ void main() {
 
   tearDown(() {
     Intl.defaultLocale = previousLocale;
+  });
+
+  test('cart controller merges same specs and splits different specs', () {
+    final controller = CartController();
+    final product = _testProduct();
+    final sameSpecs = const <Map<String, dynamic>>[
+      {'groupCode': 'color', 'optionCode': 'red'},
+      {'groupCode': 'size', 'optionCode': 'm'},
+    ];
+    final differentSpecs = const <Map<String, dynamic>>[
+      {'groupCode': 'color', 'optionCode': 'blue'},
+      {'groupCode': 'size', 'optionCode': 'm'},
+    ];
+
+    controller.addItem(
+      product: product,
+      merchantId: 77,
+      merchantName: 'Test Merchant',
+      quantity: 1,
+      selectedVariantId: 11,
+      selectedVariantSelections: sameSpecs,
+    );
+    controller.addItem(
+      product: product,
+      merchantId: 77,
+      merchantName: 'Test Merchant',
+      quantity: 2,
+      selectedVariantId: 11,
+      selectedVariantSelections: sameSpecs,
+    );
+
+    expect(controller.state.items, hasLength(1));
+    expect(controller.state.items.first.quantity, 3);
+
+    controller.addItem(
+      product: product,
+      merchantId: 77,
+      merchantName: 'Test Merchant',
+      quantity: 1,
+      selectedVariantId: 12,
+      selectedVariantSelections: differentSpecs,
+    );
+
+    expect(controller.state.items, hasLength(2));
+    expect(controller.state.items[1].selectedVariantId, 12);
+    expect(
+      controller.state.items[1].selectedVariantSelections,
+      equals(differentSpecs),
+    );
   });
 
   testWidgets(
@@ -470,8 +522,7 @@ void main() {
             'requestedQuantity': 1,
             'availableQuantity': 0,
             'userMessageAr': 'المنتج "Test Product" غير متاح حالياً.',
-            'userMessageEn':
-                'Product "Test Product" is currently unavailable.',
+            'userMessageEn': 'Product "Test Product" is currently unavailable.',
           },
         };
 
@@ -495,4 +546,69 @@ void main() {
       expect(harness.container.read(ordersControllerProvider).orders, isEmpty);
     },
   );
+
+  testWidgets('cart and checkout preserve selected variant specs', (
+    tester,
+  ) async {
+    final harness = await _pumpCartScreen(
+      tester,
+      api: _FakeOrdersApi(previewServiceFee: 500),
+      cartControllerBuilder: () {
+        final controller = CartController();
+        controller.addItem(
+          product: _testProduct(),
+          merchantId: 77,
+          merchantName: 'Test Merchant',
+          selectedVariantId: 11,
+          selectedVariantSelections: const [
+            {
+              'groupCode': 'color',
+              'groupLabel': 'Color',
+              'optionCode': 'black',
+              'optionLabel': 'Black',
+              'hex': '#000000',
+            },
+            {
+              'groupCode': 'size',
+              'groupLabel': 'Size',
+              'optionCode': 'xl',
+              'optionLabel': 'XL',
+            },
+          ],
+        );
+        return controller;
+      },
+    );
+
+    expect(find.textContaining('Color: Black'), findsWidgets);
+    expect(find.textContaining('Size: XL'), findsWidgets);
+
+    await _startFinalReview(tester);
+    await _waitForReviewModal(tester);
+
+    expect(find.textContaining('Color: Black'), findsWidgets);
+    expect(find.textContaining('Size: XL'), findsWidgets);
+    expect(harness.api.previewCalls, 1);
+    expect(harness.api.lastPreviewPayload, isNotNull);
+
+    final items = List<Map<String, dynamic>>.from(
+      harness.api.lastPreviewPayload!['items'] as List,
+    );
+    expect(items, hasLength(1));
+    expect(items.single['selectedVariantSelections'], isA<List>());
+    expect((items.single['selectedVariantSelections'] as List).length, 2);
+    expect(
+      (items.single['selectedVariantSelections'] as List).any(
+        (entry) =>
+            entry['groupCode'] == 'color' && entry['optionCode'] == 'black',
+      ),
+      isTrue,
+    );
+    expect(
+      (items.single['selectedVariantSelections'] as List).any(
+        (entry) => entry['groupCode'] == 'size' && entry['optionCode'] == 'xl',
+      ),
+      isTrue,
+    );
+  });
 }
