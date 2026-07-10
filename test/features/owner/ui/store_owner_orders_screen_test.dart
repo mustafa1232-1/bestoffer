@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:maslaki/features/delivery/models/delivery_agent_model.dart';
 import 'package:maslaki/features/owner/data/owner_api.dart';
 import 'package:maslaki/features/orders/models/order_model.dart';
+import 'package:maslaki/features/orders/ui/widgets/order_item_widgets.dart';
 import 'package:maslaki/features/owner/state/owner_controller.dart';
 import 'package:maslaki/features/owner/ui/store_owner_orders_screen.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
@@ -16,11 +17,7 @@ class _FakeOwnerApi extends OwnerApi {
   Future<Map<String, dynamic>> merchantCustomerReliability({
     required int customerUserId,
   }) async {
-    return const {
-      'warningRequired': false,
-      'score': 100,
-      'tier': 'good',
-    };
+    return const {'warningRequired': false, 'score': 100, 'tier': 'good'};
   }
 }
 
@@ -111,13 +108,51 @@ class _FakeOwnerController extends OwnerController {
           'id': 1,
           'order_id': 101,
           'product_id': 55,
-          'product_name': 'Water',
+          'product_name': 'Fashion Hoodie',
+          'merchant_name': 'Test Store',
+          'merchant_id': 9,
           'base_unit_price': 10000,
           'unit_price': 10000,
           'quantity': 1,
           'line_discount_total': 0,
           'line_total': 10000,
           'variant_price_delta_total': 0,
+          'selected_variant_options_json': [
+            {'groupLabel': 'Color', 'optionLabel': 'Black', 'hex': '#000000'},
+            {'groupLabel': 'Size', 'optionLabel': 'XL'},
+          ],
+          'display_snapshot_json': {
+            'version': 1,
+            'productId': 55,
+            'productName': 'Fashion Hoodie',
+            'productImageUrl': 'https://example.com/fashion-hoodie.jpg',
+            'thumbnailUrl': 'https://example.com/fashion-hoodie-thumb.jpg',
+            'sku': 'HOODIE-001',
+            'variantId': 1012,
+            'variantName': 'Black / XL',
+            'variantSku': 'HOODIE-BLACK-XL',
+            'quantity': 1,
+            'unitPrice': 10000,
+            'lineTotal': 10000,
+            'currency': 'IQD',
+            'selectedColor': {
+              'label': 'Color',
+              'value': 'Black',
+              'hex': '#000000',
+            },
+            'selectedSize': {'label': 'Size', 'value': 'XL'},
+            'specs': [
+              {'label': 'Color', 'value': 'Black', 'hex': '#000000'},
+              {'label': 'Size', 'value': 'XL'},
+            ],
+            'options': [],
+            'addons': [],
+            'removals': [],
+            'userNote': 'Handle carefully',
+            'activityType': 'fashion_clothing',
+            'storeId': 9,
+            'storeName': 'Test Store',
+          },
         },
       ],
     });
@@ -139,7 +174,7 @@ void main() {
       late _FakeOwnerController controller;
 
       await tester.pumpWidget(
-      ProviderScope(
+        ProviderScope(
           overrides: [
             ownerApiProvider.overrideWithValue(_FakeOwnerApi()),
             ownerControllerProvider.overrideWith((ref) {
@@ -172,6 +207,41 @@ void main() {
       expect(controller.lastAssignedOrderId, 101);
       expect(controller.lastAssignedCourierUserId, 21);
       expect(controller.lastAssignmentMode, 'store_selected');
+    },
+  );
+
+  testWidgets(
+    'store owner orders screen shows item snapshot details before actions',
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ownerApiProvider.overrideWithValue(_FakeOwnerApi()),
+            ownerControllerProvider.overrideWith((ref) {
+              return _FakeOwnerController(ref);
+            }),
+          ],
+          child: const MaterialApp(
+            locale: Locale('en'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: StoreOwnerOrdersScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('راجع المنتجات والمواصفات قبل الموافقة'),
+        findsOneWidget,
+      );
+      expect(find.byType(OrderItemsSummaryList), findsOneWidget);
+      expect(find.byType(OrderItemMiniCard), findsOneWidget);
+      expect(find.byType(OrderItemThumbnail), findsOneWidget);
+      expect(find.text('Color: Black'), findsOneWidget);
+      expect(find.text('Size: XL'), findsOneWidget);
+      expect(find.textContaining('Handle carefully'), findsOneWidget);
     },
   );
 }
