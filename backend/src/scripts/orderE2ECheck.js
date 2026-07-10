@@ -815,6 +815,10 @@ async function main() {
       {
         name: `E2E Category ${runTag}`,
         sortOrder: 1,
+        // Restaurant activity only allows the 'restaurant' catalog type; without
+        // an explicit value the name-based inference yields 'generic', which the
+        // (correctly) tightened taxonomy rejects.
+        catalogType: "restaurant",
       }
     );
     assertStatus(categoryCreate, 201, "owner create category");

@@ -17,7 +17,10 @@ export const deliveryRouter = Router();
 
 deliveryRouter.use(requireAuth);
 
-deliveryRouter.get("/orders/:orderId", c.orderDetail);
+// Numeric constraint so this parameterized route does NOT shadow the literal
+// "/orders/current" and "/orders/history" routes below (otherwise a request to
+// /orders/current matched :orderId="current" -> Number("current")=NaN -> 500).
+deliveryRouter.get("/orders/:orderId(\\d+)", c.orderDetail);
 deliveryRouter.use(requireDeliveryAgent);
 deliveryRouter.get("/orders/current", c.currentOrders);
 deliveryRouter.get("/orders/history", c.history);
