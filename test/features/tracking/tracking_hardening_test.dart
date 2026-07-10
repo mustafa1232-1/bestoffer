@@ -44,6 +44,18 @@ void main() {
     },
   );
 
+  test('searching taxi rides stay out of active-tracking mode', () {
+    final searching = {
+      'ride': {'id': 22, 'status': 'searching', 'currentBidId': 11},
+    };
+
+    expect(
+      taxiRideDisplayState(searching['ride'] as Map<String, dynamic>),
+      'negotiating',
+    );
+    expect(taxiTrackingIsActive(searching), isFalse);
+  });
+
   test(
     'courier publishing requires foreground permission assignment and active order',
     () {

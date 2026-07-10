@@ -448,7 +448,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   }
 
   bool _isUserAppRole(AuthState auth) {
-    return auth.isCustomer;
+    return auth.isCustomer || auth.isSuperAdmin;
   }
 
   bool _hasVerifiedSession(AuthState auth) =>

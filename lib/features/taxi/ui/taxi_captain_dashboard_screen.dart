@@ -1180,8 +1180,11 @@ class _TaxiCaptainDashboardScreenState
     if (rideId == null) return;
 
     final l10n = context.l10n;
-    final baseFare = _asInt(ride['proposedFareIqd']) ?? 0;
-    final fareCtrl = TextEditingController(text: '$baseFare');
+    final nonAvailable = _t('غير متوفر', 'Not available');
+    final baseFare = _asInt(ride['proposedFareIqd']);
+    final fareCtrl = TextEditingController(
+      text: baseFare != null && baseFare > 0 ? '$baseFare' : '',
+    );
     final etaCtrl = TextEditingController(text: '8');
     final noteCtrl = TextEditingController();
     final scrollCoordinator = FormScrollCoordinator();
@@ -1335,7 +1338,7 @@ class _TaxiCaptainDashboardScreenState
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
-                              '${l10n.taxiCaptainCurrentFareLabel}: ${_money(baseFare)}',
+                              '${l10n.taxiCaptainCurrentFareLabel}: ${baseFare != null && baseFare > 0 ? _money(baseFare) : nonAvailable}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                               ),
@@ -2459,13 +2462,18 @@ class _TaxiCaptainDashboardScreenState
 
   Widget _activeRidePanel(String? status) {
     final ride = _ride!;
+    final nonAvailable = _t('غير متوفر', 'Not available');
     final fare =
-        _asInt(ride['agreedFareIqd']) ?? _asInt(ride['proposedFareIqd']) ?? 0;
+        _asInt(ride['agreedFareIqd']) ?? _asInt(ride['proposedFareIqd']);
+    final fareLabel = fare != null && fare > 0 ? _money(fare) : nonAvailable;
+    final rideId = _asInt(ride['id']);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '${_t('رحلة', 'Ride')} #${ride['id']}',
+          rideId != null && rideId > 0
+              ? '${_t('رحلة', 'Ride')} #$rideId'
+              : _t('رحلة', 'Ride'),
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
@@ -2477,11 +2485,11 @@ class _TaxiCaptainDashboardScreenState
           style: const TextStyle(color: Colors.white70),
         ),
         Text(
-          '${_t('من', 'From')}: ${_str(ride['pickup']?['label']) ?? '-'}',
+          '${_t('من', 'From')}: ${_str(ride['pickup']?['label']) ?? nonAvailable}',
           style: const TextStyle(color: Colors.white70),
         ),
         Text(
-          '${_t('إلى', 'To')}: ${_str(ride['dropoff']?['label']) ?? '-'}',
+          '${_t('إلى', 'To')}: ${_str(ride['dropoff']?['label']) ?? nonAvailable}',
           style: const TextStyle(color: Colors.white70),
         ),
         if (_distanceEtaSummary(ride) != null)
@@ -2490,7 +2498,7 @@ class _TaxiCaptainDashboardScreenState
             style: const TextStyle(color: Colors.white70),
           ),
         Text(
-          '${_t('الأجرة', 'Fare')}: ${_money(fare)}',
+          '${_t('الأجرة', 'Fare')}: $fareLabel',
           style: const TextStyle(color: Colors.greenAccent),
         ),
         Text(
@@ -2538,19 +2546,24 @@ class _TaxiCaptainDashboardScreenState
           ],
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            OutlinedButton.icon(
-              onPressed: _sending || (_asInt(ride['id']) ?? 0) <= 0
-                  ? null
-                  : () => _openRideChatBottomSheet(_asInt(ride['id'])!),
-              icon: const Icon(Icons.chat_rounded),
-              label: Text(_t('دردشة', 'Chat')),
-            ),
-          ],
-        ),
+        if (status == 'captain_assigned' ||
+            status == 'captain_arriving' ||
+            status == 'ride_started') ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: rideId == null || rideId <= 0
+                    ? null
+                    : () => _openRideChatBottomSheet(rideId),
+                icon: const Icon(Icons.chat_rounded),
+                label: Text(_t('دردشة', 'Chat')),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 12),
         if (status == 'captain_assigned')
           FilledButton(
@@ -2617,7 +2630,11 @@ class _TaxiCaptainDashboardScreenState
               separatorBuilder: (_, index) => const SizedBox(height: 8),
               itemBuilder: (_, i) {
                 final r = nearby[i];
-                final fare = _asInt(r['proposedFareIqd']) ?? 0;
+                final nonAvailable = _t('غير متوفر', 'Not available');
+                final fare = _asInt(r['proposedFareIqd']);
+                final fareLabel = fare != null && fare > 0
+                    ? _money(fare)
+                    : nonAvailable;
                 final myBid = r['myBid'] is Map
                     ? Map<String, dynamic>.from(r['myBid'] as Map)
                     : null;
@@ -2644,9 +2661,11 @@ class _TaxiCaptainDashboardScreenState
                 final negotiationProgress = negotiationRemaining == null
                     ? null
                     : (negotiationRemaining / 300).clamp(0.0, 1.0).toDouble();
-                final rideId = _asInt(r['id']) ?? 0;
+                final rideId = _asInt(r['id']);
                 final isFocused =
-                    focusedRideId != null && rideId == focusedRideId;
+                    focusedRideId != null &&
+                    rideId != null &&
+                    rideId == focusedRideId;
                 return Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
@@ -2666,7 +2685,9 @@ class _TaxiCaptainDashboardScreenState
                         children: [
                           Expanded(
                             child: Text(
-                              '${_t('الطلب', 'Request')} #${r['id']}',
+                              rideId != null && rideId > 0
+                                  ? '${_t('الطلب', 'Request')} #$rideId'
+                                  : _t('الطلب', 'Request'),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -2717,27 +2738,38 @@ class _TaxiCaptainDashboardScreenState
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${_t('من', 'From')}: ${_str(r['pickup']?['label']) ?? '-'}',
+                        '${_t('من', 'From')}: ${_str(r['pickup']?['label']) ?? nonAvailable}',
                         style: const TextStyle(color: Colors.white70),
                       ),
                       Text(
-                        '${_t('إلى', 'To')}: ${_str(r['dropoff']?['label']) ?? '-'}',
+                        '${_t('إلى', 'To')}: ${_str(r['dropoff']?['label']) ?? nonAvailable}',
                         style: const TextStyle(color: Colors.white70),
                       ),
                       const SizedBox(height: 6),
                       Row(
                         children: [
                           Text(
-                            '${_t('أجرة الزبون', 'Customer fare')}: ${_money(fare)}',
+                            '${_t('أجرة الزبون', 'Customer fare')}: $fareLabel',
                             style: const TextStyle(color: Colors.greenAccent),
                           ),
                           const Spacer(),
                           if (myBid != null)
-                            Text(
-                              '${_t('عرضك', 'Your offer')}: ${_money(_asInt(myBid['offeredFareIqd']) ?? 0)}',
-                              style: const TextStyle(
-                                color: Colors.lightBlueAccent,
-                              ),
+                            Builder(
+                              builder: (_) {
+                                final myBidFare = _asInt(
+                                  myBid['offeredFareIqd'],
+                                );
+                                final myBidFareLabel =
+                                    myBidFare != null && myBidFare > 0
+                                    ? _money(myBidFare)
+                                    : nonAvailable;
+                                return Text(
+                                  '${_t('عرضك', 'Your offer')}: $myBidFareLabel',
+                                  style: const TextStyle(
+                                    color: Colors.lightBlueAccent,
+                                  ),
+                                );
+                              },
                             ),
                         ],
                       ),
@@ -2817,14 +2849,6 @@ class _TaxiCaptainDashboardScreenState
                               icon: const Icon(Icons.close_rounded),
                               label: Text(_t('رفض الطلب', 'Decline request')),
                             ),
-                          if (isCurrentNegotiationBid)
-                            OutlinedButton.icon(
-                              onPressed: _sending || rideId <= 0
-                                  ? null
-                                  : () => _openRideChatBottomSheet(rideId),
-                              icon: const Icon(Icons.chat_rounded),
-                              label: Text(_t('دردشة', 'Chat')),
-                            ),
                         ],
                       ),
                     ],
@@ -2873,10 +2897,12 @@ class _TaxiCaptainDashboardScreenState
   }
 
   Widget _focusedRideSnapshotCard(Map<String, dynamic> ride) {
+    final nonAvailable = _t('غير متوفر', 'Not available');
     final fare =
-        _asInt(ride['agreedFareIqd']) ?? _asInt(ride['proposedFareIqd']) ?? 0;
+        _asInt(ride['agreedFareIqd']) ?? _asInt(ride['proposedFareIqd']);
+    final fareLabel = fare != null && fare > 0 ? _money(fare) : nonAvailable;
     final status = _status(_str(ride['status']));
-    final rideId = _asInt(ride['id']) ?? 0;
+    final rideId = _asInt(ride['id']);
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -2891,7 +2917,9 @@ class _TaxiCaptainDashboardScreenState
             children: [
               Expanded(
                 child: Text(
-                  '${_t('رحلة محددة', 'Selected ride')} #$rideId',
+                  rideId != null && rideId > 0
+                      ? '${_t('رحلة محددة', 'Selected ride')} #$rideId'
+                      : _t('رحلة محددة', 'Selected ride'),
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w800,
@@ -2899,7 +2927,7 @@ class _TaxiCaptainDashboardScreenState
                 ),
               ),
               OutlinedButton.icon(
-                onPressed: _sending
+                onPressed: _sending || rideId == null || rideId <= 0
                     ? null
                     : () async {
                         await _focusRideById(
@@ -2918,11 +2946,11 @@ class _TaxiCaptainDashboardScreenState
             style: const TextStyle(color: Colors.white70),
           ),
           Text(
-            '${_t('من', 'From')}: ${_str(ride['pickup']?['label']) ?? '-'}',
+            '${_t('من', 'From')}: ${_str(ride['pickup']?['label']) ?? nonAvailable}',
             style: const TextStyle(color: Colors.white70),
           ),
           Text(
-            '${_t('إلى', 'To')}: ${_str(ride['dropoff']?['label']) ?? '-'}',
+            '${_t('إلى', 'To')}: ${_str(ride['dropoff']?['label']) ?? nonAvailable}',
             style: const TextStyle(color: Colors.white70),
           ),
           if (_distanceEtaSummary(ride) != null)
@@ -2931,7 +2959,7 @@ class _TaxiCaptainDashboardScreenState
               style: const TextStyle(color: Colors.white70),
             ),
           Text(
-            '${_t('الأجرة', 'Fare')}: ${_money(fare)}',
+            '${_t('الأجرة', 'Fare')}: $fareLabel',
             style: const TextStyle(color: Colors.greenAccent),
           ),
           Text(

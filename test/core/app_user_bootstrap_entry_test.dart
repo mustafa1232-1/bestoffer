@@ -19,12 +19,19 @@ import 'package:maslaki/features/notifications/data/notifications_api.dart';
 import 'package:maslaki/features/startup/state/app_startup_controller.dart';
 
 class _FakeAuthController extends AuthController {
+  int logoutCalls = 0;
+
   _FakeAuthController(super.ref, AuthState initialState) {
     state = initialState;
   }
 
   @override
   Future<void> bootstrap() async {}
+
+  @override
+  Future<void> logout() async {
+    logoutCalls += 1;
+  }
 }
 
 class _FakeStartupController extends AppStartupController {
@@ -136,6 +143,23 @@ UserModel _customerUser() {
   );
 }
 
+UserModel _superAdminUser() {
+  return UserModel(
+    id: 78,
+    fullName: 'Super Admin',
+    phone: '07746515247',
+    role: 'admin',
+    block: 'A1',
+    buildingNumber: '1',
+    apartment: '1',
+    imageUrl: null,
+    workTitle: null,
+    workCompany: null,
+    preferredLocale: 'ar',
+    isSuperAdmin: true,
+  );
+}
+
 void main() {
   testWidgets(
     'authenticated regular user lands on CustomerHomeSelectorScreen',
@@ -176,6 +200,53 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
 
       expect(find.byType(CustomerHomeSelectorScreen), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'authenticated super admin stays in the user shell without auto logout',
+    (tester) async {
+      late _FakeAuthController authController;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith((ref) {
+              authController = _FakeAuthController(
+                ref,
+                AuthState(user: _superAdminUser(), token: 'super-admin-token'),
+              );
+              return authController;
+            }),
+            appStartupControllerProvider.overrideWith(
+              (ref) => _FakeStartupController(),
+            ),
+            appSettingsControllerProvider.overrideWith(
+              (ref) => _FakeSettingsController(),
+            ),
+            sectionAvailabilityControllerProvider.overrideWith(
+              (ref) => _FakeSectionAvailabilityController(ref),
+            ),
+            maslakiRealtimeServiceProvider.overrideWithValue(
+              _FakeMaslakiRealtimeService(),
+            ),
+            localNotificationsProvider.overrideWithValue(
+              _FakeLocalNotificationService(),
+            ),
+            pushNotificationsProvider.overrideWithValue(
+              _FakePushNotificationService(),
+            ),
+          ],
+          child: const MaslakiApp(),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(find.byType(MaslakiUserShell), findsOneWidget);
+      expect(find.byType(CustomerHomeSelectorScreen), findsOneWidget);
+      expect(authController.logoutCalls, 0);
     },
   );
 

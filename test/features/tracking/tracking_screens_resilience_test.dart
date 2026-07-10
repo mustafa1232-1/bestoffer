@@ -343,7 +343,49 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Taxi Live Tracking'), findsOneWidget);
-    expect(find.text('Awaiting assignment'), findsOneWidget);
+    expect(find.text('Captain assigned'), findsAtLeastNWidgets(1));
+    expect(find.text('Not available'), findsAtLeastNWidgets(1));
+  });
+
+  testWidgets('taxi tracking shows searching state without chat actions', (
+    tester,
+  ) async {
+    final api = _FakeTaxiApi(<String, dynamic>{
+      'events': const <String, dynamic>{},
+      'ride': <String, dynamic>{
+        'id': 78,
+        'status': 'searching',
+        'pickup': <String, dynamic>{
+          'latitude': 33.3128,
+          'longitude': 44.3615,
+          'label': 'Bismayah Gate',
+        },
+        'dropoff': <String, dynamic>{
+          'latitude': 33.3201,
+          'longitude': 44.3750,
+          'label': 'Central Mall',
+        },
+        'proposedFareIqd': null,
+        'agreedFareIqd': null,
+        'captain': null,
+      },
+    });
+
+    await tester.pumpWidget(
+      _wrapForTest(
+        const TaxiLiveTrackingScreen(rideId: 78),
+        overrides: [taxiApiProvider.overrideWithValue(api)],
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Searching for a captain'), findsOneWidget);
+    expect(find.text('Not available'), findsAtLeastNWidgets(1));
+    expect(find.text('Chat'), findsNothing);
+    expect(find.text('Call'), findsNothing);
   });
 
   testWidgets('delivery tracking shows a graceful 403 state with retry', (

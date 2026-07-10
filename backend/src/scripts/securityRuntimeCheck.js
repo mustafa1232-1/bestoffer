@@ -299,16 +299,19 @@ async function main() {
   });
   assertStatus(superLogin, 200, "super admin login");
   superAdmin.token = String(superLogin.data?.token || "");
+  if (!superLogin.data?.user?.isSuperAdmin) {
+    throw new Error("SUPER_ADMIN_LOGIN_DID_NOT_RETURN_SUPER_ADMIN_USER");
+  }
 
-  const superAdminWrongSurface = createActor(
-    "security-super-admin-wrong-surface",
+  const superAdminUserSurface = createActor(
+    "security-super-admin-user-surface",
     cfg.runTag,
     "security-check/1"
   );
-  superAdminWrongSurface.appFlavor = "user";
-  const superWrongSurfaceLogin = await request(
+  superAdminUserSurface.appFlavor = "user";
+  const superUserSurfaceLogin = await request(
     cfg.baseUrl,
-    superAdminWrongSurface,
+    superAdminUserSurface,
     "POST",
     "/api/auth/login",
     {
@@ -316,18 +319,43 @@ async function main() {
       pin: superAdminPin,
     }
   );
-  if (superWrongSurfaceLogin.status !== 403) {
+  assertStatus(superUserSurfaceLogin, 200, "super admin user-surface login");
+  if (!superUserSurfaceLogin.data?.user?.isSuperAdmin) {
     throw new Error(
-      `SUPER_ADMIN_WRONG_SURFACE_EXPECTED_403:${superWrongSurfaceLogin.status}`
+      "SUPER_ADMIN_USER_SURFACE_LOGIN_DID_NOT_RETURN_SUPER_ADMIN_USER"
     );
   }
-  if (String(superWrongSurfaceLogin.data?.message || "").trim() !== "FORBIDDEN_APP_SURFACE") {
+
+  const superAdminBlockedSurface = createActor(
+    "security-super-admin-blocked-surface",
+    cfg.runTag,
+    "security-check/1"
+  );
+  superAdminBlockedSurface.appFlavor = "store";
+  const superBlockedSurfaceLogin = await request(
+    cfg.baseUrl,
+    superAdminBlockedSurface,
+    "POST",
+    "/api/auth/login",
+    {
+      phone: superAdminPhone,
+      pin: superAdminPin,
+    }
+  );
+  if (superBlockedSurfaceLogin.status !== 403) {
     throw new Error(
-      `SUPER_ADMIN_WRONG_SURFACE_EXPECTED_FORBIDDEN_APP_SURFACE:${
-        superWrongSurfaceLogin.data?.message || "missing"
+      `SUPER_ADMIN_BLOCKED_SURFACE_EXPECTED_403:${superBlockedSurfaceLogin.status}`
+    );
+  }
+  if (String(superBlockedSurfaceLogin.data?.message || "").trim() !== "FORBIDDEN_APP_SURFACE") {
+    throw new Error(
+      `SUPER_ADMIN_BLOCKED_SURFACE_EXPECTED_FORBIDDEN_APP_SURFACE:${
+        superBlockedSurfaceLogin.data?.message || "missing"
       }`
     );
   }
+
+  superAdminUserSurface.token = String(superUserSurfaceLogin.data?.token || "");
 
   await cleanup(cfg.baseUrl, superAdmin, cfg.runTag);
 

@@ -74,6 +74,18 @@ function asForbiddenAppSurface({
   return error;
 }
 
+function isSuperAdminUserSurfaceBypass({
+  routeSurface = null,
+  headerSurface = null,
+  isSuperAdmin = false,
+} = {}) {
+  if (isSuperAdmin !== true) return false;
+  if (routeSurface === "user") {
+    return headerSurface == null || headerSurface === "user";
+  }
+  return routeSurface == null && headerSurface === "user";
+}
+
 function buildSessionAccessCacheKey({
   sessionId,
   userId,
@@ -276,13 +288,18 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
   const routeSurface = resolveRouteAppSurface(req);
   const roleSurface = resolveRoleAppSurface(role);
   const claimSurface = normalizeAppSurface(payload?.appSurface);
+  const allowSuperAdminUserSurface = isSuperAdminUserSurfaceBypass({
+    routeSurface,
+    headerSurface,
+    isSuperAdmin,
+  });
 
   if (claimSurface && roleSurface && claimSurface !== roleSurface) {
     if (strict) throw asInvalidToken();
     return null;
   }
   if (routeSurface) {
-    if (roleSurface !== routeSurface) {
+    if (roleSurface !== routeSurface && !allowSuperAdminUserSurface) {
       if (strict) {
         throw asForbiddenAppSurface({
           appSurface: routeSurface,
@@ -292,7 +309,11 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
       }
       return null;
     }
-    if (headerSurface && headerSurface !== routeSurface) {
+    if (
+      headerSurface &&
+      headerSurface !== routeSurface &&
+      !allowSuperAdminUserSurface
+    ) {
       if (strict) {
         throw asForbiddenAppSurface({
           appSurface: routeSurface,
@@ -302,7 +323,12 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
       }
       return null;
     }
-  } else if (headerSurface && roleSurface && headerSurface !== roleSurface) {
+  } else if (
+    headerSurface &&
+    roleSurface &&
+    headerSurface !== roleSurface &&
+    !allowSuperAdminUserSurface
+  ) {
     if (strict) {
       throw asForbiddenAppSurface({
         appSurface: headerSurface,

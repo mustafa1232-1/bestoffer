@@ -11,6 +11,7 @@ import 'package:maslaki/core/forms/form_error_banner.dart';
 import 'package:maslaki/core/forms/form_field_error_resolver.dart';
 import 'package:maslaki/core/forms/form_scroll_coordinator.dart';
 import 'package:maslaki/core/i18n/app_localizations_context.dart';
+import 'package:maslaki/core/i18n/locale_text.dart';
 import 'package:maslaki/core/network/api_error_mapper.dart';
 import 'package:maslaki/core/sections/section_availability_controller.dart';
 import 'package:maslaki/core/sections/section_availability_models.dart';
@@ -68,8 +69,7 @@ class MapPage extends ConsumerStatefulWidget {
   ConsumerState<MapPage> createState() => _MapPageState();
 }
 
-class _MapPageState extends ConsumerState<MapPage>
-    with WidgetsBindingObserver {
+class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   static const LatLng _bismayahCenter = LatLng(33.3128, 44.3615);
   static const double _initialZoom = 15;
   static const double _collapsedSheetExtent = 0.18;
@@ -410,10 +410,8 @@ class _MapPageState extends ConsumerState<MapPage>
       if (!mounted) return;
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
-          builder: (_) => TaxiLiveTrackingScreen(
-            rideId: rideId,
-            initialEnvelope: envelope,
-          ),
+          builder: (_) =>
+              TaxiLiveTrackingScreen(rideId: rideId, initialEnvelope: envelope),
         ),
       );
     });
@@ -852,7 +850,9 @@ class _MapPageState extends ConsumerState<MapPage>
     }
   }
 
-  bool _handleSheetExtentNotification(DraggableScrollableNotification notification) {
+  bool _handleSheetExtentNotification(
+    DraggableScrollableNotification notification,
+  ) {
     _lastSheetExtent = notification.extent;
     final nextStage = _sheetStageForExtent(notification.extent);
     if (_sheetProgrammaticMotion) {
@@ -1258,9 +1258,7 @@ class _MapPageState extends ConsumerState<MapPage>
     });
     _mapController.move(selectedPoint, 16.4);
     unawaited(
-      _setSheetStage(
-        forPickup ? TaxiSheetStage.half : TaxiSheetStage.expanded,
-      ),
+      _setSheetStage(forPickup ? TaxiSheetStage.half : TaxiSheetStage.expanded),
     );
     unawaited(_refreshRoutePolyline());
   }
@@ -3303,8 +3301,7 @@ class _MapPageState extends ConsumerState<MapPage>
                 ),
               ),
             ),
-          ]
-          else
+          ] else
             _buildRideRequestSheetV3(context),
         ],
       ),
@@ -3607,6 +3604,7 @@ class _MapPageState extends ConsumerState<MapPage>
     bool canCancel,
   ) {
     final l10n = context.l10n;
+    final nonAvailable = context.lt(ar: 'غير متوفر', en: 'Not available');
     final bids = _bids;
     final bidQueue = _bidQueue;
     final currentBid = _currentBid;
@@ -3618,6 +3616,17 @@ class _MapPageState extends ConsumerState<MapPage>
     final captain = ride['captain'] is Map
         ? Map<String, dynamic>.from(ride['captain'] as Map)
         : null;
+    final rideId = _readInt(ride['id']);
+    final isActiveRide =
+        rideStatus == 'captain_assigned' ||
+        rideStatus == 'captain_arriving' ||
+        rideStatus == 'ride_started';
+    final rideTitle = isActiveRide && rideId != null && rideId > 0
+        ? l10n.mapPageActiveRideTitle('$rideId')
+        : _rideHeaderTitle(context, rideStatus);
+    final fareLabel = rideFare != null && rideFare > 0
+        ? formatIqd(rideFare)
+        : nonAvailable;
 
     final screenHeight = MediaQuery.sizeOf(context).height;
     final keyboardOpened = MediaQuery.viewInsetsOf(context).bottom > 0;
@@ -3664,7 +3673,7 @@ class _MapPageState extends ConsumerState<MapPage>
                       children: [
                         Expanded(
                           child: Text(
-                            l10n.mapPageActiveRideTitle('${ride['id'] ?? '-'}'),
+                            rideTitle,
                             style: const TextStyle(
                               fontWeight: FontWeight.w800,
                               fontSize: 16,
@@ -3696,18 +3705,18 @@ class _MapPageState extends ConsumerState<MapPage>
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      l10n.mapPageRideFareLabel(formatIqd(rideFare ?? 0)),
+                      l10n.mapPageRideFareLabel(fareLabel),
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       l10n.mapPageRidePickupSummary(
-                        _string(ride['pickup']?['label']) ?? '-',
+                        _string(ride['pickup']?['label']) ?? nonAvailable,
                       ),
                     ),
                     Text(
                       l10n.mapPageRideDropoffSummary(
-                        _string(ride['dropoff']?['label']) ?? '-',
+                        _string(ride['dropoff']?['label']) ?? nonAvailable,
                       ),
                     ),
                     if (rideStatus == 'searching' &&
@@ -3956,6 +3965,9 @@ class _MapPageState extends ConsumerState<MapPage>
                                 : null;
                             final bidFare =
                                 _readInt(currentBid['offeredFareIqd']) ?? 0;
+                            final bidFareLabel = bidFare > 0
+                                ? formatIqd(bidFare)
+                                : nonAvailable;
                             final counterCount =
                                 _readInt(currentBid['counterOfferCount']) ?? 0;
                             final roundsLeft = (6 - counterCount).clamp(0, 6);
@@ -3996,7 +4008,7 @@ class _MapPageState extends ConsumerState<MapPage>
                                   const SizedBox(height: 2),
                                   Text(
                                     l10n.mapPageNegotiationCurrentOfferLabel(
-                                      formatIqd(bidFare),
+                                      bidFareLabel,
                                     ),
                                   ),
                                   if (_readInt(currentBid['etaMinutes']) !=
@@ -4086,11 +4098,6 @@ class _MapPageState extends ConsumerState<MapPage>
                                           l10n.mapPageNegotiationCounterOffer,
                                         ),
                                       ),
-                                      OutlinedButton.icon(
-                                        onPressed: _openRideChatBottomSheetV2,
-                                        icon: const Icon(Icons.chat_rounded),
-                                        label: Text(l10n.mapPageRideChatTitle),
-                                      ),
                                     ],
                                   ),
                                 ],
@@ -4103,6 +4110,10 @@ class _MapPageState extends ConsumerState<MapPage>
                           final bidCaptain = bid['captain'] is Map
                               ? Map<String, dynamic>.from(bid['captain'] as Map)
                               : null;
+                          final bidFare = _readInt(bid['offeredFareIqd']);
+                          final bidFareLabel = bidFare != null && bidFare > 0
+                              ? formatIqd(bidFare)
+                              : nonAvailable;
                           return Container(
                             margin: const EdgeInsets.only(bottom: 8),
                             padding: const EdgeInsets.all(8),
@@ -4114,7 +4125,7 @@ class _MapPageState extends ConsumerState<MapPage>
                               l10n.mapPageNegotiationFirstOfferSummary(
                                 _string(bidCaptain?['fullName']) ??
                                     l10n.mapPageCaptainFallbackName,
-                                formatIqd(_readInt(bid['offeredFareIqd']) ?? 0),
+                                bidFareLabel,
                               ),
                             ),
                           );
@@ -4159,11 +4170,12 @@ class _MapPageState extends ConsumerState<MapPage>
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          OutlinedButton.icon(
-                            onPressed: _openRideChatBottomSheetV2,
-                            icon: const Icon(Icons.chat_rounded),
-                            label: Text(l10n.mapPageChatWithCaptain),
-                          ),
+                          if (isActiveRide)
+                            OutlinedButton.icon(
+                              onPressed: _openRideChatBottomSheetV2,
+                              icon: const Icon(Icons.chat_rounded),
+                              label: Text(l10n.mapPageChatWithCaptain),
+                            ),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -4895,40 +4907,38 @@ class _MapPageState extends ConsumerState<MapPage>
           ],
           builder: (context, scrollController) {
             return Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.surface.withValues(alpha: 0.97),
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(22),
-                  ),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.12),
-                  ),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 18,
-                      offset: Offset(0, -6),
-                    ),
-                  ],
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.surface.withValues(alpha: 0.97),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(22),
                 ),
-                child: CustomScrollView(
-                  controller: scrollController,
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          14,
-                          10,
-                          14,
-                          14 +
-                              MediaQuery.viewInsetsOf(context).bottom +
-                              MediaQuery.paddingOf(context).bottom,
-                        ),
-                        child: Column(
+                border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 18,
+                    offset: Offset(0, -6),
+                  ),
+                ],
+              ),
+              child: CustomScrollView(
+                controller: scrollController,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        14,
+                        10,
+                        14,
+                        14 +
+                            MediaQuery.viewInsetsOf(context).bottom +
+                            MediaQuery.paddingOf(context).bottom,
+                      ),
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Center(
@@ -5012,8 +5022,8 @@ class _MapPageState extends ConsumerState<MapPage>
                                     onPressed: _submitting
                                         ? null
                                         : () => _goToMyLocation(
-                                              setAsPickupIfEmpty: true,
-                                            ),
+                                            setAsPickupIfEmpty: true,
+                                          ),
                                     icon: const Icon(Icons.my_location_rounded),
                                   ),
                                 ],
@@ -5153,7 +5163,9 @@ class _MapPageState extends ConsumerState<MapPage>
                                         _clearRideFieldError('proposedFareIqd'),
                                     decoration: InputDecoration(
                                       labelText: l10n.mapPageSuggestedFareLabel,
-                                      hintText: formatIqd(estimate.suggestedIqd),
+                                      hintText: formatIqd(
+                                        estimate.suggestedIqd,
+                                      ),
                                       border: const OutlineInputBorder(),
                                       errorText:
                                           _rideFieldErrors['proposedFareIqd'],
@@ -5244,8 +5256,12 @@ class _MapPageState extends ConsumerState<MapPage>
                                         Expanded(
                                           child: _TaxiTopMetric(
                                             icon: Icons.straighten_rounded,
-                                            label: l10n.mapPageRouteDistanceLabel,
-                                            value: _formatRouteDistance(context, _routeDistanceMeters),
+                                            label:
+                                                l10n.mapPageRouteDistanceLabel,
+                                            value: _formatRouteDistance(
+                                              context,
+                                              _routeDistanceMeters,
+                                            ),
                                             iconColor: Colors.cyanAccent,
                                           ),
                                         ),
@@ -5253,15 +5269,21 @@ class _MapPageState extends ConsumerState<MapPage>
                                         Expanded(
                                           child: _TaxiTopMetric(
                                             icon: Icons.schedule_rounded,
-                                            label: l10n.mapPageRouteDurationLabel,
-                                            value: _formatRouteDuration(context, _routeDurationSeconds),
+                                            label:
+                                                l10n.mapPageRouteDurationLabel,
+                                            value: _formatRouteDuration(
+                                              context,
+                                              _routeDurationSeconds,
+                                            ),
                                             iconColor: Colors.lightGreenAccent,
                                           ),
                                         ),
                                       ],
                                     ),
                                   ],
-                                  if (_couponCodeController.text.trim().isNotEmpty)
+                                  if (_couponCodeController.text
+                                      .trim()
+                                      .isNotEmpty)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 8),
                                       child: Text(
@@ -5301,11 +5323,11 @@ class _MapPageState extends ConsumerState<MapPage>
                             ),
                           ],
                         ],
-                        ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
             );
           },
         ),

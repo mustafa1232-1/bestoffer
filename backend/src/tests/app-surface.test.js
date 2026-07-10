@@ -55,12 +55,14 @@ test("role to surface mapping rejects cross-flavor access", () => {
   assert.equal(resolveRoleAppSurface("call_center"), "company");
 });
 
-test("resolveAccessAuth rejects authenticated surface mismatches with FORBIDDEN_APP_SURFACE", async () => {
+test("resolveAccessAuth allows super_admin on the user surface but blocks other surfaces", async () => {
   const jwtSecretSnapshot = env.jwtSecret;
+  const legacySnapshot = env.authAllowLegacyTokens;
   try {
     if (!env.jwtSecret || String(env.jwtSecret).length < 32) {
       env.jwtSecret = "unit-test-jwt-secret-0000000000000000";
     }
+    env.authAllowLegacyTokens = true;
 
     const token = signAccessToken(
       {
@@ -69,14 +71,10 @@ test("resolveAccessAuth rejects authenticated surface mismatches with FORBIDDEN_
         isSuperAdmin: true,
         appSurface: "company",
       },
-      {
-        sessionId: 123,
-        tokenJti: "token-jti",
-        deviceFingerprint: "device-hash",
-      }
+      {}
     );
 
-    const req = {
+    const userReq = {
       headers: {
         authorization: `Bearer ${token}`,
         "x-app-flavor": "user",
@@ -85,16 +83,32 @@ test("resolveAccessAuth rejects authenticated surface mismatches with FORBIDDEN_
       },
     };
 
-    await assert.rejects(
-      () => resolveAccessAuth(req, { strict: true }),
-      (error) =>
-        error?.message === "FORBIDDEN_APP_SURFACE" && error?.status === 403
-    );
+    const auth = await resolveAccessAuth(userReq, { strict: true });
+    assert.equal(auth.userId, 99);
+    assert.equal(auth.role, "admin");
+    assert.equal(auth.appSurface, "company");
+    assert.equal(auth.requestSurface, "user");
 
-    const relaxed = await resolveAccessAuth(req, { strict: false });
-    assert.equal(relaxed, null);
+    await assert.rejects(
+      () =>
+        resolveAccessAuth(
+          {
+            headers: {
+              authorization: `Bearer ${token}`,
+              "x-app-flavor": "store",
+              "x-client-platform": "flutter:store",
+              "user-agent": "unit-test",
+            },
+            originalUrl: "/api/owner/dashboard",
+          },
+          { strict: true }
+        ),
+          (error) =>
+            error?.message === "FORBIDDEN_APP_SURFACE" && error?.status === 403
+        );
   } finally {
     env.jwtSecret = jwtSecretSnapshot;
+    env.authAllowLegacyTokens = legacySnapshot;
   }
 });
 
@@ -139,10 +153,12 @@ test("resolveAccessAuth allows customer taxi polling routes on the user surface"
 
 test("resolveAccessAuth enforces role, route, and claim surfaces instead of trusting X-App-Flavor alone", async () => {
   const jwtSecretSnapshot = env.jwtSecret;
+  const legacySnapshot = env.authAllowLegacyTokens;
   try {
     if (!env.jwtSecret || String(env.jwtSecret).length < 32) {
       env.jwtSecret = "unit-test-jwt-secret-0000000000000000";
     }
+    env.authAllowLegacyTokens = true;
 
     const cases = [
       {
@@ -153,6 +169,7 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         path: "/api/me",
         expectedMessage: "FORBIDDEN_APP_SURFACE",
         expectedStatus: 403,
+        isSuperAdmin: false,
       },
       {
         label: "customer token + X-App-Flavor=store does not open store routes",
@@ -162,6 +179,7 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         path: "/api/owner/dashboard",
         expectedMessage: "FORBIDDEN_APP_SURFACE",
         expectedStatus: 403,
+        isSuperAdmin: false,
       },
       {
         label: "delivery token + X-App-Flavor=taxi does not open taxi routes",
@@ -171,6 +189,7 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         path: "/api/taxi/trips",
         expectedMessage: "FORBIDDEN_APP_SURFACE",
         expectedStatus: 403,
+        isSuperAdmin: false,
       },
       {
         label: "taxi token + X-App-Flavor=delivery does not open delivery routes",
@@ -180,6 +199,7 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         path: "/api/delivery/orders",
         expectedMessage: "FORBIDDEN_APP_SURFACE",
         expectedStatus: 403,
+        isSuperAdmin: false,
       },
       {
         label: "admin token does not work inside user app surface",
@@ -189,6 +209,7 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         path: "/api/me",
         expectedMessage: "FORBIDDEN_APP_SURFACE",
         expectedStatus: 403,
+        isSuperAdmin: false,
       },
       {
         label: "guest requests without a token stay blocked from private APIs",
@@ -205,6 +226,7 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         path: "/api/me",
         expectedMessage: "INVALID_TOKEN",
         expectedStatus: 401,
+        isSuperAdmin: false,
       },
     ];
 
@@ -234,14 +256,10 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         {
           id: 99,
           role: entry.role,
-          isSuperAdmin: entry.role === "admin",
+          isSuperAdmin: entry.isSuperAdmin === true,
           appSurface: entry.appSurface,
         },
-        {
-          sessionId: 123,
-          tokenJti: "token-jti",
-          deviceFingerprint: "device-hash",
-        }
+        {}
       );
 
       const req = {
@@ -263,5 +281,6 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
     }
   } finally {
     env.jwtSecret = jwtSecretSnapshot;
+    env.authAllowLegacyTokens = legacySnapshot;
   }
 });

@@ -103,7 +103,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       });
       return;
     }
-    if (authAfter.isCustomer) return;
+    if (authAfter.isCustomer || authAfter.isSuperAdmin) return;
 
     if (authAfter.isAuthed) {
       await ref.read(authControllerProvider.notifier).logout();
@@ -339,10 +339,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                       },
                 icon: const Icon(Icons.person_outline_rounded),
                 label: Text(
-                  context.lt(
-                    ar: 'الدخول كزائر',
-                    en: 'Continue as Guest',
-                  ),
+                  context.lt(ar: 'الدخول كزائر', en: 'Continue as Guest'),
                 ),
               ),
             ],

@@ -78,12 +78,28 @@ const _terminalOrderStatuses = <String>{
 };
 
 const _terminalTaxiStatuses = <String>{'completed', 'cancelled', 'expired'};
+const _activeTaxiStatuses = <String>{
+  'captain_assigned',
+  'captain_arriving',
+  'ride_started',
+};
 
 String? _trackingStatus(Map<String, dynamic>? envelope) {
   final nested = trackingMap(envelope?['order'] ?? envelope?['ride']);
   return trackingString(
     nested?['status'] ?? envelope?['status'],
   )?.toLowerCase();
+}
+
+String? taxiRideDisplayState(Map<String, dynamic>? ride) {
+  final status = trackingString(ride?['status'])?.toLowerCase();
+  if (status == null) return null;
+  if (_terminalTaxiStatuses.contains(status)) return 'terminal';
+  if (_activeTaxiStatuses.contains(status)) return 'active';
+  if (status == 'searching') {
+    return ride?['currentBidId'] != null ? 'negotiating' : 'searching';
+  }
+  return status;
 }
 
 bool orderTrackingIsActive(Map<String, dynamic>? snapshot) {
@@ -93,7 +109,7 @@ bool orderTrackingIsActive(Map<String, dynamic>? snapshot) {
 
 bool taxiTrackingIsActive(Map<String, dynamic>? envelope) {
   final status = _trackingStatus(envelope);
-  return status == null || !_terminalTaxiStatuses.contains(status);
+  return status != null && _activeTaxiStatuses.contains(status);
 }
 
 Map<String, dynamic> mergeOrderTrackingEvent(

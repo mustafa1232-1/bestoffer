@@ -113,5 +113,9 @@ export function resolveRoleAppSurface(role) {
 export function isRoleAllowedForSurface(role, surface) {
   const normalizedSurface = normalizeAppSurface(surface);
   if (!normalizedSurface) return false;
+  const normalizedRole = String(role || "").trim().toLowerCase();
+  if (normalizedRole === "super_admin" && normalizedSurface === "user") {
+    return true;
+  }
   return resolveRoleAppSurface(role) === normalizedSurface;
 }

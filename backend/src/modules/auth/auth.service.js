@@ -182,6 +182,14 @@ function resolveSuperAdmin(user) {
   return envPhone.length > 0 && userPhone === envPhone;
 }
 
+function isRequestedSurfaceAllowedForUser(user, requestedSurface) {
+  if (!requestedSurface) return true;
+  if (requestedSurface === "user" && resolveSuperAdmin(user)) {
+    return true;
+  }
+  return isRoleAllowedForSurface(user?.role, requestedSurface);
+}
+
 function mapUser(u) {
   return {
     id: u.id,
@@ -415,7 +423,7 @@ export async function login({ phone, pin }, deviceContext = {}) {
   }
 
   const requestedSurface = deviceContext.appFlavor || null;
-  if (requestedSurface && !isRoleAllowedForSurface(user.role, requestedSurface)) {
+  if (requestedSurface && !isRequestedSurfaceAllowedForUser(user, requestedSurface)) {
     const err = new AppError("FORBIDDEN_APP_SURFACE", { status: 403 });
     err.details = { appSurface: requestedSurface };
     throw err;
@@ -458,7 +466,10 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
   }
 
   const requestedSurface = deviceContext.appFlavor || null;
-  if (requestedSurface && !isRoleAllowedForSurface(row.role, requestedSurface)) {
+  if (
+    requestedSurface &&
+    !isRequestedSurfaceAllowedForUser(row, requestedSurface)
+  ) {
     const err = new AppError("FORBIDDEN_APP_SURFACE", { status: 403 });
     err.details = { appSurface: requestedSurface };
     throw err;

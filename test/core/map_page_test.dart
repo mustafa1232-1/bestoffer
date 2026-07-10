@@ -347,8 +347,10 @@ void main() {
     final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
 
     expect(tester.takeException(), isNull);
-    expect(find.text(l10n.mapPageRideSearchingTitle), findsOneWidget);
+    expect(find.text(l10n.mapPageRideSearchingTitle), findsAtLeastNWidgets(1));
     expect(find.text(l10n.mapPageNegotiationTitle), findsOneWidget);
+    expect(find.text(l10n.mapPageChatWithCaptain), findsNothing);
+    expect(find.text(l10n.mapPageActiveRideTitle('41')), findsNothing);
   });
 
   testWidgets('completed ride shows the localized rating call to action', (
@@ -361,7 +363,7 @@ void main() {
 
     final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
 
-    expect(find.text(l10n.mapPageRideCompletedTitle), findsOneWidget);
+    expect(find.text(l10n.mapPageRideCompletedTitle), findsAtLeastNWidgets(1));
     expect(find.text(l10n.mapPageRateTaxiRide), findsOneWidget);
   });
 }

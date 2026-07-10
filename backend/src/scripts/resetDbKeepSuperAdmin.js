@@ -1,5 +1,7 @@
 import "dotenv/config";
 
+import { pathToFileURL } from "node:url";
+
 import { ensureSchema, pool, q } from "../config/db.js";
 import { env } from "../config/env.js";
 import { runSqlMigrations } from "../config/sqlMigrations.js";
@@ -34,6 +36,69 @@ function asBool(value, fallback = false) {
   if (value === 1 || value === "1" || value === "true") return true;
   if (value === 0 || value === "0" || value === "false") return false;
   return fallback;
+}
+
+function parseDatabaseTarget(databaseUrl = env.databaseUrl) {
+  try {
+    const parsed = new URL(String(databaseUrl || ""));
+    return {
+      host: parsed.hostname || "",
+      port: parsed.port ? Number(parsed.port) : null,
+      databaseName: String(parsed.pathname || "").replace(/^\/+/, "") || "",
+      protocol: parsed.protocol || "",
+    };
+  } catch (_) {
+    return {
+      host: "",
+      port: null,
+      databaseName: "",
+      protocol: "",
+    };
+  }
+}
+
+function isTruthyFlag(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(normalized);
+}
+
+function isProductionLikeResetTarget(target, { isProduction = env.isProduction } = {}) {
+  if (isProduction === true) return true;
+  const host = String(target?.host || "").trim().toLowerCase();
+  const databaseName = String(target?.databaseName || "").trim().toLowerCase();
+  return (
+    host.includes("production") ||
+    host.includes("-prod") ||
+    host.startsWith("prod.") ||
+    databaseName.includes("production") ||
+    databaseName.includes("-prod") ||
+    databaseName.startsWith("prod")
+  );
+}
+
+function assertResetAllowed({
+  allowDestructiveReset = process.env.ALLOW_DESTRUCTIVE_RESET,
+  allowProdOverride = process.env.ALLOW_DESTRUCTIVE_RESET_PROD_OVERRIDE,
+  target = parseDatabaseTarget(),
+  isProduction = env.isProduction,
+} = {}) {
+  if (!isTruthyFlag(allowDestructiveReset)) {
+    throw new Error(
+      "ALLOW_DESTRUCTIVE_RESET=true is required to run resetDbKeepSuperAdmin."
+    );
+  }
+
+  const productionLike = isProductionLikeResetTarget(target, { isProduction });
+  if (productionLike && !isTruthyFlag(allowProdOverride)) {
+    throw new Error(
+      "Refusing to run destructive reset against a production-like database without ALLOW_DESTRUCTIVE_RESET_PROD_OVERRIDE=true."
+    );
+  }
+
+  return {
+    target,
+    productionLike,
+  };
 }
 
 async function resolveSuperAdminSeed() {
@@ -107,9 +172,99 @@ async function resolveSuperAdminSeed() {
   };
 }
 
-async function run() {
-  await runSqlMigrations({ force: true });
-  await ensureSchema();
+async function listPublicTables(client) {
+  const tablesResult = await client.query(
+    `SELECT tablename
+     FROM pg_tables
+     WHERE schemaname = 'public'
+       AND tablename <> 'schema_migration'
+     ORDER BY tablename ASC`
+  );
+
+  return tablesResult.rows
+    .map((row) => String(row.tablename || "").trim())
+    .filter(Boolean);
+}
+
+async function countRows(client, tableName) {
+  const quoted = quoteIdent(tableName);
+  const result = await client.query(`SELECT COUNT(*)::INT AS total FROM ${quoted}`);
+  return Number(result.rows[0]?.total || 0);
+}
+
+async function verifyResetState(client, { tableNames }) {
+  const appUserCount = await countRows(client, "app_user");
+  if (appUserCount !== 1) {
+    throw new Error(`RESET_VERIFY_FAILED:app_user_count=${appUserCount}`);
+  }
+
+  const superAdmins = await client.query(
+    `SELECT id, role, is_super_admin, phone
+     FROM app_user
+     WHERE is_super_admin = TRUE`
+  );
+  if (superAdmins.rowCount !== 1) {
+    throw new Error(`RESET_VERIFY_FAILED:super_admin_rows=${superAdmins.rowCount}`);
+  }
+
+  const superAdminRow = superAdmins.rows[0] || {};
+  if (String(superAdminRow.role || "").trim().toLowerCase() !== "admin") {
+    throw new Error(
+      `RESET_VERIFY_FAILED:super_admin_role=${String(superAdminRow.role || "")}`
+    );
+  }
+  if (superAdminRow.is_super_admin !== true) {
+    throw new Error("RESET_VERIFY_FAILED:super_admin_flag_missing");
+  }
+
+  const nonZeroTables = [];
+  for (const tableName of tableNames) {
+    if (tableName === "app_user") continue;
+    const total = await countRows(client, tableName);
+    if (total > 0) {
+      nonZeroTables.push({ tableName, total });
+    }
+  }
+
+  if (nonZeroTables.length > 0) {
+    throw new Error(
+      `RESET_VERIFY_FAILED:non_zero_tables=${nonZeroTables
+        .map((entry) => `${entry.tableName}:${entry.total}`)
+        .join(",")}`
+    );
+  }
+
+  return {
+    appUserCount,
+    superAdminId: Number(superAdminRow.id || 0),
+    nonZeroTables,
+  };
+}
+
+export async function runResetDbKeepSuperAdmin({
+  allowDestructiveReset = process.env.ALLOW_DESTRUCTIVE_RESET,
+  allowProdOverride = process.env.ALLOW_DESTRUCTIVE_RESET_PROD_OVERRIDE,
+  target = parseDatabaseTarget(),
+  client: injectedClient = null,
+  runMigrations = true,
+  shutdownPool = true,
+} = {}) {
+  const safety = assertResetAllowed({
+    allowDestructiveReset,
+    allowProdOverride,
+    target,
+  });
+
+  console.log(
+    `[reset] target host=${safety.target.host || "(unknown)"} db=${
+      safety.target.databaseName || "(unknown)"
+    } productionLike=${safety.productionLike ? "yes" : "no"}`
+  );
+
+  if (runMigrations) {
+    await runSqlMigrations({ force: true });
+    await ensureSchema();
+  }
 
   const seed = await resolveSuperAdminSeed();
   if (!seed.pinHash) {
@@ -118,25 +273,14 @@ async function run() {
     );
   }
 
-  const client = await pool.connect();
+  const client = injectedClient || (await pool.connect());
   let txStarted = false;
   try {
-    const beforeUsersResult = await client.query(
-      `SELECT COUNT(*)::INT AS total FROM app_user`
+    const beforeUsers = await countRows(client, "app_user");
+    const schemaMigrationRows = await countRows(client, "schema_migration").catch(
+      () => null
     );
-    const beforeUsers = Number(beforeUsersResult.rows[0]?.total || 0);
-
-    const tablesResult = await client.query(
-      `SELECT tablename
-       FROM pg_tables
-       WHERE schemaname = 'public'
-         AND tablename <> 'schema_migration'
-       ORDER BY tablename ASC`
-    );
-
-    const tableNames = tablesResult.rows
-      .map((row) => String(row.tablename || "").trim())
-      .filter(Boolean);
+    const tableNames = await listPublicTables(client);
 
     if (!tableNames.includes("app_user")) {
       throw new Error("Table app_user not found.");
@@ -191,26 +335,52 @@ async function run() {
     await client.query("COMMIT");
     txStarted = false;
 
-    const afterUsersResult = await client.query(
-      `SELECT COUNT(*)::INT AS total FROM app_user`
-    );
-    const afterUsers = Number(afterUsersResult.rows[0]?.total || 0);
+    const verification = await verifyResetState(client, { tableNames });
+    const afterUsers = verification.appUserCount;
+    const schemaMigrationAfter = schemaMigrationRows;
 
     console.log(
-      `[reset] done -> source=${seed.source}, phone=${seed.phone}, userId=${superAdminId}, usersBefore=${beforeUsers}, usersAfter=${afterUsers}, truncatedTables=${tableNames.length}`
+      `[reset] done -> source=${seed.source}, phone=${seed.phone}, userId=${superAdminId}, usersBefore=${beforeUsers}, usersAfter=${afterUsers}, truncatedTables=${tableNames.length}, schemaMigrationRows=${schemaMigrationAfter ?? "n/a"}`
     );
+
+    return {
+      source: seed.source,
+      phone: seed.phone,
+      userId: superAdminId,
+      usersBefore: beforeUsers,
+      usersAfter: afterUsers,
+      truncatedTables: tableNames.length,
+      schemaMigrationRows,
+    };
   } catch (error) {
     if (txStarted) {
       await client.query("ROLLBACK");
     }
     throw error;
   } finally {
-    client.release();
-    await pool.end();
+    if (!injectedClient) {
+      client.release();
+    }
+    if (shutdownPool && !injectedClient) {
+      await pool.end();
+    }
   }
 }
 
-run().catch((error) => {
-  console.error("[reset] failed:", error);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runResetDbKeepSuperAdmin().catch((error) => {
+    console.error("[reset] failed:", error);
+    process.exit(1);
+  });
+}
+
+export {
+  assertResetAllowed,
+  countRows,
+  isProductionLikeResetTarget,
+  listPublicTables,
+  normalizeUsername,
+  parseDatabaseTarget,
+  resolveSuperAdminSeed,
+  verifyResetState,
+};

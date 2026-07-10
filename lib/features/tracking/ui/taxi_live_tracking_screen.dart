@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:maslaki/core/constants/api.dart';
 import 'package:maslaki/core/i18n/app_localizations_context.dart';
 import 'package:maslaki/core/i18n/locale_text.dart';
+import 'package:maslaki/core/utils/currency.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
 import 'package:maslaki/features/taxi/ui/taxi_share_ride_friends_sheet.dart';
@@ -139,7 +140,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
       setState(() {
         _loading = false;
         _error = context.lt(
-          ar: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØªØªØ¨Ø¹ Ø§Ù„Ø­ÙŠ Ù„Ù‡Ø°Ù‡ Ø§Ù„Ø±Ø­Ù„Ø©.',
+          ar: 'Ã˜ÂªÃ˜Â¹Ã˜Â°Ã˜Â± Ã˜ÂªÃ˜Â­Ã™â€¦Ã™Å Ã™â€ž Ã˜Â§Ã™â€žÃ˜ÂªÃ˜ÂªÃ˜Â¨Ã˜Â¹ Ã˜Â§Ã™â€žÃ˜Â­Ã™Å  Ã™â€žÃ™â€¡Ã˜Â°Ã™â€¡ Ã˜Â§Ã™â€žÃ˜Â±Ã˜Â­Ã™â€žÃ˜Â©.',
           en: 'Failed to load live tracking for this ride.',
         );
       });
@@ -229,18 +230,21 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
               ListTile(
                 leading: const Icon(Icons.public_rounded),
                 title: Text(
-                  context.lt(ar: 'Ù…Ø´Ø§Ø±ÙƒØ© Ø¹Ø§Ù…Ø©', en: 'Public share'),
+                  context.lt(
+                    ar: 'Ã™â€¦Ã˜Â´Ã˜Â§Ã˜Â±Ã™Æ’Ã˜Â© Ã˜Â¹Ã˜Â§Ã™â€¦Ã˜Â©',
+                    en: 'Public share',
+                  ),
                 ),
                 subtitle: Text(
                   context.lt(
-                    ar: 'ÙŠÙ†Ø´Ø¦ Ø±Ø§Ø¨Ø· ØªØªØ¨Ø¹ Ø¹Ø§Ù… Ù„Ù„Ù‚Ø±Ø§Ø¡Ø© ÙÙ‚Ø·.',
+                    ar: 'Ã™Å Ã™â€ Ã˜Â´Ã˜Â¦ Ã˜Â±Ã˜Â§Ã˜Â¨Ã˜Â· Ã˜ÂªÃ˜ÂªÃ˜Â¨Ã˜Â¹ Ã˜Â¹Ã˜Â§Ã™â€¦ Ã™â€žÃ™â€žÃ™â€šÃ˜Â±Ã˜Â§Ã˜Â¡Ã˜Â© Ã™ÂÃ™â€šÃ˜Â·.',
                     en: 'Creates a public readonly tracking link.',
                   ),
                 ),
                 onTap: () async {
                   Navigator.of(context).pop();
                   final shareTextPrefix = this.context.lt(
-                    ar: 'تتبع رحلة مسلكي:',
+                    ar: 'ØªØªØ¨Ø¹ Ø±Ø­Ù„Ø© Ù…Ø³Ù„ÙƒÙŠ:',
                     en: 'Track my Maslaki ride:',
                   );
                   final out = await _taxiApi.createPublicShareToken(
@@ -258,13 +262,13 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                 leading: const Icon(Icons.group_outlined),
                 title: Text(
                   context.lt(
-                    ar: 'Ù…Ø´Ø§Ø±ÙƒØ© Ù…Ø¹ Ø§Ù„Ø£ØµØ¯Ù‚Ø§Ø¡',
+                    ar: 'Ã™â€¦Ã˜Â´Ã˜Â§Ã˜Â±Ã™Æ’Ã˜Â© Ã™â€¦Ã˜Â¹ Ã˜Â§Ã™â€žÃ˜Â£Ã˜ÂµÃ˜Â¯Ã™â€šÃ˜Â§Ã˜Â¡',
                     en: 'Share with friends',
                   ),
                 ),
                 subtitle: Text(
                   context.lt(
-                    ar: 'ØªØ´Ø§Ø±Ùƒ Ø§Ù„Ø±Ø­Ù„Ø© Ø¯Ø§Ø®Ù„ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ù…Ø¹ Ø£ØµØ¯Ù‚Ø§Ø¦Ùƒ.',
+                    ar: 'Ã˜ÂªÃ˜Â´Ã˜Â§Ã˜Â±Ã™Æ’ Ã˜Â§Ã™â€žÃ˜Â±Ã˜Â­Ã™â€žÃ˜Â© Ã˜Â¯Ã˜Â§Ã˜Â®Ã™â€ž Ã˜Â§Ã™â€žÃ˜ÂªÃ˜Â·Ã˜Â¨Ã™Å Ã™â€š Ã™â€¦Ã˜Â¹ Ã˜Â£Ã˜ÂµÃ˜Â¯Ã™â€šÃ˜Â§Ã˜Â¦Ã™Æ’.',
                     en: 'Shares the ride inside the app with your friends.',
                   ),
                 ),
@@ -431,7 +435,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                           onSubmitted: (_) async {},
                           decoration: InputDecoration(
                             hintText: this.context.lt(
-                              ar: 'Ø§ÙƒØªØ¨ Ø±Ø³Ø§Ù„Ø©...',
+                              ar: 'Ã˜Â§Ã™Æ’Ã˜ÂªÃ˜Â¨ Ã˜Â±Ã˜Â³Ã˜Â§Ã™â€žÃ˜Â©...',
                               en: 'Type a message...',
                             ),
                           ),
@@ -569,7 +573,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     final ride = _ride!;
     return LiveTrackingShell(
       title: context.lt(
-        ar: 'ØªØªØ¨Ø¹ Ø±Ø­Ù„Ø© Ø§Ù„ØªÙƒØ³ÙŠ',
+        ar: 'Ã˜ÂªÃ˜ÂªÃ˜Â¨Ã˜Â¹ Ã˜Â±Ã˜Â­Ã™â€žÃ˜Â© Ã˜Â§Ã™â€žÃ˜ÂªÃ™Æ’Ã˜Â³Ã™Å ',
         en: 'Taxi Live Tracking',
       ),
       initialCenter: _initialCenter,
@@ -577,12 +581,81 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
       polylines: _polylines,
       sheetBuilder: (context, scrollController) {
         final tokens = context.maslakiTokens;
+        final displayState = taxiRideDisplayState(ride);
+        final isWaitingState =
+            displayState == 'searching' || displayState == 'negotiating';
+        final nonAvailable = context.lt(
+          ar: 'ØºÙŠØ± Ù…ØªÙˆÙØ±',
+          en: 'Not available',
+        );
+
+        if (isWaitingState) {
+          return ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+            children: [
+              Text(
+                displayState == 'negotiating'
+                    ? context.lt(
+                        ar: 'Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªÙØ§ÙˆØ¶ Ù…Ø¹ Ø§Ù„ÙƒØ§Ø¨ØªÙ†',
+                        en: 'Negotiation in progress',
+                      )
+                    : context.lt(
+                        ar: 'Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† ÙƒØ§Ø¨ØªÙ†',
+                        en: 'Searching for a captain',
+                      ),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: tokens.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'Ø§Ù„Ø§Ù†Ø·Ù„Ø§Ù‚', en: 'Pickup'),
+                value:
+                    trackingNestedString(ride['pickup'], const ['label']) ??
+                    nonAvailable,
+              ),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'Ø§Ù„ÙˆØ¬Ù‡Ø©', en: 'Dropoff'),
+                value:
+                    trackingNestedString(ride['dropoff'], const ['label']) ??
+                    nonAvailable,
+              ),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'Ø§Ù„Ø£Ø¬Ø±Ø©', en: 'Fare'),
+                value: _formatRideFareLabel(
+                  context,
+                  ride['agreedFareIqd'] ?? ride['proposedFareIqd'],
+                  nonAvailable,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                displayState == 'negotiating'
+                    ? context.lt(
+                        ar: 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ù‚Ø¨ÙˆÙ„ Ø£Ø­Ø¯ Ø§Ù„Ø¹Ø±ÙˆØ¶ Ù‚Ø¨Ù„ ÙØªØ­ Ø§Ù„ØªØªØ¨Ø¹ Ø§Ù„Ø­ÙŠ.',
+                        en: 'Waiting for an accepted offer before live tracking.',
+                      )
+                    : context.lt(
+                        ar: 'Ø³ÙŠØ¨Ø¯Ø£ Ø§Ù„ØªØªØ¨Ø¹ Ø§Ù„Ø­ÙŠ Ø¨Ø¹Ø¯ ØªØ¹ÙŠÙŠÙ† Ø§Ù„ÙƒØ§Ø¨ØªÙ†.',
+                        en: 'Live tracking starts after a captain is assigned.',
+                      ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: tokens.textSecondary),
+              ),
+            ],
+          );
+        }
+
         return ListView(
           controller: scrollController,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
           children: [
             Text(
-              '#${_readInt(ride['id']) ?? widget.rideId}',
+              _rideIdLabel(ride),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.displaySmall?.copyWith(
                 color: tokens.textPrimary,
@@ -595,32 +668,44 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
             ),
             const SizedBox(height: 16),
             _TaxiInfoTile(
-              title: context.lt(ar: 'Ø§Ù„Ø³Ø§Ø¦Ù‚', en: 'Captain'),
-              value:
-                  _string(_captain?['fullName']) ??
-                  context.lt(
-                    ar: 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„ØªØ¹ÙŠÙŠÙ†',
-                    en: 'Awaiting assignment',
-                  ),
+              title: context.lt(
+                ar: 'Ã˜Â§Ã™â€žÃ˜Â³Ã˜Â§Ã˜Â¦Ã™â€š',
+                en: 'Captain',
+              ),
+              value: _string(_captain?['fullName']) ?? nonAvailable,
             ),
             _TaxiInfoTile(
-              title: context.lt(ar: 'Ø§Ù„Ø§Ù†Ø·Ù„Ø§Ù‚', en: 'Pickup'),
+              title: context.lt(
+                ar: 'Ã˜Â§Ã™â€žÃ˜Â§Ã™â€ Ã˜Â·Ã™â€žÃ˜Â§Ã™â€š',
+                en: 'Pickup',
+              ),
               value:
-                  trackingNestedString(ride['pickup'], const ['label']) ?? '-',
+                  trackingNestedString(ride['pickup'], const ['label']) ??
+                  nonAvailable,
             ),
             _TaxiInfoTile(
-              title: context.lt(ar: 'Ø§Ù„ÙˆØ¬Ù‡Ø©', en: 'Dropoff'),
+              title: context.lt(
+                ar: 'Ã˜Â§Ã™â€žÃ™Ë†Ã˜Â¬Ã™â€¡Ã˜Â©',
+                en: 'Dropoff',
+              ),
               value:
-                  trackingNestedString(ride['dropoff'], const ['label']) ?? '-',
+                  trackingNestedString(ride['dropoff'], const ['label']) ??
+                  nonAvailable,
             ),
             _TaxiInfoTile(
-              title: context.lt(ar: 'Ø§Ù„Ø£Ø¬Ø±Ø©', en: 'Fare'),
-              value:
-                  '${_readNum(ride['agreedFareIqd'] ?? ride['proposedFareIqd']).toStringAsFixed(0)} ${context.lt(ar: 'Ø¯.Ø¹', en: 'IQD')}',
+              title: context.lt(ar: 'Ã˜Â§Ã™â€žÃ˜Â£Ã˜Â¬Ã˜Â±Ã˜Â©', en: 'Fare'),
+              value: _formatRideFareLabel(
+                context,
+                ride['agreedFareIqd'] ?? ride['proposedFareIqd'],
+                nonAvailable,
+              ),
             ),
             if (_latestLocation != null)
               _TaxiInfoTile(
-                title: context.lt(ar: 'Ø¢Ø®Ø± ØªØ­Ø¯ÙŠØ«', en: 'Last update'),
+                title: context.lt(
+                  ar: 'Ã˜Â¢Ã˜Â®Ã˜Â± Ã˜ÂªÃ˜Â­Ã˜Â¯Ã™Å Ã˜Â«',
+                  en: 'Last update',
+                ),
                 value:
                     trackingNestedString(_latestLocation, const [
                       'createdAt',
@@ -628,11 +713,14 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                     trackingNestedString(_latestLocation, const [
                       'updatedAt',
                     ]) ??
-                    '-',
+                    nonAvailable,
               ),
             const SizedBox(height: 16),
             Text(
-              context.lt(ar: 'Ø³ÙŠØ± Ø§Ù„Ø±Ø­Ù„Ø©', en: 'Ride timeline'),
+              context.lt(
+                ar: 'Ã˜Â³Ã™Å Ã˜Â± Ã˜Â§Ã™â€žÃ˜Â±Ã˜Â­Ã™â€žÃ˜Â©',
+                en: 'Ride timeline',
+              ),
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: tokens.textPrimary,
                 fontWeight: FontWeight.w800,
@@ -640,7 +728,9 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
             ),
             const SizedBox(height: 10),
             ..._timeline.map((entry) => _TaxiTimelineRow(entry: entry)),
-            if (!_isReadonly) ...[
+            if (!_isReadonly &&
+                displayState == 'active' &&
+                (_captain?['phone'] ?? '').toString().trim().isNotEmpty) ...[
               const SizedBox(height: 18),
               Wrap(
                 spacing: 10,
@@ -649,19 +739,22 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                   FilledButton.icon(
                     onPressed: _shareRide,
                     icon: const Icon(Icons.share_rounded),
-                    label: Text(context.lt(ar: 'Ù…Ø´Ø§Ø±ÙƒØ©', en: 'Share')),
+                    label: Text(
+                      context.lt(ar: 'Ã™â€¦Ã˜Â´Ã˜Â§Ã˜Â±Ã™Æ’Ã˜Â©', en: 'Share'),
+                    ),
                   ),
                   OutlinedButton.icon(
                     onPressed: _openRideChat,
                     icon: const Icon(Icons.chat_bubble_outline_rounded),
-                    label: Text(context.lt(ar: 'Ù…Ø­Ø§Ø¯Ø«Ø©', en: 'Chat')),
-                  ),
-                  if ((_captain?['phone'] ?? '').toString().trim().isNotEmpty)
-                    OutlinedButton.icon(
-                      onPressed: _callCaptain,
-                      icon: const Icon(Icons.call_outlined),
-                      label: Text(context.lt(ar: 'Ø§ØªØµØ§Ù„', en: 'Call')),
+                    label: Text(
+                      context.lt(ar: 'Ã™â€¦Ã˜Â­Ã˜Â§Ã˜Â¯Ã˜Â«Ã˜Â©', en: 'Chat'),
                     ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _callCaptain,
+                    icon: const Icon(Icons.call_outlined),
+                    label: Text(context.lt(ar: 'اتصال', en: 'Call')),
+                  ),
                 ],
               ),
             ],
@@ -709,7 +802,10 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
 
     return [
       _TaxiTimelineEntry(
-        label: context.lt(ar: 'Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨', en: 'Request sent'),
+        label: context.lt(
+          ar: 'Ã˜Â¥Ã˜Â±Ã˜Â³Ã˜Â§Ã™â€ž Ã˜Â§Ã™â€žÃ˜Â·Ã™â€žÃ˜Â¨',
+          en: 'Request sent',
+        ),
         done: true,
         time: DateTime.tryParse(
           _string(ride['createdAt'] ?? ride['created_at']) ?? '',
@@ -717,7 +813,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
       ),
       _TaxiTimelineEntry(
         label: context.lt(
-          ar: 'ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø³Ø§Ø¦Ù‚',
+          ar: 'Ã˜ÂªÃ˜Â¹Ã™Å Ã™Å Ã™â€  Ã˜Â§Ã™â€žÃ˜Â³Ã˜Â§Ã˜Â¦Ã™â€š',
           en: 'Captain assigned',
         ),
         done: hasAssigned,
@@ -725,20 +821,23 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
       ),
       _TaxiTimelineEntry(
         label: context.lt(
-          ar: 'Ø§Ù„Ø³Ø§Ø¦Ù‚ ÙÙŠ Ø§Ù„Ø·Ø±ÙŠÙ‚',
+          ar: 'Ã˜Â§Ã™â€žÃ˜Â³Ã˜Â§Ã˜Â¦Ã™â€š Ã™ÂÃ™Å  Ã˜Â§Ã™â€žÃ˜Â·Ã˜Â±Ã™Å Ã™â€š',
           en: 'Captain arriving',
         ),
         done: hasArriving,
         time: findEvent('captain_arriving'),
       ),
       _TaxiTimelineEntry(
-        label: context.lt(ar: 'Ø¨Ø¯Ø£Øª Ø§Ù„Ø±Ø­Ù„Ø©', en: 'Ride started'),
+        label: context.lt(
+          ar: 'Ã˜Â¨Ã˜Â¯Ã˜Â£Ã˜Âª Ã˜Â§Ã™â€žÃ˜Â±Ã˜Â­Ã™â€žÃ˜Â©',
+          en: 'Ride started',
+        ),
         done: hasStarted,
         time: findEvent('ride_started'),
       ),
       _TaxiTimelineEntry(
         label: context.lt(
-          ar: 'Ø§ÙƒØªÙ…Ù„Øª Ø§Ù„Ø±Ø­Ù„Ø©',
+          ar: 'Ã˜Â§Ã™Æ’Ã˜ÂªÃ™â€¦Ã™â€žÃ˜Âª Ã˜Â§Ã™â€žÃ˜Â±Ã˜Â­Ã™â€žÃ˜Â©',
           en: 'Ride completed',
         ),
         done: hasCompleted,
@@ -750,25 +849,40 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   String _statusLabel(String status) {
     switch (status) {
       case 'searching':
-        return context.lt(ar: 'Ø¬Ø§Ø±Ù Ø§Ù„Ø¨Ø­Ø«', en: 'Searching');
+        return context.lt(
+          ar: 'Ã˜Â¬Ã˜Â§Ã˜Â±Ã™Â Ã˜Â§Ã™â€žÃ˜Â¨Ã˜Â­Ã˜Â«',
+          en: 'Searching',
+        );
       case 'captain_assigned':
         return context.lt(
-          ar: 'ØªÙ… ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø³Ø§Ø¦Ù‚',
+          ar: 'Ã˜ÂªÃ™â€¦ Ã˜ÂªÃ˜Â¹Ã™Å Ã™Å Ã™â€  Ã˜Â§Ã™â€žÃ˜Â³Ã˜Â§Ã˜Â¦Ã™â€š',
           en: 'Captain assigned',
         );
       case 'captain_arriving':
         return context.lt(
-          ar: 'Ø§Ù„Ø³Ø§Ø¦Ù‚ ÙÙŠ Ø§Ù„Ø·Ø±ÙŠÙ‚',
+          ar: 'Ã˜Â§Ã™â€žÃ˜Â³Ã˜Â§Ã˜Â¦Ã™â€š Ã™ÂÃ™Å  Ã˜Â§Ã™â€žÃ˜Â·Ã˜Â±Ã™Å Ã™â€š',
           en: 'Captain arriving',
         );
       case 'ride_started':
-        return context.lt(ar: 'Ø§Ù„Ø±Ø­Ù„Ø© Ø¨Ø¯Ø£Øª', en: 'Ride started');
+        return context.lt(
+          ar: 'Ã˜Â§Ã™â€žÃ˜Â±Ã˜Â­Ã™â€žÃ˜Â© Ã˜Â¨Ã˜Â¯Ã˜Â£Ã˜Âª',
+          en: 'Ride started',
+        );
       case 'completed':
-        return context.lt(ar: 'Ø§ÙƒØªÙ…Ù„Øª Ø§Ù„Ø±Ø­Ù„Ø©', en: 'Completed');
+        return context.lt(
+          ar: 'Ã˜Â§Ã™Æ’Ã˜ÂªÃ™â€¦Ã™â€žÃ˜Âª Ã˜Â§Ã™â€žÃ˜Â±Ã˜Â­Ã™â€žÃ˜Â©',
+          en: 'Completed',
+        );
       case 'cancelled':
-        return context.lt(ar: 'ØªÙ… Ø§Ù„Ø¥Ù„ØºØ§Ø¡', en: 'Cancelled');
+        return context.lt(
+          ar: 'Ã˜ÂªÃ™â€¦ Ã˜Â§Ã™â€žÃ˜Â¥Ã™â€žÃ˜ÂºÃ˜Â§Ã˜Â¡',
+          en: 'Cancelled',
+        );
       default:
-        return context.lt(ar: 'Ø±Ø­Ù„Ø© Ù†Ø´Ø·Ø©', en: 'Active ride');
+        return context.lt(
+          ar: 'Ã˜Â±Ã˜Â­Ã™â€žÃ˜Â© Ã™â€ Ã˜Â´Ã˜Â·Ã˜Â©',
+          en: 'Active ride',
+        );
     }
   }
 
@@ -778,9 +892,28 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
 
   int? _readInt(dynamic value) => int.tryParse('${value ?? ''}');
 
-  double _readNum(dynamic value) {
-    final parsed = double.tryParse('${value ?? ''}');
-    return parsed ?? 0;
+  double? _readNum(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
+  }
+
+  String _rideIdLabel(Map<String, dynamic> ride) {
+    final rideId = _readInt(ride['id']) ?? widget.rideId;
+    if (rideId <= 0) {
+      return context.lt(ar: 'ØºÙŠØ± Ù…ØªÙˆÙØ±', en: 'Not available');
+    }
+    return '#$rideId';
+  }
+
+  String _formatRideFareLabel(
+    BuildContext context,
+    dynamic rawFare,
+    String nonAvailable,
+  ) {
+    final fare = _readNum(rawFare);
+    if (fare == null || fare <= 0) return nonAvailable;
+    return formatIqd(fare.round());
   }
 }
 

@@ -1,11 +1,42 @@
 function toNumberOrNull(value) {
-  const n = Number(value);
+  if (value == null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const n = Number(text);
   return Number.isFinite(n) ? n : null;
 }
 
 function toIntOrNull(value) {
-  const n = Number(value);
+  if (value == null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const n = Number(text);
   return Number.isInteger(n) ? n : null;
+}
+
+const ACTIVE_TAXI_RIDE_STATUSES = new Set([
+  "captain_assigned",
+  "captain_arriving",
+  "ride_started",
+]);
+const TERMINAL_TAXI_RIDE_STATUSES = new Set([
+  "completed",
+  "cancelled",
+  "expired",
+]);
+
+export function resolveTaxiRideDisplayState({
+  status = null,
+  currentBidId = null,
+} = {}) {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  if (!normalizedStatus) return null;
+  if (TERMINAL_TAXI_RIDE_STATUSES.has(normalizedStatus)) return "terminal";
+  if (ACTIVE_TAXI_RIDE_STATUSES.has(normalizedStatus)) return "active";
+  if (normalizedStatus === "searching") {
+    return toIntOrNull(currentBidId) != null ? "negotiating" : "searching";
+  }
+  return normalizedStatus;
 }
 
 function normalizeRide(row) {
@@ -15,12 +46,17 @@ function normalizeRide(row) {
   const deadlineExpired = finalAcceptanceDeadlineAt
     ? new Date(finalAcceptanceDeadlineAt).getTime() <= Date.now()
     : false;
+  const currentBidId = toIntOrNull(row.current_bid_id);
+  const displayState = resolveTaxiRideDisplayState({
+    status: row.status,
+    currentBidId,
+  });
 
   return {
     id: Number(row.id),
     customerUserId: Number(row.customer_user_id),
     assignedCaptainUserId: toIntOrNull(row.assigned_captain_user_id),
-    currentBidId: toIntOrNull(row.current_bid_id),
+    currentBidId,
     pickup: {
       latitude: Number(row.pickup_latitude),
       longitude: Number(row.pickup_longitude),
@@ -64,6 +100,11 @@ function normalizeRide(row) {
     captainRating: toIntOrNull(row.captain_rating),
     captainReview: row.captain_review || null,
     captainRatedAt: row.captain_rated_at || null,
+    displayState,
+    isActiveRide: displayState === "active",
+    isSearchingRide: displayState === "searching",
+    isNegotiatingRide: displayState === "negotiating",
+    isTerminalRide: displayState === "terminal",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     distanceM: toNumberOrNull(row.distance_m),
@@ -181,6 +222,12 @@ function normalizeCallSession(row) {
     updatedAt: row.updated_at,
   };
 }
+
+export const __taxiMappersTestApi = {
+  resolveTaxiRideDisplayState,
+  ACTIVE_TAXI_RIDE_STATUSES,
+  TERMINAL_TAXI_RIDE_STATUSES,
+};
 
 function normalizeCallSignal(row) {
   if (!row) return null;

@@ -131,6 +131,10 @@ async function ensureRideChatAccess({ ride, userId, role, isSuperAdmin }) {
     throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
   }
 
+  if (!ride.assignedCaptainUserId) {
+    throw new AppError("TAXI_RIDE_FORBIDDEN", { status: 403 });
+  }
+
   if (isSuperAdmin === true || role === "admin" || role === "deputy_admin") {
     return { senderRole: "system" };
   }
@@ -159,6 +163,11 @@ function buildCompactRidePayload(ride) {
   return {
     id: ride.id,
     status: ride.status,
+    displayState: ride.displayState ?? null,
+    isActiveRide: ride.isActiveRide === true,
+    isSearchingRide: ride.isSearchingRide === true,
+    isNegotiatingRide: ride.isNegotiatingRide === true,
+    isTerminalRide: ride.isTerminalRide === true,
     proposedFareIqd: ride.proposedFareIqd,
     agreedFareIqd: ride.agreedFareIqd,
     currentBidId: ride.currentBidId,
@@ -179,6 +188,12 @@ function buildCompactRidePayload(ride) {
     updatedAt: ride.updatedAt,
   };
 }
+
+export const __taxiServiceTestApi = {
+  buildCompactRidePayload,
+  ensureRideChatAccess,
+  shouldRecommendRidePriceRaise,
+};
 
 function shouldRecommendRidePriceRaise(ride) {
   if (!ride || ride.status !== "searching") return false;
