@@ -60,6 +60,20 @@ function asInvalidToken() {
   return new AppError("INVALID_TOKEN", { status: 401 });
 }
 
+function asForbiddenAppSurface({
+  appSurface = null,
+  roleSurface = null,
+  headerSurface = null,
+} = {}) {
+  const error = new AppError("FORBIDDEN_APP_SURFACE", { status: 403 });
+  error.details = {
+    appSurface: appSurface || null,
+    roleSurface: roleSurface || null,
+    headerSurface: headerSurface || null,
+  };
+  return error;
+}
+
 function buildSessionAccessCacheKey({
   sessionId,
   userId,
@@ -269,15 +283,33 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
   }
   if (routeSurface) {
     if (roleSurface !== routeSurface) {
-      if (strict) throw asInvalidToken();
+      if (strict) {
+        throw asForbiddenAppSurface({
+          appSurface: routeSurface,
+          roleSurface,
+          headerSurface,
+        });
+      }
       return null;
     }
     if (headerSurface && headerSurface !== routeSurface) {
-      if (strict) throw asInvalidToken();
+      if (strict) {
+        throw asForbiddenAppSurface({
+          appSurface: routeSurface,
+          roleSurface,
+          headerSurface,
+        });
+      }
       return null;
     }
   } else if (headerSurface && roleSurface && headerSurface !== roleSurface) {
-    if (strict) throw asInvalidToken();
+    if (strict) {
+      throw asForbiddenAppSurface({
+        appSurface: headerSurface,
+        roleSurface,
+        headerSurface,
+      });
+    }
     return null;
   }
 
@@ -290,15 +322,15 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
     return {
       userId,
       role,
-    isSuperAdmin,
-    isTaxiCaptain,
-    sessionId: null,
-    tokenJti,
-    deviceContext,
-    appSurface: roleSurface,
-    requestSurface: routeSurface || headerSurface || null,
-  };
-}
+      isSuperAdmin,
+      isTaxiCaptain,
+      sessionId: null,
+      tokenJti,
+      deviceContext,
+      appSurface: roleSurface,
+      requestSurface: routeSurface || headerSurface || null,
+    };
+  }
 
   const sessionCacheKey = buildSessionAccessCacheKey({
     sessionId,

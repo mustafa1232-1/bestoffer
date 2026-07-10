@@ -7,9 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../features/auth/state/auth_controller.dart';
+import '../storage/secure_storage.dart';
 
 final maslakiRealtimeServiceProvider = Provider<MaslakiRealtimeService>((ref) {
-  final service = MaslakiRealtimeService(ref.read(dioClientProvider).dio);
+  final service = MaslakiRealtimeService(
+    ref.read(dioClientProvider).dio,
+    store: ref.read(secureStoreProvider),
+  );
   ref.onDispose(() {
     unawaited(service.dispose());
   });
@@ -42,9 +46,11 @@ class MaslakiRealtimeEvent {
 }
 
 class MaslakiRealtimeService implements MaslakiRealtimeClient {
-  MaslakiRealtimeService(this._dio);
+  MaslakiRealtimeService(this._dio, {SecureStore? store})
+    : _store = store ?? SecureStore();
 
   final Dio _dio;
+  final SecureStore _store;
   final Map<String, _TopicSubscriptionEntry> _topics =
       <String, _TopicSubscriptionEntry>{};
 
@@ -191,6 +197,10 @@ class MaslakiRealtimeService implements MaslakiRealtimeClient {
 
   Future<_RealtimeTokenResponse?> _fetchRealtimeToken() async {
     try {
+      final accessToken = await _store.readToken();
+      if (accessToken == null || accessToken.trim().isEmpty) {
+        return null;
+      }
       final response = await _dio.post('/api/realtime/token');
       final map = Map<String, dynamic>.from(response.data as Map);
       return _RealtimeTokenResponse.fromMap(map);

@@ -74,10 +74,7 @@ void main() {
           data: {
             'message': 'VALIDATION_ERROR',
             'details': {
-              'fields': {
-                'apartment': 'REQUIRED',
-                '_form': 'ADDRESS_INVALID',
-              },
+              'fields': {'apartment': 'REQUIRED', '_form': 'ADDRESS_INVALID'},
             },
           },
         ),
@@ -88,5 +85,66 @@ void main() {
       expect(parsed.codeFor('apartment'), 'REQUIRED');
       expect(parsed.formCode, 'ADDRESS_INVALID');
     });
+
+    test('treats public NO_TOKEN responses as generic failures', () {
+      final error = DioException(
+        requestOptions: RequestOptions(path: '/api/realtime/token'),
+        response: Response(
+          requestOptions: RequestOptions(path: '/api/realtime/token'),
+          statusCode: 401,
+          data: {'message': 'NO_TOKEN'},
+        ),
+      );
+
+      final message = Intl.withLocale(
+        'en',
+        () => mapDioError(error, fallback: 'fallback'),
+      );
+
+      expect(message, 'fallback');
+    });
+
+    test('maps forbidden app surface errors to a clear message', () {
+      final error = DioException(
+        requestOptions: RequestOptions(path: '/api/auth/login'),
+        response: Response(
+          requestOptions: RequestOptions(path: '/api/auth/login'),
+          statusCode: 403,
+          data: {'message': 'FORBIDDEN_APP_SURFACE'},
+        ),
+      );
+
+      final message = Intl.withLocale(
+        'en',
+        () => mapDioError(error, fallback: 'fallback'),
+      );
+
+      expect(message, 'This account is not allowed on this app surface.');
+    });
+
+    test(
+      'treats provider registration NO_TOKEN responses as generic failures',
+      () {
+        final error = DioException(
+          requestOptions: RequestOptions(
+            path: '/api/services/provider/register',
+          ),
+          response: Response(
+            requestOptions: RequestOptions(
+              path: '/api/services/provider/register',
+            ),
+            statusCode: 401,
+            data: {'message': 'NO_TOKEN'},
+          ),
+        );
+
+        final message = Intl.withLocale(
+          'en',
+          () => mapDioError(error, fallback: 'fallback'),
+        );
+
+        expect(message, 'fallback');
+      },
+    );
   });
 }

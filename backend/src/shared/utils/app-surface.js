@@ -49,6 +49,7 @@ export function normalizeAppSurface(value) {
     raw === "admin" ||
     raw === "deputy_admin" ||
     raw === "super_admin" ||
+    raw === "call_center" ||
     raw === "accountant" ||
     raw === "hr" ||
     raw === "support" ||
@@ -103,6 +104,7 @@ export function resolveRoleAppSurface(role) {
     normalized === "admin" ||
     normalized === "deputy_admin" ||
     normalized === "super_admin" ||
+    normalized === "call_center" ||
     normalized === "accountant" ||
     normalized === "hr"
   ) {

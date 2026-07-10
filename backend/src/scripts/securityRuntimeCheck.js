@@ -75,6 +75,7 @@ async function rawRequest(baseUrl, method, path, { headers = {}, body } = {}) {
 
 async function registerCustomer(baseUrl, runTag) {
   const actor = createActor("security-customer", runTag, "security-check/1");
+  actor.appFlavor = "user";
   const phone = buildPhone("079", Number(String(Date.now()).slice(-8)));
   const out = await request(baseUrl, actor, "POST", "/api/auth/register", {
     fullName: `Security Customer ${runTag}`,
@@ -93,6 +94,7 @@ async function registerCustomer(baseUrl, runTag) {
 
 async function registerOwner(baseUrl, runTag) {
   const actor = createActor("security-owner", runTag, "security-check/1");
+  actor.appFlavor = "store";
   const phone = buildPhone("078", Number(String(Date.now() + 19).slice(-8)));
   const out = await request(baseUrl, actor, "POST", "/api/owner/register", {
     phone,
@@ -290,6 +292,7 @@ async function main() {
   }
 
   const superAdmin = createActor("security-super-admin", cfg.runTag, "security-check/1");
+  superAdmin.appFlavor = "company";
   const superLogin = await request(cfg.baseUrl, superAdmin, "POST", "/api/auth/login", {
     phone: superAdminPhone,
     pin: superAdminPin,
@@ -297,10 +300,65 @@ async function main() {
   assertStatus(superLogin, 200, "super admin login");
   superAdmin.token = String(superLogin.data?.token || "");
 
+  const superAdminWrongSurface = createActor(
+    "security-super-admin-wrong-surface",
+    cfg.runTag,
+    "security-check/1"
+  );
+  superAdminWrongSurface.appFlavor = "user";
+  const superWrongSurfaceLogin = await request(
+    cfg.baseUrl,
+    superAdminWrongSurface,
+    "POST",
+    "/api/auth/login",
+    {
+      phone: superAdminPhone,
+      pin: superAdminPin,
+    }
+  );
+  if (superWrongSurfaceLogin.status !== 403) {
+    throw new Error(
+      `SUPER_ADMIN_WRONG_SURFACE_EXPECTED_403:${superWrongSurfaceLogin.status}`
+    );
+  }
+  if (String(superWrongSurfaceLogin.data?.message || "").trim() !== "FORBIDDEN_APP_SURFACE") {
+    throw new Error(
+      `SUPER_ADMIN_WRONG_SURFACE_EXPECTED_FORBIDDEN_APP_SURFACE:${
+        superWrongSurfaceLogin.data?.message || "missing"
+      }`
+    );
+  }
+
   await cleanup(cfg.baseUrl, superAdmin, cfg.runTag);
 
   const customer = await registerCustomer(cfg.baseUrl, cfg.runTag);
+  customer.actor.token = null;
+  const customerLogin = await request(
+    cfg.baseUrl,
+    customer.actor,
+    "POST",
+    "/api/auth/login",
+    {
+      phone: customer.phone,
+      pin: "1234",
+    }
+  );
+  assertStatus(customerLogin, 200, "customer login");
+  customer.actor.token = String(customerLogin.data?.token || "");
   const owner = await registerOwner(cfg.baseUrl, cfg.runTag);
+  owner.actor.token = null;
+  const ownerLogin = await request(
+    cfg.baseUrl,
+    owner.actor,
+    "POST",
+    "/api/auth/login",
+    {
+      phone: owner.phone,
+      pin: "1234",
+    }
+  );
+  assertStatus(ownerLogin, 200, "owner login");
+  owner.actor.token = String(ownerLogin.data?.token || "");
   await approveOwnerMerchant(cfg.baseUrl, superAdmin, owner.actor, owner.merchantId);
   const delivery = await createDeliveryAgent(cfg.baseUrl, owner.actor, cfg.runTag);
   const accountantUser = await createAccountant(cfg.baseUrl, owner.actor, cfg.runTag);
@@ -328,6 +386,7 @@ async function main() {
   );
 
   const adminActor = createActor("security-admin", cfg.runTag, "security-check/1");
+  adminActor.appFlavor = "company";
   const adminLogin = await request(cfg.baseUrl, adminActor, "POST", "/api/auth/login", {
     phone: adminUser.phone,
     pin: "1234",
@@ -340,6 +399,7 @@ async function main() {
     cfg.runTag,
     "security-check/1"
   );
+  deputyAdminActor.appFlavor = "company";
   const deputyAdminLogin = await request(
     cfg.baseUrl,
     deputyAdminActor,
@@ -358,6 +418,7 @@ async function main() {
     cfg.runTag,
     "security-check/1"
   );
+  callCenterActor.appFlavor = "company";
   const callCenterLogin = await request(
     cfg.baseUrl,
     callCenterActor,
@@ -372,6 +433,7 @@ async function main() {
   callCenterActor.token = String(callCenterLogin.data?.token || "");
 
   const deliveryActor = createActor("security-delivery", cfg.runTag, "security-check/1");
+  deliveryActor.appFlavor = "delivery";
   const deliveryLogin = await request(cfg.baseUrl, deliveryActor, "POST", "/api/auth/login", {
     phone: delivery.phone,
     pin: "1234",
@@ -384,6 +446,7 @@ async function main() {
     cfg.runTag,
     "security-check/1"
   );
+  accountantActor.appFlavor = "company";
   const accountantLogin = await request(
     cfg.baseUrl,
     accountantActor,
@@ -398,6 +461,7 @@ async function main() {
   accountantActor.token = String(accountantLogin.data?.token || "");
 
   const hrActor = createActor("security-hr", cfg.runTag, "security-check/1");
+  hrActor.appFlavor = "company";
   const hrLogin = await request(cfg.baseUrl, hrActor, "POST", "/api/auth/login", {
     phone: hrUser.phone,
     pin: "1234",

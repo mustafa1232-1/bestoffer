@@ -415,8 +415,8 @@ app.get("/version", (req, res) => {
   });
 });
 
-mountApiSurface("/api");
 mountApiSurface("/api/v1");
+mountApiSurface("/api");
 app.use("/ops", createOpsRouter());
 app.use("/ops/webhooks", createOpsWebhooksRouter());
 app.use("/api/admin/ops", createOpsRouter());

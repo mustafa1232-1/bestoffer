@@ -42,8 +42,8 @@ authRouter.post(
 );
 authRouter.post("/login", c.login);
 authRouter.post("/refresh", c.refreshSession);
-authRouter.post("/logout", requireAuth, c.logout);
-authRouter.post("/logout-all", requireAuth, c.logoutAll);
+authRouter.post("/logout", c.logout);
+authRouter.post("/logout-all", c.logoutAll);
 authRouter.get("/sessions", requireAuth, c.listSessions);
 // إدارة بيانات الحساب والعناوين تستخدم لاحقاً في checkout والطلبات.
 authRouter.patch(

@@ -16,6 +16,7 @@ test("normalizeAppSurface maps legacy aliases to the new surfaces", () => {
   assert.equal(normalizeAppSurface("owner"), "store");
   assert.equal(normalizeAppSurface("support"), "company");
   assert.equal(normalizeAppSurface("operations"), "company");
+  assert.equal(normalizeAppSurface("call_center"), "company");
   assert.equal(normalizeAppSurface("customer"), "user");
 });
 
@@ -46,13 +47,15 @@ test("resolveRequestAppSurface prefers flavor headers and falls back to routes",
 test("role to surface mapping rejects cross-flavor access", () => {
   assert.equal(isRoleAllowedForSurface("admin", "company"), true);
   assert.equal(isRoleAllowedForSurface("accountant", "company"), true);
+  assert.equal(isRoleAllowedForSurface("call_center", "company"), true);
   assert.equal(isRoleAllowedForSurface("user", "company"), false);
   assert.equal(isRoleAllowedForSurface("owner", "store"), true);
   assert.equal(isRoleAllowedForSurface("service_provider", "user"), true);
   assert.equal(resolveRoleAppSurface("service_provider"), "user");
+  assert.equal(resolveRoleAppSurface("call_center"), "company");
 });
 
-test("resolveAccessAuth rejects mismatched request surface before session lookup", async () => {
+test("resolveAccessAuth rejects authenticated surface mismatches with FORBIDDEN_APP_SURFACE", async () => {
   const jwtSecretSnapshot = env.jwtSecret;
   try {
     if (!env.jwtSecret || String(env.jwtSecret).length < 32) {
@@ -84,7 +87,8 @@ test("resolveAccessAuth rejects mismatched request surface before session lookup
 
     await assert.rejects(
       () => resolveAccessAuth(req, { strict: true }),
-      (error) => error?.message === "INVALID_TOKEN"
+      (error) =>
+        error?.message === "FORBIDDEN_APP_SURFACE" && error?.status === 403
     );
 
     const relaxed = await resolveAccessAuth(req, { strict: false });
@@ -108,6 +112,8 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         appSurface: "store",
         headerSurface: "user",
         path: "/api/me",
+        expectedMessage: "FORBIDDEN_APP_SURFACE",
+        expectedStatus: 403,
       },
       {
         label: "customer token + X-App-Flavor=store does not open store routes",
@@ -115,6 +121,8 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         appSurface: "user",
         headerSurface: "store",
         path: "/api/owner/dashboard",
+        expectedMessage: "FORBIDDEN_APP_SURFACE",
+        expectedStatus: 403,
       },
       {
         label: "delivery token + X-App-Flavor=taxi does not open taxi routes",
@@ -122,6 +130,8 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         appSurface: "delivery",
         headerSurface: "taxi",
         path: "/api/taxi/trips",
+        expectedMessage: "FORBIDDEN_APP_SURFACE",
+        expectedStatus: 403,
       },
       {
         label: "taxi token + X-App-Flavor=delivery does not open delivery routes",
@@ -129,6 +139,8 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         appSurface: "taxi",
         headerSurface: "delivery",
         path: "/api/delivery/orders",
+        expectedMessage: "FORBIDDEN_APP_SURFACE",
+        expectedStatus: 403,
       },
       {
         label: "admin token does not work inside user app surface",
@@ -136,11 +148,15 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         appSurface: "company",
         headerSurface: "user",
         path: "/api/me",
+        expectedMessage: "FORBIDDEN_APP_SURFACE",
+        expectedStatus: 403,
       },
       {
         label: "guest requests without a token stay blocked from private APIs",
         noToken: true,
         path: "/api/orders",
+        expectedMessage: "NO_TOKEN",
+        expectedStatus: 401,
       },
       {
         label: "claim surface mismatch is rejected even when header matches",
@@ -148,6 +164,8 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         appSurface: "store",
         headerSurface: "user",
         path: "/api/me",
+        expectedMessage: "INVALID_TOKEN",
+        expectedStatus: 401,
       },
     ];
 
@@ -166,7 +184,9 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
               },
               { strict: true }
             ),
-          (error) => error?.message === "NO_TOKEN"
+          (error) =>
+            error?.message === entry.expectedMessage &&
+            error?.status === entry.expectedStatus
         );
         continue;
       }
@@ -197,7 +217,9 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
 
       await assert.rejects(
         () => resolveAccessAuth(req, { strict: true }),
-        (error) => error?.message === "INVALID_TOKEN"
+        (error) =>
+          error?.message === entry.expectedMessage &&
+          error?.status === entry.expectedStatus
       );
     }
   } finally {

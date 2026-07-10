@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../forms/backend_field_error_parser.dart' as form_errors;
 import '../../l10n/app_localizations.dart';
 import '../utils/parsers.dart';
+import 'session_invalidation.dart';
 
 String mapDioError(
   DioException error, {
@@ -26,6 +27,10 @@ String mapDioError(
   final requestId = _extractRequestId(data);
   final apiCode = _extractMessageCode(data);
   final apiText = _extractMessageText(data);
+
+  if (_isSessionScopedAuthCode(apiCode) && !isTerminalAuthError(error)) {
+    return _withRequestId(normalizeText(fallback), requestId, appendRequestId);
+  }
 
   if (apiCode == 'VALIDATION_ERROR') {
     final validationMessage = _buildValidationMessage(data, l10n);
@@ -217,6 +222,10 @@ String? _messageForCode(AppLocalizations l10n, String code) {
       return l10n.apiDeliverySubscriptionPaymentPending;
     case 'ACCOUNT_DISABLED':
       return 'This account has been disabled by admin.';
+    case 'FORBIDDEN_APP_SURFACE':
+      return l10n.localeName.startsWith('ar')
+          ? 'هذا الحساب غير مسموح له على هذه الواجهة.'
+          : 'This account is not allowed on this app surface.';
     case 'PROFILE_CORE_EDIT_LOCKED':
       return l10n.apiProfileCoreEditLocked;
     case 'TAXI_ACTIVE_RIDE_EXISTS':
@@ -272,11 +281,7 @@ String mapAnyError(
 }
 
 bool isAuthDioError(DioException error) {
-  final statusCode = error.response?.statusCode;
-  if (statusCode == 401) return true;
-  final data = error.response?.data;
-  final code = _extractMessageCode(data)?.trim().toUpperCase();
-  return code == 'INVALID_TOKEN' || code == 'NO_TOKEN';
+  return isTerminalAuthError(error);
 }
 
 String mapDioErrorL10n(
@@ -371,6 +376,16 @@ String? _extractMessageText(dynamic data) {
 
 bool _isLikelyErrorCode(String value) {
   return RegExp(r'^[A-Z0-9_]+$').hasMatch(value);
+}
+
+bool _isSessionScopedAuthCode(String? code) {
+  final normalized = code?.trim().toUpperCase();
+  if (normalized == null || normalized.isEmpty) return false;
+  return normalized == 'INVALID_TOKEN' ||
+      normalized == 'NO_TOKEN' ||
+      normalized == 'INVALID_REFRESH_TOKEN' ||
+      normalized == 'TOKEN_EXPIRED' ||
+      normalized == 'SESSION_EXPIRED';
 }
 
 AppLocalizations _currentL10n() {

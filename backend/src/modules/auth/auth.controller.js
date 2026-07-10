@@ -13,6 +13,7 @@ import {
   buildUploadedFileUrl,
 } from "../../shared/utils/upload.js";
 import { extractDeviceContext } from "../../shared/utils/device-fingerprint.js";
+import { resolveAccessAuth } from "../../shared/middleware/access-auth.js";
 
 /**
  * Purpose:
@@ -188,7 +189,12 @@ export async function updateAccount(req, res, next) {
  */
 export async function logout(req, res, next) {
   try {
-    const out = await service.logout(req.userId, req.authSessionId || null);
+    const auth = await resolveOptionalAuth(req);
+    if (!auth) {
+      return res.json({ revoked: false });
+    }
+
+    const out = await service.logout(auth.userId, auth.sessionId);
     res.json(out);
   } catch (e) {
     next(e);
@@ -200,7 +206,12 @@ export async function logout(req, res, next) {
  */
 export async function logoutAll(req, res, next) {
   try {
-    const out = await service.logoutAll(req.userId, req.authSessionId || null);
+    const auth = await resolveOptionalAuth(req);
+    if (!auth) {
+      return res.json({ revokedCount: 0 });
+    }
+
+    const out = await service.logoutAll(auth.userId, auth.sessionId);
     res.json(out);
   } catch (e) {
     next(e);
@@ -282,5 +293,18 @@ export async function deleteAddress(req, res, next) {
     res.status(204).send();
   } catch (e) {
     next(e);
+  }
+}
+
+async function resolveOptionalAuth(req) {
+  try {
+    const auth = await resolveAccessAuth(req, { strict: false });
+    if (!auth) return null;
+    return {
+      userId: auth.userId,
+      sessionId: auth.sessionId || null,
+    };
+  } catch (_) {
+    return null;
   }
 }

@@ -24,6 +24,7 @@ export function createActor(name, runTag, appVersion = "e2e/1") {
     sessionId: null,
     deviceId: `${runTag}-${name}-device`,
     platform: "e2e",
+    appFlavor: null,
     appVersion,
     model: `${name}-simulator`,
     userAgent: `${appVersion}/${name}`,
@@ -31,13 +32,19 @@ export function createActor(name, runTag, appVersion = "e2e/1") {
 }
 
 export function buildHeaders(actor, { withBody = false } = {}) {
+  const appFlavor = String(actor.appFlavor || "").trim();
   const headers = {
     "X-Device-Id": actor.deviceId,
-    "X-Client-Platform": actor.platform,
     "X-App-Version": actor.appVersion,
     "X-Device-Model": actor.model,
     "User-Agent": actor.userAgent,
   };
+  if (appFlavor) {
+    headers["X-Client-Platform"] = `flutter:${appFlavor}`;
+    headers["X-App-Flavor"] = appFlavor;
+  } else {
+    headers["X-Client-Platform"] = actor.platform;
+  }
   if (actor.token) {
     headers.Authorization = `Bearer ${actor.token}`;
   }

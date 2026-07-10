@@ -32,12 +32,14 @@ class DioClient {
         onRequest: (options, handler) async {
           try {
             final skipAuth = options.extra['skipAuth'] == true;
+            final sessionGateExempt =
+                skipAuth || isSessionInvalidationExemptRequest(options);
             final token = skipAuth ? null : await _readUsableAccessToken();
             if (!skipAuth) {
               if (token != null && token.isNotEmpty) {
-                // A usable token is back (e.g. after re-login) — clear the gate.
+                // A usable token is back (e.g. after re-login) - clear the gate.
                 _sessionInvalidated = false;
-              } else if (_sessionInvalidated) {
+              } else if (_sessionInvalidated && !sessionGateExempt) {
                 // Session was terminally invalidated and there is no token.
                 // Fail fast locally so background pollers stop spamming the
                 // server with guaranteed-401 requests. Public (skipAuth) calls
