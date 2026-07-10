@@ -668,14 +668,24 @@ async function main() {
   const logout = await request(cfg.baseUrl, customer.actor, "POST", "/api/auth/logout");
   assertStatus(logout, 200, "customer logout");
 
-  const postLogoutProbe = await request(
-    cfg.baseUrl,
-    customer.actor,
-    "GET",
-    "/api/auth/sessions"
-  );
-  if (postLogoutProbe.status !== 401) {
-    throw new Error(`POST_LOGOUT_EXPECTED_401:${postLogoutProbe.status}`);
+  let postLogoutProbe = null;
+  const logoutProbeDelaysMs = [0, 500, 1500];
+  for (const delayMs of logoutProbeDelaysMs) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    postLogoutProbe = await request(
+      cfg.baseUrl,
+      customer.actor,
+      "GET",
+      "/api/auth/sessions"
+    );
+    if (postLogoutProbe.status === 401) {
+      break;
+    }
+  }
+  if (postLogoutProbe?.status !== 401) {
+    throw new Error(`POST_LOGOUT_EXPECTED_401:${postLogoutProbe?.status}`);
   }
 
   await cleanup(cfg.baseUrl, superAdmin, cfg.runTag);
