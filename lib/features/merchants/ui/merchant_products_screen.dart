@@ -88,6 +88,16 @@ class _MerchantProductsScreenState
     return !auth.isBackoffice && !auth.isOwner && !auth.isDelivery;
   }
 
+  bool _requiresStrictVariantSelection(ProductModel product) {
+    final hasColor = product.variantGroups.any(
+      (group) => group.code.trim().toLowerCase() == 'color',
+    );
+    final hasSize = product.variantGroups.any(
+      (group) => group.code.trim().toLowerCase() == 'size',
+    );
+    return hasColor && hasSize;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -275,9 +285,11 @@ class _MerchantProductsScreenState
     return products.map((product) {
       final canOrder = widget.merchant.isOpen && product.canBeOrdered;
       final usesPharmacyConversation = _requiresPharmacyConversation(product);
+      final strictVariantSelection = _requiresStrictVariantSelection(product);
       final cardData = ProductSummaryCardData.fromProduct(
         product,
         locale: locale,
+        strictVariantSelection: strictVariantSelection,
       );
       final selection =
           _cardSelections[product.id] ?? cardData.resolveSelection();
@@ -299,6 +311,7 @@ class _MerchantProductsScreenState
           heroAspectRatio: 1.38,
           selectedColorCode: selection.colorCode,
           selectedSizeCode: selection.sizeCode,
+          strictVariantSelection: strictVariantSelection,
           onSelectionChanged: (next) {
             setState(() => _cardSelections[product.id] = next);
           },
@@ -309,6 +322,7 @@ class _MerchantProductsScreenState
             showActions: _canCustomerActions,
             selectedVariantId: selection.variantId,
             selectedVariantSelections: selection.selectedVariantSelections,
+            strictVariantSelection: strictVariantSelection,
           ),
         ),
       );
@@ -322,6 +336,7 @@ class _MerchantProductsScreenState
     required bool showActions,
     required int? selectedVariantId,
     required List<Map<String, dynamic>> selectedVariantSelections,
+    required bool strictVariantSelection,
   }) {
     final tokens = context.maslakiTokens;
     final visual = context.visualTheme;
@@ -346,6 +361,7 @@ class _MerchantProductsScreenState
               quantity: 1,
               initialVariantSelections: selectedVariantSelections,
               initialSelectedVariantId: selectedVariantId,
+              strictVariantSelection: strictVariantSelection,
             )
           : null,
       child: Container(
@@ -900,19 +916,39 @@ class _MerchantProductsScreenState
     List<Map<String, dynamic>> initialVariantSelections = const [],
     int? initialSelectedVariantId,
     bool showFeedback = true,
+    bool strictVariantSelection = false,
   }) async {
     final safeQuantity = quantity < 1 ? 1 : quantity;
     var variantSelections = initialVariantSelections;
-    if (product.hasVariants) {
-      final picked = await showProductVariantPickerSheet(
-        context,
-        product: product,
-        initialSelections: initialVariantSelections,
-      );
-      if (!mounted || picked == null) return;
-      variantSelections = picked;
-    }
     final selectedVariant = product.variantForSelectionEntries(
+      variantSelections,
+    );
+    if (product.hasVariants) {
+      if (strictVariantSelection && selectedVariant == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              context.lt(
+                ar: 'اختر اللون والمقاس أولاً',
+                en: 'Choose color and size first',
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+      if (selectedVariant == null) {
+        final picked = await showProductVariantPickerSheet(
+          context,
+          product: product,
+          initialSelections: initialVariantSelections,
+        );
+        if (!mounted || picked == null) return;
+        variantSelections = picked;
+      }
+    }
+    final resolvedVariant = product.variantForSelectionEntries(
       variantSelections,
     );
     if (_requiresPharmacyConversation(product)) {
@@ -961,7 +997,7 @@ class _MerchantProductsScreenState
           merchantId: widget.merchant.id,
           merchantName: widget.merchant.name,
           quantity: safeQuantity,
-          selectedVariantId: selectedVariant?.id ?? initialSelectedVariantId,
+          selectedVariantId: resolvedVariant?.id ?? initialSelectedVariantId,
           selectedVariantSelections: variantSelections,
         );
 
@@ -982,7 +1018,12 @@ class _MerchantProductsScreenState
       SnackBar(
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),
-        content: Text('تمت إضافة ${product.name} إلى السلة'),
+        content: Text(
+          context.lt(
+            ar: 'تمت إضافة المنتج إلى السلة',
+            en: 'The product was added to the cart.',
+          ),
+        ),
       ),
     );
   }

@@ -25,6 +25,10 @@ import {
   extractRichCatalogFromMetadata,
   normalizeVariantSelectionInput,
 } from "../products/product-catalog.logic.js";
+import {
+  buildOrderItemDisplaySnapshot,
+  hydrateOrderItemDisplaySnapshot,
+} from "./order-item-snapshot.logic.js";
 import crypto from "crypto";
 import {
   consumeCouponRedemptionByOrderTx,
@@ -154,6 +158,7 @@ const orderSelect = `
     o.*,
     m.name AS merchant_name,
     m.type AS merchant_type,
+    m.activity_type AS merchant_activity_type,
     m.phone AS merchant_phone,
     m.owner_user_id AS owner_user_id,
     c.image_url AS customer_image_url,
@@ -358,12 +363,17 @@ async function attachItems(orderRows) {
   if (!orderRows.length) return [];
 
   const ids = orderRows.map((o) => o.id);
+  const columns = await getTableColumns("order_item");
+  const displaySnapshotSql = columns.has("display_snapshot_json")
+    ? "display_snapshot_json"
+    : "NULL::jsonb AS display_snapshot_json";
   const itemsResult = await q(
     `SELECT
        id,
        order_id,
        product_id,
        product_name,
+       ${displaySnapshotSql},
        base_unit_price,
        unit_price,
        quantity,
@@ -388,13 +398,42 @@ async function attachItems(orderRows) {
     map.set(key, list);
   }
 
-  return orderRows.map((row) => ({
-    ...row,
-    items: map.get(String(row.id)) || [],
-  }));
+  const orderMap = new Map(orderRows.map((row) => [String(row.id), row]));
+
+  return orderRows.map((row) => {
+    const items = (map.get(String(row.id)) || []).map((item) =>
+      hydrateOrderItemDisplaySnapshot(item, orderMap.get(String(row.id)))
+    );
+    return {
+      ...row,
+      items,
+    };
+  });
 }
 
 const tableColumnsCache = new Map();
+
+async function getTableColumns(tableName) {
+  const key = String(tableName || "").trim().toLowerCase();
+  if (!key) return new Set();
+  if (tableColumnsCache.has(key)) {
+    return tableColumnsCache.get(key);
+  }
+  const result = await q(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_name = $1
+       AND table_schema = ANY(current_schemas(false))`,
+    [key]
+  );
+  const out = new Set(
+    result.rows
+      .map((row) => String(row.column_name || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  tableColumnsCache.set(key, out);
+  return out;
+}
 
 async function getTableColumnsTx(client, tableName) {
   const key = String(tableName || "").trim().toLowerCase();
@@ -1175,6 +1214,15 @@ async function insertOrderItemTx(client, orderId, item) {
       JSON.stringify(item.selectedVariantSnapshot?.selections || []),
     ],
     [
+      "display_snapshot_json",
+      JSON.stringify(
+        item.displaySnapshot ||
+          item.display_snapshot_json ||
+          item.displaySnapshotJson ||
+          null
+      ),
+    ],
+    [
       "variant_price_delta_total",
       Number(item.variantPriceDeltaTotal || 0),
     ],
@@ -1289,6 +1337,9 @@ export const __ordersRepoTestables = Object.freeze({
   buildDynamicInsertParts,
   buildVariantSelectionSignature,
   buildSelectionsFromVariantCatalog,
+  buildOrderTrackingEnvelope,
+  hydrateOrderItemDisplaySnapshot,
+  buildOrderItemDisplaySnapshot,
   normalizeReportPeriod,
   periodStartExpression,
   buildReportTimeFilter,
@@ -1550,7 +1601,7 @@ async function calculateStoreOrderDraft({
   couponCode = null,
 }) {
   const merchantResult = await client.query(
-    `SELECT id, name, is_open, is_disabled, owner_user_id
+    `SELECT id, name, activity_type, is_open, is_disabled, owner_user_id
      FROM merchant
      WHERE id=$1`,
     [Number(merchantId)]
@@ -1588,6 +1639,7 @@ async function calculateStoreOrderDraft({
        p.id,
        p.merchant_id,
        p.name,
+       p.image_url,
        p.price,
        p.discounted_price,
        p.free_delivery,
@@ -1696,6 +1748,44 @@ async function calculateStoreOrderDraft({
     const lineDiscountTotal = Number(pricing.lineDiscountTotal);
     const grossLineTotal = Number(pricing.grossLineTotal) + modifiersLineTotal;
     const lineTotal = Number(pricing.lineTotal) + modifiersLineTotal;
+    const displaySnapshot = buildOrderItemDisplaySnapshot({
+      productId: product.id,
+      productName: product.name,
+      productImageUrl: product.image_url || null,
+      thumbnailUrl:
+        variantResolution.selectedVariantSnapshot?.imageUrl ||
+        product.image_url ||
+        null,
+      sku: variantResolution.selectedVariantSnapshot?.sku || null,
+      variantId: variantResolution.variantId || null,
+      variantName: variantResolution.selectedVariantSnapshot?.signature || null,
+      variantSku: variantResolution.selectedVariantSnapshot?.sku || null,
+      quantity: item.quantity,
+      unitPrice,
+      lineTotal,
+      currency: "IQD",
+      selectedColor: variantResolution.selectedVariantSnapshot
+        ? {
+            label: variantResolution.selectedVariantSnapshot.colorLabel || null,
+            value: variantResolution.selectedVariantSnapshot.colorLabel || null,
+            hex: variantResolution.selectedVariantSnapshot.colorHex || null,
+          }
+        : null,
+      selectedSize: variantResolution.selectedVariantSnapshot
+        ? {
+            label: variantResolution.selectedVariantSnapshot.sizeLabel || null,
+            value: variantResolution.selectedVariantSnapshot.sizeLabel || null,
+          }
+        : null,
+      specs: variantResolution.selectedVariantSnapshot?.selections || [],
+      options: selectedModifiers,
+      addons: [],
+      removals: [],
+      userNote: item.userNote || item.note || null,
+      activityType: merchant.activity_type || null,
+      storeId: merchant.id,
+      storeName: merchant.name,
+    });
 
     grossSubtotal += grossLineTotal;
     subtotal += lineTotal;
@@ -1722,6 +1812,7 @@ async function calculateStoreOrderDraft({
         finalPrice: unitPrice,
         quantity: Number(item.quantity || 0),
       },
+      displaySnapshot,
       variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
       pricingBreakdown: {
         ...pricing.pricingBreakdown,
@@ -1734,6 +1825,7 @@ async function calculateStoreOrderDraft({
           finalPrice: unitPrice,
           quantity: Number(item.quantity || 0),
         },
+        displaySnapshot,
         variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
       },
     });
@@ -1838,7 +1930,7 @@ export async function createOrderWithItems({
     }
 
     const merchantResult = await client.query(
-      `SELECT id, name, type, is_open, is_disabled, owner_user_id
+      `SELECT id, name, type, activity_type, is_open, is_disabled, owner_user_id
        FROM merchant
        WHERE id=$1`,
       [merchantId]
@@ -1876,6 +1968,7 @@ export async function createOrderWithItems({
          p.id,
          p.merchant_id,
          p.name,
+         p.image_url,
          p.price,
          p.discounted_price,
          p.free_delivery,
@@ -1987,6 +2080,44 @@ export async function createOrderWithItems({
       const lineDiscountTotal = Number(pricing.lineDiscountTotal);
       const grossLineTotal = Number(pricing.grossLineTotal) + modifiersLineTotal;
       const lineTotal = Number(pricing.lineTotal) + modifiersLineTotal;
+      const displaySnapshot = buildOrderItemDisplaySnapshot({
+        productId: product.id,
+        productName: product.name,
+        productImageUrl: product.image_url || null,
+        thumbnailUrl:
+          variantResolution.selectedVariantSnapshot?.imageUrl ||
+          product.image_url ||
+          null,
+        sku: variantResolution.selectedVariantSnapshot?.sku || null,
+        variantId: variantResolution.variantId || null,
+        variantName: variantResolution.selectedVariantSnapshot?.signature || null,
+        variantSku: variantResolution.selectedVariantSnapshot?.sku || null,
+        quantity: item.quantity,
+        unitPrice,
+        lineTotal,
+        currency: "IQD",
+        selectedColor: variantResolution.selectedVariantSnapshot
+          ? {
+              label: variantResolution.selectedVariantSnapshot.colorLabel || null,
+              value: variantResolution.selectedVariantSnapshot.colorLabel || null,
+              hex: variantResolution.selectedVariantSnapshot.colorHex || null,
+            }
+          : null,
+        selectedSize: variantResolution.selectedVariantSnapshot
+          ? {
+              label: variantResolution.selectedVariantSnapshot.sizeLabel || null,
+              value: variantResolution.selectedVariantSnapshot.sizeLabel || null,
+            }
+          : null,
+        specs: variantResolution.selectedVariantSnapshot?.selections || [],
+        options: selectedModifiers,
+        addons: [],
+        removals: [],
+        userNote: item.userNote || item.note || null,
+        activityType: merchant.activity_type || null,
+        storeId: merchant.id,
+        storeName: merchant.name,
+      });
       grossSubtotal += grossLineTotal;
       subtotal += lineTotal;
       productDiscountTotal += lineDiscountTotal;
@@ -2012,6 +2143,7 @@ export async function createOrderWithItems({
           finalPrice: unitPrice,
           quantity: Number(item.quantity || 0),
         },
+        displaySnapshot,
         variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
         pricingBreakdown: {
           ...pricing.pricingBreakdown,
@@ -2024,6 +2156,7 @@ export async function createOrderWithItems({
             finalPrice: unitPrice,
             quantity: Number(item.quantity || 0),
           },
+          displaySnapshot,
           variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
         },
       });
@@ -2905,45 +3038,11 @@ export async function getCustomerOrderTrackingSnapshot(customerUserId, orderId) 
       }
     : null;
 
-  return {
-    kind: "delivery",
+  return buildOrderTrackingEnvelope(order, {
     viewerMode: "owner",
-    order,
-    stage: buildOrderTrackingStage(order),
     latestLocation,
-    courier: order.delivery_user_id
-      ? {
-          userId: Number(order.delivery_user_id),
-          fullName: order.delivery_full_name || null,
-          phone: order.delivery_phone || null,
-          driverType: order.delivery_driver_type || null,
-          courierSource: order.courier_source || null,
-          isMerchantCourier: order.is_merchant_delivery === true,
-        }
-      : null,
-    destination: {
-      city: order.customer_city,
-      block: order.customer_block,
-      buildingNumber: order.customer_building_number,
-      apartment: order.customer_apartment,
-      label: `${order.customer_city} - ${order.customer_block} - ${order.customer_building_number}`,
-    },
-    merchant: {
-      id: Number(order.merchant_id),
-      name: order.merchant_name,
-      type: order.merchant_type || null,
-    },
     share,
-    lastUpdatedAt:
-      latestLocation?.updatedAt ||
-      order.arrived_at?.toISOString?.() ||
-      order.picked_up_at?.toISOString?.() ||
-      order.prepared_at?.toISOString?.() ||
-      order.preparing_started_at?.toISOString?.() ||
-      order.approved_at?.toISOString?.() ||
-      order.created_at?.toISOString?.() ||
-      null,
-  };
+  });
 }
 
 /**
@@ -2998,7 +3097,8 @@ export async function getOrderTrackingSnapshotForViewer({
      LIMIT 1`,
     [Number(orderId)]
   );
-  const order = res.rows[0] || null;
+  const attached = await attachItems(res.rows);
+  const order = attached[0] || null;
   if (!order) return { notFound: true };
 
   const viewerMode = resolveTrackingViewerMode({
@@ -3032,45 +3132,11 @@ export async function getOrderTrackingSnapshotForViewer({
   }
 
   return {
-    snapshot: {
-      kind: "delivery",
+    snapshot: buildOrderTrackingEnvelope(order, {
       viewerMode,
-      order,
-      stage: buildOrderTrackingStage(order),
       latestLocation,
-      courier: order.delivery_user_id
-        ? {
-            userId: Number(order.delivery_user_id),
-            fullName: order.delivery_full_name || null,
-            phone: order.delivery_phone || null,
-            driverType: order.delivery_driver_type || null,
-            courierSource: order.courier_source || null,
-            isMerchantCourier: order.is_merchant_delivery === true,
-          }
-        : null,
-      destination: {
-        city: order.customer_city,
-        block: order.customer_block,
-        buildingNumber: order.customer_building_number,
-        apartment: order.customer_apartment,
-        label: `${order.customer_city} - ${order.customer_block} - ${order.customer_building_number}`,
-      },
-      merchant: {
-        id: Number(order.merchant_id),
-        name: order.merchant_name,
-        type: order.merchant_type || null,
-      },
       share,
-      lastUpdatedAt:
-        latestLocation?.updatedAt ||
-        order.arrived_at?.toISOString?.() ||
-        order.picked_up_at?.toISOString?.() ||
-        order.prepared_at?.toISOString?.() ||
-        order.preparing_started_at?.toISOString?.() ||
-        order.approved_at?.toISOString?.() ||
-        order.created_at?.toISOString?.() ||
-        null,
-    },
+    }),
   };
 }
 
@@ -3127,62 +3193,10 @@ export async function getPublicOrderTrackingByToken(token) {
   const latestLocation = order.delivery_user_id
     ? await getLatestCourierPresence(order.delivery_user_id)
     : null;
-  return {
-    kind: "delivery",
+  return buildOrderTrackingEnvelope(order, {
     viewerMode: "publicReadonly",
-    order: {
-      id: Number(order.id),
-      merchantId: Number(order.merchant_id),
-      merchantName: order.merchant_name,
-      status: order.status,
-      totalAmount: order.total_amount,
-      deliveryFee: order.delivery_fee,
-      customerCity: order.customer_city,
-      customerBlock: order.customer_block,
-      customerBuildingNumber: order.customer_building_number,
-      customerApartment: order.customer_apartment,
-      estimatedPrepMinutes: order.estimated_prep_minutes,
-      estimatedDeliveryMinutes: order.estimated_delivery_minutes,
-      createdAt: order.created_at,
-      approvedAt: order.approved_at,
-      preparingStartedAt: order.preparing_started_at,
-      preparedAt: order.prepared_at,
-      pickedUpAt: order.picked_up_at,
-      arrivedAt: order.arrived_at,
-      deliveredAt: order.delivered_at,
-      customerConfirmedAt: order.customer_confirmed_at,
-    },
-    stage: buildOrderTrackingStage(order),
     latestLocation,
-    courier: order.delivery_user_id
-      ? {
-          fullName: order.delivery_full_name || null,
-          driverType: order.delivery_driver_type || null,
-          courierSource: order.courier_source || null,
-          isMerchantCourier: order.is_merchant_delivery === true,
-        }
-      : null,
-    destination: {
-      city: order.customer_city,
-      block: order.customer_block,
-      buildingNumber: order.customer_building_number,
-      label: `${order.customer_city} - ${order.customer_block} - ${order.customer_building_number}`,
-    },
-    merchant: {
-      id: Number(order.merchant_id),
-      name: order.merchant_name,
-      type: order.merchant_type || null,
-    },
-    lastUpdatedAt:
-      latestLocation?.updatedAt ||
-      order.arrived_at?.toISOString?.() ||
-      order.picked_up_at?.toISOString?.() ||
-      order.prepared_at?.toISOString?.() ||
-      order.preparing_started_at?.toISOString?.() ||
-      order.approved_at?.toISOString?.() ||
-      order.created_at?.toISOString?.() ||
-      null,
-  };
+  });
 }
 
 export async function cancelOrderByCustomer({
@@ -4336,6 +4350,82 @@ function buildDeliveryTimeline(order) {
       time: order.delivered_at || null,
     },
   ];
+}
+
+function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, share = null }) {
+  const items = Array.isArray(order?.items) ? order.items : [];
+  const hydratedOrder = {
+    ...order,
+    id: Number(order.id),
+    merchantId: Number(order.merchant_id),
+    merchantName: order.merchant_name || null,
+    merchantType: order.merchant_type || null,
+    merchantActivityType: order.merchant_activity_type || null,
+    totalAmount: Number(order.total_amount || 0),
+    deliveryFee: Number(order.delivery_fee || 0),
+    customerCity: order.customer_city || null,
+    customerBlock: order.customer_block || null,
+    customerBuildingNumber: order.customer_building_number || null,
+    customerApartment: order.customer_apartment || null,
+    estimatedPrepMinutes:
+      order.estimated_prep_minutes == null
+        ? null
+        : Number(order.estimated_prep_minutes),
+    estimatedDeliveryMinutes:
+      order.estimated_delivery_minutes == null
+        ? null
+        : Number(order.estimated_delivery_minutes),
+    createdAt: order.created_at || null,
+    approvedAt: order.approved_at || null,
+    preparingStartedAt: order.preparing_started_at || null,
+    preparedAt: order.prepared_at || null,
+    pickedUpAt: order.picked_up_at || null,
+    arrivedAt: order.arrived_at || null,
+    deliveredAt: order.delivered_at || null,
+    customerConfirmedAt: order.customer_confirmed_at || null,
+    items,
+  };
+  return {
+    kind: "delivery",
+    viewerMode,
+    order: hydratedOrder,
+    items,
+    stage: buildOrderTrackingStage(order),
+    latestLocation,
+    courier: order.delivery_user_id
+      ? {
+          userId: Number(order.delivery_user_id),
+          fullName: order.delivery_full_name || null,
+          phone: order.delivery_phone || null,
+          driverType: order.delivery_driver_type || null,
+          courierSource: order.courier_source || null,
+          isMerchantCourier: order.is_merchant_delivery === true,
+        }
+      : null,
+    destination: {
+      city: order.customer_city,
+      block: order.customer_block,
+      buildingNumber: order.customer_building_number,
+      apartment: order.customer_apartment,
+      label: `${order.customer_city} - ${order.customer_block} - ${order.customer_building_number}`,
+    },
+    merchant: {
+      id: Number(order.merchant_id),
+      name: order.merchant_name,
+      type: order.merchant_type || null,
+      activityType: order.merchant_activity_type || null,
+    },
+    share,
+    lastUpdatedAt:
+      latestLocation?.updatedAt ||
+      order.arrived_at?.toISOString?.() ||
+      order.picked_up_at?.toISOString?.() ||
+      order.prepared_at?.toISOString?.() ||
+      order.preparing_started_at?.toISOString?.() ||
+      order.approved_at?.toISOString?.() ||
+      order.created_at?.toISOString?.() ||
+      null,
+  };
 }
 
 function toDeliveryDetailResponse(order, context) {

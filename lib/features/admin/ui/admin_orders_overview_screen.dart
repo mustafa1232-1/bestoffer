@@ -5,6 +5,7 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/currency.dart';
 import '../../orders/models/order_model.dart';
+import '../../orders/ui/widgets/order_item_widgets.dart';
 import '../models/admin_orders_overview_model.dart';
 import '../state/admin_controller.dart';
 
@@ -336,6 +337,12 @@ class _AdminMerchantOrdersListScreenState
 
   Future<void> _showOrderDetails(OrderModel order) async {
     final l10n = context.l10n;
+    final items = order.presentationItems;
+    final groupByStore = items
+            .map((item) => '${item.storeId ?? item.storeName ?? 'store'}')
+            .toSet()
+            .length >
+        1;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -384,20 +391,23 @@ class _AdminMerchantOrdersListScreenState
                       ?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
-                if (order.items.isEmpty)
+                Text(
+                  'راجع المنتجات والمواصفات قبل الموافقة',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    color: Theme.of(bottomSheetContext).colorScheme.primary
+                        .withValues(alpha: 0.86),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (items.isEmpty)
                   Text(l10n.commonNoItems)
                 else
-                  ...order.items.map(
-                    (item) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        children: [
-                          Text(formatIqd(item.lineTotal)),
-                          const Spacer(),
-                          Text('${item.quantity}x ${item.productName}'),
-                        ],
-                      ),
-                    ),
+                  OrderItemsSummaryList(
+                    items: items,
+                    compact: false,
+                    groupByStore: groupByStore,
                   ),
               ],
             ),

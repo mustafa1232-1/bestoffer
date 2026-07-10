@@ -1,4 +1,5 @@
 import '../../../core/utils/parsers.dart';
+import 'order_item_presentation_model.dart';
 import 'order_item_model.dart';
 
 class OrderModel {
@@ -10,6 +11,7 @@ class OrderModel {
   final String orderScope;
   final int storeSequence;
   final String merchantName;
+  final String? merchantActivityType;
   final String status;
   final String customerFullName;
   final String customerPhone;
@@ -67,6 +69,7 @@ class OrderModel {
     required this.orderScope,
     required this.storeSequence,
     required this.merchantName,
+    required this.merchantActivityType,
     required this.status,
     required this.customerFullName,
     required this.customerPhone,
@@ -136,6 +139,9 @@ class OrderModel {
         fallback: 1,
       ),
       merchantName: parseString(j['merchant_name'] ?? j['merchantName']),
+      merchantActivityType: parseNullableString(
+        j['merchant_activity_type'] ?? j['merchantActivityType'],
+      ),
       status: parseString(j['status']),
       customerFullName: parseString(
         j['customer_full_name'] ?? j['customerFullName'],
@@ -245,6 +251,20 @@ class OrderModel {
   }
 
   double get totalDiscounts => productDiscountTotal + couponDiscountTotal;
+
+  List<OrderItemPresentationModel> get presentationItems => items
+      .map(
+        (item) => OrderItemPresentationModel.fromOrderItemModel(
+          item,
+          orderContext: <String, dynamic>{
+            'merchant_id': merchantId,
+            'merchant_name': merchantName,
+            'merchant_activity_type': merchantActivityType,
+            'merchant_type': null,
+          },
+        ),
+      )
+      .toList(growable: false);
 
   bool get isAppDriverDelivery =>
       courierSource == 'app' ||

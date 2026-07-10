@@ -1,3 +1,4 @@
+import '../../../orders/models/order_item_presentation_model.dart';
 import '../../../orders/models/order_item_model.dart';
 import '../../../orders/models/order_model.dart';
 
@@ -61,16 +62,25 @@ class ReceiptItem {
   });
 
   factory ReceiptItem.fromOrderItem(OrderItemModel item) {
+    final presentation = OrderItemPresentationModel.fromOrderItemModel(item);
+    final specLines = <String>[
+      ...presentation.visibleSpecs.map((entry) => entry.displayText),
+      if (presentation.options.isNotEmpty)
+        ...presentation.options.map((entry) => entry.displayText),
+      if (presentation.addons.isNotEmpty)
+        ...presentation.addons.map((entry) => entry.displayText),
+      if (presentation.removals.isNotEmpty)
+        ...presentation.removals.map((entry) => entry.displayText),
+      if (presentation.hasNote) 'Note: ${presentation.userNote}',
+    ].where((line) => line.trim().isNotEmpty).toList(growable: false);
     return ReceiptItem(
-      name: item.productName,
+      name: presentation.displayTitle,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       grossLineTotal: item.baseUnitPrice * item.quantity,
       lineDiscount: item.lineDiscountTotal,
       finalLineTotal: item.lineTotal,
-      note: item.variantSelectionsLabel.isEmpty
-          ? null
-          : item.variantSelectionsLabel,
+      note: specLines.isEmpty ? null : specLines.join(' • '),
     );
   }
 }

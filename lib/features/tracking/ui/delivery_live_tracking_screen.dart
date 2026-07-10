@@ -13,8 +13,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/utils/order_status.dart';
 import '../../orders/data/orders_api.dart';
+import '../../orders/models/order_item_presentation_model.dart';
 import '../../orders/state/orders_controller.dart';
 import '../../orders/ui/order_chat_screen.dart';
+import '../../orders/ui/widgets/order_item_widgets.dart';
 import '../tracking_map_utils.dart';
 import 'live_tracking_shell.dart';
 
@@ -283,6 +285,22 @@ class _DeliveryLiveTrackingScreenState
     return trackingMap(_snapshot?['order']);
   }
 
+  List<OrderItemPresentationModel> get _presentationItems {
+    final order = _order;
+    if (order == null) return const [];
+    final rawItems = order['items'];
+    if (rawItems is! List) return const [];
+    return rawItems
+        .whereType<Map>()
+        .map(
+          (entry) => OrderItemPresentationModel.fromRawMap(
+            Map<String, dynamic>.from(entry),
+            orderContext: order,
+          ),
+        )
+        .toList(growable: false);
+  }
+
   Map<String, dynamic>? get _courier {
     return trackingMap(_snapshot?['courier']);
   }
@@ -534,6 +552,12 @@ class _DeliveryLiveTrackingScreenState
 
     final tokens = context.maslakiTokens;
     final order = _order!;
+    final items = _presentationItems;
+    final groupByStore = items
+            .map((item) => '${item.storeId ?? item.storeName ?? 'store'}')
+            .toSet()
+            .length >
+        1;
     final topActions = <Widget>[
       if (!_isPublic)
         _TrackingActionButton(
@@ -578,6 +602,49 @@ class _DeliveryLiveTrackingScreenState
             _DeliveryStatusBadge(
               label: _stageLabel(_string(_snapshot?['stage']) ?? ''),
             ),
+            if (items.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Row(
+                textDirection: TextDirection.rtl,
+                children: [
+                  for (final item in items.take(3))
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(end: 8),
+                      child: OrderItemThumbnail(
+                        imageUrl: item.displayImageUrl,
+                        activityType: item.activityType,
+                        size: 52,
+                      ),
+                    ),
+                  if (items.length > 3)
+                    Container(
+                      width: 52,
+                      height: 52,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      child: Text(
+                        '+${items.length - 3}',
+                        textDirection: TextDirection.rtl,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              OrderItemsSummaryList(
+                items: items,
+                compact: true,
+                groupByStore: groupByStore,
+              ),
+            ],
             const SizedBox(height: 16),
             _DeliveryInfoTile(
               title: context.lt(ar: 'حالة الطلب', en: 'Order status'),

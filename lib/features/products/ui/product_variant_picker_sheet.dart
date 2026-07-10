@@ -352,7 +352,9 @@ class _ProductVariantPickerSheetState
                                   }
                                 : null,
                             label: Text(
-                              option.title,
+                              enabled
+                                  ? option.title
+                                  : '${option.title} · غير متوفر',
                               textDirection: TextDirection.rtl,
                               style: TextStyle(
                                 color: enabled

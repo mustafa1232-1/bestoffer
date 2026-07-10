@@ -45,6 +45,16 @@ class _MerchantProductDetailsScreenState
   final Map<String, ProductVariantOptionModel> _selectedByGroup = {};
   final Map<String, Set<ProductVariantOptionModel>> _multiSelectedByGroup = {};
 
+  bool get _requiresStrictVariantSelection {
+    final hasColor = widget.product.variantGroups.any(
+      (group) => group.code.trim().toLowerCase() == 'color',
+    );
+    final hasSize = widget.product.variantGroups.any(
+      (group) => group.code.trim().toLowerCase() == 'size',
+    );
+    return hasColor && hasSize;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -62,6 +72,14 @@ class _MerchantProductDetailsScreenState
   void _seedVariantSelections() {
     _selectedByGroup.clear();
     _multiSelectedByGroup.clear();
+    if (_requiresStrictVariantSelection) {
+      for (final group in widget.product.variantGroups) {
+        if (group.selectionMode == 'multiple') {
+          _multiSelectedByGroup[group.code] = <ProductVariantOptionModel>{};
+        }
+      }
+      return;
+    }
     final availableVariant = widget.product.variants.where(
       (variant) => widget.product.canOrderVariant(variant),
     );
@@ -450,6 +468,7 @@ class _MerchantProductDetailsScreenState
       priceTextOverride: formatIqd(_effectivePrice),
       selectedColorCode: _selectedColorCode,
       selectedSizeCode: _selectedSizeCode,
+      strictVariantSelection: _requiresStrictVariantSelection,
     );
     final submitLabel = !widget.canOrder
         ? widget.unavailableLabel
@@ -460,8 +479,12 @@ class _MerchantProductDetailsScreenState
             en: 'Send for prescription/review',
           );
     final submitUnavailableLabel = context.lt(
-      ar: 'اختر تركيبة متاحة أولاً',
-      en: 'Select an available variant first',
+      ar: _requiresStrictVariantSelection
+          ? 'اختر اللون والمقاس أولاً'
+          : 'اختر تركيبة متاحة أولاً',
+      en: _requiresStrictVariantSelection
+          ? 'Choose color and size first'
+          : 'Select an available variant first',
     );
 
     return Scaffold(
@@ -547,6 +570,18 @@ class _MerchantProductDetailsScreenState
                 ),
               ),
             const SizedBox(height: 12),
+            if (widget.product.hasVariants && !canSubmitCurrentSelection) ...[
+              Text(
+                submitUnavailableLabel,
+                textDirection: textDirection,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.orangeAccent.withValues(alpha: 0.96),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
             if (widget.onAddToCart != null) ...[
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,

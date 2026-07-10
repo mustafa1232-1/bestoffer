@@ -18,6 +18,7 @@ import '../../tracking/ui/delivery_live_tracking_screen.dart';
 import '../models/order_model.dart';
 import '../state/orders_controller.dart';
 import 'order_chat_screen.dart';
+import 'widgets/order_item_widgets.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -1581,6 +1582,12 @@ class _OrderItemsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final items = order.presentationItems;
+    final groupByStore = items
+            .map((item) => '${item.storeId ?? item.storeName ?? 'store'}')
+            .toSet()
+            .length >
+        1;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1597,18 +1604,20 @@ class _OrderItemsSection extends StatelessWidget {
             style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
           ),
           const SizedBox(height: 8),
-          ...order.items.map(
-            (item) => Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Text(
-                '- ${item.productName} \u00D7 ${item.quantity} (${formatIqd(item.lineTotal)})',
-                textDirection: TextDirection.rtl,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13.4,
-                ),
-              ),
+          Text(
+            'راجع المنتجات والمواصفات قبل الموافقة',
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.86),
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
             ),
+          ),
+          const SizedBox(height: 8),
+          OrderItemsSummaryList(
+            items: items,
+            compact: false,
+            groupByStore: groupByStore,
           ),
         ],
       ),
@@ -1623,25 +1632,22 @@ class _OrderInvoiceSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        color: Colors.white.withValues(alpha: 0.06),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Text(
-        '\u0627\u0644\u0645\u062c\u0645\u0648\u0639 \u0627\u0644\u0641\u0631\u0639\u064a: ${formatIqd(order.subtotal)}\n'
-        '\u0631\u0633\u0648\u0645 \u0627\u0644\u062e\u062f\u0645\u0629: ${formatIqd(order.serviceFee)}\n'
-        '\u0623\u062c\u0648\u0631 \u0627\u0644\u062a\u0648\u0635\u064a\u0644: ${formatIqd(order.deliveryFee)}\n'
-        '\u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a: ${formatIqd(order.totalAmount)}',
-        textDirection: TextDirection.rtl,
-        style: const TextStyle(
-          fontWeight: FontWeight.w800,
-          fontSize: 14,
-          height: 1.55,
-        ),
-      ),
+    final items = order.presentationItems;
+    final groupByStore = items
+            .map((item) => '${item.storeId ?? item.storeName ?? 'store'}')
+            .toSet()
+            .length >
+        1;
+    return OrderInvoiceSection(
+      items: items,
+      groupByStore: groupByStore,
+      orderNumber: '#${order.id}',
+      orderTime: order.createdAt,
+      subtotal: order.subtotal,
+      serviceFee: order.serviceFee,
+      deliveryFee: order.deliveryFee,
+      couponDiscountTotal: order.couponDiscountTotal,
+      totalAmount: order.totalAmount,
     );
   }
 }

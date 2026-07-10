@@ -16,6 +16,7 @@ class OrderItemModel {
   final double lineDiscountTotal;
   final double lineTotal;
   final Map<String, dynamic>? pricingBreakdown;
+  final Map<String, dynamic>? displaySnapshotJson;
 
   const OrderItemModel({
     required this.id,
@@ -33,6 +34,7 @@ class OrderItemModel {
     required this.lineDiscountTotal,
     required this.lineTotal,
     required this.pricingBreakdown,
+    required this.displaySnapshotJson,
   });
 
   factory OrderItemModel.fromJson(Map<String, dynamic> j) {
@@ -42,6 +44,8 @@ class OrderItemModel {
     );
     final selectedVariantRaw =
         j['selected_variant_json'] ?? j['selectedVariant'];
+    final displaySnapshotRaw =
+        j['display_snapshot_json'] ?? j['displaySnapshotJson'] ?? j['displaySnapshot'];
     final selectedVariantSelections = _asMapList(
       j['selected_variant_options_json'] ??
           j['selectedVariantOptions'] ??
@@ -75,6 +79,9 @@ class OrderItemModel {
       lineTotal: parseDouble(j['line_total'] ?? j['lineTotal']),
       pricingBreakdown: pricingRaw is Map
           ? Map<String, dynamic>.from(pricingRaw)
+          : null,
+      displaySnapshotJson: displaySnapshotRaw is Map
+          ? Map<String, dynamic>.from(displaySnapshotRaw)
           : null,
     );
   }

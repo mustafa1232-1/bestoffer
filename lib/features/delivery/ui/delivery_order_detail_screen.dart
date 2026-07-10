@@ -12,6 +12,7 @@ import '../../orders/models/order_model.dart';
 import '../../orders/ui/order_chat_screen.dart';
 import '../../tracking/ui/delivery_live_tracking_screen.dart';
 import '../state/delivery_controller.dart';
+import '../../orders/ui/widgets/order_item_widgets.dart';
 
 class DeliveryOrderDetailScreen extends ConsumerStatefulWidget {
   const DeliveryOrderDetailScreen({super.key, required this.orderId});
@@ -374,9 +375,14 @@ class _DeliveryOrderDetailScreenState
   Widget build(BuildContext context) {
     final order = _order;
     final state = ref.watch(deliveryControllerProvider);
-    final items = order?.items ?? const [];
+    final items = order?.presentationItems ?? const [];
     final orderStatus = _string(_orderMap['orderState']);
     final courierState = _string(_orderMap['courierState']);
+    final paymentMethod =
+        _string(_invoice['paymentMethodOther']) ?? _string(_invoice['paymentMethod']);
+    final isCashPayment = (paymentMethod ?? '')
+        .toLowerCase()
+        .contains('cash');
 
     return Scaffold(
       appBar: AppBar(
@@ -475,18 +481,101 @@ class _DeliveryOrderDetailScreenState
                               '${order.customerCity} - ${order.customerBlock} - ${order.customerBuildingNumber} ${order.customerApartment}',
                         ),
                         if ((order.note ?? '').trim().isNotEmpty)
+                        _InfoRow(
+                          label: context.lt(
+                            ar: 'ملاحظة الطلب',
+                            en: 'Order note',
+                          ),
+                          value: order.note!,
+                          multiline: true,
+                        ),
+                        _InfoRow(
+                          label: context.lt(ar: 'الدفع', en: 'Payment'),
+                          value: paymentMethod ?? context.lt(ar: 'غير محدد', en: 'Not set'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _SectionCard(
+                    title: context.lt(ar: 'المنتجات', en: 'Items'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          context.lt(
+                            ar: 'تحقق من عدد المنتجات قبل الاستلام',
+                            en: 'Check the item count before pickup',
+                          ),
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary
+                                .withValues(alpha: 0.86),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          textDirection: TextDirection.rtl,
+                          children: [
+                            for (final item in items.take(3))
+                              Padding(
+                                padding: const EdgeInsetsDirectional.only(end: 8),
+                                child: OrderItemThumbnail(
+                                  imageUrl: item.displayImageUrl,
+                                  activityType: item.activityType,
+                                  size: 52,
+                                ),
+                              ),
+                            if (items.length > 3)
+                              Container(
+                                width: 52,
+                                height: 52,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.12),
+                                  ),
+                                ),
+                                child: Text(
+                                  '+${items.length - 3}',
+                                  textDirection: TextDirection.rtl,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        OrderItemsSummaryList(
+                          items: items,
+                          compact: true,
+                          groupByStore:
+                              items.map((item) => item.storeId ?? item.storeName ?? 'store').toSet().length > 1,
+                        ),
+                        if (isCashPayment) ...[
+                          const SizedBox(height: 6),
                           _InfoRow(
-                            label: context.lt(ar: 'ملاحظات', en: 'Notes'),
+                            label: context.lt(
+                              ar: 'مبلغ النقدية',
+                              en: 'Cash amount',
+                            ),
+                            value: formatIqd(order.totalAmount),
+                          ),
+                        ],
+                        if ((order.note ?? '').trim().isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          _InfoRow(
+                            label: context.lt(
+                              ar: 'ملاحظة العميل',
+                              en: 'Customer note',
+                            ),
                             value: order.note!,
                             multiline: true,
                           ),
-                        _InfoRow(
-                          label: context.lt(ar: 'الدفع', en: 'Payment'),
-                          value:
-                              _string(_invoice['paymentMethodOther']) ??
-                              _string(_invoice['paymentMethod']) ??
-                              context.lt(ar: 'غير محدد', en: 'Not set'),
-                        ),
+                        ],
                       ],
                     ),
                   ),
@@ -531,69 +620,22 @@ class _DeliveryOrderDetailScreenState
                   ),
                   _SectionCard(
                     title: context.lt(ar: 'الفاتورة', en: 'Invoice'),
-                    child: Column(
-                      children: [
-                        for (final item in items)
-                          _InvoiceItemRow(
-                            name: item.productName,
-                            quantity: item.quantity,
-                            lineTotal: item.lineTotal,
-                          ),
-                        const Divider(height: 24),
-                        _MoneyRow(
-                          label: context.lt(
-                            ar: 'الإجمالي قبل الخصم',
-                            en: 'Gross subtotal',
-                          ),
-                          amount: _money(_invoice['grossSubtotal']),
-                        ),
-                        _MoneyRow(
-                          label: context.lt(
-                            ar: 'خصم المنتجات',
-                            en: 'Product discounts',
-                          ),
-                          amount: _money(_invoice['productDiscountTotal']),
-                          negative: true,
-                        ),
-                        _MoneyRow(
-                          label: context.lt(
-                            ar: 'المجموع الفرعي',
-                            en: 'Subtotal',
-                          ),
-                          amount: _money(_invoice['subtotal']),
-                        ),
-                        _MoneyRow(
-                          label: context.lt(
-                            ar: 'رسوم الخدمة',
-                            en: 'Service fee',
-                          ),
-                          amount: _money(_invoice['serviceFee']),
-                        ),
-                        _MoneyRow(
-                          label: context.lt(
-                            ar: 'رسوم التوصيل',
-                            en: 'Delivery fee',
-                          ),
-                          amount: _money(_invoice['deliveryFee']),
-                        ),
-                        _MoneyRow(
-                          label: context.lt(
-                            ar: 'خصم الكوبون',
-                            en: 'Coupon discount',
-                          ),
-                          amount: _money(_invoice['couponDiscountTotal']),
-                          negative: true,
-                        ),
-                        const Divider(height: 24),
-                        _MoneyRow(
-                          label: context.lt(
-                            ar: 'الإجمالي النهائي',
-                            en: 'Final total',
-                          ),
-                          amount: _money(_invoice['totalAmount']),
-                          emphasized: true,
-                        ),
-                      ],
+                    child: OrderInvoiceSection(
+                      items: items,
+                      groupByStore:
+                          items.map((item) => item.storeId ?? item.storeName ?? 'store').toSet().length > 1,
+                      orderNumber: '#${order.id}',
+                      orderTime: order.createdAt,
+                      paymentMethod: paymentMethod,
+                      subtotal: _money(_invoice['subtotal']),
+                      serviceFee: _money(_invoice['serviceFee']),
+                      deliveryFee: _money(_invoice['deliveryFee']),
+                      couponDiscountTotal: _money(_invoice['couponDiscountTotal']),
+                      totalAmount: _money(_invoice['totalAmount']),
+                      helperText: context.lt(
+                        ar: 'راجع المنتجات والمواصفات قبل الموافقة',
+                        en: 'Review the items and specs before approving',
+                      ),
                     ),
                   ),
                   _SectionCard(
@@ -748,73 +790,6 @@ class _ActionButton extends StatelessWidget {
       onPressed: onPressed,
       icon: Icon(icon),
       label: Text(label),
-    );
-  }
-}
-
-class _InvoiceItemRow extends StatelessWidget {
-  const _InvoiceItemRow({
-    required this.name,
-    required this.quantity,
-    required this.lineTotal,
-  });
-
-  final String name;
-  final int quantity;
-  final double lineTotal;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              '$name x$quantity',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(formatIqd(lineTotal)),
-        ],
-      ),
-    );
-  }
-}
-
-class _MoneyRow extends StatelessWidget {
-  const _MoneyRow({
-    required this.label,
-    required this.amount,
-    this.negative = false,
-    this.emphasized = false,
-  });
-
-  final String label;
-  final double amount;
-  final bool negative;
-  final bool emphasized;
-
-  @override
-  Widget build(BuildContext context) {
-    final signedValue = negative ? -amount : amount;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          Expanded(child: Text(label)),
-          const SizedBox(width: 12),
-          Text(
-            formatIqd(signedValue),
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              fontWeight: emphasized ? FontWeight.w800 : FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

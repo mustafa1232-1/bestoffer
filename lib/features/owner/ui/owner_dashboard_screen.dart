@@ -25,6 +25,7 @@ import '../../hr/ui/hr_dashboard_screen.dart';
 import '../../jobs/ui/jobs_hub_screen.dart';
 import '../../notifications/ui/notifications_bell.dart';
 import '../../orders/models/order_model.dart';
+import '../../orders/ui/widgets/order_item_widgets.dart';
 import '../../pharmacy/ui/pharmacy_conversation_screen.dart';
 import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
@@ -1584,7 +1585,9 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
               ),
             ],
             const SizedBox(height: 6),
-            ...order.items.map((item) {
+            ...order.items.asMap().entries.map((entry) {
+              final item = entry.value;
+              final presentation = order.presentationItems[entry.key];
               ProductModel? linkedProduct;
               if (item.productId != null) {
                 for (final product in ownerState.products) {
@@ -1608,10 +1611,11 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(
-                      '${item.productName} ? ${item.quantity}',
-                      textDirection: TextDirection.rtl,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    OrderItemMiniCard(
+                      item: presentation,
+                      compact: false,
+                      showStoreName: false,
+                      showSections: true,
                     ),
                     const SizedBox(height: 6),
                     Row(

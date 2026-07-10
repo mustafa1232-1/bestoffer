@@ -109,6 +109,7 @@ class ProductSummaryCardSelection {
 
   bool get hasColor => colorCode != null && colorCode!.trim().isNotEmpty;
   bool get hasSize => sizeCode != null && sizeCode!.trim().isNotEmpty;
+  bool get isComplete => hasColor && hasSize;
 }
 
 class ProductSummaryCardData {
@@ -130,6 +131,7 @@ class ProductSummaryCardData {
   final List<ProductVariantModel> variants;
   final String? selectedColorCode;
   final String? selectedSizeCode;
+  final bool strictVariantSelection;
 
   const ProductSummaryCardData({
     required this.title,
@@ -150,6 +152,7 @@ class ProductSummaryCardData {
     this.variants = const [],
     this.selectedColorCode,
     this.selectedSizeCode,
+    this.strictVariantSelection = false,
   });
 
   factory ProductSummaryCardData.fromProduct(
@@ -159,6 +162,7 @@ class ProductSummaryCardData {
     LocalImageFile? imageFile,
     String? selectedColorCode,
     String? selectedSizeCode,
+    bool strictVariantSelection = false,
   }) {
     final categoryLabel = _displayCategoryLabel(product.categoryName);
     final availableLabel = _localizedText(
@@ -199,16 +203,20 @@ class ProductSummaryCardData {
       availability: availability,
     );
     final galleryImages = _buildGalleryImages(product, colors);
-    final resolvedColorCode = _resolveInitialColorCode(
-      selectedColorCode: selectedColorCode,
-      colors: colors,
-      galleryImages: galleryImages,
-    );
-    final resolvedSizeCode = _resolveInitialSizeCode(
-      selectedColorCode: resolvedColorCode,
-      selectedSizeCode: selectedSizeCode,
-      sizes: sizes,
-    );
+    final resolvedColorCode = strictVariantSelection
+        ? selectedColorCode
+        : _resolveInitialColorCode(
+            selectedColorCode: selectedColorCode,
+            colors: colors,
+            galleryImages: galleryImages,
+          );
+    final resolvedSizeCode = strictVariantSelection
+        ? selectedSizeCode
+        : _resolveInitialSizeCode(
+            selectedColorCode: resolvedColorCode,
+            selectedSizeCode: selectedSizeCode,
+            sizes: sizes,
+          );
 
     final variantBadges = <ProductSummaryBadgeData>[];
     for (final group in product.variantGroups) {
@@ -302,6 +310,7 @@ class ProductSummaryCardData {
       variants: product.variants,
       selectedColorCode: resolvedColorCode,
       selectedSizeCode: resolvedSizeCode,
+      strictVariantSelection: strictVariantSelection,
     );
   }
 
@@ -398,11 +407,13 @@ class ProductSummaryCardData {
         .toList(growable: false);
     if (availableColors.isEmpty) return null;
     final normalized = _normalizeCode(code);
-    if (normalized == null) return availableColors.first;
+    if (normalized == null) {
+      return strictVariantSelection ? null : availableColors.first;
+    }
     for (final color in availableColors) {
       if (_sameCode(color.code, normalized)) return color;
     }
-    return availableColors.first;
+    return strictVariantSelection ? null : availableColors.first;
   }
 
   ProductSummarySizeData? _resolveSize({
@@ -412,12 +423,13 @@ class ProductSummaryCardData {
     final eligible = availableSizesForColor(colorCode);
     if (eligible.isEmpty) return null;
     final normalizedRequested = _normalizeCode(requestedSizeCode);
-    if (normalizedRequested != null) {
-      for (final size in eligible) {
-        if (_sameCode(size.code, normalizedRequested)) return size;
-      }
+    if (normalizedRequested == null) {
+      return strictVariantSelection ? null : eligible.first;
     }
-    return eligible.first;
+    for (final size in eligible) {
+      if (_sameCode(size.code, normalizedRequested)) return size;
+    }
+    return strictVariantSelection ? null : eligible.first;
   }
 
   List<ProductSummarySizeData> availableSizesForColor(String? colorCode) {
@@ -909,6 +921,7 @@ class ProductSummaryCard extends StatefulWidget {
     bool showVariantControls = true,
     String? selectedColorCode,
     String? selectedSizeCode,
+    bool strictVariantSelection = false,
     ValueChanged<ProductSummaryCardSelection>? onSelectionChanged,
     Locale? locale,
   }) {
@@ -919,6 +932,7 @@ class ProductSummaryCard extends StatefulWidget {
         locale: locale,
         selectedColorCode: selectedColorCode,
         selectedSizeCode: selectedSizeCode,
+        strictVariantSelection: strictVariantSelection,
       ),
       appearance: appearance,
       onTap: onTap,
@@ -1371,6 +1385,24 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                       })
                       .toList(growable: false),
                 ),
+                if (widget.data.strictVariantSelection &&
+                    currentSelection.colorCode == null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    _localizedText(
+                      Localizations.localeOf(context),
+                      ar: 'اختر اللون',
+                      en: 'Choose color',
+                    ),
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: resolvedAppearance.warningColor,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ],
               if (widget.showVariantControls && visibleSizes.isNotEmpty) ...[
                 const SizedBox(height: 10),
@@ -1403,6 +1435,24 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                       })
                       .toList(growable: false),
                 ),
+                if (widget.data.strictVariantSelection &&
+                    currentSelection.sizeCode == null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    _localizedText(
+                      Localizations.localeOf(context),
+                      ar: 'اختر المقاس',
+                      en: 'Choose size',
+                    ),
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: resolvedAppearance.warningColor,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ],
               if (_limited(
                 widget.data.variantBadges,
@@ -1492,7 +1542,7 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
   }) {
     final swatch = _parseVariantSwatch(color.hex) ?? appearance.accentColor;
     return InkWell(
-      onTap: () => _selectColor(color),
+      onTap: color.available ? () => _selectColor(color) : null,
       borderRadius: BorderRadius.circular(999),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
@@ -1537,14 +1587,24 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                   : null,
             ),
             const SizedBox(width: 6),
-            Text(
-              color.label,
-              style: TextStyle(
-                color: selected
-                    ? appearance.titleColor
-                    : appearance.chipTextColor,
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
+            Flexible(
+              child: Text(
+                color.available
+                    ? color.label
+                    : '${color.label} · ${_localizedText(
+                        Localizations.localeOf(context),
+                        ar: 'غير متوفر',
+                        en: 'Unavailable',
+                      )}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected
+                      ? appearance.titleColor
+                      : appearance.chipTextColor,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
@@ -1559,7 +1619,7 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
     required bool selected,
   }) {
     return InkWell(
-      onTap: () => _selectSize(size),
+      onTap: size.available ? () => _selectSize(size) : null,
       borderRadius: BorderRadius.circular(999),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
@@ -1577,7 +1637,13 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
           ),
         ),
         child: Text(
-          size.label,
+          size.available
+              ? size.label
+              : '${size.label} · ${_localizedText(
+                  Localizations.localeOf(context),
+                  ar: 'غير متوفر',
+                  en: 'Unavailable',
+                )}',
           textDirection: TextDirection.rtl,
           style: TextStyle(
             color: selected ? appearance.titleColor : appearance.chipTextColor,

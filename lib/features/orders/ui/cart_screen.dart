@@ -6,11 +6,13 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/product_offer_pricing.dart';
 import '../../auth/state/auth_controller.dart';
+import '../models/order_item_presentation_model.dart';
 import '../logic/order_preview_errors.dart';
 import '../state/cart_controller.dart';
 import '../state/delivery_address_controller.dart';
 import '../state/orders_controller.dart';
 import 'delivery_addresses_screen.dart';
+import 'widgets/order_item_widgets.dart';
 
 class CartScreen extends ConsumerStatefulWidget {
   const CartScreen({super.key});
@@ -757,6 +759,10 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                         padding: const EdgeInsets.all(10),
                         child: Column(
                           children: cart.items.map((item) {
+                            final presentation =
+                                OrderItemPresentationModel.fromCartItemModel(
+                                  item,
+                                );
                             final pricing = computeProductOfferPricing(
                               item.product,
                               quantity: item.quantity,
@@ -778,156 +784,123 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                       : Colors.white.withValues(alpha: 0.12),
                                 ),
                               ),
-                              child: Row(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          item.product.name,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                        if (item
-                                            .variantSelectionsLabel
-                                            .isNotEmpty)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 2,
-                                            ),
-                                            child: Text(
-                                              item.variantSelectionsLabel,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.white.withValues(
-                                                  alpha: 0.72,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        if (markedOutOfStock)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 4,
-                                            ),
-                                            child: Text(
-                                              _outOfStockDetails
-                                                      ?.messageForLanguageCode(
-                                                        Localizations.localeOf(
-                                                          context,
-                                                        ).languageCode,
-                                                      ) ??
-                                                  'هذا الخيار غير متوفر حالياً — احذف المنتج أو اختر لوناً/مقاساً آخر.',
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.redAccent,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          ),
-                                        if (cart.isMultiStore)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 2,
-                                            ),
-                                            child: Text(
-                                              item.merchantName,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.white.withValues(
-                                                  alpha: 0.72,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '${formatIqd(pricing.unitPrice)} x ${item.quantity} = ${formatIqd(pricing.lineTotal)}',
-                                        ),
-                                        if (pricing.lineDiscountTotal > 0)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 4,
-                                            ),
-                                            child: Text(
-                                              '\u062e\u0635\u0645 ${formatIqd(pricing.lineDiscountTotal)}${pricing.freeUnits > 0 ? ' \u2022 \u0645\u062c\u0627\u0646\u064a ${pricing.freeUnits}' : ''}',
-                                              style: const TextStyle(
-                                                color: Colors.greenAccent,
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          ),
-                                        if ((pricing.offerLabel ?? '')
-                                            .trim()
-                                            .isNotEmpty)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 4,
-                                            ),
-                                            child: Text(
-                                              pricing.offerLabel!,
-                                              style: TextStyle(
-                                                color: Colors.white.withValues(
-                                                  alpha: 0.72,
-                                                ),
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
+                                  OrderItemMiniCard(
+                                    item: presentation,
+                                    compact: false,
+                                    showStoreName: cart.isMultiStore,
+                                    showSections: true,
+                                  ),
+                                  if (pricing.lineDiscountTotal > 0) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      '\u062e\u0635\u0645 ${formatIqd(pricing.lineDiscountTotal)}${pricing.freeUnits > 0 ? ' \u2022 \u0645\u062c\u0627\u0646\u064a ${pricing.freeUnits}' : ''}',
+                                      textDirection: TextDirection.rtl,
+                                      style: const TextStyle(
+                                        color: Colors.greenAccent,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
-                                  ),
-                                  IconButton(
-                                    onPressed: () => ref
-                                        .read(cartControllerProvider.notifier)
-                                        .decrementItem(
-                                          item.product.id,
-                                          merchantId: item.merchantId,
-                                          selectedModifiers:
-                                              item.selectedModifiers,
-                                          selectedVariantId:
-                                              item.selectedVariantId,
-                                          selectedVariantSelections:
-                                              item.selectedVariantSelections,
+                                  ],
+                                  if ((pricing.offerLabel ?? '')
+                                      .trim()
+                                      .isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      pricing.offerLabel!,
+                                      textDirection: TextDirection.rtl,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.72,
                                         ),
-                                    icon: const Icon(
-                                      Icons.remove_circle_outline,
+                                        fontSize: 12,
+                                      ),
                                     ),
-                                  ),
-                                  IconButton(
-                                    onPressed: () => ref
-                                        .read(cartControllerProvider.notifier)
-                                        .addItem(
-                                          product: item.product,
-                                          merchantId: item.merchantId,
-                                          merchantName: item.merchantName,
-                                          selectedModifiers:
-                                              item.selectedModifiers,
-                                          selectedVariantId:
-                                              item.selectedVariantId,
-                                          selectedVariantSelections:
-                                              item.selectedVariantSelections,
+                                  ],
+                                  if (markedOutOfStock) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      _outOfStockDetails
+                                              ?.messageForLanguageCode(
+                                                Localizations.localeOf(
+                                                  context,
+                                                ).languageCode,
+                                              ) ??
+                                          'هذا الخيار غير متوفر حالياً — احذف المنتج أو اختر لوناً/مقاساً آخر.',
+                                      textDirection: TextDirection.rtl,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.redAccent,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      IconButton(
+                                        onPressed: () => ref
+                                            .read(
+                                              cartControllerProvider.notifier,
+                                            )
+                                            .decrementItem(
+                                              item.product.id,
+                                              merchantId: item.merchantId,
+                                              selectedModifiers:
+                                                  item.selectedModifiers,
+                                              selectedVariantId:
+                                                  item.selectedVariantId,
+                                              selectedVariantSelections:
+                                                  item.selectedVariantSelections,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.remove_circle_outline,
                                         ),
-                                    icon: const Icon(Icons.add_circle_outline),
-                                  ),
-                                  IconButton(
-                                    onPressed: () => ref
-                                        .read(cartControllerProvider.notifier)
-                                        .removeItem(
-                                          item.product.id,
-                                          merchantId: item.merchantId,
-                                          selectedModifiers:
-                                              item.selectedModifiers,
-                                          selectedVariantId:
-                                              item.selectedVariantId,
-                                          selectedVariantSelections:
-                                              item.selectedVariantSelections,
+                                      ),
+                                      IconButton(
+                                        onPressed: () => ref
+                                            .read(
+                                              cartControllerProvider.notifier,
+                                            )
+                                            .addItem(
+                                              product: item.product,
+                                              merchantId: item.merchantId,
+                                              merchantName: item.merchantName,
+                                              selectedModifiers:
+                                                  item.selectedModifiers,
+                                              selectedVariantId:
+                                                  item.selectedVariantId,
+                                              selectedVariantSelections:
+                                                  item.selectedVariantSelections,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.add_circle_outline,
                                         ),
-                                    icon: const Icon(Icons.delete_outline),
+                                      ),
+                                      IconButton(
+                                        onPressed: () => ref
+                                            .read(
+                                              cartControllerProvider.notifier,
+                                            )
+                                            .removeItem(
+                                              item.product.id,
+                                              merchantId: item.merchantId,
+                                              selectedModifiers:
+                                                  item.selectedModifiers,
+                                              selectedVariantId:
+                                                  item.selectedVariantId,
+                                              selectedVariantSelections:
+                                                  item.selectedVariantSelections,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.delete_outline,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),

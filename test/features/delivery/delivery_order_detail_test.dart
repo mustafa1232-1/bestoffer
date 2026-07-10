@@ -9,6 +9,7 @@ import 'package:maslaki/features/delivery/ui/courier_pages.dart';
 import 'package:maslaki/features/delivery/ui/delivery_dashboard_screen.dart';
 import 'package:maslaki/features/delivery/ui/delivery_order_detail_screen.dart';
 import 'package:maslaki/features/orders/models/order_model.dart';
+import 'package:maslaki/features/orders/ui/widgets/order_item_widgets.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
 
 /// Fake API that returns a canonical delivery order-detail payload, matching
@@ -108,11 +109,9 @@ void main() {
     await _settleLoad(tester);
 
     expect(tester.takeException(), isNull);
-    // Item rendered => item count is not zero when items exist.
-    expect(find.text('Test Product x2'), findsOneWidget);
-    expect(find.text('Service fee'), findsOneWidget);
-    expect(find.text('Delivery fee'), findsOneWidget);
-    expect(find.text('Final total'), findsOneWidget);
+    expect(find.byType(OrderItemsSummaryList), findsOneWidget);
+    expect(find.text('Test Product'), findsOneWidget);
+    expect(find.byType(OrderItemPriceBreakdownRow), findsOneWidget);
   });
 
   testWidgets('CourierOrderDetailsPage routes to the detail screen', (

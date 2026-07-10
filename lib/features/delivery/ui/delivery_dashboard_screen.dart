@@ -14,6 +14,7 @@ import '../../auth/state/auth_controller.dart';
 import '../../notifications/ui/notifications_bell.dart';
 import '../../orders/models/order_model.dart';
 import '../../orders/ui/order_chat_screen.dart';
+import '../../orders/ui/widgets/order_item_widgets.dart';
 import '../../settings/ui/pages/settings_account_screen.dart';
 import '../../settings/ui/pages/settings_support_screen.dart';
 import '../data/delivery_api.dart';
@@ -1095,8 +1096,9 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
     final waitingForMerchant =
         assignedToMe && (normalized == 'pending' || normalized == 'preparing');
     final controller = ref.read(deliveryControllerProvider.notifier);
+    final items = order.presentationItems;
 
-    final itemCount = order.items.fold<int>(
+    final itemCount = items.fold<int>(
       0,
       (sum, item) => sum + item.quantity,
     );
@@ -1356,7 +1358,7 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
               // summary without items, so showing "0" there is misleading —
               // we surface "View details" instead and fetch the full invoice
               // (with items) inside DeliveryOrderDetailScreen.
-              if (order.items.isNotEmpty)
+              if (items.isNotEmpty)
                 Text(l10n.deliveryOrderItemsCount(itemCount))
               else
                 Text(
@@ -1383,13 +1385,47 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
                 '${context.lt(ar: 'الإجمالي النهائي', en: 'Final total')}: ${formatIqd(order.totalAmount)}',
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
-              if (order.items.isNotEmpty) ...[
+              if (items.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                ...order.items.map(
-                  (i) => Text(
-                    '- ${i.productName} x ${i.quantity}',
-                    textDirection: TextDirection.rtl,
-                  ),
+                Row(
+                  textDirection: TextDirection.rtl,
+                  children: [
+                    for (final item in items.take(3))
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(end: 8),
+                        child: OrderItemThumbnail(
+                          imageUrl: item.displayImageUrl,
+                          activityType: item.activityType,
+                          size: 52,
+                        ),
+                      ),
+                    if (items.length > 3)
+                      Container(
+                        width: 52,
+                        height: 52,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.12),
+                          ),
+                        ),
+                        child: Text(
+                          '+${items.length - 3}',
+                          textDirection: TextDirection.rtl,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                OrderItemsSummaryList(
+                  items: items,
+                  compact: true,
+                  groupByStore: false,
                 ),
               ],
               if (order.imageUrl?.trim().isNotEmpty == true) ...[

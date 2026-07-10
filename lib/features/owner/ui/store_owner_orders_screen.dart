@@ -9,6 +9,7 @@ import '../../../core/utils/order_status.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../coupons/ui/coupon_management_screen.dart';
 import '../../orders/models/order_model.dart';
+import '../../orders/ui/widgets/order_item_widgets.dart';
 import '../printing/receipt_printer_service.dart';
 import '../printing/ui/receipt_preview_dialog.dart';
 import '../state/owner_controller.dart';
@@ -1029,18 +1030,23 @@ class _StoreOwnerOrdersScreenState
               Text('${l10n.ownerOrdersNoteLabel}: ${order.note}'),
             ],
             const SizedBox(height: 10),
-            ...order.items.map(
-              (item) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text('${item.productName} x ${item.quantity}'),
-                    ),
-                    Text(formatIqd(item.lineTotal)),
-                  ],
-                ),
+            Text(
+              'راجع المنتجات والمواصفات قبل الموافقة',
+              textDirection: TextDirection.rtl,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.86),
+                fontWeight: FontWeight.w700,
               ),
+            ),
+            const SizedBox(height: 8),
+            OrderItemsSummaryList(
+              items: order.presentationItems,
+              compact: false,
+              groupByStore: order.presentationItems
+                      .map((item) => '${item.storeId ?? item.storeName ?? 'store'}')
+                      .toSet()
+                      .length >
+                  1,
             ),
             const Divider(height: 20),
             Row(
