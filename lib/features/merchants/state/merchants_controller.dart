@@ -214,6 +214,7 @@ class MerchantsController
     required String name,
     required String type,
     String? activityType,
+    String? department,
     String? discoverySubcategory,
     List<String>? discoverySubcategories,
     bool? discoverySelectAll,
@@ -243,6 +244,8 @@ class MerchantsController
       'type': type,
       if (activityType != null && activityType.trim().isNotEmpty)
         'activityType': activityType.trim(),
+      if (department != null && department.trim().isNotEmpty)
+        'department': department.trim().toLowerCase(),
       if (discoverySubcategory != null &&
           discoverySubcategory.trim().isNotEmpty)
         'discoverySubcategory': discoverySubcategory.trim(),

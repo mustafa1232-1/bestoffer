@@ -43,9 +43,12 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
 
   String merchantType = 'restaurant';
   String? merchantActivityType;
+  String? _selectedDepartment; // 'men' | 'women', required for fashion stores.
   final Set<String> discoverySubcategories = <String>{};
   bool discoverySelectAll = false;
   List<StoreActivityModel> _activityOptions = const [];
+
+  bool get _isFashionActivity => merchantActivityType == 'fashion_clothing';
   List<StoreDiscoveryOptionModel> _discoveryOptions = const [];
   bool _loadingActivityOptions = false;
   bool _loadingDiscoveryOptions = false;
@@ -454,6 +457,15 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
         fieldLabel: _fieldLabel(context, 'activityType'),
       );
     }
+    // Fashion/clothing stores must pick a department (رجالي / نسائي).
+    if (selectedActivity != null &&
+        selectedActivity.activityType == 'fashion_clothing' &&
+        (_selectedDepartment == null || _selectedDepartment!.isEmpty)) {
+      nextErrors['merchantDepartment'] = context.lt(
+        ar: 'اختر القسم: رجالي أو نسائي',
+        en: 'Choose a department: Men or Women',
+      );
+    }
     if ((selectedActivity?.hasDiscoverySubcategories ?? false) &&
         !discoverySelectAll &&
         discoverySubcategories.isEmpty) {
@@ -489,6 +501,7 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
             type: merchantType,
             // Guaranteed non-null: validation above blocks submit without it.
             activityType: merchantActivityType!,
+            department: _isFashionActivity ? _selectedDepartment : null,
             discoverySubcategory: discoverySubcategories.isEmpty
                 ? null
                 : discoverySubcategories.first,
@@ -905,8 +918,11 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
                     merchantActivityType = value;
                     discoverySubcategories.clear();
                     discoverySelectAll = false;
+                    // Department only applies to fashion; reset on any change.
+                    _selectedDepartment = null;
                     _fieldErrors.remove('discoverySubcategory');
                     _fieldErrors.remove('activityType');
+                    _fieldErrors.remove('merchantDepartment');
                   });
                   await _loadDiscoveryOptions(value);
                 },
@@ -917,6 +933,55 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
                     en: 'Choose the category the store appears under for users',
                   ),
                   errorText: _fieldErrors['activityType'],
+                ),
+              ),
+            ],
+            if (_isFashionActivity) ...[
+              const SizedBox(height: 12),
+              _scrollCoordinator.anchor(
+                'merchantDepartment',
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.lt(ar: 'القسم', en: 'Department'),
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          key: const Key('admin_department_women'),
+                          label: Text(context.lt(ar: 'نسائي', en: 'Women')),
+                          selected: _selectedDepartment == 'women',
+                          onSelected: (_) => setState(() {
+                            _selectedDepartment = 'women';
+                            _fieldErrors.remove('merchantDepartment');
+                            if (_fieldErrors.isEmpty) _formError = null;
+                          }),
+                        ),
+                        ChoiceChip(
+                          key: const Key('admin_department_men'),
+                          label: Text(context.lt(ar: 'رجالي', en: 'Men')),
+                          selected: _selectedDepartment == 'men',
+                          onSelected: (_) => setState(() {
+                            _selectedDepartment = 'men';
+                            _fieldErrors.remove('merchantDepartment');
+                            if (_fieldErrors.isEmpty) _formError = null;
+                          }),
+                        ),
+                      ],
+                    ),
+                    if (_fieldErrors['merchantDepartment'] != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        _fieldErrors['merchantDepartment']!,
+                        style:
+                            TextStyle(color: Theme.of(context).colorScheme.error),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ],

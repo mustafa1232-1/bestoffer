@@ -10,6 +10,7 @@ import '../../../core/forms/backend_field_error_parser.dart'
 import '../../../core/files/local_image_file.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/network/session_invalidation.dart';
 import '../../../core/media/media_cache_service.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/settings/app_settings_controller.dart';
@@ -169,7 +170,31 @@ const Duration kAuthSessionVerifyTimeout = Duration(seconds: 20);
 class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
 
-  AuthController(this.ref) : super(const AuthState());
+  AuthController(this.ref) : super(const AuthState()) {
+    // When the network layer confirms a terminal INVALID_TOKEN, drop cleanly to
+    // guest/login instead of leaving controllers polling protected endpoints.
+    SessionInvalidationBus.instance.addListener(_onSessionInvalidatedSignal);
+    ref.onDispose(
+      () => SessionInvalidationBus.instance
+          .removeListener(_onSessionInvalidatedSignal),
+    );
+  }
+
+  void _onSessionInvalidatedSignal() {
+    // Only react if we currently believe we are signed in.
+    if (state.token == null && state.user == null) return;
+    unawaited(_dropToGuestAfterInvalidSession());
+  }
+
+  Future<void> _dropToGuestAfterInvalidSession() async {
+    final store = ref.read(secureStoreProvider);
+    try {
+      await store.clear();
+      await store.saveGuestMode(true);
+    } catch (_) {}
+    if (!mounted) return;
+    state = const AuthState(guestMode: true);
+  }
 
   Future<void> bootstrap() async {
     final store = ref.read(secureStoreProvider);

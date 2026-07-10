@@ -13,6 +13,7 @@ import '../constants/api.dart';
 import '../utils/parsers.dart';
 import 'secure_http_adapter_stub.dart'
     if (dart.library.io) 'secure_http_adapter_io.dart';
+import 'session_invalidation.dart';
 
 class DioClient {
   DioClient(this.store)
@@ -32,6 +33,28 @@ class DioClient {
           try {
             final skipAuth = options.extra['skipAuth'] == true;
             final token = skipAuth ? null : await _readUsableAccessToken();
+            if (!skipAuth) {
+              if (token != null && token.isNotEmpty) {
+                // A usable token is back (e.g. after re-login) — clear the gate.
+                _sessionInvalidated = false;
+              } else if (_sessionInvalidated) {
+                // Session was terminally invalidated and there is no token.
+                // Fail fast locally so background pollers stop spamming the
+                // server with guaranteed-401 requests. Public (skipAuth) calls
+                // are unaffected.
+                return handler.reject(
+                  DioException(
+                    requestOptions: options,
+                    response: Response(
+                      requestOptions: options,
+                      statusCode: 401,
+                      data: const {'message': 'INVALID_TOKEN'},
+                    ),
+                    type: DioExceptionType.badResponse,
+                  ),
+                );
+              }
+            }
             if (!skipAuth && token != null && token.isNotEmpty) {
               options.headers['Authorization'] = 'Bearer $token';
             }
@@ -71,6 +94,13 @@ class DioClient {
             }
           } on DioException catch (refreshError) {
             return handler.next(refreshError);
+          }
+
+          // Refresh could not rescue this request. If it is a terminal auth
+          // failure, invalidate the session once: clear tokens + signal the app
+          // to drop to guest/login, and start failing protected requests fast.
+          if (isTerminalAuthError(error)) {
+            await _handleTerminalAuthFailure();
           }
 
           if (!_isRetryableConnectionError(error)) {
@@ -121,6 +151,25 @@ class DioClient {
   RequestSigningMaterial? _cachedSigningMaterial;
   Future<RequestSigningMaterial?>? _signingRefreshFuture;
   Future<String?>? _accessRefreshFuture;
+
+  /// Set once a confirmed terminal auth failure (INVALID_TOKEN) is observed and
+  /// the session is cleared. While true (and no token exists) protected requests
+  /// fail fast locally instead of hitting the server. Cleared when a usable
+  /// token reappears (re-login).
+  bool _sessionInvalidated = false;
+
+  Future<void> _handleTerminalAuthFailure() async {
+    if (_sessionInvalidated) return;
+    _sessionInvalidated = true;
+    try {
+      await _clearSigningMaterial();
+    } catch (_) {}
+    try {
+      await store.clear();
+    } catch (_) {}
+    // Notify the app (AuthController) to drop cleanly to guest/login.
+    SessionInvalidationBus.instance.invalidate();
+  }
 
   Future<String?> _readUsableAccessToken() async {
     final token =
