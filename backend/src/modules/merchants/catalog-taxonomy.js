@@ -40,6 +40,7 @@ const ALLOWED_CATALOG_TYPES_BY_ACTIVITY = Object.freeze({
   restaurant: ["restaurant"],
   sweets_bakery: ["restaurant"],
   coffee_drinks: ["restaurant"],
+  pharmacy: ["generic"],
   fashion_clothing: ["clothes"],
   electronics_mobile: ["electronics"],
   electrical_lighting: ["electronics"],

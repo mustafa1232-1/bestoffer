@@ -53,9 +53,16 @@ test("restaurant sections do not keep unrelated catalog types", () => {
 test("default catalog type follows the store activity taxonomy", () => {
   assert.equal(getDefaultCatalogTypeForActivity("restaurant"), "restaurant");
   assert.equal(getDefaultCatalogTypeForActivity("coffee_drinks"), "restaurant");
+  assert.equal(getDefaultCatalogTypeForActivity("pharmacy"), "generic");
   assert.equal(getDefaultCatalogTypeForActivity("fashion_clothing"), "clothes");
   assert.equal(getDefaultCatalogTypeForActivity("supermarket"), "grocery");
   assert.equal(getDefaultCatalogTypeForActivity("home_kitchen"), "furniture");
+});
+
+test("pharmacy accepts generic catalog categories", () => {
+  assert.deepEqual(getAllowedCatalogTypesForActivity("pharmacy"), ["generic"]);
+  assert.equal(isCatalogTypeAllowedForActivity("pharmacy", "generic"), true);
+  assert.equal(isCatalogTypeAllowedForActivity("pharmacy", "restaurant"), false);
 });
 
 test("legacy category names can still be inferred from safe names", () => {
