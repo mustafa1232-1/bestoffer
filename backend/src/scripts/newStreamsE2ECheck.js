@@ -343,6 +343,14 @@ async function main() {
   );
   console.log("[e2e:new-streams] paid upgrades workflow passed");
 
+  await login(
+    admin,
+    baseUrl,
+    env.superAdminPhone,
+    env.superAdminPin,
+    "super admin refresh before real estate"
+  );
+
   // Real estate
   const listingCreate = await request(
     baseUrl,

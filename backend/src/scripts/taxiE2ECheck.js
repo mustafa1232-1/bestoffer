@@ -848,6 +848,14 @@ async function main() {
     assertStatus(acceptBid, 200, "accept bid");
     assert.equal(rideStatus(acceptBid.data), "captain_assigned");
 
+    const duplicateAccept = await request(
+      baseUrl,
+      customer,
+      "POST",
+      `/api/taxi/rides/${activeRideId}/bids/${activeBidId}/accept`
+    );
+    assertStatus(duplicateAccept, 409, "duplicate accept blocked");
+
     await expectNotification(
       {
         userId: captains[0].userId,
