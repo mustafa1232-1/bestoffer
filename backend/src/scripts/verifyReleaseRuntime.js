@@ -9,6 +9,7 @@ const steps = [
   { label: "order", script: "e2e:order:check" },
   { label: "taxi", script: "e2e:taxi:check" },
   { label: "community", script: "e2e:community:check" },
+  { label: "services", script: "e2e:services:check" },
   { label: "jobs", script: "e2e:jobs:check" },
   { label: "pharmacy", script: "e2e:pharmacy:check" },
 ];

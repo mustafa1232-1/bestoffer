@@ -48,6 +48,41 @@ This file captures the cross-app end-to-end flows that must be proven during the
   - the replacement order keeps the expected discounted pricing
   - owner and courier current-order views hide completed orders after final confirmation
 
+## Services
+
+- Provider onboarding
+- Offering approval and public discovery
+- Customer request / provider quote / customer accept
+- Completion and notification routing
+
+## Verified Runtime Evidence
+
+- `backend/src/scripts/servicesE2ECheck.js` now proves the services lifecycle end-to-end:
+  - admin seeds or reuses a valid service category pair
+  - provider subscription onboarding completes
+  - provider workspace loads after approval
+  - provider creates an offering that becomes visible after admin approval
+  - customer creates a request, provider lists it, creates a quote, customer accepts it, and the provider advances it to completion
+  - customer notifications stay on the service request details target
+  - provider and admin notification contracts remain intact
+
+## Jobs
+
+- Create job
+- Duplicate apply blocking
+- Hire, accept offer, withdraw
+- Expired-job rejection
+
+## Verified Runtime Evidence
+
+- `backend/src/scripts/jobsE2ECheck.js` now proves the jobs workflow end-to-end:
+  - owner and HR can create/manage jobs
+  - duplicate job applications are blocked with `409`
+  - hired candidates can accept the offer and persist the work profile
+  - withdraw works before acceptance and is blocked after acceptance
+  - expired jobs reject new applications
+  - manager notifications include the job offer accepted / withdrawn flows
+
 ## Taxi
 
 - Request ride

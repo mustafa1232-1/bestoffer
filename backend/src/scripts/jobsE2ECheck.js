@@ -250,6 +250,7 @@ async function main() {
       experienceLevel: "mid",
       salaryPeriod: "monthly",
       salaryCurrency: "IQD",
+      salaryIsNegotiable: true,
       salaryMin: 600000,
       salaryMax: 900000,
       vacancies: 1,
@@ -288,6 +289,14 @@ async function main() {
     assertStatus(response, 201, "apply to job");
     const applicationId = readId(response.data?.application);
     assert.ok(applicationId, "application id missing");
+
+    response = await request(baseUrl, candidate, "POST", `/api/jobs/${jobId}/apply`, {
+      message: "I can handle branch accounting and reporting.",
+      phone: candidatePhone,
+      email: `candidate.${runTag}@example.com`,
+      expectedSalary: 750000,
+    });
+    assertStatus(response, 409, "duplicate application blocked");
 
     response = await request(
       baseUrl,
@@ -396,6 +405,8 @@ async function main() {
       experienceLevel: "mid",
       salaryPeriod: "monthly",
       salaryCurrency: "IQD",
+      salaryIsNegotiable: true,
+      isFeatured: false,
       salaryMin: 500000,
       salaryMax: 800000,
       vacancies: 1,
@@ -478,6 +489,92 @@ async function main() {
       notificationRows.rows.some((row) => row.type === "jobs.application.status_updated"),
       "candidate status notification missing"
     );
+
+    response = await request(baseUrl, owner, "POST", "/api/jobs", {
+      title: `Withdraw Test Job ${runTag}`,
+      category: "Jobs",
+      activityType: "restaurant",
+      department: "accounting",
+      city: "Baghdad",
+      area: "Bismayah",
+      description: `Withdraw test job for run ${runTag}`,
+      requirements: "Any operations experience",
+      responsibilities: "Handle operations tasks",
+      benefits: "Stable salary",
+      workplaceType: "on_site",
+      employmentType: "full_time",
+      experienceLevel: "mid",
+      salaryPeriod: "monthly",
+      salaryCurrency: "IQD",
+      salaryIsNegotiable: true,
+      isFeatured: false,
+      salaryMin: 400000,
+      salaryMax: 700000,
+      vacancies: 1,
+      merchantId,
+      status: "active",
+    });
+    assertStatus(response, 201, "create withdraw test job");
+    const withdrawJobId = readId(response.data?.job);
+    assert.ok(withdrawJobId, "withdraw test job id missing");
+
+    response = await request(baseUrl, candidate, "POST", `/api/jobs/${withdrawJobId}/apply`, {
+      message: "Applying for the withdraw test job.",
+      phone: candidatePhone,
+      email: `candidate.${runTag}@example.com`,
+      expectedSalary: 500000,
+    });
+    assertStatus(response, 201, "apply to withdraw test job");
+    const withdrawApplicationId = readId(response.data?.application);
+    assert.ok(withdrawApplicationId, "withdraw test application id missing");
+
+    response = await request(
+      baseUrl,
+      candidate,
+      "POST",
+      `/api/jobs/applications/${withdrawApplicationId}/withdraw`,
+      { reason: "No longer available" }
+    );
+    assertStatus(response, 200, "candidate withdraws application");
+    assert.equal(String(response.data?.application?.status || ""), "withdrawn");
+
+    response = await request(baseUrl, owner, "POST", "/api/jobs", {
+      title: `Expired Job ${runTag}`,
+      category: "Jobs",
+      activityType: "restaurant",
+      department: "accounting",
+      city: "Baghdad",
+      area: "Bismayah",
+      description: `Expired job for run ${runTag}`,
+      requirements: "Any operations experience",
+      responsibilities: "Handle operations tasks",
+      benefits: "Stable salary",
+      workplaceType: "on_site",
+      employmentType: "full_time",
+      experienceLevel: "mid",
+      salaryPeriod: "monthly",
+      salaryCurrency: "IQD",
+      salaryIsNegotiable: true,
+      isFeatured: false,
+      salaryMin: 400000,
+      salaryMax: 700000,
+      vacancies: 1,
+      merchantId,
+      expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      status: "active",
+    });
+    assertStatus(response, 201, "create expired job");
+    const expiredJobId = readId(response.data?.job);
+    assert.ok(expiredJobId, "expired job id missing");
+
+    response = await request(baseUrl, candidate, "POST", `/api/jobs/${expiredJobId}/apply`, {
+      message: "Trying to apply to an expired job.",
+      phone: candidatePhone,
+      email: `candidate.${runTag}@example.com`,
+      expectedSalary: 500000,
+    });
+    assertStatus(response, 400, "expired job blocks applications");
+    assert.equal(String(response.data?.message || ""), "JOB_NOT_OPEN");
 
     response = await request(
       baseUrl,

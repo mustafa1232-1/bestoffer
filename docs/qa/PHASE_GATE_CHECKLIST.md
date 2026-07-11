@@ -64,6 +64,15 @@
 - Real-device QA remains blocked because no physical Android devices were available in this workspace
 - Signed AAB generation remains deferred until real-device gates are available
 
+## Phase 2A Continuation
+
+- [ ] Services runtime proof captured with `backend/src/scripts/servicesE2ECheck.js`
+- [ ] Jobs runtime proof captured with `backend/src/scripts/jobsE2ECheck.js`
+- [ ] `npm test`, `verify:release:local`, and `verify:release:runtime` passed after the services/jobs fixes
+- [ ] `docs/qa/PHASE_2A_SERVICES_JOBS_REPORT.md` created
+- [ ] Phase 2A checkpoint commit recorded after the docs and runtime evidence are finalized
+- [ ] Services/jobs remain non-device-gated and must not be claimed as device-verified
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

@@ -19,8 +19,8 @@ This list starts as the authoritative working blocker set for the closure progra
 
 | Priority | Blocker | Current status | Notes |
 |---|---|---|---|
-| P1 | Services coverage | NOT_STARTED | Audit after P0 closure |
-| P1 | Jobs coverage | NOT_STARTED | Audit after P0 closure |
+| P1 | Services coverage | PASS_RUNTIME | `backend/src/scripts/servicesE2ECheck.js` and `railway run --service bestoffer npm run verify:release:runtime` now prove provider onboarding, offering approval, request/quote, and completion | Device proof not required for this scope |
+| P1 | Jobs coverage | PASS_RUNTIME | `backend/src/scripts/jobsE2ECheck.js` and `railway run --service bestoffer npm run verify:release:runtime` now prove duplicate-apply blocking, hire, accept-offer, withdraw, and expired-job rejection | Device proof not required for this scope |
 | P1 | Real estate coverage | NOT_STARTED | Audit after P0 closure |
 | P1 | Cars coverage | NOT_STARTED | Audit after P0 closure |
 | P1 | Pharmacy coverage | NOT_STARTED | Audit after P0 closure |

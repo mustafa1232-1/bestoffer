@@ -13,6 +13,7 @@ import * as ordersService from "../modules/orders/orders.service.js";
 import * as ordersRepo from "../modules/orders/orders.repo.js";
 import * as servicesRepo from "../modules/services/services.repo.js";
 import * as servicesService from "../modules/services/services.service.js";
+import * as jobsService from "../modules/jobs/jobs.service.js";
 
 function makeSuffix(prefix = "") {
   return `${prefix}${Date.now().toString(36)}${Math.random()
@@ -140,8 +141,8 @@ async function cleanupWorkspace({
       [providers]
     );
     await deleteIfTableExists(
-      "service_offering_pricing",
-      `DELETE FROM service_offering_pricing
+      "service_pricing_options",
+      `DELETE FROM service_pricing_options
        WHERE offering_id IN (
          SELECT id FROM service_offerings
          WHERE provider_id = ANY($1::bigint[])
@@ -280,6 +281,88 @@ async function createApprovedProvider(ownerUserId, name) {
       approvedAt: new Date().toISOString(),
     },
   });
+}
+
+async function getFirstServiceCategoryPair(createdByUserId = null) {
+  const result = await q(
+    `SELECT
+       parent.id AS main_category_id,
+       child.id AS subcategory_id
+     FROM service_categories parent
+     JOIN service_categories child ON child.parent_id = parent.id
+     WHERE parent.is_active = TRUE
+       AND parent.is_public = TRUE
+       AND child.is_active = TRUE
+       AND child.is_public = TRUE
+     ORDER BY parent.sort_order ASC, child.sort_order ASC, parent.id ASC, child.id ASC
+     LIMIT 1`
+  );
+  const row = result.rows[0] || null;
+  if (row?.main_category_id && row?.subcategory_id) {
+    return {
+      mainCategoryId: Number(row.main_category_id),
+      subcategoryId: Number(row.subcategory_id),
+    };
+  }
+  const fallback = await q(
+    `SELECT id
+     FROM service_categories
+     WHERE is_active = TRUE
+       AND is_public = TRUE
+     ORDER BY level ASC, sort_order ASC, id ASC
+     LIMIT 2`
+  );
+  if (fallback.rows.length >= 2) {
+    return {
+      mainCategoryId: Number(fallback.rows[0].id),
+      subcategoryId: Number(fallback.rows[1].id),
+    };
+  }
+
+  const rootName = `Phase 2A Services Root ${makeSuffix("svc-root-")}`;
+  const childName = `Phase 2A Services Child ${makeSuffix("svc-child-")}`;
+  const rootInsert = await q(
+    `INSERT INTO service_categories
+      (
+        parent_id,
+        level,
+        name,
+        sort_order,
+        is_active,
+        is_public,
+        created_by_user_id,
+        created_at,
+        updated_at
+      )
+     VALUES (NULL,1,$1,1,TRUE,TRUE,$2,NOW(),NOW())
+     RETURNING id`,
+    [rootName, createdByUserId == null ? null : Number(createdByUserId)]
+  );
+  const childInsert = await q(
+    `INSERT INTO service_categories
+      (
+        parent_id,
+        level,
+        name,
+        sort_order,
+        is_active,
+        is_public,
+        created_by_user_id,
+        created_at,
+        updated_at
+      )
+     VALUES ($1,2,$2,1,TRUE,TRUE,$3,NOW(),NOW())
+     RETURNING id`,
+    [
+      Number(rootInsert.rows[0].id),
+      childName,
+      createdByUserId == null ? null : Number(createdByUserId),
+    ]
+  );
+  return {
+    mainCategoryId: Number(rootInsert.rows[0].id),
+    subcategoryId: Number(childInsert.rows[0].id),
+  };
 }
 
 async function latestNotificationsByType({ userId = null, orderId = null, type }) {
@@ -595,6 +678,553 @@ test("store order notifications target the owner and permitted employees, and de
     assert.equal(
       deliveryBRemovedNotifications[0].payload?.target,
       "courier_notifications"
+    );
+  } finally {
+    await cleanupWorkspace(trackedIds);
+  }
+});
+
+test("services marketplace request and quote lifecycle keeps authz and notifications intact", async () => {
+  const trackedIds = {
+    merchantIds: [],
+    providerIds: [],
+    userIds: [],
+    orderIds: [],
+  };
+
+  try {
+    const admin = await createTestUser({
+      fullName: `Services Admin ${makeSuffix("sa-")}`,
+      phone: makePhone(81),
+      role: "admin",
+    });
+    const providerOwner = await createTestUser({
+      fullName: `Services Provider Owner ${makeSuffix("sp-")}`,
+      phone: makePhone(82),
+      role: "service_provider",
+    });
+    const customer = await createTestUser({
+      fullName: `Services Customer ${makeSuffix("sc-")}`,
+      phone: makePhone(83),
+      role: "user",
+    });
+    trackedIds.userIds.push(Number(admin.id), Number(providerOwner.id), Number(customer.id));
+
+    const provider = await createApprovedProvider(
+      providerOwner.id,
+      `Phase 2A Services Provider ${makeSuffix("provider-")}`
+    );
+    trackedIds.providerIds.push(Number(provider.id));
+
+    const categoryPair = await getFirstServiceCategoryPair(admin.id);
+
+    await assert.rejects(
+      () =>
+        servicesService.getProviderWorkspace({
+          userId: customer.id,
+          userRole: "user",
+        }),
+      (error) => {
+        assert.equal(error.message, "FORBIDDEN_SERVICE_PROVIDER_ONLY");
+        assert.equal(error.status, 403);
+        return true;
+      }
+    );
+
+    const offering = await servicesService.createOffering({
+      userId: providerOwner.id,
+      userRole: "service_provider",
+      dto: {
+        mainCategoryId: categoryPair.mainCategoryId,
+        subcategoryId: categoryPair.subcategoryId,
+        name: `Phase 2A Services Offering ${makeSuffix("off-")}`,
+        description: "Phase 2A services offering",
+        executionMode: "both",
+        requiresSchedule: true,
+        requiresProviderApproval: true,
+        estimatedDurationMinutes: 90,
+        hasFixedPrice: false,
+        startsFromPrice: null,
+        inspectionRequired: true,
+        customQuoteOnly: false,
+        workersCount: 1,
+        includesText: "Included",
+        excludesText: "Excluded",
+        materialsText: "Materials",
+        notes: "Phase 2A runtime offering",
+        supportsHourlyBooking: false,
+        supportsDailyBooking: false,
+        supportsVisitBooking: true,
+        supportsFullDayBooking: false,
+        searchText: "Phase 2A services offering",
+        pricingOptions: [
+          {
+            pricingModel: "inspection_required",
+            pricingUnit: "visit",
+            label: "Inspection visit",
+            amount: null,
+            minAmount: null,
+            maxAmount: null,
+            visitFee: 30000,
+            currency: "IQD",
+            minQuantity: null,
+            maxQuantity: null,
+            inspectionRequired: true,
+            notes: "Inspection fee",
+            isDefault: true,
+            isActive: true,
+            sortOrder: 0,
+          },
+        ],
+      },
+      mediaUrls: [],
+    });
+    assert.ok(offering?.id, "offering id missing");
+
+    await servicesService.adminUpdateOfferingStatus({
+      offeringId: offering.id,
+      dto: {
+        status: "approved",
+        note: "Approved for phase 2A runtime",
+      },
+      adminUserId: admin.id,
+    });
+
+    const publicOfferings = await servicesService.searchPublicOfferings(
+      {
+        q: String(offering.name || ""),
+        limit: 20,
+        offset: 0,
+        sort: "newest",
+      },
+      customer.id
+    );
+    assert.ok(
+      publicOfferings.some((item) => Number(item.id || 0) === Number(offering.id)),
+      "approved offering should be searchable"
+    );
+
+    const serviceRequest = await servicesService.createServiceRequest({
+      userId: customer.id,
+      dto: {
+        offeringId: Number(offering.id),
+        providerId: Number(provider.id),
+        requestedExecutionMode: "home",
+        requestedDate: new Date(Date.now() + 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10),
+        requestedTime: "11:00",
+        quantity: 2,
+        durationHours: 1.5,
+        notes: `Need service for ${makeSuffix("request-")}`,
+        addressLine: "Phase 2A street",
+        city: "Baghdad",
+        area: "Bismayah",
+        latitude: 33.3152,
+        longitude: 44.3661,
+        requiresHomeService: true,
+        requiresQuote: true,
+      },
+    });
+    assert.ok(serviceRequest?.id, "service request id missing");
+    assert.equal(String(serviceRequest.status || ""), "awaiting_provider");
+
+    const providerRequests = await servicesService.listProviderRequests(
+      { userId: providerOwner.id, userRole: "service_provider" },
+      { limit: 20 }
+    );
+    assert.ok(
+      Array.isArray(providerRequests) &&
+        providerRequests.some((item) => Number(item.id || 0) === Number(serviceRequest.id)),
+      "provider should see the service request"
+    );
+
+    const quote = await servicesService.createQuote({
+      userId: providerOwner.id,
+      userRole: "service_provider",
+      requestId: Number(serviceRequest.id),
+      dto: {
+        pricingModel: "custom_quote",
+        pricingUnit: "visit",
+        amount: 45000,
+        currency: "IQD",
+        note: "Phase 2A runtime quote",
+      },
+    });
+    assert.ok(quote?.id, "quote id missing");
+
+    const customerRequest = await servicesService.getMyRequest({
+      userId: customer.id,
+      requestId: Number(serviceRequest.id),
+    });
+    assert.ok(
+      customerRequest.quotes.some((item) => Number(item.id || 0) === Number(quote.id)),
+      "customer should see the quote"
+    );
+
+    const accepted = await servicesService.respondToQuote({
+      userId: customer.id,
+      requestId: Number(serviceRequest.id),
+      quoteId: Number(quote.id),
+      dto: {
+        action: "accepted",
+        note: "Accepted in test",
+      },
+    });
+    assert.equal(String(accepted.status || ""), "accepted");
+    assert.equal(Number(accepted.acceptedQuoteId || 0), Number(quote.id));
+    assert.equal(Number(accepted.finalPrice || 0), 45000);
+
+    const providerAccepted = await servicesService.updateRequestStatusByProvider({
+      userId: providerOwner.id,
+      userRole: "service_provider",
+      requestId: Number(serviceRequest.id),
+      dto: {
+        status: "accepted",
+        note: "Provider acknowledged the accepted quote",
+      },
+    });
+    assert.equal(String(providerAccepted.status || ""), "accepted");
+
+    const providerInProgress = await servicesService.updateRequestStatusByProvider({
+      userId: providerOwner.id,
+      userRole: "service_provider",
+      requestId: Number(serviceRequest.id),
+      dto: {
+        status: "in_progress",
+        note: "Provider started work",
+      },
+    });
+    assert.equal(String(providerInProgress.status || ""), "in_progress");
+
+    const completed = await servicesService.updateRequestStatusByProvider({
+      userId: providerOwner.id,
+      userRole: "service_provider",
+      requestId: Number(serviceRequest.id),
+      dto: {
+        status: "completed",
+        note: "Provider completed work",
+      },
+    });
+    assert.equal(String(completed.status || ""), "completed");
+
+    const finalRequest = await servicesService.getMyRequest({
+      userId: customer.id,
+      requestId: Number(serviceRequest.id),
+    });
+    assert.equal(String(finalRequest.status || ""), "completed");
+    assert.equal(Number(finalRequest.finalPrice || 0), 45000);
+
+    await assert.rejects(
+      () =>
+        servicesService.getProviderWorkspace({
+          userId: customer.id,
+          userRole: "user",
+        }),
+      (error) => {
+        assert.equal(error.message, "FORBIDDEN_SERVICE_PROVIDER_ONLY");
+        assert.equal(error.status, 403);
+        return true;
+      }
+    );
+
+    const providerNotificationRows = await q(
+      `SELECT type, payload
+       FROM app_notification
+       WHERE user_id = $1
+         AND type IN ('services.request.created', 'services.request.status.accepted', 'services.request.status.in_progress', 'services.request.status.completed')
+       ORDER BY id ASC`,
+      [Number(providerOwner.id)]
+    );
+    assert.ok(
+      providerNotificationRows.rows.some((row) => row.type === "services.request.created"),
+      "provider notification for new request missing"
+    );
+    assert.equal(
+      providerNotificationRows.rows.every((row) => row.payload?.target === "service_request_details"),
+      true,
+      "provider notifications should deep-link to service request details"
+    );
+
+    const customerNotificationRows = await q(
+      `SELECT type, payload
+       FROM app_notification
+       WHERE user_id = $1
+         AND type IN ('services.request.quote_received', 'services.request.status.accepted', 'services.request.status.in_progress', 'services.request.status.completed')
+       ORDER BY id ASC`,
+      [Number(customer.id)]
+    );
+    assert.ok(
+      customerNotificationRows.rows.some((row) => row.type === "services.request.quote_received"),
+      "customer quote notification missing"
+    );
+    assert.ok(
+      customerNotificationRows.rows.some((row) => row.type === "services.request.status.completed"),
+      "customer completed notification missing"
+    );
+    assert.equal(
+      customerNotificationRows.rows.every((row) => row.payload?.target === "service_request_details"),
+      true,
+      "customer notifications should deep-link to service request details"
+    );
+  } finally {
+    await cleanupWorkspace(trackedIds);
+  }
+});
+
+test("jobs marketplace duplicate apply withdraw and expiry are enforced", async () => {
+  const trackedIds = {
+    merchantIds: [],
+    providerIds: [],
+    userIds: [],
+    orderIds: [],
+  };
+
+  try {
+    const owner = await createTestUser({
+      fullName: `Jobs Owner ${makeSuffix("jo-")}`,
+      phone: makePhone(84),
+      role: "owner",
+    });
+    const candidate = await createTestUser({
+      fullName: `Jobs Candidate ${makeSuffix("jc-")}`,
+      phone: makePhone(85),
+      role: "user",
+    });
+    trackedIds.userIds.push(Number(owner.id), Number(candidate.id));
+
+    const merchant = await createApprovedMerchant(
+      owner.id,
+      `Phase 2A Jobs Merchant ${makeSuffix("merchant-")}`
+    );
+    trackedIds.merchantIds.push(Number(merchant.id));
+
+    const job = await jobsService.createJob(
+      {
+        title: `Phase 2A Jobs ${makeSuffix("job-")}`,
+        category: "Jobs",
+        activityType: "restaurant",
+        department: "accounting",
+        city: "Baghdad",
+        area: "Bismayah",
+        description: "Phase 2A jobs runtime test",
+        requirements: "Experience preferred",
+        responsibilities: "Day to day operations",
+        benefits: "Stable salary",
+        workplaceType: "on_site",
+        employmentType: "full_time",
+        experienceLevel: "mid",
+        salaryPeriod: "monthly",
+        salaryCurrency: "IQD",
+        salaryIsNegotiable: true,
+        isFeatured: false,
+        salaryMin: 500000,
+        salaryMax: 800000,
+        vacancies: 1,
+        merchantId: Number(merchant.id),
+        status: "active",
+      },
+      { userId: owner.id, role: "owner", isSuperAdmin: false }
+    );
+    assert.ok(job.job?.id, "job id missing");
+    const jobId = Number(job.job.id);
+
+    const application = await jobsService.applyToJob(
+      jobId,
+      {
+        message: "I can handle the role.",
+        phone: candidate.phone,
+        email: `candidate.${makeSuffix("jobs-")}@example.com`,
+        expectedSalary: 650000,
+      },
+      { userId: candidate.id, role: "user", isSuperAdmin: false }
+    );
+    assert.ok(application.application?.id, "application id missing");
+    const applicationId = Number(application.application.id);
+
+    await assert.rejects(
+      () =>
+        jobsService.applyToJob(
+          jobId,
+          {
+            message: "Duplicate application attempt.",
+            phone: candidate.phone,
+            email: `candidate.${makeSuffix("jobs-dup-")}@example.com`,
+            expectedSalary: 650000,
+          },
+          { userId: candidate.id, role: "user", isSuperAdmin: false }
+        ),
+      (error) => {
+        assert.equal(error.message, "JOB_ALREADY_APPLIED");
+        assert.equal(error.status, 409);
+        return true;
+      }
+    );
+
+    const hired = await jobsService.updateJobApplicationStatus(
+      jobId,
+      applicationId,
+      "hired",
+      "Selected for phase 2A runtime",
+      {
+        offerSalary: 700000,
+        offerWorkHours: "09:00-17:00",
+        offerWorkDays: "Sunday-Thursday",
+        offerMessage: "Please accept the offer.",
+      },
+      { userId: owner.id, role: "owner", isSuperAdmin: false }
+    );
+    assert.equal(String(hired.application.status || ""), "hired");
+    assert.ok(hired.application.offerSentAt, "offerSentAt missing");
+
+    const accepted = await jobsService.acceptMyJobOffer(
+      applicationId,
+      {},
+      { userId: candidate.id, role: "user", isSuperAdmin: false }
+    );
+    assert.equal(String(accepted.application.status || ""), "hired");
+    assert.ok(accepted.workProfile.workTitle, "work title missing");
+
+    await assert.rejects(
+      () =>
+        jobsService.withdrawMyApplication(
+          applicationId,
+          "Too late after acceptance",
+          { userId: candidate.id, role: "user", isSuperAdmin: false }
+        ),
+      (error) => {
+        assert.equal(error.message, "JOB_APPLICATION_WITHDRAW_AFTER_ACCEPT_NOT_ALLOWED");
+        assert.equal(error.status, 400);
+        return true;
+      }
+    );
+
+    const withdrawJob = await jobsService.createJob(
+      {
+        title: `Withdraw Phase 2A ${makeSuffix("withdraw-")}`,
+        category: "Jobs",
+        activityType: "restaurant",
+        department: "operations",
+        city: "Baghdad",
+        area: "Bismayah",
+        description: "Withdraw test job",
+        requirements: "General operations",
+        responsibilities: "General operations tasks",
+        benefits: "Stable salary",
+        workplaceType: "on_site",
+        employmentType: "full_time",
+        experienceLevel: "mid",
+        salaryPeriod: "monthly",
+        salaryCurrency: "IQD",
+        salaryIsNegotiable: true,
+        isFeatured: false,
+        salaryMin: 400000,
+        salaryMax: 700000,
+        vacancies: 1,
+        merchantId: Number(merchant.id),
+        status: "active",
+      },
+      { userId: owner.id, role: "owner", isSuperAdmin: false }
+    );
+    assert.ok(withdrawJob.job?.id, "withdraw job id missing");
+    const withdrawJobId = Number(withdrawJob.job.id);
+
+    const withdrawApplication = await jobsService.applyToJob(
+      withdrawJobId,
+      {
+        message: "Applying to later withdraw.",
+        phone: candidate.phone,
+        email: `candidate.${makeSuffix("jobs-withdraw-")}@example.com`,
+        expectedSalary: 500000,
+      },
+      { userId: candidate.id, role: "user", isSuperAdmin: false }
+    );
+    const withdrawApplicationId = Number(withdrawApplication.application.id);
+
+    const withdrawn = await jobsService.withdrawMyApplication(
+      withdrawApplicationId,
+      "No longer needed",
+      { userId: candidate.id, role: "user", isSuperAdmin: false }
+    );
+    assert.equal(String(withdrawn.application.status || ""), "withdrawn");
+
+    const expiredJob = await jobsService.createJob(
+      {
+        title: `Expired Phase 2A ${makeSuffix("expired-")}`,
+        category: "Jobs",
+        activityType: "restaurant",
+        department: "operations",
+        city: "Baghdad",
+        area: "Bismayah",
+        description: "Expired job test",
+        requirements: "General operations",
+        responsibilities: "General operations tasks",
+        benefits: "Stable salary",
+        workplaceType: "on_site",
+        employmentType: "full_time",
+        experienceLevel: "mid",
+        salaryPeriod: "monthly",
+        salaryCurrency: "IQD",
+        salaryIsNegotiable: true,
+        isFeatured: false,
+        salaryMin: 400000,
+        salaryMax: 700000,
+        vacancies: 1,
+        merchantId: Number(merchant.id),
+        expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        status: "active",
+      },
+      { userId: owner.id, role: "owner", isSuperAdmin: false }
+    );
+    assert.ok(expiredJob.job?.id, "expired job id missing");
+
+    await assert.rejects(
+      () =>
+        jobsService.applyToJob(
+          Number(expiredJob.job.id),
+          {
+            message: "Trying to apply after expiry.",
+            phone: candidate.phone,
+            email: `candidate.${makeSuffix("jobs-expired-")}@example.com`,
+            expectedSalary: 500000,
+          },
+          { userId: candidate.id, role: "user", isSuperAdmin: false }
+        ),
+      (error) => {
+        assert.equal(error.message, "JOB_NOT_OPEN");
+        assert.equal(error.status, 400);
+        return true;
+      }
+    );
+
+    const candidateNotifications = await q(
+      `SELECT type
+       FROM app_notification
+       WHERE user_id = $1
+         AND type IN ('jobs.application.submitted', 'jobs.application.status_updated', 'jobs.application.withdrawn')
+       ORDER BY id ASC`,
+      [Number(candidate.id)]
+    );
+    assert.ok(
+      candidateNotifications.rows.some((row) => row.type === "jobs.application.status_updated"),
+      "candidate should receive status update notification"
+    );
+
+    const managerNotifications = await q(
+      `SELECT type, payload
+       FROM app_notification
+       WHERE user_id = $1
+         AND type IN ('jobs.application.offer_accepted', 'jobs.application.withdrawn')
+       ORDER BY id ASC`,
+      [Number(owner.id)]
+    );
+    assert.ok(
+      managerNotifications.rows.some((row) => row.type === "jobs.application.offer_accepted"),
+      "manager should receive offer-accepted notification"
+    );
+    assert.ok(
+      managerNotifications.rows.some((row) => row.type === "jobs.application.withdrawn"),
+      "manager should receive withdrawn notification"
     );
   } finally {
     await cleanupWorkspace(trackedIds);

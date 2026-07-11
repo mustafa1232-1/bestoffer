@@ -2395,12 +2395,12 @@ export async function updateRequestStatusByProviderUser({
     await client.query(
       `UPDATE service_requests
        SET
-         status = $2,
+         status = $2::text,
          scheduled_start_at = CASE WHEN $3::timestamptz IS NULL THEN scheduled_start_at ELSE $3 END,
          scheduled_end_at = CASE WHEN $4::timestamptz IS NULL THEN scheduled_end_at ELSE $4 END,
-         rejected_reason = CASE WHEN $2 = 'rejected' THEN COALESCE($5, rejected_reason) ELSE rejected_reason END,
-         cancel_reason = CASE WHEN $2 = 'cancelled' THEN COALESCE($5, cancel_reason) ELSE cancel_reason END,
-         completed_at = CASE WHEN $2 = 'completed' THEN NOW() ELSE completed_at END,
+         rejected_reason = CASE WHEN $2::text = 'rejected' THEN COALESCE($5, rejected_reason) ELSE rejected_reason END,
+         cancel_reason = CASE WHEN $2::text = 'cancelled' THEN COALESCE($5, cancel_reason) ELSE cancel_reason END,
+         completed_at = CASE WHEN $2::text = 'completed' THEN NOW() ELSE completed_at END,
          updated_at = NOW()
        WHERE id = $1`,
       [
