@@ -77,6 +77,6 @@ The matrix now contains 23 rows total.
 ## Deliverable State
 
 - Phase 1A documentation is now separated from the Phase 0 baseline.
-- The worktree still needs a checkpoint commit before Phase 1A can be treated as closed.
+- Phase 1A checkpoint commit `6dd5136` has been created.
+- The remaining worktree must be kept clean after this checkpoint.
 - No destructive data or schema action was performed.
-
