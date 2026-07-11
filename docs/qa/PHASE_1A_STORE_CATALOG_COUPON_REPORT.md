@@ -101,3 +101,4 @@ The current continuation verified the full store/catalog/coupon slice at runtime
 - Phase 1A checkpoint commit `558b989` has been created.
 - The remaining worktree must be kept clean after this checkpoint.
 - No destructive data or schema action was performed.
+- Order / store / delivery runtime proof is documented separately in `docs/qa/PHASE_1B_ORDER_STORE_DELIVERY_REPORT.md`.

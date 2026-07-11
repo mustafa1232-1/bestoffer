@@ -31,6 +31,14 @@
 - Phase 1A checkpoint commit `558b989` has been created
 - Store-app device smoke remains pending and must not be claimed as passed
 
+## Phase 1B Continuation
+
+- Local order / store / delivery runtime proof captured with `node --env-file=.env.test src/scripts/orderE2ECheck.js`
+- `npm run verify:release:local` passed after the order flow proof
+- `railway run --service bestoffer npm run verify:release:runtime` passed after the order flow proof
+- `docs/qa/PHASE_1B_ORDER_STORE_DELIVERY_REPORT.md` created
+- Store / delivery device smoke remains pending and must not be claimed as passed
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

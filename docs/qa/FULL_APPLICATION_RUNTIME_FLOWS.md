@@ -26,6 +26,22 @@ This file captures the cross-app end-to-end flows that must be proven during the
 - Delivery assignment
 - Receipt/invoice
 
+## Verified Runtime Evidence
+
+- `backend/src/scripts/orderE2ECheck.js` now proves the end-to-end order path:
+  - customer registers and creates an order
+  - owner approves the merchant and accepts financial terms
+  - owner starts preparing the order
+  - owner assigns a courier
+  - courier accepts, picks up, arrives, delivers, and the customer confirms receipt
+- Runtime assertions observed the expected notifications:
+  - `order_courier_assigned`
+  - `owner_customer_received`
+- The same runtime pass verified that:
+  - cancelled orders restore coupon and offer usage state
+  - the replacement order keeps the expected discounted pricing
+  - owner and courier current-order views hide completed orders after final confirmation
+
 ## Taxi
 
 - Request ride
@@ -46,4 +62,3 @@ This file captures the cross-app end-to-end flows that must be proven during the
 - Stories autoplay/progress
 - Reel sharing
 - Direct messages and groups
-
