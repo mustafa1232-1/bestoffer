@@ -115,6 +115,22 @@ This file captures the cross-app end-to-end flows that must be proven during the
   - thread messaging works for the approved listing context
   - notification targets remain stable for `paid_upgrades_home` and listing routing
 
+## Pharmacy
+
+- Pharmacy conversation, proposed cart, accept/reject/request-revision, attachment, and order conversion flows
+- Customer and merchant pharmacy inboxes and deep-link routing
+
+## Verified Runtime Evidence
+
+- `backend/src/scripts/pharmacyE2ECheck.js` now proves the pharmacy workflow end-to-end on Railway:
+  - approved merchant creation and approval remain required before pharmacy conversation access
+  - customer opens a pharmacy conversation, sends messages, and uploads an attachment
+  - merchant proposes a cart, revises it, and the customer accepts it
+  - proposed cart conversion creates the expected order link
+  - notification targets remain stable for `pharmacy_conversation`, `order_details`, and `owner_order_details`
+  - attachment access URLs and conversation detail retrieval continue to work after the Pharmacy flow completes
+  - the runtime chain preserved the existing customer and merchant auth/session behavior while exercising Pharmacy
+
 ## Taxi
 
 - Request ride

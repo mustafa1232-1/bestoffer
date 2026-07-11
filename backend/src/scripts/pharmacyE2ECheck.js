@@ -8,9 +8,11 @@ import {
   buildPhone,
   buildRunTag,
   createActor,
+  expectNotification,
   readId,
   request,
 } from "./e2eTestUtils.js";
+import { q } from "../config/db.js";
 
 const DEFAULT_BASE_URL = "https://bestoffer-production.up.railway.app";
 
@@ -51,6 +53,17 @@ async function cleanupViaAdmin(baseUrl, admin, runTag) {
   assertStatus(response, 200, `cleanup ${runTag}`);
 }
 
+async function findUserIdByPhone(phone) {
+  const result = await q(
+    `SELECT id
+     FROM app_user
+     WHERE phone = $1
+     LIMIT 1`,
+    [String(phone)]
+  );
+  return Number(result.rows[0]?.id || 0) || null;
+}
+
 async function main() {
   const baseUrl = String(process.env.LOAD_BASE_URL || DEFAULT_BASE_URL).trim().replace(/\/+$/, "");
   const runTag = buildRunTag("pharmacy-e2e");
@@ -84,6 +97,8 @@ async function main() {
     });
     assertStatus(customerRegister, 201, "customer register");
     customer.token = String(customerRegister.data?.token || "");
+    const customerUserId = await findUserIdByPhone(customerPhone);
+    assert.ok(customerUserId, "customer user id missing");
 
     const ownerRegister = await request(baseUrl, owner, "POST", "/api/owner/register", {
       phone: ownerPhone,
@@ -108,6 +123,8 @@ async function main() {
     assertStatus(ownerRegister, 201, "owner register pharmacy");
     owner.token = String(ownerRegister.data?.token || "");
     const merchantId = readId(ownerRegister.data?.merchant);
+    const ownerUserId = await findUserIdByPhone(ownerPhone);
+    assert.ok(ownerUserId, "owner user id missing");
 
     const approveMerchant = await request(
       baseUrl,
@@ -177,6 +194,19 @@ async function main() {
     assertStatus(conversationCreate, 201, "create pharmacy conversation");
     const conversationId = readId(conversationCreate.data?.conversation);
 
+    await expectNotification(
+      {
+        userId: ownerUserId,
+        type: "pharmacy.conversation.new",
+        payloadChecks: {
+          target: "pharmacy_conversation",
+          conversationId: String(conversationId),
+          merchantId: String(merchantId),
+        },
+      },
+      "pharmacy conversation notification"
+    );
+
     const formData = new FormData();
     formData.set("file", new Blob(["prescription"], { type: "text/plain" }), "rx.txt");
     formData.set("metadata", JSON.stringify({ kind: "prescription", runTag }));
@@ -237,6 +267,19 @@ async function main() {
     assertStatus(firstCart, 201, "owner create proposed cart");
     const firstCartId = readId(firstCart.data?.cart);
 
+    await expectNotification(
+      {
+        userId: customerUserId,
+        type: "pharmacy.cart.proposed",
+        payloadChecks: {
+          target: "pharmacy_conversation",
+          conversationId: String(conversationId),
+          cartId: String(firstCartId),
+        },
+      },
+      "pharmacy cart proposed notification"
+    );
+
     const reviseCart = await request(
       baseUrl,
       customer,
@@ -278,6 +321,19 @@ async function main() {
     );
     assertStatus(acceptCart, 200, "customer accept revised cart");
 
+    await expectNotification(
+      {
+        userId: ownerUserId,
+        type: "pharmacy.cart.accept",
+        payloadChecks: {
+          target: "pharmacy_conversation",
+          conversationId: String(conversationId),
+          cartId: String(revisedCartId),
+        },
+      },
+      "pharmacy cart accepted notification"
+    );
+
     const convertToOrder = await request(
       baseUrl,
       customer,
@@ -288,6 +344,32 @@ async function main() {
     assertStatus(convertToOrder, 200, "convert pharmacy cart to order");
     const orderId = Number(convertToOrder.data?.orderId || 0) || null;
     assert.ok(orderId, "converted order id missing");
+
+    await expectNotification(
+      {
+        userId: customerUserId,
+        type: "pharmacy.order.created",
+        payloadChecks: {
+          target: "order_details",
+          conversationId: String(conversationId),
+          orderId: String(orderId),
+        },
+      },
+      "pharmacy customer order created notification"
+    );
+
+    await expectNotification(
+      {
+        userId: ownerUserId,
+        type: "pharmacy.order.created.store",
+        payloadChecks: {
+          target: "owner_order_details",
+          conversationId: String(conversationId),
+          orderId: String(orderId),
+        },
+      },
+      "pharmacy owner order created notification"
+    );
 
     const conversationDetails = await request(
       baseUrl,

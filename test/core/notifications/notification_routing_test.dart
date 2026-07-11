@@ -295,6 +295,51 @@ void main() {
       },
     );
 
+    test(
+      'Pharmacy order created store notifications preserve direct owner target',
+      () {
+        const model = AppNotificationModel(
+          id: 503,
+          orderId: null,
+          rideId: null,
+          storyId: null,
+          reelId: null,
+          merchantId: null,
+          target: 'owner_order_details',
+          type: 'pharmacy.order.created.store',
+          title: 'Order created',
+          body: 'Pharmacy order created',
+          payload: <String, dynamic>{
+            'target': 'owner_order_details',
+            'orderId': 731,
+            'conversationId': 44,
+            'merchantId': 9,
+          },
+          isRead: false,
+          createdAt: null,
+          readAt: null,
+        );
+
+        final payload = NotificationNavigation.payloadFromModel(model);
+        expect(payload.target, 'owner_order_details');
+        expect(payload.orderId, 731);
+
+        final target = NotificationNavigation.resolveTarget(
+          rawTarget: payload.target,
+          type: model.type,
+          orderId: payload.orderId,
+        );
+        final module = NotificationNavigation.resolveModule(
+          rawModule: null,
+          roleScope: 'owner',
+          rawTarget: payload.target,
+          type: model.type,
+        );
+        expect(target, 'owner_order_details');
+        expect(module, 'merchant');
+      },
+    );
+
     test('Owner pharmacy notifications resolve to merchant module', () {
       final target = NotificationNavigation.resolveTarget(
         rawTarget: null,

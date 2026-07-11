@@ -82,6 +82,14 @@
 - [x] Phase 2B checkpoint commit created
 - [x] Real-estate and cars remain non-device-gated and must not be claimed as device-verified
 
+## Phase 2C Continuation
+
+- [x] Pharmacy runtime proof captured with `backend/src/scripts/pharmacyE2ECheck.js`
+- [x] Pharmacy conversation, proposed-cart, accept/reject/request-revision, attachment, and order conversion flows are now proven on Railway
+- [x] Notification targets remain stable for `pharmacy_conversation`, `order_details`, and `owner_order_details`
+- [x] `docs/qa/PHASE_2C_PHARMACY_REPORT.md` created
+- [x] Pharmacy remains non-device-gated in this program and must not be claimed as real-device verified
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

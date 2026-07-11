@@ -23,7 +23,7 @@ This list starts as the authoritative working blocker set for the closure progra
 | P1 | Jobs coverage | PASS_RUNTIME | `backend/src/scripts/jobsE2ECheck.js` and `railway run --service bestoffer npm run verify:release:runtime` now prove duplicate-apply blocking, hire, accept-offer, withdraw, and expired-job rejection | Device proof not required for this scope |
 | P1 | Real estate coverage | PASS_RUNTIME | `backend/src/scripts/realEstateE2ECheck.js` passed on Railway with listing approval, workspace visibility, and business chat routing | Runtime proof only; device proof not required |
 | P1 | Cars coverage | PASS_RUNTIME | `backend/src/scripts/carsE2ECheck.js` passed on Railway with listing approval, workspace visibility, and business chat routing | Runtime proof only; device proof not required |
-| P1 | Pharmacy coverage | NOT_STARTED | Audit after P0 closure |
+| P1 | Pharmacy coverage | PASS_RUNTIME | `backend/src/scripts/pharmacyE2ECheck.js` passed on Railway with conversation, cart proposal, accept/reject/request-revision, order conversion, and exact notification target coverage; no device gate is required for this phase |
 | P1 | Company/admin reports | NOT_STARTED | Audit after P0 closure |
 | P2 | Stories autoplay/progress | NOT_STARTED | Audit later |
 | P2 | Reel sharing | NOT_STARTED | Audit later |

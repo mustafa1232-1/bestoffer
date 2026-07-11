@@ -151,6 +151,52 @@ test("listing notifications resolve to direct car and real-estate targets", () =
   assert.equal(estateMessage.data.entityId, "881");
 });
 
+test("pharmacy order notifications preserve explicit deep-link targets", () => {
+  const customerMessage = __notificationsRepoTestables.buildMulticastMessage(
+    {
+      id: 11,
+      type: "pharmacy.order.created",
+      title: "Pharmacy order created",
+      body: "Open the order",
+      payload: {
+        target: "order_details",
+        targetModule: "customer",
+        orderId: 731,
+        conversationId: 44,
+      },
+    },
+    ["redacted-token"],
+    731,
+    { title: "Pharmacy order created", body: "Open the order" },
+    "user"
+  );
+  assert.equal(customerMessage.data.target, "order_details");
+  assert.equal(customerMessage.data.deepLinkTarget, "order_details");
+  assert.equal(customerMessage.data.orderId, "731");
+
+  const ownerMessage = __notificationsRepoTestables.buildMulticastMessage(
+    {
+      id: 12,
+      type: "pharmacy.order.created.store",
+      title: "Pharmacy order created",
+      body: "Open the order",
+      payload: {
+        target: "owner_order_details",
+        targetModule: "merchant",
+        orderId: 731,
+        conversationId: 44,
+      },
+    },
+    ["redacted-token"],
+    731,
+    { title: "Pharmacy order created", body: "Open the order" },
+    "store"
+  );
+  assert.equal(ownerMessage.data.target, "owner_order_details");
+  assert.equal(ownerMessage.data.deepLinkTarget, "owner_order_details");
+  assert.equal(ownerMessage.data.orderId, "731");
+});
+
 test("business thread validation accepts car and real-estate contexts", () => {
   assert.equal(
     validateCreateThread({
