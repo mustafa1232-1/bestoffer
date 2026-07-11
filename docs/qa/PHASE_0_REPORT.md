@@ -6,7 +6,7 @@
 - Baseline commit: `a5d342e0c5957d61ae4518b2eb69538fd70b1883`
 - Phase 0 documentation commit: `03dbbdd4b66aa63ee5a6155c91456498182fa764`
 - Backup branch: `backup/pre-full-closure-20260711-045945`
-- Phase 0 completion checkpoint commit: pending final checkpoint commit
+- Phase 0 completion checkpoint commit: `187c5b231ca57e67a3ba07d5f0165dd34d27e9a9`
 - Working tree at the start of this phase: clean
 
 ## Inventory Method

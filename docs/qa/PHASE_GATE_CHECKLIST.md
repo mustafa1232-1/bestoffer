@@ -11,7 +11,7 @@
 - [x] P0 blocker reproduction states recorded
 - [x] ERD labeled as conceptual until physical FK validation
 - [x] Kysely status confirmed as documentation-only / not started
-- [ ] Phase 0 completion checkpoint commit created
+- [x] Phase 0 completion checkpoint commit created
 - [ ] Final Phase 0 handoff delivered with exact counts and entry scope
 
 ## Phase 1 Entry Criteria
