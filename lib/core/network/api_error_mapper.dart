@@ -158,6 +158,8 @@ String? _messageForCode(AppLocalizations l10n, String code) {
       return l10n.apiPhoneExists;
     case 'VALIDATION_ERROR':
       return l10n.apiValidationError;
+    case 'OWNER_ALREADY_HAS_MERCHANT':
+      return l10n.addMerchantOwnerAlreadyLinked;
     case 'CATEGORY_REQUIRED':
       return l10n.apiCategoryRequired;
     case 'CATEGORY_INVALID':

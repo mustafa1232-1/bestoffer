@@ -122,6 +122,35 @@ void main() {
       expect(message, 'This account is not allowed on this app surface.');
     });
 
+    test('maps owner already has merchant errors to a clear message', () {
+      final error = DioException(
+        requestOptions: RequestOptions(path: '/api/owner/register'),
+        response: Response(
+          requestOptions: RequestOptions(path: '/api/owner/register'),
+          statusCode: 409,
+          data: {'message': 'OWNER_ALREADY_HAS_MERCHANT'},
+        ),
+      );
+
+      final english = Intl.withLocale(
+        'en',
+        () => mapDioError(error, fallback: 'fallback'),
+      );
+      final arabic = Intl.withLocale(
+        'ar',
+        () => mapDioError(error, fallback: 'fallback'),
+      );
+
+      expect(
+        english,
+        'This owner account is already linked to another store.',
+      );
+      expect(
+        arabic,
+        'هذا الحساب مرتبط بمتجر آخر بالفعل.',
+      );
+    });
+
     test(
       'treats provider registration NO_TOKEN responses as generic failures',
       () {
