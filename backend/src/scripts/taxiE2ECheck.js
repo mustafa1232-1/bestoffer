@@ -797,6 +797,19 @@ async function main() {
     );
     assertStatus(secondBid, 201, "captain final bid");
 
+    const secondCaptainBid = await request(
+      baseUrl,
+      captains[1].actor,
+      "POST",
+      `/api/taxi/rides/${activeRideId}/bids`,
+      {
+        offeredFareIqd: 12750,
+        etaMinutes: 5,
+        note: `second-captain-bid-${runTag}`,
+      }
+    );
+    assertStatus(secondCaptainBid, 201, "captain two bid");
+
     const customerRideAfterBid = await expectCurrentRide(
       baseUrl,
       customer,
@@ -805,6 +818,21 @@ async function main() {
       "customer ride after bidding"
     );
     const customerRideAfterBidState = extractRide(customerRideAfterBid);
+    const customerRideAfterBidBundle = extractRideBundle(customerRideAfterBid);
+    assert.ok(
+      Array.isArray(customerRideAfterBidBundle?.offers) &&
+        customerRideAfterBidBundle.offers.length >= 2,
+      "customer should see multiple offers"
+    );
+    assert.ok(
+      customerRideAfterBidBundle.offers.some(
+        (offer) => Number(offer?.captainId || 0) === Number(captains[0].userId)
+      ) &&
+        customerRideAfterBidBundle.offers.some(
+          (offer) => Number(offer?.captainId || 0) === Number(captains[1].userId)
+        ),
+      "customer offers should include both captains"
+    );
     assert.equal(
       Number(customerRideAfterBidState?.currentBidId || 0),
       activeBidId,
@@ -828,6 +856,14 @@ async function main() {
       },
       "captain accepted bid notification"
     );
+    await expectNotification(
+      {
+        userId: captains[1].userId,
+        type: "taxi.offer.rejected",
+        payloadChecks: { rideId: activeRideId },
+      },
+      "captain two rejected notification"
+    );
 
     await expectCurrentRide(
       baseUrl,
@@ -842,6 +878,12 @@ async function main() {
       "/api/taxi/captain/current-ride",
       "captain_assigned",
       "captain ride after acceptance"
+    );
+    await expectNoCurrentRide(
+      baseUrl,
+      captains[1].actor,
+      "/api/taxi/captain/current-ride",
+      "captain two current ride after acceptance"
     );
 
     const customerChat = await request(
