@@ -229,6 +229,8 @@ UserModel _customerUser() {
 Map<String, dynamic> _rideEnvelope({
   required String status,
   int? captainRating,
+  List<Map<String, dynamic>>? bids,
+  Map<String, dynamic>? bidQueue,
 }) {
   final ride = <String, dynamic>{
     'id': 41,
@@ -262,25 +264,29 @@ Map<String, dynamic> _rideEnvelope({
 
   return <String, dynamic>{
     'ride': ride,
-    'bids': status == 'searching'
-        ? <Map<String, dynamic>>[
-            {
-              'id': 11,
-              'status': 'active',
-              'offeredFareIqd': 13500,
-              'etaMinutes': 6,
-              'counterOfferCount': 1,
-              'captain': {'fullName': 'Captain Noor'},
-            },
-          ]
-        : const <Map<String, dynamic>>[],
-    'bidQueue': status == 'searching'
-        ? <String, dynamic>{
-            'currentBidId': 11,
-            'queueSize': 1,
-            'negotiationTimeoutSeconds': 180,
-          }
-        : null,
+    'bids':
+        bids ??
+        (status == 'searching'
+            ? <Map<String, dynamic>>[
+                {
+                  'id': 11,
+                  'status': 'active',
+                  'offeredFareIqd': 13500,
+                  'etaMinutes': 6,
+                  'counterOfferCount': 1,
+                  'captain': {'fullName': 'Captain Noor'},
+                },
+              ]
+            : const <Map<String, dynamic>>[]),
+    'bidQueue':
+        bidQueue ??
+        (status == 'searching'
+            ? <String, dynamic>{
+                'currentBidId': 11,
+                'queueSize': 1,
+                'negotiationTimeoutSeconds': 180,
+              }
+            : null),
   };
 }
 
@@ -348,10 +354,88 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text(l10n.mapPageRideSearchingTitle), findsAtLeastNWidgets(1));
-    expect(find.text(l10n.mapPageNegotiationTitle), findsOneWidget);
+    expect(find.text('Available offers'), findsOneWidget);
     expect(find.text(l10n.mapPageChatWithCaptain), findsNothing);
     expect(find.text(l10n.mapPageActiveRideTitle('41')), findsNothing);
   });
+
+  testWidgets(
+    'map page renders multiple offers without placeholder trip numbers',
+    (tester) async {
+      await _pumpMapPage(
+        tester,
+        currentRideEnvelope: _rideEnvelope(
+          status: 'searching',
+          bids: <Map<String, dynamic>>[
+            {
+              'id': 11,
+              'status': 'active',
+              'offeredFareIqd': 13500,
+              'etaMinutes': 6,
+              'distanceM': 900,
+              'captain': {
+                'fullName': 'Captain Noor',
+                'ratingAvg': 4.9,
+                'vehicleType': 'sedan',
+                'carMake': 'Toyota',
+                'carModel': 'Corolla',
+                'carYear': 2022,
+                'plateNumber': 'BGD-123',
+              },
+            },
+            {
+              'id': 12,
+              'status': 'active',
+              'offeredFareIqd': 13900,
+              'etaMinutes': 8,
+              'distanceM': 1500,
+              'captain': {
+                'fullName': 'Captain Ali',
+                'ratingAvg': 4.7,
+                'vehicleType': 'suv',
+                'carMake': 'Kia',
+                'carModel': 'Sportage',
+                'carYear': 2021,
+                'plateNumber': 'BGD-456',
+              },
+            },
+          ],
+          bidQueue: <String, dynamic>{
+            'currentBidId': 11,
+            'currentOfferId': 11,
+            'queueSize': 2,
+            'negotiationTimeoutSeconds': 180,
+            'queue': <Map<String, dynamic>>[
+              {
+                'bidId': 11,
+                'offerId': 11,
+                'queuePosition': 1,
+                'isCurrent': true,
+                'isBestPrice': true,
+                'isNearest': true,
+                'isHighestRated': true,
+              },
+              {
+                'bidId': 12,
+                'offerId': 12,
+                'queuePosition': 2,
+                'isCurrent': false,
+                'isBestPrice': false,
+                'isNearest': false,
+                'isHighestRated': false,
+              },
+            ],
+          },
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Available offers'), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
+      expect(find.text('#-'), findsNothing);
+      expect(find.text('Captain Ali'), findsOneWidget);
+    },
+  );
 
   testWidgets('completed ride shows the localized rating call to action', (
     tester,

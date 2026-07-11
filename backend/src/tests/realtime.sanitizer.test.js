@@ -48,3 +48,43 @@ test("sanitizeRealtimePayload keeps taxi location fields required by UI", () => 
   assert.equal(out.location.longitude, 44.4);
   assert.equal("phone" in out.location, false);
 });
+
+test("sanitizeRealtimePayload keeps taxi offer identifiers for negotiation updates", () => {
+  const out = sanitizeRealtimePayload("taxi_offer_received", {
+    rideId: 77,
+    offerId: 15,
+    offer_id: 15,
+    bidId: 15,
+    bid_id: 15,
+    captainId: 22,
+    captain_id: 22,
+    customerUserId: 7,
+    customer_user_id: 7,
+    secret: "do-not-ship",
+    payload: {
+      rideId: 77,
+      offerId: 15,
+      offer_id: 15,
+      bidId: 15,
+      bid_id: 15,
+      captainId: 22,
+      captain_id: 22,
+      customerUserId: 7,
+      customer_user_id: 7,
+      phone: "07700000000",
+    },
+  });
+
+  const serialized = JSON.stringify(out);
+  assert.ok(!serialized.includes("do-not-ship"));
+  assert.ok(!serialized.includes("07700000000"));
+  assert.equal(out.rideId, 77);
+  assert.equal(out.offerId, 15);
+  assert.equal(out.offer_id, 15);
+  assert.equal(out.bidId, 15);
+  assert.equal(out.bid_id, 15);
+  assert.equal(out.captainId, 22);
+  assert.equal(out.captain_id, 22);
+  assert.equal(out.customerUserId, 7);
+  assert.equal(out.customer_user_id, 7);
+});

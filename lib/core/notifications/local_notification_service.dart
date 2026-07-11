@@ -19,6 +19,8 @@ class NotificationTapPayload {
   final int? requestId;
   final int? orderId;
   final int? rideId;
+  final int? offerId;
+  final int? bidId;
   final int? jobId;
   final int? applicationId;
   final int? postId;
@@ -27,6 +29,8 @@ class NotificationTapPayload {
   final int? threadId;
   final int? sessionId;
   final int? senderUserId;
+  final int? captainId;
+  final int? customerUserId;
   final int? notificationId;
   final String? type;
   final String? target;
@@ -51,6 +55,8 @@ class NotificationTapPayload {
     this.requestId,
     this.orderId,
     this.rideId,
+    this.offerId,
+    this.bidId,
     this.jobId,
     this.applicationId,
     this.postId,
@@ -59,6 +65,8 @@ class NotificationTapPayload {
     this.threadId,
     this.sessionId,
     this.senderUserId,
+    this.captainId,
+    this.customerUserId,
     this.notificationId,
     this.type,
     this.target,
@@ -227,6 +235,12 @@ class LocalNotificationService {
     final rideId =
         notification.rideId ??
         int.tryParse('${notification.payload?['rideId'] ?? ''}');
+    final offerId =
+        int.tryParse('${notification.payload?['offerId'] ?? ''}') ??
+        int.tryParse('${notification.payload?['offer_id'] ?? ''}');
+    final bidId =
+        int.tryParse('${notification.payload?['bidId'] ?? ''}') ??
+        int.tryParse('${notification.payload?['bid_id'] ?? ''}');
     final target =
         notification.target ?? notification.payload?['target']?.toString();
     final id = notification.id > 0 ? notification.id : ++_fallbackId;
@@ -242,6 +256,8 @@ class LocalNotificationService {
           int.tryParse('${notification.payload?['request_id'] ?? ''}'),
       orderId: orderId,
       rideId: rideId,
+      offerId: offerId,
+      bidId: bidId,
       jobId: int.tryParse('${notification.payload?['jobId'] ?? ''}'),
       applicationId: int.tryParse(
         '${notification.payload?['applicationId'] ?? ''}',
@@ -259,6 +275,12 @@ class LocalNotificationService {
           int.tryParse('${notification.payload?['thread_id'] ?? ''}'),
       senderUserId: int.tryParse(
         '${notification.payload?['senderUserId'] ?? notification.payload?['sender_user_id'] ?? notification.payload?['actorUserId'] ?? notification.payload?['actor_user_id'] ?? ''}',
+      ),
+      captainId: int.tryParse(
+        '${notification.payload?['captainId'] ?? notification.payload?['captain_id'] ?? ''}',
+      ),
+      customerUserId: int.tryParse(
+        '${notification.payload?['customerUserId'] ?? notification.payload?['customer_user_id'] ?? ''}',
       ),
       sessionId:
           int.tryParse('${notification.payload?['sessionId'] ?? ''}') ??
@@ -316,6 +338,8 @@ class LocalNotificationService {
     int? requestId,
     int? orderId,
     int? rideId,
+    int? offerId,
+    int? bidId,
     int? jobId,
     int? applicationId,
     int? postId,
@@ -324,6 +348,8 @@ class LocalNotificationService {
     int? threadId,
     int? sessionId,
     int? senderUserId,
+    int? captainId,
+    int? customerUserId,
     int? notificationId,
     String? type,
     String? target,
@@ -372,6 +398,8 @@ class LocalNotificationService {
       'requestId': requestId,
       'orderId': orderId,
       'rideId': rideId,
+      'offerId': offerId,
+      'bidId': bidId,
       'jobId': jobId,
       'applicationId': applicationId,
       'postId': postId,
@@ -380,6 +408,8 @@ class LocalNotificationService {
       'threadId': threadId,
       'sessionId': sessionId,
       'senderUserId': senderUserId,
+      'captainId': captainId,
+      'customerUserId': customerUserId,
       'notificationId': id,
       'type': type,
       'target': target,
@@ -550,6 +580,12 @@ class LocalNotificationService {
             int.tryParse('${map['request_id'] ?? ''}'),
         orderId: int.tryParse('${map['orderId'] ?? ''}'),
         rideId: int.tryParse('${map['rideId'] ?? ''}'),
+        offerId:
+            int.tryParse('${map['offerId'] ?? ''}') ??
+            int.tryParse('${map['offer_id'] ?? ''}'),
+        bidId:
+            int.tryParse('${map['bidId'] ?? ''}') ??
+            int.tryParse('${map['bid_id'] ?? ''}'),
         jobId: int.tryParse('${map['jobId'] ?? ''}'),
         applicationId: int.tryParse('${map['applicationId'] ?? ''}'),
         postId: int.tryParse('${map['postId'] ?? ''}'),
@@ -563,6 +599,12 @@ class LocalNotificationService {
             int.tryParse('${map['sender_user_id'] ?? ''}') ??
             int.tryParse('${map['actorUserId'] ?? ''}') ??
             int.tryParse('${map['actor_user_id'] ?? ''}'),
+        captainId:
+            int.tryParse('${map['captainId'] ?? ''}') ??
+            int.tryParse('${map['captain_id'] ?? ''}'),
+        customerUserId:
+            int.tryParse('${map['customerUserId'] ?? ''}') ??
+            int.tryParse('${map['customer_user_id'] ?? ''}'),
         sessionId:
             int.tryParse('${map['sessionId'] ?? ''}') ??
             int.tryParse('${map['session_id'] ?? ''}'),
@@ -744,11 +786,35 @@ bool _isUrgentRealtimeNotification({
   if (normalizedTarget == 'courier_orders_new' ||
       normalizedTarget == 'delivery_order_offer' ||
       normalizedTarget == 'courier_order_offer' ||
-      normalizedTarget == 'taxi_new_request') {
+      normalizedTarget == 'taxi_new_request' ||
+      normalizedTarget == 'taxi_ride_requested' ||
+      normalizedTarget == 'taxi_offer_received' ||
+      normalizedTarget == 'taxi_counter_offer_received' ||
+      normalizedTarget == 'taxi_offer_accepted' ||
+      normalizedTarget == 'taxi_offer_rejected' ||
+      normalizedTarget == 'taxi_ride_assigned' ||
+      normalizedTarget == 'taxi_ride_unavailable' ||
+      normalizedTarget == 'taxi_captain_arrived' ||
+      normalizedTarget == 'taxi_ride_started' ||
+      normalizedTarget == 'taxi_ride_completed' ||
+      normalizedTarget == 'taxi_ride_canceled' ||
+      normalizedTarget == 'taxi_chat_message') {
     return true;
   }
   return normalizedType == 'delivery_order_available' ||
       normalizedType == 'delivery_order_offer' ||
       normalizedType == 'courier_order_offer' ||
-      normalizedType == 'taxi.request.new';
+      normalizedType == 'taxi.request.new' ||
+      normalizedType == 'taxi.ride.requested' ||
+      normalizedType == 'taxi.offer.received' ||
+      normalizedType == 'taxi.counter_offer.received' ||
+      normalizedType == 'taxi.offer.accepted' ||
+      normalizedType == 'taxi.offer.rejected' ||
+      normalizedType == 'taxi.ride.assigned' ||
+      normalizedType == 'taxi.ride.unavailable' ||
+      normalizedType == 'taxi.captain.arrived' ||
+      normalizedType == 'taxi.ride.started' ||
+      normalizedType == 'taxi.ride.completed' ||
+      normalizedType == 'taxi.ride.canceled' ||
+      normalizedType == 'taxi.chat.message';
 }

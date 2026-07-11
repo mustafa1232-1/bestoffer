@@ -122,6 +122,132 @@ test("taxi compact payload preserves display state flags for public consumers", 
   assert.equal(payload.currentBidId, 44);
 });
 
+test("taxi offer helpers preserve multi-captain offer presentation and queue metadata", () => {
+  const bids = [
+    {
+      id: 11,
+      rideRequestId: 41,
+      captainUserId: 21,
+      offeredFareIqd: 14500,
+      etaMinutes: 6,
+      note: "Closer to pickup",
+      status: "active",
+      counterOfferCount: 1,
+      lastOfferIqd: 14500,
+      lastOfferBy: "captain",
+      createdAt: "2026-07-11T09:00:00.000Z",
+      updatedAt: "2026-07-11T09:01:00.000Z",
+      distanceM: 900,
+      captain: { ratingAvg: 4.9, fullName: "Captain One" },
+    },
+    {
+      id: 12,
+      rideRequestId: 41,
+      captainUserId: 22,
+      offeredFareIqd: 15100,
+      etaMinutes: 8,
+      note: "Ready now",
+      status: "active",
+      counterOfferCount: 0,
+      lastOfferIqd: 15100,
+      lastOfferBy: "captain",
+      createdAt: "2026-07-11T09:02:00.000Z",
+      updatedAt: "2026-07-11T09:02:30.000Z",
+      distanceM: 1500,
+      captain: { ratingAvg: 4.7, fullName: "Captain Two" },
+    },
+  ];
+
+  const bidQueue = __taxiServiceTestApi.buildBidQueueMeta({
+    bids,
+    currentBidId: 11,
+  });
+  const offers = __taxiServiceTestApi.buildOfferPresentationList({
+    bids,
+    currentBidId: 11,
+    bidQueue,
+  });
+
+  assert.equal(bidQueue.queueSize, 2);
+  assert.equal(bidQueue.currentOfferId, 11);
+  assert.equal(bidQueue.queue[0].bidId, 11);
+  assert.equal(bidQueue.queue[0].offerId, 11);
+  assert.equal(bidQueue.queue[0].isCurrent, true);
+  assert.equal(bidQueue.queue[0].isBestPrice, true);
+  assert.equal(bidQueue.queue[0].isNearest, true);
+  assert.equal(bidQueue.queue[0].isHighestRated, true);
+
+  const firstOffer = offers.find((offer) => offer.offerId === 11);
+  const secondOffer = offers.find((offer) => offer.offerId === 12);
+
+  assert.ok(firstOffer);
+  assert.ok(secondOffer);
+  assert.equal(firstOffer.bidId, 11);
+  assert.equal(firstOffer.captainId, 21);
+  assert.equal(firstOffer.queuePosition, 1);
+  assert.equal(firstOffer.isCurrent, true);
+  assert.equal(firstOffer.isBestPrice, true);
+  assert.equal(firstOffer.isNearest, true);
+  assert.equal(firstOffer.isHighestRated, true);
+  assert.equal(secondOffer.queuePosition, 2);
+  assert.equal(secondOffer.captainId, 22);
+  assert.equal(secondOffer.isCurrent, false);
+  assert.equal(secondOffer.isBestPrice, false);
+});
+
+test("taxi captain eligibility requires approved, online, and complete profile", () => {
+  const now = new Date().toISOString();
+  const completeProfile = {
+    id: 31,
+    full_name: "Captain Complete",
+    phone: "07711111111",
+    vehicle_type: "sedan",
+    car_model: "Corolla",
+    car_color: "White",
+    plate_number: "BGD-123",
+    delivery_account_approved: true,
+    is_active: true,
+    rating_avg: 4.8,
+    rides_count: 29,
+  };
+
+  const eligible = __taxiServiceTestApi.buildCaptainTaxiEligibility({
+    profileRow: completeProfile,
+    presenceRow: {
+      captain_user_id: 31,
+      isOnline: true,
+      latitude: 33.31,
+      longitude: 44.36,
+      lastSeenAt: now,
+    },
+  });
+
+  assert.equal(eligible.canReceiveRideRequests, true);
+  assert.equal(eligible.isApproved, true);
+  assert.equal(eligible.isActive, true);
+  assert.equal(eligible.isOnline, true);
+  assert.equal(eligible.isProfileComplete, true);
+  assert.deepEqual(eligible.reasons, []);
+
+  const blocked = __taxiServiceTestApi.buildCaptainTaxiEligibility({
+    profileRow: {
+      ...completeProfile,
+      phone: "",
+    },
+    presenceRow: {
+      captain_user_id: 31,
+      isOnline: true,
+      latitude: 33.31,
+      longitude: 44.36,
+      lastSeenAt: "2020-01-01T00:00:00.000Z",
+    },
+  });
+
+  assert.equal(blocked.canReceiveRideRequests, false);
+  assert.ok(blocked.reasons.includes("profile_incomplete"));
+  assert.ok(blocked.reasons.includes("offline"));
+});
+
 test("taxi chat access stays blocked until a ride is actually assigned", async () => {
   await assert.rejects(
     () =>

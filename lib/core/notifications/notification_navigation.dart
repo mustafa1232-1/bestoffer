@@ -86,6 +86,9 @@ class NotificationNavigation {
           model.rideId ??
           _parseInt(payload?['rideId']) ??
           _parseInt(payload?['ride_id']),
+      offerId:
+          _parseInt(payload?['offerId']) ?? _parseInt(payload?['offer_id']),
+      bidId: _parseInt(payload?['bidId']) ?? _parseInt(payload?['bid_id']),
       postId: _parseInt(payload?['postId']) ?? _parseInt(payload?['post_id']),
       reelId:
           model.reelId ??
@@ -108,6 +111,11 @@ class NotificationNavigation {
           _parseInt(payload?['sender_user_id']) ??
           _parseInt(payload?['actorUserId']) ??
           _parseInt(payload?['actor_user_id']),
+      captainId:
+          _parseInt(payload?['captainId']) ?? _parseInt(payload?['captain_id']),
+      customerUserId:
+          _parseInt(payload?['customerUserId']) ??
+          _parseInt(payload?['customer_user_id']),
       notificationId: model.id,
       type: model.type,
       target: model.target ?? payload?['target']?.toString(),
@@ -646,6 +654,20 @@ class NotificationNavigation {
         target.startsWith('taxi_') ||
         target == 'taxi_live' ||
         (payload.type ?? '').toLowerCase().startsWith('taxi.');
+    final taxiOfferNotification =
+        target == 'taxi_offer_received' ||
+        target == 'taxi_counter_offer_received' ||
+        target == 'taxi_offer_rejected' ||
+        target == 'taxi_ride_unavailable';
+    final taxiAssignmentNotification =
+        target == 'taxi_offer_accepted' ||
+        target == 'taxi_ride_assigned' ||
+        target == 'taxi_captain_arrived' ||
+        target == 'taxi_ride_started';
+    final taxiTerminalNotification =
+        target == 'taxi_ride_completed' || target == 'taxi_ride_canceled';
+    final taxiChatNotification = target == 'taxi_chat_message';
+    final taxiRequestNotification = target == 'taxi_ride_requested';
 
     if (isCustomer) {
       final unavailableSectionRoute = _resolveUnavailableSectionRoute(
@@ -675,6 +697,23 @@ class NotificationNavigation {
         return MaterialPageRoute(
           builder: (_) => const CustomerNotificationsPage(),
         );
+      }
+      if (taxiOfferNotification || taxiChatNotification) {
+        return MaterialPageRoute(builder: (_) => const MapPage());
+      }
+      if (taxiAssignmentNotification || target == 'taxi_live') {
+        if (rideId != null && rideId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => TaxiLiveTrackingScreen(rideId: rideId),
+          );
+        }
+        return MaterialPageRoute(builder: (_) => const MapPage());
+      }
+      if (taxiTerminalNotification) {
+        return MaterialPageRoute(builder: (_) => const MapPage());
+      }
+      if (taxiRequestNotification) {
+        return MaterialPageRoute(builder: (_) => const MapPage());
       }
       if (target == 'jobs_my_applications') {
         return MaterialPageRoute(
@@ -917,13 +956,31 @@ class NotificationNavigation {
         !courierScoped &&
         (taxiScoped || !auth.isDelivery)) {
       // A new ride request opens that specific ride so the captain can accept it.
-      if (target == 'taxi_new_request') {
+      if (taxiRequestNotification || target == 'taxi_new_request') {
         if (rideId != null && rideId > 0) {
           return MaterialPageRoute(
             builder: (_) => TaxiTripDetailsPage(rideId: rideId),
           );
         }
         return MaterialPageRoute(builder: (_) => const TaxiTripsNewPage());
+      }
+      if (taxiOfferNotification || taxiChatNotification) {
+        if (rideId != null && rideId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => TaxiTripDetailsPage(rideId: rideId),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const TaxiCaptainDashboardPage(),
+        );
+      }
+      if (taxiAssignmentNotification || taxiTerminalNotification) {
+        if (rideId != null && rideId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => TaxiTripDetailsPage(rideId: rideId),
+          );
+        }
+        return MaterialPageRoute(builder: (_) => const TaxiTripsCurrentPage());
       }
       if (target == 'taxi_trips_new') {
         return MaterialPageRoute(builder: (_) => const TaxiTripsNewPage());

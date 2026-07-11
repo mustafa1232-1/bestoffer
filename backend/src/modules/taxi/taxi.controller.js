@@ -254,6 +254,50 @@ export async function counterOfferCurrentBid(req, res, next) {
 /**
  * ينفذ bid جديد من جهة الكابتن.
  */
+export async function rejectBid(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const bid = validateBidId(req.params.bidId);
+    if (!bid.ok) return badRequest(res, bid.errors);
+
+    const out = await service.rejectCurrentBid({
+      customerUserId: req.userId,
+      rideId,
+      bidId: bid.value,
+    });
+
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function counterOfferBid(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const bid = validateBidId(req.params.bidId);
+    if (!bid.ok) return badRequest(res, bid.errors);
+
+    const v = validateCounterOffer(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.counterOfferCurrentBid({
+      customerUserId: req.userId,
+      rideId,
+      bidId: bid.value,
+      dto: v.value,
+    });
+
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function createBid(req, res, next) {
   try {
     const rideId = requireRideId(req, res);

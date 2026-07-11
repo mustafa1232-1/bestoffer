@@ -588,7 +588,7 @@ async function main() {
     await expectNotification(
       {
         userId: captains[0].userId,
-        type: "taxi.request.new",
+        type: "taxi.ride.requested",
         payloadChecks: { rideId: rejectedRideId },
       },
       "captain new ride notification"
@@ -756,7 +756,7 @@ async function main() {
     await expectNotification(
       {
         userId: state.customerUserId,
-        type: "taxi.bid.submitted",
+        type: "taxi.offer.received",
         payloadChecks: { rideId: activeRideId, bidId: activeBidId },
       },
       "customer bid submitted notification"
@@ -778,7 +778,7 @@ async function main() {
     await expectNotification(
       {
         userId: captains[0].userId,
-        type: "taxi.bid.counter_offer",
+        type: "taxi.counter_offer.received",
         payloadChecks: { rideId: activeRideId },
       },
       "captain counter offer notification"
@@ -823,7 +823,7 @@ async function main() {
     await expectNotification(
       {
         userId: captains[0].userId,
-        type: "taxi.bid.accepted",
+        type: "taxi.offer.accepted",
         payloadChecks: { rideId: activeRideId, bidId: activeBidId },
       },
       "captain accepted bid notification"
@@ -954,7 +954,7 @@ async function main() {
     await expectNotification(
       {
         userId: state.customerUserId,
-        type: "taxi.ride.captain_arriving",
+        type: "taxi.captain.arrived",
         payloadChecks: { rideId: activeRideId },
       },
       "captain arriving notification"
@@ -987,7 +987,7 @@ async function main() {
     await expectNotification(
       {
         userId: state.customerUserId,
-        type: "taxi.ride.ride_started",
+        type: "taxi.ride.started",
         payloadChecks: { rideId: activeRideId },
       },
       "ride started notification"
@@ -1005,7 +1005,7 @@ async function main() {
     await expectNotification(
       {
         userId: state.customerUserId,
-        type: "taxi.ride.ride_completed",
+        type: "taxi.ride.completed",
         payloadChecks: { rideId: activeRideId },
       },
       "ride completed notification"

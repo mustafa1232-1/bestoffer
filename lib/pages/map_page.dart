@@ -172,6 +172,8 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     });
   }
 
+  String _t(String ar, String en) => context.lt(ar: ar, en: en);
+
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
@@ -646,9 +648,8 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
               return;
             }
 
-            if (event.event == 'taxi_bid_update' ||
-                event.event == 'taxi_ride_update' ||
-                event.event == 'taxi_new_request') {
+            if (event.event.startsWith('taxi_') &&
+                event.event != 'taxi_location_update') {
               _refreshRideFromRealtime();
               return;
             }
@@ -2204,7 +2205,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _rejectCurrentBid() async {
+  Future<void> _rejectCurrentBid({int? bidId}) async {
     final rideId = _readInt(_ride?['id']);
     if (rideId == null || _submitting) return;
 
@@ -2215,7 +2216,11 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     });
 
     try {
-      await _taxiApi.rejectCurrentBid(rideId: rideId);
+      if (bidId != null && bidId > 0) {
+        await _taxiApi.rejectBid(rideId: rideId, bidId: bidId);
+      } else {
+        await _taxiApi.rejectCurrentBid(rideId: rideId);
+      }
       await _loadCurrentRide(silent: true);
       _showMessage(l10n.mapPageBidRejected);
     } on DioException catch (e) {
@@ -2382,7 +2387,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     scrollCoordinator.dispose();
   }
 
-  Future<void> _openCounterOfferDialogV2({int? initialFare}) async {
+  Future<void> _openCounterOfferDialogV2({int? initialFare, int? bidId}) async {
     final l10n = context.l10n;
     final fareCtrl = TextEditingController(text: '${initialFare ?? 0}');
     final noteCtrl = TextEditingController();
@@ -2415,11 +2420,20 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       try {
         final rideId = _readInt(_ride?['id']);
         if (rideId == null) return;
-        await _taxiApi.counterOfferCurrentBid(
-          rideId: rideId,
-          offeredFareIqd: offeredFare!,
-          note: noteCtrl.text.trim(),
-        );
+        if (bidId != null && bidId > 0) {
+          await _taxiApi.counterOfferBid(
+            rideId: rideId,
+            bidId: bidId,
+            offeredFareIqd: offeredFare!,
+            note: noteCtrl.text.trim(),
+          );
+        } else {
+          await _taxiApi.counterOfferCurrentBid(
+            rideId: rideId,
+            offeredFareIqd: offeredFare!,
+            note: noteCtrl.text.trim(),
+          );
+        }
         if (!mounted) return;
         dialogClosed = true;
         Navigator.of(context).pop();
@@ -2780,6 +2794,339 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     scrollCoordinator.dispose();
   }
 
+  Map<String, dynamic>? _offerQueueItemFor(Map<String, dynamic> offer) {
+    final queueRaw = _offerQueue?['queue'] ?? _offerQueue?['offers'];
+    if (queueRaw is! List) return null;
+    final offerId = _readInt(offer['offerId']) ?? _readInt(offer['id']);
+    if (offerId == null) return null;
+    for (final item in queueRaw) {
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(item);
+      if (_readInt(map['offerId']) == offerId ||
+          _readInt(map['bidId']) == offerId) {
+        return map;
+      }
+    }
+    return null;
+  }
+
+  String? _offerNegotiationLabel(Map<String, dynamic> offer) {
+    final status = _string(offer['status'])?.toLowerCase();
+    if (status == 'accepted') {
+      return _t('رحلة نشطة', 'Active ride');
+    }
+    final lastOfferBy = _string(offer['lastOfferBy'])?.toLowerCase();
+    if (lastOfferBy == 'customer') {
+      return _t('بانتظار رد الكابتن', 'Waiting for captain response');
+    }
+    if (lastOfferBy == 'captain') {
+      return _t('بانتظار رد الراكب', 'Waiting for rider response');
+    }
+    if (offer['isCurrent'] == true) {
+      return _t('العرض الحالي', 'Current offer');
+    }
+    return null;
+  }
+
+  int? _offerNegotiationCountdown(Map<String, dynamic> offer) {
+    final item = _offerQueueItemFor(offer);
+    final negotiation = item?['negotiation'] is Map
+        ? Map<String, dynamic>.from(item!['negotiation'] as Map)
+        : null;
+    final fromPayload = _readInt(negotiation?['remainingSeconds']);
+    if (fromPayload != null) return fromPayload.clamp(0, 9999);
+
+    final timeoutSeconds =
+        _readInt(negotiation?['timeoutSeconds']) ??
+        _readInt(_offerQueue?['negotiationTimeoutSeconds']) ??
+        300;
+    final anchor =
+        _parseIsoDate(offer['updatedAt']) ?? _parseIsoDate(offer['createdAt']);
+    if (anchor == null) return null;
+    final expiresAt = anchor.add(Duration(seconds: timeoutSeconds));
+    final seconds = expiresAt.difference(DateTime.now()).inSeconds;
+    if (seconds <= 0) return 0;
+    return seconds;
+  }
+
+  Widget _buildTaxiOfferCard(
+    Map<String, dynamic> offer, {
+    required String nonAvailable,
+  }) {
+    final l10n = context.l10n;
+    final captain = offer['captain'] is Map
+        ? Map<String, dynamic>.from(offer['captain'] as Map)
+        : null;
+    final offerId = _readInt(offer['offerId']) ?? _readInt(offer['id']);
+    final fare = _readInt(offer['offeredFareIqd']) ?? 0;
+    final fareLabel = fare > 0 ? formatIqd(fare) : nonAvailable;
+    final etaMinutes = _readInt(offer['etaMinutes']);
+    final distanceM =
+        _readDouble(offer['distanceM']) ??
+        _readInt(offer['distanceM'])?.toDouble();
+    final captainName = _string(captain?['fullName']) ?? _t('كابتن', 'Captain');
+    final captainRating = _readDouble(captain?['ratingAvg']);
+    final ridesCount = _readInt(captain?['ridesCount']) ?? 0;
+    final profileImage = _string(captain?['profileImageUrl']);
+    final note = _string(offer['note']);
+    final current = offer['isCurrent'] == true;
+    final queuePosition = _readInt(offer['queuePosition']);
+    final remainingSeconds = _offerNegotiationCountdown(offer);
+    final negotiationLabel = _offerNegotiationLabel(offer);
+    final badges = <Widget>[
+      if (offer['isBestPrice'] == true)
+        _offerBadge(_t('أفضل سعر', 'Best price'), Colors.green),
+      if (offer['isNearest'] == true)
+        _offerBadge(_t('الأقرب', 'Nearest'), Colors.blue),
+      if (offer['isHighestRated'] == true)
+        _offerBadge(_t('الأعلى تقييماً', 'Top rated'), Colors.amber),
+      if (current) _offerBadge(_t('العرض الحالي', 'Current'), Colors.teal),
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: current
+            ? Colors.lightBlue.withValues(alpha: 0.10)
+            : Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: current
+              ? Colors.lightBlue.withValues(alpha: 0.34)
+              : Colors.white.withValues(alpha: 0.10),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: Colors.white.withValues(alpha: 0.10),
+                  backgroundImage: profileImage != null
+                      ? AppCachedImageProvider(profileImage)
+                      : null,
+                  child: profileImage == null
+                      ? Text(
+                          captainName.isNotEmpty
+                              ? captainName.substring(0, 1)
+                              : 'M',
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              captainName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                          if (queuePosition != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '#$queuePosition',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        captainRating != null && captainRating > 0
+                            ? '${captainRating.toStringAsFixed(1)} • $ridesCount'
+                            : _t('لا يوجد تقييم بعد', 'No rating yet'),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        [
+                              _string(captain?['vehicleType']),
+                              _string(captain?['carMake']),
+                              _string(captain?['carModel']),
+                              _readInt(captain?['carYear'])?.toString(),
+                            ]
+                            .whereType<String>()
+                            .where((v) => v.isNotEmpty)
+                            .join(' • '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      if (_string(captain?['carColor']) != null)
+                        Text(
+                          '${_t('لون السيارة', 'Car color')}: ${_string(captain?['carColor'])}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      if (_string(captain?['plateNumber']) != null)
+                        Text(
+                          '${_t('اللوحة', 'Plate')}: ${_string(captain?['plateNumber'])}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (fare > 0)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        fareLabel,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: Colors.tealAccent,
+                        ),
+                      ),
+                      if (etaMinutes != null)
+                        Text(
+                          '${_t('ETA', 'ETA')}: $etaMinutes ${_t('د', 'min')}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                    ],
+                  ),
+              ],
+            ),
+            if (badges.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(spacing: 6, runSpacing: 6, children: badges),
+            ],
+            if (negotiationLabel != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                negotiationLabel,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+            if (remainingSeconds != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.timer_outlined, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _t('الوقت المتبقي', 'Time remaining'),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  Text(
+                    _formatCountdown(remainingSeconds),
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              LinearProgressIndicator(
+                value: (remainingSeconds / 300).clamp(0.0, 1.0).toDouble(),
+                minHeight: 6,
+                borderRadius: BorderRadius.circular(999),
+                backgroundColor: Colors.white12,
+              ),
+            ],
+            if (distanceM != null && distanceM > 0) ...[
+              const SizedBox(height: 8),
+              Text(
+                distanceM < 1000
+                    ? _t(
+                        'المسافة: ${distanceM.round()} م',
+                        'Distance: ${distanceM.round()} m',
+                      )
+                    : _t(
+                        'المسافة: ${(distanceM / 1000).toStringAsFixed(distanceM >= 10000 ? 0 : 1)} كم',
+                        'Distance: ${(distanceM / 1000).toStringAsFixed(distanceM >= 10000 ? 0 : 1)} km',
+                      ),
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+            if (note != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${_t('ملاحظة', 'Note')}: $note',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: (_submitting || offerId == null)
+                      ? null
+                      : () => _acceptBid(offerId),
+                  icon: const Icon(Icons.check_circle),
+                  label: Text(l10n.commonAccept),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: _submitting || offerId == null
+                      ? null
+                      : () => _rejectCurrentBid(bidId: offerId),
+                  icon: const Icon(Icons.close_rounded),
+                  label: Text(l10n.commonReject),
+                ),
+                FilledButton.icon(
+                  onPressed: _submitting || offerId == null
+                      ? null
+                      : () => _openCounterOfferDialogV2(
+                          initialFare: fare > 0 ? fare : null,
+                          bidId: offerId,
+                        ),
+                  icon: const Icon(Icons.price_change),
+                  label: Text(_t('عرض مضاد', 'Counter')),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _offerBadge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openShareRideSheet() async {
     final rideId = _readInt(_ride?['id']);
     final auth = ref.read(authControllerProvider);
@@ -2839,46 +3186,62 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     return null;
   }
 
-  List<Map<String, dynamic>> get _bids {
+  List<Map<String, dynamic>> get _offers {
     final envelope = _activeRideEnvelope;
     if (envelope == null) return const [];
-    final raw = envelope['bids'];
-    if (raw is! List) return const [];
-
-    return raw
-        .whereType<Map>()
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
+    final raw =
+        envelope['offers'] ?? envelope['offerQueue'] ?? envelope['bids'];
+    if (raw is List) {
+      return raw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    if (raw is Map && raw['queue'] is List) {
+      return (raw['queue'] as List)
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    return const [];
   }
 
-  Map<String, dynamic>? get _bidQueue {
+  Map<String, dynamic>? get _offerQueue {
     final envelope = _activeRideEnvelope;
     if (envelope == null) return null;
-    final raw = envelope['bidQueue'];
+    final raw = envelope['offerQueue'] ?? envelope['bidQueue'];
     return raw is Map ? Map<String, dynamic>.from(raw) : null;
   }
 
-  Map<String, dynamic>? get _currentBid {
+  Map<String, dynamic>? get _currentOffer {
     final ride = _ride;
-    final currentBidId =
-        _readInt(_bidQueue?['currentBidId']) ?? _readInt(ride?['currentBidId']);
-    if (currentBidId == null) return null;
-    for (final bid in _bids) {
-      if (_readInt(bid['id']) == currentBidId &&
-          _string(bid['status']) == 'active') {
-        return bid;
+    final currentOfferId =
+        _readInt(_offerQueue?['currentOfferId']) ??
+        _readInt(_offerQueue?['currentBidId']) ??
+        _readInt(ride?['currentBidId']);
+    if (currentOfferId == null) return null;
+    for (final offer in _offers) {
+      if (_readInt(offer['id']) == currentOfferId &&
+          _string(offer['status']) == 'active') {
+        return offer;
       }
+    }
+    final current = _offerQueue?['currentOffer'];
+    if (current is Map) {
+      return Map<String, dynamic>.from(current);
     }
     return null;
   }
 
-  List<Map<String, dynamic>> get _waitingBids {
-    final currentId = _readInt(_currentBid?['id']);
-    return _bids
+  Map<String, dynamic>? get _currentBid => _currentOffer;
+
+  List<Map<String, dynamic>> get _waitingOffers {
+    final currentId = _readInt(_currentOffer?['id']);
+    return _offers
         .where(
-          (b) =>
-              _string(b['status']) == 'active' &&
-              _readInt(b['id']) != currentId,
+          (offer) =>
+              _string(offer['status']) == 'active' &&
+              _readInt(offer['id']) != currentId,
         )
         .toList();
   }
@@ -2889,53 +3252,6 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
         status == 'captain_assigned' ||
         status == 'captain_arriving' ||
         status == 'ride_started';
-  }
-
-  Map<String, dynamic>? get _currentBidQueueItem {
-    final queueRaw = _bidQueue?['queue'];
-    if (queueRaw is! List) return null;
-    final currentBidId =
-        _readInt(_currentBid?['id']) ?? _readInt(_bidQueue?['currentBidId']);
-    if (currentBidId == null) return null;
-
-    for (final item in queueRaw) {
-      if (item is! Map) continue;
-      final map = Map<String, dynamic>.from(item);
-      if (_readInt(map['bidId']) == currentBidId) {
-        return map;
-      }
-    }
-    return null;
-  }
-
-  int _negotiationTimeoutSeconds(Map<String, dynamic>? bid) {
-    final item = _currentBidQueueItem;
-    final negotiation = item?['negotiation'] is Map
-        ? Map<String, dynamic>.from(item!['negotiation'] as Map)
-        : null;
-    return _readInt(negotiation?['timeoutSeconds']) ??
-        _readInt(_bidQueue?['negotiationTimeoutSeconds']) ??
-        300;
-  }
-
-  int? _negotiationRemainingSeconds(Map<String, dynamic>? bid) {
-    if (bid == null) return null;
-    final item = _currentBidQueueItem;
-    final negotiation = item?['negotiation'] is Map
-        ? Map<String, dynamic>.from(item!['negotiation'] as Map)
-        : null;
-    final fromPayload = _readInt(negotiation?['remainingSeconds']);
-    if (fromPayload != null) return fromPayload.clamp(0, 9999);
-
-    final timeoutSeconds = _negotiationTimeoutSeconds(bid);
-    final anchor =
-        _parseIsoDate(bid['updatedAt']) ??
-        _parseIsoDate(bid['createdAt']) ??
-        DateTime.now();
-    final expiresAt = anchor.add(Duration(seconds: timeoutSeconds));
-    final seconds = expiresAt.difference(DateTime.now()).inSeconds;
-    if (seconds <= 0) return 0;
-    return seconds;
   }
 
   int? _finalAcceptanceRemainingSeconds(Map<String, dynamic>? ride) {
@@ -3158,6 +3474,23 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
             return l10n.mapPageApiActiveRideExists;
           case 'TAXI_RIDE_NOT_ACCEPTING_BIDS':
             return l10n.mapPageApiRideNotAcceptingBids;
+          case 'TAXI_OFFER_NOT_FOUND':
+          case 'TAXI_OFFER_EXPIRED':
+            return _t(
+              'العرض لم يعد متاحاً.',
+              'The offer is no longer available.',
+            );
+          case 'TAXI_ALREADY_ASSIGNED':
+            return _t(
+              'تم قبول عرض آخر بالفعل.',
+              'Another offer was already accepted.',
+            );
+          case 'TAXI_CAPTAIN_NOT_AVAILABLE':
+          case 'NO_CAPTAINS_AVAILABLE':
+            return _t(
+              'لا يوجد كباتن متاحون حالياً.',
+              'No captains are available right now.',
+            );
           case 'TAXI_RIDE_OUT_OF_RANGE':
             return l10n.mapPageApiRideOutOfRange;
           case 'TAXI_NO_ACTIVE_BID':
@@ -3605,10 +3938,11 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   ) {
     final l10n = context.l10n;
     final nonAvailable = context.lt(ar: 'غير متوفر', en: 'Not available');
-    final bids = _bids;
-    final bidQueue = _bidQueue;
-    final currentBid = _currentBid;
-    final waitingBids = _waitingBids;
+    final offers = _offers;
+    final offerQueue = _offerQueue;
+    final currentOffer = _currentOffer;
+    final waitingOffers = _waitingOffers;
+    final waitingBids = waitingOffers;
     final finalAcceptanceRemaining = rideStatus == 'searching'
         ? _finalAcceptanceRemainingSeconds(ride)
         : null;
@@ -3919,19 +4253,21 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                         ],
                       ),
                     ],
-                    if (rideStatus == 'searching' && bids.isNotEmpty) ...[
+                    if (rideStatus == 'searching') ...[
                       const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
                             child: Text(
-                              l10n.mapPageNegotiationTitle,
+                              offers.isEmpty
+                                  ? l10n.mapPageRideSearchingTitle
+                                  : _t('العروض المتاحة', 'Available offers'),
                               style: const TextStyle(
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
                           ),
-                          if (bidQueue != null)
+                          if (offerQueue != null)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10,
@@ -3943,7 +4279,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                               ),
                               child: Text(
                                 l10n.mapPageNegotiationQueueLabel(
-                                  '${_readInt(bidQueue['queueSize']) ?? waitingBids.length}',
+                                  '${_readInt(offerQueue['offerCount']) ?? offers.length}',
                                 ),
                                 style: const TextStyle(
                                   fontSize: 12,
@@ -3954,193 +4290,122 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                         ],
                       ),
                       const SizedBox(height: 6),
-                      if (currentBid != null)
-                        Builder(
-                          builder: (_) {
-                            final bidId = _readInt(currentBid['id']);
-                            final bidCaptain = currentBid['captain'] is Map
-                                ? Map<String, dynamic>.from(
-                                    currentBid['captain'] as Map,
-                                  )
-                                : null;
-                            final bidFare =
-                                _readInt(currentBid['offeredFareIqd']) ?? 0;
-                            final bidFareLabel = bidFare > 0
-                                ? formatIqd(bidFare)
-                                : nonAvailable;
-                            final counterCount =
-                                _readInt(currentBid['counterOfferCount']) ?? 0;
-                            final roundsLeft = (6 - counterCount).clamp(0, 6);
-                            final remainingSeconds =
-                                _negotiationRemainingSeconds(currentBid);
-                            final timeoutSeconds = _negotiationTimeoutSeconds(
-                              currentBid,
-                            );
-                            final negotiationProgress =
-                                remainingSeconds == null || timeoutSeconds <= 0
-                                ? null
-                                : (remainingSeconds / timeoutSeconds)
-                                      .clamp(0.0, 1.0)
-                                      .toDouble();
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.lightBlue.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.lightBlue.withValues(
-                                    alpha: 0.35,
-                                  ),
+                      if (offers.isEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blueGrey.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.08),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _t(
+                                  'جاري البحث عن كابتن',
+                                  'Searching for captain',
+                                ),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
                                 ),
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _string(bidCaptain?['fullName']) ??
-                                        l10n.mapPageCaptainFallbackName,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    l10n.mapPageNegotiationCurrentOfferLabel(
-                                      bidFareLabel,
-                                    ),
-                                  ),
-                                  if (_readInt(currentBid['etaMinutes']) !=
-                                      null)
-                                    Text(
-                                      l10n.mapPageNegotiationEtaLabel(
-                                        '${_readInt(currentBid['etaMinutes'])}',
-                                      ),
-                                    ),
-                                  if (remainingSeconds != null) ...[
-                                    const SizedBox(height: 6),
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.timer_outlined,
-                                          size: 16,
+                              const SizedBox(height: 6),
+                              Text(
+                                '${_t('من', 'From')}: ${_string(ride['pickup']?['label']) ?? nonAvailable}',
+                              ),
+                              Text(
+                                '${_t('إلى', 'To')}: ${_string(ride['dropoff']?['label']) ?? nonAvailable}',
+                              ),
+                              Text(
+                                '${_t('الأجرة المقترحة', 'Suggested fare')}: ${rideFare != null && rideFare > 0 ? formatIqd(rideFare) : _t('بانتظار تحديد السعر', 'Waiting for fare')}',
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                _t(
+                                  'نرسل طلبك للكباتن القريبين...',
+                                  'We are sending your request to nearby captains...',
+                                ),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else ...[
+                        if (currentOffer != null)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.lightBlue.withValues(alpha: 0.09),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.lightBlue.withValues(alpha: 0.22),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.timelapse_rounded,
+                                  size: 18,
+                                  color: Colors.lightBlue,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _offerNegotiationLabel(currentOffer) ??
+                                        _t(
+                                          'بانتظار رد الكابتن',
+                                          'Waiting for captain response',
                                         ),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            l10n.mapPageNegotiationRemainingTitle,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ),
-                                        Text(
-                                          _formatCountdown(remainingSeconds),
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w900,
-                                            color: remainingSeconds <= 15
-                                                ? Colors.redAccent
-                                                : Colors.teal,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    LinearProgressIndicator(
-                                      value: negotiationProgress,
-                                      minHeight: 6,
-                                      borderRadius: BorderRadius.circular(999),
-                                      backgroundColor: Colors.black12,
-                                    ),
-                                  ],
-
-                                  Text(
-                                    l10n.mapPageNegotiationRoundsLeft(
-                                      '$roundsLeft',
-                                    ),
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
-                                  const SizedBox(height: 8),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      FilledButton.tonalIcon(
-                                        onPressed:
-                                            (_submitting || bidId == null)
-                                            ? null
-                                            : () => _acceptBid(bidId),
-                                        icon: const Icon(Icons.check_circle),
-                                        label: Text(l10n.commonAccept),
-                                      ),
-                                      FilledButton.tonalIcon(
-                                        onPressed: _submitting
-                                            ? null
-                                            : _rejectCurrentBid,
-                                        icon: const Icon(
-                                          Icons.skip_next_rounded,
-                                        ),
-                                        label: Text(
-                                          l10n.mapPageNegotiationRejectAndSearch,
-                                        ),
-                                      ),
-                                      FilledButton.icon(
-                                        onPressed: _submitting
-                                            ? null
-                                            : () => _openCounterOfferDialogV2(
-                                                initialFare: bidFare,
-                                              ),
-                                        icon: const Icon(Icons.price_change),
-                                        label: Text(
-                                          l10n.mapPageNegotiationCounterOffer,
-                                        ),
-                                      ),
-                                    ],
+                                ),
+                                if (_offerNegotiationCountdown(currentOffer) !=
+                                    null)
+                                  Text(
+                                    _formatCountdown(
+                                      _offerNegotiationCountdown(currentOffer)!,
+                                    ),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
                                   ),
-                                ],
-                              ),
-                            );
-                          },
-                        )
-                      else
-                        ...bids.take(1).map((bid) {
-                          final bidCaptain = bid['captain'] is Map
-                              ? Map<String, dynamic>.from(bid['captain'] as Map)
-                              : null;
-                          final bidFare = _readInt(bid['offeredFareIqd']);
-                          final bidFareLabel = bidFare != null && bidFare > 0
-                              ? formatIqd(bidFare)
-                              : nonAvailable;
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.blueGrey.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(10),
+                              ],
                             ),
-                            child: Text(
-                              l10n.mapPageNegotiationFirstOfferSummary(
-                                _string(bidCaptain?['fullName']) ??
-                                    l10n.mapPageCaptainFallbackName,
-                                bidFareLabel,
-                              ),
-                            ),
-                          );
-                        }),
-                      if (waitingBids.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          l10n.mapPageNegotiationWaitingCaptains(
-                            '${waitingBids.length}',
                           ),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12,
+                        ...offers.map(
+                          (offer) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _buildTaxiOfferCard(
+                              offer,
+                              nonAvailable: nonAvailable,
+                            ),
                           ),
                         ),
+                        if (waitingBids.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            l10n.mapPageNegotiationWaitingCaptains(
+                              '${waitingBids.length}',
+                            ),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ],
                     ],
                     if (_captainPoint != null) ...[

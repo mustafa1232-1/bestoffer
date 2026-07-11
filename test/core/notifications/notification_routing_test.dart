@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:maslaki/core/platform/app_flavor.dart';
 import 'package:maslaki/core/notifications/notification_navigation.dart';
+import 'package:maslaki/features/notifications/models/app_notification_model.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -60,6 +61,54 @@ void main() {
       expect(module, 'taxi');
     });
 
+    test('Taxi offer notifications resolve to the live taxi target', () {
+      final target = NotificationNavigation.resolveTarget(
+        rawTarget: null,
+        type: 'taxi_offer_received',
+        orderId: null,
+      );
+      final module = NotificationNavigation.resolveModule(
+        rawModule: null,
+        roleScope: 'customer',
+        rawTarget: target,
+        type: 'taxi_offer_received',
+      );
+      expect(target, 'taxi_live');
+      expect(module, 'taxi');
+    });
+
+    test('Taxi ride requested notifications resolve to new taxi requests', () {
+      final target = NotificationNavigation.resolveTarget(
+        rawTarget: null,
+        type: 'taxi_ride_requested',
+        orderId: null,
+      );
+      final module = NotificationNavigation.resolveModule(
+        rawModule: null,
+        roleScope: 'taxi_captain',
+        rawTarget: target,
+        type: 'taxi_ride_requested',
+      );
+      expect(target, 'taxi_trips_new');
+      expect(module, 'taxi');
+    });
+
+    test('Taxi chat notifications resolve to live taxi target', () {
+      final target = NotificationNavigation.resolveTarget(
+        rawTarget: null,
+        type: 'taxi_chat_message',
+        orderId: null,
+      );
+      final module = NotificationNavigation.resolveModule(
+        rawModule: null,
+        roleScope: 'taxi_captain',
+        rawTarget: target,
+        type: 'taxi_chat_message',
+      );
+      expect(target, 'taxi_live');
+      expect(module, 'taxi');
+    });
+
     test('Taxi trip details type resolves to taxi_trip_details', () {
       final target = NotificationNavigation.resolveTarget(
         rawTarget: null,
@@ -92,6 +141,41 @@ void main() {
       expect(module, 'taxi');
     });
 
+    test('Taxi notification tap payload preserves offer identifiers', () {
+      const model = AppNotificationModel(
+        id: 501,
+        orderId: null,
+        rideId: null,
+        storyId: null,
+        reelId: null,
+        merchantId: null,
+        target: 'taxi_live',
+        type: 'taxi_offer_received',
+        title: 'Offer received',
+        body: 'Captain sent an offer',
+        payload: <String, dynamic>{
+          'rideId': 41,
+          'offerId': 12,
+          'bidId': 12,
+          'captainId': 77,
+          'customerUserId': 9,
+          'target': 'taxi_live',
+          'targetModule': 'taxi',
+        },
+        isRead: false,
+        createdAt: null,
+        readAt: null,
+      );
+
+      final payload = NotificationNavigation.payloadFromModel(model);
+      expect(payload.rideId, 41);
+      expect(payload.offerId, 12);
+      expect(payload.bidId, 12);
+      expect(payload.captainId, 77);
+      expect(payload.customerUserId, 9);
+      expect(payload.target, 'taxi_live');
+    });
+
     test('Merchant payment notifications resolve to merchant receivables', () {
       final target = NotificationNavigation.resolveTarget(
         rawTarget: null,
@@ -108,37 +192,43 @@ void main() {
       expect(module, 'merchant');
     });
 
-    test('Services request notifications resolve to request details target', () {
-      final target = NotificationNavigation.resolveTarget(
-        rawTarget: null,
-        type: 'services.request.created',
-        orderId: null,
-      );
-      final module = NotificationNavigation.resolveModule(
-        rawModule: 'customer',
-        roleScope: 'customer',
-        rawTarget: target,
-        type: 'services.request.created',
-      );
-      expect(target, 'service_request_details');
-      expect(module, 'customer');
-    });
+    test(
+      'Services request notifications resolve to request details target',
+      () {
+        final target = NotificationNavigation.resolveTarget(
+          rawTarget: null,
+          type: 'services.request.created',
+          orderId: null,
+        );
+        final module = NotificationNavigation.resolveModule(
+          rawModule: 'customer',
+          roleScope: 'customer',
+          rawTarget: target,
+          type: 'services.request.created',
+        );
+        expect(target, 'service_request_details');
+        expect(module, 'customer');
+      },
+    );
 
-    test('Pharmacy cart proposed notifications resolve to pharmacy conversation', () {
-      final target = NotificationNavigation.resolveTarget(
-        rawTarget: null,
-        type: 'pharmacy.cart.proposed',
-        orderId: null,
-      );
-      final module = NotificationNavigation.resolveModule(
-        rawModule: null,
-        roleScope: 'customer',
-        rawTarget: target,
-        type: 'pharmacy.cart.proposed',
-      );
-      expect(target, 'pharmacy_conversation');
-      expect(module, 'customer');
-    });
+    test(
+      'Pharmacy cart proposed notifications resolve to pharmacy conversation',
+      () {
+        final target = NotificationNavigation.resolveTarget(
+          rawTarget: null,
+          type: 'pharmacy.cart.proposed',
+          orderId: null,
+        );
+        final module = NotificationNavigation.resolveModule(
+          rawModule: null,
+          roleScope: 'customer',
+          rawTarget: target,
+          type: 'pharmacy.cart.proposed',
+        );
+        expect(target, 'pharmacy_conversation');
+        expect(module, 'customer');
+      },
+    );
 
     test('Owner pharmacy notifications resolve to merchant module', () {
       final target = NotificationNavigation.resolveTarget(
@@ -161,10 +251,7 @@ void main() {
       () {
         final auth = _serviceProviderAuth();
         expect(
-          NotificationNavigation.isFlavorAllowedForAuth(
-            AppFlavor.user,
-            auth,
-          ),
+          NotificationNavigation.isFlavorAllowedForAuth(AppFlavor.user, auth),
           true,
         );
 
@@ -200,24 +287,21 @@ void main() {
       expect(module, 'admin');
     });
 
-    test(
-      'Admin ops alert types resolve to notification center target',
-      () {
-        final target = NotificationNavigation.resolveTarget(
-          rawTarget: null,
-          type: 'admin.ops.alert.critical',
-          orderId: null,
-        );
-        final module = NotificationNavigation.resolveModule(
-          rawModule: null,
-          roleScope: 'admin',
-          rawTarget: target,
-          type: 'admin.ops.alert.critical',
-        );
-        expect(target, 'admin_ops_notification_center');
-        expect(module, 'admin');
-      },
-    );
+    test('Admin ops alert types resolve to notification center target', () {
+      final target = NotificationNavigation.resolveTarget(
+        rawTarget: null,
+        type: 'admin.ops.alert.critical',
+        orderId: null,
+      );
+      final module = NotificationNavigation.resolveModule(
+        rawModule: null,
+        roleScope: 'admin',
+        rawTarget: target,
+        type: 'admin.ops.alert.critical',
+      );
+      expect(target, 'admin_ops_notification_center');
+      expect(module, 'admin');
+    });
 
     test('Admin ops crash types resolve to crash center target', () {
       final target = NotificationNavigation.resolveTarget(
@@ -324,15 +408,9 @@ void main() {
       // Foreground.
       expect(pushContent.contains('onMessage.listen'), isTrue);
       // Terminated (local notifications launch).
-      expect(
-        pushContent.contains('getNotificationAppLaunchDetails()'),
-        isTrue,
-      );
+      expect(pushContent.contains('getNotificationAppLaunchDetails()'), isTrue);
       // Unified tap handling in the split user runtime.
-      expect(
-        mainContent.contains('runtimeLocalNotificationsProvider'),
-        isTrue,
-      );
+      expect(mainContent.contains('runtimeLocalNotificationsProvider'), isTrue);
       expect(mainContent.contains('runtimePushNotificationsProvider'), isTrue);
       expect(mainContent.contains('_handleRuntimeNotificationTap'), isTrue);
     });

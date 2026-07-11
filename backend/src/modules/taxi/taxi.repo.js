@@ -375,6 +375,12 @@ export async function getCaptainCurrentRide(captainUserId) {
 }
 
 export async function listRideBids(rideId) {
+  const distanceExpr = distanceSql(
+    "r.pickup_latitude",
+    "r.pickup_longitude",
+    "cpres.latitude",
+    "cpres.longitude"
+  );
   const r = await q(
     `SELECT
        b.*,
@@ -389,10 +395,18 @@ export async function listRideBids(rideId) {
        cp.car_color AS captain_car_color,
        cp.plate_number AS captain_plate_number,
        cp.rating_avg AS captain_rating_avg,
-       cp.rides_count AS captain_rides_count
+       cp.rides_count AS captain_rides_count,
+       CASE
+         WHEN cpres.latitude IS NOT NULL AND cpres.longitude IS NOT NULL
+         THEN ${distanceExpr}
+         ELSE NULL
+       END AS distance_m
      FROM taxi_ride_bid b
+     JOIN taxi_ride_request r
+       ON r.id = b.ride_request_id
      JOIN app_user u ON u.id = b.captain_user_id
      LEFT JOIN taxi_captain_profile cp ON cp.user_id = b.captain_user_id
+     LEFT JOIN taxi_captain_presence cpres ON cpres.captain_user_id = b.captain_user_id
      WHERE b.ride_request_id = $1
      ORDER BY b.created_at DESC`,
     [Number(rideId)]
@@ -455,6 +469,20 @@ async function lockCurrentActiveBid(client, rideId, currentBidId) {
   return bid;
 }
 
+async function lockRideBidById(client, rideId, bidId) {
+  if (!bidId) return null;
+  const r = await client.query(
+    `SELECT id, ride_request_id, captain_user_id, offered_fare_iqd, eta_minutes, note, status,
+            counter_offer_count, last_offer_iqd, last_offer_by, created_at, updated_at
+     FROM taxi_ride_bid
+     WHERE id = $1
+       AND ride_request_id = $2
+     FOR UPDATE`,
+    [Number(bidId), Number(rideId)]
+  );
+  return normalizeBid(r.rows[0]);
+}
+
 export async function ensureRideCurrentBid(rideId) {
   const client = await pool.connect();
   try {
@@ -494,6 +522,12 @@ export async function ensureRideCurrentBid(rideId) {
 }
 
 export async function getRideCurrentBid(rideId) {
+  const distanceExpr = distanceSql(
+    "r.pickup_latitude",
+    "r.pickup_longitude",
+    "cpres.latitude",
+    "cpres.longitude"
+  );
   const r = await q(
     `SELECT
        b.*,
@@ -508,7 +542,12 @@ export async function getRideCurrentBid(rideId) {
        cp.car_color AS captain_car_color,
        cp.plate_number AS captain_plate_number,
        cp.rating_avg AS captain_rating_avg,
-       cp.rides_count AS captain_rides_count
+       cp.rides_count AS captain_rides_count,
+       CASE
+         WHEN cpres.latitude IS NOT NULL AND cpres.longitude IS NOT NULL
+         THEN ${distanceExpr}
+         ELSE NULL
+       END AS distance_m
      FROM taxi_ride_request r
      JOIN taxi_ride_bid b
        ON b.id = r.current_bid_id
@@ -516,6 +555,8 @@ export async function getRideCurrentBid(rideId) {
        ON u.id = b.captain_user_id
      LEFT JOIN taxi_captain_profile cp
        ON cp.user_id = b.captain_user_id
+     LEFT JOIN taxi_captain_presence cpres
+       ON cpres.captain_user_id = b.captain_user_id
      WHERE r.id = $1
        AND r.status = 'searching'
        AND b.status = 'active'
@@ -610,10 +651,22 @@ export async function upsertRideBid({
        cp.car_color AS captain_car_color,
        cp.plate_number AS captain_plate_number,
        cp.rating_avg AS captain_rating_avg,
-       cp.rides_count AS captain_rides_count
+       cp.rides_count AS captain_rides_count,
+       CASE
+         WHEN cpres.latitude IS NOT NULL AND cpres.longitude IS NOT NULL
+         THEN ${distanceSql(
+           "r.pickup_latitude",
+           "r.pickup_longitude",
+           "cpres.latitude",
+           "cpres.longitude"
+         )}
+         ELSE NULL
+       END AS distance_m
      FROM taxi_ride_bid b
+     JOIN taxi_ride_request r ON r.id = b.ride_request_id
      JOIN app_user u ON u.id = b.captain_user_id
      LEFT JOIN taxi_captain_profile cp ON cp.user_id = b.captain_user_id
+     LEFT JOIN taxi_captain_presence cpres ON cpres.captain_user_id = b.captain_user_id
      WHERE b.id = $1
      LIMIT 1`,
     [bid.id]
@@ -725,6 +778,7 @@ export async function acceptRideBid({ rideId, bidId, customerUserId }) {
 export async function rejectCurrentRideBidByCustomer({
   rideId,
   customerUserId,
+  bidId = null,
 }) {
   const client = await pool.connect();
   try {
@@ -740,17 +794,30 @@ export async function rejectCurrentRideBidByCustomer({
       return { code: "RIDE_NOT_ACCEPTING_BIDS" };
     }
 
-    let currentBid = await lockCurrentActiveBid(
+    const rideCurrentBid = await lockCurrentActiveBid(
       client,
       ride.id,
       ride.current_bid_id
     );
-    if (!currentBid) {
-      currentBid = await promoteNextActiveBid(client, ride.id);
+    let targetBid = bidId
+      ? await lockRideBidById(client, ride.id, bidId)
+      : rideCurrentBid;
+
+    if (!targetBid) {
+      if (bidId) {
+        await client.query("ROLLBACK");
+        return { code: "BID_NOT_FOUND" };
+      }
+      targetBid = await promoteNextActiveBid(client, ride.id);
     }
-    if (!currentBid) {
+    if (!targetBid) {
       await client.query("COMMIT");
       return { code: "NO_ACTIVE_BID", ride: await getRideById(ride.id) };
+    }
+
+    if (targetBid.status !== "active") {
+      await client.query("ROLLBACK");
+      return { code: "BID_NOT_ACTIVE" };
     }
 
     await client.query(
@@ -758,10 +825,14 @@ export async function rejectCurrentRideBidByCustomer({
        SET status = 'rejected',
            updated_at = NOW()
        WHERE id = $1`,
-      [Number(currentBid.id)]
+      [Number(targetBid.id)]
     );
 
-    const nextBid = await promoteNextActiveBid(client, ride.id);
+    const shouldPromote =
+      !ride.current_bid_id || Number(rideCurrentBid?.id || 0) === Number(targetBid.id);
+    const nextBid = shouldPromote
+      ? await promoteNextActiveBid(client, ride.id)
+      : rideCurrentBid;
     const fullRide = await queryRideById(client, ride.id);
     const bidsResult = await client.query(
       `SELECT id, captain_user_id, status
@@ -775,7 +846,7 @@ export async function rejectCurrentRideBidByCustomer({
     return {
       code: "OK",
       ride: fullRide,
-      rejectedBid: currentBid,
+      rejectedBid: targetBid,
       nextBid,
       bids: bidsResult.rows.map((row) => ({
         id: Number(row.id),
@@ -796,6 +867,7 @@ export async function counterOfferCurrentRideBidByCustomer({
   customerUserId,
   offeredFareIqd,
   note,
+  bidId = null,
 }) {
   const client = await pool.connect();
   try {
@@ -811,17 +883,24 @@ export async function counterOfferCurrentRideBidByCustomer({
       return { code: "RIDE_NOT_ACCEPTING_BIDS" };
     }
 
-    let currentBid = await lockCurrentActiveBid(
+    const rideCurrentBid = await lockCurrentActiveBid(
       client,
       ride.id,
       ride.current_bid_id
     );
+    let currentBid = bidId
+      ? await lockRideBidById(client, ride.id, bidId)
+      : rideCurrentBid;
     if (!currentBid) {
       currentBid = await promoteNextActiveBid(client, ride.id);
     }
     if (!currentBid) {
       await client.query("COMMIT");
       return { code: "NO_ACTIVE_BID", ride: await getRideById(ride.id) };
+    }
+    if (currentBid.status !== "active") {
+      await client.query("ROLLBACK");
+      return { code: "BID_NOT_ACTIVE" };
     }
 
     const nextCounterCount = (currentBid.counterOfferCount || 0) + 1;

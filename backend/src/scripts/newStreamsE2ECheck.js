@@ -251,6 +251,14 @@ async function main() {
   assert.ok(allowedPostId > 0, "allowed post id missing");
   console.log("[e2e:new-streams] social restriction workflow passed");
 
+  await login(
+    admin,
+    baseUrl,
+    env.superAdminPhone,
+    env.superAdminPin,
+    "super admin refresh before paid upgrades"
+  );
+
   // Paid upgrades
   const paidUpgradeCreate = await request(
     baseUrl,
@@ -285,6 +293,14 @@ async function main() {
   );
   assert.ok(pendingUpgradeRow, "pending paid upgrade request not visible to admin");
 
+  await login(
+    admin,
+    baseUrl,
+    env.superAdminPhone,
+    env.superAdminPin,
+    "super admin refresh before paid upgrade approve"
+  );
+
   const paidUpgradeApprove = await request(
     baseUrl,
     admin,
@@ -295,6 +311,14 @@ async function main() {
     }
   );
   assertStatus(paidUpgradeApprove, 200, "approve paid upgrade request");
+
+  await login(
+    admin,
+    baseUrl,
+    env.superAdminPhone,
+    env.superAdminPin,
+    "super admin refresh before paid upgrade activate"
+  );
 
   const paidUpgradeActivate = await request(
     baseUrl,

@@ -1002,9 +1002,8 @@ class _TaxiCaptainDashboardScreenState
               return;
             }
 
-            if (event.event == 'taxi_bid_update' ||
-                event.event == 'taxi_ride_update' ||
-                event.event == 'taxi_new_request') {
+            if (event.event.startsWith('taxi_') &&
+                event.event != 'taxi_location_update') {
               _refreshFromRealtime();
               return;
             }
@@ -1190,258 +1189,397 @@ class _TaxiCaptainDashboardScreenState
     final scrollCoordinator = FormScrollCoordinator();
 
     try {
-      final ok = await showDialog<bool>(
+      final ok = await showModalBottomSheet<bool>(
         context: context,
-        builder: (dialogContext) {
+        isScrollControlled: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) {
           final fieldErrors = <String, String>{};
           String? formError;
           var submitting = false;
 
-          return StatefulBuilder(
-            builder: (dialogContext, setDialogState) {
-              Future<void> submit() async {
-                if (submitting) return;
+          Future<void> submit(StateSetter setModalState) async {
+            if (submitting) return;
 
-                final fare = tryParseLocalizedInt(fareCtrl.text.trim());
-                final etaText = etaCtrl.text.trim();
-                final eta = etaText.isEmpty
-                    ? null
-                    : tryParseLocalizedInt(etaText);
-                final nextErrors = <String, String>{};
+            final fare = tryParseLocalizedInt(fareCtrl.text.trim());
+            final etaText = etaCtrl.text.trim();
+            final eta = etaText.isEmpty ? null : tryParseLocalizedInt(etaText);
+            final nextErrors = <String, String>{};
 
-                if (fare == null || fare <= 0) {
-                  nextErrors['offeredFareIqd'] = resolveFormFieldError(
+            if (fare == null || fare <= 0) {
+              nextErrors['offeredFareIqd'] = resolveFormFieldError(
+                l10n: l10n,
+                field: 'offeredFareIqd',
+                code: 'INVALID_NUMBER',
+                fieldLabel: l10n.mapPageSuggestedFareLabel,
+              );
+            }
+            if (etaText.isNotEmpty && (eta == null || eta < 1 || eta > 180)) {
+              nextErrors['etaMinutes'] = resolveFormFieldError(
+                l10n: l10n,
+                field: 'etaMinutes',
+                code: 'INVALID_NUMBER',
+                fieldLabel: l10n.taxiCaptainOfferEtaLabel,
+              );
+            }
+
+            if (nextErrors.isNotEmpty) {
+              setModalState(() {
+                fieldErrors
+                  ..clear()
+                  ..addAll(nextErrors);
+                formError = l10n.validationReviewRequiredFields;
+              });
+              await scrollCoordinator.focusFirstError(const [
+                'offeredFareIqd',
+                'etaMinutes',
+              ]);
+              return;
+            }
+
+            setModalState(() {
+              submitting = true;
+              fieldErrors.clear();
+              formError = null;
+            });
+
+            try {
+              await _api.createBid(
+                rideId: rideId,
+                offeredFareIqd: fare!,
+                etaMinutes: eta,
+                note: noteCtrl.text.trim(),
+              );
+              if (!sheetContext.mounted) return;
+              Navigator.pop(sheetContext, true);
+            } on DioException catch (e) {
+              final parsed = parseBackendFieldErrors(e);
+              final backendErrors = <String, String>{};
+              if (parsed.hasAnyErrors) {
+                for (final entry in parsed.fieldCodes.entries) {
+                  if (entry.key == '_form') continue;
+                  final fieldLabel = switch (entry.key) {
+                    'offeredFareIqd' => l10n.mapPageSuggestedFareLabel,
+                    'etaMinutes' => l10n.taxiCaptainOfferEtaLabel,
+                    'note' => l10n.mapPageOptionalNote,
+                    _ => null,
+                  };
+                  backendErrors[entry.key] = resolveFormFieldError(
                     l10n: l10n,
-                    field: 'offeredFareIqd',
-                    code: 'INVALID_NUMBER',
-                    fieldLabel: l10n.mapPageSuggestedFareLabel,
+                    field: entry.key,
+                    code: entry.value,
+                    fieldLabel: fieldLabel,
                   );
-                }
-                if (etaText.isNotEmpty &&
-                    (eta == null || eta < 1 || eta > 180)) {
-                  nextErrors['etaMinutes'] = resolveFormFieldError(
-                    l10n: l10n,
-                    field: 'etaMinutes',
-                    code: 'INVALID_NUMBER',
-                    fieldLabel: l10n.taxiCaptainOfferEtaLabel,
-                  );
-                }
-
-                if (nextErrors.isNotEmpty) {
-                  setDialogState(() {
-                    fieldErrors
-                      ..clear()
-                      ..addAll(nextErrors);
-                    formError = l10n.validationReviewRequiredFields;
-                  });
-                  await scrollCoordinator.focusFirstError(const [
-                    'offeredFareIqd',
-                    'etaMinutes',
-                  ]);
-                  return;
-                }
-
-                setDialogState(() {
-                  submitting = true;
-                  fieldErrors.clear();
-                  formError = null;
-                });
-
-                try {
-                  await _api.createBid(
-                    rideId: rideId,
-                    offeredFareIqd: fare!,
-                    etaMinutes: eta,
-                    note: noteCtrl.text.trim(),
-                  );
-                  if (!dialogContext.mounted) return;
-                  Navigator.pop(dialogContext, true);
-                } on DioException catch (e) {
-                  final parsed = parseBackendFieldErrors(e);
-                  final backendErrors = <String, String>{};
-                  if (parsed.hasAnyErrors) {
-                    for (final entry in parsed.fieldCodes.entries) {
-                      if (entry.key == '_form') continue;
-                      final fieldLabel = switch (entry.key) {
-                        'offeredFareIqd' => l10n.mapPageSuggestedFareLabel,
-                        'etaMinutes' => l10n.taxiCaptainOfferEtaLabel,
-                        'note' => l10n.mapPageOptionalNote,
-                        _ => null,
-                      };
-                      backendErrors[entry.key] = resolveFormFieldError(
-                        l10n: l10n,
-                        field: entry.key,
-                        code: entry.value,
-                        fieldLabel: fieldLabel,
-                      );
-                    }
-                  }
-                  setDialogState(() {
-                    submitting = false;
-                    if (backendErrors.isNotEmpty) {
-                      fieldErrors
-                        ..clear()
-                        ..addAll(backendErrors);
-                      formError = resolveFormLevelError(
-                        l10n,
-                        code: parsed.formCode,
-                        fallback: l10n.validationReviewRequiredFields,
-                      );
-                    } else {
-                      formError = _err(e);
-                    }
-                  });
-                  if (backendErrors.isNotEmpty) {
-                    await scrollCoordinator.focusFirstError(const [
-                      'offeredFareIqd',
-                      'etaMinutes',
-                      'note',
-                    ]);
-                  }
-                } catch (_) {
-                  setDialogState(() {
-                    submitting = false;
-                    formError = l10n.errorsServerFailure;
-                  });
                 }
               }
+              setModalState(() {
+                submitting = false;
+                if (backendErrors.isNotEmpty) {
+                  fieldErrors
+                    ..clear()
+                    ..addAll(backendErrors);
+                  formError = resolveFormLevelError(
+                    l10n,
+                    code: parsed.formCode,
+                    fallback: l10n.validationReviewRequiredFields,
+                  );
+                } else {
+                  formError = _err(e);
+                }
+              });
+              if (backendErrors.isNotEmpty) {
+                await scrollCoordinator.focusFirstError(const [
+                  'offeredFareIqd',
+                  'etaMinutes',
+                  'note',
+                ]);
+              }
+            } catch (_) {
+              setModalState(() {
+                submitting = false;
+                formError = l10n.errorsServerFailure;
+              });
+            }
+          }
 
-              return AnimatedPadding(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.viewInsetsOf(dialogContext).bottom,
-                ),
-                child: AlertDialog(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  title: Row(
-                    children: [
-                      const Icon(Icons.local_offer_rounded),
-                      const SizedBox(width: 8),
-                      Text(l10n.taxiCaptainOfferDialogTitle),
-                    ],
-                  ),
-                  content: Directionality(
-                    textDirection: context.appTextDirection,
-                    child: SingleChildScrollView(
+          void applyQuickFare(StateSetter setModalState, int value) {
+            fareCtrl.text = value.toString();
+            setModalState(() {
+              fieldErrors.remove('offeredFareIqd');
+              formError = null;
+            });
+          }
+
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.84,
+            minChildSize: 0.58,
+            maxChildSize: 0.98,
+            builder: (context, scrollController) {
+              return StatefulBuilder(
+                builder: (context, setModalState) {
+                  final currentFare =
+                      tryParseLocalizedInt(fareCtrl.text.trim()) ??
+                      baseFare ??
+                      0;
+                  final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+                  return Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: bottomInset),
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          FormErrorBanner(message: formError),
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '${l10n.taxiCaptainCurrentFareLabel}: ${baseFare != null && baseFare > 0 ? _money(baseFare) : nonAvailable}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          scrollCoordinator.anchor(
-                            'offeredFareIqd',
-                            TextField(
-                              controller: fareCtrl,
-                              focusNode: scrollCoordinator.focusNodeFor(
-                                'offeredFareIqd',
-                              ),
-                              keyboardType: TextInputType.number,
-                              textInputAction: TextInputAction.next,
-                              onChanged: (_) {
-                                if (fieldErrors.containsKey('offeredFareIqd') ||
-                                    formError != null) {
-                                  setDialogState(() {
-                                    fieldErrors.remove('offeredFareIqd');
-                                    if (fieldErrors.isEmpty) formError = null;
-                                  });
-                                }
-                              },
-                              decoration: InputDecoration(
-                                labelText: l10n.mapPageSuggestedFareLabel,
-                                prefixIcon: const Icon(
-                                  Icons.price_change_rounded,
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.local_offer_rounded),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    l10n.taxiCaptainOfferDialogTitle,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                    ),
+                                  ),
                                 ),
-                                errorText: fieldErrors['offeredFareIqd'],
-                              ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          scrollCoordinator.anchor(
-                            'etaMinutes',
-                            TextField(
-                              controller: etaCtrl,
-                              focusNode: scrollCoordinator.focusNodeFor(
-                                'etaMinutes',
-                              ),
-                              keyboardType: TextInputType.number,
-                              textInputAction: TextInputAction.next,
-                              onChanged: (_) {
-                                if (fieldErrors.containsKey('etaMinutes') ||
-                                    formError != null) {
-                                  setDialogState(() {
-                                    fieldErrors.remove('etaMinutes');
-                                    if (fieldErrors.isEmpty) formError = null;
-                                  });
-                                }
-                              },
-                              decoration: InputDecoration(
-                                labelText: l10n.taxiCaptainOfferEtaLabel,
-                                prefixIcon: const Icon(Icons.timer_outlined),
-                                errorText: fieldErrors['etaMinutes'],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          scrollCoordinator.anchor(
-                            'note',
-                            TextField(
-                              controller: noteCtrl,
-                              focusNode: scrollCoordinator.focusNodeFor('note'),
-                              textInputAction: TextInputAction.done,
-                              maxLines: 2,
-                              onChanged: (_) {
-                                if (fieldErrors.containsKey('note') ||
-                                    formError != null) {
-                                  setDialogState(() {
-                                    fieldErrors.remove('note');
-                                    if (fieldErrors.isEmpty) formError = null;
-                                  });
-                                }
-                              },
-                              decoration: InputDecoration(
-                                labelText: l10n.mapPageOptionalNote,
-                                prefixIcon: const Icon(
-                                  Icons.chat_bubble_outline_rounded,
+                          Expanded(
+                            child: SingleChildScrollView(
+                              controller: scrollController,
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                              child: Directionality(
+                                textDirection: context.appTextDirection,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    FormErrorBanner(message: formError),
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.withValues(
+                                          alpha: 0.08,
+                                        ),
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Text(
+                                        '${l10n.taxiCaptainCurrentFareLabel}: ${baseFare != null && baseFare > 0 ? _money(baseFare) : nonAvailable}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        _quickFareChip(
+                                          label: _t('نفس السعر', 'Same price'),
+                                          onPressed:
+                                              baseFare == null || baseFare <= 0
+                                              ? null
+                                              : () => applyQuickFare(
+                                                  setModalState,
+                                                  baseFare,
+                                                ),
+                                        ),
+                                        _quickFareChip(
+                                          label: '+500',
+                                          onPressed: () => applyQuickFare(
+                                            setModalState,
+                                            (currentFare + 500)
+                                                .clamp(1, 5000000)
+                                                .toInt(),
+                                          ),
+                                        ),
+                                        _quickFareChip(
+                                          label: '+1000',
+                                          onPressed: () => applyQuickFare(
+                                            setModalState,
+                                            (currentFare + 1000)
+                                                .clamp(1, 5000000)
+                                                .toInt(),
+                                          ),
+                                        ),
+                                        _quickFareChip(
+                                          label: '+2000',
+                                          onPressed: () => applyQuickFare(
+                                            setModalState,
+                                            (currentFare + 2000)
+                                                .clamp(1, 5000000)
+                                                .toInt(),
+                                          ),
+                                        ),
+                                        _quickFareChip(
+                                          label: _t('مخصص', 'Custom'),
+                                          onPressed: () => scrollCoordinator
+                                              .focusNodeFor('offeredFareIqd')
+                                              .requestFocus(),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    scrollCoordinator.anchor(
+                                      'offeredFareIqd',
+                                      TextField(
+                                        controller: fareCtrl,
+                                        focusNode: scrollCoordinator
+                                            .focusNodeFor('offeredFareIqd'),
+                                        keyboardType: TextInputType.number,
+                                        textInputAction: TextInputAction.next,
+                                        onChanged: (_) {
+                                          if (fieldErrors.containsKey(
+                                                'offeredFareIqd',
+                                              ) ||
+                                              formError != null) {
+                                            setModalState(() {
+                                              fieldErrors.remove(
+                                                'offeredFareIqd',
+                                              );
+                                              if (fieldErrors.isEmpty) {
+                                                formError = null;
+                                              }
+                                            });
+                                          }
+                                        },
+                                        decoration: InputDecoration(
+                                          labelText:
+                                              l10n.mapPageSuggestedFareLabel,
+                                          prefixIcon: const Icon(
+                                            Icons.price_change_rounded,
+                                          ),
+                                          errorText:
+                                              fieldErrors['offeredFareIqd'],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    scrollCoordinator.anchor(
+                                      'etaMinutes',
+                                      TextField(
+                                        controller: etaCtrl,
+                                        focusNode: scrollCoordinator
+                                            .focusNodeFor('etaMinutes'),
+                                        keyboardType: TextInputType.number,
+                                        textInputAction: TextInputAction.next,
+                                        onChanged: (_) {
+                                          if (fieldErrors.containsKey(
+                                                'etaMinutes',
+                                              ) ||
+                                              formError != null) {
+                                            setModalState(() {
+                                              fieldErrors.remove('etaMinutes');
+                                              if (fieldErrors.isEmpty) {
+                                                formError = null;
+                                              }
+                                            });
+                                          }
+                                        },
+                                        decoration: InputDecoration(
+                                          labelText:
+                                              l10n.taxiCaptainOfferEtaLabel,
+                                          prefixIcon: const Icon(
+                                            Icons.timer_outlined,
+                                          ),
+                                          errorText: fieldErrors['etaMinutes'],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    scrollCoordinator.anchor(
+                                      'note',
+                                      TextField(
+                                        controller: noteCtrl,
+                                        focusNode: scrollCoordinator
+                                            .focusNodeFor('note'),
+                                        textInputAction: TextInputAction.done,
+                                        maxLines: 3,
+                                        onChanged: (_) {
+                                          if (fieldErrors.containsKey('note') ||
+                                              formError != null) {
+                                            setModalState(() {
+                                              fieldErrors.remove('note');
+                                              if (fieldErrors.isEmpty) {
+                                                formError = null;
+                                              }
+                                            });
+                                          }
+                                        },
+                                        decoration: InputDecoration(
+                                          labelText: l10n.mapPageOptionalNote,
+                                          prefixIcon: const Icon(
+                                            Icons.chat_bubble_outline_rounded,
+                                          ),
+                                          helperText: _t(
+                                            'أنا قريب منك، أصل خلال 4 دقائق',
+                                            'I am close, arriving in 4 minutes',
+                                          ),
+                                          errorText: fieldErrors['note'],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                errorText: fieldErrors['note'],
+                              ),
+                            ),
+                          ),
+                          SafeArea(
+                            top: false,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: submitting
+                                          ? null
+                                          : () => Navigator.pop(context, false),
+                                      child: Text(l10n.commonCancel),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: FilledButton.icon(
+                                      onPressed: submitting
+                                          ? null
+                                          : () => submit(setModalState),
+                                      icon: submitting
+                                          ? const SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            )
+                                          : const Icon(Icons.send_rounded),
+                                      label: Text(
+                                        submitting
+                                            ? _t('جارٍ الإرسال', 'Sending')
+                                            : l10n.commonSend,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: submitting
-                          ? null
-                          : () => Navigator.pop(dialogContext, false),
-                      child: Text(l10n.commonCancel),
-                    ),
-                    FilledButton.icon(
-                      onPressed: submitting ? null : submit,
-                      icon: const Icon(Icons.send_rounded),
-                      label: Text(l10n.commonSend),
-                    ),
-                  ],
-                ),
+                  );
+                },
               );
             },
           );
@@ -1489,6 +1627,17 @@ class _TaxiCaptainDashboardScreenState
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  Widget _quickFareChip({
+    required String label,
+    required VoidCallback? onPressed,
+  }) {
+    return ActionChip(
+      label: Text(label),
+      avatar: const Icon(Icons.flash_on_rounded, size: 18),
+      onPressed: onPressed,
+    );
   }
 
   Future<void> _openRideChatBottomSheet(int rideId) async {

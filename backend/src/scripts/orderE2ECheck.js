@@ -1229,6 +1229,14 @@ async function main() {
     );
     assertStatus(assignCourier, 200, "owner assign courier");
 
+    const courierRefresh = await request(baseUrl, delivery, "POST", "/api/auth/login", {
+      phone: state.deliveryPhone,
+      pin: "1234",
+    });
+    assertStatus(courierRefresh, 200, "courier re-login before accept");
+    delivery.token = String(courierRefresh.data?.token || "");
+    delivery.sessionId = Number(courierRefresh.data?.sessionId || 0) || null;
+
     const courierAccept = await request(
       baseUrl,
       delivery,

@@ -59,14 +59,40 @@ class NotificationTypeRegistry {
       );
     }
 
-    if (normalizedType == 'taxi_trip_offer' ||
-        normalizedType.startsWith('taxi.trip.offer') ||
-        normalizedType.startsWith('taxi_trip_offer')) {
+    if (normalizedType == 'taxi_ride_requested' ||
+        normalizedType == 'taxi_trip_offer' ||
+        normalizedType == 'taxi.request.new' ||
+        normalizedType.startsWith('taxi.request.') ||
+        normalizedType.startsWith('taxi_ride_requested') ||
+        normalizedType.startsWith('taxi_trip_offer') ||
+        normalizedType.startsWith('taxi.trip.offer')) {
       return const NotificationRouteSpec(
         targetModule: 'taxi',
         targetScreen: 'taxi_trips_new',
         fallbackScreen: 'taxi_notifications',
         allowedRoleScopes: {'taxi_captain', 'taxi'},
+        expectedPayloadKeys: {'rideId'},
+      );
+    }
+
+    if (normalizedType == 'taxi_offer_received' ||
+        normalizedType == 'taxi_counter_offer_received' ||
+        normalizedType == 'taxi_offer_accepted' ||
+        normalizedType == 'taxi_offer_rejected' ||
+        normalizedType == 'taxi_ride_assigned' ||
+        normalizedType == 'taxi_ride_unavailable' ||
+        normalizedType == 'taxi_captain_arrived' ||
+        normalizedType == 'taxi_ride_started' ||
+        normalizedType == 'taxi_ride_completed' ||
+        normalizedType == 'taxi_ride_canceled' ||
+        normalizedType == 'taxi_chat_message' ||
+        normalizedType.startsWith('taxi.offer.') ||
+        normalizedType.startsWith('taxi.ride.')) {
+      return const NotificationRouteSpec(
+        targetModule: 'taxi',
+        targetScreen: 'taxi_live',
+        fallbackScreen: 'taxi_notifications',
+        allowedRoleScopes: {'user', 'customer', 'taxi_captain', 'taxi'},
         expectedPayloadKeys: {'rideId'},
       );
     }

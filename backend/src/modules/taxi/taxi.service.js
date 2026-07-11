@@ -111,6 +111,74 @@ function isCaptainRole(role) {
   return normalized === "delivery" || normalized === "taxi_captain";
 }
 
+function hasCaptainTaxiProfileCompleteness(row) {
+  if (!row) return false;
+  const requiredFields = [
+    row.full_name,
+    row.phone,
+    row.vehicle_type,
+    row.car_model,
+    row.car_color,
+    row.plate_number,
+  ];
+  return requiredFields.every(
+    (value) => String(value ?? "").trim().length > 0
+  );
+}
+
+function buildCaptainTaxiEligibility({ profileRow, presenceRow }) {
+  const profile = mapCaptainProfile(profileRow);
+  const isOnline =
+    presenceRow?.isOnline === true &&
+    presenceRow?.latitude != null &&
+    presenceRow?.longitude != null &&
+    presenceRow?.lastSeenAt != null &&
+    Date.now() - new Date(presenceRow.lastSeenAt).getTime() <= 3 * 60 * 1000;
+  const isApproved = profile?.deliveryAccountApproved === true;
+  const isActive = profile?.isActive === true;
+  const isProfileComplete = hasCaptainTaxiProfileCompleteness(profileRow);
+  const canReceiveRideRequests =
+    isApproved && isActive && isOnline && isProfileComplete;
+
+  const reasons = [];
+  if (!isApproved) reasons.push("not_approved");
+  if (!isActive) reasons.push("inactive_profile");
+  if (!isOnline) reasons.push("offline");
+  if (!isProfileComplete) reasons.push("profile_incomplete");
+
+  return {
+    profile,
+    presence: presenceRow || null,
+    isApproved,
+    isActive,
+    isOnline,
+    isProfileComplete,
+    canReceiveRideRequests,
+    reasons,
+  };
+}
+
+async function loadCaptainTaxiEligibility(captainUserId) {
+  const profileRow = await repo.getCaptainProfile(captainUserId);
+  if (!profileRow) {
+    throw new AppError("TAXI_CAPTAIN_NOT_FOUND", { status: 404 });
+  }
+  const presenceRow = await repo.getCaptainPresence(captainUserId);
+  return buildCaptainTaxiEligibility({ profileRow, presenceRow });
+}
+
+async function assertCaptainCanReceiveRideRequests(captainUserId) {
+  const eligibility = await loadCaptainTaxiEligibility(captainUserId);
+  if (eligibility.canReceiveRideRequests) {
+    return eligibility;
+  }
+
+  throw new AppError("TAXI_CAPTAIN_NOT_AVAILABLE", {
+    status: 403,
+    details: { reasons: eligibility.reasons },
+  });
+}
+
 function ensureRideAccess({ ride, userId, role, isSuperAdmin }) {
   if (!ride) {
     throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
@@ -145,13 +213,6 @@ async function ensureRideChatAccess({ ride, userId, role, isSuperAdmin }) {
 
   if (isCaptainRole(role)) {
     if (ride.assignedCaptainUserId === Number(userId)) {
-      return { senderRole: "captain" };
-    }
-    const isCurrentBidCaptain = await repo.isCaptainCurrentBidOwner({
-      rideId: ride.id,
-      captainUserId: userId,
-    });
-    if (isCurrentBidCaptain) {
       return { senderRole: "captain" };
     }
   }
@@ -189,8 +250,31 @@ function buildCompactRidePayload(ride) {
   };
 }
 
+function buildTaxiOfferPayload(offer, { queuePosition = null } = {}) {
+  if (!offer) return null;
+
+  return {
+    ...offer,
+    offerId: offer.offerId ?? offer.id ?? null,
+    bidId: offer.bidId ?? offer.id ?? null,
+    captainId: offer.captainId ?? offer.captainUserId ?? null,
+    captainUserId: offer.captainUserId ?? offer.captainId ?? null,
+    distanceM: offer.distanceM ?? null,
+    queuePosition: queuePosition ?? offer.queuePosition ?? null,
+    isCurrent: offer.isCurrent === true,
+    isBestPrice: offer.isBestPrice === true,
+    isNearest: offer.isNearest === true,
+    isHighestRated: offer.isHighestRated === true,
+  };
+}
+
 export const __taxiServiceTestApi = {
   buildCompactRidePayload,
+  buildBidQueueMeta,
+  buildOfferPresentationList,
+  buildTaxiOfferPayload,
+  buildCaptainTaxiEligibility,
+  hasCaptainTaxiProfileCompleteness,
   ensureRideChatAccess,
   shouldRecommendRidePriceRaise,
 };
@@ -285,17 +369,29 @@ function buildBidQueueMeta({ bids, currentBidId }) {
   const currentBid = activeQueue.find(
     (entry) => Number(entry.id) === Number(currentBidId)
   );
+  const bestFare = activeQueue
+    .map((bid) => Number(bid.offeredFareIqd || 0))
+    .filter((fare) => fare > 0)
+    .reduce((min, fare) => Math.min(min, fare), Number.POSITIVE_INFINITY);
+  const nearestDistance = activeQueue
+    .map((bid) => Number(bid.distanceM || 0))
+    .filter((distance) => distance > 0)
+    .reduce((min, distance) => Math.min(min, distance), Number.POSITIVE_INFINITY);
+  const highestRating = activeQueue
+    .map((bid) => Number(bid.captain?.ratingAvg || 0))
+    .filter((rating) => rating > 0)
+    .reduce((max, rating) => Math.max(max, rating), 0);
+
   const currentNegotiation = currentBid
     ? buildNegotiationWindowMeta(currentBid, nowMs)
     : null;
-  return {
-    currentBidId: currentBidId || null,
-    queueSize: activeQueue.length,
-    generatedAt: new Date(nowMs).toISOString(),
-    negotiationTimeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
-    currentNegotiation,
-    queue: activeQueue.map((b, index) => ({
+  const queue = activeQueue.map((b, index) => {
+    const distanceM = b.distanceM == null ? null : Number(b.distanceM);
+    const captainRating = Number(b.captain?.ratingAvg || 0);
+    return {
       bidId: b.id,
+      offerId: b.id,
+      captainId: b.captainUserId,
       captainUserId: b.captainUserId,
       offeredFareIqd: b.offeredFareIqd,
       etaMinutes: b.etaMinutes ?? null,
@@ -306,9 +402,65 @@ function buildBidQueueMeta({ bids, currentBidId }) {
       lastOfferBy: b.lastOfferBy || "captain",
       createdAt: b.createdAt,
       updatedAt: b.updatedAt,
+      distanceM,
+      captainRatingAvg: captainRating || null,
+      isBestPrice:
+        Number.isFinite(bestFare) &&
+        bestFare !== Number.POSITIVE_INFINITY &&
+        Number(b.offeredFareIqd || 0) === bestFare,
+      isNearest:
+        Number.isFinite(nearestDistance) &&
+        nearestDistance !== Number.POSITIVE_INFINITY &&
+        distanceM != null &&
+        distanceM === nearestDistance,
+      isHighestRated:
+        highestRating > 0 &&
+        captainRating > 0 &&
+        captainRating === highestRating,
       negotiation: buildNegotiationWindowMeta(b, nowMs),
-    })),
+    };
+  });
+  return {
+    currentBidId: currentBidId || null,
+    currentOfferId: currentBidId || null,
+    queueSize: activeQueue.length,
+    offerCount: activeQueue.length,
+    generatedAt: new Date(nowMs).toISOString(),
+    negotiationTimeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
+    currentNegotiation,
+    queue,
+    offerQueue: queue,
+    offers: queue,
+    currentOffer: queue.find((entry) => entry.isCurrent) || null,
   };
+}
+
+function buildOfferPresentationList({ bids, currentBidId, bidQueue = null }) {
+  const queueIndex = new Map(
+    (bidQueue?.queue || []).map((entry) => [Number(entry.bidId), entry])
+  );
+
+  return sortBidQueueByCreatedAt(
+    bids.filter((bid) => bid.status === "active")
+  ).map((bid) => {
+    const queueMeta = queueIndex.get(Number(bid.id)) || null;
+    return buildTaxiOfferPayload(
+      {
+        ...bid,
+        offerId: bid.id,
+        captainId: bid.captainUserId,
+        queuePosition: queueMeta?.queuePosition ?? null,
+        isCurrent:
+          queueMeta?.isCurrent === true ||
+          Number(currentBidId) === Number(bid.id),
+        isBestPrice: queueMeta?.isBestPrice === true,
+        isNearest: queueMeta?.isNearest === true,
+        isHighestRated: queueMeta?.isHighestRated === true,
+        distanceM: bid.distanceM ?? queueMeta?.distanceM ?? null,
+      },
+      { queuePosition: queueMeta?.queuePosition ?? null }
+    );
+  });
 }
 
 async function resolveNegotiationCaptainUserId(ride) {
@@ -371,6 +523,14 @@ function queueNotifications(payloads = []) {
   }
 }
 
+function emitTaxiRealtimeEvents(userId, eventNames, payload) {
+  const events = Array.isArray(eventNames) ? eventNames : [eventNames];
+  for (const eventName of events) {
+    if (!eventName) continue;
+    void emitRealtimeToUser(userId, eventName, payload);
+  }
+}
+
 async function emitRideUpdate(ride, eventType, extra = {}) {
   if (!ride) return;
 
@@ -397,25 +557,35 @@ async function notifyCaptainsNearRide(ride) {
   });
 
   for (const captain of nearbyCaptains) {
-    void emitRealtimeToUser(captain.captainUserId, "taxi_new_request", {
+    emitTaxiRealtimeEvents(captain.captainUserId, [
+      "taxi_ride_requested",
+      "taxi_new_request",
+    ], {
       ride: buildCompactRidePayload(ride),
+      rideId: ride.id,
+      pickupLabel: ride.pickup?.label || null,
+      destinationLabel: ride.dropoff?.label || null,
+      suggestedFareIqd: ride.proposedFareIqd,
       distanceM: captain.distanceM,
+      customerUserId: ride.customerUserId,
     });
   }
 
   queueNotifications(
     nearbyCaptains.map((captain) => ({
       userId: captain.captainUserId,
-      type: "taxi.request.new",
+      type: "taxi.ride.requested",
       title: "طلب تكسي قريب منك",
       body: `سعر مقترح ${ride.proposedFareIqd} د.ع`,
       payload: {
         rideId: ride.id,
-        proposedFareIqd: ride.proposedFareIqd,
+        pickupLabel: ride.pickup?.label || null,
+        destinationLabel: ride.dropoff?.label || null,
+        suggestedFareIqd: ride.proposedFareIqd,
         searchRadiusM: ride.searchRadiusM,
-        // Make the captain's new-ride alert urgent (action channel, attention
-        // sound, full-screen overlay) on par with delivery courier offers.
-        target: "taxi_new_request",
+        distanceM: captain.distanceM,
+        customerUserId: ride.customerUserId,
+        target: "taxi_ride_requested",
         requiresAction: true,
       },
     }))
@@ -443,78 +613,140 @@ async function processNegotiationTimeoutsAndEmit() {
       bids,
       currentBidId: ride.currentBidId,
     });
+    const offers = buildOfferPresentationList({
+      bids,
+      currentBidId: ride.currentBidId,
+      bidQueue,
+    });
+    const timedOutOffer =
+      offers.find((entry) => Number(entry.offerId) === Number(timedOut.timedOutBid?.id)) ||
+      buildTaxiOfferPayload(
+        {
+          ...timedOut.timedOutBid,
+          offerId: timedOut.timedOutBid?.id || null,
+          captainId: timedOut.timedOutBid?.captainUserId || null,
+          status: "rejected",
+        },
+        {}
+      );
+    const nextOffer =
+      timedOut.nextBid != null
+        ? offers.find((entry) => Number(entry.offerId) === Number(timedOut.nextBid.id)) ||
+          buildTaxiOfferPayload(
+            {
+              ...timedOut.nextBid,
+              offerId: timedOut.nextBid.id,
+              captainId: timedOut.nextBid.captainUserId,
+            },
+            {}
+          )
+        : null;
 
     await repo.createRideEvent({
       rideRequestId: ride.id,
       actorUserId: ride.customerUserId,
       eventType: timedOut.nextBid
-        ? "bid_timeout_switched"
-        : "bid_timeout_no_next",
+        ? "offer_timeout_switched"
+        : "offer_timeout_no_next",
       message: timedOut.nextBid
         ? "انتهت مهلة التفاوض للكابتن الحالي وتم التحويل تلقائيًا للكابتن التالي."
         : "انتهت مهلة التفاوض للكابتن الحالي ولا يوجد كابتن بديل الآن.",
       payload: {
         timedOutBidId: timedOut.timedOutBid?.id || null,
+        timedOutOfferId: timedOut.timedOutBid?.id || null,
         nextBidId: timedOut.nextBid?.id || null,
+        nextOfferId: timedOut.nextBid?.id || null,
         timeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
+        customerUserId: ride.customerUserId,
       },
     });
 
-    void emitRealtimeToUser(ride.customerUserId, "taxi_bid_update", {
-      eventType: "bid_timeout_switched",
+    emitTaxiRealtimeEvents(ride.customerUserId, [
+      "taxi_offer_rejected",
+      "taxi_bid_update",
+    ], {
+      eventType: "offer_timeout_switched",
       rideId: ride.id,
       bidQueue,
+      offers,
       timedOutBidId: timedOut.timedOutBid?.id || null,
       nextBidId: timedOut.nextBid?.id || null,
+      timedOutOffer,
+      nextOffer,
+      customerUserId: ride.customerUserId,
     });
 
     if (timedOut.timedOutBid?.captainUserId) {
-      void emitRealtimeToUser(timedOut.timedOutBid.captainUserId, "taxi_bid_update", {
-        eventType: "bid_timeout",
+      emitTaxiRealtimeEvents(timedOut.timedOutBid.captainUserId, [
+        "taxi_offer_rejected",
+        "taxi_ride_unavailable",
+        "taxi_bid_update",
+      ], {
+        eventType: "offer_timeout",
         rideId: ride.id,
         bidId: timedOut.timedOutBid.id,
+        offerId: timedOut.timedOutBid.id,
+        timedOutOffer,
+        customerUserId: ride.customerUserId,
       });
       queueNotification({
         userId: timedOut.timedOutBid.captainUserId,
-        type: "taxi.bid.timeout",
+        type: "taxi.offer.timeout",
         title: "انتهت مهلة التفاوض",
         body: "انتهت المهلة وانتقل الطلب تلقائيًا للكابتن التالي.",
         payload: {
           rideId: ride.id,
           bidId: timedOut.timedOutBid.id,
+          offerId: timedOut.timedOutBid.id,
           timeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
+          captainId: timedOut.timedOutBid.captainUserId,
+          customerUserId: ride.customerUserId,
+          target: "taxi_ride_unavailable",
         },
       });
     }
 
     if (timedOut.nextBid?.captainUserId) {
-      void emitRealtimeToUser(timedOut.nextBid.captainUserId, "taxi_bid_update", {
-        eventType: "you_are_current_bid",
+      emitTaxiRealtimeEvents(timedOut.nextBid.captainUserId, [
+        "taxi_offer_received",
+        "taxi_bid_update",
+      ], {
+        eventType: "you_are_current_offer",
         rideId: ride.id,
         bidId: timedOut.nextBid.id,
+        offerId: timedOut.nextBid.id,
+        offer: nextOffer,
         bidQueue,
+        offers,
+        customerUserId: ride.customerUserId,
       });
 
       queueNotification({
         userId: timedOut.nextBid.captainUserId,
-        type: "taxi.bid.turn_started",
+        type: "taxi.offer.received",
         title: "دورك الآن للتفاوض",
         body: `لديك ${NEGOTIATION_TIMEOUT_SECONDS} ثانية للرد قبل التحويل التلقائي.`,
         payload: {
           rideId: ride.id,
           bidId: timedOut.nextBid.id,
+          offerId: timedOut.nextBid.id,
           timeoutSeconds: NEGOTIATION_TIMEOUT_SECONDS,
+          captainId: timedOut.nextBid.captainUserId,
+          customerUserId: ride.customerUserId,
+          target: "taxi_offer_received",
         },
       });
     } else {
       queueNotification({
         userId: ride.customerUserId,
-        type: "taxi.bid.none_after_timeout",
+        type: "taxi.ride.unavailable",
         title: "لا يوجد عرض نشط الآن",
         body: "سنستمر في البحث عن كابتن قريب تلقائيًا.",
         payload: {
           rideId: ride.id,
           status: ride.status,
+          customerUserId: ride.customerUserId,
+          target: "taxi_ride_unavailable",
         },
       });
     }
@@ -1027,11 +1259,20 @@ export async function getCurrentRideForCustomer(customerUserId) {
     bids,
     currentBidId: ride.currentBidId,
   });
+  const offers = buildOfferPresentationList({
+    bids,
+    currentBidId: ride.currentBidId,
+    bidQueue,
+  });
 
   return {
     ride,
     bids,
     bidQueue,
+    offers,
+    offerQueue: bidQueue.offerQueue,
+    currentOffer: bidQueue.currentOffer,
+    currentOfferId: bidQueue.currentOfferId,
     latestLocation,
     events: [...events].reverse(),
     chatMessages: [...chatMessages].reverse(),
@@ -1058,11 +1299,20 @@ export async function getCurrentRideForCaptain(captainUserId) {
     bids,
     currentBidId: ride.currentBidId,
   });
+  const offers = buildOfferPresentationList({
+    bids,
+    currentBidId: ride.currentBidId,
+    bidQueue,
+  });
 
   return {
     ride,
     bids,
     bidQueue,
+    offers,
+    offerQueue: bidQueue.offerQueue,
+    currentOffer: bidQueue.currentOffer,
+    currentOfferId: bidQueue.currentOfferId,
     latestLocation,
     events: [...events].reverse(),
     chatMessages: [...chatMessages].reverse(),
@@ -1088,11 +1338,20 @@ export async function getRideDetails({ rideId, userId, role, isSuperAdmin }) {
     bids,
     currentBidId: ride.currentBidId,
   });
+  const offers = buildOfferPresentationList({
+    bids,
+    currentBidId: ride.currentBidId,
+    bidQueue,
+  });
 
   return {
     ride,
     bids,
     bidQueue,
+    offers,
+    offerQueue: bidQueue.offerQueue,
+    currentOffer: bidQueue.currentOffer,
+    currentOfferId: bidQueue.currentOfferId,
     latestLocation,
     events: [...events].reverse(),
     chatMessages: [...chatMessages].reverse(),
@@ -1161,7 +1420,10 @@ export async function sendRideChatMessage({
   }
 
   for (const targetUserId of targetUsers) {
-    void emitRealtimeToUser(targetUserId, "taxi_chat_update", {
+    emitTaxiRealtimeEvents(targetUserId, [
+      "taxi_chat_message",
+      "taxi_chat_update",
+    ], {
       eventType: "chat_message",
       rideId: ride.id,
       message,
@@ -1178,6 +1440,7 @@ export async function sendRideChatMessage({
       payload: {
         rideId: ride.id,
         messageId: message?.id || null,
+        target: "taxi_chat_message",
       },
     });
   }
@@ -1481,9 +1744,17 @@ export async function updateCaptainPresence(captainUserId, dto) {
     });
   }
 
+  const eligibility = await loadCaptainTaxiEligibility(captainUserId).catch(
+    () => null
+  );
+  if (eligibility && !eligibility.canReceiveRideRequests) {
+    nearbyRequests = [];
+  }
+
   return {
     presence,
     nearbyRequests,
+    eligibility,
   };
 }
 
@@ -1509,6 +1780,15 @@ export async function listNearbyRequestsForCaptain(captainUserId, query) {
   await assertCaptainSubscriptionAccess(captainUserId);
   await processSearchingLifecycleAndEmit();
 
+  const eligibility = await loadCaptainTaxiEligibility(captainUserId);
+  if (!eligibility.canReceiveRideRequests) {
+    return {
+      items: [],
+      total: 0,
+      eligibility,
+    };
+  }
+
   const items = await repo.listNearbyOpenRidesForCaptain(captainUserId, {
     radiusM: query.radiusM,
     limit: query.limit,
@@ -1517,11 +1797,13 @@ export async function listNearbyRequestsForCaptain(captainUserId, query) {
   return {
     items,
     total: items.length,
+    eligibility,
   };
 }
 
 export async function submitBid({ captainUserId, rideId, dto }) {
   await assertCaptainSubscriptionAccess(captainUserId);
+  await assertCaptainCanReceiveRideRequests(captainUserId);
   await processSearchingLifecycleAndEmit();
 
   const ride = await repo.getRideById(rideId);
@@ -1561,20 +1843,39 @@ export async function submitBid({ captainUserId, rideId, dto }) {
     bids,
     currentBidId: refreshedRide?.currentBidId,
   });
+  const offers = buildOfferPresentationList({
+    bids,
+    currentBidId: refreshedRide?.currentBidId,
+    bidQueue,
+  });
   const myQueueItem = bidQueue.queue.find(
     (entry) => Number(entry.bidId) === Number(bid.id)
   );
   const isCurrentBid = myQueueItem?.isCurrent === true;
+  const offer = offers.find((entry) => Number(entry.offerId) === Number(bid.id))
+    || buildTaxiOfferPayload(
+      {
+        ...bid,
+        queuePosition: myQueueItem?.queuePosition ?? null,
+        isCurrent: isCurrentBid,
+        isBestPrice: myQueueItem?.isBestPrice === true,
+        isNearest: myQueueItem?.isNearest === true,
+        isHighestRated: myQueueItem?.isHighestRated === true,
+      },
+      { queuePosition: myQueueItem?.queuePosition ?? null }
+    );
 
   await repo.createRideEvent({
     rideRequestId: ride.id,
     actorUserId: captainUserId,
-    eventType: isCurrentBid ? "bid_submitted_current" : "bid_submitted_waiting",
+    eventType: isCurrentBid ? "offer_submitted_current" : "offer_submitted_waiting",
     message: isCurrentBid
       ? "وصل عرض كابتن وبدأت المفاوضة."
-      : "وصل عرض كابتن وأضيف إلى قائمة الانتظار.",
+      : "وصل عرض كابتن وأضيف إلى قائمة العروض.",
     payload: {
       bidId: bid.id,
+      offerId: bid.id,
+      captainId: captainUserId,
       offeredFareIqd: bid.offeredFareIqd,
       etaMinutes: bid.etaMinutes,
       queuePosition: myQueueItem?.queuePosition ?? null,
@@ -1583,51 +1884,68 @@ export async function submitBid({ captainUserId, rideId, dto }) {
     },
   });
 
-  void emitRealtimeToUser(ride.customerUserId, "taxi_bid_update", {
-    eventType: isCurrentBid ? "bid_submitted_current" : "bid_submitted_waiting",
+  emitTaxiRealtimeEvents(ride.customerUserId, [
+    "taxi_offer_received",
+    "taxi_bid_update",
+  ], {
+    eventType: isCurrentBid ? "offer_received_current" : "offer_received_waiting",
     rideId: ride.id,
+    offer,
     bid,
     bidQueue,
+    offers,
     isCurrentBid,
   });
 
   queueNotification({
     userId: ride.customerUserId,
-    type: "taxi.bid.submitted",
+    type: "taxi.offer.received",
     title: isCurrentBid
       ? "وصل عرض جديد وجاهز للتفاوض"
-      : "وصل عرض جديد ضمن قائمة الانتظار",
+      : "وصل عرض جديد ضمن قائمة العروض",
     body: `عرض ${bid.offeredFareIqd} د.ع`,
     payload: {
       rideId: ride.id,
       bidId: bid.id,
+      offerId: bid.id,
       offeredFareIqd: bid.offeredFareIqd,
       etaMinutes: bid.etaMinutes,
       queuePosition: myQueueItem?.queuePosition ?? null,
       queueSize: bidQueue.queueSize,
+      currentOfferId: bidQueue.currentOfferId,
       isCurrentBid,
+      customerUserId: ride.customerUserId,
+      captainId: captainUserId,
+      target: "taxi_offer_received",
     },
   });
 
   if (!isCurrentBid) {
     queueNotification({
       userId: captainUserId,
-      type: "taxi.bid.waiting_queue",
+      type: "taxi.offer.submitted",
       title: "تم إرسال عرضك",
       body: `أنت في قائمة الانتظار (${myQueueItem?.queuePosition ?? "-"} من ${bidQueue.queueSize})`,
       payload: {
         rideId: ride.id,
         bidId: bid.id,
+        offerId: bid.id,
         queuePosition: myQueueItem?.queuePosition ?? null,
         queueSize: bidQueue.queueSize,
+        target: "taxi_offer_received",
       },
     });
   } else {
-    void emitRealtimeToUser(captainUserId, "taxi_bid_update", {
-      eventType: "you_are_current_bid",
+    emitTaxiRealtimeEvents(captainUserId, [
+      "taxi_offer_received",
+      "taxi_bid_update",
+    ], {
+      eventType: "you_are_current_offer",
       rideId: ride.id,
+      offer,
       bid,
       bidQueue,
+      offers,
     });
   }
 
@@ -1635,6 +1953,10 @@ export async function submitBid({ captainUserId, rideId, dto }) {
     rideId: ride.id,
     bid,
     bidQueue,
+    offers,
+    offerQueue: bidQueue.offerQueue,
+    currentOffer: bidQueue.currentOffer,
+    currentOfferId: bidQueue.currentOfferId,
     isCurrentBid,
   };
 }
@@ -1704,34 +2026,104 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
   }
 
   const ride = result.ride;
+  const bids = await repo.listRideBids(ride.id);
+  const bidQueue = buildBidQueueMeta({
+    bids,
+    currentBidId: ride.currentBidId,
+  });
+  const offers = buildOfferPresentationList({
+    bids,
+    currentBidId: ride.currentBidId,
+    bidQueue,
+  });
+  const acceptedOffer =
+    offers.find((entry) => Number(entry.offerId) === Number(bidId)) ||
+    buildTaxiOfferPayload(
+      {
+        id: bidId,
+        rideRequestId: ride.id,
+        captainUserId: ride.assignedCaptainUserId,
+        offeredFareIqd: ride.agreedFareIqd || ride.proposedFareIqd,
+        status: "accepted",
+      },
+      {}
+    );
 
   await repo.createRideEvent({
     rideRequestId: ride.id,
     actorUserId: customerUserId,
-    eventType: "bid_accepted",
+    eventType: "offer_accepted",
     message: "تم قبول عرض الكابتن.",
     payload: {
       acceptedBidId: ride.acceptedBidId,
+      acceptedOfferId: ride.acceptedBidId,
       assignedCaptainUserId: ride.assignedCaptainUserId,
+      captainId: ride.assignedCaptainUserId,
       agreedFareIqd: ride.agreedFareIqd,
+      customerUserId: ride.customerUserId,
     },
   });
 
-  await emitRideUpdate(ride, "bid_accepted", {
+  emitTaxiRealtimeEvents(ride.customerUserId, [
+    "taxi_offer_accepted",
+    "taxi_ride_assigned",
+    "taxi_ride_update",
+  ], {
+    eventType: "offer_accepted",
+    rideId: ride.id,
+    ride,
     acceptedBidId: ride.acceptedBidId,
+    acceptedOfferId: ride.acceptedBidId,
+    acceptedOffer,
+    offers,
+    bidQueue,
   });
 
-  const accepted = result.bids.find((b) => b.status === "accepted");
-  if (accepted?.captainUserId) {
+  queueNotification({
+    userId: ride.customerUserId,
+    type: "taxi.ride.assigned",
+    title: "تم تعيين الكابتن",
+    body: "تم تثبيت الكابتن المختار للرحلة.",
+    payload: {
+      rideId: ride.id,
+      offerId: ride.acceptedBidId,
+      bidId: ride.acceptedBidId,
+      captainId: ride.assignedCaptainUserId,
+      customerUserId: ride.customerUserId,
+      agreedFareIqd: ride.agreedFareIqd,
+      target: "taxi_ride_assigned",
+    },
+  });
+
+  if (acceptedOffer?.captainUserId) {
+    emitTaxiRealtimeEvents(acceptedOffer.captainUserId, [
+      "taxi_offer_accepted",
+      "taxi_ride_assigned",
+      "taxi_ride_update",
+    ], {
+      eventType: "offer_accepted",
+      rideId: ride.id,
+      ride,
+      acceptedBidId: ride.acceptedBidId,
+      acceptedOfferId: ride.acceptedBidId,
+      acceptedOffer,
+      offers,
+      bidQueue,
+    });
+
     queueNotification({
-      userId: accepted.captainUserId,
-      type: "taxi.bid.accepted",
+      userId: acceptedOffer.captainUserId,
+      type: "taxi.offer.accepted",
       title: "تم قبول عرضك",
       body: `الزبون وافق على ${ride.agreedFareIqd || ride.proposedFareIqd} د.ع`,
       payload: {
         rideId: ride.id,
-        bidId: accepted.id,
+        bidId: acceptedOffer.id,
+        offerId: acceptedOffer.id,
         agreedFareIqd: ride.agreedFareIqd,
+        captainId: acceptedOffer.captainUserId,
+        customerUserId: ride.customerUserId,
+        target: "taxi_ride_assigned",
       },
     });
   }
@@ -1741,32 +2133,54 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
     if (bid.status !== "rejected") continue;
     rejectionPayloads.push({
       userId: bid.captainUserId,
-      type: "taxi.bid.rejected",
+      type: "taxi.offer.rejected",
       title: "تم اختيار كابتن آخر",
       body: "يمكنك متابعة الطلبات القريبة الجديدة.",
       payload: {
         rideId: ride.id,
         bidId: bid.id,
+        offerId: bid.id,
+        captainId: bid.captainUserId,
+        customerUserId: ride.customerUserId,
+        target: "taxi_ride_unavailable",
       },
+    });
+    emitTaxiRealtimeEvents(bid.captainUserId, [
+      "taxi_offer_rejected",
+      "taxi_ride_unavailable",
+      "taxi_bid_update",
+    ], {
+      eventType: "offer_rejected",
+      rideId: ride.id,
+      offerId: bid.id,
+      bidId: bid.id,
+      captainId: bid.captainUserId,
+      customerUserId: ride.customerUserId,
+      ride,
     });
   }
   queueNotifications(rejectionPayloads);
 
-  const bids = await repo.listRideBids(ride.id);
   return {
     ride,
     bids,
-    bidQueue: buildBidQueueMeta({
-      bids,
-      currentBidId: ride.currentBidId,
-    }),
+    bidQueue,
+    offers,
+    offerQueue: bidQueue.offerQueue,
+    currentOffer: bidQueue.currentOffer,
+    currentOfferId: bidQueue.currentOfferId,
   };
 }
 
-export async function rejectCurrentBid({ customerUserId, rideId }) {
+export async function rejectCurrentBid({
+  customerUserId,
+  rideId,
+  bidId = null,
+}) {
   const result = await repo.rejectCurrentRideBidByCustomer({
     rideId,
     customerUserId,
+    bidId,
   });
 
   if (result.code === "RIDE_NOT_FOUND") {
@@ -1778,6 +2192,12 @@ export async function rejectCurrentBid({ customerUserId, rideId }) {
   if (result.code === "NO_ACTIVE_BID") {
     throw new AppError("TAXI_NO_ACTIVE_BID", { status: 409 });
   }
+  if (result.code === "BID_NOT_FOUND") {
+    throw new AppError("TAXI_BID_NOT_FOUND", { status: 404 });
+  }
+  if (result.code === "BID_NOT_ACTIVE") {
+    throw new AppError("TAXI_BID_NOT_ACTIVE", { status: 409 });
+  }
 
   const ride = result.ride;
   const bids = await repo.listRideBids(ride.id);
@@ -1785,74 +2205,147 @@ export async function rejectCurrentBid({ customerUserId, rideId }) {
     bids,
     currentBidId: ride.currentBidId,
   });
+  const offers = buildOfferPresentationList({
+    bids,
+    currentBidId: ride.currentBidId,
+    bidQueue,
+  });
+  const rejectedOffer =
+    offers.find((entry) => Number(entry.offerId) === Number(result.rejectedBid?.id)) ||
+    buildTaxiOfferPayload(
+      {
+        ...result.rejectedBid,
+        offerId: result.rejectedBid?.id || null,
+        captainId: result.rejectedBid?.captainUserId || null,
+        status: "rejected",
+      },
+      {}
+    );
+  const nextOffer =
+    result.nextBid != null
+      ? offers.find((entry) => Number(entry.offerId) === Number(result.nextBid.id)) ||
+        buildTaxiOfferPayload(
+          {
+            ...result.nextBid,
+            offerId: result.nextBid.id,
+            captainId: result.nextBid.captainUserId,
+            status: result.nextBid.status || "active",
+          },
+          {}
+        )
+      : null;
 
   await repo.createRideEvent({
     rideRequestId: ride.id,
     actorUserId: customerUserId,
-    eventType: "bid_rejected_by_customer",
+    eventType: "offer_rejected_by_customer",
     message: "رفض الزبون العرض الحالي وانتقل العرض التالي.",
     payload: {
       rejectedBidId: result.rejectedBid?.id || null,
+      rejectedOfferId: result.rejectedBid?.id || null,
       nextBidId: result.nextBid?.id || null,
+      nextOfferId: result.nextBid?.id || null,
       currentBidId: ride.currentBidId || null,
+      customerUserId: ride.customerUserId,
     },
   });
 
   if (result.rejectedBid?.captainUserId) {
-    void emitRealtimeToUser(result.rejectedBid.captainUserId, "taxi_bid_update", {
-      eventType: "bid_rejected_by_customer",
+    emitTaxiRealtimeEvents(result.rejectedBid.captainUserId, [
+      "taxi_offer_rejected",
+      "taxi_ride_unavailable",
+      "taxi_bid_update",
+    ], {
+      eventType: "offer_rejected_by_customer",
       rideId: ride.id,
       bidId: result.rejectedBid.id,
+      offerId: result.rejectedBid.id,
+      rejectedOffer,
+      ride,
+      customerUserId: ride.customerUserId,
     });
     queueNotification({
       userId: result.rejectedBid.captainUserId,
-      type: "taxi.bid.rejected_by_customer",
+      type: "taxi.offer.rejected",
       title: "الزبون رفض عرضك",
       body: "تم تحويل الطلب إلى كابتن آخر في قائمة الانتظار.",
       payload: {
         rideId: ride.id,
         bidId: result.rejectedBid.id,
+        offerId: result.rejectedBid.id,
+        captainId: result.rejectedBid.captainUserId,
+        customerUserId: ride.customerUserId,
+        target: "taxi_ride_unavailable",
       },
     });
   }
 
-  if (result.nextBid?.captainUserId) {
-    void emitRealtimeToUser(result.nextBid.captainUserId, "taxi_bid_update", {
-      eventType: "you_are_current_bid",
+  if (
+    result.nextBid?.captainUserId &&
+    Number(result.nextBid.captainUserId) !==
+      Number(result.rejectedBid?.captainUserId || 0)
+  ) {
+    emitTaxiRealtimeEvents(result.nextBid.captainUserId, [
+      "taxi_offer_received",
+      "taxi_bid_update",
+    ], {
+      eventType: "you_are_current_offer",
       rideId: ride.id,
       bidId: result.nextBid.id,
+      offerId: result.nextBid.id,
+      offer: nextOffer,
       bidQueue,
+      offers,
+      customerUserId: ride.customerUserId,
     });
     queueNotification({
       userId: result.nextBid.captainUserId,
-      type: "taxi.bid.turn_started",
+      type: "taxi.offer.received",
       title: "دورك الآن للتفاوض",
       body: "أنت الآن الكابتن النشط لهذا الطلب.",
       payload: {
         rideId: ride.id,
         bidId: result.nextBid.id,
+        offerId: result.nextBid.id,
+        captainId: result.nextBid.captainUserId,
+        customerUserId: ride.customerUserId,
+        target: "taxi_offer_received",
       },
     });
-  } else {
+  } else if (!result.nextBid) {
     queueNotification({
       userId: ride.customerUserId,
-      type: "taxi.bid.none_after_reject",
+      type: "taxi.ride.unavailable",
       title: "لا توجد عروض حالية بعد الرفض",
       body: "سنستمر بإرسال الطلب للكباتن القريبين تلقائياً.",
-      payload: { rideId: ride.id },
+      payload: {
+        rideId: ride.id,
+        customerUserId: ride.customerUserId,
+        target: "taxi_ride_unavailable",
+      },
     });
   }
 
-  void emitRealtimeToUser(ride.customerUserId, "taxi_bid_update", {
-    eventType: "bid_rejected_by_customer",
+  emitTaxiRealtimeEvents(ride.customerUserId, [
+    "taxi_offer_rejected",
+    "taxi_bid_update",
+  ], {
+    eventType: "offer_rejected_by_customer",
     rideId: ride.id,
     bidQueue,
+    offers,
+    rejectedOffer,
+    nextOffer,
   });
 
   return {
     ride,
     bids,
     bidQueue,
+    offers,
+    offerQueue: bidQueue.offerQueue,
+    currentOffer: bidQueue.currentOffer,
+    currentOfferId: bidQueue.currentOfferId,
     switchedToNext: !!result.nextBid,
   };
 }
@@ -1861,12 +2354,14 @@ export async function counterOfferCurrentBid({
   customerUserId,
   rideId,
   dto,
+  bidId = null,
 }) {
   const result = await repo.counterOfferCurrentRideBidByCustomer({
     rideId,
     customerUserId,
     offeredFareIqd: dto.offeredFareIqd,
     note: dto.note,
+    bidId,
   });
 
   if (result.code === "RIDE_NOT_FOUND") {
@@ -1878,6 +2373,12 @@ export async function counterOfferCurrentBid({
   if (result.code === "NO_ACTIVE_BID") {
     throw new AppError("TAXI_NO_ACTIVE_BID", { status: 409 });
   }
+  if (result.code === "BID_NOT_FOUND") {
+    throw new AppError("TAXI_BID_NOT_FOUND", { status: 404 });
+  }
+  if (result.code === "BID_NOT_ACTIVE") {
+    throw new AppError("TAXI_BID_NOT_ACTIVE", { status: 409 });
+  }
 
   const ride = result.ride;
   const bids = await repo.listRideBids(ride.id);
@@ -1885,6 +2386,39 @@ export async function counterOfferCurrentBid({
     bids,
     currentBidId: ride.currentBidId,
   });
+  const offers = buildOfferPresentationList({
+    bids,
+    currentBidId: ride.currentBidId,
+    bidQueue,
+  });
+  const targetOffer =
+    offers.find(
+      (entry) => Number(entry.offerId) === Number(result.updatedBid?.id || result.previousBid?.id || 0)
+    ) ||
+    buildTaxiOfferPayload(
+      {
+        ...result.updatedBid,
+        ...result.previousBid,
+        offerId: result.updatedBid?.id || result.previousBid?.id || null,
+        captainId:
+          result.updatedBid?.captainUserId ||
+          result.previousBid?.captainUserId ||
+          null,
+      },
+      {}
+    );
+  const nextOffer =
+    result.nextBid != null
+      ? offers.find((entry) => Number(entry.offerId) === Number(result.nextBid.id)) ||
+        buildTaxiOfferPayload(
+          {
+            ...result.nextBid,
+            offerId: result.nextBid.id,
+            captainId: result.nextBid.captainUserId,
+          },
+          {}
+        )
+      : null;
   const previousCaptainUserId = Number(
     result.updatedBid?.captainUserId || result.previousBid?.captainUserId || 0
   ) || null;
@@ -1917,25 +2451,37 @@ export async function counterOfferCurrentBid({
     payload: {
       offeredFareIqd: dto.offeredFareIqd,
       bidId: result.updatedBid?.id || result.previousBid?.id || null,
+      offerId: result.updatedBid?.id || result.previousBid?.id || null,
       switchedToNext: !!result.switchedToNext,
       nextBidId: result.nextBid?.id || null,
+      nextOfferId: result.nextBid?.id || null,
+      customerUserId: ride.customerUserId,
     },
   });
 
   if (previousCaptainUserId) {
-    void emitRealtimeToUser(previousCaptainUserId, "taxi_bid_update", {
+    emitTaxiRealtimeEvents(previousCaptainUserId, [
+      "taxi_counter_offer_received",
+      "taxi_bid_update",
+    ], {
       eventType:
         result.code === "COUNTER_LIMIT_REACHED"
           ? "counter_offer_limit_reached"
           : "counter_offer_submitted",
       rideId: ride.id,
       offeredFareIqd: dto.offeredFareIqd,
+      offerId: targetOffer?.offerId || null,
+      bidId: targetOffer?.bidId || null,
+      offer: targetOffer,
+      ride,
+      customerUserId: ride.customerUserId,
       bidQueue,
+      offers,
     });
 
     queueNotification({
       userId: previousCaptainUserId,
-      type: "taxi.bid.counter_offer",
+      type: "taxi.counter_offer.received",
       title:
         result.code === "COUNTER_LIMIT_REACHED"
           ? "انتهت جولات التفاوض"
@@ -1947,51 +2493,86 @@ export async function counterOfferCurrentBid({
       payload: {
         rideId: ride.id,
         offeredFareIqd: dto.offeredFareIqd,
+        bidId: targetOffer?.bidId || null,
+        offerId: targetOffer?.offerId || null,
+        captainId: previousCaptainUserId,
+        customerUserId: ride.customerUserId,
+        target: "taxi_counter_offer_received",
       },
     });
   }
 
-  if (result.nextBid?.captainUserId && Number(result.nextBid.captainUserId) !== Number(previousCaptainUserId || 0)) {
-    void emitRealtimeToUser(result.nextBid.captainUserId, "taxi_bid_update", {
-      eventType: "you_are_current_bid",
+  if (
+    result.nextBid?.captainUserId &&
+    Number(result.nextBid.captainUserId) !== Number(previousCaptainUserId || 0)
+  ) {
+    emitTaxiRealtimeEvents(result.nextBid.captainUserId, [
+      "taxi_offer_received",
+      "taxi_bid_update",
+    ], {
+      eventType: "you_are_current_offer",
       rideId: ride.id,
       bidId: result.nextBid.id,
+      offerId: result.nextBid.id,
+      offer: nextOffer,
+      customerUserId: ride.customerUserId,
       bidQueue,
+      offers,
     });
     queueNotification({
       userId: result.nextBid.captainUserId,
-      type: "taxi.bid.turn_started",
+      type: "taxi.offer.received",
       title: "دورك الآن للتفاوض",
       body: "أنت الآن الكابتن النشط لهذا الطلب.",
       payload: {
         rideId: ride.id,
         bidId: result.nextBid.id,
+        offerId: result.nextBid.id,
+        captainId: result.nextBid.captainUserId,
+        customerUserId: ride.customerUserId,
+        target: "taxi_offer_received",
       },
     });
   } else if (
     currentCaptainUserId &&
     Number(currentCaptainUserId) !== Number(previousCaptainUserId || 0)
   ) {
-    void emitRealtimeToUser(currentCaptainUserId, "taxi_bid_update", {
-      eventType: "you_are_current_bid",
+    emitTaxiRealtimeEvents(currentCaptainUserId, [
+      "taxi_offer_received",
+      "taxi_bid_update",
+    ], {
+      eventType: "you_are_current_offer",
       rideId: ride.id,
       bidQueue,
+      offers,
+      customerUserId: ride.customerUserId,
     });
   }
 
-  void emitRealtimeToUser(ride.customerUserId, "taxi_bid_update", {
+  emitTaxiRealtimeEvents(ride.customerUserId, [
+    "taxi_counter_offer_received",
+    "taxi_bid_update",
+  ], {
     eventType:
       result.code === "COUNTER_LIMIT_REACHED"
         ? "counter_offer_limit_reached"
         : "counter_offer_submitted",
     rideId: ride.id,
     bidQueue,
+    offers,
+    targetOffer,
+    nextOffer,
+    customerUserId: ride.customerUserId,
   });
 
   return {
     ride,
     bids,
     bidQueue,
+    offers,
+    offerQueue: bidQueue.offerQueue,
+    currentOffer: bidQueue.currentOffer,
+    currentOfferId: bidQueue.currentOfferId,
     switchedToNext: !!result.switchedToNext,
     negotiationClosed: result.code === "COUNTER_LIMIT_REACHED",
   };
@@ -2013,21 +2594,39 @@ export async function cancelRide({ customerUserId, rideId }) {
   await repo.createRideEvent({
     rideRequestId: result.ride.id,
     actorUserId: customerUserId,
-    eventType: "ride_cancelled",
+    eventType: "ride_canceled",
     message: "تم إلغاء الطلب من قبل الزبون.",
     payload: null,
   });
 
-  await emitRideUpdate(result.ride, "ride_cancelled");
+  await emitRideUpdate(result.ride, "ride_canceled");
+  emitTaxiRealtimeEvents(result.ride.customerUserId, ["taxi_ride_canceled"], {
+    eventType: "ride_canceled",
+    rideId: result.ride.id,
+    ride: buildCompactRidePayload(result.ride),
+    customerUserId: result.ride.customerUserId,
+  });
 
   if (result.ride.assignedCaptainUserId) {
+    emitTaxiRealtimeEvents(result.ride.assignedCaptainUserId, [
+      "taxi_ride_canceled",
+    ], {
+      eventType: "ride_canceled",
+      rideId: result.ride.id,
+      ride: buildCompactRidePayload(result.ride),
+      customerUserId: result.ride.customerUserId,
+      captainId: result.ride.assignedCaptainUserId,
+    });
     queueNotification({
       userId: result.ride.assignedCaptainUserId,
-      type: "taxi.ride.cancelled",
+      type: "taxi.ride.canceled",
       title: "تم إلغاء الطلب",
       body: "الزبون ألغى الرحلة قبل الإتمام.",
       payload: {
         rideId: result.ride.id,
+        customerUserId: result.ride.customerUserId,
+        captainId: result.ride.assignedCaptainUserId,
+        target: "taxi_ride_canceled",
       },
     });
   }
@@ -2105,7 +2704,15 @@ export async function rateRideByCustomer({
   };
 }
 
-async function transitionRideStatus({ captainUserId, rideId, nextStatus, eventType, notificationBody }) {
+async function transitionRideStatus({
+  captainUserId,
+  rideId,
+  nextStatus,
+  eventType,
+  notificationBody,
+  realtimeEventNames = [],
+  notificationType = null,
+}) {
   await assertCaptainSubscriptionAccess(captainUserId);
   const result = await repo.transitionRideStatus({
     rideId,
@@ -2141,14 +2748,36 @@ async function transitionRideStatus({ captainUserId, rideId, nextStatus, eventTy
     previousStatus: result.previousStatus,
   });
 
+  if (realtimeEventNames.length > 0) {
+    const payload = {
+      eventType,
+      rideId: result.ride.id,
+      ride: buildCompactRidePayload(result.ride),
+      previousStatus: result.previousStatus,
+    };
+    emitTaxiRealtimeEvents(result.ride.customerUserId, realtimeEventNames, payload);
+    if (result.ride.assignedCaptainUserId) {
+      emitTaxiRealtimeEvents(
+        result.ride.assignedCaptainUserId,
+        realtimeEventNames,
+        payload
+      );
+    }
+  }
+
   queueNotification({
     userId: result.ride.customerUserId,
-    type: `taxi.ride.${eventType}`,
+    type: notificationType || `taxi.ride.${eventType}`,
     title: "تحديث على رحلة التكسي",
     body: notificationBody,
     payload: {
       rideId: result.ride.id,
       status: result.ride.status,
+      customerUserId: result.ride.customerUserId,
+      captainId: result.ride.assignedCaptainUserId || null,
+      target:
+        realtimeEventNames[0] ||
+        (notificationType ? notificationType.replace(/\./g, "_") : null),
     },
   });
 
@@ -2162,6 +2791,8 @@ export async function markCaptainArrived({ captainUserId, rideId }) {
     nextStatus: "captain_arriving",
     eventType: "captain_arriving",
     notificationBody: "الكابتن في طريقه إليك الآن.",
+    realtimeEventNames: ["taxi_captain_arrived"],
+    notificationType: "taxi.captain.arrived",
   });
 }
 
@@ -2172,6 +2803,8 @@ export async function startRide({ captainUserId, rideId }) {
     nextStatus: "ride_started",
     eventType: "ride_started",
     notificationBody: "بدأت الرحلة، يمكنك متابعة السيارة مباشرة.",
+    realtimeEventNames: ["taxi_ride_started"],
+    notificationType: "taxi.ride.started",
   });
 }
 
@@ -2182,6 +2815,8 @@ export async function completeRide({ captainUserId, rideId }) {
     nextStatus: "completed",
     eventType: "ride_completed",
     notificationBody: "تم إكمال الرحلة بنجاح.",
+    realtimeEventNames: ["taxi_ride_completed"],
+    notificationType: "taxi.ride.completed",
   });
 
   queueNotification({
@@ -2192,6 +2827,9 @@ export async function completeRide({ captainUserId, rideId }) {
     payload: {
       rideId: ride.id,
       status: ride.status,
+      customerUserId: ride.customerUserId,
+      captainId: ride.assignedCaptainUserId || captainUserId,
+      target: "taxi_ride_completed",
     },
   });
 
@@ -2406,12 +3044,14 @@ export async function listCaptainHistory(captainUserId, query) {
 }
 
 export async function getCaptainProfile(captainUserId) {
-  const { profile, subscription } = await loadCaptainSubscriptionContext(
-    captainUserId
-  );
+  const [subscriptionContext, eligibility] = await Promise.all([
+    loadCaptainSubscriptionContext(captainUserId),
+    loadCaptainTaxiEligibility(captainUserId),
+  ]);
   return {
-    profile,
-    subscription,
+    profile: subscriptionContext.profile,
+    subscription: subscriptionContext.subscription,
+    eligibility,
   };
 }
 
@@ -2533,7 +3173,8 @@ export async function getCaptainDashboard(captainUserId, query = {}) {
     : "month";
   const limit = Math.max(1, Math.min(200, Number(query?.limit) || 40));
 
-  const [profileRow, metricsRow, history, subscriptionRaw] = await Promise.all([
+  const [profileRow, metricsRow, history, subscriptionRaw, eligibility] =
+    await Promise.all([
     repo.getCaptainProfile(captainUserId),
     repo.getCaptainDashboardMetrics(captainUserId),
     repo.listCaptainRideHistoryByPeriod(captainUserId, {
@@ -2541,6 +3182,7 @@ export async function getCaptainDashboard(captainUserId, query = {}) {
       limit,
     }),
     repo.getCaptainSubscription(captainUserId),
+    loadCaptainTaxiEligibility(captainUserId),
   ]);
 
   if (!profileRow) {
@@ -2560,6 +3202,7 @@ export async function getCaptainDashboard(captainUserId, query = {}) {
     metrics: mapCaptainDashboardMetrics(metricsRow || {}),
     historyPeriod: safePeriod,
     history,
+    eligibility,
   };
 }
 

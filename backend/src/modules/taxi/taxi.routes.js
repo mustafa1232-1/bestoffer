@@ -34,11 +34,6 @@ taxiRouter.get("/rides/:rideId", c.getRideDetails);
 taxiRouter.post("/rides/:rideId/cancel", requireCustomer, c.cancelRide);
 taxiRouter.post("/rides/:rideId/rate", requireCustomer, c.rateRide);
 taxiRouter.post(
-  "/rides/:rideId/bids/:bidId/accept",
-  requireCustomer,
-  c.acceptBid
-);
-taxiRouter.post(
   "/rides/:rideId/bids/current/reject",
   requireCustomer,
   c.rejectCurrentBid
@@ -47,6 +42,21 @@ taxiRouter.post(
   "/rides/:rideId/bids/current/counter",
   requireCustomer,
   c.counterOfferCurrentBid
+);
+taxiRouter.post(
+  "/rides/:rideId/bids/:bidId/accept",
+  requireCustomer,
+  c.acceptBid
+);
+taxiRouter.post(
+  "/rides/:rideId/bids/:bidId/reject",
+  requireCustomer,
+  c.rejectBid
+);
+taxiRouter.post(
+  "/rides/:rideId/bids/:bidId/counter",
+  requireCustomer,
+  c.counterOfferBid
 );
 taxiRouter.post("/rides/:rideId/share-token", requireCustomer, c.createShareToken);
 taxiRouter.get(

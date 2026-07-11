@@ -192,16 +192,13 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
             );
         if (eventRideId != widget.rideId) return;
         if (event.event == 'taxi_location_update' ||
-            event.event == 'taxi_ride_update') {
+            event.event.startsWith('taxi_')) {
           setState(() {
             _envelope = mergeTaxiTrackingEvent(_envelope, event.data);
             _loading = false;
             _error = null;
           });
           if (!taxiTrackingIsActive(_envelope)) _stopLiveUpdates();
-        } else if (event.event == 'taxi_bid_update' ||
-            event.event == 'taxi_shared_ride_update') {
-          unawaited(_load(silent: true));
         }
       },
       onError: (error, stack) {

@@ -333,6 +333,16 @@ class TaxiApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> rejectBid({
+    required int rideId,
+    required int bidId,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/bids/$bidId/reject',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> counterOfferCurrentBid({
     required int rideId,
     required int offeredFareIqd,
@@ -340,6 +350,22 @@ class TaxiApi {
   }) async {
     final response = await dio.post(
       '/api/taxi/rides/$rideId/bids/current/counter',
+      data: {
+        'offeredFareIqd': offeredFareIqd,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> counterOfferBid({
+    required int rideId,
+    required int bidId,
+    required int offeredFareIqd,
+    String? note,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/bids/$bidId/counter',
       data: {
         'offeredFareIqd': offeredFareIqd,
         if (note != null && note.trim().isNotEmpty) 'note': note.trim(),

@@ -163,6 +163,7 @@ function normalizeBid(row) {
     lastOfferBy: row.last_offer_by || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    distanceM: toNumberOrNull(row.distance_m),
     captain: row.captain_full_name
       ? {
           id: Number(row.captain_user_id),

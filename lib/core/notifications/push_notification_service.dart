@@ -120,12 +120,16 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         body: parsed.$2,
         orderId: parsed.$3.orderId,
         rideId: parsed.$3.rideId,
+        offerId: parsed.$3.offerId,
+        bidId: parsed.$3.bidId,
         jobId: parsed.$3.jobId,
         applicationId: parsed.$3.applicationId,
         postId: parsed.$3.postId,
         storyId: parsed.$3.storyId,
         threadId: parsed.$3.threadId,
         senderUserId: parsed.$3.senderUserId,
+        captainId: parsed.$3.captainId,
+        customerUserId: parsed.$3.customerUserId,
         sessionId: parsed.$3.sessionId,
         notificationId: parsed.$3.notificationId,
         type: parsed.$3.type,
@@ -229,12 +233,16 @@ class PushNotificationService {
           body: parsed.$2,
           orderId: parsed.$3.orderId,
           rideId: parsed.$3.rideId,
+          offerId: parsed.$3.offerId,
+          bidId: parsed.$3.bidId,
           jobId: parsed.$3.jobId,
           applicationId: parsed.$3.applicationId,
           postId: parsed.$3.postId,
           storyId: parsed.$3.storyId,
           threadId: parsed.$3.threadId,
           senderUserId: parsed.$3.senderUserId,
+          captainId: parsed.$3.captainId,
+          customerUserId: parsed.$3.customerUserId,
           sessionId: parsed.$3.sessionId,
           notificationId: parsed.$3.notificationId,
           type: parsed.$3.type,
@@ -478,7 +486,19 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
       target == 'courier_orders_new' ||
       target == 'delivery_order_offer' ||
       target == 'courier_order_offer' ||
-      target == 'taxi_new_request') {
+      target == 'taxi_new_request' ||
+      target == 'taxi_ride_requested' ||
+      target == 'taxi_offer_received' ||
+      target == 'taxi_counter_offer_received' ||
+      target == 'taxi_offer_accepted' ||
+      target == 'taxi_offer_rejected' ||
+      target == 'taxi_ride_assigned' ||
+      target == 'taxi_ride_unavailable' ||
+      target == 'taxi_captain_arrived' ||
+      target == 'taxi_ride_started' ||
+      target == 'taxi_ride_completed' ||
+      target == 'taxi_ride_canceled' ||
+      target == 'taxi_chat_message') {
     return true;
   }
 
@@ -488,6 +508,18 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
       type == 'delivery_order_offer' ||
       type == 'courier_order_offer' ||
       type == 'taxi.request.new' ||
+      type == 'taxi.ride.requested' ||
+      type == 'taxi.offer.received' ||
+      type == 'taxi.counter_offer.received' ||
+      type == 'taxi.offer.accepted' ||
+      type == 'taxi.offer.rejected' ||
+      type == 'taxi.ride.assigned' ||
+      type == 'taxi.ride.unavailable' ||
+      type == 'taxi.captain.arrived' ||
+      type == 'taxi.ride.started' ||
+      type == 'taxi.ride.completed' ||
+      type == 'taxi.ride.canceled' ||
+      type == 'taxi.chat.message' ||
       type.startsWith('courier.') ||
       type.startsWith('taxi.request.');
 }
@@ -511,6 +543,12 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
     rideId: int.tryParse(
       '${message.data['rideId'] ?? message.data['ride_id'] ?? ''}',
     ),
+    offerId: int.tryParse(
+      '${message.data['offerId'] ?? message.data['offer_id'] ?? ''}',
+    ),
+    bidId: int.tryParse(
+      '${message.data['bidId'] ?? message.data['bid_id'] ?? ''}',
+    ),
     jobId: int.tryParse(
       '${message.data['jobId'] ?? message.data['job_id'] ?? ''}',
     ),
@@ -531,6 +569,12 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
     ),
     senderUserId: int.tryParse(
       '${message.data['senderUserId'] ?? message.data['sender_user_id'] ?? message.data['actorUserId'] ?? message.data['actor_user_id'] ?? ''}',
+    ),
+    captainId: int.tryParse(
+      '${message.data['captainId'] ?? message.data['captain_id'] ?? ''}',
+    ),
+    customerUserId: int.tryParse(
+      '${message.data['customerUserId'] ?? message.data['customer_user_id'] ?? ''}',
     ),
     sessionId: int.tryParse(
       '${message.data['sessionId'] ?? message.data['session_id'] ?? ''}',
