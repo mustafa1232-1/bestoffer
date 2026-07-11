@@ -351,6 +351,12 @@ function resolveNotificationTarget(notification, orderId) {
     }
     return "paid_upgrades_home";
   }
+  if (type === "car_listing" || type.startsWith("car_listing.")) {
+    return "car_listing";
+  }
+  if (type === "real_estate_listing" || type.startsWith("real_estate_listing.")) {
+    return "real_estate_listing";
+  }
   if (type.startsWith("real_estate.")) {
     if (type.includes("pending_admin_review")) {
       return "admin_real_estate_pending";

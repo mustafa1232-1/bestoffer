@@ -29,6 +29,9 @@ import '../../features/owner/ui/owner_dashboard_screen.dart';
 import '../../features/paid_upgrades/ui/admin_paid_upgrade_requests_screen.dart';
 import '../../features/paid_upgrades/ui/paid_upgrades_home_screen.dart';
 import '../../features/pharmacy/ui/pharmacy_conversation_screen.dart';
+import '../../features/customer/ui/customer_car_listing_details_screen.dart';
+import '../../features/customer/ui/customer_cars_marketplace_screen.dart';
+import '../../features/real_estate/ui/real_estate_listing_details_screen.dart';
 import '../../features/real_estate/ui/admin_real_estate_pending_screen.dart';
 import '../../features/real_estate/ui/real_estate_marketplace_screen.dart';
 import '../../features/real_estate/ui/real_estate_workspace_screen.dart';
@@ -135,7 +138,10 @@ class NotificationNavigation {
           payload?['targetEntity']?.toString() ??
           payload?['target_entity']?.toString(),
       entityId:
-          _parseInt(payload?['entityId']) ?? _parseInt(payload?['entity_id']),
+          _parseInt(payload?['entityId']) ??
+          _parseInt(payload?['entity_id']) ??
+          _parseInt(payload?['listingId']) ??
+          _parseInt(payload?['listing_id']),
       scopeType:
           payload?['scopeType']?.toString() ??
           payload?['scope_type']?.toString(),
@@ -507,6 +513,9 @@ class NotificationNavigation {
     if (target.startsWith('courier_')) return 'courier';
     if (target.startsWith('merchant_')) return 'merchant';
     if (target.startsWith('customer_')) return 'customer';
+    if (target == 'car_listing' || target == 'real_estate_listing') {
+      return 'customer';
+    }
     if (target.startsWith('taxi_') || target == 'taxi_live') {
       return 'taxi';
     }
@@ -541,6 +550,14 @@ class NotificationNavigation {
       if (scopedRole == 'owner' || scopedRole == 'merchant') {
         return 'merchant';
       }
+      return 'customer';
+    }
+    if (normalizedType == 'car_listing' ||
+        normalizedType.startsWith('car.listing.')) {
+      return 'customer';
+    }
+    if (normalizedType == 'real_estate_listing' ||
+        normalizedType.startsWith('real_estate_listing.')) {
       return 'customer';
     }
     if (normalizedType.startsWith('services.')) return 'customer';
@@ -874,6 +891,26 @@ class NotificationNavigation {
       if (target == 'real_estate_workspace') {
         return MaterialPageRoute(
           builder: (_) => const RealEstateWorkspaceScreen(),
+        );
+      }
+      if (target == 'real_estate_listing') {
+        if (entityId != null && entityId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => RealEstateListingDetailsScreen(listingId: entityId),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const RealEstateMarketplaceScreen(),
+        );
+      }
+      if (target == 'car_listing') {
+        if (entityId != null && entityId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => CustomerCarListingDetailsScreen(listingId: entityId),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const CustomerCarsMarketplaceScreen(),
         );
       }
       if (target == 'services_marketplace') {

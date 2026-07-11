@@ -73,6 +73,15 @@
 - [x] Phase 2A checkpoint commit recorded in `0d5e548`
 - [x] Services/jobs remain non-device-gated and must not be claimed as device-verified
 
+## Phase 2B Continuation
+
+- [x] Real-estate runtime proof captured with `backend/src/scripts/realEstateE2ECheck.js`
+- [x] Cars runtime proof captured with `backend/src/scripts/carsE2ECheck.js`
+- [x] `npm test`, `verify:release:local`, and `verify:release:runtime` passed after the Phase 2B marketplace fixes
+- [x] `docs/qa/PHASE_2B_REAL_ESTATE_CARS_REPORT.md` created
+- [x] Phase 2B checkpoint commit created
+- [x] Real-estate and cars remain non-device-gated and must not be claimed as device-verified
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

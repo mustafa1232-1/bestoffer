@@ -6,6 +6,7 @@ import {
   __notificationsRepoTestables,
   buildNotificationAudienceMetadata,
 } from "../modules/notifications/notifications.repo.js";
+import { validateCreateThread } from "../modules/feed/feed.validators.js";
 
 const auth = {
   userId: 42,
@@ -104,4 +105,69 @@ test("push message carries the canonical target app surface", () => {
   assert.equal(message.data.appSurface, "user");
   assert.equal(message.data.roleScope, "customer");
   assert.equal(message.data.targetModule, "customer");
+});
+
+test("listing notifications resolve to direct car and real-estate targets", () => {
+  const carMessage = __notificationsRepoTestables.buildMulticastMessage(
+    {
+      id: 9,
+      type: "car_listing",
+      title: "Car listing",
+      body: "Open the listing",
+      payload: {
+        target: "car_listing",
+        targetModule: "customer",
+        entityId: 991,
+      },
+    },
+    ["redacted-token"],
+    null,
+    { title: "Car listing", body: "Open the listing" },
+    "user"
+  );
+  assert.equal(carMessage.data.target, "car_listing");
+  assert.equal(carMessage.data.deepLinkTarget, "car_listing");
+  assert.equal(carMessage.data.entityId, "991");
+
+  const estateMessage = __notificationsRepoTestables.buildMulticastMessage(
+    {
+      id: 10,
+      type: "real_estate_listing",
+      title: "Real estate listing",
+      body: "Open the listing",
+      payload: {
+        target: "real_estate_listing",
+        targetModule: "customer",
+        entityId: 881,
+      },
+    },
+    ["redacted-token"],
+    null,
+    { title: "Real estate listing", body: "Open the listing" },
+    "user"
+  );
+  assert.equal(estateMessage.data.target, "real_estate_listing");
+  assert.equal(estateMessage.data.deepLinkTarget, "real_estate_listing");
+  assert.equal(estateMessage.data.entityId, "881");
+});
+
+test("business thread validation accepts car and real-estate contexts", () => {
+  assert.equal(
+    validateCreateThread({
+      userId: 7,
+      kind: "business",
+      contextType: "car_listing",
+      contextId: 11,
+    }).ok,
+    true
+  );
+  assert.equal(
+    validateCreateThread({
+      userId: 7,
+      kind: "business",
+      contextType: "real_estate_listing",
+      contextId: 22,
+    }).ok,
+    true
+  );
 });

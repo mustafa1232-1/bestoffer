@@ -176,6 +176,71 @@ void main() {
       expect(payload.target, 'taxi_live');
     });
 
+    test('Car listing notifications resolve to direct customer detail target', () {
+      final target = NotificationNavigation.resolveTarget(
+        rawTarget: null,
+        type: 'car_listing',
+        orderId: null,
+      );
+      final module = NotificationNavigation.resolveModule(
+        rawModule: null,
+        roleScope: 'customer',
+        rawTarget: target,
+        type: 'car_listing',
+      );
+      expect(target, 'car_listing');
+      expect(module, 'customer');
+    });
+
+    test(
+      'Real estate listing notifications resolve to direct customer detail target',
+      () {
+        final target = NotificationNavigation.resolveTarget(
+          rawTarget: null,
+          type: 'real_estate_listing',
+          orderId: null,
+        );
+        final module = NotificationNavigation.resolveModule(
+          rawModule: null,
+          roleScope: 'customer',
+          rawTarget: target,
+          type: 'real_estate_listing',
+        );
+        expect(target, 'real_estate_listing');
+        expect(module, 'customer');
+      },
+    );
+
+    test(
+      'Notification payload fallback parses listingId for marketplace deep links',
+      () {
+        const model = AppNotificationModel(
+          id: 502,
+          orderId: null,
+          rideId: null,
+          storyId: null,
+          reelId: null,
+          merchantId: null,
+          target: 'car_listing',
+          type: 'car_listing',
+          title: 'Car listing',
+          body: 'Open the listing',
+          payload: <String, dynamic>{
+            'listingId': 88,
+            'target': 'car_listing',
+            'targetModule': 'customer',
+          },
+          isRead: false,
+          createdAt: null,
+          readAt: null,
+        );
+
+        final payload = NotificationNavigation.payloadFromModel(model);
+        expect(payload.entityId, 88);
+        expect(payload.target, 'car_listing');
+      },
+    );
+
     test('Merchant payment notifications resolve to merchant receivables', () {
       final target = NotificationNavigation.resolveTarget(
         rawTarget: null,

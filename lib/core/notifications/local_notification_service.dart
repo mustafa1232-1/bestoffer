@@ -304,7 +304,9 @@ class LocalNotificationService {
           notification.payload?['target_entity']?.toString(),
       entityId:
           int.tryParse('${notification.payload?['entityId'] ?? ''}') ??
-          int.tryParse('${notification.payload?['entity_id'] ?? ''}'),
+          int.tryParse('${notification.payload?['entity_id'] ?? ''}') ??
+          int.tryParse('${notification.payload?['listingId'] ?? ''}') ??
+          int.tryParse('${notification.payload?['listing_id'] ?? ''}'),
       scopeType:
           notification.payload?['scopeType']?.toString() ??
           notification.payload?['scope_type']?.toString(),
@@ -623,7 +625,9 @@ class LocalNotificationService {
             map['targetEntity']?.toString() ?? map['target_entity']?.toString(),
         entityId:
             int.tryParse('${map['entityId'] ?? ''}') ??
-            int.tryParse('${map['entity_id'] ?? ''}'),
+            int.tryParse('${map['entity_id'] ?? ''}') ??
+            int.tryParse('${map['listingId'] ?? ''}') ??
+            int.tryParse('${map['listing_id'] ?? ''}'),
         scopeType: map['scopeType']?.toString(),
         scopeCode: map['scopeCode']?.toString(),
         remoteDisplayName: map['remoteDisplayName']?.toString(),

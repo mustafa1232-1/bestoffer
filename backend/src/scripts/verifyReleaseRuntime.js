@@ -11,6 +11,8 @@ const steps = [
   { label: "community", script: "e2e:community:check" },
   { label: "services", script: "e2e:services:check" },
   { label: "jobs", script: "e2e:jobs:check" },
+  { label: "real-estate", script: "e2e:real-estate:check" },
+  { label: "cars", script: "e2e:cars:check" },
   { label: "pharmacy", script: "e2e:pharmacy:check" },
 ];
 

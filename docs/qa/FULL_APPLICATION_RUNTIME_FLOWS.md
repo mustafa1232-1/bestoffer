@@ -83,6 +83,38 @@ This file captures the cross-app end-to-end flows that must be proven during the
   - expired jobs reject new applications
   - manager notifications include the job offer accepted / withdrawn flows
 
+## Real Estate
+
+- Paid-upgrade request, listing approval, workspace visibility, and business chat routing
+- Seller and buyer visibility for approved listings
+
+## Verified Runtime Evidence
+
+- `backend/src/scripts/realEstateE2ECheck.js` now proves the real-estate workflow end-to-end:
+  - super admin logs in on the user surface and approves the seller's paid-upgrade request
+  - seller and buyer register and authenticate successfully with valid Basmaya addresses
+  - seller submits a real-estate paid-upgrade request and receives pending / approved notifications
+  - approved listing becomes visible to the buyer and to the seller workspace
+  - business chat threads are created through `/api/feed/chats/threads`
+  - thread messaging works for the approved listing context
+  - notification targets remain stable for `real_estate_workspace` and admin pending-review routing
+
+## Cars
+
+- Paid-upgrade request, listing approval, workspace visibility, and business chat routing
+- Seller and buyer visibility for approved listings
+
+## Verified Runtime Evidence
+
+- `backend/src/scripts/carsE2ECheck.js` now proves the cars workflow end-to-end:
+  - super admin logs in on the user surface and approves the seller's paid-upgrade request
+  - seller and buyer register and authenticate successfully with valid Basmaya addresses
+  - seller submits a cars paid-upgrade request and receives pending / activated notifications
+  - approved listing becomes visible to the buyer and to the seller workspace
+  - business chat threads are created through `/api/feed/chats/threads`
+  - thread messaging works for the approved listing context
+  - notification targets remain stable for `paid_upgrades_home` and listing routing
+
 ## Taxi
 
 - Request ride

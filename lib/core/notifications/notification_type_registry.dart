@@ -97,6 +97,28 @@ class NotificationTypeRegistry {
       );
     }
 
+    if (normalizedType == 'car_listing' ||
+        normalizedType.startsWith('car.listing.')) {
+      return const NotificationRouteSpec(
+        targetModule: 'customer',
+        targetScreen: 'car_listing',
+        fallbackScreen: 'customer_notifications',
+        allowedRoleScopes: {'user', 'customer'},
+        expectedPayloadKeys: {'listingId'},
+      );
+    }
+
+    if (normalizedType == 'real_estate_listing' ||
+        normalizedType.startsWith('real_estate_listing.')) {
+      return const NotificationRouteSpec(
+        targetModule: 'customer',
+        targetScreen: 'real_estate_listing',
+        fallbackScreen: 'customer_notifications',
+        allowedRoleScopes: {'user', 'customer'},
+        expectedPayloadKeys: {'listingId'},
+      );
+    }
+
     if (normalizedType.contains('merchant_payment') ||
         normalizedType.startsWith('owner_payment_request') ||
         normalizedType.contains('merchant_settlement') ||
