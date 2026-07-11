@@ -98,6 +98,6 @@ The current continuation verified the full store/catalog/coupon slice at runtime
 ## Deliverable State
 
 - Phase 1A documentation is now separated from the Phase 0 baseline.
-- Phase 1A continuation remains in progress until the checkpoint commit is cut.
+- Phase 1A checkpoint commit `558b989` has been created.
 - The remaining worktree must be kept clean after this checkpoint.
 - No destructive data or schema action was performed.

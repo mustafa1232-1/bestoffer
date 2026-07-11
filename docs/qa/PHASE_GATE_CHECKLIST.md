@@ -28,6 +28,7 @@
 - Live backend runtime evidence captured for store / catalog / coupon scope
 - Department-aware browse cache keys fixed for men / women fashion sections
 - `npm test`, `verify:release:local`, and `verify:release:runtime` passed after the fix
+- Phase 1A checkpoint commit `558b989` has been created
 - Store-app device smoke remains pending and must not be claimed as passed
 
 ## Notes
