@@ -167,15 +167,32 @@ async function loadCaptainTaxiEligibility(captainUserId) {
   return buildCaptainTaxiEligibility({ profileRow, presenceRow });
 }
 
-async function assertCaptainCanReceiveRideRequests(captainUserId) {
+async function loadCaptainTaxiActionability(captainUserId) {
   const eligibility = await loadCaptainTaxiEligibility(captainUserId);
-  if (eligibility.canReceiveRideRequests) {
-    return eligibility;
+  const activeRide = await repo.getCaptainCurrentRide(captainUserId);
+  const reasons = [...eligibility.reasons];
+  if (activeRide) reasons.push("active_ride");
+
+  return {
+    ...eligibility,
+    activeRide,
+    reasons,
+    canReceiveRideRequests: eligibility.canReceiveRideRequests && !activeRide,
+  };
+}
+
+async function assertCaptainCanReceiveRideRequests(captainUserId) {
+  const readiness = await loadCaptainTaxiActionability(captainUserId);
+  if (readiness.canReceiveRideRequests) {
+    return readiness;
   }
 
   throw new AppError("TAXI_CAPTAIN_NOT_AVAILABLE", {
     status: 403,
-    details: { reasons: eligibility.reasons },
+    details: {
+      reasons: readiness.reasons,
+      activeRideId: readiness.activeRide?.id || null,
+    },
   });
 }
 
@@ -1780,12 +1797,12 @@ export async function listNearbyRequestsForCaptain(captainUserId, query) {
   await assertCaptainSubscriptionAccess(captainUserId);
   await processSearchingLifecycleAndEmit();
 
-  const eligibility = await loadCaptainTaxiEligibility(captainUserId);
-  if (!eligibility.canReceiveRideRequests) {
+  const readiness = await loadCaptainTaxiActionability(captainUserId);
+  if (!readiness.canReceiveRideRequests) {
     return {
       items: [],
       total: 0,
-      eligibility,
+      eligibility: readiness,
     };
   }
 
@@ -1797,7 +1814,7 @@ export async function listNearbyRequestsForCaptain(captainUserId, query) {
   return {
     items,
     total: items.length,
-    eligibility,
+    eligibility: readiness,
   };
 }
 
@@ -1963,6 +1980,7 @@ export async function submitBid({ captainUserId, rideId, dto }) {
 
 export async function declineRideRequestByCaptain({ captainUserId, rideId }) {
   await assertCaptainSubscriptionAccess(captainUserId);
+  await assertCaptainCanReceiveRideRequests(captainUserId);
   await processSearchingLifecycleAndEmit();
 
   const result = await repo.declineRideByCaptain({
@@ -2022,6 +2040,9 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
     if (result.code === "BID_NOT_ACTIVE") {
       throw new AppError("TAXI_BID_NOT_ACTIVE", { status: 409 });
     }
+    if (result.code === "CAPTAIN_ALREADY_ASSIGNED") {
+      throw new AppError("TAXI_ALREADY_ASSIGNED", { status: 409 });
+    }
     throw new AppError("TAXI_RIDE_NOT_ACCEPTING_BIDS", { status: 409 });
   }
 
@@ -2036,10 +2057,15 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
     currentBidId: ride.currentBidId,
     bidQueue,
   });
+  const acceptedBid =
+    result.acceptedBid ||
+    bids.find((entry) => Number(entry.id) === Number(bidId)) ||
+    null;
   const acceptedOffer =
     offers.find((entry) => Number(entry.offerId) === Number(bidId)) ||
     buildTaxiOfferPayload(
       {
+        ...(acceptedBid || {}),
         id: bidId,
         rideRequestId: ride.id,
         captainUserId: ride.assignedCaptainUserId,
@@ -2169,6 +2195,172 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
     offerQueue: bidQueue.offerQueue,
     currentOffer: bidQueue.currentOffer,
     currentOfferId: bidQueue.currentOfferId,
+  };
+}
+
+export async function acceptRideByCaptain({ captainUserId, rideId }) {
+  await assertCaptainSubscriptionAccess(captainUserId);
+  await assertCaptainCanReceiveRideRequests(captainUserId);
+  await processSearchingLifecycleAndEmit();
+
+  const result = await repo.acceptRideByCaptain({
+    captainUserId,
+    rideId,
+  });
+
+  if (result.code !== "OK") {
+    if (result.code === "RIDE_NOT_FOUND") {
+      throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+    }
+    if (result.code === "RIDE_NOT_ACCEPTING_BIDS") {
+      throw new AppError("TAXI_RIDE_NOT_ACCEPTING_BIDS", { status: 409 });
+    }
+    if (result.code === "RIDE_ALREADY_ASSIGNED") {
+      throw new AppError("TAXI_ALREADY_ASSIGNED", { status: 409 });
+    }
+    if (result.code === "CAPTAIN_ALREADY_ASSIGNED") {
+      throw new AppError("TAXI_CAPTAIN_NOT_AVAILABLE", {
+        status: 403,
+        details: { busyRideId: result.busyRideId || null },
+      });
+    }
+    if (result.code === "INVALID_FARE") {
+      throw new AppError("TAXI_INVALID_FARE", { status: 409 });
+    }
+    throw new AppError("TAXI_RIDE_NOT_ACCEPTING_BIDS", { status: 409 });
+  }
+
+  const ride = result.ride;
+  const bids = await repo.listRideBids(ride.id);
+  const bidQueue = buildBidQueueMeta({
+    bids,
+    currentBidId: ride.currentBidId,
+  });
+  const offers = buildOfferPresentationList({
+    bids,
+    currentBidId: ride.currentBidId,
+    bidQueue,
+  });
+  const acceptedOffer =
+    offers.find((entry) => Number(entry.captainUserId) === Number(captainUserId)) ||
+    buildTaxiOfferPayload(
+      {
+        ...(result.acceptedBid || {}),
+        id: result.acceptedBid?.id || null,
+        rideRequestId: ride.id,
+        captainUserId,
+        captainId: captainUserId,
+        offeredFareIqd: ride.agreedFareIqd || ride.proposedFareIqd,
+        status: "accepted",
+      },
+      {}
+    );
+
+  await repo.createRideEvent({
+    rideRequestId: ride.id,
+    actorUserId: captainUserId,
+    eventType: "customer_fare_accepted",
+    message: "قبل الكابتن أجرة الزبون مباشرة.",
+    payload: {
+      acceptedBidId: ride.acceptedBidId,
+      acceptedOfferId: ride.acceptedBidId,
+      assignedCaptainUserId: ride.assignedCaptainUserId,
+      captainId: ride.assignedCaptainUserId,
+      agreedFareIqd: ride.agreedFareIqd,
+      customerUserId: ride.customerUserId,
+    },
+  });
+
+  emitTaxiRealtimeEvents(ride.customerUserId, [
+    "taxi_offer_accepted",
+    "taxi_ride_assigned",
+    "taxi_ride_update",
+  ], {
+    eventType: "customer_fare_accepted",
+    rideId: ride.id,
+    ride,
+    acceptedBidId: ride.acceptedBidId,
+    acceptedOfferId: ride.acceptedBidId,
+    acceptedOffer,
+    offers,
+    bidQueue,
+  });
+
+  queueNotification({
+    userId: ride.customerUserId,
+    type: "taxi.ride.assigned",
+    title: "تم قبول السعر",
+    body: "قبل الكابتن أجرة الرحلة وتم تثبيته مباشرة.",
+    payload: {
+      rideId: ride.id,
+      offerId: ride.acceptedBidId,
+      bidId: ride.acceptedBidId,
+      captainId: ride.assignedCaptainUserId,
+      customerUserId: ride.customerUserId,
+      agreedFareIqd: ride.agreedFareIqd,
+      target: "taxi_ride_assigned",
+    },
+  });
+
+  if (acceptedOffer?.captainUserId) {
+    emitTaxiRealtimeEvents(acceptedOffer.captainUserId, [
+      "taxi_offer_accepted",
+      "taxi_ride_assigned",
+      "taxi_ride_update",
+    ], {
+      eventType: "customer_fare_accepted",
+      rideId: ride.id,
+      ride,
+      acceptedBidId: ride.acceptedBidId,
+      acceptedOfferId: ride.acceptedBidId,
+      acceptedOffer,
+      offers,
+      bidQueue,
+    });
+  }
+
+  const rejectionPayloads = [];
+  for (const bid of result.bids) {
+    if (bid.status !== "rejected") continue;
+    rejectionPayloads.push({
+      userId: bid.captainUserId,
+      type: "taxi.offer.rejected",
+      title: "تم اختيار كابتن آخر",
+      body: "تم تعيين كابتن آخر لهذه الرحلة.",
+      payload: {
+        rideId: ride.id,
+        bidId: bid.id,
+        offerId: bid.id,
+        captainId: bid.captainUserId,
+        customerUserId: ride.customerUserId,
+        target: "taxi_ride_unavailable",
+      },
+    });
+    emitTaxiRealtimeEvents(bid.captainUserId, [
+      "taxi_offer_rejected",
+      "taxi_ride_unavailable",
+      "taxi_bid_update",
+    ], {
+      eventType: "ride_assigned_to_other_captain",
+      rideId: ride.id,
+      offerId: bid.id,
+      bidId: bid.id,
+      captainId: bid.captainUserId,
+      customerUserId: ride.customerUserId,
+      ride,
+    });
+  }
+  queueNotifications(rejectionPayloads);
+
+  return {
+    ride,
+    bids,
+    bidQueue,
+    offers,
+    offerQueue: bidQueue.offerQueue,
+    currentOffer: bidQueue.currentOffer,
+    currentOfferId: bidQueue.currentOfferId,
+    acceptedBid: result.acceptedBid || null,
   };
 }
 

@@ -157,6 +157,11 @@ taxiRouter.post(
 );
 
 taxiRouter.post("/rides/:rideId/bids", requireTaxiCaptain, c.createBid);
+taxiRouter.post(
+  "/rides/:rideId/captain/accept-customer-fare",
+  requireTaxiCaptain,
+  c.acceptCustomerFare
+);
 taxiRouter.post("/rides/:rideId/decline", requireTaxiCaptain, c.declineRideByCaptain);
 taxiRouter.post("/rides/:rideId/arrive", requireTaxiCaptain, c.markArrived);
 taxiRouter.post("/rides/:rideId/start", requireTaxiCaptain, c.startRide);

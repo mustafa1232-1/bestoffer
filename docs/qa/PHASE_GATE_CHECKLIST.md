@@ -48,6 +48,14 @@
 - [x] Phase 1C checkpoint commit created in `3c56dfd`
 - Real-device push/background/killed-app validation remains pending and must not be claimed as passed
 
+## Phase 1D Continuation
+
+- Taxi negotiation and lifecycle runtime proof captured with `node --env-file=.env.test src/scripts/taxiE2ECheck.js`
+- `railway run --service bestoffer npm run verify:release:runtime` passed after the taxi negotiation and lifecycle updates
+- Direct captain acceptance, multi-offer negotiation, counter-offer, chat gating, live tracking gating, and terminal lifecycle transitions are now proven in runtime
+- `docs/qa/PHASE_1D_TAXI_NEGOTIATION_REPORT.md` created
+- Real-device taxi push/background/killed-app validation remains pending and must not be claimed as passed
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

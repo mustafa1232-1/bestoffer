@@ -215,6 +215,22 @@ export async function acceptBid(req, res, next) {
   }
 }
 
+export async function acceptCustomerFare(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const out = await service.acceptRideByCaptain({
+      captainUserId: req.userId,
+      rideId,
+    });
+
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function rejectCurrentBid(req, res, next) {
   try {
     const rideId = requireRideId(req, res);

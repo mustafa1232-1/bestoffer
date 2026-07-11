@@ -22,6 +22,9 @@ const ACTIVE_RIDE_STATUSES = [
   "captain_arriving",
   "ride_started",
 ];
+const ACTIVE_ASSIGNED_RIDE_STATUSES = ACTIVE_RIDE_STATUSES.filter(
+  (status) => status !== "searching"
+);
 const TAXI_STATUS_TRANSITION_QUERY_OPTIONS = {
   query_timeout: Math.max(Number(env.dbQueryTimeoutMs || 25_000), 60_000),
   statement_timeout: Math.max(Number(env.dbStatementTimeoutMs || 20_000), 60_000),
@@ -426,6 +429,24 @@ async function lockRideForNegotiation(client, rideId, customerUserId) {
   return r.rows[0] || null;
 }
 
+async function lockCaptainAssignment(client, captainUserId) {
+  await client.query(`SELECT pg_advisory_xact_lock($1)`, [Number(captainUserId)]);
+}
+
+async function getCaptainActiveRideForUpdate(client, captainUserId) {
+  const r = await client.query(
+    `SELECT id, status, customer_user_id, assigned_captain_user_id
+     FROM taxi_ride_request
+     WHERE assigned_captain_user_id = $1
+       AND status = ANY($2::text[])
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1
+     FOR UPDATE`,
+    [Number(captainUserId), ACTIVE_ASSIGNED_RIDE_STATUSES]
+  );
+  return r.rows[0] || null;
+}
+
 async function findEarliestActiveBid(client, rideId) {
   const r = await client.query(
     `SELECT id, captain_user_id, offered_fare_iqd, eta_minutes, note, status,
@@ -720,6 +741,19 @@ export async function acceptRideBid({ rideId, bidId, customerUserId }) {
       return { code: "BID_NOT_ACTIVE" };
     }
 
+    await lockCaptainAssignment(client, bidRow.captain_user_id);
+    const captainBusyRide = await getCaptainActiveRideForUpdate(
+      client,
+      bidRow.captain_user_id
+    );
+    if (captainBusyRide && Number(captainBusyRide.id) !== Number(rideId)) {
+      await client.query("ROLLBACK");
+      return {
+        code: "CAPTAIN_ALREADY_ASSIGNED",
+        busyRideId: Number(captainBusyRide.id),
+      };
+    }
+
     await client.query(
       `UPDATE taxi_ride_request
        SET assigned_captain_user_id = $1,
@@ -755,12 +789,20 @@ export async function acceptRideBid({ rideId, bidId, customerUserId }) {
     );
 
     const ride = await queryRideById(client, rideId);
+    const acceptedBid = normalizeBid({
+      ...bidRow,
+      id: Number(bidRow.id),
+      ride_request_id: Number(rideId),
+      captain_user_id: Number(bidRow.captain_user_id),
+      status: "accepted",
+    });
 
     await client.query("COMMIT");
 
     return {
       code: "OK",
       ride,
+      acceptedBid,
       bids: bidsResult.rows.map((row) => ({
         id: Number(row.id),
         captainUserId: Number(row.captain_user_id),
@@ -1236,6 +1278,137 @@ export async function transitionRideStatus({ rideId, captainUserId, nextStatus }
         // Ignore rollback failures after upstream query timeouts.
       }
     }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function acceptRideByCaptain({ rideId, captainUserId }) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const rideLock = await client.query(
+      `SELECT *
+       FROM taxi_ride_request
+       WHERE id = $1
+       FOR UPDATE`,
+      [Number(rideId)]
+    );
+
+    const rideRow = rideLock.rows[0];
+    if (!rideRow) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_FOUND" };
+    }
+
+    if (rideRow.status !== "searching") {
+      await client.query("ROLLBACK");
+      return rideRow.assigned_captain_user_id || rideRow.accepted_bid_id
+        ? { code: "RIDE_ALREADY_ASSIGNED" }
+        : { code: "RIDE_NOT_ACCEPTING_BIDS" };
+    }
+
+    await lockCaptainAssignment(client, captainUserId);
+    const captainBusyRide = await getCaptainActiveRideForUpdate(
+      client,
+      captainUserId
+    );
+    if (captainBusyRide && Number(captainBusyRide.id) !== Number(rideId)) {
+      await client.query("ROLLBACK");
+      return {
+        code: "CAPTAIN_ALREADY_ASSIGNED",
+        busyRideId: Number(captainBusyRide.id),
+      };
+    }
+
+    const acceptedFareIqd = Number(rideRow.proposed_fare_iqd);
+    if (!Number.isFinite(acceptedFareIqd) || acceptedFareIqd <= 0) {
+      await client.query("ROLLBACK");
+      return { code: "INVALID_FARE" };
+    }
+
+    const acceptedBidResult = await client.query(
+      `INSERT INTO taxi_ride_bid
+        (
+          ride_request_id,
+          captain_user_id,
+          offered_fare_iqd,
+          eta_minutes,
+          note,
+          status,
+          counter_offer_count,
+          last_offer_iqd,
+          last_offer_by,
+          updated_at
+        )
+       VALUES ($1,$2,$3,NULL,NULL,'accepted',0,$3,'customer',NOW())
+       ON CONFLICT (ride_request_id, captain_user_id)
+       DO UPDATE SET
+         offered_fare_iqd = EXCLUDED.offered_fare_iqd,
+         eta_minutes = NULL,
+         note = COALESCE(taxi_ride_bid.note, EXCLUDED.note),
+         status = 'accepted',
+         counter_offer_count = 0,
+         last_offer_iqd = EXCLUDED.offered_fare_iqd,
+         last_offer_by = 'customer',
+         updated_at = NOW()
+       RETURNING *`,
+      [Number(rideId), Number(captainUserId), acceptedFareIqd]
+    );
+    const acceptedBid = normalizeBid(acceptedBidResult.rows[0]);
+
+    await client.query(
+      `UPDATE taxi_ride_request
+       SET assigned_captain_user_id = $1,
+           accepted_bid_id = $2,
+           current_bid_id = NULL,
+           agreed_fare_iqd = $3,
+           status = 'captain_assigned',
+           accepted_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $4`,
+      [
+        Number(captainUserId),
+        Number(acceptedBid.id),
+        acceptedFareIqd,
+        Number(rideId),
+      ]
+    );
+
+    await client.query(
+      `UPDATE taxi_ride_bid
+       SET status = CASE WHEN captain_user_id = $1 THEN 'accepted' ELSE 'rejected' END,
+           updated_at = NOW()
+       WHERE ride_request_id = $2
+         AND status = 'active'`,
+      [Number(captainUserId), Number(rideId)]
+    );
+
+    const ride = await queryRideById(client, rideId);
+    const bidsResult = await client.query(
+      `SELECT id, captain_user_id, status
+       FROM taxi_ride_bid
+       WHERE ride_request_id = $1
+       ORDER BY created_at ASC, id ASC`,
+      [Number(rideId)]
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      code: "OK",
+      ride,
+      acceptedBid,
+      bids: bidsResult.rows.map((row) => ({
+        id: Number(row.id),
+        captainUserId: Number(row.captain_user_id),
+        status: row.status,
+      })),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
     throw error;
   } finally {
     client.release();

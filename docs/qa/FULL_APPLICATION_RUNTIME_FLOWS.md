@@ -57,6 +57,19 @@ This file captures the cross-app end-to-end flows that must be proven during the
 - Chat gating
 - Live tracking gating
 
+## Verified Runtime Evidence
+
+- `backend/src/scripts/taxiE2ECheck.js` now proves the taxi lifecycle end-to-end:
+  - customer creates a ride request with valid pickup, destination, fare, and note fields
+  - multiple approved captains can enter the negotiation flow
+  - direct captain acceptance assigns the ride atomically
+  - racing captain acceptance returns a controlled `409`
+  - the assigned captain can advance the ride through arrive, start, and complete transitions
+  - customer and captain current-ride views clear after completion
+  - multi-offer negotiation still works with bids, counter-offers, acceptance, chat, and live tracking gates
+  - a losing captain cannot continue the ride after assignment
+- Runtime assertions observed the expected taxi notifications and state transitions in the Railway-backed verification chain.
+
 ## Notifications / Realtime
 
 - Foreground, background, and killed-app notification handling

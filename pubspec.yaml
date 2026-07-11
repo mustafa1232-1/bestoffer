@@ -95,6 +95,7 @@ dev_dependencies:
     path: packages/core_auth
   core_storage:
     path: packages/core_storage
+  geolocator_platform_interface: ^4.2.6
 
 dependency_overrides:
   firebase_core:

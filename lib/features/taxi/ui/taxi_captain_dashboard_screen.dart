@@ -702,7 +702,9 @@ class _TaxiCaptainDashboardScreenState
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
+    SessionInvalidationBus.instance.removeListener(
+      _sessionInvalidationListener,
+    );
     _ticker?.cancel();
     _streamSub?.cancel();
     _streamReconnectTimer?.cancel();
@@ -1650,6 +1652,43 @@ class _TaxiCaptainDashboardScreenState
         _t(
           'تم رفض الطلب ولن يظهر لك مرة أخرى.',
           'Request declined and hidden from your queue.',
+        ),
+      );
+      await _tick(full: true);
+    } on DioException catch (e) {
+      _snack(_err(e));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _acceptCustomerFare(Map<String, dynamic> ride) async {
+    if (_locked) {
+      _snack(
+        _t(
+          'الاشتراك منتهي. اطلب التسديد أولًا.',
+          'Subscription expired. Request payment first.',
+        ),
+      );
+      return;
+    }
+
+    final rideId = _asInt(ride['id']);
+    final proposedFare = _asInt(ride['proposedFareIqd']);
+    if (rideId == null ||
+        proposedFare == null ||
+        proposedFare <= 0 ||
+        _sending) {
+      return;
+    }
+
+    setState(() => _sending = true);
+    try {
+      await _api.acceptCustomerFare(rideId: rideId);
+      _snack(
+        _t(
+          'تم قبول السعر. الرحلة الآن نشطة بانتظار التحرك.',
+          'Customer fare accepted. The ride is now active.',
         ),
       );
       await _tick(full: true);
@@ -3013,6 +3052,16 @@ class _TaxiCaptainDashboardScreenState
                         spacing: 8,
                         runSpacing: 8,
                         children: [
+                          if ((_asInt(r['proposedFareIqd']) ?? 0) > 0)
+                            FilledButton.icon(
+                              onPressed: _sending
+                                  ? null
+                                  : () => _acceptCustomerFare(r),
+                              icon: const Icon(Icons.check_circle_outline),
+                              label: Text(
+                                _t('قبول السعر', 'Accept customer fare'),
+                              ),
+                            ),
                           FilledButton.tonal(
                             onPressed: _sending ? null : () => _submitBid(r),
                             child: Text(

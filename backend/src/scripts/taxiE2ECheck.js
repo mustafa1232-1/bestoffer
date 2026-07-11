@@ -712,6 +712,207 @@ async function main() {
       "customer current ride after timeout cancellation"
     );
 
+    const directAcceptRideCreate = await request(
+      baseUrl,
+      customer,
+      "POST",
+      "/api/taxi/rides",
+      {
+        pickupLatitude: coords.pickup.latitude,
+        pickupLongitude: coords.pickup.longitude,
+        dropoffLatitude: coords.dropoff.latitude,
+        dropoffLongitude: coords.dropoff.longitude,
+        pickupLabel: `Direct accept pickup ${runTag}`,
+        dropoffLabel: `Direct accept dropoff ${runTag}`,
+        proposedFareIqd: 16000,
+        searchRadiusM: 3000,
+        note: `direct-accept-${runTag}`,
+      }
+    );
+    assertStatus(directAcceptRideCreate, 201, "create direct accept ride");
+    const directAcceptRideId = readId(directAcceptRideCreate.data?.ride);
+    assert.ok(directAcceptRideId, "direct accept ride id missing");
+    state.rideIds.push(directAcceptRideId);
+
+    const directAcceptCall = await request(
+      baseUrl,
+      captains[2].actor,
+      "POST",
+      `/api/taxi/rides/${directAcceptRideId}/captain/accept-customer-fare`
+    );
+    assertStatus(directAcceptCall, 200, "captain three direct accept customer fare");
+    assert.equal(rideStatus(directAcceptCall.data), "captain_assigned");
+
+    await expectNotification(
+      {
+        userId: state.customerUserId,
+        type: "taxi.ride.assigned",
+        payloadChecks: { rideId: directAcceptRideId },
+      },
+      "customer direct accept assignment notification"
+    );
+
+    await expectCurrentRide(
+      baseUrl,
+      customer,
+      "/api/taxi/rides/current",
+      "captain_assigned",
+      "customer ride after direct accept"
+    );
+    await expectCurrentRide(
+      baseUrl,
+      captains[2].actor,
+      "/api/taxi/captain/current-ride",
+      "captain_assigned",
+      "captain three ride after direct accept"
+    );
+
+    const directArrive = await request(
+      baseUrl,
+      captains[2].actor,
+      "POST",
+      `/api/taxi/rides/${directAcceptRideId}/arrive`
+    );
+    assertStatus(directArrive, 200, "arrive direct accept ride");
+
+    const directStart = await request(
+      baseUrl,
+      captains[2].actor,
+      "POST",
+      `/api/taxi/rides/${directAcceptRideId}/start`
+    );
+    assertStatus(directStart, 200, "start direct accept ride");
+
+    const directComplete = await request(
+      baseUrl,
+      captains[2].actor,
+      "POST",
+      `/api/taxi/rides/${directAcceptRideId}/complete`
+    );
+    assertStatus(directComplete, 200, "complete direct accept ride");
+    assert.equal(rideStatus(directComplete.data), "completed");
+    await expectNoCurrentRide(
+      baseUrl,
+      customer,
+      "/api/taxi/rides/current",
+      "customer current ride after direct accept complete"
+    );
+    await expectNoCurrentRide(
+      baseUrl,
+      captains[2].actor,
+      "/api/taxi/captain/current-ride",
+      "captain three current ride after direct accept complete"
+    );
+
+    const raceRideCreate = await request(
+      baseUrl,
+      customer,
+      "POST",
+      "/api/taxi/rides",
+      {
+        pickupLatitude: coords.pickup.latitude,
+        pickupLongitude: coords.pickup.longitude,
+        dropoffLatitude: coords.dropoff.latitude,
+        dropoffLongitude: coords.dropoff.longitude,
+        pickupLabel: `Race pickup ${runTag}`,
+        dropoffLabel: `Race dropoff ${runTag}`,
+        proposedFareIqd: 17000,
+        searchRadiusM: 3000,
+        note: `race-accept-${runTag}`,
+      }
+    );
+    assertStatus(raceRideCreate, 201, "create race accept ride");
+    const raceRideId = readId(raceRideCreate.data?.ride);
+    assert.ok(raceRideId, "race accept ride id missing");
+    state.rideIds.push(raceRideId);
+
+    const [raceAcceptOne, raceAcceptTwo] = await Promise.allSettled([
+      request(
+        baseUrl,
+        captains[0].actor,
+        "POST",
+        `/api/taxi/rides/${raceRideId}/captain/accept-customer-fare`
+      ),
+      request(
+        baseUrl,
+        captains[1].actor,
+        "POST",
+        `/api/taxi/rides/${raceRideId}/captain/accept-customer-fare`
+      ),
+    ]);
+
+    const raceSuccess =
+      raceAcceptOne.status === "fulfilled" && raceAcceptOne.value.status === 200
+        ? raceAcceptOne.value
+        : raceAcceptTwo.status === "fulfilled" && raceAcceptTwo.value.status === 200
+          ? raceAcceptTwo.value
+          : null;
+    const raceFailure =
+      raceAcceptOne.status === "fulfilled" && raceAcceptOne.value.status !== 200
+        ? raceAcceptOne.value
+        : raceAcceptTwo.status === "fulfilled" && raceAcceptTwo.value.status !== 200
+          ? raceAcceptTwo.value
+          : raceAcceptOne.status === "rejected"
+            ? raceAcceptOne.reason
+            : raceAcceptTwo.reason;
+
+    assert.ok(raceSuccess, "one captain must win the accept race");
+    assert.equal(rideStatus(raceSuccess.data), "captain_assigned");
+    assert.equal(
+      Number(extractRide(raceSuccess.data)?.id || 0),
+      Number(raceRideId),
+      "race ride id should remain stable after assignment"
+    );
+    assert.ok(
+      raceFailure,
+      "one captain must lose the accept race with a controlled failure"
+    );
+    assert.equal(
+      Number(raceFailure?.status || 0),
+      409,
+      `race loser should receive 409, received ${raceFailure?.status || "none"}`
+    );
+
+    const raceWinningCaptainId = Number(
+      extractRide(raceSuccess.data)?.assignedCaptainUserId || 0
+    );
+    assert.ok(
+      [Number(captains[0].userId), Number(captains[1].userId)].includes(
+        raceWinningCaptainId
+      ),
+      "race winner must be one of the two racing captains"
+    );
+
+    const raceWinnerActor =
+      Number(captains[0].userId) === raceWinningCaptainId
+        ? captains[0].actor
+        : captains[1].actor;
+
+    const raceArrive = await request(
+      baseUrl,
+      raceWinnerActor,
+      "POST",
+      `/api/taxi/rides/${raceRideId}/arrive`
+    );
+    assertStatus(raceArrive, 200, "arrive race accept ride");
+
+    const raceStart = await request(
+      baseUrl,
+      raceWinnerActor,
+      "POST",
+      `/api/taxi/rides/${raceRideId}/start`
+    );
+    assertStatus(raceStart, 200, "start race accept ride");
+
+    const raceComplete = await request(
+      baseUrl,
+      raceWinnerActor,
+      "POST",
+      `/api/taxi/rides/${raceRideId}/complete`
+    );
+    assertStatus(raceComplete, 200, "complete race accept ride");
+    assert.equal(rideStatus(raceComplete.data), "completed");
+
     const createRide = await request(baseUrl, customer, "POST", "/api/taxi/rides", {
       pickupLatitude: coords.pickup.latitude,
       pickupLongitude: coords.pickup.longitude,

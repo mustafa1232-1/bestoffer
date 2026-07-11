@@ -234,6 +234,18 @@ String? _messageForCode(AppLocalizations l10n, String code) {
       return l10n.apiTaxiActiveRideExists;
     case 'TAXI_RIDE_NOT_ACCEPTING_BIDS':
       return l10n.apiTaxiRideNotAcceptingBids;
+    case 'TAXI_ALREADY_ASSIGNED':
+      return l10n.localeName.startsWith('ar')
+          ? 'تم تثبيت الكابتن لهذه الرحلة بالفعل.'
+          : 'This ride has already been assigned.';
+    case 'TAXI_CAPTAIN_NOT_AVAILABLE':
+      return l10n.localeName.startsWith('ar')
+          ? 'أنت غير متاح حالياً لاستقبال هذه الرحلة.'
+          : 'You are not available for this ride right now.';
+    case 'TAXI_INVALID_FARE':
+      return l10n.localeName.startsWith('ar')
+          ? 'الأجرة غير صالحة.'
+          : 'The fare is invalid.';
     case 'TAXI_RIDE_OUT_OF_RANGE':
       return l10n.apiTaxiRideOutOfRange;
     case 'TAXI_NO_ACTIVE_BID':
