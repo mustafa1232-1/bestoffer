@@ -2,6 +2,7 @@
 
 ## Current State
 
+- Status: `NOT_INSTALLED / NOT_STARTED`
 - PostgreSQL remains the database source of truth.
 - Numbered SQL migrations under `backend/sql/*.sql` remain the only schema migration system.
 - No Kysely runtime layer is present yet in this baseline.
@@ -19,6 +20,13 @@
 - Categories
 - Products
 
+## Current Guardrails
+
+- No runtime Kysely client has been added.
+- No production command has changed for Kysely.
+- No repository has been converted yet.
+- SQL migrations remain the only schema source of truth.
+
 ## Safe Pilot Steps
 
 1. Document the current schema.
@@ -35,4 +43,3 @@
 - Response shapes drift
 - Deployment risk increases
 - Migration confusion appears
-
