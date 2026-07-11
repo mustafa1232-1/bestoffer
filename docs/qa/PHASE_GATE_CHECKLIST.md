@@ -56,6 +56,14 @@
 - `docs/qa/PHASE_1D_TAXI_NEGOTIATION_REPORT.md` created
 - Real-device taxi push/background/killed-app validation remains pending and must not be claimed as passed
 
+## Phase 1E Continuation
+
+- Current Railway deployment was confirmed on `bestoffer` production with deployment id `499746db-3ec6-426c-921d-4f7024c87956`
+- Signed QA APKs were rebuilt from HEAD `4034661545ea66366a6bc741b3327d13b4767b0d` for user, store, delivery, and captain
+- `docs/qa/PHASE_1E_REAL_DEVICE_RELEASE_REPORT.md` created
+- Real-device QA remains blocked because no physical Android devices were available in this workspace
+- Signed AAB generation remains deferred until real-device gates are available
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

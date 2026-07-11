@@ -26,13 +26,13 @@ This file is intentionally strict.
 
 ## Current APK Paths For Manual QA
 
-- User: `build/app/outputs/flutter-apk/app-user-release.apk`
-- Store: `build/app/outputs/flutter-apk/app-store-release.apk`
-- Delivery: `build/app/outputs/flutter-apk/app-delivery-release.apk`
-- Captain: `build/app/outputs/flutter-apk/app-captain-release.apk`
+- User: `qa_artifacts/phase_1e_android_apks/user/app-user-release.apk`
+- Store: `qa_artifacts/phase_1e_android_apks/store/app-store-release.apk`
+- Delivery: `qa_artifacts/phase_1e_android_apks/delivery/app-delivery-release.apk`
+- Captain: `qa_artifacts/phase_1e_android_apks/captain/app-captain-release.apk`
 
 ## Notes
 
 - Company/admin does not currently have a verified release APK in this snapshot.
 - Pharmacy currently has a release APK present, but it is outside the minimum device-QA set requested for this phase.
-- Phase 1C runtime verification is complete, but push/background/killed-app, notification tap cold start, and live device session churn are still `BLOCKED: REAL_DEVICE_REQUIRED` until the signed APKs are executed on a controllable device.
+- Phase 1C runtime verification is complete, Phase 1D taxi runtime verification is complete, and the current Phase 1E APKs have been rebuilt from HEAD `4034661545ea66366a6bc741b3327d13b4767b0d`, but push/background/killed-app, notification tap cold start, and live device session churn are still `BLOCKED: REAL_DEVICE_REQUIRED` until the signed APKs are executed on a controllable device.

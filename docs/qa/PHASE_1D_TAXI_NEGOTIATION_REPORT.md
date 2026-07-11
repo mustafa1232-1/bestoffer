@@ -23,6 +23,18 @@ No Store, Orders, Delivery, Social, or unrelated business logic was changed in t
 - Backend unit tests remained green after the taxi changes.
 - Real-device taxi push/background/killed-app validation remains pending.
 
+## Deployment Confirmation
+
+- Local HEAD at deployment time: `4034661545ea66366a6bc741b3327d13b4767b0d`
+- Pushed branch HEAD at deployment time: `4034661545ea66366a6bc741b3327d13b4767b0d`
+- Railway service: `bestoffer`
+- Railway environment: `production`
+- Railway deployment id: `499746db-3ec6-426c-921d-4f7024c87956`
+- Deployment status: `SUCCESS`
+- `/health`: `200`
+- `/ready`: `200`
+- Deployed commit: `4034661545ea66366a6bc741b3327d13b4767b0d`
+
 ## What Was Proven
 
 - A ride can be created with valid pickup, destination, fare, and note data.
@@ -53,4 +65,3 @@ No Store, Orders, Delivery, Social, or unrelated business logic was changed in t
 - The earlier E2E failure was caused by a stale lifecycle expectation in the taxi script, which attempted to complete a ride before it had moved through `arrive` and `start`.
 - The phase is runtime-proven, but device QA for taxi push/background/killed-app flows is still blocked until a controllable device session is available.
 - This phase keeps the existing bid storage model and app-facing offer terminology.
-
