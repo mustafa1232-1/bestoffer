@@ -14,6 +14,7 @@
 - Local verification passed.
 - Flutter analysis and Flutter tests passed.
 - The remaining gap is real-device push/background/killed-app validation.
+- Checkpoint commit: `3c56dfd`
 
 ## What Was Proven
 

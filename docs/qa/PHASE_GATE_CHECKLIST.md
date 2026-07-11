@@ -45,6 +45,7 @@
 - `backend/src/scripts/authSessionPushE2ECheck.js` passed on Railway with guest, super-admin, owner, customer, delivery, and captain coverage
 - Guest NO_TOKEN, refresh/logout-all, push-token, and realtime-token lifecycle is now proven in runtime
 - `docs/qa/PHASE_1C_AUTH_SESSION_PUSH_REPORT.md` created
+- [x] Phase 1C checkpoint commit created in `3c56dfd`
 - Real-device push/background/killed-app validation remains pending and must not be claimed as passed
 
 ## Notes
