@@ -88,6 +88,7 @@
 - [x] Pharmacy conversation, proposed-cart, accept/reject/request-revision, attachment, and order conversion flows are now proven on Railway
 - [x] Notification targets remain stable for `pharmacy_conversation`, `order_details`, and `owner_order_details`
 - [x] `docs/qa/PHASE_2C_PHARMACY_REPORT.md` created
+- [x] Phase 2C checkpoint commit created in `be45724`
 - [x] Pharmacy remains non-device-gated in this program and must not be claimed as real-device verified
 
 ## Notes
