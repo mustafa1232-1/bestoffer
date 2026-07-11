@@ -39,6 +39,14 @@
 - `docs/qa/PHASE_1B_ORDER_STORE_DELIVERY_REPORT.md` created
 - Store / delivery device smoke remains pending and must not be claimed as passed
 
+## Phase 1C Continuation
+
+- Auth / session / push runtime proof captured with `railway run --service bestoffer npm run verify:release:runtime`
+- `backend/src/scripts/authSessionPushE2ECheck.js` passed on Railway with guest, super-admin, owner, customer, delivery, and captain coverage
+- Guest NO_TOKEN, refresh/logout-all, push-token, and realtime-token lifecycle is now proven in runtime
+- `docs/qa/PHASE_1C_AUTH_SESSION_PUSH_REPORT.md` created
+- Real-device push/background/killed-app validation remains pending and must not be claimed as passed
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/files/local_image_file.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/network/session_invalidation.dart';
 import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../auth/state/auth_controller.dart';
@@ -66,8 +68,12 @@ class OrdersController extends StateNotifier<OrdersState> {
   Timer? _liveOrdersTimer;
   bool _liveFetchInFlight = false;
   bool _disposed = false;
+  late final VoidCallback _sessionInvalidationListener;
 
-  OrdersController(this.ref) : super(const OrdersState());
+  OrdersController(this.ref) : super(const OrdersState()) {
+    _sessionInvalidationListener = _handleSessionInvalidation;
+    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+  }
 
   void _setStateSafely(OrdersState nextState) {
     if (_disposed) return;
@@ -90,6 +96,13 @@ class OrdersController extends StateNotifier<OrdersState> {
     final code = '${data['code'] ?? ''}'.trim().toUpperCase();
     return message == 'FORBIDDEN_CUSTOMER_ONLY' ||
         code == 'FORBIDDEN_CUSTOMER_ONLY';
+  }
+
+  void _handleSessionInvalidation() {
+    if (_disposed) return;
+    stopLiveOrders();
+    _liveFetchInFlight = false;
+    _setStateSafely(const OrdersState());
   }
 
   /// يحمل طلبات العميل الحالية مع حماية ضد البيانات الجزئية أو النماذج
@@ -460,6 +473,7 @@ class OrdersController extends StateNotifier<OrdersState> {
   @override
   void dispose() {
     _disposed = true;
+    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
     stopLiveOrders();
     super.dispose();
   }

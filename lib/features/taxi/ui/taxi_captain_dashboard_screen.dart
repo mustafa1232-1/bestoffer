@@ -15,6 +15,7 @@ import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/network/session_invalidation.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
 import 'package:core_maps/core_maps.dart';
 import '../../../core/utils/parsers.dart';
@@ -373,6 +374,7 @@ class _TaxiCaptainDashboardScreenState
   Timer? _ticker;
   StreamSubscription<TaxiLiveEvent>? _streamSub;
   Timer? _streamReconnectTimer;
+  late final VoidCallback _sessionInvalidationListener;
 
   bool _loading = true;
   bool _sending = false;
@@ -682,6 +684,8 @@ class _TaxiCaptainDashboardScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _sessionInvalidationListener = _handleSessionInvalidation;
+    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
     _applyIntentPreset();
     if (widget.initialIntent == TaxiCaptainDashboardIntent.defaultHome) {
       _tab = widget.initialTab.index;
@@ -698,6 +702,7 @@ class _TaxiCaptainDashboardScreenState
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
     _ticker?.cancel();
     _streamSub?.cancel();
     _streamReconnectTimer?.cancel();
@@ -708,6 +713,32 @@ class _TaxiCaptainDashboardScreenState
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _lifecycleResumed = state == AppLifecycleState.resumed;
     if (_lifecycleResumed) unawaited(_tick(full: true));
+  }
+
+  void _handleSessionInvalidation() {
+    if (!mounted) return;
+    _ticker?.cancel();
+    _ticker = null;
+    _streamSub?.cancel();
+    _streamSub = null;
+    _streamReconnectTimer?.cancel();
+    _streamReconnectTimer = null;
+    setState(() {
+      _currentRideEnvelope = null;
+      _dashboard = null;
+      _profile = null;
+      _subscription = null;
+      _nearby = const [];
+      _routePoints = const [];
+      _captainPoint = null;
+      _lastStreamEventId = null;
+      _lastRealtimeRefreshAt = null;
+      _streamConnected = false;
+      _focusedRideSnapshot = null;
+      _focusedRideUnavailable = false;
+      _loading = false;
+      _error = null;
+    });
   }
 
   /// يحمل بيانات الكابتن، الرحلات الحالية، والـ meta اللازمة لبناء اللوحة.

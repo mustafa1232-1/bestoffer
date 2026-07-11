@@ -10,6 +10,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/notifications/data/notifications_api.dart';
+import '../network/session_invalidation.dart';
 import 'active_chat_context_registry.dart';
 import '../platform/app_platform_capabilities.dart';
 import '../platform/app_flavor.dart';
@@ -165,12 +166,23 @@ class PushNotificationService {
   final NotificationsApi api;
   final LocalNotificationService local;
   final SecureStore store;
+  late final VoidCallback _sessionInvalidationListener;
 
   PushNotificationService({
     required this.api,
     required this.local,
     required this.store,
-  });
+  }) {
+    _sessionInvalidationListener = () {
+      _activeUserId = null;
+      _tokenSyncInFlight = false;
+      _lastSyncedToken = null;
+      _lastSyncedAt = null;
+      _tokenHeartbeatTimer?.cancel();
+      _tokenHeartbeatTimer = null;
+    };
+    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+  }
 
   final StreamController<NotificationTapPayload> _tapController =
       StreamController<NotificationTapPayload>.broadcast();
@@ -271,10 +283,7 @@ class PushNotificationService {
       if (userId != null) unawaited(_registerTokenSafe(token, userId));
     });
 
-    _tokenHeartbeatTimer = Timer.periodic(_tokenHeartbeatInterval, (_) {
-      final userId = _activeUserId;
-      if (userId != null) unawaited(syncToken(userId: userId));
-    });
+    _ensureHeartbeatTimer();
   }
 
   Future<void> syncToken({required int userId}) async {
@@ -288,6 +297,7 @@ class PushNotificationService {
       final token = await FirebaseMessaging.instance.getToken();
       if (token == null || token.isEmpty) return;
       await _registerTokenWithRetry(token, userId);
+      _ensureHeartbeatTimer();
     } finally {
       _tokenSyncInFlight = false;
     }
@@ -400,6 +410,15 @@ class PushNotificationService {
     }
   }
 
+  void _ensureHeartbeatTimer() {
+    if (!appSupportsPushMessaging || !_firebaseReady) return;
+    if (_tokenHeartbeatTimer != null) return;
+    _tokenHeartbeatTimer = Timer.periodic(_tokenHeartbeatInterval, (_) {
+      final userId = _activeUserId;
+      if (userId != null) unawaited(syncToken(userId: userId));
+    });
+  }
+
   Future<void> _registerTokenSafe(String token, int userId) async {
     try {
       await _registerTokenWithRetry(token, userId);
@@ -461,6 +480,7 @@ class PushNotificationService {
   }
 
   void dispose() {
+    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
     _tokenHeartbeatTimer?.cancel();
     _tokenRefreshSub?.cancel();
     _foregroundSub?.cancel();

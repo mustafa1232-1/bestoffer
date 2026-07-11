@@ -52,6 +52,12 @@ void main() {
         );
         expect(
           isTerminalAuthError(
+            _err(401, {'message': 'NO_TOKEN'}, path: '/api/notifications/push-token'),
+          ),
+          isFalse,
+        );
+        expect(
+          isTerminalAuthError(
             _err(401, {
               'message': 'INVALID_CREDENTIALS',
             }, path: '/api/auth/login'),

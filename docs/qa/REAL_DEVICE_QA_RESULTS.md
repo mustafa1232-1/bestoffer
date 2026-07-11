@@ -35,3 +35,4 @@ This file is intentionally strict.
 
 - Company/admin does not currently have a verified release APK in this snapshot.
 - Pharmacy currently has a release APK present, but it is outside the minimum device-QA set requested for this phase.
+- Phase 1C runtime verification is complete, but push/background/killed-app, notification tap cold start, and live device session churn are still `BLOCKED: REAL_DEVICE_REQUIRED` until the signed APKs are executed on a controllable device.

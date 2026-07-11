@@ -13,7 +13,7 @@ This list starts as the authoritative working blocker set for the closure progra
 | P0 | Merchant/admin coupon failure | PASS_RUNTIME | Merchant/admin coupon runtime smoke now passes create/validate/preview/checkout with the correct scopes | Device proof still pending |
 | P0 | Order -> store -> delivery workflow gaps | PASS_RUNTIME | Local QA runtime proof via `backend/src/scripts/orderE2ECheck.js` covered customer create, store approval, courier assignment, pickup, delivery, and confirmation | Notifications and deep links were observed in the runtime flow; device proof still missing |
 | P0 | Taxi notification / negotiation regressions | PARTIALLY_REPRODUCED | Automated and runtime baseline coverage exists, but real-device push/background proof still missing | Two-captain negotiation remains the target baseline |
-| P0 | Stale-token / push-token / session regressions | PARTIALLY_REPRODUCED | Runtime checks are green; device token lifecycle proof still missing | 401 vs 403 semantics must stay strict |
+| P0 | Stale-token / push-token / session regressions | PASS_RUNTIME | `backend/src/scripts/authSessionPushE2ECheck.js`, `backend/src/scripts/securityRuntimeCheck.js`, and `backend/src/scripts/realtimeRuntimeCheck.js` all passed on Railway; guest NO_TOKEN handling, refresh/logout/logout-all, push-token, and realtime-token lifecycle are now proven | Real-device push/background/killed-app proof still missing |
 
 ## P1+
 

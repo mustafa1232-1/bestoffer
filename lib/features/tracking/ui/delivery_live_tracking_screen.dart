@@ -12,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/utils/order_status.dart';
+import '../../../core/network/session_invalidation.dart';
 import '../../orders/data/orders_api.dart';
 import '../../orders/models/order_item_presentation_model.dart';
 import '../../orders/state/orders_controller.dart';
@@ -45,6 +46,7 @@ class _DeliveryLiveTrackingScreenState
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
   bool _lifecycleResumed = true;
+  late final VoidCallback _sessionInvalidationListener;
 
   bool get _isPublic => widget.publicToken != null;
 
@@ -52,6 +54,8 @@ class _DeliveryLiveTrackingScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _sessionInvalidationListener = _handleSessionInvalidation;
+    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
     unawaited(_load());
     _startLiveUpdates();
   }
@@ -59,6 +63,7 @@ class _DeliveryLiveTrackingScreenState
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
     _stopLiveUpdates();
     super.dispose();
   }
@@ -74,6 +79,16 @@ class _DeliveryLiveTrackingScreenState
     } else {
       _stopLiveUpdates();
     }
+  }
+
+  void _handleSessionInvalidation() {
+    if (!mounted) return;
+    _stopLiveUpdates();
+    setState(() {
+      _snapshot = null;
+      _loading = false;
+      _error = null;
+    });
   }
 
   void _startLiveUpdates() {

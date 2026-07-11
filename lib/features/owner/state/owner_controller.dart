@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/files/local_image_file.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/network/session_invalidation.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../delivery/models/delivery_agent_model.dart';
 import '../../orders/models/order_model.dart';
@@ -160,9 +162,13 @@ class OwnerController extends StateNotifier<OwnerState> {
   Future<void>? _bootstrapInFlight;
   DateTime? _lastBootstrapAt;
   bool _disposed = false;
+  late final VoidCallback _sessionInvalidationListener;
   static const Duration _bootstrapFreshWindow = Duration(seconds: 12);
 
-  OwnerController(this.ref) : super(const OwnerState());
+  OwnerController(this.ref) : super(const OwnerState()) {
+    _sessionInvalidationListener = _handleSessionInvalidation;
+    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+  }
 
   /// يحدد ما إذا كان polling مسموحاً حالياً حسب جلسة المستخدم والدور.
   bool _canRunOwnerPolling() {
@@ -178,6 +184,16 @@ class OwnerController extends StateNotifier<OwnerState> {
     final message = '${data['message'] ?? ''}'.trim().toUpperCase();
     final code = '${data['code'] ?? ''}'.trim().toUpperCase();
     return message == 'FORBIDDEN_OWNER_ONLY' || code == 'FORBIDDEN_OWNER_ONLY';
+  }
+
+  void _handleSessionInvalidation() {
+    if (_disposed) return;
+    stopLiveOrders();
+    _liveFetchInFlight = false;
+    _ordersRefreshInFlight = false;
+    _bootstrapInFlight = null;
+    _lastBootstrapAt = null;
+    state = const OwnerState();
   }
 
   /// يحمّل snapshot owner الكامل المستخدم في معظم tabs.
@@ -1765,6 +1781,7 @@ class OwnerController extends StateNotifier<OwnerState> {
   @override
   void dispose() {
     _disposed = true;
+    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
     stopLiveOrders();
     super.dispose();
   }

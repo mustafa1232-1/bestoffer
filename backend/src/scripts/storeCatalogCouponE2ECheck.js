@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { execSync } from "node:child_process";
 
 import { app } from "../app.js";
+import { env } from "../config/env.js";
 import {
   buildPhone,
   buildRunTag,
@@ -13,6 +14,7 @@ import {
   startLocalServer,
   stopLocalServer,
 } from "./e2eTestUtils.js";
+import { assertSafeE2EDatabaseTarget } from "./e2eDbSafety.js";
 
 const DEFAULT_BASE_URL = "https://bestoffer-production.up.railway.app";
 
@@ -325,6 +327,10 @@ async function listPublicMerchants(baseUrl, query, label) {
 
 async function main() {
   const cfg = parseArgs();
+  assertSafeE2EDatabaseTarget({
+    scriptName: "store-catalog-coupon-e2e",
+    databaseUrl: env.databaseUrl,
+  });
   const commit = getGitCommit();
   const runningInRailway = Boolean(
     process.env.RAILWAY_ENVIRONMENT_ID ||

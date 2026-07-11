@@ -256,8 +256,10 @@ export async function runResetDbKeepSuperAdmin({
   });
 
   console.log(
-    `[reset] target host=${safety.target.host || "(unknown)"} db=${
-      safety.target.databaseName || "(unknown)"
+    `[reset] target host=${safety.target.host || "(unknown)"} port=${
+      safety.target.port || "(unknown)"
+    } db=${safety.target.databaseName || "(unknown)"} env=${
+      env.appEnv || env.nodeEnv || "unknown"
     } productionLike=${safety.productionLike ? "yes" : "no"}`
   );
 

@@ -9,6 +9,7 @@ import { env, validateRuntimeEnv } from "../config/env.js";
 import { allocateRegistrationUsername } from "../modules/auth/auth.service.js";
 import { runSqlMigrations } from "../config/sqlMigrations.js";
 import { hashPin } from "../shared/utils/hash.js";
+import { assertSafeE2EDatabaseTarget } from "./e2eDbSafety.js";
 
 function buildRunTag() {
   return `e2e-${Date.now().toString(36)}-${Math.random()
@@ -538,6 +539,10 @@ async function cleanup(state) {
 
 async function main() {
   validateRuntimeEnv();
+  assertSafeE2EDatabaseTarget({
+    scriptName: "order-e2e",
+    databaseUrl: env.databaseUrl,
+  });
   if (!shouldSkipMigrations()) {
     await runSqlMigrations({ force: true });
   }

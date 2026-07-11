@@ -5,6 +5,7 @@ import 'package:maslaki/core/i18n/app_localizations_context.dart';
 import 'package:maslaki/core/i18n/locale_text.dart';
 import 'package:maslaki/core/utils/currency.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
+import 'package:maslaki/core/network/session_invalidation.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
 import 'package:maslaki/features/taxi/ui/taxi_share_ride_friends_sheet.dart';
 import 'package:core_design_system/core_design_system.dart';
@@ -48,6 +49,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
   bool _lifecycleResumed = true;
+  late final VoidCallback _sessionInvalidationListener;
 
   TaxiApi get _taxiApi => ref.read(taxiApiProvider);
 
@@ -58,6 +60,8 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _sessionInvalidationListener = _handleSessionInvalidation;
+    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
     _envelope = widget.initialEnvelope;
     _loading = widget.initialEnvelope == null;
     unawaited(_load(silent: widget.initialEnvelope != null));
@@ -67,6 +71,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
     _stopLiveUpdates();
     super.dispose();
   }
@@ -82,6 +87,16 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     } else {
       _stopLiveUpdates();
     }
+  }
+
+  void _handleSessionInvalidation() {
+    if (!mounted) return;
+    _stopLiveUpdates();
+    setState(() {
+      _envelope = null;
+      _loading = false;
+      _error = null;
+    });
   }
 
   void _startLiveUpdates() {

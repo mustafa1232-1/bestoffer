@@ -21,6 +21,7 @@ import {
   createActor,
   request,
 } from "./e2eTestUtils.js";
+import { assertSafeE2EDatabaseTarget } from "./e2eDbSafety.js";
 
 const DEFAULT_BASE_URL = "https://bestoffer-production.up.railway.app";
 
@@ -199,6 +200,10 @@ async function main() {
 
   console.log(`[realtime-runtime-check] baseUrl=${baseUrl}`);
   console.log(`[realtime-runtime-check] runTag=${runTag}`);
+  assertSafeE2EDatabaseTarget({
+    scriptName: "realtime-runtime-check",
+    databaseUrl: env.databaseUrl,
+  });
 
   const readiness = await getSupabaseRealtimeReadiness();
   assert.equal(readiness.ok, true, `realtime readiness failed: ${readiness.reason}`);

@@ -39,6 +39,7 @@ class DioClient {
               if (token != null && token.isNotEmpty) {
                 // A usable token is back (e.g. after re-login) - clear the gate.
                 _sessionInvalidated = false;
+                SessionInvalidationCoordinator.instance.reset();
               } else if (_sessionInvalidated && !sessionGateExempt) {
                 // Session was terminally invalidated and there is no token.
                 // Fail fast locally so background pollers stop spamming the
@@ -163,14 +164,16 @@ class DioClient {
   Future<void> _handleTerminalAuthFailure() async {
     if (_sessionInvalidated) return;
     _sessionInvalidated = true;
-    try {
-      await _clearSigningMaterial();
-    } catch (_) {}
-    try {
-      await store.clear();
-    } catch (_) {}
-    // Notify the app (AuthController) to drop cleanly to guest/login.
-    SessionInvalidationBus.instance.invalidate();
+    await SessionInvalidationCoordinator.instance.invalidateTerminalSession(
+      cleanup: () async {
+        try {
+          await _clearSigningMaterial();
+        } catch (_) {}
+        try {
+          await store.clear();
+        } catch (_) {}
+      },
+    );
   }
 
   Future<String?> _readUsableAccessToken() async {

@@ -6,6 +6,12 @@ This file captures the cross-app end-to-end flows that must be proven during the
 
 - Login, registration, logout, logout-all, refresh, expired token, invalid token, deleted account, disabled account
 - Surface and role gating for user, store, delivery, taxi captain, company/admin, and super-admin QA access
+- Phase 1C runtime proof now covers the full auth/session/push lifecycle:
+  - guest `NO_TOKEN` failures on `/api/realtime/token` and `/api/notifications/push-token` do not trigger terminal session invalidation
+  - super admin login on the user surface returns a valid authenticated shell with `isSuperAdmin=true`
+  - super admin is blocked on a non-permitted surface during login
+  - owner, customer, delivery, and captain shells all survive login, refresh, logout-all, push-token registration, and realtime-token issuance
+  - stale session, token, and push state is cleared without breaking the next authenticated session
 
 ## Store / Catalog / Fashion
 
@@ -56,6 +62,11 @@ This file captures the cross-app end-to-end flows that must be proven during the
 - Foreground, background, and killed-app notification handling
 - Tap routing to exact target screen
 - Realtime reconnection and deduplication
+- Phase 1C runtime proof also verified:
+  - push token registration/unregistration works after login
+  - realtime token issuance is skipped for guests and resumes after successful auth
+  - logout-all revokes the second live session cleanly
+  - the Railway runtime chain now passes the auth/session/push stage before the later E2E suites
 
 ## Social and Messaging
 

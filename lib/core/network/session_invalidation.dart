@@ -22,6 +22,53 @@ class SessionInvalidationBus extends ChangeNotifier {
   }
 }
 
+/// Coordinates terminal session cleanup so multiple 401s cannot trigger
+/// repeated teardown/navigation work across the app.
+class SessionInvalidationCoordinator {
+  SessionInvalidationCoordinator._();
+
+  static final SessionInvalidationCoordinator instance =
+      SessionInvalidationCoordinator._();
+
+  final SessionInvalidationBus bus = SessionInvalidationBus.instance;
+  Future<void>? _invalidateInFlight;
+  bool _terminalInvalidated = false;
+
+  bool get terminalInvalidated => _terminalInvalidated;
+
+  Future<void> invalidateTerminalSession({
+    required Future<void> Function() cleanup,
+  }) async {
+    final inFlight = _invalidateInFlight;
+    if (inFlight != null) return inFlight;
+
+    final future = _runTerminalInvalidation(cleanup);
+    _invalidateInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_invalidateInFlight, future)) {
+        _invalidateInFlight = null;
+      }
+    }
+  }
+
+  void reset() {
+    _terminalInvalidated = false;
+  }
+
+  Future<void> _runTerminalInvalidation(
+    Future<void> Function() cleanup,
+  ) async {
+    _terminalInvalidated = true;
+    try {
+      await cleanup();
+    } finally {
+      bus.invalidate();
+    }
+  }
+}
+
 /// True for a 401 that should invalidate the current authenticated session.
 ///
 /// Anonymous/public requests are excluded so login/register/guest flows do not

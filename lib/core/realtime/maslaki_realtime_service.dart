@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../features/auth/state/auth_controller.dart';
+import '../network/session_invalidation.dart';
 import '../storage/secure_storage.dart';
 
 final maslakiRealtimeServiceProvider = Provider<MaslakiRealtimeService>((ref) {
@@ -47,12 +48,18 @@ class MaslakiRealtimeEvent {
 
 class MaslakiRealtimeService implements MaslakiRealtimeClient {
   MaslakiRealtimeService(this._dio, {SecureStore? store})
-    : _store = store ?? SecureStore();
+    : _store = store ?? SecureStore() {
+    _sessionInvalidationListener = () {
+      unawaited(clearSession());
+    };
+    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+  }
 
   final Dio _dio;
   final SecureStore _store;
   final Map<String, _TopicSubscriptionEntry> _topics =
       <String, _TopicSubscriptionEntry>{};
+  late final VoidCallback _sessionInvalidationListener;
 
   SupabaseClient? _client;
   String? _supabaseUrl;
@@ -155,6 +162,7 @@ class MaslakiRealtimeService implements MaslakiRealtimeClient {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
     await clearSession();
   }
 

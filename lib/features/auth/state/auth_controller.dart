@@ -228,6 +228,7 @@ class AuthController extends StateNotifier<AuthState> {
       final latestToken = await store.readToken() ?? token;
       await _applyPreferredLocale(user);
       await store.saveGuestMode(false);
+      SessionInvalidationCoordinator.instance.reset();
       state = state.copyWith(
         user: user,
         token: latestToken,
@@ -276,6 +277,7 @@ class AuthController extends StateNotifier<AuthState> {
       final token = await ref.read(secureStoreProvider).readToken();
       await _applyPreferredLocale(user);
       await ref.read(secureStoreProvider).saveGuestMode(false);
+      SessionInvalidationCoordinator.instance.reset();
       state = state.copyWith(
         loading: false,
         user: user,
@@ -333,6 +335,7 @@ class AuthController extends StateNotifier<AuthState> {
       final token = await ref.read(secureStoreProvider).readToken();
       await _applyPreferredLocale(user);
       await ref.read(secureStoreProvider).saveGuestMode(false);
+      SessionInvalidationCoordinator.instance.reset();
       state = state.copyWith(
         loading: false,
         user: user,
@@ -451,6 +454,7 @@ class AuthController extends StateNotifier<AuthState> {
       final token = await ref.read(secureStoreProvider).readToken();
       await _applyPreferredLocale(user);
       await ref.read(secureStoreProvider).saveGuestMode(false);
+      SessionInvalidationCoordinator.instance.reset();
       state = state.copyWith(
         loading: false,
         user: user,

@@ -9,6 +9,7 @@ import {
   readId,
   request,
 } from "./e2eTestUtils.js";
+import { assertSafeE2EDatabaseTarget } from "./e2eDbSafety.js";
 
 const DEFAULT_BASE_URL = "https://bestoffer-production.up.railway.app";
 
@@ -238,6 +239,10 @@ async function cleanup(baseUrl, superAdmin, runTag) {
 
 async function main() {
   const cfg = parseArgs();
+  assertSafeE2EDatabaseTarget({
+    scriptName: "security-runtime-check",
+    databaseUrl: process.env.DATABASE_URL || "",
+  });
   const superAdminPhone = String(process.env.SUPER_ADMIN_PHONE || "").trim();
   const superAdminPin = String(process.env.SUPER_ADMIN_PIN || "").trim();
   if (!superAdminPhone || !superAdminPin) {

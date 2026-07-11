@@ -7,6 +7,7 @@ import { app } from "../app.js";
 import { ensureSchema, pool } from "../config/db.js";
 import { env, validateRuntimeEnv } from "../config/env.js";
 import { runSqlMigrations } from "../config/sqlMigrations.js";
+import { assertSafeE2EDatabaseTarget } from "./e2eDbSafety.js";
 import {
   assertStatus,
   buildPhone,
@@ -262,6 +263,10 @@ async function expectNoCurrentRide(baseUrl, actor, path, label) {
 }
 
 async function main() {
+  assertSafeE2EDatabaseTarget({
+    scriptName: "taxi-e2e",
+    databaseUrl: env.databaseUrl,
+  });
   validateRuntimeEnv();
   if (!shouldSkipMigrations()) {
     await runSqlMigrations({ force: true });

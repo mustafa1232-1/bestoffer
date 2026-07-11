@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/network/session_invalidation.dart';
 import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/order_status.dart';
@@ -116,9 +117,12 @@ class DeliveryController extends StateNotifier<DeliveryState>
   bool _disposed = false;
   int _livePollingSubscribers = 0;
   bool _lifecycleResumed = true;
+  late final VoidCallback _sessionInvalidationListener;
 
   DeliveryController(this.ref) : super(const DeliveryState()) {
     WidgetsBinding.instance.addObserver(this);
+    _sessionInvalidationListener = _handleSessionInvalidation;
+    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
     _lifecycleResumed =
         WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
@@ -132,6 +136,15 @@ class DeliveryController extends StateNotifier<DeliveryState>
   void _setStateSafely(DeliveryState nextState) {
     if (_disposed) return;
     state = nextState;
+  }
+
+  void _handleSessionInvalidation() {
+    if (_disposed) return;
+    stopLiveOrders(force: true);
+    _liveFetchInFlight = false;
+    _presenceSyncInFlight = false;
+    _lastPresenceSyncAt = null;
+    _setStateSafely(const DeliveryState());
   }
 
   bool _canRunDeliveryPolling() {
@@ -713,6 +726,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
   void dispose() {
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
+    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
     stopLiveOrders(force: true);
     super.dispose();
   }

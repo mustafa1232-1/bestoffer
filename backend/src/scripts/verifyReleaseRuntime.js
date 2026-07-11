@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 const steps = [
   { label: "realtime-runtime", script: "realtime:runtime:check" },
   { label: "security", script: "security:runtime:check" },
+  { label: "auth-session-push", script: "auth:session:push:check" },
   { label: "new-streams", script: "e2e:new-streams:check" },
   { label: "order", script: "e2e:order:check" },
   { label: "taxi", script: "e2e:taxi:check" },
@@ -37,7 +38,13 @@ function runStep(step) {
     const args = npmExecPath ? [npmExecPath, "run", step.script] : ["run", step.script];
     const child = spawn(command, args, {
       cwd: process.cwd(),
-      env: process.env,
+      env: {
+        ...process.env,
+        ...(process.env.RAILWAY_SERVICE_NAME ||
+        process.env.RAILWAY_ENVIRONMENT_NAME
+          ? { ALLOW_E2E_PRODUCTION_TARGET: "true" }
+          : {}),
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
 

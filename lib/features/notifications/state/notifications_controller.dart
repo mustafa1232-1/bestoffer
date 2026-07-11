@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_error_mapper.dart';
@@ -8,6 +9,7 @@ import '../../../core/notifications/active_chat_context_registry.dart';
 import '../../../core/notifications/attention_alert_service.dart';
 import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
+import '../../../core/network/session_invalidation.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../delivery/state/delivery_controller.dart';
@@ -116,8 +118,11 @@ class NotificationsController extends StateNotifier<NotificationsState> {
   DateTime? _lastUnreadRefreshAt;
   DateTime? _lastListRefreshAt;
   Future<void>? _unreadRefreshInFlight;
+  late final VoidCallback _sessionInvalidationListener;
 
   NotificationsController(this.ref) : super(const NotificationsState()) {
+    _sessionInvalidationListener = _handleSessionInvalidation;
+    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
     ref.listen<AuthState>(authControllerProvider, (previous, next) {
       final prevToken = previous?.token?.trim() ?? '';
       final nextToken = next.token?.trim() ?? '';
@@ -147,6 +152,28 @@ class NotificationsController extends StateNotifier<NotificationsState> {
         }
       }
     });
+  }
+
+  void _handleSessionInvalidation() {
+    if (!mounted) return;
+    _unauthorizedHandled = false;
+    _realtimeRequestedByUi = false;
+    _lastEventId = null;
+    _reconnectAttempt = 0;
+    _fallbackTick = 0;
+    _recentRealtimeEventIds.clear();
+    _recentRealtimeEventOrder.clear();
+    _lastUnreadRefreshAt = null;
+    _lastListRefreshAt = null;
+    _unreadRefreshInFlight = null;
+    stopRealtime();
+    state = state.copyWith(
+      unreadCount: 0,
+      notifications: const [],
+      error: null,
+      realtimeStatus: NotificationsRealtimeStatus.offline,
+      reconnectAttempt: 0,
+    );
   }
 
   /// يجلب عدد الإشعارات غير المقروءة فقط دون إعادة تحميل القائمة كاملة.
@@ -831,6 +858,7 @@ class NotificationsController extends StateNotifier<NotificationsState> {
   @override
   /// ينظف جميع الـ timers والاشتراكات لتفادي memory leaks أو events متأخرة.
   void dispose() {
+    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
     stopRealtime();
     super.dispose();
   }
