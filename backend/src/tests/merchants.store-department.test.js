@@ -8,6 +8,8 @@ import {
   normalizeStoreDepartment,
   resolveStoreDepartmentForWrite,
 } from "../modules/merchants/store-department.logic.js";
+import { browseResponseCacheKey } from "../modules/merchants/merchants.controller.js";
+import { merchantBrowseCacheKey } from "../modules/merchants/merchants.repo.js";
 
 test("only fashion/clothing activity requires a department", () => {
   assert.equal(activityRequiresDepartment("fashion_clothing"), true);
@@ -91,4 +93,42 @@ test("keyword inference is conservative (single-gender only)", () => {
   assert.equal(inferDepartmentFromText("Men's Gents Fashion"), "men");
   assert.equal(inferDepartmentFromText("ملابس رجالية ونسائية"), null); // both -> unknown
   assert.equal(inferDepartmentFromText("General Store"), null); // neither
+});
+
+test("merchant browse cache keys separate men and women sections", () => {
+  const menKey = merchantBrowseCacheKey({
+    version: "1",
+    type: "all",
+    search: null,
+    activityType: "fashion_clothing",
+    discoverySubcategory: null,
+    department: "men",
+  });
+  const womenKey = merchantBrowseCacheKey({
+    version: "1",
+    type: "all",
+    search: null,
+    activityType: "fashion_clothing",
+    discoverySubcategory: null,
+    department: "women",
+  });
+
+  assert.notEqual(menKey, womenKey);
+  assert.match(menKey, /department:men/);
+  assert.match(womenKey, /department:women/);
+});
+
+test("public browse response cache keys separate men and women sections", () => {
+  const menKey = browseResponseCacheKey({
+    activityType: "fashion_clothing",
+    department: "men",
+  });
+  const womenKey = browseResponseCacheKey({
+    activityType: "fashion_clothing",
+    department: "women",
+  });
+
+  assert.notEqual(menKey, womenKey);
+  assert.match(menKey, /men/);
+  assert.match(womenKey, /women/);
 });

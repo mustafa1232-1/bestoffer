@@ -23,6 +23,13 @@
 - Working branch remains `closure/full-application-closure`
 - Scope locked to P0 launch blockers only
 
+## Phase 1A Continuation
+
+- Live backend runtime evidence captured for store / catalog / coupon scope
+- Department-aware browse cache keys fixed for men / women fashion sections
+- `npm test`, `verify:release:local`, and `verify:release:runtime` passed after the fix
+- Store-app device smoke remains pending and must not be claimed as passed
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

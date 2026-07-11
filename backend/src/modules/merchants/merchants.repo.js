@@ -9,18 +9,19 @@ const MERCHANT_CATALOG_VERSION_TTL = 7 * 24 * 60 * 60; // 7 days
 const MERCHANT_BROWSE_TTL = 120; // 2 minutes
 const MERCHANT_BROWSE_VERSION_TTL = 7 * 24 * 60 * 60; // 7 days
 const MERCHANT_BROWSE_VERSION_KEY = "merchant:browse:ver";
-const MERCHANT_BROWSE_SCHEMA_VERSION = "2";
+const MERCHANT_BROWSE_SCHEMA_VERSION = "3";
 
 function merchantCatalogVersionKey(merchantId) {
   return `merchant:catalog:ver:${Number(merchantId)}`;
 }
 
-function merchantBrowseCacheKey({
+export function merchantBrowseCacheKey({
   version,
   type,
   search,
   activityType,
   discoverySubcategory,
+  department,
 }) {
   const normalizedType = String(type || "all").trim().toLowerCase() || "all";
   const normalizedSearch = String(search || "").trim().toLowerCase() || "none";
@@ -28,6 +29,8 @@ function merchantBrowseCacheKey({
     String(activityType || "").trim().toLowerCase() || "none";
   const normalizedDiscovery =
     String(discoverySubcategory || "").trim().toLowerCase() || "none";
+  const normalizedDepartment =
+    String(department || "none").trim().toLowerCase() || "none";
   return [
     "merchant:browse:list",
     `schema:${MERCHANT_BROWSE_SCHEMA_VERSION}`,
@@ -36,6 +39,7 @@ function merchantBrowseCacheKey({
     `q:${encodeURIComponent(normalizedSearch)}`,
     `activity:${encodeURIComponent(normalizedActivityType)}`,
     `discovery:${encodeURIComponent(normalizedDiscovery)}`,
+    `department:${encodeURIComponent(normalizedDepartment)}`,
   ].join(":");
 }
 
@@ -92,6 +96,7 @@ export async function getCachedMerchantBrowseList({
   search,
   activityType,
   discoverySubcategory,
+  department,
 }) {
   const redis = await getRedisClient().catch(() => null);
   if (!redis) return null;
@@ -102,6 +107,7 @@ export async function getCachedMerchantBrowseList({
     search,
     activityType,
     discoverySubcategory,
+    department,
   });
   try {
     const hit = await redis.get(key);

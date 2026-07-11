@@ -251,6 +251,15 @@ export async function cleanupLoadArtifactsByRunTag(runTag) {
       await client.query(`DELETE FROM merchant WHERE id = ANY($1::bigint[])`, [merchantIds]);
     }
 
+    if (hasCouponTable) {
+      await client.query(
+        `DELETE FROM coupon
+         WHERE code ILIKE $1
+            OR COALESCE(description, '') ILIKE $1`,
+        [pattern]
+      );
+    }
+
     if (userIds.length > 0) {
       await client.query(`DELETE FROM app_notification WHERE user_id = ANY($1::bigint[])`, [
         userIds,

@@ -38,6 +38,7 @@
     "load:live": "node src/scripts/liveModuleStress.js",
     "load:sse": "node src/scripts/sseStreamStress.js",
     "load:matrix": "node src/scripts/fullAppLoadMatrix.js",
+    "e2e:store-catalog-coupon:check": "node src/scripts/storeCatalogCouponE2ECheck.js",
     "guard:removed-features": "node src/scripts/removedFeaturesGuard.js",
     "realtime:outbox:worker": "node src/scripts/realtimeOutboxWorker.js"
   },

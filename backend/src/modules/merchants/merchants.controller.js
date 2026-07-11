@@ -8,7 +8,7 @@ const PUBLIC_MERCHANT_HOT_TTL_MS = 15_000;
 const publicMerchantHotCache = new Map();
 const PUBLIC_MERCHANT_CACHE_CONTROL = "public, max-age=15, stale-while-revalidate=30";
 
-function browseResponseCacheKey(query = {}) {
+export function browseResponseCacheKey(query = {}) {
   return JSON.stringify([
     String(query.type || "").trim().toLowerCase(),
     String(query.search || "").trim().toLowerCase(),
@@ -16,6 +16,9 @@ function browseResponseCacheKey(query = {}) {
       .trim()
       .toLowerCase(),
     String(query.discoverySubcategory || query.discovery_subcategory || "")
+      .trim()
+      .toLowerCase(),
+    String(query.department || query.store_department || "")
       .trim()
       .toLowerCase(),
   ]);
