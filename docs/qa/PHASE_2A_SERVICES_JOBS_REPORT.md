@@ -34,3 +34,4 @@
 - Device QA is not required for this phase.
 - No new Kysely adoption was introduced in this phase.
 - `docs/qa/FULL_APPLICATION_BLOCKERS.md`, `docs/qa/FULL_APPLICATION_AUDIT_MATRIX.md`, and `docs/qa/FULL_APPLICATION_RUNTIME_FLOWS.md` were updated to reflect the new runtime evidence.
+- Phase 2A checkpoint commit: `0d5e548`

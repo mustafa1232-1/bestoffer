@@ -66,12 +66,12 @@
 
 ## Phase 2A Continuation
 
-- [ ] Services runtime proof captured with `backend/src/scripts/servicesE2ECheck.js`
-- [ ] Jobs runtime proof captured with `backend/src/scripts/jobsE2ECheck.js`
-- [ ] `npm test`, `verify:release:local`, and `verify:release:runtime` passed after the services/jobs fixes
-- [ ] `docs/qa/PHASE_2A_SERVICES_JOBS_REPORT.md` created
-- [ ] Phase 2A checkpoint commit recorded after the docs and runtime evidence are finalized
-- [ ] Services/jobs remain non-device-gated and must not be claimed as device-verified
+- [x] Services runtime proof captured with `backend/src/scripts/servicesE2ECheck.js`
+- [x] Jobs runtime proof captured with `backend/src/scripts/jobsE2ECheck.js`
+- [x] `npm test`, `verify:release:local`, and `verify:release:runtime` passed after the services/jobs fixes
+- [x] `docs/qa/PHASE_2A_SERVICES_JOBS_REPORT.md` created
+- [x] Phase 2A checkpoint commit recorded in `0d5e548`
+- [x] Services/jobs remain non-device-gated and must not be claimed as device-verified
 
 ## Notes
 
