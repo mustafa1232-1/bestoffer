@@ -23,6 +23,8 @@ This file is intentionally strict.
 | Store order notifications | signed APK | BLOCKED: REAL_DEVICE_REQUIRED | Needs a real device session |
 | Delivery notifications | signed APK | BLOCKED: REAL_DEVICE_REQUIRED | Needs a real device session |
 | Captain notifications | signed APK | BLOCKED: REAL_DEVICE_REQUIRED | Needs a real device session |
+| Company/Admin exports and print/share | signed APK | BLOCKED: REAL_DEVICE_REQUIRED | Needs a real device session |
+| Company/Admin notification tap cold start | signed APK | BLOCKED: REAL_DEVICE_REQUIRED | Needs a real device session |
 
 ## Current APK Paths For Manual QA
 

@@ -91,6 +91,27 @@
 - [x] Phase 2C checkpoint commit created in `be45724`
 - [x] Pharmacy remains non-device-gated in this program and must not be claimed as real-device verified
 
+## Phase 2D Prep
+
+- [x] Phase 2C code is confirmed deployed on Railway at commit `a9fda00499f1ce9bba59effba26573d807b28be2`
+- [x] Railway deployment ID `00af763c-db5f-4ad4-83e5-9da4bacff354` returned `SUCCESS`
+- [x] `/health` returned `200`
+- [x] `/ready` returned `200`
+- [x] `docs/qa/PHASE_2D_COMPANY_ADMIN_FINANCE_REPORT.md` created
+- [x] Company/Admin and finance scope is being expanded in the audit matrix before any code fix
+
+## Phase 2D Continuation
+
+- [x] Local QA DB was reset safely to the single seeded `super_admin` using `node --env-file=.env.test src/scripts/resetDbKeepSuperAdmin.js`
+- [x] `flutter analyze` passed
+- [x] `flutter test` passed
+- [x] `npm run verify:release:local` passed after the local QA DB reset
+- [x] `backend/src/scripts/securityRuntimeCheck.js` passed on Railway for backoffice, accountant, and role/surface isolation
+- [x] `backend/src/scripts/authSessionPushE2ECheck.js` passed on Railway for company/admin session bootstrap and push/realtime
+- [x] `backend/src/scripts/financialSettlementsE2ECheck.js` passed on Railway and cleaned up its temporary merchant/user artifacts
+- [x] `railway run --service bestoffer npm run verify:release:runtime` passed after the backend script update
+- [x] Phase 2D proof now distinguishes runtime coverage from automated-only company portal screens
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

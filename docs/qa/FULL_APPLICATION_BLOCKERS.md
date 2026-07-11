@@ -24,7 +24,9 @@ This list starts as the authoritative working blocker set for the closure progra
 | P1 | Real estate coverage | PASS_RUNTIME | `backend/src/scripts/realEstateE2ECheck.js` passed on Railway with listing approval, workspace visibility, and business chat routing | Runtime proof only; device proof not required |
 | P1 | Cars coverage | PASS_RUNTIME | `backend/src/scripts/carsE2ECheck.js` passed on Railway with listing approval, workspace visibility, and business chat routing | Runtime proof only; device proof not required |
 | P1 | Pharmacy coverage | PASS_RUNTIME | `backend/src/scripts/pharmacyE2ECheck.js` passed on Railway with conversation, cart proposal, accept/reject/request-revision, order conversion, and exact notification target coverage; no device gate is required for this phase |
-| P1 | Company/admin reports | NOT_STARTED | Audit after P0 closure |
+| P1 | Company/admin shell and permissions | PASS_RUNTIME | Railway runtime proof captured with company/admin session isolation, backoffice gating, and accountant access checks (`authSessionPushE2ECheck.js`, `securityRuntimeCheck.js`) |
+| P1 | Company/admin merchant and user management | PASS_AUTOMATED | UI/API automated coverage exists for company portal screens and client behavior (`test/core/admin_companies_screen_test.dart`, `test/features/company/company_dio_client_test.dart`) |
+| P1 | Company/admin financial reports and settlements | PASS_RUNTIME | Railway runtime proof captured for summary, pending settlements, approvals, and payment-request cleanup (`financialSettlementsE2ECheck.js`, `securityRuntimeCheck.js`) |
 | P2 | Stories autoplay/progress | NOT_STARTED | Audit later |
 | P2 | Reel sharing | NOT_STARTED | Audit later |
 | P2 | Social/discovery/profile/messaging | NOT_STARTED | Audit later |

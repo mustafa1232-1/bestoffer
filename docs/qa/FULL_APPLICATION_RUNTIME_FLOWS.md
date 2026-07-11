@@ -129,7 +129,38 @@ This file captures the cross-app end-to-end flows that must be proven during the
   - proposed cart conversion creates the expected order link
   - notification targets remain stable for `pharmacy_conversation`, `order_details`, and `owner_order_details`
   - attachment access URLs and conversation detail retrieval continue to work after the Pharmacy flow completes
-  - the runtime chain preserved the existing customer and merchant auth/session behavior while exercising Pharmacy
+- the runtime chain preserved the existing customer and merchant auth/session behavior while exercising Pharmacy
+
+## Company / Admin
+
+- Company portal login, bootstrap, dashboard, branches, users, inventory, promotions, and settings
+- Admin backoffice dashboard, analytics, approval inbox, audit feed, merchant approvals, delivery approvals, taxi captain approvals, settlements, reports, permissions matrix, notifications operations, and advanced tools
+- Super-admin QA access on the user surface where explicitly allowed by the auth/surface policy
+
+## Verified Runtime Evidence
+
+- Phase 2D now captures the runtime proof for company/admin gating and finance:
+  - `backend/src/scripts/securityRuntimeCheck.js` passed on Railway for admin, accountant, and surface isolation checks
+  - `backend/src/scripts/authSessionPushE2ECheck.js` passed on Railway for company/admin session bootstrap and push/realtime
+  - `backend/src/scripts/financialSettlementsE2ECheck.js` passed on Railway and cleaned up its temporary merchant/user artifacts
+  - company portal branch/user/inventory/promotion screens remain covered by automated UI/API tests in this phase and are not device-gated
+
+## Finance and Settlements
+
+- Merchant billing profile
+- Merchant receivables / receivable invoices
+- Merchant payment requests and allocations
+- Delivery cash settlements
+- Accountant summary / ledger / payroll
+- Admin settlement approvals and collections
+
+## Verified Runtime Evidence
+
+- `backend/src/scripts/financialSettlementsE2ECheck.js` now proves the finance and settlement runtime path on Railway:
+  - owner creation is bootstrapped inside the script when needed
+  - admin approval and settlement flows are exercised using the live Railway backend
+  - the script cleans up the temporary merchant/user artefacts it creates
+- Existing repo tests still cover the underlying financial model, receivables, and payroll logic for the accountant/admin screens
 
 ## Taxi
 

@@ -12,6 +12,16 @@
 - Backend unit tests continued to pass after the Pharmacy notification target assertions were added.
 - `backend/src/scripts/pharmacyE2ECheck.js` passed on Railway and exercised the full Pharmacy commerce flow.
 
+## Deployed Baseline
+
+- Local branch head deployed to Railway: `a9fda00499f1ce9bba59effba26573d807b28be2`
+- Railway deployment ID: `00af763c-db5f-4ad4-83e5-9da4bacff354`
+- Deployment status: `SUCCESS`
+- Health check: `200`
+- Ready check: `200`
+- Environment: `production`
+- Service: `bestoffer`
+
 ## Runtime Evidence
 
 - Approved pharmacy merchant creation and approval were required before conversation access.
@@ -33,4 +43,3 @@
 
 - No real-device gate was required for Pharmacy in this phase.
 - The phase remains runtime-verified only.
-

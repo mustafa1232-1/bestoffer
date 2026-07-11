@@ -1,9 +1,23 @@
 /* eslint-disable no-console */
 
-const BASE_URL = (process.env.API_BASE_URL || "http://127.0.0.1:3000").replace(
+import "dotenv/config";
+
+import { env } from "../config/env.js";
+import { cleanupLoadArtifactsByRunTag } from "../shared/utils/testArtifactCleanup.js";
+
+const BASE_URL = (
+  process.env.API_BASE_URL ||
+  process.env.E2E_BASE_URL ||
+  "https://bestoffer-production.up.railway.app"
+).replace(
   /\/+$/,
   ""
 );
+
+function buildRunTag() {
+  return String(process.env.FINANCIAL_E2E_RUN_TAG || "").trim() ||
+    `financial-e2e-${Date.now().toString(36)}`;
+}
 
 function toNum(v) {
   const n = Number(v);
@@ -43,6 +57,59 @@ async function login(phone, pin) {
   return token;
 }
 
+async function loginAny(candidates) {
+  let lastError = null;
+  for (const candidate of candidates) {
+    if (!candidate.phone || !candidate.pin) continue;
+    try {
+      const token = await login(candidate.phone, candidate.pin);
+      return { token, label: candidate.label };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastError) throw lastError;
+  throw new Error("LOGIN_CREDENTIALS_MISSING");
+}
+
+async function registerOwner(runTag) {
+  const phone = `078${String(Date.now()).slice(-8)}`;
+  const res = await request("/api/owner/register", {
+    method: "POST",
+    body: {
+      fullName: `Financial E2E Owner ${runTag}`,
+      phone,
+      pin: "1234",
+      block: "A2",
+      buildingNumber: "A202",
+      apartment: "202",
+      merchantName: `Financial E2E Merchant ${runTag}`,
+      merchantType: "restaurant",
+      merchantActivityType: "restaurant",
+      merchantDiscoverySubcategory: "eastern",
+      merchantDescription: `financial-e2e-merchant-${runTag}`,
+      merchantTagline: `financial-e2e-tagline-${runTag}`,
+      merchantWorkingHours: "09:00-23:00",
+      merchantServiceAreaNote: `financial-e2e-service-area-${runTag}`,
+      merchantSupportsChat: true,
+      merchantSupportsAttachments: true,
+      analyticsConsentAccepted: true,
+      analyticsConsentVersion: "financial_e2e_v1",
+    },
+  });
+  if (res.status !== 201) {
+    throw new Error(`REGISTER_OWNER_FAILED status=${res.status} body=${JSON.stringify(res.payload)}`);
+  }
+  const token = String(res.payload?.token || "").trim();
+  if (!token) throw new Error("REGISTER_OWNER_NO_TOKEN");
+  return {
+    token,
+    phone,
+    userId: Number(res.payload?.user?.id || 0) || null,
+    merchantId: Number(res.payload?.merchant?.id || 0) || null,
+  };
+}
+
 function assertStatus(response, allowed, label) {
   if (!allowed.includes(response.status)) {
     throw new Error(
@@ -53,7 +120,7 @@ function assertStatus(response, allowed, label) {
   }
 }
 
-async function runStorePaysAppFlow(ownerToken, adminToken) {
+async function runStorePaysAppFlow(ownerToken, adminToken, runTag) {
   const summary = await request("/api/merchant/receivables", { token: ownerToken });
   assertStatus(summary, [200], "owner_receivables");
 
@@ -74,7 +141,7 @@ async function runStorePaysAppFlow(ownerToken, adminToken) {
       requestType: "store_pays_app",
       paymentScope: "all",
       amount,
-      note: "E2E store pays app",
+      note: `E2E store pays app ${runTag}`,
     },
   });
   assertStatus(create, [201], "create_store_pays_app");
@@ -90,7 +157,7 @@ async function runStorePaysAppFlow(ownerToken, adminToken) {
   console.log(`[financial:e2e] store_pays_app approved request_id=${id}`);
 }
 
-async function runAppPaysStoreFlow(ownerToken, adminToken) {
+async function runAppPaysStoreFlow(ownerToken, adminToken, runTag) {
   const summary = await request("/api/merchant/receivables", { token: ownerToken });
   assertStatus(summary, [200], "owner_receivables_app_pays_store");
 
@@ -108,7 +175,7 @@ async function runAppPaysStoreFlow(ownerToken, adminToken) {
       requestType: "app_pays_store",
       paymentScope: "all",
       amount,
-      note: "E2E app pays store",
+      note: `E2E app pays store ${runTag}`,
     },
   });
   assertStatus(create, [201], "create_app_pays_store");
@@ -154,29 +221,52 @@ async function runAppPaysStoreFlow(ownerToken, adminToken) {
 }
 
 async function run() {
-  const ownerPhone = String(process.env.ROLE_OWNER_PHONE || "").trim();
-  const ownerPin = String(process.env.ROLE_OWNER_PIN || "").trim();
-  const adminPhone = String(
-    process.env.ROLE_ADMIN_PHONE || process.env.SUPER_ADMIN_PHONE || ""
-  ).trim();
-  const adminPin = String(
-    process.env.ROLE_ADMIN_PIN || process.env.SUPER_ADMIN_PIN || ""
-  ).trim();
+  const runTag = buildRunTag();
+  const adminCandidates = [
+    {
+      label: "super_admin",
+      phone: String(process.env.SUPER_ADMIN_PHONE || env.superAdminPhone || "").trim(),
+      pin: String(process.env.SUPER_ADMIN_PIN || env.superAdminPin || "").trim(),
+    },
+    {
+      label: "dev_admin",
+      phone: String(process.env.DEV_ADMIN_PHONE || "").trim(),
+      pin: String(process.env.DEV_ADMIN_PIN || "").trim(),
+    },
+    {
+      label: "role_admin",
+      phone: String(process.env.ROLE_ADMIN_PHONE || "").trim(),
+      pin: String(process.env.ROLE_ADMIN_PIN || "").trim(),
+    },
+  ];
 
-  if (!ownerPhone || !ownerPin || !adminPhone || !adminPin) {
+  if (!adminCandidates.some((candidate) => candidate.phone && candidate.pin)) {
     console.error(
-      "[financial:e2e] Missing env vars: ROLE_OWNER_PHONE, ROLE_OWNER_PIN, ROLE_ADMIN_PHONE/SUPER_ADMIN_PHONE, ROLE_ADMIN_PIN/SUPER_ADMIN_PIN"
+      "[financial:e2e] Missing admin env vars: SUPER_ADMIN or DEV_ADMIN or ROLE_ADMIN credentials"
     );
     process.exitCode = 1;
     return;
   }
 
   console.log(`[financial:e2e] base_url=${BASE_URL}`);
-  const ownerToken = await login(ownerPhone, ownerPin);
-  const adminToken = await login(adminPhone, adminPin);
+  console.log(`[financial:e2e] run_tag=${runTag}`);
+  const owner = await registerOwner(runTag);
+  const ownerToken = owner.token;
+  const admin = await loginAny(adminCandidates);
+  console.log(`[financial:e2e] admin_login_label=${admin.label}`);
+  const adminToken = admin.token;
 
-  await runStorePaysAppFlow(ownerToken, adminToken);
-  await runAppPaysStoreFlow(ownerToken, adminToken);
+  try {
+    await runStorePaysAppFlow(ownerToken, adminToken, runTag);
+    await runAppPaysStoreFlow(ownerToken, adminToken, runTag);
+  } finally {
+    try {
+      const cleanup = await cleanupLoadArtifactsByRunTag(runTag);
+      console.log(`[financial:e2e] cleanup=${JSON.stringify(cleanup)}`);
+    } catch (cleanupError) {
+      console.warn(`[financial:e2e] cleanup_failed=${cleanupError.message}`);
+    }
+  }
 
   console.log("[financial:e2e] done");
 }
