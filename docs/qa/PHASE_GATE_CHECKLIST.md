@@ -141,6 +141,7 @@
 - [x] Signed APK/AAB release-candidate artifacts were built for user, store, delivery, captain, pharmacy, and company
 - [x] `docs/qa/PHASE_3C_RELEASE_CANDIDATE_REPORT.md` created
 - [x] `docs/qa/ANDROID_ARTIFACT_MANIFEST.md` created
+- [x] Phase 3C checkpoint commit created in `633d700`
 - [ ] Real-device push/background/killed-app and notification-tap validation remains pending and must not be claimed as passed
 - [ ] Full `permissions:check` role matrix remains blocked until user / owner / delivery QA credentials are available
 

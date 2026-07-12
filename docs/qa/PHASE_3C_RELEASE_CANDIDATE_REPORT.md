@@ -49,5 +49,6 @@
 
 - Status: `PASS_RUNTIME_RC_BUILT_DEVICE_PENDING`
 - The release candidate is built and runtime-verified.
+- Phase 3C checkpoint commit: `633d700`
 - Real-device QA remains the last open gate.
 - This is not yet ready for internal testing.
