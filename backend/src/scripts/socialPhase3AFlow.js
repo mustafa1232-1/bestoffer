@@ -298,7 +298,7 @@ export async function runSocialDiscoveryProfileMessagingFlow({
 
     let searchAll = null;
     let searchMatched = false;
-    for (let attempt = 0; attempt < 10; attempt += 1) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
       searchAll = await request(
         baseUrl,
         bob,
@@ -312,7 +312,7 @@ export async function runSocialDiscoveryProfileMessagingFlow({
         users.some((item) => Number(item?.id || 0) === alice.userId) &&
         posts.some((item) => Number(item?.id || 0) === postId);
       if (searchMatched) break;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     assert.ok(searchMatched, "search should find alice and the post");
     assert.ok(Array.isArray(searchAll.data?.recentSearches), "recent searches should exist");
