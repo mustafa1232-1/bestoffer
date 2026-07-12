@@ -13,6 +13,8 @@
 - `node --env-file=.env.test src/scripts/socialE2ECheck.js`: passed
 - `node --env-file=.env.test src/scripts/storiesE2ECheck.js`: passed
 - `node --env-file=.env.test src/scripts/reelsE2ECheck.js`: passed
+- `npm test`: passed, 266/266
+- `npm run verify:release:local`: passed
 - `railway run --service bestoffer npm run verify:release:runtime`: passed after the wrapper exit fix
 
 ## Runtime Evidence
@@ -47,5 +49,4 @@
 - Social discovery/profile/messaging: `PASS_RUNTIME`
 - Stories autoplay/progress: `PASS_RUNTIME`
 - Reels sharing: `PASS_RUNTIME`
-- Overall Phase 3A closure status: runtime complete, checkpoint commit pending
-
+- Overall Phase 3A closure status: runtime complete, checkpoint commit `4872c39`

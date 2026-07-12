@@ -120,6 +120,7 @@
 - [x] `backend/src/tests/feed.phase3a.test.js` passed with phase 3A social validators
 - [x] `npm test`, `npm run verify:release:local`, and `railway run --service bestoffer npm run verify:release:runtime` passed after the wrapper exit fix
 - [x] `docs/qa/PHASE_3A_SOCIAL_PROFILES_DISCOVERY_STORIES_REELS_REPORT.md` created
+- [x] Phase 3A checkpoint commit created in `4872c39`
 - [x] Phase 3A remains backend-only and does not require a device gate in this program
 
 ## Notes
