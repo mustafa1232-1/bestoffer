@@ -37,3 +37,4 @@ This list starts as the authoritative working blocker set for the closure progra
 |---|---|---|
 | Real-device QA for Phase 3C RC artifacts | BLOCKED | Signed APK/AAB artifacts exist in `qa_artifacts/phase_3c_android_rc/`, but no controllable Android device session was available to execute the foreground/background/killed-app and notification-tap flows. |
 | Full `permissions:check` role matrix | BLOCKED | The QA env only exposes `SUPER_ADMIN_PHONE` / `SUPER_ADMIN_PIN` in `.env.test`; user / owner / delivery credentials are not present in this workspace. |
+| Phase 3D internal testing approval gate | BLOCKED | The matrix-aware checker now exists, but the workspace still has no controllable Android device and therefore cannot satisfy the final real-device approval gate. |

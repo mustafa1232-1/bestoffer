@@ -15,6 +15,17 @@
 - [ ] Real-device push/background/killed-app and notification-tap QA remains blocked
 - [ ] Full `permissions:check` role matrix remains blocked until user / owner / delivery credentials are present in QA env
 
+## Phase 3D Closeout
+
+- [ ] `backend/src/scripts/rolePermissionCheckMatrix.js` is available for the final permissions gate
+- [ ] `backend/src/scripts/qaRoleMatrixBootstrap.js` is available for controlled QA role bootstrapping
+- [ ] `docs/qa/PHASE_3D_FINAL_INTERNAL_TESTING_GATE.md` has been created
+- [ ] `docs/qa/PERMISSIONS_MATRIX_RESULTS.md` has been created
+- [ ] `docs/qa/DEVICE_TEST_EXECUTION_REPORT.md` has been created
+- [ ] `docs/qa/INTERNAL_TESTING_ARTIFACT_MANIFEST.md` has been created
+- [ ] Real-device Android QA is still blocked in this workspace
+- [ ] Internal testing approval remains blocked until the device gate is satisfied
+
 ## Release Candidate Status
 
 - Overall status: `PASS_RUNTIME_RC_BUILT_DEVICE_PENDING`

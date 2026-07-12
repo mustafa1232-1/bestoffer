@@ -145,6 +145,17 @@
 - [ ] Real-device push/background/killed-app and notification-tap validation remains pending and must not be claimed as passed
 - [ ] Full `permissions:check` role matrix remains blocked until user / owner / delivery QA credentials are available
 
+## Phase 3D Continuation
+
+- [ ] Matrix-aware permissions checker added at `backend/src/scripts/rolePermissionCheckMatrix.js`
+- [ ] Controlled QA role bootstrap added at `backend/src/scripts/qaRoleMatrixBootstrap.js`
+- [ ] `docs/qa/PHASE_3D_FINAL_INTERNAL_TESTING_GATE.md` created
+- [ ] `docs/qa/PERMISSIONS_MATRIX_RESULTS.md` created
+- [ ] `docs/qa/DEVICE_TEST_EXECUTION_REPORT.md` created
+- [ ] `docs/qa/INTERNAL_TESTING_ARTIFACT_MANIFEST.md` created
+- [ ] Full real-device Android QA remains blocked because no controllable Android device is attached in this workspace
+- [ ] Internal testing approval remains blocked until the device gate is satisfied
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

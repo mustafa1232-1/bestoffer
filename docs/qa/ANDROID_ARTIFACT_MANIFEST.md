@@ -25,3 +25,9 @@ Phase 3C release-candidate artifacts built from the current `closure/full-applic
 - The root flavor artifacts all share the same package version (`1.0.1+9`) and upload key; the AAB upload certificate was verified directly on the user and store bundles and matches the same root fingerprint family for delivery, captain, and pharmacy.
 - Company is intentionally versioned separately at `1.0.0+3`.
 - APK and AAB paths above are the exact files that were produced in Phase 3C.
+
+## Phase 3D Note
+
+- No new Android artifacts were produced in this Phase 3D documentation pass.
+- The Phase 3C artifacts remain the current signed candidates while the real-device gate is blocked.
+- The minimum internal-testing manifest is documented separately in `docs/qa/INTERNAL_TESTING_ARTIFACT_MANIFEST.md`.

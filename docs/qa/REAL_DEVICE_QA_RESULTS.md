@@ -37,3 +37,5 @@ This file is intentionally strict.
 
 - Company/admin and pharmacy also have RC artifacts in `qa_artifacts/phase_3c_android_rc/`, but the minimum device-QA set remains user / store / delivery / captain.
 - Phase 1C runtime verification is complete, Phase 1D taxi runtime verification is complete, and the current Phase 3C RC APKs were rebuilt from HEAD `6db2be2dee1d2260f0dfcd0f751efcfabad411fc`, but push/background/killed-app, notification tap cold start, and live device session churn are still `BLOCKED: REAL_DEVICE_REQUIRED` until the signed APKs are executed on a controllable device.
+- Phase 3D does not change that outcome: this workspace still has no controllable Android device, so the internal-testing approval gate remains blocked.
+- `flutter devices` currently exposes only Windows desktop, Chrome, and Edge here.

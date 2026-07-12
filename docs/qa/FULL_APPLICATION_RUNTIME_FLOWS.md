@@ -144,6 +144,10 @@ This file captures the cross-app end-to-end flows that must be proven during the
   - `backend/src/scripts/authSessionPushE2ECheck.js` passed on Railway for company/admin session bootstrap and push/realtime
   - `backend/src/scripts/financialSettlementsE2ECheck.js` passed on Railway and cleaned up its temporary merchant/user artifacts
   - company portal branch/user/inventory/promotion screens remain covered by automated UI/API tests in this phase and are not device-gated
+- Phase 3D now adds a matrix-aware permissions checker and QA bootstrap for the final approval gate:
+  - `backend/src/scripts/qaRoleMatrixBootstrap.js` generates controlled QA accounts and a role matrix artifact
+  - `backend/src/scripts/rolePermissionCheckMatrix.js` performs the standalone permissions sweep
+  - the approval gate still cannot be fully closed here because no controllable Android device is attached
 
 ## Finance and Settlements
 
