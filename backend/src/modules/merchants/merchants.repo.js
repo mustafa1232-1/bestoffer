@@ -5,6 +5,7 @@ import { getDefaultCatalogTypeForActivity } from "./catalog-taxonomy.js";
 
 const MERCHANT_PRODUCTS_TTL = 120; // 2 minutes
 const MERCHANT_CATEGORIES_TTL = 300; // 5 minutes
+const MERCHANT_CATEGORIES_SCHEMA_VERSION = "2";
 const MERCHANT_CATALOG_VERSION_TTL = 7 * 24 * 60 * 60; // 7 days
 const MERCHANT_BROWSE_TTL = 120; // 2 minutes
 const MERCHANT_BROWSE_VERSION_TTL = 7 * 24 * 60 * 60; // 7 days
@@ -14,6 +15,20 @@ const MERCHANT_BROWSE_SCHEMA_VERSION = "3";
 function merchantCatalogVersionKey(merchantId) {
   return `merchant:catalog:ver:${Number(merchantId)}`;
 }
+
+export const PUBLIC_MERCHANT_CATEGORY_SELECT_COLUMNS = [
+  "c.id",
+  "c.merchant_id",
+  "c.catalog_type AS catalog_type",
+  "c.name",
+  "c.sort_order",
+  "c.order_index",
+  "c.icon",
+  "c.is_active",
+  "c.source",
+  "c.created_at",
+  "c.updated_at",
+];
 
 export function merchantBrowseCacheKey({
   version,
@@ -601,7 +616,7 @@ export async function getPublicMerchantProducts(merchantId, { limit = 200, offse
 export async function getPublicMerchantCategories(merchantId) {
   const redis = await getRedisClient().catch(() => null);
   const cacheVersion = await getMerchantCatalogVersion(redis, merchantId);
-  const cacheKey = `merchant:categories:${Number(merchantId)}:v${cacheVersion}`;
+  const cacheKey = `merchant:categories:schema:${MERCHANT_CATEGORIES_SCHEMA_VERSION}:${Number(merchantId)}:v${cacheVersion}`;
   if (redis) {
     try {
       const hit = await redis.get(cacheKey);
@@ -610,16 +625,7 @@ export async function getPublicMerchantCategories(merchantId) {
   }
   const r = await q(
     `SELECT
-       c.id,
-       c.merchant_id,
-       c.name,
-       c.sort_order,
-       c.order_index,
-       c.icon,
-       c.is_active,
-       c.source,
-       c.created_at,
-       c.updated_at,
+       ${PUBLIC_MERCHANT_CATEGORY_SELECT_COLUMNS.join(",\n       ")},
        COUNT(p.id) FILTER (
          WHERE CASE
            WHEN s.inventory_enabled = TRUE
