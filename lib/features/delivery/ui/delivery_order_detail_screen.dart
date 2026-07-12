@@ -480,6 +480,37 @@ class _DeliveryOrderDetailScreenState
                           value:
                               '${order.customerCity} - ${order.customerBlock} - ${order.customerBuildingNumber} ${order.customerApartment}',
                         ),
+                        if (order.hasExplicitDeliveryAssignment) ...[
+                          _InfoRow(
+                            label: context.lt(ar: 'حالة التعيين', en: 'Assignment'),
+                            value: switch ((order.deliveryAssignment?.assignmentStatus ??
+                                    order.deliveryAssignmentStatus ??
+                                    '')
+                                .trim()
+                                .toUpperCase()) {
+                              'ASSIGNED' => context.lt(
+                                ar: 'تم إسناد الطلب لك',
+                                en: 'Assigned to you',
+                              ),
+                              'PENDING_NO_DRIVER' => context.lt(
+                                ar: 'بانتظار دلفري متاح',
+                                en: 'Waiting for available courier',
+                              ),
+                              'COMPLETED' => context.lt(
+                                ar: 'مكتمل',
+                                en: 'Completed',
+                              ),
+                              'CANCELLED' => context.lt(
+                                ar: 'ملغي',
+                                en: 'Cancelled',
+                              ),
+                              _ => order.deliveryAssignment?.assignmentStatus ??
+                                  order.deliveryAssignmentStatus ??
+                                  context.lt(ar: 'غير محدد', en: 'Unknown'),
+                            },
+                            multiline: true,
+                          ),
+                        ],
                         if ((order.note ?? '').trim().isNotEmpty)
                         _InfoRow(
                           label: context.lt(

@@ -89,11 +89,6 @@ export function assertOwnerTransition({
           status: 400,
         });
       }
-      if (!deliveryUserId && !isMerchantDelivery && !hasAppDeliveryAssignment) {
-        throw new AppError("يجب تعيين دلفري قبل بدء التحضير.", {
-          status: 400,
-        });
-      }
       return;
 
     case "ready_for_delivery":

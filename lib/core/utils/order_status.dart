@@ -78,7 +78,7 @@ String? ownerOrderStatusHint(
     case 'approved':
       return hasDeliveryAssigned
           ? 'الدلفري معين ويمكنك بدء التحضير الآن.'
-          : 'تمت الموافقة على الطلب. ابدأ التحضير مباشرة، ويمكن تعيين دلفري أثناء التحضير.';
+          : 'تمت الموافقة على الطلب. ابدأ التحضير مباشرة، وسيتم تعيين أول دلفري متاح تلقائياً.';
     case 'preparing':
       return 'المتجر يجهز الطلب حالياً.';
     case 'ready_for_delivery':

@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
@@ -26,6 +27,7 @@ import '../../jobs/ui/jobs_hub_screen.dart';
 import '../../notifications/ui/notifications_bell.dart';
 import '../../orders/models/order_model.dart';
 import '../../orders/ui/widgets/order_item_widgets.dart';
+import '../../orders/ui/widgets/order_delivery_assignment_card.dart';
 import '../../pharmacy/ui/pharmacy_conversation_screen.dart';
 import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
@@ -103,9 +105,6 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   Timer? _pendingOrdersAlertTimer;
   int _pendingOrdersAlertSignature = 0;
   late final OwnerController _ownerController;
-
-  final Map<int, int> selectedDeliveryByOrder = {};
-  final Map<int, String> selectedDeliveryModeByOrder = {};
 
   /// يغيّر التبويب النشط بعد التأكد من بقاء الشاشة مركبة.
   void _setOwnerTab(_OwnerTab tab) {
@@ -1485,21 +1484,9 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   }
 
   Widget _buildCurrentOrderCard(OrderModel order, OwnerState ownerState) {
-    final selectedDelivery =
-        selectedDeliveryByOrder[order.id] ?? order.deliveryUserId;
-    final selectedDeliveryMode =
-        selectedDeliveryModeByOrder[order.id] ??
-        (order.isMerchantDelivery ? 'merchant_delivery' : 'platform_delivery');
-    final usesMerchantDelivery = selectedDeliveryMode == 'merchant_delivery';
     final controller = ref.read(ownerControllerProvider.notifier);
     final isPending = order.status == 'pending';
-    final hasDeliveryAssigned =
-        order.deliveryUserId != null || order.isMerchantDelivery;
-    final canAssignDelivery = const {
-      'approved',
-      'preparing',
-      'ready_for_delivery',
-    }.contains(order.status);
+    final hasDeliveryAssigned = order.hasAssignedDelivery;
     final statusInfoText = ownerOrderStatusHint(
       order.status,
       hasDeliveryAssigned: hasDeliveryAssigned,
@@ -1584,6 +1571,36 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                 ),
               ),
             ],
+            const SizedBox(height: 8),
+            OrderDeliveryAssignmentCard(
+              assignment: order.deliveryAssignment,
+              waitingCopy: context.lt(
+                ar: 'لا يوجد دلفري متاح حالياً',
+                en: 'No courier is available right now',
+              ),
+              helperText: context.lt(
+                ar: 'سيتم تعيين أول دلفري متاح تلقائياً، ويمكنك متابعة تجهيز الطلب.',
+                en: 'The first available courier will be assigned automatically while you prepare the order.',
+              ),
+              visibleWhenNoAssignment: true,
+              onCall: (order.deliveryAssignment?.driver?.phone ??
+                          order.deliveryPhone)
+                      ?.trim()
+                      .isNotEmpty ==
+                  true
+                  ? () async {
+                      final phone =
+                          (order.deliveryAssignment?.driver?.phone ??
+                                  order.deliveryPhone)
+                              ?.trim();
+                      if (phone == null || phone.isEmpty) return;
+                      await launchUrl(
+                        Uri.parse('tel:$phone'),
+                        mode: LaunchMode.externalApplication,
+                      );
+                    }
+                  : null,
+            ),
             const SizedBox(height: 6),
             ...order.items.asMap().entries.map((entry) {
               final item = entry.value;
@@ -1693,71 +1710,6 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
               ),
             ],
             const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              initialValue: selectedDeliveryMode,
-              items: const [
-                DropdownMenuItem<String>(
-                  value: 'platform_delivery',
-                  child: Text('دلفري التطبيق'),
-                ),
-                DropdownMenuItem<String>(
-                  value: 'merchant_delivery',
-                  child: Text('دلفري المتجر'),
-                ),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() {
-                  selectedDeliveryModeByOrder[order.id] = v;
-                  if (v == 'merchant_delivery') {
-                    selectedDeliveryByOrder.remove(order.id);
-                  }
-                });
-              },
-              decoration: const InputDecoration(labelText: 'نوع التوصيل'),
-            ),
-            const SizedBox(height: 8),
-            if (!usesMerchantDelivery && ownerState.deliveryAgents.isNotEmpty)
-              DropdownButtonFormField<int>(
-                initialValue: selectedDelivery,
-                items: ownerState.deliveryAgents
-                    .map(
-                      (d) => DropdownMenuItem<int>(
-                        value: d.id,
-                        child: Text('${d.fullName} - ${d.phone}'),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() {
-                  if (v == null) {
-                    selectedDeliveryByOrder.remove(order.id);
-                  } else {
-                    selectedDeliveryByOrder[order.id] = v;
-                  }
-                }),
-                decoration: const InputDecoration(
-                  labelText: 'مندوب التوصيل المسؤول',
-                ),
-              )
-            else if (!usesMerchantDelivery)
-              Text(
-                'لا يوجد مندوب توصيل مرتبط حاليًا. أضف مندوبًا أولًا ثم أعد الإسناد.',
-                textDirection: TextDirection.rtl,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.76),
-                  fontSize: 12.5,
-                ),
-              ),
-            if (usesMerchantDelivery)
-              Text(
-                'توصيل المتجر مفعل: سيُتابَع الطلب عبر مندوب المتجر مباشرة.',
-                textDirection: TextDirection.rtl,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.76),
-                  fontSize: 12.5,
-                ),
-              ),
-            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -1784,32 +1736,6 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                   icon: const Icon(Icons.print_outlined),
                   label: const Text('طباعة الطلب'),
                 ),
-                if (canAssignDelivery &&
-                    (usesMerchantDelivery ||
-                        ownerState.deliveryAgents.isNotEmpty))
-                  OutlinedButton(
-                    onPressed: ownerState.savingOrder
-                        ? null
-                        : (!usesMerchantDelivery && selectedDelivery == null)
-                        ? null
-                        : () async {
-                            await controller.assignDelivery(
-                              orderId: order.id,
-                              deliveryUserId: usesMerchantDelivery
-                                  ? null
-                                  : selectedDelivery,
-                              assignmentMode: selectedDeliveryMode,
-                            );
-                            if (!mounted) return;
-                          },
-                    child: Text(
-                      usesMerchantDelivery
-                          ? 'تأكيد توصيل المتجر'
-                          : (hasDeliveryAssigned
-                                ? 'تحديث الإسناد'
-                                : 'إسناد المندوب'),
-                    ),
-                  ),
                 if (order.status == 'pending')
                   ElevatedButton(
                     onPressed: ownerState.savingOrder
@@ -1825,12 +1751,11 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                     onPressed: ownerState.savingOrder
                         ? null
                         : () async {
+                            // Delivery is auto-assigned by the backend once
+                            // preparation starts; no store-side courier pick.
                             final updated = await controller
                                 .startPreparingFlowV2(
                                   orderId: order.id,
-                                  preferredCourierUserId: usesMerchantDelivery
-                                      ? null
-                                      : selectedDelivery,
                                   estimatedPrepMinutes: 20,
                                 );
                             if (!updated) return;

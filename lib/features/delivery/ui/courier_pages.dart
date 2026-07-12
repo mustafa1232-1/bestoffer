@@ -392,7 +392,7 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
         return all
             .where(
               (order) =>
-                  order.deliveryUserId != null &&
+                  order.hasAssignedDelivery &&
                   const {
                     'approved',
                     'preparing',
@@ -405,7 +405,7 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
         return all
             .where(
               (order) =>
-                  order.deliveryUserId != null &&
+                  order.hasAssignedDelivery &&
                   const {
                     'picked_up',
                     'on_the_way',
@@ -414,21 +414,31 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
             )
             .toList();
       case _OrdersMode.newOffers:
-        return const [];
+        return state.currentOrders
+            .where(
+              (order) =>
+                  order.hasAssignedDelivery ||
+                  const {
+                    'approved',
+                    'preparing',
+                    'ready_for_delivery',
+                    'ready_for_pickup',
+                    'on_the_way',
+                    'arrived',
+                  }.contains(normalizeOrderStatusForUi(order.status)),
+            )
+            .toList(growable: false);
     }
   }
-
-  List<Map<String, dynamic>> _offers(DeliveryState state) => state
-      .pendingRequests
-      .whereType<Map>()
-      .map((row) => Map<String, dynamic>.from(row))
-      .toList();
 
   String _title(BuildContext context) {
     final l10n = context.l10n;
     switch (widget.mode) {
       case _OrdersMode.newOffers:
-        return l10n.deliveryCourierNewOffersTitle;
+        return context.lt(
+          ar: 'الطلبات المعيّنة',
+          en: 'Assigned deliveries',
+        );
       case _OrdersMode.current:
         return l10n.deliveryCourierCurrentOrdersTitle;
       case _OrdersMode.waitingPickup:
@@ -448,7 +458,6 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
     final state = ref.watch(deliveryControllerProvider);
     final controller = ref.read(deliveryControllerProvider.notifier);
     final orders = _orders(state);
-    final offers = _offers(state);
 
     return Scaffold(
       appBar: AppBar(title: Text(_title(context))),
@@ -466,18 +475,6 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
                   child: CircularProgressIndicator(),
                 ),
               )
-            else if (widget.mode == _OrdersMode.newOffers)
-              if (offers.isEmpty)
-                _Empty(text: l10n.deliveryCourierNoNewOffers)
-              else
-                ...offers.map(
-                  (row) => _OfferCard(
-                    data: row,
-                    saving: state.saving,
-                    onAccept: (id) => controller.acceptRequest(id),
-                    onReject: (id) => controller.rejectRequest(id),
-                  ),
-                )
             else if (orders.isEmpty)
               _Empty(text: l10n.deliveryCourierNoItems)
             else
@@ -784,67 +781,6 @@ class _CourierReportPeriod {
         'avgRating',
         'avg_delivery_rating',
       ]),
-    );
-  }
-}
-
-class _OfferCard extends StatelessWidget {
-  const _OfferCard({
-    required this.data,
-    required this.saving,
-    required this.onAccept,
-    required this.onReject,
-  });
-
-  final Map<String, dynamic> data;
-  final bool saving;
-  final Future<void> Function(int orderId) onAccept;
-  final Future<void> Function(int orderId) onReject;
-
-  int? _id(dynamic value) => value is int ? value : int.tryParse('$value');
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    final orderId =
-        _id(data['orderId']) ?? _id(data['order_id']) ?? _id(data['id']);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${l10n.deliveryCourierOfferTitle} #${orderId ?? '-'}',
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-            Text(
-              '${l10n.deliveryCourierLabelMerchant}: ${data['merchant_name'] ?? data['merchantName'] ?? '-'}',
-            ),
-            Text(
-              '${l10n.deliveryCourierLabelCustomer}: ${data['customer_name'] ?? data['customerName'] ?? '-'}',
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                ElevatedButton(
-                  onPressed: saving || orderId == null
-                      ? null
-                      : () => onAccept(orderId),
-                  child: Text(l10n.deliveryCourierAccept),
-                ),
-                OutlinedButton(
-                  onPressed: saving || orderId == null
-                      ? null
-                      : () => onReject(orderId),
-                  child: Text(l10n.deliveryCourierReject),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

@@ -7140,7 +7140,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get ownerOrdersHintApprovedPendingCourier =>
-      'The order is approved. Start preparing now, and you can assign a courier while preparing.';
+      'The order is approved. Start preparing now; the first available courier will be assigned automatically.';
 
   @override
   String get ownerOrdersHintPreparing =>

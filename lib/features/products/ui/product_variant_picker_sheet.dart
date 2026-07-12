@@ -155,14 +155,15 @@ class _ProductVariantPickerSheetState
     if (widget.product.variants.isEmpty) return true;
     final proposed = <String, String>{
       for (final entry in _selectedByGroup.entries)
-        entry.key.toLowerCase(): entry.value.code.toLowerCase(),
-      groupCode.toLowerCase(): option.code.toLowerCase(),
+        entry.key.trim().toLowerCase(): entry.value.code.trim().toLowerCase(),
+      groupCode.trim().toLowerCase(): option.code.trim().toLowerCase(),
     };
     return widget.product.variants.any((variant) {
       if (!widget.product.canOrderVariant(variant)) return false;
       final values = {
         for (final item in variant.selections)
-          item['groupCode']!.toLowerCase(): item['optionCode']!.toLowerCase(),
+          item['groupCode']!.trim().toLowerCase():
+              item['optionCode']!.trim().toLowerCase(),
       };
       return proposed.entries.every(
         (entry) => values[entry.key] == entry.value,
@@ -211,6 +212,25 @@ class _ProductVariantPickerSheetState
 
   ProductVariantOptionModel? _selectedOptionFor(String groupCode) {
     return _selectedByGroup[groupCode];
+  }
+
+  /// After a single-select option changes, drop any other single-select
+  /// selection that can no longer combine into an orderable variant (e.g. a
+  /// size that is not stocked for the newly chosen color). This forces the user
+  /// to re-pick a valid value instead of leaving a stale, invalid combination
+  /// that keeps the confirm button disabled.
+  void _pruneInvalidSelections(String changedGroupCode) {
+    if (widget.product.variants.isEmpty) return;
+    final staleGroups = <String>[];
+    for (final entry in _selectedByGroup.entries) {
+      if (entry.key == changedGroupCode) continue;
+      if (!_optionCanLeadToStock(entry.key, entry.value)) {
+        staleGroups.add(entry.key);
+      }
+    }
+    for (final groupCode in staleGroups) {
+      _selectedByGroup.remove(groupCode);
+    }
   }
 
   @override
@@ -347,6 +367,7 @@ class _ProductVariantPickerSheetState
                                         }
                                       } else {
                                         _selectedByGroup[group.code] = option;
+                                        _pruneInvalidSelections(group.code);
                                       }
                                     });
                                   }

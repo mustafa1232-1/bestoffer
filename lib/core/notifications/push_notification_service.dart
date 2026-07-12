@@ -503,7 +503,7 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
   if (!appInAppCallsEnabled) return false;
   final target = (payload.target ?? '').trim().toLowerCase();
   if (target == 'social_call' ||
-      target == 'courier_orders_new' ||
+      target == 'courier_orders_current' ||
       target == 'delivery_order_offer' ||
       target == 'courier_order_offer' ||
       target == 'taxi_new_request' ||

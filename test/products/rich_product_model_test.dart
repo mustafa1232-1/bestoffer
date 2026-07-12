@@ -69,6 +69,67 @@ void main() {
     );
   });
 
+  test(
+    'resolves variant by selections map despite divergent signature, case, and whitespace',
+    () {
+      // Reproduces the real "اعتماد الاختيارات stays disabled" bug: legacy /
+      // mixed data where the pre-computed variant signature does NOT match the
+      // reconstructed groupCode:optionCode string (different delimiter/order),
+      // and the live option codes differ in case/whitespace. The button must
+      // still resolve the correct variant.
+      final product = ProductModel.fromJson({
+        'id': 20,
+        'merchantId': 2,
+        'name': 'قميص',
+        'price': 25000,
+        'isAvailable': true,
+        'sortOrder': 0,
+        'variantGroups': [
+          {
+            'code': 'color',
+            'labelAr': 'اللون',
+            'options': [
+              {'code': 'نيلي', 'labelAr': 'نيلي'},
+            ],
+          },
+          {
+            'code': 'size',
+            'labelAr': 'المقاس',
+            'options': [
+              {'code': 'XL', 'labelAr': 'XL'},
+            ],
+          },
+        ],
+        'variants': [
+          {
+            'id': 77,
+            // Intentionally divergent signature format (reversed order + labels)
+            // so any string-based signature comparison would fail.
+            'signature': 'SIZE=XL;COLOR=Navy',
+            'selections': [
+              {'groupCode': 'color', 'optionCode': 'نيلي '},
+              {'groupCode': 'size', 'optionCode': ' xl'},
+            ],
+            'stockQuantity': 3,
+            'isAvailable': true,
+          },
+        ],
+      });
+
+      // Exact selection as produced by the picker (group.code -> option.code).
+      final resolved = product.variantForSelections({
+        'color': 'نيلي',
+        'size': 'XL',
+      });
+      expect(resolved, isNotNull);
+      expect(resolved!.id, 77);
+      expect(product.canOrderVariant(resolved), isTrue);
+
+      // A partial selection must NOT resolve (keeps the confirm button disabled).
+      expect(product.variantForSelections({'color': 'نيلي'}), isNull);
+    },
+  );
+
   test('legacy product without inventory remains orderable', () {
     final product = ProductModel.fromJson({
       'id': 11,

@@ -2955,7 +2955,7 @@
   "ownerOrdersStatusReceived": "تلقى",
   "ownerOrdersStatusFailedDelivery": "فشل التسليم",
   "ownerOrdersHintApprovedAssigned": "تم تعيين ساعي ويمكنك البدء في الاستعداد الآن.",
-  "ownerOrdersHintApprovedPendingCourier": "تمت الموافقة على الطلب. ابدأ التحضير الآن، ويمكنك تعيين ساعي أثناء التحضير.",
+  "ownerOrdersHintApprovedPendingCourier": "تمت الموافقة على الطلب. ابدأ التحضير الآن، وسيتم تعيين أول دلفري متاح تلقائياً.",
   "ownerOrdersHintPreparing": "يقوم المتجر بتجهيز الطلب الآن.",
   "ownerOrdersHintReadyMerchantDelivery": "تم تمكين تسليم المتجر. قم بتحديث الحالة إلى الطريق عند مغادرة الطلب.",
   "ownerOrdersHintReadyPlatformDelivery": "في انتظار تأكيد الساعي للاستلام.",

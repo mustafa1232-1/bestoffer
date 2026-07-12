@@ -502,17 +502,41 @@ class ProductModel {
 
   ProductVariantModel? variantForSelections(Map<String, String> selections) {
     if (variants.isEmpty) return null;
-    final parts =
-        selections.entries
-            .map(
-              (entry) =>
-                  '${entry.key.toLowerCase()}:${entry.value.toLowerCase()}',
-            )
-            .toList()
-          ..sort();
-    final signature = parts.join('|');
+
+    // Normalize the requested (group -> option) selection: trim + lowercase and
+    // drop empty entries. We intentionally resolve variants by comparing the
+    // actual `selections` map of each variant instead of relying on the
+    // pre-computed `signature` string. The signature can diverge from the live
+    // option codes on legacy/mixed data (whitespace, upper/lowercase, Arabic vs
+    // English codes, or a different delimiter/order), which used to leave the
+    // "confirm options" button disabled even when a valid color/size pair was
+    // picked. Matching on the map keeps button-enablement consistent with the
+    // chip-enablement logic (`_optionCanLeadToStock`).
+    final requested = <String, String>{};
+    for (final entry in selections.entries) {
+      final groupCode = entry.key.trim().toLowerCase();
+      final optionCode = entry.value.trim().toLowerCase();
+      if (groupCode.isEmpty || optionCode.isEmpty) continue;
+      requested[groupCode] = optionCode;
+    }
+    if (requested.isEmpty) return null;
+
     for (final variant in variants) {
-      if (variant.signature.toLowerCase() == signature) return variant;
+      final variantSelections = <String, String>{};
+      for (final item in variant.selections) {
+        final groupCode = (item['groupCode'] ?? '').trim().toLowerCase();
+        final optionCode = (item['optionCode'] ?? '').trim().toLowerCase();
+        if (groupCode.isEmpty || optionCode.isEmpty) continue;
+        variantSelections[groupCode] = optionCode;
+      }
+      // Require an exact one-to-one match on every variant dimension so that a
+      // partial selection (e.g. color chosen but size missing) does not falsely
+      // resolve to a variant.
+      if (variantSelections.length != requested.length) continue;
+      final matches = requested.entries.every(
+        (entry) => variantSelections[entry.key] == entry.value,
+      );
+      if (matches) return variant;
     }
     return null;
   }

@@ -354,38 +354,78 @@ class _MerchantProductsScreenState
         ),
       );
     }
-    return GestureDetector(
-      onTap: canOrder
-          ? () => _addToCart(
-              product,
-              quantity: 1,
-              initialVariantSelections: selectedVariantSelections,
-              initialSelectedVariantId: selectedVariantId,
-              strictVariantSelection: strictVariantSelection,
-            )
-          : null,
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: canOrder
-              ? visual.accentCyan.withValues(alpha: 0.15)
-              : tokens.borderSubtle.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: canOrder
-                ? visual.accentCyan.withValues(alpha: 0.4)
-                : tokens.borderSubtle,
+    final requiresSelection =
+        strictVariantSelection &&
+        product.hasVariants &&
+        selectedVariantId == null;
+    final label = !canOrder
+        ? (widget.merchant.isOpen ? 'غير متوفر حالياً' : 'المتجر مغلق الآن')
+        : requiresSelection
+        ? context.lt(
+            ar: 'اختر اللون والمقاس أولاً',
+            en: 'Choose color and size first',
+          )
+        : usesPharmacyConversation
+        ? context.lt(ar: 'إرسال للمراجعة', en: 'Send for review')
+        : context.lt(ar: 'إضافة إلى السلة', en: 'Add to cart');
+    final icon = !canOrder
+        ? Icons.block_outlined
+        : requiresSelection
+        ? Icons.tune_rounded
+        : usesPharmacyConversation
+        ? Icons.chat_bubble_outline_rounded
+        : Icons.add_shopping_cart_rounded;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 240),
+      child: SizedBox(
+        width: double.infinity,
+        child: FilledButton(
+          onPressed: canOrder
+              ? () => _addToCart(
+                  product,
+                  quantity: 1,
+                  initialVariantSelections: selectedVariantSelections,
+                  initialSelectedVariantId: selectedVariantId,
+                  strictVariantSelection: strictVariantSelection,
+                )
+              : null,
+          style: FilledButton.styleFrom(
+            backgroundColor: canOrder
+                ? visual.accentCyan.withValues(alpha: 0.15)
+                : tokens.borderSubtle.withValues(alpha: 0.3),
+            foregroundColor: canOrder ? visual.accentCyan : tokens.textMuted,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(
+                color: canOrder
+                    ? visual.accentCyan.withValues(alpha: 0.28)
+                    : tokens.borderSubtle,
+              ),
+            ),
           ),
-        ),
-        child: Icon(
-          usesPharmacyConversation
-              ? Icons.chat_bubble_outline_rounded
-              : product.hasVariants
-              ? Icons.tune_rounded
-              : Icons.add_rounded,
-          color: canOrder ? visual.accentCyan : tokens.textMuted,
-          size: 22,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            textDirection: TextDirection.rtl,
+            children: [
+              Icon(icon, size: 18),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textDirection: TextDirection.rtl,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -2966,7 +2966,7 @@
   "ownerOrdersStatusReceived": "Received",
   "ownerOrdersStatusFailedDelivery": "Delivery failed",
   "ownerOrdersHintApprovedAssigned": "A courier is assigned and you can start preparing now.",
-  "ownerOrdersHintApprovedPendingCourier": "The order is approved. Start preparing now, and you can assign a courier while preparing.",
+  "ownerOrdersHintApprovedPendingCourier": "The order is approved. Start preparing now; the first available courier will be assigned automatically.",
   "ownerOrdersHintPreparing": "The store is preparing the order now.",
   "ownerOrdersHintReadyMerchantDelivery": "Store delivery is enabled. Update the status to on the way when the order leaves.",
   "ownerOrdersHintReadyPlatformDelivery": "Waiting for the courier to confirm pickup.",

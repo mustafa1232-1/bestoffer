@@ -176,8 +176,11 @@ class _DeliveryDashboardScreenState
           items: [
             AppUserDrawerItem(
               icon: Icons.campaign_outlined,
-              label: l10n.deliveryCourierNewOffersTitle,
-              subtitle: l10n.deliveryOfferReviewPrompt,
+              label: context.lt(ar: 'الطلبات المعيّنة', en: 'Assigned deliveries'),
+              subtitle: context.lt(
+                ar: 'تظهر الطلبات المعيّنة لك فقط مع التحديث اللحظي.',
+                en: 'Only your assigned orders are shown with live updates.',
+              ),
               onTap: (_) async {
                 await Navigator.of(context).push(
                   MaterialPageRoute<void>(
@@ -477,7 +480,10 @@ class _DeliveryDashboardScreenState
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.campaign_outlined),
-                title: Text(l10n.deliveryCourierNewOffersTitle),
+                title: Text(context.lt(
+                  ar: 'الطلبات المعيّنة',
+                  en: 'Assigned deliveries',
+                )),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () async {
                   await Navigator.of(context).push(
@@ -1091,7 +1097,7 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
-    final assignedToMe = order.deliveryUserId != null;
+    final assignedToMe = order.hasAssignedDelivery;
     final normalized = normalizeOrderStatusForUi(order.status);
     final waitingForMerchant =
         assignedToMe && (normalized == 'pending' || normalized == 'preparing');

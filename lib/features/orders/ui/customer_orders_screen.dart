@@ -1,4 +1,4 @@
-// ignore_for_file: prefer_const_constructors
+﻿// ignore_for_file: prefer_const_constructors
 
 import 'dart:async';
 import 'dart:math' as math;
@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/notifications/attention_alert_service.dart';
@@ -18,6 +19,7 @@ import '../../tracking/ui/delivery_live_tracking_screen.dart';
 import '../models/order_model.dart';
 import '../state/orders_controller.dart';
 import 'order_chat_screen.dart';
+import 'widgets/order_delivery_assignment_card.dart';
 import 'widgets/order_item_widgets.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
@@ -631,21 +633,48 @@ class _OrderTrackingDetailsScreenState
               const SizedBox(height: 12),
               _DeliveryEtaPanel(order: order),
             ],
-            if (order.deliveryFullName != null) ...[
+            if (order.hasExplicitDeliveryAssignment ||
+                const {
+                  'approved',
+                  'preparing',
+                  'ready_for_delivery',
+                  'ready_for_pickup',
+                  'on_the_way',
+                  'arrived',
+                }.contains(order.status)) ...[
               const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  color: Colors.white.withValues(alpha: 0.06),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.14),
-                  ),
-                ),
-                child: Text(
-                  '\u0627\u0644\u0633\u0627\u0626\u0642: ${order.deliveryFullName} - ${order.deliveryPhone ?? ''}',
-                  textDirection: TextDirection.rtl,
-                ),
+              Builder(
+                builder: (context) {
+                  final deliveryContactPhone =
+                      (order.deliveryAssignment?.driver?.phone ??
+                              order.deliveryPhone)
+                          ?.trim();
+                  return OrderDeliveryAssignmentCard(
+                    assignment: order.deliveryAssignment,
+                    waitingCopy: context.lt(
+                      ar: 'يتم تعيين الدلفري تلقائياً حالياً',
+                      en: 'A courier will be assigned automatically',
+                    ),
+                    helperText: context.lt(
+                      ar: 'يمكنك متابعة تجهيز الطلب حتى يتم التعيين.',
+                      en:
+                          'You can continue preparing the order while assignment is pending.',
+                    ),
+                    visibleWhenNoAssignment: true,
+                    onCall: deliveryContactPhone?.isNotEmpty == true
+                        ? () async {
+                            final phone = deliveryContactPhone!;
+                            await launchUrl(
+                              Uri.parse('tel:$phone'),
+                              mode: LaunchMode.externalApplication,
+                            );
+                          }
+                        : null,
+                    onChat: order.hasAssignedDelivery
+                        ? () => _openDeliveryChat(order)
+                        : null,
+                  );
+                },
               ),
             ],
             if (order.imageUrl?.trim().isNotEmpty == true) ...[
@@ -942,7 +971,7 @@ class _OrderTrackingDetailsScreenState
           ),
           const SizedBox(height: 8),
         ],
-        if (order.deliveryUserId != null &&
+        if (order.hasAssignedDelivery &&
             order.status != 'cancelled' &&
             order.customerConfirmedAt == null) ...[
           SizedBox(
@@ -1162,7 +1191,7 @@ class _OrderTrackingDetailsScreenState
     final deliveryConfirmationHint = customerOrderTrackingHint(
       order.status,
       hasDeliveryAssigned:
-          order.deliveryUserId != null || order.isMerchantDelivery,
+          order.hasAssignedDelivery || order.isMerchantDelivery,
       customerConfirmed: order.customerConfirmedAt != null,
     );
     final etaLabel = switch (order.status) {
@@ -1810,7 +1839,7 @@ class _OrderStatusTimeline extends StatelessWidget {
     final trackingHint = customerOrderTrackingHint(
       order.status,
       hasDeliveryAssigned:
-          order.deliveryUserId != null || order.isMerchantDelivery,
+          order.hasAssignedDelivery || order.isMerchantDelivery,
       customerConfirmed: order.customerConfirmedAt != null,
     );
 
@@ -2262,7 +2291,7 @@ class _EtaWindow {
 _TimelineProgress _buildProgress(OrderModel order) {
   final approved = order.approvedAt != null || order.status != 'pending';
   final assignedDriverRaw =
-      order.deliveryUserId != null ||
+      order.hasAssignedDelivery ||
       order.isMerchantDelivery ||
       const {'on_the_way', 'arrived', 'delivered'}.contains(order.status);
   final preparingRaw =

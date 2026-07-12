@@ -130,7 +130,14 @@ class DeliveryController extends StateNotifier<DeliveryState>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final wasResumed = _lifecycleResumed;
     _lifecycleResumed = state == AppLifecycleState.resumed;
+    // Returning to the foreground must not depend on a push or the next poll
+    // tick: refresh the assigned/current orders immediately so an order that
+    // was assigned while the app was backgrounded shows up right away.
+    if (!wasResumed && _lifecycleResumed && _canRunDeliveryPolling()) {
+      unawaited(refreshCurrentOrders(silent: true));
+    }
   }
 
   void _setStateSafely(DeliveryState nextState) {
@@ -166,7 +173,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
     return orders
         .where((order) {
           final normalized = normalizeOrderStatusForUi(order.status);
-          final hasCourier = order.deliveryUserId != null;
+          final hasCourier = order.hasAssignedDelivery;
           return hasCourier &&
               const {
                 'ready_for_delivery',
@@ -219,7 +226,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
         if (!canPublishCourierLocation(
           lifecycleResumed: _lifecycleResumed,
           permissionGranted: permissionGranted,
-          assigned: order.deliveryUserId != null,
+          assigned: order.hasAssignedDelivery,
           status: normalizeOrderStatusForUi(order.status),
         )) {
           continue;
@@ -246,7 +253,14 @@ class DeliveryController extends StateNotifier<DeliveryState>
     _setStateSafely(state.copyWith(loading: true, error: null));
     try {
       final api = ref.read(deliveryApiProvider);
-      final ordersFuture = api.ordersV2().catchError((_) => <dynamic>[]);
+      // Capture (rather than swallow) a failure of the critical current-orders
+      // fetch. If it fails we must show a real error + retry, never a
+      // misleading "no items" empty state that hides an assigned order.
+      Object? ordersError;
+      final ordersFuture = api.ordersV2().catchError((Object e) {
+        ordersError = e;
+        return <dynamic>[];
+      });
       final analyticsFuture = api.analytics().catchError(
         (_) => <String, dynamic>{},
       );
@@ -299,6 +313,26 @@ class DeliveryController extends StateNotifier<DeliveryState>
       final competitionProgressV2 = await competitionProgressFuture;
       final competitionAchievementsV2 = await competitionAchievementsFuture;
       final endDayReadiness = await endDayReadinessFuture;
+
+      if (ordersError != null) {
+        final err = ordersError;
+        if (err is DioException && _isDeliveryForbiddenError(err)) {
+          stopLiveOrders(force: true);
+        }
+        // Preserve any orders already on screen instead of blanking the list,
+        // and surface an error so the UI can offer a retry.
+        _setStateSafely(
+          state.copyWith(
+            loading: false,
+            error: err is DioException
+                ? _mapError(err)
+                : resolveLocalizedText(
+                    (l10n) => l10n.deliveryDashboardLoadFailed,
+                  ),
+          ),
+        );
+        return;
+      }
 
       final allOrders = ordersResponse
           .map((e) => OrderModel.fromJson(Map<String, dynamic>.from(e as Map)))

@@ -136,19 +136,37 @@ class _MerchantProductDetailsScreenState
     if (widget.product.variants.isEmpty) return true;
     final proposed = <String, String>{
       for (final entry in _selectedByGroup.entries)
-        entry.key.toLowerCase(): entry.value.code.toLowerCase(),
-      groupCode.toLowerCase(): option.code.toLowerCase(),
+        entry.key.trim().toLowerCase(): entry.value.code.trim().toLowerCase(),
+      groupCode.trim().toLowerCase(): option.code.trim().toLowerCase(),
     };
     return widget.product.variants.any((variant) {
       if (!widget.product.canOrderVariant(variant)) return false;
       final values = {
         for (final item in variant.selections)
-          item['groupCode']!.toLowerCase(): item['optionCode']!.toLowerCase(),
+          item['groupCode']!.trim().toLowerCase():
+              item['optionCode']!.trim().toLowerCase(),
       };
       return proposed.entries.every(
         (entry) => values[entry.key] == entry.value,
       );
     });
+  }
+
+  /// Drop any single-select value that can no longer combine into an orderable
+  /// variant after [changedGroupCode] changed (see requirement: when the color
+  /// changes, an incompatible size must be cleared so the user re-picks it).
+  void _pruneInvalidSelections(String changedGroupCode) {
+    if (widget.product.variants.isEmpty) return;
+    final staleGroups = <String>[];
+    for (final entry in _selectedByGroup.entries) {
+      if (entry.key == changedGroupCode) continue;
+      if (!_optionCanLeadToStock(entry.key, entry.value)) {
+        staleGroups.add(entry.key);
+      }
+    }
+    for (final groupCode in staleGroups) {
+      _selectedByGroup.remove(groupCode);
+    }
   }
 
   double get _variantDeltaTotal {
@@ -232,6 +250,7 @@ class _MerchantProductDetailsScreenState
         );
         if (matches.isNotEmpty) {
           _selectedByGroup[group.code] = matches.first;
+          _pruneInvalidSelections(group.code);
         }
       }
     });
@@ -319,6 +338,133 @@ class _MerchantProductDetailsScreenState
           ),
         ),
       );
+  }
+
+  bool get _canSubmitCurrentSelection {
+    return !widget.product.hasVariants ||
+        (_selectedVariant != null &&
+            widget.product.canOrderVariant(_selectedVariant!));
+  }
+
+  String _submitLabel(BuildContext context) {
+    if (!widget.canOrder) {
+      return widget.unavailableLabel;
+    }
+    if (_canSubmitCurrentSelection) {
+      return _usesPharmacyConversation
+          ? context.lt(ar: 'إرسال للمراجعة', en: 'Send for review')
+          : context.lt(ar: 'إضافة إلى السلة', en: 'Add to cart');
+    }
+    return context.lt(
+      ar: _requiresStrictVariantSelection
+          ? 'اختر اللون والمقاس أولاً'
+          : 'اختر تركيبة متاحة أولاً',
+      en: _requiresStrictVariantSelection
+          ? 'Choose color and size first'
+          : 'Select an available variant first',
+    );
+  }
+
+  IconData _submitIcon() {
+    if (!widget.canOrder) return Icons.block_outlined;
+    if (!_canSubmitCurrentSelection) return Icons.tune_rounded;
+    return _usesPharmacyConversation
+        ? Icons.chat_bubble_outline_rounded
+        : Icons.add_shopping_cart_rounded;
+  }
+
+  Widget _buildQuantitySelector(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        textDirection: TextDirection.rtl,
+        children: [
+          IconButton(
+            tooltip: context.lt(ar: 'زيادة', en: 'Increase'),
+            icon: const Icon(Icons.add_rounded),
+            onPressed: () => setState(() => _quantity += 1),
+          ),
+          Text(
+            '$_quantity',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          IconButton(
+            tooltip: context.lt(ar: 'تنقيص', en: 'Decrease'),
+            icon: const Icon(Icons.remove_rounded),
+            onPressed: () =>
+                setState(() => _quantity = _quantity > 1 ? _quantity - 1 : 1),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomActionBar(BuildContext context) {
+    final textDirection = context.appTextDirection;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+            child: Row(
+              textDirection: textDirection,
+              children: [
+                _buildQuantitySelector(context),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SizedBox(
+                    height: 52,
+                    child: FilledButton.icon(
+                      onPressed: widget.canOrder && _canSubmitCurrentSelection
+                          ? _addCurrentProduct
+                          : null,
+                      icon: _submitting
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(_submitIcon()),
+                      label: Text(
+                        _submitLabel(context),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   List<String> _specLines() {
@@ -416,6 +562,7 @@ class _MerchantProductDetailsScreenState
                                   } else {
                                     setState(() {
                                       _selectedByGroup[group.code] = option;
+                                      _pruneInvalidSelections(group.code);
                                     });
                                   }
                                 }
@@ -499,8 +646,16 @@ class _MerchantProductDetailsScreenState
           onPressed: () => Navigator.of(context).maybePop(),
         ),
       ),
+      bottomNavigationBar: widget.onAddToCart != null
+          ? _buildBottomActionBar(context)
+          : null,
       body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
+        padding: EdgeInsets.fromLTRB(
+          14,
+          12,
+          14,
+          widget.onAddToCart != null ? 148 : 18,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [

@@ -12,6 +12,10 @@ import {
 } from "./modules/feed/feed.service.js";
 import { startOrderAttentionReminderWorker, stopOrderAttentionReminderWorker } from "./modules/notifications/order-attention.worker.js";
 import { startInventoryReservationWorker, stopInventoryReservationWorker } from "./modules/orders/inventory-reservation.worker.js";
+import {
+  startDeliveryAssignmentRecoveryWorker,
+  stopDeliveryAssignmentRecoveryWorker,
+} from "./modules/orders/delivery-assignment.worker.js";
 import { startPaidUpgradeMaintenanceWorker, stopPaidUpgradeMaintenanceWorker } from "./modules/paid-upgrades/paid-upgrades.service.js";
 import { startTaxiLifecycleWorker } from "./modules/taxi/taxi.service.js";
 import { seedOpsRunbooks } from "./ops/runbooksLoader.js";
@@ -266,6 +270,7 @@ async function start() {
   startTaxiLifecycleWorker();
   startOrderAttentionReminderWorker();
   startInventoryReservationWorker();
+  startDeliveryAssignmentRecoveryWorker();
   startPaidUpgradeMaintenanceWorker();
 
   const server = app.listen(port, host, () => {
@@ -319,6 +324,7 @@ async function shutdown(reason, exitCode = 0) {
   // Stop background workers first to prevent new DB activity
   stopOrderAttentionReminderWorker();
   stopInventoryReservationWorker();
+  await stopDeliveryAssignmentRecoveryWorker();
   stopPaidUpgradeMaintenanceWorker();
 
   try {

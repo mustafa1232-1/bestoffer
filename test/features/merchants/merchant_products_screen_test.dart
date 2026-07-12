@@ -319,7 +319,7 @@ void main() {
       final card = find.byKey(const ValueKey(11));
       final addButton = find.descendant(
         of: card,
-        matching: find.byIcon(Icons.tune_rounded),
+        matching: find.byType(FilledButton),
       );
 
       expect(
@@ -338,7 +338,7 @@ void main() {
       await tester.tap(addButton);
       await tester.pumpAndSettle();
 
-      expect(find.text('اختر اللون والمقاس أولاً'), findsOneWidget);
+      expect(find.text('اختر اللون والمقاس أولاً'), findsWidgets);
       expect(container.read(cartControllerProvider).items, isEmpty);
 
       await tester.tap(find.descendant(of: card, matching: find.text('أحمر')));
@@ -349,6 +349,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('تمت إضافة المنتج إلى السلة'), findsOneWidget);
+
+      expect(
+        find.descendant(of: card, matching: find.byType(FilledButton)),
+        findsOneWidget,
+      );
 
       final cart = container.read(cartControllerProvider);
       expect(cart.items, hasLength(1));
@@ -370,4 +375,5 @@ void main() {
       );
     },
   );
+
 }

@@ -11,6 +11,7 @@ import * as ownerController from "../modules/owner/owner.controller.js";
 import * as ownerRepo from "../modules/owner/owner.repo.js";
 import * as ownerService from "../modules/owner/owner.service.js";
 import * as ordersService from "../modules/orders/orders.service.js";
+import * as ordersRepo from "../modules/orders/orders.repo.js";
 import * as servicesController from "../modules/services/services.controller.js";
 import * as servicesRepo from "../modules/services/services.repo.js";
 
@@ -292,6 +293,16 @@ test("workspace employee permission enforcement", async (t) => {
       }
     );
     trackedIds.userIds.push(Number(deliveryAgent.user.id));
+    await q(
+      `UPDATE courier_profile SET availability_status = 'online' WHERE user_id = $1`,
+      [Number(deliveryAgent.user.id)]
+    );
+    await ordersRepo.upsertCourierPresence({
+      courierUserId: Number(deliveryAgent.user.id),
+      latitude: 33.3152,
+      longitude: 44.3661,
+      isOnline: true,
+    });
 
     const storeActor = await createTestUser({
       fullName: `Store HR ${makeSuffix("hr-")}`,

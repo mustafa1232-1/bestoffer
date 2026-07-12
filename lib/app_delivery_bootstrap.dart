@@ -211,6 +211,7 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
     return payload.orderId != null &&
         (payload.requiresAction ||
             target == 'courier_orders_new' ||
+            target == 'courier_orders_current' ||
             target == 'delivery_order_offer' ||
             target == 'courier_order_offer' ||
             type == 'delivery_order_available' ||

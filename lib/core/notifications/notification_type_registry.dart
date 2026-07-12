@@ -31,7 +31,7 @@ class NotificationTypeRegistry {
         normalizedType == 'courier_order_offer') {
       return const NotificationRouteSpec(
         targetModule: 'courier',
-        targetScreen: 'courier_orders_new',
+        targetScreen: 'courier_orders_current',
         fallbackScreen: 'courier_notifications',
         allowedRoleScopes: {'courier', 'delivery'},
         expectedPayloadKeys: {'orderId', 'merchantId'},

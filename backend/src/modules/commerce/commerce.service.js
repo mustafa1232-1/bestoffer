@@ -257,6 +257,12 @@ export async function ownerStartPreparing(ownerUserId, orderId, body = {}) {
     note: body?.note ?? null,
   });
   invalidateCustomerOrderList(out.order);
+  const courierTargets =
+    Array.isArray(out.courierRecipients) && out.courierRecipients.length > 0
+      ? out.courierRecipients
+      : out.assignmentCreated === true && out.deliveryAssignment?.driver
+        ? [out.deliveryAssignment.driver]
+        : [];
 
   await notify([
     {
@@ -270,7 +276,7 @@ export async function ownerStartPreparing(ownerUserId, orderId, body = {}) {
         action: "open_order_tracking",
       }),
     },
-    ...out.courierRecipients.map((courier) => ({
+    ...courierTargets.map((courier) => ({
       userId: Number(courier.id),
       type: "delivery_order_available",
       title: "New delivery request",
@@ -278,7 +284,7 @@ export async function ownerStartPreparing(ownerUserId, orderId, body = {}) {
       orderId: Number(out.order.id),
       merchantId: Number(out.order.merchant_id),
       payload: {
-        ...toOrderPayload(out.order, "courier_orders_new", {
+        ...toOrderPayload(out.order, "courier_orders_current", {
           action: "open_order_offer",
           roleScope: "courier",
         }),
@@ -300,24 +306,6 @@ export async function ownerAssignCourier(ownerUserId, orderId, body = {}) {
   });
   invalidateCustomerOrderList(out.order);
 
-  await notify([
-    {
-      userId: Number(out.courier.id),
-      type: "delivery_order_assigned",
-      title: "Order assigned",
-      body: `You were assigned to order #${orderId}.`,
-      orderId: Number(orderId),
-      merchantId: Number(out.order.merchant_id),
-      payload: {
-        ...toOrderPayload(out.order, "courier_orders_current", {
-          action: "open_assigned_order",
-          roleScope: "courier",
-        }),
-        requiresAction: true,
-      },
-    },
-  ]);
-
   return out;
 }
 
@@ -329,6 +317,12 @@ export async function ownerReadyForPickup(ownerUserId, orderId, body = {}) {
     note: body?.note ?? null,
   });
   invalidateCustomerOrderList(out.order);
+  const courierTargets =
+    (Array.isArray(out.courierRecipients) && out.courierRecipients.length > 0
+      ? out.courierRecipients
+      : out.deliveryAssignment?.driver
+        ? [out.deliveryAssignment.driver]
+        : []);
 
   await notify([
     {
@@ -342,7 +336,7 @@ export async function ownerReadyForPickup(ownerUserId, orderId, body = {}) {
         action: "open_order_tracking",
       }),
     },
-    ...out.courierRecipients.map((courier) => ({
+    ...courierTargets.map((courier) => ({
       userId: Number(courier.id),
       type: "delivery_order_ready_for_pickup",
       title: "Order ready for pickup",

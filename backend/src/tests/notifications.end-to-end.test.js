@@ -613,72 +613,89 @@ test("store order notifications target the owner and permitted employees, and de
       0
     );
 
-    const deliveryA = await createTestUser({
+    const deliveryA = await ownerService.createDeliveryAgent(storeOwner.id, {
       fullName: `Courier A ${makeSuffix("courier-a-")}`,
       phone: makePhone(15),
-      role: "delivery",
+      pin: "1234",
+      imageUrl: null,
     });
-    const deliveryB = await createTestUser({
+    const deliveryB = await ownerService.createDeliveryAgent(storeOwner.id, {
       fullName: `Courier B ${makeSuffix("courier-b-")}`,
       phone: makePhone(16),
-      role: "delivery",
+      pin: "1234",
+      imageUrl: null,
     });
-    trackedIds.userIds.push(Number(deliveryA.id), Number(deliveryB.id));
-
-    await ordersRepo.ensureDeliveryAccountApproved(deliveryA.id);
-    await ordersRepo.ensureDeliveryAccountApproved(deliveryB.id);
+    trackedIds.userIds.push(Number(deliveryA.user.id), Number(deliveryB.user.id));
+    await q(
+      `UPDATE courier_profile SET availability_status = 'online' WHERE user_id IN ($1, $2)`,
+      [Number(deliveryA.user.id), Number(deliveryB.user.id)]
+    );
+    await ordersRepo.upsertCourierPresence({
+      courierUserId: Number(deliveryA.user.id),
+      latitude: 33.3152,
+      longitude: 44.3661,
+      isOnline: true,
+    });
+    await ordersRepo.upsertCourierPresence({
+      courierUserId: Number(deliveryB.user.id),
+      latitude: 33.3152,
+      longitude: 44.3661,
+      isOnline: true,
+    });
 
     await ownerService.updateOrderStatus(storeOwner.id, order.id, "approved");
     await ownerService.assignDelivery(
       storeOwner.id,
       order.id,
-      Number(deliveryA.id),
-      "platform_delivery"
+      Number(deliveryA.user.id),
+      "merchant_delivery"
     );
     await ownerService.assignDelivery(
       storeOwner.id,
       order.id,
-      Number(deliveryB.id),
-      "platform_delivery"
-    );
-    await ownerService.assignDelivery(
-      storeOwner.id,
-      order.id,
-      null,
+      Number(deliveryB.user.id),
       "merchant_delivery"
     );
 
+    const assignedOrder = await q(
+      `SELECT delivery_user_id, delivery_assignment_status
+       FROM customer_order
+       WHERE id = $1`,
+      [Number(order.id)]
+    );
+    assert.equal(
+      Number(assignedOrder.rows[0]?.delivery_user_id || 0),
+      Number(deliveryA.user.id)
+    );
+    assert.equal(
+      String(assignedOrder.rows[0]?.delivery_assignment_status || ""),
+      "ASSIGNED"
+    );
+
     const deliveryANotifications = await latestNotificationsByType({
-      userId: deliveryA.id,
+      userId: deliveryA.user.id,
       type: "delivery_assigned_by_owner",
     });
     assert.equal(deliveryANotifications.length, 1);
     assert.equal(deliveryANotifications[0].payload?.target, "delivery_orders");
 
-    const deliveryAReassignNotifications = await latestNotificationsByType({
-      userId: deliveryA.id,
-      type: "delivery_order_reassigned",
-    });
-    assert.equal(deliveryAReassignNotifications.length, 1);
-    assert.equal(
-      deliveryAReassignNotifications[0].payload?.target,
-      "courier_notifications"
-    );
-
     const deliveryBAssignedNotifications = await latestNotificationsByType({
-      userId: deliveryB.id,
+      userId: deliveryB.user.id,
       type: "delivery_assigned_by_owner",
     });
-    assert.equal(deliveryBAssignedNotifications.length, 1);
-    const deliveryBRemovedNotifications = await latestNotificationsByType({
-      userId: deliveryB.id,
+    assert.equal(deliveryBAssignedNotifications.length, 0);
+
+    const deliveryARemovedNotifications = await latestNotificationsByType({
+      userId: deliveryA.user.id,
       type: "delivery_order_removed",
     });
-    assert.equal(deliveryBRemovedNotifications.length, 1);
-    assert.equal(
-      deliveryBRemovedNotifications[0].payload?.target,
-      "courier_notifications"
-    );
+    assert.equal(deliveryARemovedNotifications.length, 0);
+
+    const deliveryAReassignNotifications = await latestNotificationsByType({
+      userId: deliveryA.user.id,
+      type: "delivery_order_reassigned",
+    });
+    assert.equal(deliveryAReassignNotifications.length, 0);
   } finally {
     await cleanupWorkspace(trackedIds);
   }

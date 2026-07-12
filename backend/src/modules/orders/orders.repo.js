@@ -29,6 +29,16 @@ import {
   buildOrderItemDisplaySnapshot,
   hydrateOrderItemDisplaySnapshot,
 } from "./order-item-snapshot.logic.js";
+import {
+  buildDeliveryAssignmentPresentation,
+  DELIVERY_ASSIGNMENT_STATUSES,
+  deriveDeliveryAssignmentStatus,
+  isDeliveryAssignmentAssigned,
+  isDeliveryAssignmentOpen,
+  normalizeDeliveryAssignmentStatus,
+} from "./delivery-assignment.logic.js";
+import { requestDeliveryAssignmentRecovery } from "./delivery-assignment.worker.js";
+import { directAssignDeliveryOrderTx } from "../commerce/commerce.repo.js";
 import crypto from "crypto";
 import {
   consumeCouponRedemptionByOrderTx,
@@ -165,12 +175,34 @@ const orderSelect = `
     d.id AS delivery_id,
     d.full_name AS delivery_full_name,
     d.phone AS delivery_phone,
-    cp.driver_type AS delivery_driver_type
+    d.image_url AS delivery_image_url,
+    cp.driver_type AS delivery_driver_type,
+    cp.rating AS delivery_rating,
+    cp.availability_status AS delivery_availability_status,
+    cp.coverage_block AS delivery_coverage_block,
+    cp.vehicle_type AS delivery_vehicle_type,
+    latest_ca.id AS delivery_assignment_id,
+    latest_ca.status AS delivery_assignment_row_status,
+    latest_ca.assigned_at AS delivery_assignment_assigned_at,
+    latest_ca.ended_at AS delivery_assignment_ended_at,
+    latest_ca.ended_reason AS delivery_assignment_ended_reason
   FROM customer_order o
   JOIN merchant m ON m.id = o.merchant_id
   LEFT JOIN app_user c ON c.id = o.customer_user_id
   LEFT JOIN app_user d ON d.id = o.delivery_user_id
   LEFT JOIN courier_profile cp ON cp.user_id = d.id
+  LEFT JOIN LATERAL (
+    SELECT
+      ca.id,
+      ca.status,
+      ca.assigned_at,
+      ca.ended_at,
+      ca.ended_reason
+    FROM courier_assignment ca
+    WHERE ca.order_id = o.id
+    ORDER BY ca.id DESC
+    LIMIT 1
+  ) latest_ca ON TRUE
 `;
 
 function toNumberOrNull(value) {
@@ -1360,7 +1392,12 @@ export const __ordersRepoTestables = Object.freeze({
  */
 export async function getOrderAssignmentSnapshot(orderId) {
   const r = await q(
-    `SELECT id, status::text AS status, delivery_user_id
+    `SELECT
+       id,
+       status::text AS status,
+       delivery_user_id,
+       delivery_assignment_status,
+       delivery_assignment_status::text AS delivery_assignment_status_text
      FROM customer_order
      WHERE id = $1
      LIMIT 1`,
@@ -1378,9 +1415,20 @@ export async function listDeliveryAgents() {
        AND u.delivery_account_approved = TRUE
        AND u.is_account_disabled = FALSE
        AND COALESCE(cp.driver_type, 'app_driver') = 'app_driver'
-       -- Prefer online/available couriers; unknown status is treated as
-       -- eligible so the pool is never empty due to a missing profile row.
-       AND COALESCE(LOWER(cp.availability_status), 'online') NOT IN ('offline', 'busy', 'unavailable')
+       AND COALESCE(LOWER(cp.availability_status), 'online') = 'online'
+       AND EXISTS (
+         SELECT 1
+         FROM courier_presence presence
+         WHERE presence.courier_user_id = u.id
+           AND presence.is_online = TRUE
+           AND presence.updated_at >= NOW() - INTERVAL '90 seconds'
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM customer_order active_order
+         WHERE active_order.delivery_user_id = u.id
+           AND active_order.delivery_assignment_status = 'ASSIGNED'
+       )
        AND NOT EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp
@@ -1403,7 +1451,20 @@ async function listNearbyDeliveryAgentsByBlock(block) {
        AND u.delivery_account_approved = TRUE
        AND u.is_account_disabled = FALSE
        AND COALESCE(cp.driver_type, 'app_driver') = 'app_driver'
-       AND COALESCE(LOWER(cp.availability_status), 'online') NOT IN ('offline', 'busy', 'unavailable')
+       AND COALESCE(LOWER(cp.availability_status), 'online') = 'online'
+       AND EXISTS (
+         SELECT 1
+         FROM courier_presence presence
+         WHERE presence.courier_user_id = u.id
+           AND presence.is_online = TRUE
+           AND presence.updated_at >= NOW() - INTERVAL '90 seconds'
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM customer_order active_order
+         WHERE active_order.delivery_user_id = u.id
+           AND active_order.delivery_assignment_status = 'ASSIGNED'
+       )
        AND u.block IS NOT NULL
        AND UPPER(TRIM(u.block)) = UPPER(TRIM($1))
        AND NOT EXISTS (
@@ -1424,42 +1485,17 @@ async function notifyDeliveryPoolForOrder({
   customerBlock,
   stage = "new",
 }) {
-  const nearbyCandidates = await listNearbyDeliveryAgentsByBlock(customerBlock);
-  const expandedPool = nearbyCandidates.length === 0;
-  const candidates = expandedPool
-    ? await listDeliveryAgents()
-    : nearbyCandidates;
-  if (!candidates.length) return;
-
-  const requiresAction = stage === "ready";
-  const title =
-    stage === "ready"
-      ? "طلب جاهز للاستلام في منطقتك"
-      : "طلب جديد في منطقتك";
-  const body =
-    stage === "ready"
-      ? `الطلب #${orderId} من ${merchantName} جاهز الآن للاستلام.`
-      : `تم إنشاء طلب جديد #${orderId} من ${merchantName}. تابع تجهيز المتجر.`;
-
-  await createManyNotifications(
-    candidates.map((agent) => ({
-      userId: Number(agent.id),
-      type: "delivery_order_available",
-      title,
-      body,
-      orderId: Number(orderId),
-      merchantId: Number(merchantId),
-      payload: {
-        orderId: Number(orderId),
-        status: stage === "ready" ? "ready_for_delivery" : "pending",
-        source: expandedPool ? "delivery_pool_expanded" : "delivery_pool",
-        expandedPool,
-        block: String(customerBlock || "").trim().toUpperCase(),
-        requiresAction,
-        target: "delivery_order_details",
-      },
-    }))
-  );
+  // Delivery auto-assignment v2 disables broadcast fan-out entirely.
+  // Keep this function as a compatibility no-op so older call sites do not
+  // re-introduce pool semantics by accident.
+  return {
+    orderId: Number(orderId),
+    merchantId: Number(merchantId),
+    merchantName: merchantName || null,
+    customerBlock: customerBlock || null,
+    stage,
+    broadcastDisabled: true,
+  };
 }
 
 async function buildMerchantOrderNotifications({
@@ -2461,13 +2497,6 @@ export async function createOrderWithItems({
           ...employeeNotifications,
         ].filter(Boolean));
 
-        await notifyDeliveryPoolForOrder({
-          orderId: Number(order.id),
-          merchantId: Number(merchant.id),
-          merchantName: merchant.name,
-          customerBlock: block,
-          stage: "new",
-        });
       });
     }
 
@@ -2776,15 +2805,6 @@ export async function createOrderGroupWithItems({
         ].filter(Boolean)
       );
 
-      for (const child of childOrders) {
-        await notifyDeliveryPoolForOrder({
-          orderId: Number(child.id),
-          merchantId: Number(child.merchant_id || 0),
-          merchantName: String(child.merchant_name || ""),
-          customerBlock,
-          stage: "new",
-        });
-      }
     });
 
     return {
@@ -3003,6 +3023,7 @@ export async function findCourierTrackableOrder(courierUserId, orderId) {
     `${orderSelect}
      WHERE o.id = $1
        AND o.delivery_user_id = $2
+       AND o.delivery_assignment_status = 'ASSIGNED'
        AND o.status IN ('ready_for_delivery','on_the_way','arrived')
      LIMIT 1`,
     [Number(orderId), Number(courierUserId)]
@@ -3064,7 +3085,9 @@ function resolveTrackingViewerMode({ role, isSuperAdmin = false, viewerId, order
   if (
     normalizedRole === "delivery" &&
     Number(order?.delivery_user_id || 0) > 0 &&
-    Number(order?.delivery_user_id) === id
+    Number(order?.delivery_user_id) === id &&
+    normalizeDeliveryAssignmentStatus(order?.delivery_assignment_status) ===
+      DELIVERY_ASSIGNMENT_STATUSES.ASSIGNED
   ) {
     return "delivery";
   }
@@ -3826,6 +3849,15 @@ export async function updateOwnerOrderStatus(
     const updateResult = await client.query(
       `UPDATE customer_order o
        SET status=$1::order_status,
+           delivery_assignment_status = CASE
+             WHEN $1::text = 'cancelled' THEN 'CANCELLED'
+             WHEN $1::text IN ('delivered', 'completed') THEN 'COMPLETED'
+             WHEN $1::text IN ('approved', 'preparing', 'ready_for_delivery', 'ready_for_pickup')
+               AND o.delivery_user_id IS NULL
+             THEN 'PENDING_NO_DRIVER'
+             WHEN o.delivery_user_id IS NOT NULL THEN 'ASSIGNED'
+             ELSE COALESCE(o.delivery_assignment_status, 'NOT_REQUIRED')
+           END,
            estimated_prep_minutes=COALESCE($2::int, o.estimated_prep_minutes),
            estimated_delivery_minutes=COALESCE($3::int, o.estimated_delivery_minutes),
            approved_at = CASE
@@ -3883,6 +3915,30 @@ export async function updateOwnerOrderStatus(
     } else if (status === "cancelled") {
       await transitionInventoryReservationsTx(client, orderId, "released");
     }
+
+    if (["cancelled", "delivered"].includes(String(status))) {
+      await client.query(
+        `UPDATE courier_assignment
+         SET ended_at = COALESCE(ended_at, NOW()),
+             ended_reason = COALESCE(
+               ended_reason,
+               CASE
+                 WHEN $2::text = 'cancelled' THEN 'ORDER_CANCELLED'
+                 WHEN $2::text = 'delivered' THEN 'COMPLETED'
+                 ELSE 'RELEASED'
+               END
+             ),
+             status = CASE
+               WHEN status IN ('assigned', 'accepted') AND $2::text = 'cancelled' THEN 'cancelled'
+               WHEN status IN ('assigned', 'accepted') AND $2::text = 'delivered' THEN 'completed'
+               ELSE status
+             END
+         WHERE order_id = $1
+           AND ended_at IS NULL`,
+        [Number(orderId), String(status)]
+      );
+    }
+
     await syncOrderGroupStatusTx(client, updated.order_group_id);
     await syncOrderIncentiveConsumptionForStatusTx(client, {
       orderId: Number(orderId),
@@ -3890,6 +3946,16 @@ export async function updateOwnerOrderStatus(
       reason: `owner_status_transition:${String(status || "").trim() || "updated"}`,
     });
     await client.query("COMMIT");
+
+    if (["cancelled", "delivered", "ready_for_delivery"].includes(String(status))) {
+      void requestDeliveryAssignmentRecovery({ limit: 25 }).catch((error) => {
+        console.error("[delivery-assignment] recovery trigger failed", {
+          orderId: Number(orderId),
+          status,
+          error: error?.message || String(error),
+        });
+      });
+    }
 
     await createManyNotifications(
       [
@@ -3951,20 +4017,6 @@ export async function updateOwnerOrderStatus(
       ].filter(Boolean)
     );
 
-    if (
-      status === "ready_for_delivery" &&
-      !deliveryUserId &&
-      !isMerchantDelivery
-    ) {
-      await notifyDeliveryPoolForOrder({
-        orderId: Number(updated.id),
-        merchantId: Number(updated.merchant_id),
-        merchantName: current.merchant_name,
-        customerBlock: current.customer_block || null,
-        stage: "ready",
-      });
-    }
-
     return updated;
   } catch (e) {
     await client.query("ROLLBACK");
@@ -3984,32 +4036,6 @@ export async function assignDeliveryToOwnerOrder(
     assignmentMode === "merchant_delivery"
       ? "merchant_delivery"
       : "platform_delivery";
-
-  if (normalizedMode === "platform_delivery") {
-    const deliveryCheck = await q(
-      `SELECT u.id
-       FROM app_user u
-       LEFT JOIN courier_profile cp ON cp.user_id = u.id
-       WHERE u.id = $1
-         AND u.role = 'delivery'
-         AND u.delivery_account_approved = TRUE
-         AND u.is_account_disabled = FALSE
-         AND COALESCE(cp.driver_type, 'app_driver') = 'app_driver'
-         AND NOT EXISTS (
-           SELECT 1
-           FROM taxi_captain_profile tcp
-           WHERE tcp.user_id = u.id
-         )
-       LIMIT 1`,
-      [Number(deliveryUserId)]
-    );
-    if (!deliveryCheck.rows[0]) {
-      const err = new Error("DELIVERY_NOT_AVAILABLE");
-      err.status = 404;
-      throw err;
-    }
-  }
-
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -4020,6 +4046,7 @@ export async function assignDeliveryToOwnerOrder(
          o.merchant_id,
          o.status,
          o.customer_user_id,
+         o.customer_block,
          o.delivery_user_id,
          m.name AS merchant_name
        FROM customer_order o
@@ -4035,10 +4062,6 @@ export async function assignDeliveryToOwnerOrder(
       await client.query("ROLLBACK");
       return false;
     }
-    const previousDeliveryUserId =
-      current.delivery_user_id == null ? null : Number(current.delivery_user_id);
-    const nextDeliveryUserId =
-      deliveryUserId == null ? null : Number(deliveryUserId);
 
     if (!["approved", "preparing", "ready_for_delivery"].includes(current.status)) {
       throw new AppError(
@@ -4047,114 +4070,181 @@ export async function assignDeliveryToOwnerOrder(
       );
     }
 
-    if (normalizedMode === "merchant_delivery") {
-      if (deliveryUserId == null) {
-        await client.query(
-          `UPDATE customer_order
-           SET delivery_user_id = NULL,
-               is_merchant_delivery = TRUE,
-               courier_source = 'merchant',
-               updated_at = NOW()
-           WHERE id = $1`,
-          [Number(orderId)]
-        );
-      } else {
-        await client.query(
-          `UPDATE customer_order
-           SET delivery_user_id = $1,
-               is_merchant_delivery = TRUE,
-               courier_source = 'merchant',
-               updated_at = NOW()
-           WHERE id = $2`,
-          [Number(deliveryUserId), Number(orderId)]
-        );
-      }
-    } else {
+    if (deliveryUserId == null) {
       await client.query(
+        `UPDATE courier_assignment
+         SET ended_at = COALESCE(ended_at, NOW()),
+             ended_reason = COALESCE(ended_reason, 'MANUAL_REASSIGNMENT'),
+             status = CASE
+               WHEN status IN ('assigned', 'accepted') THEN 'released'
+               ELSE status
+             END
+         WHERE order_id = $1
+           AND ended_at IS NULL
+         RETURNING id`,
+        [Number(orderId)]
+      );
+
+      const pendingResult = await client.query(
         `UPDATE customer_order
-         SET delivery_user_id = $1,
-             is_merchant_delivery = FALSE,
+         SET delivery_user_id = NULL,
+             delivery_assignment_status = 'PENDING_NO_DRIVER',
+             assigned_by_store = FALSE,
              courier_source = 'app',
              updated_at = NOW()
-         WHERE id = $2`,
-        [Number(deliveryUserId), Number(orderId)]
+         WHERE id = $1
+         RETURNING *`,
+        [Number(orderId)]
       );
+      const pendingOrder = pendingResult.rows[0] || current;
+      await client.query("COMMIT");
+
+      await createManyNotifications([
+        {
+          userId: pendingOrder.customer_user_id,
+          type: "customer_delivery_pending",
+          title: "بانتظار دلفري متاح",
+          body: `الطلب #${pendingOrder.id} بانتظار دلفري متاح حالياً.`,
+          orderId: pendingOrder.id,
+          merchantId: pendingOrder.merchant_id,
+          payload: {
+            orderId: pendingOrder.id,
+            assignmentStatus: "PENDING_NO_DRIVER",
+            releaseReason: "MANUAL_REASSIGNMENT",
+          },
+        },
+        current.delivery_user_id
+          ? {
+              userId: Number(current.delivery_user_id),
+              type: "delivery_order_removed",
+              title: "تم تحرير الطلب",
+              body: `تم تحرير الطلب #${current.id} من جدولك.`,
+              orderId: current.id,
+              merchantId: current.merchant_id,
+              payload: {
+                orderId: current.id,
+                releaseReason: "MANUAL_REASSIGNMENT",
+              },
+            }
+          : null,
+      ].filter(Boolean));
+
+      void requestDeliveryAssignmentRecovery({ limit: 25 }).catch((error) => {
+        console.error("[delivery-assignment] recovery trigger failed", {
+          orderId: Number(orderId),
+          error: error?.message || String(error),
+        });
+      });
+
+      return {
+        ...current,
+        ...pendingOrder,
+        deliveryAssignment: buildDeliveryAssignmentPresentation({
+          order: pendingOrder,
+        }),
+        driver: null,
+      };
     }
+
+    const assignmentResult = await directAssignDeliveryOrderTx(client, {
+      orderId: Number(orderId),
+      merchantId: Number(current.merchant_id),
+      requestedByUserId: Number(ownerUserId),
+      customerBlock: current.customer_block || null,
+      assignmentType: normalizedMode === "merchant_delivery" ? "merchant_manual" : "owner_manual",
+      explicitCourierUserId:
+        deliveryUserId == null ? null : Number(deliveryUserId),
+      allowPending: deliveryUserId == null,
+      forceMerchantCourier: normalizedMode === "merchant_delivery" ? true : false,
+    });
 
     await client.query("COMMIT");
 
     const deliveryNotifications = [];
-    if (
-      normalizedMode === "platform_delivery" &&
-      nextDeliveryUserId != null &&
-      nextDeliveryUserId > 0
-    ) {
-      deliveryNotifications.push({
-        userId: nextDeliveryUserId,
-        type: "delivery_assigned_by_owner",
-        title: "تم إسناد طلب جديد إليك",
-        body: `تم إسناد الطلب #${current.id} من ${current.merchant_name} إليك.`,
-        orderId: current.id,
-        merchantId: current.merchant_id,
-        payload: {
+    if (assignmentResult.assignmentCreated) {
+      if (assignmentResult.driver?.id != null) {
+        deliveryNotifications.push({
+          userId: Number(assignmentResult.driver.id),
+          type: "delivery_assigned_by_owner",
+          title: "تم إسناد طلب جديد إليك",
+          body: `تم إسناد الطلب #${current.id} من ${current.merchant_name} إليك.`,
           orderId: current.id,
-          assignedBy: "owner",
-          assignmentMode: normalizedMode,
-          requiresAction: current.status === "ready_for_delivery",
-        },
-      });
-    }
-    if (
-      previousDeliveryUserId != null &&
-      previousDeliveryUserId > 0 &&
-      previousDeliveryUserId !== nextDeliveryUserId
-    ) {
-      deliveryNotifications.push({
-        userId: previousDeliveryUserId,
-        type:
-          nextDeliveryUserId == null
-            ? "delivery_order_removed"
-            : "delivery_order_reassigned",
-        title:
-          nextDeliveryUserId == null
-            ? "تم سحب الطلب من جدولك"
-            : "تم تغيير إسناد الطلب",
-        body:
-          nextDeliveryUserId == null
-            ? `تم سحب الطلب #${current.id} من جدول التسليم الخاص بك.`
-            : `تمت إعادة إسناد الطلب #${current.id} إلى مندوب آخر.`,
-        orderId: current.id,
-        merchantId: current.merchant_id,
-        payload: {
+          merchantId: current.merchant_id,
+          payload: {
+            orderId: current.id,
+            assignedBy: "owner",
+            assignmentMode: normalizedMode,
+            assignmentStatus: assignmentResult.assignmentStatus,
+            requiresAction: false,
+          },
+        });
+      }
+
+      if (assignmentResult.assignmentStatus === DELIVERY_ASSIGNMENT_STATUSES.PENDING_NO_DRIVER) {
+        deliveryNotifications.push({
+          userId: current.customer_user_id,
+          type: "customer_delivery_pending",
+          title: "بانتظار دلفري متاح",
+          body: `لا يوجد دلفري متاح حالياً للطلب #${current.id}.`,
           orderId: current.id,
-          assignmentMode: normalizedMode,
-          previousDeliveryUserId,
-          nextDeliveryUserId,
-          target: "courier_notifications",
-        },
-      });
+          merchantId: current.merchant_id,
+          payload: {
+            orderId: current.id,
+            assignmentStatus: assignmentResult.assignmentStatus,
+            assignmentId: null,
+            driver: null,
+          },
+        });
+      }
     }
 
-    await createManyNotifications([
-      ...deliveryNotifications,
-      {
-        userId: current.customer_user_id,
-        type: "customer_delivery_assigned",
-        title: "تم تعيين التوصيل",
-        body:
-          normalizedMode === "merchant_delivery"
-            ? `تم تعيين دلفري المطعم للطلب #${current.id}.`
-            : `تم تعيين دلفري التطبيق للطلب #${current.id}.`,
-        orderId: current.id,
-        merchantId: current.merchant_id,
-        payload: {
-          orderId: current.id,
-          assignmentMode: normalizedMode,
-        },
-      },
-    ].filter(Boolean));
+    const customerNotification =
+      assignmentResult.assignmentCreated &&
+      assignmentResult.assignmentStatus === DELIVERY_ASSIGNMENT_STATUSES.ASSIGNED
+        ? {
+            userId: current.customer_user_id,
+            type: "customer_delivery_assigned",
+            title: "تم تعيين التوصيل",
+            body: `تم تعيين دلفري للطلب #${current.id}.`,
+            orderId: current.id,
+            merchantId: current.merchant_id,
+            payload: {
+              orderId: current.id,
+              assignmentMode: normalizedMode,
+              assignmentStatus: assignmentResult.assignmentStatus,
+              assignmentId: assignmentResult.deliveryAssignment?.assignmentId || null,
+              driver: assignmentResult.driver || null,
+            },
+          }
+        : assignmentResult.assignmentCreated &&
+          assignmentResult.assignmentStatus === DELIVERY_ASSIGNMENT_STATUSES.PENDING_NO_DRIVER
+        ? {
+            userId: current.customer_user_id,
+            type: "customer_delivery_pending",
+            title: "بانتظار دلفري متاح",
+            body: `الطلب #${current.id} بانتظار دلفري متاح.`,
+            orderId: current.id,
+            merchantId: current.merchant_id,
+            payload: {
+              orderId: current.id,
+              assignmentMode: normalizedMode,
+              assignmentStatus: assignmentResult.assignmentStatus,
+              assignmentId: null,
+              driver: null,
+            },
+          }
+        : null;
 
-    return current;
+    await createManyNotifications(
+      [...deliveryNotifications, customerNotification].filter(Boolean)
+    );
+
+    return {
+      ...current,
+      ...assignmentResult.order,
+      deliveryAssignment: assignmentResult.deliveryAssignment,
+      driver: assignmentResult.driver,
+    };
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;
@@ -4168,29 +4258,18 @@ export async function listDeliveryCurrentOrders(deliveryUserId) {
     `${orderSelect}
      JOIN app_user du ON du.id = $1
      LEFT JOIN courier_profile ducp ON ducp.user_id = du.id
-     WHERE (
-         o.delivery_user_id = $1
-         OR (
-           o.delivery_user_id IS NULL
-           AND o.status = 'ready_for_delivery'
-           AND COALESCE(o.is_merchant_delivery, FALSE) = FALSE
-           AND COALESCE(ducp.driver_type, 'app_driver') = 'app_driver'
-           AND (
-             (
-               du.block IS NOT NULL
-               AND o.customer_block IS NOT NULL
-               AND UPPER(TRIM(du.block)) = UPPER(TRIM(o.customer_block))
-             )
-             OR COALESCE(o.prepared_at, o.updated_at, o.created_at) <= NOW() - INTERVAL '7 minutes'
-           )
-         )
-       )
+     WHERE o.delivery_user_id = $1
+       AND o.delivery_assignment_status = 'ASSIGNED'
        AND o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')
      ORDER BY o.id DESC`,
     [Number(deliveryUserId)]
   );
   const rows = await attachItems(r.rows);
   return rows
+    .map((row) => ({
+      ...row,
+      deliveryAssignment: buildDeliveryAssignmentSnapshot(row),
+    }))
     .filter((row) => isDeliveryCurrentStatus(row.status, row.customer_confirmed_at))
     .sort((a, b) => {
       const rank = currentStatusRank(a.status) - currentStatusRank(b.status);
@@ -4215,7 +4294,11 @@ export async function listDeliveryHistory(deliveryUserId, archiveDate) {
      ORDER BY o.id DESC`,
     params
   );
-  return attachItems(r.rows);
+  const rows = await attachItems(r.rows);
+  return rows.map((row) => ({
+    ...row,
+    deliveryAssignment: buildDeliveryAssignmentSnapshot(row),
+  }));
 }
 
 function normalizeDeliveryDetailOrderState(status) {
@@ -4244,12 +4327,7 @@ function normalizeDeliveryDetailOrderState(status) {
 
 function normalizeDeliveryDetailCourierState(order, { isAssignedToDelivery }) {
   const status = String(order?.status || "").trim().toLowerCase();
-  if (!isAssignedToDelivery) {
-    if (status === "ready_for_delivery" || status === "ready_for_pickup") {
-      return "assigned";
-    }
-    return null;
-  }
+  if (!isAssignedToDelivery) return null;
   switch (status) {
     case "approved":
     case "preparing":
@@ -4264,7 +4342,7 @@ function normalizeDeliveryDetailCourierState(order, { isAssignedToDelivery }) {
       return "arrived";
     case "delivered":
     case "completed":
-      return "delivered";
+      return "completed";
     default:
       return null;
   }
@@ -4278,11 +4356,6 @@ function buildDeliveryAllowedActions({
 }) {
   const status = String(order?.status || "").trim().toLowerCase();
   const actions = new Set();
-
-  if (isEligibleDelivery && ["approved", "preparing", "ready_for_delivery"].includes(status)) {
-    actions.add("accept");
-    actions.add("reject");
-  }
 
   if (isAssignedToDelivery || canModerate) {
     if (["approved", "preparing", "ready_for_delivery"].includes(status)) {
@@ -4299,8 +4372,10 @@ function buildDeliveryAllowedActions({
     }
   }
 
-  actions.add("open_chat");
-  actions.add("open_tracking");
+  if (isAssignedToDelivery || canModerate) {
+    actions.add("open_chat");
+    actions.add("open_tracking");
+  }
   return Array.from(actions);
 }
 
@@ -4352,8 +4427,39 @@ function buildDeliveryTimeline(order) {
   ];
 }
 
+function buildDeliveryAssignmentSnapshot(order) {
+  if (!order || typeof order !== "object") return null;
+  const openAssignmentRow =
+    order.delivery_assignment_ended_at == null && order.delivery_assignment_id != null
+      ? {
+          id: order.delivery_assignment_id,
+          status: order.delivery_assignment_row_status,
+          assigned_at: order.delivery_assignment_assigned_at,
+          ended_at: order.delivery_assignment_ended_at,
+          ended_reason: order.delivery_assignment_ended_reason,
+        }
+      : null;
+  const latestAssignmentRow =
+    order.delivery_assignment_id == null
+      ? null
+      : {
+          id: order.delivery_assignment_id,
+          status: order.delivery_assignment_row_status,
+          assigned_at: order.delivery_assignment_assigned_at,
+          ended_at: order.delivery_assignment_ended_at,
+          ended_reason: order.delivery_assignment_ended_reason,
+        };
+
+  return buildDeliveryAssignmentPresentation({
+    order,
+    openAssignmentRow,
+    latestAssignmentRow,
+  });
+}
+
 function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, share = null }) {
   const items = Array.isArray(order?.items) ? order.items : [];
+  const deliveryAssignment = buildDeliveryAssignmentSnapshot(order);
   const hydratedOrder = {
     ...order,
     id: Number(order.id),
@@ -4384,6 +4490,7 @@ function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, 
     deliveredAt: order.delivered_at || null,
     customerConfirmedAt: order.customer_confirmed_at || null,
     items,
+    deliveryAssignment,
   };
   return {
     kind: "delivery",
@@ -4392,11 +4499,12 @@ function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, 
     items,
     stage: buildOrderTrackingStage(order),
     latestLocation,
-    courier: order.delivery_user_id
+    deliveryAssignment,
+    courier: deliveryAssignment?.driver
       ? {
-          userId: Number(order.delivery_user_id),
-          fullName: order.delivery_full_name || null,
-          phone: order.delivery_phone || null,
+          userId: Number(deliveryAssignment.driver.id || 0),
+          fullName: deliveryAssignment.driver.name || null,
+          phone: deliveryAssignment.driver.phone || null,
           driverType: order.delivery_driver_type || null,
           courierSource: order.courier_source || null,
           isMerchantCourier: order.is_merchant_delivery === true,
@@ -4429,10 +4537,14 @@ function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, 
 }
 
 function toDeliveryDetailResponse(order, context) {
+  const deliveryAssignment = buildDeliveryAssignmentSnapshot(order);
   const isAssignedToDelivery =
     Number(order.delivery_user_id || 0) > 0 &&
-    Number(order.delivery_user_id || 0) === Number(context.requestUserId || 0);
-  const isEligibleDelivery = context.requestUserRole === "delivery" && !isAssignedToDelivery;
+    Number(order.delivery_user_id || 0) === Number(context.requestUserId || 0) &&
+    normalizeDeliveryAssignmentStatus(order.delivery_assignment_status) ===
+      DELIVERY_ASSIGNMENT_STATUSES.ASSIGNED;
+  const isEligibleDelivery =
+    context.requestUserRole === "delivery" && isAssignedToDelivery;
   const canModerate = context.isBackoffice === true;
   const orderState = normalizeDeliveryDetailOrderState(order.status);
   const courierState = normalizeDeliveryDetailCourierState(order, {
@@ -4484,13 +4596,20 @@ function toDeliveryDetailResponse(order, context) {
       userId: order.delivery_user_id == null ? null : Number(order.delivery_user_id),
       fullName: order.delivery_full_name || null,
       phone: order.delivery_phone || null,
+      imageUrl: order.delivery_image_url || null,
       driverType: order.delivery_driver_type || null,
       courierSource: order.courier_source || null,
+      rating: order.delivery_rating == null ? null : Number(order.delivery_rating),
+      availabilityStatus: order.delivery_availability_status || null,
+      coverageBlock: order.delivery_coverage_block || null,
+      vehicleType: order.delivery_vehicle_type || null,
       isMerchantDelivery: order.is_merchant_delivery === true,
       isAssignedToRequester: isAssignedToDelivery,
       isEligibleForRequester: isEligibleDelivery,
+      deliveryAssignment,
       courierState,
     },
+    deliveryAssignment,
     invoice,
     timeline: buildDeliveryTimeline(order),
     allowedActions: buildDeliveryAllowedActions({
@@ -4533,23 +4652,8 @@ export async function getDeliveryOrderDetail({
        JOIN app_user du ON du.id = $2
        LEFT JOIN courier_profile ducp ON ducp.user_id = du.id
        WHERE o.id = $1
-         AND (
-           o.delivery_user_id = $2
-           OR (
-             o.delivery_user_id IS NULL
-             AND o.status = 'ready_for_delivery'
-             AND COALESCE(o.is_merchant_delivery, FALSE) = FALSE
-             AND COALESCE(ducp.driver_type, 'app_driver') = 'app_driver'
-             AND (
-               (
-                 du.block IS NOT NULL
-                 AND o.customer_block IS NOT NULL
-                 AND UPPER(TRIM(du.block)) = UPPER(TRIM(o.customer_block))
-               )
-               OR COALESCE(o.prepared_at, o.updated_at, o.created_at) <= NOW() - INTERVAL '7 minutes'
-             )
-           )
-         )
+         AND o.delivery_user_id = $2
+         AND o.delivery_assignment_status = 'ASSIGNED'
        LIMIT 1`,
       [Number(orderId), Number(requestUserId)]
     );
@@ -4755,6 +4859,7 @@ export async function claimDeliveryOrder(deliveryUserId, orderId, estimatedDeliv
     `UPDATE customer_order o
      SET delivery_user_id = $3,
          is_merchant_delivery = FALSE,
+         delivery_assignment_status = 'ASSIGNED',
          courier_source = 'app',
          status='on_the_way',
          picked_up_at=COALESCE(picked_up_at, NOW()),
@@ -4769,6 +4874,8 @@ export async function claimDeliveryOrder(deliveryUserId, orderId, estimatedDeliv
        AND du.delivery_account_approved = TRUE
        AND du.is_account_disabled = FALSE
        AND COALESCE(cp.driver_type, 'app_driver') = 'app_driver'
+       AND o.delivery_assignment_status = 'ASSIGNED'
+       AND o.delivery_user_id = $3
        AND NOT EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp
@@ -4776,17 +4883,6 @@ export async function claimDeliveryOrder(deliveryUserId, orderId, estimatedDeliv
        )
        AND (
          o.delivery_user_id = $3
-         OR (
-           o.delivery_user_id IS NULL
-           AND (
-             (
-               du.block IS NOT NULL
-               AND o.customer_block IS NOT NULL
-               AND UPPER(TRIM(du.block)) = UPPER(TRIM(o.customer_block))
-             )
-             OR COALESCE(o.prepared_at, o.updated_at, o.created_at) <= NOW() - INTERVAL '7 minutes'
-           )
-         )
        )
        AND o.merchant_id = m.id
      RETURNING
@@ -4853,6 +4949,7 @@ export async function markOrderArrived(deliveryUserId, orderId) {
      FROM merchant m
      WHERE o.id=$1
        AND o.delivery_user_id=$2
+       AND o.delivery_assignment_status = 'ASSIGNED'
        AND o.status='on_the_way'
        AND o.merchant_id = m.id
      RETURNING
@@ -4913,10 +5010,12 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
   const r = await q(
     `UPDATE customer_order o
      SET status='delivered',
+         delivery_assignment_status = 'COMPLETED',
          delivered_at=COALESCE(delivered_at, NOW())
      FROM merchant m
      WHERE o.id=$1
        AND o.delivery_user_id=$2
+       AND o.delivery_assignment_status = 'ASSIGNED'
        AND o.status='arrived'
        AND o.merchant_id = m.id
      RETURNING
@@ -4928,6 +5027,20 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
   );
   const row = r.rows[0];
   if (!row) return false;
+
+  await q(
+    `UPDATE courier_assignment
+     SET ended_at = COALESCE(ended_at, NOW()),
+         ended_reason = COALESCE(ended_reason, 'COMPLETED'),
+         status = CASE
+           WHEN status IN ('assigned', 'accepted') THEN 'completed'
+           ELSE status
+         END
+     WHERE order_id = $1
+       AND courier_user_id = $2
+       AND ended_at IS NULL`,
+    [Number(orderId), Number(deliveryUserId)]
+  );
 
   await createManyNotifications(
     [
@@ -4960,6 +5073,13 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
         : null,
     ].filter(Boolean)
   );
+
+  void requestDeliveryAssignmentRecovery({ limit: 25 }).catch((error) => {
+    console.error("[delivery-assignment] recovery trigger failed", {
+      orderId: Number(orderId),
+      error: error?.message || String(error),
+    });
+  });
 
   return row;
 }

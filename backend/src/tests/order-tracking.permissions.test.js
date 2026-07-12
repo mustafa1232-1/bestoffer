@@ -8,6 +8,7 @@ const { resolveTrackingViewerMode } = __ordersRepoTestables;
 const order = {
   customer_user_id: 100,
   delivery_user_id: 200,
+  delivery_assignment_status: "ASSIGNED",
   owner_user_id: 300,
 };
 

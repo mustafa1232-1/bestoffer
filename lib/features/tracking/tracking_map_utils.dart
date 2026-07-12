@@ -85,7 +85,8 @@ const _activeTaxiStatuses = <String>{
 };
 
 String? _trackingStatus(Map<String, dynamic>? envelope) {
-  final nested = trackingMap(envelope?['order'] ?? envelope?['ride']);
+  final nested =
+      trackingMap(envelope?['order'] ?? envelope?['ride'] ?? envelope?['assignment']);
   return trackingString(
     nested?['status'] ?? envelope?['status'],
   )?.toLowerCase();
@@ -152,6 +153,19 @@ Map<String, dynamic> mergeTaxiTrackingEvent(
     merged['ride'] = <String, dynamic>{
       ...currentRide,
       'status': event['status'],
+    };
+  }
+  final eventAssignment = trackingMap(event['assignment']);
+  final currentAssignment = trackingMap(merged['assignment']);
+  if (eventAssignment != null) {
+    merged['assignment'] = <String, dynamic>{
+      ...?currentAssignment,
+      ...eventAssignment,
+    };
+  } else if (event['assignmentStatus'] != null && currentAssignment != null) {
+    merged['assignment'] = <String, dynamic>{
+      ...currentAssignment,
+      'status': event['assignmentStatus'],
     };
   }
   final location = event['location'] ?? event['latestLocation'];

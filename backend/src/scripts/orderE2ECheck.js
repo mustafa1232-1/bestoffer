@@ -797,6 +797,41 @@ async function main() {
     delivery.token = String(deliveryLogin.data?.token || "");
     delivery.sessionId = Number(deliveryLogin.data?.sessionId || 0) || null;
 
+    await q(
+      `UPDATE courier_profile
+       SET availability_status = 'online'
+       WHERE user_id = $1`,
+      [Number(state.deliveryUserId)]
+    );
+    await q(
+      `INSERT INTO courier_presence
+        (
+          courier_user_id,
+          current_order_id,
+          latitude,
+          longitude,
+          heading_deg,
+          speed_kmh,
+          accuracy_m,
+          is_online,
+          recorded_at,
+          updated_at
+        )
+       VALUES ($1,NULL,33.3152,44.3661,NULL,NULL,NULL,TRUE,NOW(),NOW())
+       ON CONFLICT (courier_user_id)
+       DO UPDATE SET
+         current_order_id = EXCLUDED.current_order_id,
+         latitude = EXCLUDED.latitude,
+         longitude = EXCLUDED.longitude,
+         heading_deg = EXCLUDED.heading_deg,
+         speed_kmh = EXCLUDED.speed_kmh,
+         accuracy_m = EXCLUDED.accuracy_m,
+         is_online = EXCLUDED.is_online,
+         recorded_at = NOW(),
+         updated_at = NOW()`,
+      [Number(state.deliveryUserId)]
+    );
+
     const ownerDeliveryAgents = await request(
       baseUrl,
       owner,
@@ -1219,59 +1254,56 @@ async function main() {
       "/api/courier/requests",
       state.orderId,
       "preparing",
-      "courier preparing request after start preparing"
+      "courier preparing request after direct assignment"
     );
 
-    const assignCourier = await request(
-      baseUrl,
-      owner,
-      "POST",
-      `/api/orders/${state.orderId}/store/assign-courier`,
-      {
-        courierUserId: state.deliveryUserId,
-        assignmentMode: "store_selected",
-      }
+    const assignedAfterPreparing = await q(
+      `SELECT delivery_user_id, delivery_assignment_status
+       FROM customer_order
+       WHERE id = $1`,
+      [Number(state.orderId)]
     );
-    assertStatus(assignCourier, 200, "owner assign courier");
-
+    assert.equal(
+      Number(assignedAfterPreparing.rows[0]?.delivery_user_id || 0),
+      Number(state.deliveryUserId),
+      "preparing should assign the selected courier directly"
+    );
+    assert.equal(
+      String(assignedAfterPreparing.rows[0]?.delivery_assignment_status || ""),
+      "ASSIGNED",
+      "preparing should move assignment status to ASSIGNED"
+    );
     const courierRefresh = await request(baseUrl, delivery, "POST", "/api/auth/login", {
       phone: state.deliveryPhone,
       pin: "1234",
     });
-    assertStatus(courierRefresh, 200, "courier re-login before accept");
+    assertStatus(courierRefresh, 200, "courier re-login before pickup");
     delivery.token = String(courierRefresh.data?.token || "");
     delivery.sessionId = Number(courierRefresh.data?.sessionId || 0) || null;
-
-    const courierAccept = await request(
-      baseUrl,
-      delivery,
-      "POST",
-      `/api/orders/${state.orderId}/courier/accept`
-    );
-    assertStatus(courierAccept, 200, "courier accept order");
-    await expectOrderHidden(
-      baseUrl,
-      delivery,
-      "/api/courier/requests",
-      state.orderId,
-      "courier requests after accept"
-    );
     await expectOrderVisible(
       baseUrl,
       delivery,
       "/api/courier/orders",
       state.orderId,
       "preparing",
-      "courier accepted preparing order"
+      "courier assigned preparing order"
     );
 
     await expectNotification(
       {
         userId: state.customerUserId,
-        type: "order_courier_assigned",
+        type: "order_status_update",
         orderId: state.orderId,
       },
-      "customer courier assigned notification"
+      "customer order status notification"
+    );
+    await expectNotification(
+      {
+        userId: state.deliveryUserId,
+        type: "delivery_order_available",
+        orderId: state.orderId,
+      },
+      "delivery direct assignment notification"
     );
 
     const readyForDelivery = await request(

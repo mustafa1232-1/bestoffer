@@ -2,7 +2,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/order_status.dart';
@@ -10,6 +12,7 @@ import '../../auth/state/auth_controller.dart';
 import '../../coupons/ui/coupon_management_screen.dart';
 import '../../orders/models/order_model.dart';
 import '../../orders/ui/widgets/order_item_widgets.dart';
+import '../../orders/ui/widgets/order_delivery_assignment_card.dart';
 import '../printing/receipt_printer_service.dart';
 import '../printing/ui/receipt_preview_dialog.dart';
 import '../state/owner_controller.dart';
@@ -45,7 +48,6 @@ class StoreOwnerOrdersScreen extends ConsumerStatefulWidget {
 
 class _StoreOwnerOrdersScreenState
     extends ConsumerState<StoreOwnerOrdersScreen> {
-  final Map<int, int> _selectedDeliveryByOrder = {};
   final Map<int, bool> _printingByOrder = {};
   bool _printingSample = false;
   bool _printingTest = false;
@@ -413,13 +415,6 @@ class _StoreOwnerOrdersScreenState
       default:
         return null;
     }
-  }
-
-  String _deliveryTypeText(OrderModel order) {
-    final l10n = context.l10n;
-    if (order.isStoreDriverDelivery) return l10n.ownerOrdersStoreDriver;
-    if (order.isAppDriverDelivery) return l10n.ownerOrdersAppDriver;
-    return l10n.ownerOrdersPendingAssignment;
   }
 
   String _summaryRouteTitle(String statusKey) {
@@ -969,19 +964,7 @@ class _StoreOwnerOrdersScreenState
     bool readOnly = false,
   }) {
     final l10n = context.l10n;
-    final selectedDelivery =
-        _selectedDeliveryByOrder[order.id] ?? order.deliveryUserId;
-    final hasDeliveryAssigned =
-        order.deliveryUserId != null || order.isMerchantDelivery;
-    final hasAppDeliveryAgents = state.deliveryAgents.isNotEmpty;
-    final canAssign =
-        !readOnly &&
-        const {
-          'approved',
-          'preparing',
-          'ready_for_delivery',
-          'ready_for_pickup',
-        }.contains(order.status);
+    final hasDeliveryAssigned = order.hasAssignedDelivery;
     final statusHint = _statusHint(
       order,
       hasDeliveryAssigned: hasDeliveryAssigned,
@@ -992,7 +975,6 @@ class _StoreOwnerOrdersScreenState
         : 'platform_delivery';
     final canPrint = !readOnly && _canPrintReceipt(order.status);
     final isPrinting = _printingByOrder[order.id] == true;
-    final deliveryTypeText = _deliveryTypeText(order);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1023,12 +1005,40 @@ class _StoreOwnerOrdersScreenState
             Text(
               '${l10n.ownerOrdersAddressLabel}: ${order.customerCity} - ${l10n.commonBlock} ${order.customerBlock} - ${l10n.ownerOrdersBuildingLabel} ${order.customerBuildingNumber} - ${l10n.ownerOrdersApartmentLabel} ${order.customerApartment}',
             ),
-            const SizedBox(height: 4),
-            Text('${l10n.ownerOrdersDriverTypeLabel}: $deliveryTypeText'),
             if ((order.note ?? '').trim().isNotEmpty) ...[
               const SizedBox(height: 4),
               Text('${l10n.ownerOrdersNoteLabel}: ${order.note}'),
             ],
+            const SizedBox(height: 10),
+            OrderDeliveryAssignmentCard(
+              assignment: order.deliveryAssignment,
+              waitingCopy: context.lt(
+                ar: 'لا يوجد دلفري متاح حالياً',
+                en: 'No courier is available right now',
+              ),
+              helperText: context.lt(
+                ar: 'سيتم تعيين أول دلفري متاح تلقائياً، ويمكنك متابعة تجهيز الطلب.',
+                en: 'The first available courier will be assigned automatically while you prepare the order.',
+              ),
+              visibleWhenNoAssignment: true,
+              onCall: (order.deliveryAssignment?.driver?.phone ??
+                          order.deliveryPhone)
+                      ?.trim()
+                      .isNotEmpty ==
+                  true
+                  ? () async {
+                      final phone =
+                          (order.deliveryAssignment?.driver?.phone ??
+                                  order.deliveryPhone)
+                              ?.trim();
+                      if (phone == null || phone.isEmpty) return;
+                      await launchUrl(
+                        Uri.parse('tel:$phone'),
+                        mode: LaunchMode.externalApplication,
+                      );
+                    }
+                  : null,
+            ),
             const SizedBox(height: 10),
             Text(
               'راجع المنتجات والمواصفات قبل الموافقة',
@@ -1077,30 +1087,6 @@ class _StoreOwnerOrdersScreenState
               ),
             ],
             const SizedBox(height: 10),
-            if (!readOnly && hasAppDeliveryAgents)
-              DropdownButtonFormField<int>(
-                value: selectedDelivery,
-                decoration: InputDecoration(
-                  labelText: l10n.ownerOrdersAssignAppCourier,
-                ),
-                items: state.deliveryAgents
-                    .map(
-                      (agent) => DropdownMenuItem<int>(
-                        value: agent.id,
-                        child: Text('${agent.fullName} - ${agent.phone}'),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    if (value == null) {
-                      _selectedDeliveryByOrder.remove(order.id);
-                    } else {
-                      _selectedDeliveryByOrder[order.id] = value;
-                    }
-                  });
-                },
-              ),
             if (!readOnly) ...[
               const SizedBox(height: 6),
               Wrap(
@@ -1138,34 +1124,6 @@ class _StoreOwnerOrdersScreenState
                     icon: const Icon(Icons.verified_user_outlined),
                     label: const Text('موثوقية العميل'),
                   ),
-                  if (canAssign && hasAppDeliveryAgents)
-                    OutlinedButton.icon(
-                      onPressed: state.savingOrder || selectedDelivery == null
-                          ? null
-                          : () async {
-                              final ok = await controller.assignCourierFlowV2(
-                                orderId: order.id,
-                                courierUserId: selectedDelivery,
-                                // Keep the store-selected audit type aligned with the
-                                // backend E2E flow for explicit owner dispatch.
-                                assignmentMode: 'store_selected',
-                              );
-                              if (!ok || !mounted) return;
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    l10n.ownerOrdersCourierAssigned,
-                                  ),
-                                ),
-                              );
-                            },
-                      icon: const Icon(Icons.local_shipping_outlined),
-                      label: Text(
-                        hasDeliveryAssigned && !order.isMerchantDelivery
-                            ? l10n.ownerOrdersChangeCourier
-                            : l10n.ownerOrdersAssignCourier,
-                      ),
-                    ),
                   if (order.status == 'pending' || order.status == 'approved')
                     ElevatedButton(
                       onPressed: state.savingOrder
@@ -1175,10 +1133,12 @@ class _StoreOwnerOrdersScreenState
                                 order,
                               );
                               if (!allow || !mounted) return;
+                              // Delivery is auto-assigned by the backend the
+                              // moment preparation starts; the store no longer
+                              // picks a courier or a delivery type.
                               final updated = await controller
                                   .startPreparingFlowV2(
                                     orderId: order.id,
-                                    preferredCourierUserId: selectedDelivery,
                                     estimatedPrepMinutes: 20,
                                   );
                               if (!updated || !mounted) return;

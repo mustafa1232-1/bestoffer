@@ -7058,7 +7058,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get ownerOrdersHintApprovedPendingCourier =>
-      'تمت الموافقة على الطلب. ابدأ التحضير الآن، ويمكنك تعيين ساعي أثناء التحضير.';
+      'تمت الموافقة على الطلب. ابدأ التحضير الآن، وسيتم تعيين أول دلفري متاح تلقائياً.';
 
   @override
   String get ownerOrdersHintPreparing => 'يقوم المتجر بتجهيز الطلب الآن.';

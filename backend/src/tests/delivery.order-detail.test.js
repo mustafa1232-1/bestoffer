@@ -11,6 +11,7 @@ function buildOrderRow(overrides = {}) {
     merchant_id: 3,
     customer_user_id: 11,
     delivery_user_id: 99,
+    delivery_assignment_status: "ASSIGNED",
     status: "on_the_way",
     merchant_name: "متجر تجريبي",
     merchant_type: "restaurant",
@@ -104,7 +105,11 @@ test("assigned courier on_the_way order can mark arrived", () => {
 
 test("eligible (unassigned) courier sees an offer they can accept", () => {
   const res = toDeliveryDetailResponse(
-    buildOrderRow({ status: "ready_for_delivery", delivery_user_id: null }),
+    buildOrderRow({
+      status: "ready_for_delivery",
+      delivery_user_id: null,
+      delivery_assignment_status: "PENDING_NO_DRIVER",
+    }),
     {
       requestUserId: 42,
       requestUserRole: "delivery",
@@ -113,9 +118,9 @@ test("eligible (unassigned) courier sees an offer they can accept", () => {
   );
 
   assert.equal(res.delivery.isAssignedToRequester, false);
-  assert.equal(res.delivery.isEligibleForRequester, true);
-  assert.ok(res.allowedActions.includes("accept"));
-  assert.ok(res.allowedActions.includes("reject"));
+  assert.equal(res.delivery.isEligibleForRequester, false);
+  assert.equal(res.allowedActions.includes("accept"), false);
+  assert.equal(res.allowedActions.includes("reject"), false);
   // Even an unassigned-but-eligible courier must still see the items + invoice.
   assert.equal(res.items.length, 2);
   assert.equal(res.invoice.serviceFee, 1500);

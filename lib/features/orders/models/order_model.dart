@@ -1,4 +1,5 @@
 import '../../../core/utils/parsers.dart';
+import 'delivery_assignment_model.dart';
 import 'order_item_presentation_model.dart';
 import 'order_item_model.dart';
 
@@ -46,6 +47,8 @@ class OrderModel {
   final String? deliveryPhone;
   final bool archivedByDelivery;
   final int? deliveryRating;
+  final String? deliveryAssignmentStatus;
+  final OrderDeliveryAssignmentModel? deliveryAssignment;
   final String? deliveryReview;
   final int? merchantRating;
   final String? merchantReview;
@@ -104,6 +107,8 @@ class OrderModel {
     required this.deliveryPhone,
     required this.archivedByDelivery,
     required this.deliveryRating,
+    required this.deliveryAssignmentStatus,
+    required this.deliveryAssignment,
     required this.deliveryReview,
     required this.merchantRating,
     required this.merchantReview,
@@ -122,6 +127,26 @@ class OrderModel {
   factory OrderModel.fromJson(Map<String, dynamic> j) {
     final rawItems = (j['items'] as List?) ?? const [];
     final pricingRaw = j['pricing_breakdown_json'] ?? j['pricingBreakdown'];
+    final assignmentRaw = j['deliveryAssignment'] ??
+        j['delivery_assignment'] ??
+        j['deliveryAssignmentJson'];
+    final normalizedAssignmentStatus = parseNullableString(
+          j['delivery_assignment_status'] ?? j['deliveryAssignmentStatus'],
+        )
+        ?.trim()
+        .toUpperCase();
+    final legacyDeliveryUserId = j['delivery_user_id'] == null
+        ? (j['delivery_id'] == null ? null : parseInt(j['delivery_id']))
+        : parseInt(j['delivery_user_id']);
+    final legacyOrderStatus = parseString(j['status']).trim().toLowerCase();
+    final fallbackAssignment = assignmentRaw is Map
+        ? null
+        : _buildLegacyDeliveryAssignment(
+            status: normalizedAssignmentStatus,
+            deliveryUserId: legacyDeliveryUserId,
+            orderStatus: legacyOrderStatus,
+            raw: j,
+          );
     return OrderModel(
       id: parseInt(j['id']),
       merchantId: parseInt(j['merchant_id'] ?? j['merchantId']),
@@ -203,9 +228,7 @@ class OrderModel {
       estimatedDeliveryMinutes: j['estimated_delivery_minutes'] == null
           ? null
           : parseInt(j['estimated_delivery_minutes']),
-      deliveryUserId: j['delivery_user_id'] == null
-          ? (j['delivery_id'] == null ? null : parseInt(j['delivery_id']))
-          : parseInt(j['delivery_user_id']),
+      deliveryUserId: legacyDeliveryUserId,
       isMerchantDelivery:
           (j['is_merchant_delivery'] ?? j['isMerchantDelivery']) == true,
       courierSource: parseNullableString(
@@ -220,6 +243,12 @@ class OrderModel {
       deliveryRating: j['delivery_rating'] == null
           ? null
           : parseInt(j['delivery_rating']),
+      deliveryAssignmentStatus: normalizedAssignmentStatus,
+      deliveryAssignment: assignmentRaw is Map
+          ? OrderDeliveryAssignmentModel.fromJson(
+              Map<String, dynamic>.from(assignmentRaw),
+            )
+          : fallbackAssignment,
       deliveryReview: parseNullableString(j['delivery_review']),
       merchantRating: j['merchant_rating'] == null
           ? null
@@ -275,10 +304,117 @@ class OrderModel {
       deliveryDriverType == 'store_driver' ||
       isMerchantDelivery;
 
-  bool get isPharmacyFlow =>
+  bool get hasExplicitDeliveryAssignment =>
+      deliveryAssignment != null ||
+      (deliveryAssignmentStatus ?? '').trim().isNotEmpty;
+
+  bool get hasAssignedDelivery =>
+      deliveryAssignment?.isAssigned == true ||
+      deliveryAssignmentStatus == 'ASSIGNED';
+
+  bool get hasPendingNoDriverAssignment =>
+      deliveryAssignment?.isPendingNoDriver == true ||
+      deliveryAssignmentStatus == 'PENDING_NO_DRIVER';
+
+bool get isPharmacyFlow =>
       sourceType == 'pharmacy_chat_cart' ||
       orderFlowType == 'pharmacy' ||
       pharmacyConversationId != null;
+}
+
+OrderDeliveryAssignmentModel? _buildLegacyDeliveryAssignment({
+  required String? status,
+  required int? deliveryUserId,
+  required String orderStatus,
+  required Map<String, dynamic> raw,
+}) {
+  final normalizedStatus = (status ?? '').trim().toUpperCase();
+  final shouldShowAssigned = deliveryUserId != null ||
+      normalizedStatus == 'ASSIGNED' ||
+      const {
+        'approved',
+        'preparing',
+        'ready_for_delivery',
+        'ready_for_pickup',
+        'on_the_way',
+        'arrived',
+      }.contains(orderStatus);
+  final shouldShowPending =
+      normalizedStatus == 'PENDING_NO_DRIVER' ||
+      (!shouldShowAssigned &&
+          const {
+            'approved',
+            'preparing',
+            'ready_for_delivery',
+            'ready_for_pickup',
+          }.contains(orderStatus));
+  if (!shouldShowAssigned && !shouldShowPending) return null;
+
+  final driver = deliveryUserId == null && !shouldShowAssigned
+      ? null
+      : DeliveryAssignmentDriverModel(
+          id: deliveryUserId ?? 0,
+          name: parseNullableString(
+            raw['delivery_full_name'] ?? raw['deliveryFullName'],
+          ),
+          photoUrl: parseNullableString(
+            raw['delivery_image_url'] ?? raw['deliveryImageUrl'],
+          ),
+          phone: parseNullableString(raw['delivery_phone'] ?? raw['deliveryPhone']),
+          rating: raw['delivery_rating'] == null
+              ? null
+              : parseDouble(raw['delivery_rating'] ?? raw['deliveryRating']),
+          availabilityStatus: parseNullableString(
+            raw['delivery_availability_status'] ??
+                raw['deliveryAvailabilityStatus'],
+          ),
+          coverageBlock: parseNullableString(
+            raw['delivery_coverage_block'] ?? raw['deliveryCoverageBlock'],
+          ),
+          courierSource: parseNullableString(
+            raw['courier_source'] ?? raw['courierSource'],
+          ),
+          isMerchantDelivery:
+              (raw['is_merchant_delivery'] ?? raw['isMerchantDelivery']) == true,
+          vehicleType: parseNullableString(
+            raw['delivery_vehicle_type'] ?? raw['deliveryVehicleType'],
+          ),
+          vehicleModel: parseNullableString(
+            raw['delivery_vehicle_model'] ?? raw['deliveryVehicleModel'],
+          ),
+          vehicleColor: parseNullableString(
+            raw['delivery_vehicle_color'] ?? raw['deliveryVehicleColor'],
+          ),
+          vehiclePlateNumber: parseNullableString(
+            raw['delivery_vehicle_plate_number'] ??
+                raw['deliveryVehiclePlateNumber'],
+          ),
+        );
+
+  return OrderDeliveryAssignmentModel(
+    assignmentStatus: normalizedStatus.isNotEmpty
+        ? normalizedStatus
+        : (shouldShowAssigned ? 'ASSIGNED' : 'PENDING_NO_DRIVER'),
+    assignmentId: raw['delivery_assignment_id'] == null
+        ? null
+        : parseInt(raw['delivery_assignment_id']),
+    assignedAt: _parseDate(
+      raw['delivery_assignment_assigned_at'] ??
+          raw['deliveryAssignmentAssignedAt'] ??
+          raw['courier_assigned_at'] ??
+          raw['courierAssignedAt'],
+    ),
+    endedAt: _parseDate(
+      raw['delivery_assignment_ended_at'] ??
+          raw['deliveryAssignmentEndedAt'],
+    ),
+    endedReason: parseNullableString(
+      raw['delivery_assignment_ended_reason'] ??
+          raw['deliveryAssignmentEndedReason'],
+    ),
+    orderId: raw['id'] == null ? null : parseInt(raw['id']),
+    driver: driver,
+  );
 }
 
 DateTime? _parseDate(dynamic value) {

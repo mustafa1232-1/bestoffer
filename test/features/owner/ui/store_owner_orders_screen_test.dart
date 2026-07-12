@@ -169,7 +169,7 @@ class _FakeOwnerController extends OwnerController {
 
 void main() {
   testWidgets(
-    'store owner orders screen uses store_selected for courier assignment',
+    'store owner orders screen auto-assigns delivery without store courier selection',
     (tester) async {
       late _FakeOwnerController controller;
 
@@ -193,20 +193,23 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      // The store no longer selects a delivery type or a courier: the
+      // delivery-type dropdown and the manual assign/change-courier button must
+      // be gone, leaving auto-assignment as the only path.
+      expect(find.byType(DropdownButtonFormField<int>), findsNothing);
+      expect(find.text('Change courier'), findsNothing);
+      expect(find.text('Assign courier'), findsNothing);
+
       await tester.ensureVisible(find.text('Start preparing'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Start preparing'));
       await tester.pumpAndSettle();
-      expect(controller.lastPreparedOrderId, 101);
-      expect(controller.lastPreferredCourierUserId, 21);
 
-      await tester.ensureVisible(find.text('Change courier'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Change courier'));
-      await tester.pumpAndSettle();
-      expect(controller.lastAssignedOrderId, 101);
-      expect(controller.lastAssignedCourierUserId, 21);
-      expect(controller.lastAssignmentMode, 'store_selected');
+      // Preparing starts and the backend auto-assigns: no preferred courier is
+      // sent from the store screen.
+      expect(controller.lastPreparedOrderId, 101);
+      expect(controller.lastPreferredCourierUserId, isNull);
+      expect(controller.lastAssignedOrderId, isNull);
     },
   );
 

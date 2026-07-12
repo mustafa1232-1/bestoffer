@@ -386,7 +386,7 @@ class NotificationNavigation {
     if (normalizedType.startsWith('delivery_')) return 'delivery_orders';
     if (normalizedType.contains('delivery_order_available') ||
         normalizedType.contains('delivery_order_offer')) {
-      return 'courier_orders_new';
+      return 'courier_orders_current';
     }
     if (normalizedType.contains('delivery_order_ready_for_pickup') ||
         normalizedType.contains('ready_for_pickup')) {
@@ -402,7 +402,7 @@ class NotificationNavigation {
         normalizedType.contains('delivery_order_offer')) {
       if (normalizedType.contains('offer') ||
           normalizedType.contains('requested')) {
-        return 'courier_orders_new';
+        return 'courier_orders_current';
       }
       if (normalizedType.contains('completed') ||
           normalizedType.contains('received') ||
