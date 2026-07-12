@@ -33,6 +33,31 @@ async function ensureMigrationTable() {
   `);
 }
 
+async function ensureBootstrapTablesBeforePushTokenSurfaceMigration() {
+  // Migration 124 assumes `user_push_token` exists after the core auth tables
+  // have already been created. Fresh-database upgrades reach this point only
+  // after `app_user` and `user_session` exist, so we bootstrap the table right
+  // before the migration instead of rewriting historical files.
+  await q(`
+    CREATE TABLE IF NOT EXISTS user_push_token (
+      id              BIGSERIAL PRIMARY KEY,
+      user_id         BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+      push_token      TEXT NOT NULL UNIQUE,
+      platform        VARCHAR(24),
+      app_version     VARCHAR(48),
+      device_model    VARCHAR(120),
+      locale          VARCHAR(8),
+      auth_session_id BIGINT REFERENCES user_session(id) ON DELETE SET NULL,
+      app_surface     VARCHAR(24),
+      device_fingerprint TEXT,
+      is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+      last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+}
+
 function splitMigrationSql(sql) {
   return String(sql || "")
     .split(migrationSplitMarker)
@@ -80,6 +105,9 @@ export async function runSqlMigrations({ force = false } = {}) {
     });
 
     for (const fileName of files) {
+      if (fileName.startsWith("124_")) {
+        await ensureBootstrapTablesBeforePushTokenSurfaceMigration();
+      }
       const alreadyApplied = await client.query({
         text: `SELECT 1 FROM ${migrationTableId} WHERE name = $1`,
         values: [fileName],
