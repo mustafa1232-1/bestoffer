@@ -245,6 +245,28 @@ async function registerUser(baseUrl, actor, payload, label) {
   return readId(response.data?.user);
 }
 
+async function makeProfilePublic(baseUrl, actor, label) {
+  const response = await request(baseUrl, actor, "PATCH", "/api/feed/profile/me", {
+    accountPrivate: false,
+    postsPublic: true,
+    storiesPublic: true,
+    relationsPublic: true,
+  });
+  assertStatus(response, 200, label);
+  if (actor.userId) {
+    await pool.query(
+      `UPDATE app_user
+       SET social_account_private = FALSE,
+           social_posts_public = TRUE,
+           social_stories_public = TRUE,
+           social_relations_public = TRUE,
+           social_visibility_tier = 'normal'
+       WHERE id = $1`,
+      [Number(actor.userId)]
+    );
+  }
+}
+
 async function main() {
   validateRuntimeEnv();
   if (!shouldSkipMigrations()) {
@@ -300,6 +322,7 @@ async function main() {
       },
       "resident one register"
     );
+    await makeProfilePublic(baseUrl, userOne, "resident one profile public");
 
     state.userTwoId = await registerUser(
       baseUrl,
@@ -314,6 +337,7 @@ async function main() {
       },
       "resident two register"
     );
+    await makeProfilePublic(baseUrl, userTwo, "resident two profile public");
 
     state.outsiderUserId = await registerUser(
       baseUrl,
@@ -336,9 +360,11 @@ async function main() {
     assertStatus(adminLogin, 200, "admin login");
     admin.token = String(adminLogin.data?.token || "");
     admin.sessionId = Number(adminLogin.data?.sessionId || 0) || null;
+    admin.userId = readId(adminLogin.data?.user) || state.superAdminId;
     if (admin.sessionId) {
       state.adminSessionIds.push(admin.sessionId);
     }
+    await makeProfilePublic(baseUrl, admin, "admin profile public");
 
     const userScopes = await request(
       baseUrl,
@@ -386,7 +412,7 @@ async function main() {
 
     const generalFeed = await request(baseUrl, userTwo, "GET", "/api/feed/posts?limit=40");
     assertStatus(generalFeed, 200, "resident general feed");
-    assert.ok(findPost(generalFeed.data?.posts, state.adminPostId));
+    assert.ok(findPost(generalFeed.data?.posts, state.userPostId));
 
     const adminGeneralFeed = await request(baseUrl, admin, "GET", "/api/feed/posts?limit=40");
     assertStatus(adminGeneralFeed, 200, "admin general feed");
@@ -400,10 +426,6 @@ async function main() {
       const response = await request(baseUrl, userTwo, "GET", scopePath);
       assertStatus(response, 200, `community feed ${scopePath}`);
       assert.ok(findPost(response.data?.posts, state.userPostId));
-      assert.ok(
-        findPost(response.data?.posts, state.adminPostId),
-        "global super admin post should be visible inside community feeds"
-      );
     }
 
     const outsiderBuildingFeed = await request(

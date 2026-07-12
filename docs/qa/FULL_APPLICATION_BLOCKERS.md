@@ -27,6 +27,6 @@ This list starts as the authoritative working blocker set for the closure progra
 | P1 | Company/admin shell and permissions | PASS_RUNTIME | Railway runtime proof captured with company/admin session isolation, backoffice gating, and accountant access checks (`authSessionPushE2ECheck.js`, `securityRuntimeCheck.js`) |
 | P1 | Company/admin merchant and user management | PASS_AUTOMATED | UI/API automated coverage exists for company portal screens and client behavior (`test/core/admin_companies_screen_test.dart`, `test/features/company/company_dio_client_test.dart`) |
 | P1 | Company/admin financial reports and settlements | PASS_RUNTIME | Railway runtime proof captured for summary, pending settlements, approvals, and payment-request cleanup (`financialSettlementsE2ECheck.js`, `securityRuntimeCheck.js`) |
-| P2 | Stories autoplay/progress | NOT_STARTED | Audit later |
-| P2 | Reel sharing | NOT_STARTED | Audit later |
-| P2 | Social/discovery/profile/messaging | NOT_STARTED | Audit later |
+| P2 | Stories autoplay/progress | PASS_RUNTIME | `backend/src/scripts/storiesE2ECheck.js` and `railway run --service bestoffer npm run verify:release:runtime` passed after the wrapper exit fix | No device gate for this scope |
+| P2 | Reel sharing | PASS_RUNTIME | `backend/src/scripts/reelsE2ECheck.js` and `railway run --service bestoffer npm run verify:release:runtime` passed after the wrapper exit fix | No device gate for this scope |
+| P2 | Social/discovery/profile/messaging | PASS_RUNTIME | `backend/src/scripts/socialE2ECheck.js` and `railway run --service bestoffer npm run verify:release:runtime` passed after the wrapper exit fix | No device gate for this scope |

@@ -54,16 +54,22 @@ export function buildHeaders(actor, { withBody = false } = {}) {
   return headers;
 }
 
-export async function request(baseUrl, actor, method, path, body) {
+async function performRequest(baseUrl, actor, method, path, { body = undefined, isJson = true } = {}) {
   const max429Retries = 4;
   const maxTransportRetries = 3;
   for (let attempt = 0; ; attempt += 1) {
     let response;
     try {
+      const requestBody =
+        body === undefined || body === null
+          ? undefined
+          : isJson
+            ? JSON.stringify(body)
+            : body;
       response = await fetch(`${baseUrl}${path}`, {
         method,
-        headers: buildHeaders(actor, { withBody: body !== undefined }),
-        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: buildHeaders(actor, { withBody: body !== undefined && isJson }),
+        body: requestBody,
         signal: AbortSignal.timeout(20000),
       });
     } catch (error) {
@@ -100,6 +106,14 @@ export async function request(baseUrl, actor, method, path, body) {
   }
 }
 
+export async function request(baseUrl, actor, method, path, body) {
+  return performRequest(baseUrl, actor, method, path, { body, isJson: true });
+}
+
+export async function requestMultipart(baseUrl, actor, method, path, formData) {
+  return performRequest(baseUrl, actor, method, path, { body: formData, isJson: false });
+}
+
 export function assertStatus(response, expectedStatus, label) {
   assert.equal(
     response.status,
@@ -113,6 +127,12 @@ export function assertStatus(response, expectedStatus, label) {
 export function readId(value) {
   const id = Number(value?.id || 0);
   return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+export function readList(data, key = "items") {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.[key])) return data[key];
+  return [];
 }
 
 export async function startLocalServer(app) {

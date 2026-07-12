@@ -200,3 +200,20 @@ This file captures the cross-app end-to-end flows that must be proven during the
 - Stories autoplay/progress
 - Reel sharing
 - Direct messages and groups
+
+## Verified Runtime Evidence
+
+- `backend/src/scripts/socialE2ECheck.js` now proves the social discovery / profile / messaging lifecycle end-to-end:
+  - profiles update with the expected public-visibility fields
+  - relation requests and accepts publish the expected notifications
+  - search, hashtag, mentions, suggestions, share recipients, friends, profile, insights, and group chat all respond with the expected runtime shapes
+- `backend/src/scripts/storiesE2ECheck.js` now proves the stories lifecycle end-to-end:
+  - story creation with styled payloads works
+  - story view / like / comment / highlight / archive / restore flows remain stable
+  - highlight create/delete status codes stay correct
+  - the story remains visible in the expected viewer list and archive surfaces
+- `backend/src/scripts/reelsE2ECheck.js` now proves the reels lifecycle end-to-end:
+  - reel creation with media upload works
+  - reel detail, profile listing, explore, and search return the reel as expected
+  - reel view / like / comment / saved toggle / share recipient discovery remain stable
+- The runtime verifier now advances cleanly past the Phase 3A scripts because the social/stories/reels wrappers terminate successfully on completion.

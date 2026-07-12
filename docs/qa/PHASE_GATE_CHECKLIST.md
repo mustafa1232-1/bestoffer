@@ -112,6 +112,16 @@
 - [x] `railway run --service bestoffer npm run verify:release:runtime` passed after the backend script update
 - [x] Phase 2D proof now distinguishes runtime coverage from automated-only company portal screens
 
+## Phase 3A Continuation
+
+- [x] Social discovery / profile / messaging runtime proof captured with `backend/src/scripts/socialE2ECheck.js`
+- [x] Stories runtime proof captured with `backend/src/scripts/storiesE2ECheck.js`
+- [x] Reels runtime proof captured with `backend/src/scripts/reelsE2ECheck.js`
+- [x] `backend/src/tests/feed.phase3a.test.js` passed with phase 3A social validators
+- [x] `npm test`, `npm run verify:release:local`, and `railway run --service bestoffer npm run verify:release:runtime` passed after the wrapper exit fix
+- [x] `docs/qa/PHASE_3A_SOCIAL_PROFILES_DISCOVERY_STORIES_REELS_REPORT.md` created
+- [x] Phase 3A remains backend-only and does not require a device gate in this program
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.
