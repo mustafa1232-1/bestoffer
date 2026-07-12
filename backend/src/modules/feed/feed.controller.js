@@ -1332,6 +1332,7 @@ export async function sendThreadMessage(req, res, next) {
       threadId: thread.value,
       body: body.value.body,
       replyToMessageId: body.value.replyToMessageId,
+      clientMessageId: body.value.clientMessageId,
       attachmentDurationMs: body.value.attachmentDurationMs,
       sharedEntity: body.value.sharedEntity,
       attachment: req.file
@@ -1965,6 +1966,7 @@ export async function sendCommunityChatMessage(req, res, next) {
             durationMs: body.value.attachmentDurationMs,
           }
         : null,
+      clientMessageId: body.value.clientMessageId,
     });
     return res.status(201).json(out);
   } catch (error) {

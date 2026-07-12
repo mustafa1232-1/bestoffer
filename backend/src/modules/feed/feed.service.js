@@ -1269,6 +1269,7 @@ function mapMessageRow(row, viewerUserId) {
     threadId: Number(row.thread_id),
     senderUserId: Number(row.sender_user_id),
     body: isDeleted ? "" : row.body || "",
+    clientMessageId: row.client_message_id || row.clientMessageId || null,
     replyToMessage: mapMessageReply(row),
     attachment: mapMessageAttachment(row),
     sharedEntity:
@@ -1734,6 +1735,7 @@ function mapScopeChatMessageRow(row, viewerUserId) {
     senderUserId:
       row.sender_user_id == null ? null : Number(row.sender_user_id),
     body: isDeleted ? "" : row.body || "",
+    clientMessageId: row.client_message_id || row.clientMessageId || null,
     replyToMessage: mapMessageReply(row),
     attachment: mapMessageAttachment(row),
     sharedEntity:
@@ -5898,6 +5900,7 @@ async function insertAndDispatchThreadMessage({
   replyTo = null,
   normalizedAttachment = null,
   normalizedSharedEntity = null,
+  clientMessageId = null,
 }) {
   const inserted = await repo.insertThreadMessage({
     threadId,
@@ -5906,8 +5909,12 @@ async function insertAndDispatchThreadMessage({
     replyToMessageId: replyTo == null ? null : Number(replyTo.id),
     attachment: normalizedAttachment,
     sharedEntity: normalizedSharedEntity,
+    clientMessageId,
   });
-  await repo.touchThreadLastMessage(threadId);
+  const wasInserted = inserted?._inserted !== false;
+  if (wasInserted) {
+    await repo.touchThreadLastMessage(threadId);
+  }
 
   const [sender, insertedDetails] = await Promise.all([
     repo.findUserPublicProfile(userId),
@@ -5943,11 +5950,13 @@ async function insertAndDispatchThreadMessage({
       shared_entity_type: normalizedSharedEntity?.type || null,
       shared_entity_id: normalizedSharedEntity?.id || null,
       shared_snapshot_json: normalizedSharedEntity?.snapshot || null,
+      client_message_id: inserted?.client_message_id || clientMessageId || null,
     },
     userId
   );
 
-  const peerUserId = Number(thread.peer_user_id || 0);
+  if (wasInserted) {
+    const peerUserId = Number(thread.peer_user_id || 0);
   const targetUserIds =
     threadKind === "group"
       ? await repo.listThreadMemberUserIds({
@@ -6001,6 +6010,8 @@ async function insertAndDispatchThreadMessage({
     );
   }
 
+  }
+
   return {
     message: mapped,
     threadId: Number(threadId),
@@ -6027,6 +6038,7 @@ export async function sendMessage({
   threadId,
   body,
   replyToMessageId = null,
+  clientMessageId = null,
   attachmentDurationMs = null,
   attachment = null,
   sharedEntity = null,
@@ -6146,8 +6158,12 @@ export async function sendMessage({
     replyToMessageId: replyTo == null ? null : Number(replyTo.id),
     attachment: normalizedAttachment,
     sharedEntity: normalizedSharedEntity,
+    clientMessageId,
   });
-  await repo.touchThreadLastMessage(threadId);
+  const wasInserted = inserted?._inserted !== false;
+  if (wasInserted) {
+    await repo.touchThreadLastMessage(threadId);
+  }
 
   const [sender, insertedDetails] = await Promise.all([
     repo.findUserPublicProfile(userId),
@@ -6186,6 +6202,13 @@ export async function sendMessage({
     },
     userId
   );
+
+  if (!wasInserted) {
+    return {
+      message: mapped,
+      threadId: Number(threadId),
+    };
+  }
 
   const peerUserId = Number(thread.peer_user_id || 0);
   const targetUserIds =
@@ -8167,6 +8190,7 @@ export async function sendCommunityChatMessage({
   scopeCode,
   dto,
   attachment = null,
+  clientMessageId = null,
 }) {
   const scope = await resolveScopeAccess({
     userId,
@@ -8252,7 +8276,9 @@ export async function sendCommunityChatMessage({
     replyToMessageId,
     attachment: normalizedAttachment,
     sharedEntity: normalizedSharedEntity,
+    clientMessageId,
   });
+  const wasInserted = inserted?._inserted !== false;
   if (!inserted?.id) {
     throw new AppError("COMMUNITY_CHAT_MESSAGE_CREATE_FAILED", { status: 500 });
   }
@@ -8262,27 +8288,29 @@ export async function sendCommunityChatMessage({
     messageId: inserted?.id,
   });
   const message = mapScopeChatMessageRow(details || inserted, userId);
-  await emitCommunityRealtimeEvent({
-    scopeType: scope.scopeType,
-    scopeCode: scope.scopeCode,
-    event: "social_community_chat_message",
-    data: {
-      message,
-    },
-    excludeUserIds: [userId],
-  });
-  await notifyCommunityScopeUsers({
-    scopeType: scope.scopeType,
-    scopeCode: scope.scopeCode,
-    type: "social.community.chat.message",
-    title: `رسالة جديدة في ${buildScopeMeta(scope.scopeType, scope.scopeCode).title}`,
-    body: `${message.sender?.fullName || "أحد السكان"}: ${compactMessagePreview(dto.body, normalizedAttachment, normalizedSharedEntity)}`,
-    excludeUserIds: [userId],
-    payload: {
-      messageId: message.id,
-      senderUserId: message.senderUserId,
-    },
-  });
+  if (wasInserted) {
+    await emitCommunityRealtimeEvent({
+      scopeType: scope.scopeType,
+      scopeCode: scope.scopeCode,
+      event: "social_community_chat_message",
+      data: {
+        message,
+      },
+      excludeUserIds: [userId],
+    });
+    await notifyCommunityScopeUsers({
+      scopeType: scope.scopeType,
+      scopeCode: scope.scopeCode,
+      type: "social.community.chat.message",
+      title: `رسالة جديدة في ${buildScopeMeta(scope.scopeType, scope.scopeCode).title}`,
+      body: `${message.sender?.fullName || "أحد السكان"}: ${compactMessagePreview(dto.body, normalizedAttachment, normalizedSharedEntity)}`,
+      excludeUserIds: [userId],
+      payload: {
+        messageId: message.id,
+        senderUserId: message.senderUserId,
+      },
+    });
+  }
   return {
     scope: buildScopeMeta(scope.scopeType, scope.scopeCode),
     message,

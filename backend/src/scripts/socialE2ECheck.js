@@ -1,8 +1,12 @@
 /* eslint-disable no-console */
-import { runSocialDiscoveryProfileMessagingFlow } from "./socialPhase3AFlow.js";
+import {
+  runSocialDiscoveryProfileMessagingFlow,
+  runSocialMessagingPhase3BFlow,
+} from "./socialPhase3AFlow.js";
 
 async function main() {
-  await runSocialDiscoveryProfileMessagingFlow();
+  await runSocialDiscoveryProfileMessagingFlow({ closePool: false });
+  await runSocialMessagingPhase3BFlow({ closePool: true });
 }
 
 main()

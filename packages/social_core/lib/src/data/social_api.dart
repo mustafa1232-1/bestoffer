@@ -863,6 +863,7 @@ class SocialApi {
     String? sharedEntityType,
     int? sharedEntityId,
     Map<String, dynamic>? sharedSnapshot,
+    String? clientMessageId,
   }) async {
     final payload = <String, dynamic>{'body': body};
     if (replyToMessageId != null) {
@@ -881,6 +882,9 @@ class SocialApi {
           'snapshot': sharedSnapshot,
         };
       }
+    }
+    if ((clientMessageId ?? '').trim().isNotEmpty) {
+      payload['clientMessageId'] = clientMessageId!.trim();
     }
 
     final response = attachmentFile == null
@@ -1253,6 +1257,7 @@ class SocialApi {
     String? sharedEntityType,
     int? sharedEntityId,
     Map<String, dynamic>? sharedSnapshot,
+    String? clientMessageId,
   }) async {
     final payload = <String, dynamic>{'body': body};
     if (replyToMessageId != null) {
@@ -1271,6 +1276,9 @@ class SocialApi {
           'snapshot': sharedSnapshot,
         };
       }
+    }
+    if ((clientMessageId ?? '').trim().isNotEmpty) {
+      payload['clientMessageId'] = clientMessageId!.trim();
     }
 
     final response = attachmentFile == null

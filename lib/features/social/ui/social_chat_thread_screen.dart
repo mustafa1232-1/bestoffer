@@ -36,6 +36,7 @@ import 'widgets/social_identity_view.dart';
 import 'widgets/social_mention_hashtag_text.dart';
 import 'widgets/social_voice_composer_controller.dart';
 import 'widgets/social_voice_message_widgets.dart';
+import 'social_message_client_id.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -1265,6 +1266,16 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
         sharedEntityType: sharedDraft?.type,
         sharedEntityId: sharedDraft?.id,
         sharedSnapshot: sharedDraft?.snapshot,
+        clientMessageId: buildSocialMessageClientId(
+          scopeKey: 'thread:${widget.threadId}',
+          body: text,
+          replyToMessageId: _replyingTo?.id,
+          attachmentFile: _voiceComposer.state.draft?.file ?? _attachmentDraft,
+          attachmentDurationMs: _voiceComposer.state.draft?.durationMs,
+          sharedEntityType: sharedDraft?.type,
+          sharedEntityId: sharedDraft?.id,
+          sharedSnapshot: sharedDraft?.snapshot,
+        ),
       );
       _applySentMessage(out);
       _inputController.clear();
@@ -1419,6 +1430,13 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
         replyToMessageId: _replyingTo?.id,
         attachmentFile: draft.file,
         attachmentDurationMs: draft.durationMs,
+        clientMessageId: buildSocialMessageClientId(
+          scopeKey: 'thread:${widget.threadId}',
+          body: '',
+          replyToMessageId: _replyingTo?.id,
+          attachmentFile: draft.file,
+          attachmentDurationMs: draft.durationMs,
+        ),
       );
       _applySentMessage(out);
       _replyingTo = null;

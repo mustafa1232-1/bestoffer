@@ -23,6 +23,14 @@ function asPositiveInt(value) {
   return n;
 }
 
+function asClientMessageId(value) {
+  if (value == null) return null;
+  const text = asTrimmed(value);
+  if (!text) return null;
+  if (text.length > 120) return "__invalid__";
+  return text;
+}
+
 function asPositiveIntArray(value) {
   if (value == null || value === "") return [];
   const raw = Array.isArray(value)
@@ -1057,6 +1065,9 @@ export function validateSendMessage(body = {}) {
     body.replyToMessageId == null || body.replyToMessageId === ""
       ? null
       : asPositiveInt(body.replyToMessageId);
+  const clientMessageId = asClientMessageId(
+    body.clientMessageId ?? body.client_message_id
+  );
   const attachmentDurationMs =
     body.attachmentDurationMs == null || body.attachmentDurationMs === ""
       ? null
@@ -1090,6 +1101,12 @@ export function validateSendMessage(body = {}) {
   if (text.length > 1200) errors.push("body_length");
   if (body.replyToMessageId != null && replyToMessageId == null) {
     errors.push("replyToMessageId");
+  }
+  if (body.clientMessageId != null && clientMessageId == null) {
+    errors.push("clientMessageId");
+  }
+  if (clientMessageId === "__invalid__") {
+    errors.push("clientMessageId");
   }
   if (body.attachmentDurationMs != null && attachmentDurationMs == null) {
     errors.push("attachmentDurationMs");
@@ -1125,6 +1142,10 @@ export function validateSendMessage(body = {}) {
     value: {
       body: text,
       replyToMessageId,
+      clientMessageId:
+        clientMessageId == null || clientMessageId === "__invalid__"
+          ? null
+          : clientMessageId,
       attachmentDurationMs,
       sharedEntity:
         sharedEntityType.length === 0 || sharedEntityId == null
@@ -1657,6 +1678,9 @@ export function validateCommunityChatMessageBody(body = {}) {
     body.replyToMessageId == null || body.replyToMessageId === ""
       ? null
       : asPositiveInt(body.replyToMessageId);
+  const clientMessageId = asClientMessageId(
+    body.clientMessageId ?? body.client_message_id
+  );
   const attachmentDurationMs =
     body.attachmentDurationMs == null || body.attachmentDurationMs === ""
       ? null
@@ -1690,6 +1714,12 @@ export function validateCommunityChatMessageBody(body = {}) {
   if (text.length > 1400) errors.push("body_length");
   if (body.replyToMessageId != null && replyToMessageId == null) {
     errors.push("replyToMessageId");
+  }
+  if (body.clientMessageId != null && clientMessageId == null) {
+    errors.push("clientMessageId");
+  }
+  if (clientMessageId === "__invalid__") {
+    errors.push("clientMessageId");
   }
   if (body.attachmentDurationMs != null && attachmentDurationMs == null) {
     errors.push("attachmentDurationMs");
@@ -1725,6 +1755,10 @@ export function validateCommunityChatMessageBody(body = {}) {
     value: {
       body: text,
       replyToMessageId,
+      clientMessageId:
+        clientMessageId == null || clientMessageId === "__invalid__"
+          ? null
+          : clientMessageId,
       attachmentDurationMs,
       sharedEntity:
         sharedEntityType.length === 0 || sharedEntityId == null

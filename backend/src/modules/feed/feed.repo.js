@@ -3963,6 +3963,7 @@ export async function listMessagesForThread({
        m.thread_id,
        m.sender_user_id,
        m.body,
+       m.client_message_id,
        m.is_deleted,
        m.reply_to_message_id,
        m.attachment_url,
@@ -4035,6 +4036,7 @@ export async function searchMessagesInThread({
        m.thread_id,
        m.sender_user_id,
        m.body,
+       m.client_message_id,
        m.is_deleted,
        m.reply_to_message_id,
        m.attachment_url,
@@ -4113,6 +4115,7 @@ export async function listPinnedMessagesForThread({
        m.thread_id,
        m.sender_user_id,
        m.body,
+       m.client_message_id,
        m.is_deleted,
        m.reply_to_message_id,
        m.attachment_url,
@@ -4246,6 +4249,7 @@ export async function getThreadMessageDetailsById({
        m.thread_id,
        m.sender_user_id,
        m.body,
+       m.client_message_id,
        m.is_deleted,
        m.reply_to_message_id,
        m.attachment_url,
@@ -4440,7 +4444,71 @@ export async function insertThreadMessage({
   replyToMessageId = null,
   attachment = null,
   sharedEntity = null,
+  clientMessageId = null,
 }) {
+  const normalizedClientMessageId =
+    clientMessageId == null ? null : String(clientMessageId).trim();
+  if (normalizedClientMessageId) {
+    const r = await q(
+      `WITH inserted AS (
+         INSERT INTO social_chat_message
+           (
+             thread_id,
+             sender_user_id,
+             body,
+             reply_to_message_id,
+             attachment_url,
+             attachment_kind,
+             attachment_name,
+             attachment_mime_type,
+             attachment_size_bytes,
+             attachment_duration_ms,
+             shared_entity_type,
+             shared_entity_id,
+             shared_snapshot_json,
+             client_message_id
+           )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         ON CONFLICT (thread_id, sender_user_id, client_message_id)
+         WHERE client_message_id IS NOT NULL
+         DO NOTHING
+         RETURNING *, TRUE AS _inserted
+       ),
+       existing AS (
+         SELECT m.*, FALSE AS _inserted
+         FROM social_chat_message m
+         WHERE m.thread_id = $1
+           AND m.sender_user_id = $2
+           AND m.client_message_id = $14
+         LIMIT 1
+       )
+       SELECT *
+       FROM inserted
+       UNION ALL
+       SELECT *
+       FROM existing
+       WHERE NOT EXISTS (SELECT 1 FROM inserted)
+       LIMIT 1`,
+      [
+        Number(threadId),
+        Number(senderUserId),
+        String(body || "").trim(),
+        replyToMessageId == null ? null : Number(replyToMessageId),
+        attachment?.url || null,
+        attachment?.kind || null,
+        attachment?.name || null,
+        attachment?.mimeType || null,
+        attachment?.sizeBytes == null ? null : Number(attachment.sizeBytes),
+        attachment?.durationMs == null ? null : Number(attachment.durationMs),
+        sharedEntity?.type || null,
+        sharedEntity?.id == null ? null : Number(sharedEntity.id),
+        sharedEntity?.snapshot == null ? null : JSON.stringify(sharedEntity.snapshot),
+        normalizedClientMessageId,
+      ]
+    );
+    return r.rows[0] || null;
+  }
+
   const r = await q(
     `INSERT INTO social_chat_message
       (
@@ -4476,7 +4544,8 @@ export async function insertThreadMessage({
       sharedEntity?.snapshot == null ? null : JSON.stringify(sharedEntity.snapshot),
     ]
   );
-  return r.rows[0] || null;
+  const row = r.rows[0] || null;
+  return row ? { ...row, _inserted: true } : null;
 }
 
 export async function insertScheduledThreadMessage({
@@ -5982,6 +6051,7 @@ export async function listScopeChatMessages({
        m.scope_code,
        m.sender_user_id,
        m.body,
+       m.client_message_id,
        m.reply_to_message_id,
        m.attachment_url,
        m.attachment_kind,
@@ -6040,6 +6110,7 @@ export async function searchScopeChatMessages({
        m.scope_code,
        m.sender_user_id,
        m.body,
+       m.client_message_id,
        m.reply_to_message_id,
        m.attachment_url,
        m.attachment_kind,
@@ -6103,7 +6174,76 @@ export async function insertScopeChatMessage({
   replyToMessageId = null,
   attachment = null,
   sharedEntity = null,
+  clientMessageId = null,
 }) {
+  const normalizedClientMessageId =
+    clientMessageId == null ? null : String(clientMessageId).trim();
+  if (normalizedClientMessageId) {
+    const r = await q(
+      `WITH inserted AS (
+         INSERT INTO social_scope_chat_message
+           (
+             scope_type,
+             scope_code,
+             sender_user_id,
+             body,
+             is_system,
+             reply_to_message_id,
+             attachment_url,
+             attachment_kind,
+             attachment_name,
+             attachment_mime_type,
+             attachment_size_bytes,
+             attachment_duration_ms,
+             shared_entity_type,
+             shared_entity_id,
+             shared_snapshot_json,
+             client_message_id
+           )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         ON CONFLICT (scope_type, scope_code, sender_user_id, client_message_id)
+         WHERE client_message_id IS NOT NULL
+         DO NOTHING
+         RETURNING *, TRUE AS _inserted
+       ),
+       existing AS (
+         SELECT m.*, FALSE AS _inserted
+         FROM social_scope_chat_message m
+         WHERE m.scope_type = $1
+           AND m.scope_code = $2
+           AND m.sender_user_id = $3
+           AND m.client_message_id = $16
+         LIMIT 1
+       )
+       SELECT *
+       FROM inserted
+       UNION ALL
+       SELECT *
+       FROM existing
+       WHERE NOT EXISTS (SELECT 1 FROM inserted)
+       LIMIT 1`,
+      [
+        scopeType,
+        scopeCode,
+        senderUserId == null ? null : Number(senderUserId),
+        String(body || "").trim(),
+        isSystem === true,
+        replyToMessageId == null ? null : Number(replyToMessageId),
+        attachment?.url || null,
+        attachment?.kind || null,
+        attachment?.name || null,
+        attachment?.mimeType || null,
+        attachment?.sizeBytes == null ? null : Number(attachment.sizeBytes),
+        attachment?.durationMs == null ? null : Number(attachment.durationMs),
+        sharedEntity?.type || null,
+        sharedEntity?.id == null ? null : Number(sharedEntity.id),
+        sharedEntity?.snapshot == null ? null : JSON.stringify(sharedEntity.snapshot),
+        normalizedClientMessageId,
+      ]
+    );
+    return r.rows[0] || null;
+  }
+
   const r = await q(
     `INSERT INTO social_scope_chat_message
       (
@@ -6143,7 +6283,8 @@ export async function insertScopeChatMessage({
       sharedEntity?.snapshot == null ? null : JSON.stringify(sharedEntity.snapshot),
     ]
   );
-  return r.rows[0] || null;
+  const row = r.rows[0] || null;
+  return row ? { ...row, _inserted: true } : null;
 }
 
 export async function getScopeChatMessageById({
@@ -6178,6 +6319,7 @@ export async function getScopeChatMessageDetailsById({
        m.scope_code,
        m.sender_user_id,
        m.body,
+       m.client_message_id,
        m.reply_to_message_id,
        m.attachment_url,
        m.attachment_kind,

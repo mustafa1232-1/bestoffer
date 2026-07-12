@@ -42,6 +42,7 @@ import 'widgets/social_feed_controls.dart';
 import 'widgets/social_post_card_v2.dart';
 import 'widgets/social_voice_composer_controller.dart';
 import 'widgets/social_voice_message_widgets.dart';
+import 'social_message_client_id.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -1147,6 +1148,16 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
         sharedEntityType: sharedDraft?.type,
         sharedEntityId: sharedDraft?.id,
         sharedSnapshot: sharedDraft?.snapshot,
+        clientMessageId: buildSocialMessageClientId(
+          scopeKey: 'community:$_scopeType:$_scopeCode',
+          body: text,
+          replyToMessageId: replyTo?.id,
+          attachmentFile: _voiceComposer.state.draft?.file ?? _chatAttachmentDraft,
+          attachmentDurationMs: _voiceComposer.state.draft?.durationMs,
+          sharedEntityType: sharedDraft?.type,
+          sharedEntityId: sharedDraft?.id,
+          sharedSnapshot: sharedDraft?.snapshot,
+        ),
       );
       _applySentCommunityMessage(out);
       if (!mounted) return;
@@ -1474,6 +1485,13 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
         replyToMessageId: replyTo?.id,
         attachmentFile: draft.file,
         attachmentDurationMs: draft.durationMs,
+        clientMessageId: buildSocialMessageClientId(
+          scopeKey: 'community:$_scopeType:$_scopeCode',
+          body: '',
+          replyToMessageId: replyTo?.id,
+          attachmentFile: draft.file,
+          attachmentDurationMs: draft.durationMs,
+        ),
       );
       _applySentCommunityMessage(out);
       if (!mounted) return;

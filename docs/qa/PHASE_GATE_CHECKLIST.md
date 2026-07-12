@@ -123,6 +123,16 @@
 - [x] Phase 3A checkpoint commit created in `4872c39`
 - [x] Phase 3A remains backend-only and does not require a device gate in this program
 
+## Phase 3B Continuation
+
+- [x] Messaging runtime proof captured with `backend/src/scripts/socialE2ECheck.js`
+- [x] `backend/src/tests/feed.phase3b.test.js` passed with clientMessageId validation for thread and community chat
+- [x] `flutter analyze`, `flutter test`, `npm test`, `npm run verify:release:local`, and `railway run --service bestoffer npm run verify:release:runtime` passed after the Phase 3B messaging changes
+- [x] `docs/qa/PHASE_3B_MESSAGING_GROUPS_VOICE_NOTES_ATTACHMENTS_REPORT.md` created
+- [x] Phase 3B checkpoint commit created on `closure/full-application-closure`
+- [x] Voice-note attachment dedupe and unread-state stability are now proven in runtime
+- [x] Real-device push/background/killed-app and notification-tap validation remains pending and must not be claimed as passed
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.

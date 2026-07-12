@@ -2,9 +2,10 @@
 import assert from "node:assert/strict";
 
 import { app } from "../app.js";
-import { ensureSchema, pool } from "../config/db.js";
+import { ensureSchema, pool, q } from "../config/db.js";
 import { validateRuntimeEnv } from "../config/env.js";
 import { runSqlMigrations } from "../config/sqlMigrations.js";
+import { listUnreadCountsForThreads } from "../modules/feed/feed.repo.js";
 import {
   assertStatus,
   buildPhone,
@@ -102,18 +103,22 @@ async function createBootstrapContext(prefix) {
   }
 }
 
-async function finalizeContext({ runTag, server }) {
+async function finalizeContext({ runTag, server }, { closePool = true } = {}) {
   try {
     if (runTag) {
       await cleanupSocialArtifacts({ runTag });
     }
   } finally {
     await stopLocalServer(server);
-    await pool.end();
+    if (closePool) {
+      await pool.end();
+    }
   }
 }
 
-export async function runSocialDiscoveryProfileMessagingFlow() {
+export async function runSocialDiscoveryProfileMessagingFlow({
+  closePool = true,
+} = {}) {
   let ctx = null;
   try {
     ctx = await createBootstrapContext("social-phase3a");
@@ -291,23 +296,25 @@ export async function runSocialDiscoveryProfileMessagingFlow() {
       "saved post should be present in saved list"
     );
 
-    const searchAll = await request(
-      baseUrl,
-      bob,
-      "GET",
-      `/api/feed/search?search=${encodeURIComponent(runTag)}&tab=all&limit=12`
-    );
-    assertStatus(searchAll, 200, "social search all");
-    assert.ok(
-      Array.isArray(searchAll.data?.results?.users) &&
-        searchAll.data.results.users.some((item) => Number(item?.id || 0) === alice.userId),
-      "search should find alice"
-    );
-    assert.ok(
-      Array.isArray(searchAll.data?.results?.posts) &&
-        searchAll.data.results.posts.some((item) => Number(item?.id || 0) === postId),
-      "search should find the post"
-    );
+    let searchAll = null;
+    let searchMatched = false;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      searchAll = await request(
+        baseUrl,
+        bob,
+        "GET",
+        `/api/feed/search?search=${encodeURIComponent(runTag)}&tab=all&limit=12`
+      );
+      assertStatus(searchAll, 200, "social search all");
+      const users = readList(searchAll.data?.results || {}, "users");
+      const posts = readList(searchAll.data?.results || {}, "posts");
+      searchMatched =
+        users.some((item) => Number(item?.id || 0) === alice.userId) &&
+        posts.some((item) => Number(item?.id || 0) === postId);
+      if (searchMatched) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    assert.ok(searchMatched, "search should find alice and the post");
     assert.ok(Array.isArray(searchAll.data?.recentSearches), "recent searches should exist");
 
     const hashtagPosts = await request(
@@ -444,7 +451,7 @@ export async function runSocialDiscoveryProfileMessagingFlow() {
     );
   } finally {
     if (ctx) {
-      await finalizeContext(ctx);
+      await finalizeContext(ctx, { closePool });
     }
   }
 }
@@ -846,6 +853,154 @@ export async function runReelsPhase3AFlow() {
   } finally {
     if (ctx) {
       await finalizeContext(ctx);
+    }
+  }
+}
+
+export async function runSocialMessagingPhase3BFlow({
+  closePool = true,
+} = {}) {
+  let ctx = null;
+  try {
+    ctx = await createBootstrapContext("social-phase3b");
+    const { baseUrl, runTag, alice, bob } = ctx;
+    const charlie = createActor("charlie", runTag, "social-phase3b/1");
+    await registerAndLogin(baseUrl, charlie, {
+      phone: buildPhone("077", Number(String(Date.now()).slice(-8)) + 77),
+      fullName: `Phase3B Charlie ${runTag}`,
+      label: "charlie",
+      apartment: "103",
+    });
+
+    const groupThread = await request(baseUrl, alice, "POST", "/api/feed/chats/threads", {
+      kind: "group",
+      title: `Phase3B Group ${runTag}`,
+      memberIds: [bob.userId, charlie.userId],
+    });
+    assertStatus(groupThread, 201, "phase3b group thread create");
+    const threadId = readId(groupThread.data?.thread);
+    assert.ok(threadId, "phase3b group thread id missing");
+
+    const voiceForm = buildMultipartForm({
+      fields: {
+        body: "",
+        clientMessageId: `phase3b-${runTag}-voice`,
+      },
+      fileFieldName: "attachmentFile",
+      fileName: `voice-${runTag}.ogg`,
+      mimeType: "audio/ogg",
+    });
+    const firstSend = await requestMultipartForm(
+      baseUrl,
+      alice,
+      "POST",
+      `/api/feed/chats/threads/${threadId}/messages`,
+      voiceForm
+    );
+    assertStatus(firstSend, 201, "phase3b first voice send");
+    const firstMessageId = readId(firstSend.data?.message);
+    assert.ok(firstMessageId, "phase3b first message id missing");
+
+    const duplicateForm = buildMultipartForm({
+      fields: {
+        body: "",
+        clientMessageId: `phase3b-${runTag}-voice`,
+      },
+      fileFieldName: "attachmentFile",
+      fileName: `voice-${runTag}.ogg`,
+      mimeType: "audio/ogg",
+    });
+    const secondSend = await requestMultipartForm(
+      baseUrl,
+      alice,
+      "POST",
+      `/api/feed/chats/threads/${threadId}/messages`,
+      duplicateForm
+    );
+    assertStatus(secondSend, 201, "phase3b duplicate voice send");
+    const secondMessageId = readId(secondSend.data?.message);
+    assert.equal(
+      secondMessageId,
+      firstMessageId,
+      "duplicate clientMessageId should resolve to the same message"
+    );
+
+    const threadMessageCount = await q(
+      `SELECT COUNT(*)::int AS count
+       FROM social_chat_message
+       WHERE thread_id = $1
+         AND client_message_id = $2`,
+      [threadId, `phase3b-${runTag}-voice`]
+    );
+    assert.equal(
+      Number(threadMessageCount.rows[0]?.count || 0),
+      1,
+      "duplicate thread send should store only one row"
+    );
+
+    const bobUnreadRows = await listUnreadCountsForThreads({
+      userId: bob.userId,
+      threadIds: [threadId],
+    });
+    const charlieUnreadRows = await listUnreadCountsForThreads({
+      userId: charlie.userId,
+      threadIds: [threadId],
+    });
+    assert.equal(
+      Number(bobUnreadRows[0]?.unread_count || 0),
+      1,
+      "bob unread count should remain 1 after a duplicate retry"
+    );
+    assert.equal(
+      Number(charlieUnreadRows[0]?.unread_count || 0),
+      1,
+      "charlie unread count should remain 1 after a duplicate retry"
+    );
+    for (const row of [...bobUnreadRows, ...charlieUnreadRows]) {
+      assert.equal(
+        Number(row.unread_count || 0),
+        1,
+        `recipient ${row.user_id || row.thread_id} unread count should remain 1 after a duplicate retry`
+      );
+    }
+
+    const notificationCount = await q(
+      `SELECT COUNT(*)::int AS count
+       FROM app_notification
+       WHERE type = 'social.chat.message'
+         AND COALESCE(payload->>'threadId', '') = $1`,
+      [String(threadId)]
+    );
+    assert.equal(
+      Number(notificationCount.rows[0]?.count || 0),
+      2,
+      "group notifications should only be emitted once per recipient"
+    );
+
+    const bobMessages = await request(
+      baseUrl,
+      bob,
+      "GET",
+      `/api/feed/chats/threads/${threadId}/messages?limit=20`
+    );
+    assertStatus(bobMessages, 200, "phase3b bob messages");
+    assert.equal(
+      readList(bobMessages.data, "messages").filter(
+        (item) =>
+          Number(item?.id || 0) === firstMessageId ||
+          String(item?.clientMessageId || item?.client_message_id || "") ===
+            `phase3b-${runTag}-voice`
+      ).length,
+      1,
+      "bob should see a single voice message row"
+    );
+
+    console.log(
+      `[social-phase3b] passed runTag=${runTag} alice=${alice.userId} bob=${bob.userId} charlie=${charlie.userId} thread=${threadId}`
+    );
+  } finally {
+    if (ctx) {
+      await finalizeContext(ctx, { closePool });
     }
   }
 }

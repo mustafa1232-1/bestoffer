@@ -200,6 +200,7 @@ This file captures the cross-app end-to-end flows that must be proven during the
 - Stories autoplay/progress
 - Reel sharing
 - Direct messages and groups
+- Voice notes, attachments, unread state, and deterministic duplicate-send handling
 
 ## Verified Runtime Evidence
 
@@ -207,6 +208,13 @@ This file captures the cross-app end-to-end flows that must be proven during the
   - profiles update with the expected public-visibility fields
   - relation requests and accepts publish the expected notifications
   - search, hashtag, mentions, suggestions, share recipients, friends, profile, insights, and group chat all respond with the expected runtime shapes
+- `backend/src/scripts/socialE2ECheck.js` now also proves the Phase 3B messaging hardening path end-to-end:
+  - a group thread can be created for multiple recipients
+  - a voice-note attachment sent with a deterministic `clientMessageId` is stored once even when retried
+  - duplicate retries resolve to the same stored message id
+  - unread counts remain stable for all recipients after the duplicate retry
+  - community and thread chat validators accept `clientMessageId` and reject overlong values
+- `backend/src/tests/feed.phase3b.test.js` now covers the new `clientMessageId` validation contract for thread and community chat bodies
 - `backend/src/scripts/storiesE2ECheck.js` now proves the stories lifecycle end-to-end:
   - story creation with styled payloads works
   - story view / like / comment / highlight / archive / restore flows remain stable
@@ -217,3 +225,4 @@ This file captures the cross-app end-to-end flows that must be proven during the
   - reel detail, profile listing, explore, and search return the reel as expected
   - reel view / like / comment / saved toggle / share recipient discovery remain stable
 - The runtime verifier now advances cleanly past the Phase 3A scripts because the social/stories/reels wrappers terminate successfully on completion.
+- The runtime verifier now also advances cleanly past the Phase 3B messaging checks because the social messaging wrapper terminates successfully on completion.

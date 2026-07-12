@@ -1760,6 +1760,7 @@ class SocialChatMessage {
   final int threadId;
   final int senderUserId;
   final String body;
+  final String? clientMessageId;
   final SocialChatReplyPreview? replyToMessage;
   final SocialChatAttachment? attachment;
   final SocialSharedEntity? sharedEntity;
@@ -1783,6 +1784,7 @@ class SocialChatMessage {
     required this.threadId,
     required this.senderUserId,
     required this.body,
+    this.clientMessageId,
     required this.replyToMessage,
     required this.attachment,
     required this.sharedEntity,
@@ -1809,6 +1811,9 @@ class SocialChatMessage {
     threadId: parseInt(j['threadId'] ?? j['thread_id']),
     senderUserId: parseInt(j['senderUserId'] ?? j['sender_user_id']),
     body: parseString(j['body']),
+    clientMessageId: parseNullableString(
+      j['clientMessageId'] ?? j['client_message_id'],
+    ),
     replyToMessage: j['replyToMessage'] is Map || j['reply_to_message'] is Map
         ? SocialChatReplyPreview.fromJson(
             Map<String, dynamic>.from(
@@ -1892,6 +1897,8 @@ class SocialChatMessage {
     SocialChatReplyPreview? replyToMessage,
     SocialChatAttachment? attachment,
     SocialSharedEntity? sharedEntity,
+    String? clientMessageId,
+    bool clearClientMessageId = false,
     Map<String, int>? reactionCounts,
     int? reactionTotalCount,
     String? myReaction,
@@ -1905,6 +1912,8 @@ class SocialChatMessage {
       threadId: threadId,
       senderUserId: senderUserId,
       body: body ?? this.body,
+      clientMessageId:
+          clearClientMessageId ? null : (clientMessageId ?? this.clientMessageId),
       replyToMessage: replyToMessage ?? this.replyToMessage,
       attachment: attachment ?? this.attachment,
       sharedEntity: sharedEntity ?? this.sharedEntity,
@@ -2760,6 +2769,7 @@ class SocialCommunityChatMessage {
   final String? scopeCode;
   final int senderUserId;
   final String body;
+  final String? clientMessageId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final DateTime? editedAt;
@@ -2781,6 +2791,7 @@ class SocialCommunityChatMessage {
     required this.scopeCode,
     required this.senderUserId,
     required this.body,
+    this.clientMessageId,
     required this.createdAt,
     required this.updatedAt,
     required this.editedAt,
@@ -2805,6 +2816,9 @@ class SocialCommunityChatMessage {
     scopeCode: parseNullableString(j['scopeCode'] ?? j['scope_code']),
     senderUserId: parseInt(j['senderUserId'] ?? j['sender_user_id']),
     body: parseString(j['body']),
+    clientMessageId: parseNullableString(
+      j['clientMessageId'] ?? j['client_message_id'],
+    ),
     createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
     updatedAt: parseNullableDateTime(j['updatedAt'] ?? j['updated_at']),
     editedAt: parseNullableDateTime(j['editedAt'] ?? j['edited_at']),

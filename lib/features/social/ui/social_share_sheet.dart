@@ -11,6 +11,7 @@ import '../data/social_api.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'widgets/social_identity_view.dart';
+import 'social_message_client_id.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -265,6 +266,13 @@ class _SocialShareSheetState extends ConsumerState<SocialShareSheet> {
           sharedEntityType: widget.entityType,
           sharedEntityId: widget.entityId,
           sharedSnapshot: widget.sharedSnapshot,
+          clientMessageId: buildSocialMessageClientId(
+            scopeKey: 'thread:$threadId',
+            body: '',
+            sharedEntityType: widget.entityType,
+            sharedEntityId: widget.entityId,
+            sharedSnapshot: widget.sharedSnapshot,
+          ),
         );
         sentCount += 1;
       }
