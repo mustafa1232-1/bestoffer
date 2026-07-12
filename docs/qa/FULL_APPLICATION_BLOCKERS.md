@@ -30,3 +30,10 @@ This list starts as the authoritative working blocker set for the closure progra
 | P2 | Stories autoplay/progress | PASS_RUNTIME | `backend/src/scripts/storiesE2ECheck.js` and `railway run --service bestoffer npm run verify:release:runtime` passed after the wrapper exit fix | No device gate for this scope |
 | P2 | Reel sharing | PASS_RUNTIME | `backend/src/scripts/reelsE2ECheck.js` and `railway run --service bestoffer npm run verify:release:runtime` passed after the wrapper exit fix | No device gate for this scope |
 | P2 | Social/discovery/profile/messaging | PASS_RUNTIME | `backend/src/scripts/socialE2ECheck.js` and `railway run --service bestoffer npm run verify:release:runtime` passed after the wrapper exit fix; Phase 3B now proves voice-note attachment dedupe, unread-state stability, and community/thread `clientMessageId` validation | No device gate for core runtime proof; real-device push/tap validation still pending |
+
+## Release Candidate Gates
+
+| Gate | Current status | Notes |
+|---|---|---|
+| Real-device QA for Phase 3C RC artifacts | BLOCKED | Signed APK/AAB artifacts exist in `qa_artifacts/phase_3c_android_rc/`, but no controllable Android device session was available to execute the foreground/background/killed-app and notification-tap flows. |
+| Full `permissions:check` role matrix | BLOCKED | The QA env only exposes `SUPER_ADMIN_PHONE` / `SUPER_ADMIN_PIN` in `.env.test`; user / owner / delivery credentials are not present in this workspace. |

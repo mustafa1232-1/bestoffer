@@ -48,6 +48,7 @@ erDiagram
 - `pharmacy_attachment.id` is referenced by `pharmacy_message.attachment_id` and `pharmacy_attachment_access_audit.attachment_id`.
 - `customer_order.pharmacy_conversation_id` references `pharmacy_conversation.id`.
 - `pharmacy_retention_job_run` is a standalone tracking table without outward application FKs in the current snapshot.
+- `social_chat_message.client_message_id` and `social_scope_chat_message.client_message_id` were added in migration 132 with unique partial indexes for idempotent messaging; these are dedupe constraints, not foreign keys.
 
 ## Conceptual Relationships
 

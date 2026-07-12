@@ -6,6 +6,7 @@
 - Starting HEAD for this phase work: `33d8c1f`
 - Scope: direct messaging, group threads, community chat messaging, voice-note attachments, unread state, idempotent client message ids, and routing / realtime proof for the social chat path
 - Device gate: runtime proof only; real-device push / background / killed-app validation remains pending
+- Railway deployment id: `edc91328-bda4-454f-991b-1eee71653176`
 
 ## Validation Summary
 
@@ -53,4 +54,5 @@
 - Community chat `clientMessageId` validation: `PASS_RUNTIME`
 - Unread-state stability after duplicate retry: `PASS_RUNTIME`
 - Real-device push / background / killed-app validation: `BLOCKED: REAL_DEVICE_REQUIRED`
-- Overall Phase 3B closure status: runtime complete, documentation checkpoint created
+- Overall Phase 3B closure status: `PASS_RUNTIME_DEPLOYED_DEVICE_PENDING`
+- Phase 3B runtime is deployed on Railway and remains device-pending until a controllable handset is available

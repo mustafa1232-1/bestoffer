@@ -226,3 +226,12 @@ This file captures the cross-app end-to-end flows that must be proven during the
   - reel view / like / comment / saved toggle / share recipient discovery remain stable
 - The runtime verifier now advances cleanly past the Phase 3A scripts because the social/stories/reels wrappers terminate successfully on completion.
 - The runtime verifier now also advances cleanly past the Phase 3B messaging checks because the social messaging wrapper terminates successfully on completion.
+
+## Release Candidate / Phase 3C
+
+- Migration `132_social_chat_client_message_id.sql` is now part of the validated schema baseline.
+- The local QA DB and Railway both contain the migration 132 unique indexes for idempotent social chat retries.
+- `backend/src/scripts/securitySelfCheck.js` remains clean and the runtime security check still enforces strict `401` / `403` behavior.
+- The bounded performance smoke completed locally without request failures.
+- Signed RC artifacts were built for user, store, delivery, captain, pharmacy, and company under `qa_artifacts/phase_3c_android_rc/`.
+- Real-device push, killed-app, and notification-tap validation is still pending and must not be claimed as passed.

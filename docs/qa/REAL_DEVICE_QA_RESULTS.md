@@ -28,13 +28,12 @@ This file is intentionally strict.
 
 ## Current APK Paths For Manual QA
 
-- User: `qa_artifacts/phase_1e_android_apks/user/app-user-release.apk`
-- Store: `qa_artifacts/phase_1e_android_apks/store/app-store-release.apk`
-- Delivery: `qa_artifacts/phase_1e_android_apks/delivery/app-delivery-release.apk`
-- Captain: `qa_artifacts/phase_1e_android_apks/captain/app-captain-release.apk`
+- User: `qa_artifacts/phase_3c_android_rc/user/app-user-release.apk`
+- Store: `qa_artifacts/phase_3c_android_rc/store/app-store-release.apk`
+- Delivery: `qa_artifacts/phase_3c_android_rc/delivery/app-delivery-release.apk`
+- Captain: `qa_artifacts/phase_3c_android_rc/captain/app-captain-release.apk`
 
 ## Notes
 
-- Company/admin does not currently have a verified release APK in this snapshot.
-- Pharmacy currently has a release APK present, but it is outside the minimum device-QA set requested for this phase.
-- Phase 1C runtime verification is complete, Phase 1D taxi runtime verification is complete, and the current Phase 1E APKs have been rebuilt from HEAD `4034661545ea66366a6bc741b3327d13b4767b0d`, but push/background/killed-app, notification tap cold start, and live device session churn are still `BLOCKED: REAL_DEVICE_REQUIRED` until the signed APKs are executed on a controllable device.
+- Company/admin and pharmacy also have RC artifacts in `qa_artifacts/phase_3c_android_rc/`, but the minimum device-QA set remains user / store / delivery / captain.
+- Phase 1C runtime verification is complete, Phase 1D taxi runtime verification is complete, and the current Phase 3C RC APKs were rebuilt from HEAD `6db2be2dee1d2260f0dfcd0f751efcfabad411fc`, but push/background/killed-app, notification tap cold start, and live device session churn are still `BLOCKED: REAL_DEVICE_REQUIRED` until the signed APKs are executed on a controllable device.

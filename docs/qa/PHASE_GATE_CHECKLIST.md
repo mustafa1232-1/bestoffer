@@ -133,6 +133,17 @@
 - [x] Voice-note attachment dedupe and unread-state stability are now proven in runtime
 - [x] Real-device push/background/killed-app and notification-tap validation remains pending and must not be claimed as passed
 
+## Phase 3C Continuation
+
+- [x] Migration `132_social_chat_client_message_id.sql` integrity audited against repo, local QA DB, and Railway
+- [x] Security re-audit passed for auth/surface isolation, headers, and runtime guard behavior
+- [x] Bounded local performance smoke completed without failures
+- [x] Signed APK/AAB release-candidate artifacts were built for user, store, delivery, captain, pharmacy, and company
+- [x] `docs/qa/PHASE_3C_RELEASE_CANDIDATE_REPORT.md` created
+- [x] `docs/qa/ANDROID_ARTIFACT_MANIFEST.md` created
+- [ ] Real-device push/background/killed-app and notification-tap validation remains pending and must not be claimed as passed
+- [ ] Full `permissions:check` role matrix remains blocked until user / owner / delivery QA credentials are available
+
 ## Notes
 
 - Phase 1 must not start until the P0 blockers are the only active closure scope.
