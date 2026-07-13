@@ -2811,6 +2811,13 @@ export async function rejectCurrentBid({
     nextOffer,
   });
 
+  // `latestLocation` was referenced in the return payload below without ever
+  // being declared in this function's scope, throwing a ReferenceError and
+  // returning HTTP 500 to the customer AFTER the bid was already rejected and
+  // realtime/notifications were already emitted (leaving the client desynced).
+  // Fetch it here, mirroring acceptBid.
+  const latestLocation = await repo.getLatestRideLocation(ride.id);
+
   return {
     ride: buildTaxiRideCompatView(ride, { latestLocation }),
     assignment: buildTaxiAssignmentPayload(ride, { latestLocation }),

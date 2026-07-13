@@ -361,3 +361,56 @@ test("taxi negotiation keeps multi-offer rides separate from captain availabilit
     });
   }
 });
+
+test("taxi negotiation reject current bid returns a stable ride envelope", async () => {
+  const state = {
+    userIds: [],
+    rideIds: [],
+  };
+
+  try {
+    const customer = await createTaxiUser({
+      fullName: `Taxi Reject Current Customer ${makeSuffix("cust-reject-")}`,
+      phone: makePhone(50),
+      role: "user",
+    });
+    state.userIds.push(Number(customer.id));
+
+    const captain = await createTaxiUser({
+      fullName: `Taxi Reject Current Captain ${makeSuffix("cap-reject-")}`,
+      phone: makePhone(51),
+      role: "taxi_captain",
+    });
+    state.userIds.push(Number(captain.id));
+    await seedCaptainReady(captain.id, 0);
+
+    const ride = await seedRequestRide(customer.id, "reject-current");
+    state.rideIds.push(ride.rideId);
+
+    await taxiService.submitBid({
+      captainUserId: captain.id,
+      rideId: ride.rideId,
+      dto: {
+        offeredFareIqd: 16000,
+        etaMinutes: 7,
+        note: "reject-current-bid",
+      },
+    });
+
+    const result = await taxiService.rejectCurrentBid({
+      customerUserId: customer.id,
+      rideId: ride.rideId,
+    });
+
+    const returnedRide = result?.ride || result;
+    assert.ok(returnedRide, "rejectCurrentBid should return a ride payload");
+    assert.equal(Number(returnedRide.id || returnedRide.rideId || 0), ride.rideId);
+    assert.ok(result.assignment, "rejectCurrentBid should include assignment data");
+    assert.equal(Number(result.assignment.rideId || 0), ride.rideId);
+  } finally {
+    await cleanupRows({
+      userIds: state.userIds,
+      rideIds: state.rideIds,
+    });
+  }
+});

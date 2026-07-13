@@ -35,21 +35,31 @@ class TaxiApi {
   /// يجلب الرحلة الحالية للعميل إن وجدت.
   Future<Map<String, dynamic>?> getCurrentRideForCustomer() async {
     final response = await dio.get('/api/taxi/rides/current');
-    final map = Map<String, dynamic>.from(response.data as Map);
-    if (map['ride'] is Map) {
-      return map;
-    }
-    return null;
+    return _unwrapCurrentRideEnvelope(response.data);
   }
 
   /// يجلب الرحلة الحالية للكابتن.
   Future<Map<String, dynamic>?> getCurrentRideForCaptain() async {
     final response = await dio.get('/api/taxi/captain/current-ride');
-    final map = Map<String, dynamic>.from(response.data as Map);
-    if (map['ride'] is Map) {
-      return map;
-    }
-    return null;
+    return _unwrapCurrentRideEnvelope(response.data);
+  }
+
+  /// The taxi backend has historically emitted both wrapped and direct current
+  /// ride bodies while the UI evolved. Accept either shape and normalize to the
+  /// inner ride envelope so the active-ride screen never depends on the
+  /// transport wrapper or on one extra `ride` layer.
+  Map<String, dynamic>? _unwrapCurrentRideEnvelope(dynamic data) {
+    if (data is! Map) return null;
+    final map = Map<String, dynamic>.from(data);
+    final inner = map['ride'];
+    if (inner is! Map) return null; // no active ride
+    final innerMap = Map<String, dynamic>.from(inner);
+    final looksLikeEnvelope = innerMap['ride'] is Map ||
+        innerMap['assignment'] is Map ||
+        innerMap.containsKey('offers') ||
+        innerMap.containsKey('bids') ||
+        innerMap.containsKey('latestLocation');
+    return looksLikeEnvelope ? innerMap : map;
   }
 
   Future<List<Map<String, dynamic>>> listMyRideHistory({

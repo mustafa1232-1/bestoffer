@@ -87,7 +87,7 @@ export async function createRide(req, res, next) {
 export async function getCurrentRideForCustomer(req, res, next) {
   try {
     const out = await service.getCurrentRideForCustomer(req.userId);
-    return res.json({ ride: out });
+    return res.json(out);
   } catch (error) {
     return next(error);
   }
@@ -120,7 +120,7 @@ export async function listNearbyCaptains(req, res, next) {
 export async function getCurrentRideForCaptain(req, res, next) {
   try {
     const out = await service.getCurrentRideForCaptain(req.userId);
-    return res.json({ ride: out });
+    return res.json(out);
   } catch (error) {
     return next(error);
   }
@@ -154,7 +154,7 @@ export async function cancelRide(req, res, next) {
       rideId,
     });
 
-    return res.json({ ride: out });
+    return res.json(out);
   } catch (error) {
     return next(error);
   }
@@ -387,7 +387,7 @@ export async function markArrived(req, res, next) {
       rideId,
     });
 
-    return res.json({ ride: out });
+    return res.json(out);
   } catch (error) {
     return next(error);
   }
@@ -403,7 +403,7 @@ export async function startRide(req, res, next) {
       rideId,
     });
 
-    return res.json({ ride: out });
+    return res.json(out);
   } catch (error) {
     return next(error);
   }
@@ -419,7 +419,7 @@ export async function completeRide(req, res, next) {
       rideId,
     });
 
-    return res.json({ ride: out });
+    return res.json(out);
   } catch (error) {
     return next(error);
   }

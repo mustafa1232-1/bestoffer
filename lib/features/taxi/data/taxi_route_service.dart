@@ -47,16 +47,30 @@ class TaxiRouteService {
     required LatLng to,
   }) async {
     final fallbackDistance = distanceMeters(from, to);
-    final response = await _dio.get(
-      'https://router.project-osrm.org/route/v1/driving/'
-      '${from.longitude},${from.latitude};${to.longitude},${to.latitude}',
-      queryParameters: {
-        'overview': 'full',
-        'geometries': 'geojson',
-        'steps': false,
-        'alternatives': false,
-      },
-    );
+    final Response<dynamic> response;
+    try {
+      response = await _dio.get(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '${from.longitude},${from.latitude};${to.longitude},${to.latitude}',
+        queryParameters: {
+          'overview': 'full',
+          'geometries': 'geojson',
+          'steps': false,
+          'alternatives': false,
+        },
+      );
+    } catch (_) {
+      // Timeout / offline / OSRM 5xx: never propagate as an exception that the
+      // caller turns into a "route unavailable" dead-end. Degrade to the
+      // straight-line estimate (already computed) so distance — and therefore
+      // the fare estimate — is always available. Matches the malformed-response
+      // branches below.
+      return TaxiRoutePreview(
+        points: [from, to],
+        distanceMeters: fallbackDistance,
+        durationSeconds: null,
+      );
+    }
 
     final data = response.data;
     if (data is! Map) {

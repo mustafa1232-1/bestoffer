@@ -394,12 +394,11 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
 
   void _maybeOpenLiveTrackingFromEnvelope(Map<String, dynamic>? envelope) {
     if (!mounted || envelope == null) return;
-    final rideRaw = envelope['ride'];
-    if (rideRaw is! Map) {
+    final ride = taxiRideViewFromEnvelope(envelope);
+    if (ride == null) {
       _openedLiveTrackingRideId = null;
       return;
     }
-    final ride = Map<String, dynamic>.from(rideRaw);
     final rideId = _readInt(ride['id']);
     final status = _string(ride['status']);
     if (rideId == null || !_shouldOpenLiveTrackingForStatus(status)) {
@@ -1094,6 +1093,13 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
           _pickupConfirmed = true;
           _selectionMode = _PointSelectionMode.dropoff;
           _requestStep = TaxiRequestStep.dropoffSearch;
+          // Seed a non-empty pickup label synchronously so a failing/slow
+          // reverse geocode never leaves the pickup label empty (which blocks
+          // submit). The async reverse geocode below overwrites it with the
+          // real address on success.
+          if (_pickupLabelController.text.trim().isEmpty) {
+            _pickupLabelController.text = l10n.mapPageCurrentLocation;
+          }
         }
       });
 
@@ -3394,7 +3400,12 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       case 'expired':
         return l10n.mapPageRideExpiredTitle;
       default:
-        return l10n.mapPageRideRequestCreateTitle;
+        // An active ride (ride != null) with an unrecognized status must never
+        // fall back to the "create taxi request" title — that is the composer's
+        // title and rendering it here produced two identical cards. Use a
+        // neutral in-progress title instead. In normal operation a real ride
+        // always carries a known status.
+        return l10n.mapPageRideSearchingTitle;
     }
   }
 
@@ -3968,6 +3979,23 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     );
   }
 
+  /// Resolves a human label for a pickup/dropoff point, degrading to formatted
+  /// coordinates when the address text is missing but the point has real
+  /// coordinates (the marker draws from those coordinates, so the summary must
+  /// not read "unavailable" while a pin is on the map). Only falls back to
+  /// [fallback] when there is neither a label nor coordinates.
+  String _pointSummaryLabel(dynamic point, String fallback) {
+    if (point is! Map) return fallback;
+    final label = _string(point['label'] ?? point['addressText']);
+    if (label != null) return label;
+    final lat = point['latitude'];
+    final lng = point['longitude'];
+    if (lat is num && lng is num) {
+      return '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
+    }
+    return fallback;
+  }
+
   Widget _buildBottomCard(
     BuildContext context,
     Map<String, dynamic> ride,
@@ -4089,12 +4117,12 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                     const SizedBox(height: 4),
                     Text(
                       l10n.mapPageRidePickupSummary(
-                        _string(ride['pickup']?['label']) ?? nonAvailable,
+                        _pointSummaryLabel(ride['pickup'], nonAvailable),
                       ),
                     ),
                     Text(
                       l10n.mapPageRideDropoffSummary(
-                        _string(ride['dropoff']?['label']) ?? nonAvailable,
+                        _pointSummaryLabel(ride['dropoff'], nonAvailable),
                       ),
                     ),
                     if (rideStatus == 'searching' &&
