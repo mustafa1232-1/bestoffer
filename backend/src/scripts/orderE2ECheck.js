@@ -1300,7 +1300,7 @@ async function main() {
     await expectNotification(
       {
         userId: state.deliveryUserId,
-        type: "delivery_order_available",
+        type: "delivery_order_assigned",
         orderId: state.orderId,
       },
       "delivery direct assignment notification"

@@ -259,7 +259,11 @@ async function expectCurrentRide(baseUrl, actor, path, expectedStatus, label) {
 async function expectNoCurrentRide(baseUrl, actor, path, label) {
   const response = await request(baseUrl, actor, "GET", path);
   assertStatus(response, 200, label);
-  assert.equal(response.data?.ride, null, `${label} -> expected null ride`);
+  assert.equal(
+    extractRide(response.data),
+    null,
+    `${label} -> expected null ride`
+  );
 }
 
 async function main() {
