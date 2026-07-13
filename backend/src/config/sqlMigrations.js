@@ -8,6 +8,7 @@ const migrationsDir = path.resolve(process.cwd(), "sql");
 const migrationTable = "schema_migration";
 const migrationLockKey = 719_244_381;
 const migrationSplitMarker = /^\s*--\s*@SPLIT\s*$/gim;
+const numberedSqlMigrationFilePattern = /^\d+[a-z]?(?:_.*)?\.sql$/i;
 const migrationQueryOptions = {
   query_timeout: 120_000,
   statement_timeout: 120_000,
@@ -65,6 +66,10 @@ function splitMigrationSql(sql) {
     .filter(Boolean);
 }
 
+export function isNumberedSqlMigrationFileName(fileName) {
+  return numberedSqlMigrationFilePattern.test(String(fileName || "").trim());
+}
+
 export async function runSqlMigrations({ force = false } = {}) {
   const shouldSkipForcedRailwayScriptRun =
     force &&
@@ -86,7 +91,10 @@ export async function runSqlMigrations({ force = false } = {}) {
   }
 
   const files = entries
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".sql"))
+    .filter(
+      (entry) =>
+        entry.isFile() && isNumberedSqlMigrationFileName(entry.name)
+    )
     .map((entry) => entry.name)
     .sort((a, b) =>
       a.localeCompare(b, undefined, {
