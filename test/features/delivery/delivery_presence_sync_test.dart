@@ -80,7 +80,9 @@ class _FakeGeolocatorPlatform extends GeolocatorPlatform {
 }
 
 class _FakeDeliveryApi extends DeliveryApi {
-  _FakeDeliveryApi() : super(Dio());
+  _FakeDeliveryApi() : super(Dio()) {
+    dio.options.baseUrl = 'https://bestoffer-production.up.railway.app';
+  }
 
   int ordersCalls = 0;
   int analyticsCalls = 0;
@@ -92,6 +94,8 @@ class _FakeDeliveryApi extends DeliveryApi {
   int competitionProgressCalls = 0;
   int achievementsCalls = 0;
   int readinessCalls = 0;
+  bool failPresence = false;
+  int failPresenceStatusCode = 503;
 
   final List<Map<String, dynamic>> presencePayloads = [];
 
@@ -101,13 +105,16 @@ class _FakeDeliveryApi extends DeliveryApi {
     int? merchantId,
     int limit = 60,
     int offset = 0,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     ordersCalls += 1;
     return const <dynamic>[];
   }
 
   @override
-  Future<Map<String, dynamic>> analytics() async {
+  Future<Map<String, dynamic>> analytics({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     analyticsCalls += 1;
     return const <String, dynamic>{};
   }
@@ -117,6 +124,7 @@ class _FakeDeliveryApi extends DeliveryApi {
     String period = 'day',
     String? from,
     String? to,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     dashboardCalls += 1;
     return const <String, dynamic>{};
@@ -127,19 +135,27 @@ class _FakeDeliveryApi extends DeliveryApi {
     String period = 'day',
     String? from,
     String? to,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     reportsCalls += 1;
     return const <String, dynamic>{};
   }
 
   @override
-  Future<List<dynamic>> requestsV2({int limit = 40, int offset = 0}) async {
+  Future<List<dynamic>> requestsV2({
+    int limit = 40,
+    int offset = 0,
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     requestsCalls += 1;
     return const <dynamic>[];
   }
 
   @override
-  Future<Map<String, dynamic>> competitionsV2({String scope = 'active'}) async {
+  Future<Map<String, dynamic>> competitionsV2({
+    String scope = 'active',
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     if (scope == 'history') {
       historyCompetitionsCalls += 1;
     } else {
@@ -149,46 +165,97 @@ class _FakeDeliveryApi extends DeliveryApi {
   }
 
   @override
-  Future<Map<String, dynamic>> competitionProgressV2() async {
+  Future<Map<String, dynamic>> competitionProgressV2({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     competitionProgressCalls += 1;
     return const <String, dynamic>{'items': <dynamic>[]};
   }
 
   @override
-  Future<Map<String, dynamic>> competitionAchievementsSummaryV2() async {
+  Future<Map<String, dynamic>> competitionAchievementsSummaryV2({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     achievementsCalls += 1;
     return const <String, dynamic>{'summary': <String, dynamic>{}};
   }
 
   @override
-  Future<Map<String, dynamic>> endDayReadiness() async {
+  Future<Map<String, dynamic>> endDayReadiness({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     readinessCalls += 1;
     return const {'canEndDay': true, 'openSettlements': <dynamic>[]};
   }
 
   @override
   Future<Map<String, dynamic>> upsertPresence({
-    required double latitude,
-    required double longitude,
+    double? latitude,
+    double? longitude,
     int? orderId,
     bool isOnline = true,
     double? headingDeg,
     double? speedKmh,
     double? accuracyM,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
+    if (failPresence) {
+      final requestOptions = RequestOptions(
+        path: '/api/courier/presence',
+        baseUrl: dio.options.baseUrl,
+      );
+      throw DioException(
+        requestOptions: requestOptions,
+        response: Response<Map<String, dynamic>>(
+          requestOptions: requestOptions,
+          statusCode: failPresenceStatusCode,
+          data: <String, dynamic>{
+            'code': 'PRESENCE_FAILED',
+            'message': 'Presence failed',
+          },
+        ),
+        type: DioExceptionType.badResponse,
+      );
+    }
     presencePayloads.add(<String, dynamic>{
-      'latitude': latitude,
-      'longitude': longitude,
       'orderId': orderId,
       'isOnline': isOnline,
-      'headingDeg': headingDeg,
-      'speedKmh': speedKmh,
-      'accuracyM': accuracyM,
+      ...?(latitude == null ? null : <String, dynamic>{'latitude': latitude}),
+      ...?(longitude == null
+          ? null
+          : <String, dynamic>{'longitude': longitude}),
+      ...?(headingDeg == null
+          ? null
+          : <String, dynamic>{'headingDeg': headingDeg}),
+      ...?(speedKmh == null ? null : <String, dynamic>{'speedKmh': speedKmh}),
+      ...?(accuracyM == null
+          ? null
+          : <String, dynamic>{'accuracyM': accuracyM}),
     });
     return <String, dynamic>{
       'presence': <String, dynamic>{'courierUserId': 86, 'orderId': orderId},
     };
   }
+}
+
+OrderModel _assignedOrder({required int id, String status = 'on_the_way'}) {
+  return OrderModel.fromJson({
+    'id': id,
+    'merchant_id': 1,
+    'customer_user_id': 2,
+    'merchant_name': 'Merchant',
+    'status': status,
+    'customer_full_name': 'Customer',
+    'customer_phone': '0770000000',
+    'customer_city': 'Basmaya',
+    'customer_block': 'A1',
+    'customer_building_number': '12',
+    'customer_apartment': '3',
+    'delivery_user_id': 86,
+    'delivery_assignment_status': 'ASSIGNED',
+    'total_amount': 1000,
+    'items': const <dynamic>[],
+  });
 }
 
 void main() {
@@ -221,17 +288,8 @@ void main() {
   });
 
   test(
-    'delivery bootstrap publishes a general heartbeat when no active order exists',
+    'delivery bootstrap publishes an idle heartbeat without coordinates when no active order exists',
     () async {
-      final permissionStatus = await const _FakeLocationPermissionService()
-          .getStatus();
-      expect(permissionStatus.state, AppLocationPermissionState.grantedPrecise);
-      final directPosition = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.bestForNavigation,
-      );
-      expect(directPosition.latitude, 33.31456);
-      expect(directPosition.longitude, 44.36611);
-
       final api = _FakeDeliveryApi();
       final authState = AuthState(
         user: UserModel(
@@ -268,14 +326,7 @@ void main() {
       expect(auth.isDelivery, isTrue);
 
       await container.read(deliveryControllerProvider.notifier).bootstrap();
-      await container
-          .read(deliveryControllerProvider.notifier)
-          .syncCourierPresenceForTesting(
-            skipPreconditions: true,
-            apiOverride: api,
-            positionOverride: geolocatorPosition,
-            currentOrdersOverride: const <OrderModel>[],
-          );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
 
       final state = container.read(deliveryControllerProvider);
       expect(state.loading, isFalse);
@@ -293,8 +344,187 @@ void main() {
       expect(api.presencePayloads, hasLength(1));
       expect(api.presencePayloads.single['orderId'], isNull);
       expect(api.presencePayloads.single['isOnline'], isTrue);
-      expect(api.presencePayloads.single['latitude'], 33.31456);
-      expect(api.presencePayloads.single['longitude'], 44.36611);
+      expect(api.presencePayloads.single.containsKey('latitude'), isFalse);
+      expect(api.presencePayloads.single.containsKey('longitude'), isFalse);
+      expect(
+        state.presenceEndpointHost,
+        'https://bestoffer-production.up.railway.app',
+      );
+      expect(state.presenceUserId, 86);
+      expect(state.lastPresenceAttemptAt, isNotNull);
+      expect(state.lastPresenceSuccessAt, isNotNull);
+      expect(state.lastPresenceHttpStatus, 200);
+      expect(state.lastPresenceError, isNull);
     },
   );
+
+  test(
+    'delivery resume forces another idle heartbeat without coordinates',
+    () async {
+      final api = _FakeDeliveryApi();
+      final authState = AuthState(
+        user: UserModel(
+          id: 86,
+          fullName: 'Delivery Driver',
+          phone: '07711234567',
+          role: 'delivery',
+          block: 'A1',
+          buildingNumber: '12',
+          apartment: '3',
+          imageUrl: null,
+          workTitle: null,
+          workCompany: null,
+          preferredLocale: null,
+          isSuperAdmin: false,
+        ),
+        token: 'delivery-token',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) => _FakeAuthController(ref, authState),
+          ),
+          deliveryApiProvider.overrideWithValue(api),
+          locationPermissionServiceProvider.overrideWithValue(
+            const _FakeLocationPermissionService(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(deliveryControllerProvider.notifier);
+      await controller.bootstrap();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      controller.didChangeAppLifecycleState(AppLifecycleState.paused);
+      controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(api.presencePayloads, hasLength(2));
+      for (final payload in api.presencePayloads) {
+        expect(payload['orderId'], isNull);
+        expect(payload.containsKey('latitude'), isFalse);
+        expect(payload.containsKey('longitude'), isFalse);
+      }
+      final state = container.read(deliveryControllerProvider);
+      expect(state.lastPresenceSuccessAt, isNotNull);
+      expect(state.lastPresenceHttpStatus, 200);
+      expect(state.lastPresenceError, isNull);
+    },
+  );
+
+  test(
+    'delivery presence sync publishes coordinates for a trackable order and repeats on demand',
+    () async {
+      final api = _FakeDeliveryApi();
+      final authState = AuthState(
+        user: UserModel(
+          id: 86,
+          fullName: 'Delivery Driver',
+          phone: '07711234567',
+          role: 'delivery',
+          block: 'A1',
+          buildingNumber: '12',
+          apartment: '3',
+          imageUrl: null,
+          workTitle: null,
+          workCompany: null,
+          preferredLocale: null,
+          isSuperAdmin: false,
+        ),
+        token: 'delivery-token',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) => _FakeAuthController(ref, authState),
+          ),
+          deliveryApiProvider.overrideWithValue(api),
+          locationPermissionServiceProvider.overrideWithValue(
+            const _FakeLocationPermissionService(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(deliveryControllerProvider.notifier)
+          .syncCourierPresenceForTesting(
+            skipPreconditions: true,
+            apiOverride: api,
+            positionOverride: geolocatorPosition,
+            currentOrdersOverride: [_assignedOrder(id: 301)],
+          );
+      await container
+          .read(deliveryControllerProvider.notifier)
+          .syncCourierPresenceForTesting(
+            force: true,
+            skipPreconditions: true,
+            apiOverride: api,
+            positionOverride: geolocatorPosition,
+            currentOrdersOverride: [_assignedOrder(id: 301)],
+          );
+
+      final state = container.read(deliveryControllerProvider);
+      expect(api.presencePayloads, hasLength(2));
+      for (final payload in api.presencePayloads) {
+        expect(payload['orderId'], 301);
+        expect(payload['isOnline'], isTrue);
+        expect(payload['latitude'], 33.31456);
+        expect(payload['longitude'], 44.36611);
+      }
+      expect(state.lastPresenceSuccessAt, isNotNull);
+      expect(state.lastPresenceHttpStatus, 200);
+      expect(state.lastPresenceError, isNull);
+    },
+  );
+
+  test('delivery presence sync surfaces API errors in diagnostics', () async {
+    final api = _FakeDeliveryApi()..failPresence = true;
+    final authState = AuthState(
+      user: UserModel(
+        id: 86,
+        fullName: 'Delivery Driver',
+        phone: '07711234567',
+        role: 'delivery',
+        block: 'A1',
+        buildingNumber: '12',
+        apartment: '3',
+        imageUrl: null,
+        workTitle: null,
+        workCompany: null,
+        preferredLocale: null,
+        isSuperAdmin: false,
+      ),
+      token: 'delivery-token',
+    );
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith(
+          (ref) => _FakeAuthController(ref, authState),
+        ),
+        deliveryApiProvider.overrideWithValue(api),
+        locationPermissionServiceProvider.overrideWithValue(
+          const _FakeLocationPermissionService(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await expectLater(
+      container
+          .read(deliveryControllerProvider.notifier)
+          .syncCourierPresenceForTesting(
+            skipPreconditions: true,
+            apiOverride: api,
+            currentOrdersOverride: const <OrderModel>[],
+          ),
+      throwsA(isA<DioException>()),
+    );
+
+    final state = container.read(deliveryControllerProvider);
+    expect(state.lastPresenceAttemptAt, isNotNull);
+    expect(state.lastPresenceSuccessAt, isNull);
+    expect(state.lastPresenceHttpStatus, 503);
+    expect(state.lastPresenceError, contains('Presence failed'));
+  });
 }

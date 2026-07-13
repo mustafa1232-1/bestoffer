@@ -19,18 +19,22 @@ class _FakeDeliveryApi extends DeliveryApi {
     int? merchantId,
     int limit = 60,
     int offset = 0,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     return const <dynamic>[];
   }
 
   @override
-  Future<Map<String, dynamic>> analytics() async => const <String, dynamic>{};
+  Future<Map<String, dynamic>> analytics({
+    bool skipTerminalSessionInvalidation = false,
+  }) async => const <String, dynamic>{};
 
   @override
   Future<Map<String, dynamic>> dashboardV2({
     String period = 'day',
     String? from,
     String? to,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     return const <String, dynamic>{};
   }
@@ -40,31 +44,39 @@ class _FakeDeliveryApi extends DeliveryApi {
     String period = 'day',
     String? from,
     String? to,
+    bool skipTerminalSessionInvalidation = false,
   }) async => reports;
 
   @override
-  Future<List<dynamic>> requestsV2({int limit = 40, int offset = 0}) async =>
-      const <dynamic>[];
+  Future<List<dynamic>> requestsV2({
+    int limit = 40,
+    int offset = 0,
+    bool skipTerminalSessionInvalidation = false,
+  }) async => const <dynamic>[];
 
   @override
   Future<Map<String, dynamic>> competitionsV2({
     String scope = 'active',
+    bool skipTerminalSessionInvalidation = false,
   }) async => const <String, dynamic>{'competitions': <dynamic>[]};
 
   @override
-  Future<Map<String, dynamic>> competitionProgressV2() async =>
-      const <String, dynamic>{'items': <dynamic>[]};
+  Future<Map<String, dynamic>> competitionProgressV2({
+    bool skipTerminalSessionInvalidation = false,
+  }) async => const <String, dynamic>{'items': <dynamic>[]};
 
   @override
-  Future<Map<String, dynamic>> competitionAchievementsSummaryV2() async =>
-      const <String, dynamic>{'summary': <String, dynamic>{}};
+  Future<Map<String, dynamic>> competitionAchievementsSummaryV2({
+    bool skipTerminalSessionInvalidation = false,
+  }) async => const <String, dynamic>{'summary': <String, dynamic>{}};
 
   @override
-  Future<Map<String, dynamic>> endDayReadiness() async =>
-      const <String, dynamic>{
-        'canEndDay': true,
-        'openSettlements': <dynamic>[],
-      };
+  Future<Map<String, dynamic>> endDayReadiness({
+    bool skipTerminalSessionInvalidation = false,
+  }) async => const <String, dynamic>{
+    'canEndDay': true,
+    'openSettlements': <dynamic>[],
+  };
 }
 
 Widget _wrap(Widget child, DeliveryApi api) => ProviderScope(

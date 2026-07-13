@@ -285,6 +285,7 @@ class DioClient {
     if (error.response?.statusCode != 401) return null;
     if (request.extra['skipAuth'] == true ||
         request.extra['skipAuthRefresh'] == true ||
+        request.extra['skipTerminalSessionInvalidation'] == true ||
         request.extra['_authRefreshRetried'] == true) {
       return null;
     }

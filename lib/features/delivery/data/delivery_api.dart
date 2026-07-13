@@ -28,8 +28,27 @@ class DeliveryApi {
 
   DeliveryApi(this.dio);
 
-  Future<List<dynamic>> currentOrders() async {
-    final response = await dio.get('/api/delivery/orders/current');
+  Map<String, dynamic> _requestExtra({
+    required bool skipTerminalSessionInvalidation,
+  }) {
+    if (!skipTerminalSessionInvalidation) return const <String, dynamic>{};
+    return const <String, dynamic>{
+      'skipAuthRefresh': true,
+      'skipTerminalSessionInvalidation': true,
+    };
+  }
+
+  Future<List<dynamic>> currentOrders({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
+    final response = await dio.get(
+      '/api/delivery/orders/current',
+      options: Options(
+        extra: _requestExtra(
+          skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+        ),
+      ),
+    );
     return List<dynamic>.from(response.data as List);
   }
 
@@ -77,24 +96,31 @@ class DeliveryApi {
   }
 
   Future<Map<String, dynamic>> upsertPresence({
-    required double latitude,
-    required double longitude,
+    double? latitude,
+    double? longitude,
     int? orderId,
     bool isOnline = true,
     double? headingDeg,
     double? speedKmh,
     double? accuracyM,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
-    final payload = <String, dynamic>{
-      'latitude': latitude,
-      'longitude': longitude,
-      'isOnline': isOnline,
-    };
+    final payload = <String, dynamic>{'isOnline': isOnline};
+    if (latitude != null) payload['latitude'] = latitude;
+    if (longitude != null) payload['longitude'] = longitude;
     if (orderId != null) payload['orderId'] = orderId;
     if (headingDeg != null) payload['headingDeg'] = headingDeg;
     if (speedKmh != null) payload['speedKmh'] = speedKmh;
     if (accuracyM != null) payload['accuracyM'] = accuracyM;
-    final response = await dio.post('/api/courier/presence', data: payload);
+    final response = await dio.post(
+      '/api/courier/presence',
+      data: payload,
+      options: Options(
+        extra: _requestExtra(
+          skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+        ),
+      ),
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -106,13 +132,31 @@ class DeliveryApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> endDayReadiness() async {
-    final response = await dio.get('/api/delivery/end-day/readiness');
+  Future<Map<String, dynamic>> endDayReadiness({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
+    final response = await dio.get(
+      '/api/delivery/end-day/readiness',
+      options: Options(
+        extra: _requestExtra(
+          skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+        ),
+      ),
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> analytics() async {
-    final response = await dio.get('/api/delivery/analytics');
+  Future<Map<String, dynamic>> analytics({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
+    final response = await dio.get(
+      '/api/delivery/analytics',
+      options: Options(
+        extra: _requestExtra(
+          skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+        ),
+      ),
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -227,6 +271,7 @@ class DeliveryApi {
     String period = 'day',
     String? from,
     String? to,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     final query = <String, dynamic>{'period': period};
     if (from != null) query['from'] = from;
@@ -235,6 +280,7 @@ class DeliveryApi {
       courierPath: '/api/courier/dashboard',
       legacyPath: '/api/delivery/analytics',
       queryParameters: query,
+      skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
     );
     if (data.containsKey('day') || data.containsKey('month')) {
       return {'kpis': data};
@@ -242,12 +288,21 @@ class DeliveryApi {
     return data;
   }
 
-  Future<List<dynamic>> requestsV2({int limit = 40, int offset = 0}) async {
+  Future<List<dynamic>> requestsV2({
+    int limit = 40,
+    int offset = 0,
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     if (_courierModuleUnavailable) return const <dynamic>[];
     try {
       final response = await dio.get(
         '/api/courier/requests',
         queryParameters: {'limit': limit, 'offset': offset},
+        options: Options(
+          extra: _requestExtra(
+            skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+          ),
+        ),
       );
       final map = Map<String, dynamic>.from(response.data as Map);
       final rows = map['requests'] ?? map['items'] ?? const <dynamic>[];
@@ -266,11 +321,12 @@ class DeliveryApi {
     int? merchantId,
     int limit = 60,
     int offset = 0,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     if (_courierModuleUnavailable) {
-      final legacyCurrent = await currentOrders().catchError(
-        (_) => <dynamic>[],
-      );
+      final legacyCurrent = await currentOrders(
+        skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+      ).catchError((_) => <dynamic>[]);
       return legacyCurrent;
     }
     try {
@@ -280,15 +336,20 @@ class DeliveryApi {
       final response = await dio.get(
         '/api/courier/orders',
         queryParameters: query,
+        options: Options(
+          extra: _requestExtra(
+            skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+          ),
+        ),
       );
       final map = Map<String, dynamic>.from(response.data as Map);
       return List<dynamic>.from(map['orders'] as List? ?? const []);
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
         _courierModuleUnavailable = true;
-        final legacyCurrent = await currentOrders().catchError(
-          (_) => <dynamic>[],
-        );
+        final legacyCurrent = await currentOrders(
+          skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+        ).catchError((_) => <dynamic>[]);
         return legacyCurrent;
       }
       rethrow;
@@ -299,6 +360,7 @@ class DeliveryApi {
     String period = 'day',
     String? from,
     String? to,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     final query = <String, dynamic>{'period': period};
     if (from != null) query['from'] = from;
@@ -307,6 +369,7 @@ class DeliveryApi {
       courierPath: '/api/courier/reports',
       legacyPath: '/api/delivery/analytics',
       queryParameters: query,
+      skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
     );
     if (data.containsKey('day') || data.containsKey('month')) {
       return {'summary': data};
@@ -314,7 +377,10 @@ class DeliveryApi {
     return data;
   }
 
-  Future<Map<String, dynamic>> competitionsV2({String scope = 'active'}) async {
+  Future<Map<String, dynamic>> competitionsV2({
+    String scope = 'active',
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     if (_courierModuleUnavailable) {
       return const {'competitions': <dynamic>[]};
     }
@@ -322,6 +388,11 @@ class DeliveryApi {
       final response = await dio.get(
         '/api/courier/competitions',
         queryParameters: {'scope': scope},
+        options: Options(
+          extra: _requestExtra(
+            skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+          ),
+        ),
       );
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (e) {
@@ -338,13 +409,20 @@ class DeliveryApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> competitionAchievementsSummaryV2() async {
+  Future<Map<String, dynamic>> competitionAchievementsSummaryV2({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     if (_courierModuleUnavailable) {
       return const {'summary': <String, dynamic>{}};
     }
     try {
       final response = await dio.get(
         '/api/courier/competitions/achievements/summary',
+        options: Options(
+          extra: _requestExtra(
+            skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+          ),
+        ),
       );
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (e) {
@@ -356,12 +434,21 @@ class DeliveryApi {
     }
   }
 
-  Future<Map<String, dynamic>> competitionProgressV2() async {
+  Future<Map<String, dynamic>> competitionProgressV2({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     if (_courierModuleUnavailable) {
       return const {'items': <dynamic>[]};
     }
     try {
-      final response = await dio.get('/api/courier/competition-progress');
+      final response = await dio.get(
+        '/api/courier/competition-progress',
+        options: Options(
+          extra: _requestExtra(
+            skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+          ),
+        ),
+      );
       final raw = Map<String, dynamic>.from(response.data as Map);
       final dynamic rawItems =
           raw['items'] ?? raw['progress'] ?? const <dynamic>[];
@@ -412,11 +499,17 @@ class DeliveryApi {
     required String courierPath,
     required String legacyPath,
     Map<String, dynamic>? queryParameters,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     if (_courierModuleUnavailable) {
       final legacy = await dio.get(
         legacyPath,
         queryParameters: queryParameters,
+        options: Options(
+          extra: _requestExtra(
+            skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+          ),
+        ),
       );
       return Map<String, dynamic>.from(legacy.data as Map);
     }
@@ -424,6 +517,11 @@ class DeliveryApi {
       final response = await dio.get(
         courierPath,
         queryParameters: queryParameters,
+        options: Options(
+          extra: _requestExtra(
+            skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+          ),
+        ),
       );
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (e) {
@@ -432,6 +530,11 @@ class DeliveryApi {
       final legacy = await dio.get(
         legacyPath,
         queryParameters: queryParameters,
+        options: Options(
+          extra: _requestExtra(
+            skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+          ),
+        ),
       );
       return Map<String, dynamic>.from(legacy.data as Map);
     }

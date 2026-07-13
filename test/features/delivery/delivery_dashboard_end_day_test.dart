@@ -40,13 +40,16 @@ class _FakeDeliveryApi extends DeliveryApi {
     int? merchantId,
     int limit = 60,
     int offset = 0,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     ordersCalls += 1;
     return const <dynamic>[];
   }
 
   @override
-  Future<Map<String, dynamic>> analytics() async {
+  Future<Map<String, dynamic>> analytics({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     analyticsCalls += 1;
     return const <String, dynamic>{};
   }
@@ -56,6 +59,7 @@ class _FakeDeliveryApi extends DeliveryApi {
     String period = 'day',
     String? from,
     String? to,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     dashboardCalls += 1;
     return const <String, dynamic>{};
@@ -66,19 +70,27 @@ class _FakeDeliveryApi extends DeliveryApi {
     String period = 'day',
     String? from,
     String? to,
+    bool skipTerminalSessionInvalidation = false,
   }) async {
     reportsCalls += 1;
     return const <String, dynamic>{};
   }
 
   @override
-  Future<List<dynamic>> requestsV2({int limit = 40, int offset = 0}) async {
+  Future<List<dynamic>> requestsV2({
+    int limit = 40,
+    int offset = 0,
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     requestsCalls += 1;
     return const <dynamic>[];
   }
 
   @override
-  Future<Map<String, dynamic>> competitionsV2({String scope = 'active'}) async {
+  Future<Map<String, dynamic>> competitionsV2({
+    String scope = 'active',
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     if (scope == 'history') {
       historyCompetitionsCalls += 1;
     } else {
@@ -88,19 +100,25 @@ class _FakeDeliveryApi extends DeliveryApi {
   }
 
   @override
-  Future<Map<String, dynamic>> competitionProgressV2() async {
+  Future<Map<String, dynamic>> competitionProgressV2({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     competitionProgressCalls += 1;
     return const <String, dynamic>{'items': <dynamic>[]};
   }
 
   @override
-  Future<Map<String, dynamic>> competitionAchievementsSummaryV2() async {
+  Future<Map<String, dynamic>> competitionAchievementsSummaryV2({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     achievementsCalls += 1;
     return const <String, dynamic>{'summary': <String, dynamic>{}};
   }
 
   @override
-  Future<Map<String, dynamic>> endDayReadiness() async {
+  Future<Map<String, dynamic>> endDayReadiness({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
     readinessCalls += 1;
     return readiness;
   }

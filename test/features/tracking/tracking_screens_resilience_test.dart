@@ -332,6 +332,49 @@ Map<String, dynamic> _assignedTaxiEnvelope({
   return envelope;
 }
 
+Map<String, dynamic> _assignedDeliverySnapshot() {
+  return <String, dynamic>{
+    'stage': 'heading_to_customer',
+    'lastUpdatedAt': '2026-07-13T10:05:00Z',
+    'latestLocation': <String, dynamic>{
+      'latitude': 33.3181,
+      'longitude': 44.3701,
+      'updatedAt': '2026-07-13T10:05:00Z',
+    },
+    'destination': <String, dynamic>{
+      'latitude': 33.3201,
+      'longitude': 44.3750,
+      'label': 'Central Mall',
+    },
+    'merchant': <String, dynamic>{'name': 'Merchant One'},
+    'courier': <String, dynamic>{
+      'userId': 86,
+      'fullName': 'Courier Noor',
+      'phone': '07711111111',
+      'availabilityStatus': 'on_the_way',
+    },
+    'deliveryAssignment': <String, dynamic>{
+      'assignmentStatus': 'ASSIGNED',
+      'driver': <String, dynamic>{
+        'id': 86,
+        'name': 'Courier Noor',
+        'photoUrl': 'https://example.com/courier.jpg',
+        'phone': '07711111111',
+        'rating': 4.7,
+      },
+    },
+    'order': <String, dynamic>{
+      'id': 41,
+      'status': 'on_the_way',
+      'merchantName': 'Merchant One',
+      'totalAmount': 12500,
+      'customerCity': 'Basmaya',
+      'customerBlock': 'A1',
+      'customerBuildingNumber': '12',
+    },
+  };
+}
+
 Widget _wrapForTest(Widget child, {List<Override> overrides = const []}) {
   return ProviderScope(
     overrides: overrides,
@@ -407,6 +450,34 @@ void main() {
     expect(find.text('Live Order Tracking'), findsOneWidget);
     expect(find.text('Merchant'), findsOneWidget);
     expect(find.text('Awaiting assignment'), findsAtLeastNWidgets(1));
+    expect(find.byTooltip('Chat'), findsNothing);
+    expect(find.byTooltip('Call'), findsNothing);
+    expect(find.byTooltip('Share'), findsOneWidget);
+  });
+
+  testWidgets('delivery tracking shows assigned courier actions and data', (
+    tester,
+  ) async {
+    await _setTallSurface(tester);
+    final api = _FakeOrdersApi(_assignedDeliverySnapshot());
+
+    await tester.pumpWidget(
+      _wrapForTest(
+        const DeliveryLiveTrackingScreen(orderId: 41),
+        overrides: [ordersApiProvider.overrideWithValue(api)],
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Live Order Tracking'), findsOneWidget);
+    expect(find.text('Courier Noor'), findsWidgets);
+    expect(find.text('Central Mall'), findsWidgets);
+    expect(find.byTooltip('Chat'), findsOneWidget);
+    expect(find.byTooltip('Call'), findsOneWidget);
+    expect(find.byTooltip('Share'), findsOneWidget);
   });
 
   testWidgets('taxi tracking survives malformed ride payloads', (tester) async {

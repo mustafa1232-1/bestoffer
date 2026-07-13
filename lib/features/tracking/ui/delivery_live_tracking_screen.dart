@@ -63,7 +63,9 @@ class _DeliveryLiveTrackingScreenState
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
+    SessionInvalidationBus.instance.removeListener(
+      _sessionInvalidationListener,
+    );
     _stopLiveUpdates();
     super.dispose();
   }
@@ -300,6 +302,10 @@ class _DeliveryLiveTrackingScreenState
     return trackingMap(_snapshot?['order']);
   }
 
+  Map<String, dynamic>? get _deliveryAssignment {
+    return trackingMap(_snapshot?['deliveryAssignment']);
+  }
+
   List<OrderItemPresentationModel> get _presentationItems {
     final order = _order;
     if (order == null) return const [];
@@ -317,7 +323,8 @@ class _DeliveryLiveTrackingScreenState
   }
 
   Map<String, dynamic>? get _courier {
-    return trackingMap(_snapshot?['courier']);
+    return trackingMap(_snapshot?['courier']) ??
+        trackingMap(_deliveryAssignment?['driver']);
   }
 
   Map<String, dynamic>? get _latestLocation {
@@ -423,16 +430,24 @@ class _DeliveryLiveTrackingScreenState
     final city =
         _string(_destination?['city']) ??
         _string(_order?['customerCity']) ??
-        '-';
+        '';
     final block =
         _string(_destination?['block']) ??
         _string(_order?['customerBlock']) ??
-        '-';
+        '';
     final building =
         _string(_destination?['buildingNumber']) ??
         _string(_order?['customerBuildingNumber']) ??
-        '-';
-    return '$city - $block - $building';
+        '';
+    final parts = <String>[
+      city,
+      block,
+      building,
+    ].where((part) => part.trim().isNotEmpty).toList(growable: false);
+    if (parts.isEmpty) {
+      return context.lt(ar: 'بانتظار تحديد الوجهة', en: 'Awaiting destination');
+    }
+    return parts.join(' - ');
   }
 
   List<_DeliveryTimelineEntry> get _timelineEntries {
@@ -568,7 +583,9 @@ class _DeliveryLiveTrackingScreenState
     final tokens = context.maslakiTokens;
     final order = _order!;
     final items = _presentationItems;
-    final groupByStore = items
+    final hasAssignedCourier = _courier != null;
+    final groupByStore =
+        items
             .map((item) => '${item.storeId ?? item.storeName ?? 'store'}')
             .toSet()
             .length >
@@ -580,13 +597,15 @@ class _DeliveryLiveTrackingScreenState
           tooltip: context.lt(ar: 'مشاركة', en: 'Share'),
           onPressed: _shareTracking,
         ),
-      if (!_isPublic && (_courier?['phone'] ?? '').toString().trim().isNotEmpty)
+      if (!_isPublic &&
+          hasAssignedCourier &&
+          (_courier?['phone'] ?? '').toString().trim().isNotEmpty)
         _TrackingActionButton(
           icon: Icons.call_outlined,
           tooltip: context.lt(ar: 'اتصال', en: 'Call'),
           onPressed: _callCourier,
         ),
-      if (!_isPublic)
+      if (!_isPublic && hasAssignedCourier)
         _TrackingActionButton(
           icon: Icons.chat_bubble_outline_rounded,
           tooltip: context.lt(ar: 'محادثة', en: 'Chat'),
@@ -646,9 +665,7 @@ class _DeliveryLiveTrackingScreenState
                       child: Text(
                         '+${items.length - 3}',
                         textDirection: TextDirection.rtl,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                        ),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
                 ],
@@ -668,6 +685,12 @@ class _DeliveryLiveTrackingScreenState
             _DeliveryInfoTile(
               title: context.lt(ar: 'حالة السائق', en: 'Courier status'),
               value: _courierStatusLabel(_string(order['status'])),
+            ),
+            _DeliveryInfoTile(
+              title: context.lt(ar: 'حالة التعيين', en: 'Assignment status'),
+              value:
+                  _string(_deliveryAssignment?['assignmentStatus']) ??
+                  context.lt(ar: 'بانتظار التعيين', en: 'Awaiting assignment'),
             ),
             _DeliveryInfoTile(
               title: context.lt(ar: 'المتجر', en: 'Merchant'),

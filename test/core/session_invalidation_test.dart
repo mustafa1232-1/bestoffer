@@ -52,7 +52,9 @@ void main() {
         );
         expect(
           isTerminalAuthError(
-            _err(401, {'message': 'NO_TOKEN'}, path: '/api/notifications/push-token'),
+            _err(401, {
+              'message': 'NO_TOKEN',
+            }, path: '/api/notifications/push-token'),
           ),
           isFalse,
         );
@@ -144,6 +146,24 @@ void main() {
         isTrue,
       );
     });
+
+    test(
+      'false when support requests explicitly opt out of terminal invalidation',
+      () {
+        expect(
+          isTerminalAuthError(
+            _err(
+              401,
+              {'message': 'NO_TOKEN'},
+              path: '/api/delivery/orders/current',
+              headers: const {'Authorization': 'Bearer access-token'},
+              extra: const {'skipTerminalSessionInvalidation': true},
+            ),
+          ),
+          isFalse,
+        );
+      },
+    );
 
     test('false for non-terminal 401s and other statuses', () {
       // A 401 that is not a terminal token failure (e.g. a one-off permission

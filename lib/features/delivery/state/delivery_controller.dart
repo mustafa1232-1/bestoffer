@@ -28,6 +28,8 @@ final deliveryControllerProvider =
 
 /// حالة تجربة المندوب: الطلبات الحالية، السجل، الطلبات المعلقة، والتحليلات.
 class DeliveryState {
+  static const Object _presenceUnset = Object();
+
   final bool loading;
   final bool saving;
   final List<OrderModel> currentOrders;
@@ -43,6 +45,12 @@ class DeliveryState {
   final Map<String, dynamic> endDayReadiness;
   final String? error;
   final String? lastArchiveMessage;
+  final String? presenceEndpointHost;
+  final int? presenceUserId;
+  final DateTime? lastPresenceAttemptAt;
+  final DateTime? lastPresenceSuccessAt;
+  final int? lastPresenceHttpStatus;
+  final String? lastPresenceError;
 
   const DeliveryState({
     this.loading = false,
@@ -60,6 +68,12 @@ class DeliveryState {
     this.endDayReadiness = const {},
     this.error,
     this.lastArchiveMessage,
+    this.presenceEndpointHost,
+    this.presenceUserId,
+    this.lastPresenceAttemptAt,
+    this.lastPresenceSuccessAt,
+    this.lastPresenceHttpStatus,
+    this.lastPresenceError,
   });
 
   DeliveryState copyWith({
@@ -78,6 +92,12 @@ class DeliveryState {
     Map<String, dynamic>? endDayReadiness,
     String? error,
     String? lastArchiveMessage,
+    Object? presenceEndpointHost = _presenceUnset,
+    Object? presenceUserId = _presenceUnset,
+    Object? lastPresenceAttemptAt = _presenceUnset,
+    Object? lastPresenceSuccessAt = _presenceUnset,
+    Object? lastPresenceHttpStatus = _presenceUnset,
+    Object? lastPresenceError = _presenceUnset,
   }) {
     return DeliveryState(
       loading: loading ?? this.loading,
@@ -98,6 +118,24 @@ class DeliveryState {
       endDayReadiness: endDayReadiness ?? this.endDayReadiness,
       error: error,
       lastArchiveMessage: lastArchiveMessage ?? this.lastArchiveMessage,
+      presenceEndpointHost: identical(presenceEndpointHost, _presenceUnset)
+          ? this.presenceEndpointHost
+          : presenceEndpointHost as String?,
+      presenceUserId: identical(presenceUserId, _presenceUnset)
+          ? this.presenceUserId
+          : presenceUserId as int?,
+      lastPresenceAttemptAt: identical(lastPresenceAttemptAt, _presenceUnset)
+          ? this.lastPresenceAttemptAt
+          : lastPresenceAttemptAt as DateTime?,
+      lastPresenceSuccessAt: identical(lastPresenceSuccessAt, _presenceUnset)
+          ? this.lastPresenceSuccessAt
+          : lastPresenceSuccessAt as DateTime?,
+      lastPresenceHttpStatus: identical(lastPresenceHttpStatus, _presenceUnset)
+          ? this.lastPresenceHttpStatus
+          : lastPresenceHttpStatus as int?,
+      lastPresenceError: identical(lastPresenceError, _presenceUnset)
+          ? this.lastPresenceError
+          : lastPresenceError as String?,
     );
   }
 }
@@ -136,7 +174,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
     // tick: refresh the assigned/current orders immediately so an order that
     // was assigned while the app was backgrounded shows up right away.
     if (!wasResumed && _lifecycleResumed && _canRunDeliveryPolling()) {
-      unawaited(refreshCurrentOrders(silent: true));
+      unawaited(refreshCurrentOrders(silent: true, forcePresenceSync: true));
     }
   }
 
@@ -184,7 +222,57 @@ class DeliveryController extends StateNotifier<DeliveryState>
         .toList(growable: false);
   }
 
-  Future<void> _publishCourierPresence({
+  String _resolvePresenceEndpointHost(DeliveryApi api) {
+    final baseUrl = api.dio.options.baseUrl.trim();
+    if (baseUrl.isEmpty) return '';
+    final uri = Uri.tryParse(baseUrl);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      return baseUrl;
+    }
+    final authority = uri.hasPort ? '${uri.host}:${uri.port}' : uri.host;
+    return '${uri.scheme}://$authority';
+  }
+
+  void _recordPresenceAttempt(DeliveryApi api) {
+    final auth = ref.read(authControllerProvider);
+    _setStateSafely(
+      state.copyWith(
+        presenceEndpointHost: _resolvePresenceEndpointHost(api),
+        presenceUserId: auth.user?.id,
+        lastPresenceAttemptAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
+  void _recordPresenceSuccess({required int statusCode}) {
+    _setStateSafely(
+      state.copyWith(
+        lastPresenceSuccessAt: DateTime.now().toUtc(),
+        lastPresenceHttpStatus: statusCode,
+      ),
+    );
+  }
+
+  void _recordPresenceFailure({required Object error, int? statusCode}) {
+    final message = error is DioException
+        ? _mapError(error)
+        : error.toString().trim();
+    _setStateSafely(
+      state.copyWith(
+        lastPresenceHttpStatus: statusCode,
+        lastPresenceError: message.isEmpty ? 'presence_sync_failed' : message,
+      ),
+    );
+  }
+
+  Future<void> _publishIdleCourierPresence({required DeliveryApi api}) async {
+    await api.upsertPresence(
+      isOnline: true,
+      skipTerminalSessionInvalidation: true,
+    );
+  }
+
+  Future<void> _publishTrackedCourierPresence({
     required DeliveryApi api,
     required Position position,
     required List<OrderModel> currentOrders,
@@ -207,19 +295,13 @@ class DeliveryController extends StateNotifier<DeliveryState>
         headingDeg: position.heading.isFinite ? position.heading : null,
         speedKmh: position.speed.isFinite ? position.speed * 3.6 : null,
         accuracyM: position.accuracy.isFinite ? position.accuracy : null,
+        skipTerminalSessionInvalidation: true,
       );
       publishedPresence = true;
     }
     if (!publishedPresence) {
-      await api.upsertPresence(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        headingDeg: position.heading.isFinite ? position.heading : null,
-        speedKmh: position.speed.isFinite ? position.speed * 3.6 : null,
-        accuracyM: position.accuracy.isFinite ? position.accuracy : null,
-      );
+      await _publishIdleCourierPresence(api: api);
     }
-    _lastPresenceSyncAt = DateTime.now();
   }
 
   Future<void> _syncCourierPresence({bool force = false}) async {
@@ -230,17 +312,30 @@ class DeliveryController extends StateNotifier<DeliveryState>
       return;
     }
     final trackable = _trackableOrders(state.currentOrders);
-    if (trackable.isEmpty) return;
     if (!force && _lastPresenceSyncAt != null) {
       final elapsed = DateTime.now().difference(_lastPresenceSyncAt!);
       if (elapsed < const Duration(seconds: 18)) return;
     }
 
+    final api = ref.read(deliveryApiProvider);
+    _recordPresenceAttempt(api);
     _presenceSyncInFlight = true;
     try {
       final permissionService = ref.read(locationPermissionServiceProvider);
+      if (trackable.isEmpty) {
+        await _publishIdleCourierPresence(api: api);
+        _recordPresenceSuccess(statusCode: 200);
+        _lastPresenceSyncAt = DateTime.now();
+        return;
+      }
+
       final status = await permissionService.getStatus();
-      if (!status.serviceEnabled) return;
+      if (!status.serviceEnabled) {
+        await _publishIdleCourierPresence(api: api);
+        _recordPresenceSuccess(statusCode: 200);
+        _lastPresenceSyncAt = DateTime.now();
+        return;
+      }
       var permissionState = status.state;
       if (permissionState == AppLocationPermissionState.denied) {
         permissionState = (await permissionService.requestPermission()).state;
@@ -248,25 +343,39 @@ class DeliveryController extends StateNotifier<DeliveryState>
       if (permissionState == AppLocationPermissionState.denied ||
           permissionState == AppLocationPermissionState.permanentlyDenied ||
           permissionState == AppLocationPermissionState.serviceDisabled) {
+        await _publishIdleCourierPresence(api: api);
+        _recordPresenceSuccess(statusCode: 200);
+        _lastPresenceSyncAt = DateTime.now();
         return;
       }
       final permissionGranted =
           permissionState == AppLocationPermissionState.grantedApproximate ||
           permissionState == AppLocationPermissionState.grantedPrecise;
-      if (!permissionGranted || !_lifecycleResumed) return;
+      if (!permissionGranted || !_lifecycleResumed) {
+        await _publishIdleCourierPresence(api: api);
+        _recordPresenceSuccess(statusCode: 200);
+        _lastPresenceSyncAt = DateTime.now();
+        return;
+      }
 
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
         timeLimit: const Duration(seconds: 12),
       );
-      final api = ref.read(deliveryApiProvider);
-      await _publishCourierPresence(
+      await _publishTrackedCourierPresence(
         api: api,
         position: position,
         currentOrders: state.currentOrders,
       );
-    } catch (_) {
-      // Best-effort live tracking update; failures must not break courier flows.
+      _recordPresenceSuccess(statusCode: 200);
+      _lastPresenceSyncAt = DateTime.now();
+    } on DioException catch (error) {
+      _recordPresenceFailure(
+        error: error,
+        statusCode: error.response?.statusCode,
+      );
+    } catch (error) {
+      _recordPresenceFailure(error: error);
     } finally {
       _presenceSyncInFlight = false;
     }
@@ -283,17 +392,37 @@ class DeliveryController extends StateNotifier<DeliveryState>
       return _syncCourierPresence(force: force);
     }
     final DeliveryApi api = apiOverride ?? ref.read(deliveryApiProvider);
-    final position =
-        positionOverride ??
-        await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.bestForNavigation,
-          timeLimit: const Duration(seconds: 12),
+    final orders = currentOrdersOverride ?? state.currentOrders;
+    _recordPresenceAttempt(api);
+    try {
+      final trackable = _trackableOrders(orders);
+      if (trackable.isEmpty) {
+        await _publishIdleCourierPresence(api: api);
+      } else {
+        final position =
+            positionOverride ??
+            await Geolocator.getCurrentPosition(
+              desiredAccuracy: LocationAccuracy.bestForNavigation,
+              timeLimit: const Duration(seconds: 12),
+            );
+        await _publishTrackedCourierPresence(
+          api: api,
+          position: position,
+          currentOrders: orders,
         );
-    await _publishCourierPresence(
-      api: api,
-      position: position,
-      currentOrders: currentOrdersOverride ?? state.currentOrders,
-    );
+      }
+      _recordPresenceSuccess(statusCode: 200);
+      _lastPresenceSyncAt = DateTime.now();
+    } on DioException catch (error) {
+      _recordPresenceFailure(
+        error: error,
+        statusCode: error.response?.statusCode,
+      );
+      rethrow;
+    } catch (error) {
+      _recordPresenceFailure(error: error);
+      rethrow;
+    }
   }
 
   /// يحمل snapshot أولية تشمل الطلبات، analytics، dashboard، والتقارير.
@@ -305,38 +434,52 @@ class DeliveryController extends StateNotifier<DeliveryState>
       // fetch. If it fails we must show a real error + retry, never a
       // misleading "no items" empty state that hides an assigned order.
       Object? ordersError;
-      final ordersFuture = api.ordersV2().catchError((Object e) {
-        ordersError = e;
-        return <dynamic>[];
-      });
-      final analyticsFuture = api.analytics().catchError(
-        (_) => <String, dynamic>{},
-      );
-      final dashboardV2Future = api.dashboardV2().catchError(
-        (_) => <String, dynamic>{},
-      );
-      final reportsV2Future = api.reportsV2().catchError(
-        (_) => <String, dynamic>{},
-      );
-      final requestsFuture = api.requestsV2().catchError((_) => <dynamic>[]);
+      final ordersFuture = api
+          .ordersV2(skipTerminalSessionInvalidation: true)
+          .catchError((Object e) {
+            ordersError = e;
+            return <dynamic>[];
+          });
+      final analyticsFuture = api
+          .analytics(skipTerminalSessionInvalidation: true)
+          .catchError((_) => <String, dynamic>{});
+      final dashboardV2Future = api
+          .dashboardV2(skipTerminalSessionInvalidation: true)
+          .catchError((_) => <String, dynamic>{});
+      final reportsV2Future = api
+          .reportsV2(skipTerminalSessionInvalidation: true)
+          .catchError((_) => <String, dynamic>{});
+      final requestsFuture = api
+          .requestsV2(skipTerminalSessionInvalidation: true)
+          .catchError((_) => <dynamic>[]);
       final competitionsFuture = api
-          .competitionsV2(scope: 'active')
+          .competitionsV2(
+            scope: 'active',
+            skipTerminalSessionInvalidation: true,
+          )
           .catchError((_) => <String, dynamic>{});
       final competitionsHistoryFuture = api
-          .competitionsV2(scope: 'history')
+          .competitionsV2(
+            scope: 'history',
+            skipTerminalSessionInvalidation: true,
+          )
           .catchError((_) => <String, dynamic>{});
-      final competitionProgressFuture = api.competitionProgressV2().catchError(
-        (_) => <String, dynamic>{},
-      );
+      final competitionProgressFuture = api
+          .competitionProgressV2(skipTerminalSessionInvalidation: true)
+          .catchError((_) => <String, dynamic>{});
       final competitionAchievementsFuture = api
-          .competitionAchievementsSummaryV2()
+          .competitionAchievementsSummaryV2(
+            skipTerminalSessionInvalidation: true,
+          )
           .catchError((_) => <String, dynamic>{});
-      final endDayReadinessFuture = api.endDayReadiness().catchError(
-        (_) => <String, dynamic>{
-          'canEndDay': true,
-          'openSettlements': <dynamic>[],
-        },
-      );
+      final endDayReadinessFuture = api
+          .endDayReadiness(skipTerminalSessionInvalidation: true)
+          .catchError(
+            (_) => <String, dynamic>{
+              'canEndDay': true,
+              'openSettlements': <dynamic>[],
+            },
+          );
 
       await Future.wait([
         ordersFuture,
@@ -456,32 +599,47 @@ class DeliveryController extends StateNotifier<DeliveryState>
     }
   }
 
-  Future<void> refreshCurrentOrders({bool silent = false}) async {
+  Future<void> refreshCurrentOrders({
+    bool silent = false,
+    bool forcePresenceSync = false,
+  }) async {
     try {
       final api = ref.read(deliveryApiProvider);
-      final currentFuture = api.ordersV2();
-      final requestsFuture = api.requestsV2().catchError((_) => <dynamic>[]);
-      final dashboardFuture = api.dashboardV2().catchError(
-        (_) => <String, dynamic>{},
-      );
+      final currentFuture = api.ordersV2(skipTerminalSessionInvalidation: true);
+      final requestsFuture = api
+          .requestsV2(skipTerminalSessionInvalidation: true)
+          .catchError((_) => <dynamic>[]);
+      final dashboardFuture = api
+          .dashboardV2(skipTerminalSessionInvalidation: true)
+          .catchError((_) => <String, dynamic>{});
       final competitionsFuture = api
-          .competitionsV2(scope: 'active')
+          .competitionsV2(
+            scope: 'active',
+            skipTerminalSessionInvalidation: true,
+          )
           .catchError((_) => <String, dynamic>{'competitions': <dynamic>[]});
       final competitionsHistoryFuture = api
-          .competitionsV2(scope: 'history')
+          .competitionsV2(
+            scope: 'history',
+            skipTerminalSessionInvalidation: true,
+          )
           .catchError((_) => <String, dynamic>{'competitions': <dynamic>[]});
-      final competitionProgressFuture = api.competitionProgressV2().catchError(
-        (_) => <String, dynamic>{'items': <dynamic>[]},
-      );
+      final competitionProgressFuture = api
+          .competitionProgressV2(skipTerminalSessionInvalidation: true)
+          .catchError((_) => <String, dynamic>{'items': <dynamic>[]});
       final competitionAchievementsFuture = api
-          .competitionAchievementsSummaryV2()
+          .competitionAchievementsSummaryV2(
+            skipTerminalSessionInvalidation: true,
+          )
           .catchError((_) => <String, dynamic>{'summary': <String, dynamic>{}});
-      final endDayReadinessFuture = api.endDayReadiness().catchError(
-        (_) => <String, dynamic>{
-          'canEndDay': true,
-          'openSettlements': <dynamic>[],
-        },
-      );
+      final endDayReadinessFuture = api
+          .endDayReadiness(skipTerminalSessionInvalidation: true)
+          .catchError(
+            (_) => <String, dynamic>{
+              'canEndDay': true,
+              'openSettlements': <dynamic>[],
+            },
+          );
 
       await Future.wait([
         currentFuture,
@@ -534,7 +692,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
           error: null,
         ),
       );
-      unawaited(_syncCourierPresence());
+      unawaited(_syncCourierPresence(force: forcePresenceSync));
     } on DioException catch (e) {
       if (_isDeliveryForbiddenError(e)) {
         stopLiveOrders(force: true);
@@ -752,7 +910,9 @@ class DeliveryController extends StateNotifier<DeliveryState>
     _setStateSafely(state.copyWith(saving: true, error: null));
     try {
       final readiness = _normalizeReadiness(
-        await ref.read(deliveryApiProvider).endDayReadiness(),
+        await ref
+            .read(deliveryApiProvider)
+            .endDayReadiness(skipTerminalSessionInvalidation: true),
       );
       _setStateSafely(state.copyWith(endDayReadiness: readiness));
       final canEndDay = readiness['canEndDay'] == true;

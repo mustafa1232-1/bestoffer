@@ -57,9 +57,7 @@ class SessionInvalidationCoordinator {
     _terminalInvalidated = false;
   }
 
-  Future<void> _runTerminalInvalidation(
-    Future<void> Function() cleanup,
-  ) async {
+  Future<void> _runTerminalInvalidation(Future<void> Function() cleanup) async {
     _terminalInvalidated = true;
     try {
       await cleanup();
@@ -76,6 +74,10 @@ class SessionInvalidationCoordinator {
 /// unrelated to a logged-in session.
 bool isTerminalAuthError(DioException error) {
   if (error.response?.statusCode != 401) return false;
+
+  if (error.requestOptions.extra['skipTerminalSessionInvalidation'] == true) {
+    return false;
+  }
 
   if (isSessionInvalidationExemptRequest(error.requestOptions)) {
     return false;

@@ -21,7 +21,10 @@ class _SeededDeliveryController extends DeliveryController {
   void startLiveOrders({Duration interval = const Duration(seconds: 6)}) {}
 
   @override
-  Future<void> refreshCurrentOrders({bool silent = false}) async {}
+  Future<void> refreshCurrentOrders({
+    bool silent = false,
+    bool forcePresenceSync = false,
+  }) async {}
 }
 
 OrderModel _order(int id, String status) => OrderModel.fromJson({
@@ -72,16 +75,17 @@ void main() {
     expect(find.textContaining('#103'), findsNothing); // delivered
   });
 
-  testWidgets('waiting-pickup page shows only accepted/ready-not-picked orders', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _wrap(const CourierOrdersWaitingPickupPage(), orders),
-    );
-    await tester.pumpAndSettle();
+  testWidgets(
+    'waiting-pickup page shows only accepted/ready-not-picked orders',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(const CourierOrdersWaitingPickupPage(), orders),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.textContaining('#102'), findsOneWidget); // ready_for_delivery
-    expect(find.textContaining('#101'), findsNothing); // already on the way
-    expect(find.textContaining('#103'), findsNothing); // delivered
-  });
+      expect(find.textContaining('#102'), findsOneWidget); // ready_for_delivery
+      expect(find.textContaining('#101'), findsNothing); // already on the way
+      expect(find.textContaining('#103'), findsNothing); // delivered
+    },
+  );
 }
