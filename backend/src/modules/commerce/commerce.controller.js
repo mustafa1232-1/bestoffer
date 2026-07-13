@@ -320,7 +320,12 @@ export async function courierPresence(req, res, next) {
     const latitude = parseFiniteNumber(req.body?.latitude);
     const longitude = parseFiniteNumber(req.body?.longitude);
     const orderId = asPositiveInt(req.body?.orderId);
-    if (latitude == null || longitude == null) {
+    // Coordinates are required only for live tracking of a specific assigned
+    // order. An idle availability heartbeat (no orderId) may omit GPS so that a
+    // driver whose location is denied/unavailable still records a fresh presence
+    // row and stays eligible for auto-assignment (eligibility checks is_online +
+    // freshness, not coordinates).
+    if (orderId != null && (latitude == null || longitude == null)) {
       return sendValidation(res, ["latitude", "longitude"]);
     }
     const out = await service.courierUpsertPresence(req.userId, {

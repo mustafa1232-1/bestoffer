@@ -204,6 +204,26 @@ export const env = {
     60000,
     { min: 5000, max: 3600000 }
   ),
+  // Max age of a courier_presence heartbeat still counted as "online" for
+  // delivery auto-assignment eligibility. The Delivery app publishes at a
+  // clearly shorter cadence (COURIER_PRESENCE_INTERVAL_SECONDS on the client,
+  // default 30s) so a live driver always stays inside this window.
+  courierPresenceMaxAgeSeconds: readNumber(
+    "COURIER_PRESENCE_MAX_AGE_SECONDS",
+    90,
+    { min: 20, max: 600 }
+  ),
+  // Recovery batch tuning (also honored by the assignment recovery worker).
+  deliveryAssignmentRecoveryBatchSize: readNumber(
+    "DELIVERY_ASSIGNMENT_RECOVERY_BATCH_SIZE",
+    25,
+    { min: 1, max: 100 }
+  ),
+  deliveryAssignmentRecoveryIntervalMs: readNumber(
+    "DELIVERY_ASSIGNMENT_RECOVERY_INTERVAL_MS",
+    15000,
+    { min: 3000, max: 600000 }
+  ),
   externalRailwayScriptRuntime: shouldPreferPublicDatabaseUrl(),
   databaseUrlRaw,
   databasePublicUrl,

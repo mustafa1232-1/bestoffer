@@ -4,6 +4,7 @@ import * as analyticsRepo from "../../shared/analytics/commerce-analytics.repo.j
 import { createUser, findUserByPhone } from "../auth/auth.repo.js";
 import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
+import { syncCourierDriverAffiliation } from "../commerce/commerce.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
 import { invalidateOrderListCacheForUser } from "../orders/orders.service.js";
 import * as repo from "./delivery.repo.js";
@@ -60,6 +61,12 @@ export async function registerDelivery(dto) {
 
   let user = null;
   try {
+    // Delivery couriers are modeled as role='delivery' with an app_driver
+    // courier_profile — NEVER role='taxi_captain'/taxi_captain_profile, which
+    // the delivery eligibility filter (DELIVERY_APPROVED_FILTER) and the
+    // delivery app middleware (requireDeliveryAgent) both hard-exclude. Using
+    // the taxi model here produced accounts that could never be assigned an
+    // order nor even open the delivery app.
     user = await runWithGeneratedAppUserUsername({
       fullName,
       phone,
@@ -73,7 +80,7 @@ export async function registerDelivery(dto) {
           buildingNumber: address.buildingNumber,
           apartment: address.apartment,
           imageUrl: dto.profileImageUrl || dto.imageUrl || null,
-          role: "taxi_captain",
+          role: "delivery",
           analyticsConsentGranted: true,
           analyticsConsentVersion,
           analyticsConsentGrantedAt: new Date(),
@@ -81,17 +88,17 @@ export async function registerDelivery(dto) {
         }),
     });
 
+    // Pending admin approval: eligibility additionally requires
+    // delivery_account_approved=TRUE, so provisioning the courier_profile now
+    // is safe — the account stays ineligible until an admin approves it.
     await repo.setDeliveryAccountPendingApproval(Number(user.id));
-    await repo.createDeliveryCaptainProfile({
+    await syncCourierDriverAffiliation({
       userId: Number(user.id),
-      profileImageUrl: dto.profileImageUrl || dto.imageUrl || null,
-      carImageUrl: dto.carImageUrl || null,
+      driverType: "app_driver",
+      merchantId: null,
+      coverageBlock: address.block || null,
       vehicleType: dto.vehicleType || "sedan",
-      carMake: dto.carMake,
-      carModel: dto.carModel,
-      carYear: dto.carYear,
-      carColor: dto.carColor,
-      plateNumber: dto.plateNumber,
+      source: "self_registration",
     });
   } catch (error) {
     if (user?.id) {
@@ -121,7 +128,7 @@ export async function registerDelivery(dto) {
       fullName: user.full_name,
       phone: user.phone,
       role: user.role,
-      isTaxiCaptain: true,
+      isTaxiCaptain: false,
       deliveryAccountApproved: false,
     },
   };

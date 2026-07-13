@@ -4,6 +4,8 @@ import { getOrderActionReason } from "../orders/order-action-reasons.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
 import { invalidateOrderListCacheForUser } from "../orders/orders.service.js";
 import { emitRealtimeToUser } from "../../shared/realtime/realtime-gateway.js";
+import { requestDeliveryAssignmentRecovery } from "../orders/delivery-assignment.worker.js";
+import { q } from "../../config/db.js";
 
 function inferModuleFromTarget(target) {
   const normalized = String(target || "").trim().toLowerCase();
@@ -532,16 +534,37 @@ export async function courierUpsertPresence(courierUserId, body = {}) {
     }
   }
 
+  const isOnline = body.isOnline !== false;
   const presence = await ordersRepo.upsertCourierPresence({
     courierUserId,
     orderId,
-    latitude: Number(body.latitude),
-    longitude: Number(body.longitude),
+    latitude: body.latitude == null ? null : Number(body.latitude),
+    longitude: body.longitude == null ? null : Number(body.longitude),
     headingDeg: body.headingDeg == null ? null : Number(body.headingDeg),
     speedKmh: body.speedKmh == null ? null : Number(body.speedKmh),
     accuracyM: body.accuracyM == null ? null : Number(body.accuracyM),
-    isOnline: body.isOnline !== false,
+    isOnline,
   });
+
+  // Keep courier_profile.availability_status in sync with the heartbeat's
+  // declared availability. Eligibility requires availability_status='online',
+  // so a driver whose profile was left 'offline'/'away' would otherwise stay
+  // invisible to auto-assignment despite sending fresh presence.
+  await q(
+    `UPDATE courier_profile
+     SET availability_status = $2, updated_at = NOW()
+     WHERE user_id = $1
+       AND COALESCE(LOWER(availability_status), '') <> $2`,
+    [Number(courierUserId), isOnline ? "online" : "offline"]
+  );
+
+  // Phase 10: a heartbeat from an idle, available driver should immediately try
+  // to clear the oldest PENDING_NO_DRIVER order rather than waiting for the
+  // periodic recovery worker. The recovery run coalesces across concurrent
+  // callers and is a no-op when nothing is pending, so this is cheap.
+  if (orderId == null && isOnline) {
+    void requestDeliveryAssignmentRecovery({ limit: 5 }).catch(() => {});
+  }
 
   if (trackedOrder?.customer_user_id) {
     const snapshot = await ordersRepo.getCustomerOrderTrackingSnapshot(

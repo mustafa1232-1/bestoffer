@@ -1,4 +1,5 @@
 import { pool, q } from "../../config/db.js";
+import { env } from "../../config/env.js";
 import { AppError } from "../../shared/utils/errors.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import {
@@ -32,6 +33,11 @@ const DELIVERY_APPROVED_FILTER = `
     WHERE tcp.user_id = u.id
   )
 `;
+
+function courierPresenceMaxAgeSeconds() {
+  const configured = Number(env?.courierPresenceMaxAgeSeconds);
+  return Number.isFinite(configured) && configured >= 20 ? Math.floor(configured) : 90;
+}
 
 const DEFAULT_ASSIGNMENT_TTL_MIN = 8;
 const REQUEST_TYPE_STORE_PAYS_APP = "store_pays_app";
@@ -858,15 +864,19 @@ async function listEligibleCouriersTx(
            COALESCE(cp.driver_type, '${DRIVER_TYPE_APP}') = '${DRIVER_TYPE_STORE}'
            AND mda.delivery_user_id IS NOT NULL
          )
-         OR (
-           COALESCE(cp.driver_type, '${DRIVER_TYPE_APP}') = '${DRIVER_TYPE_APP}'
-           AND $2::boolean = TRUE
-           AND u.block IS NOT NULL
-           AND UPPER(TRIM(u.block)) = UPPER(TRIM($3))
-         )
+         OR
+         -- App drivers form a city-wide pool: an available app courier is a
+         -- candidate for ANY order (Basmaya is a single compound city). Block
+         -- proximity is a RANKING signal (computeCourierDispatchScore), not a
+         -- hard eligibility gate — requiring the driver's home block to exactly
+         -- equal the customer's block previously made most orders resolve to
+         -- PENDING_NO_DRIVER even when app couriers were online. This mirrors
+         -- lockEligibleCourierCandidateTx, which does not gate app drivers on
+         -- block for auto-assignment.
+         COALESCE(cp.driver_type, '${DRIVER_TYPE_APP}') = '${DRIVER_TYPE_APP}'
        )
      ORDER BY u.id DESC`,
-    [Number(merchantId), useBlock, normalizedBlock || null]
+    [Number(merchantId)]
   );
 
   const ranked = r.rows
@@ -973,7 +983,7 @@ async function lockEligibleCourierCandidateTx(
          FROM courier_presence presence
          WHERE presence.courier_user_id = u.id
            AND presence.is_online = TRUE
-           AND presence.updated_at >= NOW() - INTERVAL '90 seconds'
+           AND presence.updated_at >= NOW() - ($5::int * INTERVAL '1 second')
        )
        AND NOT EXISTS (
          SELECT 1
@@ -1018,6 +1028,7 @@ async function lockEligibleCourierCandidateTx(
       Number(merchantId),
       forceMerchantCourier,
       customerBlock == null ? null : String(customerBlock).trim() || null,
+      courierPresenceMaxAgeSeconds(),
     ]
   );
   const row = r.rows[0] || null;
@@ -1178,22 +1189,48 @@ export async function directAssignDeliveryOrderTx(
     });
   };
 
+  // Close any stale OPEN courier_assignment rows for this order before we try to
+  // insert a fresh 'assigned' row. The partial unique index
+  // uq_courier_assignment_open_order (order_id WHERE ended_at IS NULL) otherwise
+  // makes the INSERT raise 23505 whenever a leftover open row exists (e.g. an
+  // old broadcast 'pending' offer, or a 'cancelled' row whose ended_at was never
+  // set), which — combined with the per-candidate SAVEPOINT below — used to abort
+  // the whole transaction and strand the order (neither ASSIGNED nor PENDING).
+  // The order row is already locked (FOR UPDATE OF o) above.
+  await client.query(
+    `UPDATE courier_assignment
+     SET status = CASE WHEN status = 'assigned' THEN 'cancelled' ELSE status END,
+         ended_at = NOW(),
+         ended_reason = COALESCE(ended_reason, 'MANUAL_REASSIGNMENT'),
+         responded_at = COALESCE(responded_at, NOW())
+     WHERE order_id = $1
+       AND ended_at IS NULL`,
+    [Number(orderId)]
+  );
+
   const retryableErrors = new Set(["23505", "40001", "40P01"]);
   let lastError = null;
   const maxAttempts = Math.max(1, eligibleRows.length || 1);
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const candidate = eligibleRows[attempt] || null;
+    if (!candidate) break;
+    // Each candidate attempt runs inside a SAVEPOINT so that a retryable
+    // conflict (23505/40001/40P01) rolls back only this attempt instead of
+    // poisoning the whole transaction (which would otherwise make the next
+    // query and the PENDING_NO_DRIVER fallback fail with 25P02).
+    await client.query("SAVEPOINT sp_assign_candidate");
     try {
-      if (!candidate) break;
-
       const candidateLock = await lockEligibleCourierCandidateTx(client, {
         merchantId: Number(merchantId),
         customerBlock: customerBlock ?? current.customer_block ?? null,
         courierId: Number(candidate.id),
         forceMerchantCourier,
       });
-      if (!candidateLock) continue;
+      if (!candidateLock) {
+        await client.query("RELEASE SAVEPOINT sp_assign_candidate");
+        continue;
+      }
 
       const activeAssignmentCheck = await client.query(
         `SELECT 1
@@ -1204,6 +1241,7 @@ export async function directAssignDeliveryOrderTx(
         [Number(candidateLock.id)]
       );
       if (activeAssignmentCheck.rowCount > 0) {
+        await client.query("RELEASE SAVEPOINT sp_assign_candidate");
         continue;
       }
 
@@ -1322,8 +1360,11 @@ export async function directAssignDeliveryOrderTx(
     } catch (error) {
       lastError = error;
       if (!retryableErrors.has(String(error?.code || ""))) {
+        // Non-retryable: let the caller roll back the whole transaction.
         throw error;
       }
+      // Retryable conflict: undo just this attempt and try the next candidate.
+      await client.query("ROLLBACK TO SAVEPOINT sp_assign_candidate");
     }
   }
 
@@ -1375,9 +1416,15 @@ export async function directAssignDeliveryOrderTx(
 }
 
 async function cancelPendingAssignmentsTx(client, orderId, exceptCourierId = null) {
+  // Close the rows (ended_at) in addition to marking them cancelled. The open
+  // uniqueness indexes key on `ended_at IS NULL`, so a 'cancelled' row that
+  // still had ended_at NULL kept counting as an OPEN assignment and blocked
+  // future inserts / eligibility.
   await client.query(
     `UPDATE courier_assignment
      SET status = 'cancelled',
+         ended_at = COALESCE(ended_at, NOW()),
+         ended_reason = COALESCE(ended_reason, 'EXPIRED'),
          responded_at = COALESCE(responded_at, NOW())
      WHERE order_id = $1
        AND status = 'pending'
