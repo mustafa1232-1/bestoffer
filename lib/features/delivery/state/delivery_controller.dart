@@ -184,6 +184,44 @@ class DeliveryController extends StateNotifier<DeliveryState>
         .toList(growable: false);
   }
 
+  Future<void> _publishCourierPresence({
+    required DeliveryApi api,
+    required Position position,
+    required List<OrderModel> currentOrders,
+  }) async {
+    final trackable = _trackableOrders(currentOrders);
+    var publishedPresence = false;
+    for (final order in trackable) {
+      if (!canPublishCourierLocation(
+        lifecycleResumed: _lifecycleResumed,
+        permissionGranted: true,
+        assigned: order.hasAssignedDelivery,
+        status: normalizeOrderStatusForUi(order.status),
+      )) {
+        continue;
+      }
+      await api.upsertPresence(
+        orderId: order.id,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        headingDeg: position.heading.isFinite ? position.heading : null,
+        speedKmh: position.speed.isFinite ? position.speed * 3.6 : null,
+        accuracyM: position.accuracy.isFinite ? position.accuracy : null,
+      );
+      publishedPresence = true;
+    }
+    if (!publishedPresence) {
+      await api.upsertPresence(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        headingDeg: position.heading.isFinite ? position.heading : null,
+        speedKmh: position.speed.isFinite ? position.speed * 3.6 : null,
+        accuracyM: position.accuracy.isFinite ? position.accuracy : null,
+      );
+    }
+    _lastPresenceSyncAt = DateTime.now();
+  }
+
   Future<void> _syncCourierPresence({bool force = false}) async {
     if (_disposed ||
         _presenceSyncInFlight ||
@@ -222,30 +260,40 @@ class DeliveryController extends StateNotifier<DeliveryState>
         timeLimit: const Duration(seconds: 12),
       );
       final api = ref.read(deliveryApiProvider);
-      for (final order in trackable) {
-        if (!canPublishCourierLocation(
-          lifecycleResumed: _lifecycleResumed,
-          permissionGranted: permissionGranted,
-          assigned: order.hasAssignedDelivery,
-          status: normalizeOrderStatusForUi(order.status),
-        )) {
-          continue;
-        }
-        await api.upsertPresence(
-          orderId: order.id,
-          latitude: position.latitude,
-          longitude: position.longitude,
-          headingDeg: position.heading.isFinite ? position.heading : null,
-          speedKmh: position.speed.isFinite ? position.speed * 3.6 : null,
-          accuracyM: position.accuracy.isFinite ? position.accuracy : null,
-        );
-      }
-      _lastPresenceSyncAt = DateTime.now();
+      await _publishCourierPresence(
+        api: api,
+        position: position,
+        currentOrders: state.currentOrders,
+      );
     } catch (_) {
       // Best-effort live tracking update; failures must not break courier flows.
     } finally {
       _presenceSyncInFlight = false;
     }
+  }
+
+  Future<void> syncCourierPresenceForTesting({
+    bool force = false,
+    bool skipPreconditions = false,
+    DeliveryApi? apiOverride,
+    Position? positionOverride,
+    List<OrderModel>? currentOrdersOverride,
+  }) async {
+    if (!skipPreconditions) {
+      return _syncCourierPresence(force: force);
+    }
+    final DeliveryApi api = apiOverride ?? ref.read(deliveryApiProvider);
+    final position =
+        positionOverride ??
+        await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.bestForNavigation,
+          timeLimit: const Duration(seconds: 12),
+        );
+    await _publishCourierPresence(
+      api: api,
+      position: position,
+      currentOrders: currentOrdersOverride ?? state.currentOrders,
+    );
   }
 
   /// يحمل snapshot أولية تشمل الطلبات، analytics، dashboard، والتقارير.
@@ -760,7 +808,9 @@ class DeliveryController extends StateNotifier<DeliveryState>
   void dispose() {
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
-    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
+    SessionInvalidationBus.instance.removeListener(
+      _sessionInvalidationListener,
+    );
     stopLiveOrders(force: true);
     super.dispose();
   }
