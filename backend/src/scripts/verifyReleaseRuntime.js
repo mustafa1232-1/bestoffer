@@ -24,6 +24,7 @@ const transientPatterns = [
   /connection terminated due to connection timeout/i,
   /connection terminated unexpectedly/i,
   /query read timeout/i,
+  /realtime_fetch_timeout/i,
   /econnreset/i,
   /terminat(?:ed|ion).*timeout/i,
 ];
@@ -81,7 +82,7 @@ function runStep(step) {
 async function main() {
   for (const step of steps) {
     let attempt = 1;
-    const maxAttempts = 2;
+    const maxAttempts = 3;
     while (attempt <= maxAttempts) {
       if (attempt > 1) {
         console.warn(

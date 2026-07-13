@@ -8,6 +8,7 @@ import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/core/network/session_invalidation.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
 import 'package:maslaki/features/taxi/ui/taxi_share_ride_friends_sheet.dart';
+import 'package:maslaki/features/taxi/domain/taxi_assignment_contract.dart';
 import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -466,7 +467,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   }
 
   Map<String, dynamic>? get _ride {
-    return trackingMap(_envelope?['ride']);
+    return taxiRideViewFromEnvelope(_envelope);
   }
 
   Map<String, dynamic>? get _latestLocation {
@@ -601,6 +602,9 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
           en: 'Not available',
         );
 
+        final vehicle = trackingMap(ride['vehicle']);
+        final finalFare =
+            ride['finalFare'] ?? ride['agreedFareIqd'] ?? ride['proposedFareIqd'];
         if (isWaitingState) {
           return ListView(
             controller: scrollController,
@@ -639,7 +643,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                 title: context.lt(ar: 'Ø§Ù„Ø£Ø¬Ø±Ø©', en: 'Fare'),
                 value: _formatRideFareLabel(
                   context,
-                  ride['agreedFareIqd'] ?? ride['proposedFareIqd'],
+                  finalFare,
                   nonAvailable,
                 ),
               ),
@@ -708,10 +712,48 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
               title: context.lt(ar: 'Ã˜Â§Ã™â€žÃ˜Â£Ã˜Â¬Ã˜Â±Ã˜Â©', en: 'Fare'),
               value: _formatRideFareLabel(
                 context,
-                ride['agreedFareIqd'] ?? ride['proposedFareIqd'],
+                finalFare,
                 nonAvailable,
               ),
             ),
+            _TaxiInfoTile(
+              title: context.lt(ar: 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒËœÃ‚Â·Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±Ãƒâ„¢Ã‚Â©', en: 'Trip distance'),
+              value: (() {
+                final distanceM = _readNum(
+                  ride['routeDistance'] ?? ride['routeDistanceMeters'],
+                );
+                if (distanceM == null || distanceM <= 0) {
+                  return nonAvailable;
+                }
+                if (distanceM < 1000) {
+                  return '${distanceM.round()} m';
+                }
+                return '${(distanceM / 1000).toStringAsFixed(distanceM >= 10000 ? 0 : 1)} km';
+              })(),
+            ),
+            _TaxiInfoTile(
+              title: context.lt(ar: 'ÃƒËœÃ‚Â§Ã™â€žÃ˜ÂªÃ™â€¦Ã™Å Ã˜Â± Ã˜Â§Ã™â‚¬Ã˜ÂªÃ¢â‚¬Â¦Ã™â€¡Ã™Å ', en: 'Estimated arrival'),
+              value: (() {
+                final minutes = _readInt(ride['estimatedArrivalMinutes']);
+                return minutes == null || minutes <= 0
+                    ? nonAvailable
+                    : '$minutes min';
+              })(),
+            ),
+            if (vehicle != null)
+              _TaxiInfoTile(
+                title: context.lt(ar: 'ÃƒËœÃ‚Â§Ã™â€žÃ˜Â³Ã™Å Ã˜Â§Ã˜Â±Ã˜Â©', en: 'Vehicle'),
+                value: [
+                  trackingString(vehicle['vehicleMake']),
+                  trackingString(vehicle['vehicleModel']),
+                  trackingString(vehicle['vehicleYear']),
+                  trackingString(vehicle['vehicleColor']),
+                  trackingString(vehicle['vehiclePlate']),
+                ]
+                    .whereType<String>()
+                    .where((value) => value.isNotEmpty)
+                    .join(' • '),
+              ),
             if (_latestLocation != null)
               _TaxiInfoTile(
                 title: context.lt(

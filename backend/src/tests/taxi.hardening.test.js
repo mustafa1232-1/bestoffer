@@ -293,3 +293,63 @@ test("taxi test api exposes the expected helper surface", () => {
   assert.equal(typeof __taxiMappersTestApi.resolveTaxiRideDisplayState, "function");
   assert.equal(typeof __taxiServiceTestApi.buildCompactRidePayload, "function");
 });
+
+test("taxi assignment payload exposes canonical ride, captain, and vehicle data", () => {
+  const assignment = __taxiServiceTestApi.buildTaxiAssignmentPayload(
+    {
+      id: 41,
+      status: "captain_assigned",
+      customerFare: 14500,
+      finalFare: 16000,
+      currency: "IQD",
+      pickup: {
+        latitude: 33.31456,
+        longitude: 44.36611,
+        label: "Bismayah Gate",
+      },
+      dropoff: {
+        latitude: 33.32091,
+        longitude: 44.39118,
+        label: "Central Mall",
+      },
+      assignedCaptainUserId: 77,
+      captain: {
+        id: 77,
+        fullName: "Captain Noor",
+        profileImageUrl: "https://cdn.example.com/captain.jpg",
+        phone: "07711111111",
+        ratingAvg: 4.9,
+        ridesCount: 128,
+        carMake: "Toyota",
+        carModel: "Corolla",
+        carYear: 2022,
+        carColor: "Silver",
+        vehicleType: "sedan",
+        plateNumber: "TX-001",
+        carImageUrl: "https://cdn.example.com/car.jpg",
+      },
+      updatedAt: "2026-07-12T12:00:00.000Z",
+      assignedAt: "2026-07-12T11:59:00.000Z",
+    },
+    {
+      latestLocation: {
+        latitude: 33.315,
+        longitude: 44.367,
+        headingDeg: 90,
+      },
+    }
+  );
+
+  assert.equal(assignment.rideId, 41);
+  assert.equal(assignment.status, "captain_assigned");
+  assert.equal(assignment.customerFare, 14500);
+  assert.equal(assignment.finalFare, 16000);
+  assert.equal(assignment.pickupAddress, "Bismayah Gate");
+  assert.equal(assignment.destinationAddress, "Central Mall");
+  assert.equal(assignment.captain.captainName, "Captain Noor");
+  assert.equal(assignment.captain.captainPhone, "07711111111");
+  assert.equal(assignment.captain.captainDistanceMeters >= 0, true);
+  assert.equal(assignment.vehicle.vehicleMake, "Toyota");
+  assert.equal(assignment.vehicle.vehicleModel, "Corolla");
+  assert.equal(assignment.vehicle.vehiclePlate, "TX-001");
+});

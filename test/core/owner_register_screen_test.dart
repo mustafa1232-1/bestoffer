@@ -1,4 +1,5 @@
 import 'package:maslaki/core/files/local_image_file.dart';
+import 'package:maslaki/core/forms/backend_field_error_parser.dart';
 import 'package:maslaki/features/auth/presentation/owner_register_screen.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/merchants/models/store_activity_model.dart';
@@ -24,9 +25,9 @@ class _RecordingAuthController extends AuthController {
     lastPayload = dto;
     state = state.copyWith(
       loading: false,
-      error: null,
-      clearValidationError: true,
-      clearErrorCode: true,
+      error: 'Owner account creation failed.',
+      errorCode: 'OWNER_ALREADY_HAS_MERCHANT',
+      validationError: const ParsedBackendFieldErrors(),
     );
   }
 }

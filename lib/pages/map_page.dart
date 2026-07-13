@@ -4,6 +4,7 @@ import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/core/auth/auth_guard.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
 import 'package:maslaki/features/taxi/data/taxi_route_service.dart';
+import 'package:maslaki/features/taxi/domain/taxi_assignment_contract.dart';
 import 'package:maslaki/features/taxi/domain/taxi_fare_policy.dart';
 import 'package:maslaki/features/taxi/ui/taxi_share_ride_friends_sheet.dart';
 import 'package:maslaki/features/tracking/ui/taxi_live_tracking_screen.dart';
@@ -2852,6 +2853,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   Widget _buildTaxiOfferCard(
     Map<String, dynamic> offer, {
     required String nonAvailable,
+    int? customerFareIqd,
   }) {
     final l10n = context.l10n;
     final captain = offer['captain'] is Map
@@ -2860,6 +2862,17 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     final offerId = _readInt(offer['offerId']) ?? _readInt(offer['id']);
     final fare = _readInt(offer['offeredFareIqd']) ?? 0;
     final fareLabel = fare > 0 ? formatIqd(fare) : nonAvailable;
+    final offerStatus = _string(offer['status'])?.toLowerCase();
+    final acceptedOriginalFare =
+        offerStatus == 'accepted' ||
+        offerStatus == 'assigned' ||
+        offerStatus == 'captain_assigned' ||
+        _string(offer['acceptedOriginalFare']) == 'true' ||
+        offer['acceptedOriginalFare'] == true;
+    final differentFare =
+        customerFareIqd != null &&
+        fare > 0 &&
+        fare != customerFareIqd;
     final etaMinutes = _readInt(offer['etaMinutes']);
     final distanceM =
         _readDouble(offer['distanceM']) ??
@@ -2873,6 +2886,17 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     final queuePosition = _readInt(offer['queuePosition']);
     final remainingSeconds = _offerNegotiationCountdown(offer);
     final negotiationLabel = _offerNegotiationLabel(offer);
+    final statusHint = acceptedOriginalFare
+        ? _t(
+            'الكابتن قبل الأجرة الأصلية',
+            'Captain accepted the original fare',
+          )
+        : differentFare
+        ? _t(
+            'الكابتن اقترح سعراً مختلفاً',
+            'Captain proposed a different fare',
+          )
+        : null;
     final badges = <Widget>[
       if (offer['isBestPrice'] == true)
         _offerBadge(_t('أفضل سعر', 'Best price'), Colors.green),
@@ -2881,6 +2905,16 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       if (offer['isHighestRated'] == true)
         _offerBadge(_t('الأعلى تقييماً', 'Top rated'), Colors.amber),
       if (current) _offerBadge(_t('العرض الحالي', 'Current'), Colors.teal),
+      if (acceptedOriginalFare)
+        _offerBadge(
+          _t('قبل السعر الأصلي', 'Accepted original fare'),
+          Colors.purple,
+        ),
+      if (differentFare && !acceptedOriginalFare)
+        _offerBadge(
+          _t('سعر مختلف', 'Different fare'),
+          Colors.orange,
+        ),
     ];
 
     return Container(
@@ -3023,6 +3057,13 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ],
+            if (statusHint != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                statusHint,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
             if (remainingSeconds != null) ...[
               const SizedBox(height: 6),
               Row(
@@ -3071,37 +3112,39 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                 style: const TextStyle(fontSize: 12),
               ),
             ],
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: (_submitting || offerId == null)
-                      ? null
-                      : () => _acceptBid(offerId),
-                  icon: const Icon(Icons.check_circle),
-                  label: Text(l10n.commonAccept),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: _submitting || offerId == null
-                      ? null
-                      : () => _rejectCurrentBid(bidId: offerId),
-                  icon: const Icon(Icons.close_rounded),
-                  label: Text(l10n.commonReject),
-                ),
-                FilledButton.icon(
-                  onPressed: _submitting || offerId == null
-                      ? null
-                      : () => _openCounterOfferDialogV2(
-                          initialFare: fare > 0 ? fare : null,
-                          bidId: offerId,
-                        ),
-                  icon: const Icon(Icons.price_change),
-                  label: Text(_t('عرض مضاد', 'Counter')),
-                ),
-              ],
-            ),
+            if (!acceptedOriginalFare) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: (_submitting || offerId == null)
+                        ? null
+                        : () => _acceptBid(offerId),
+                    icon: const Icon(Icons.check_circle),
+                    label: Text(l10n.commonAccept),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _submitting || offerId == null
+                        ? null
+                        : () => _rejectCurrentBid(bidId: offerId),
+                    icon: const Icon(Icons.close_rounded),
+                    label: Text(l10n.commonReject),
+                  ),
+                  FilledButton.icon(
+                    onPressed: _submitting || offerId == null
+                        ? null
+                        : () => _openCounterOfferDialogV2(
+                            initialFare: fare > 0 ? fare : null,
+                            bidId: offerId,
+                          ),
+                    icon: const Icon(Icons.price_change),
+                    label: Text(_t('عرض مضاد', 'Counter')),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -3177,13 +3220,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   }
 
   Map<String, dynamic>? get _ride {
-    final envelope = _activeRideEnvelope;
-    if (envelope == null) return null;
-    final ride = envelope['ride'];
-    if (ride is Map) {
-      return Map<String, dynamic>.from(ride);
-    }
-    return null;
+    return taxiRideViewFromEnvelope(_activeRideEnvelope);
   }
 
   List<Map<String, dynamic>> get _offers {
@@ -3527,7 +3564,9 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     final ride = _ride;
     final rideStatus = _string(ride?['status']);
     final rideFare =
-        _readInt(ride?['agreedFareIqd']) ?? _readInt(ride?['proposedFareIqd']);
+        _readInt(ride?['finalFare']) ??
+        _readInt(ride?['agreedFareIqd']) ??
+        _readInt(ride?['proposedFareIqd']);
     final canCancel =
         rideStatus == 'searching' ||
         rideStatus == 'captain_assigned' ||
@@ -3950,6 +3989,11 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     final captain = ride['captain'] is Map
         ? Map<String, dynamic>.from(ride['captain'] as Map)
         : null;
+    final vehicle = ride['vehicle'] is Map
+        ? Map<String, dynamic>.from(ride['vehicle'] as Map)
+        : captain?['vehicle'] is Map
+        ? Map<String, dynamic>.from(captain!['vehicle'] as Map)
+        : null;
     final rideId = _readInt(ride['id']);
     final isActiveRide =
         rideStatus == 'captain_assigned' ||
@@ -4220,6 +4264,69 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                         ),
                       ),
                     ],
+                    if (vehicle != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            if (_string(vehicle['vehicleImage']) != null)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: CachedAppImage(
+                                  imageUrl: _string(vehicle['vehicleImage'])!,
+                                  width: 58,
+                                  height: 58,
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            else
+                              const Icon(Icons.directions_car_rounded),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    [
+                                      _string(vehicle['vehicleMake']),
+                                      _string(vehicle['vehicleModel']),
+                                      _readInt(vehicle['vehicleYear'])?.toString(),
+                                    ]
+                                        .whereType<String>()
+                                        .where((value) => value.isNotEmpty)
+                                        .join(' • '),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    [
+                                      _string(vehicle['vehicleColor']),
+                                      _string(vehicle['vehicleType']),
+                                      _string(vehicle['vehiclePlate']),
+                                    ]
+                                        .whereType<String>()
+                                        .where((value) => value.isNotEmpty)
+                                        .join(' • '),
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     if (rideStatus == 'completed') ...[
                       const SizedBox(height: 10),
                       Wrap(
@@ -4388,9 +4495,11 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                         ...offers.map(
                           (offer) => Padding(
                             padding: const EdgeInsets.only(bottom: 8),
-                            child: _buildTaxiOfferCard(
+                          child: _buildTaxiOfferCard(
                               offer,
                               nonAvailable: nonAvailable,
+                              customerFareIqd: _readInt(ride['proposedFareIqd']) ??
+                                  _readInt(ride['customerFare']),
                             ),
                           ),
                         ),

@@ -13085,7 +13085,7 @@ abstract class AppLocalizations {
   /// No description provided for @ownerOrdersHintApprovedPendingCourier.
   ///
   /// In en, this message translates to:
-  /// **'The order is approved. Start preparing now, and you can assign a courier while preparing.'**
+  /// **'The order is approved. Start preparing now; the first available courier will be assigned automatically.'**
   String get ownerOrdersHintApprovedPendingCourier;
 
   /// No description provided for @ownerOrdersHintPreparing.

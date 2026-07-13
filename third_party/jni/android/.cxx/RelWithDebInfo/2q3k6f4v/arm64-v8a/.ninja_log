@@ -1,5 +1,5 @@
 # ninja log v5
-1	558	8017751166982089	CMakeFiles/jni.dir/include/dart_api_dl.c.o	1c11da2d2d3c6905
-172	1051	8017751171905540	CMakeFiles/jni.dir/dartjni.c.o	eda76d5f2aa87d9
-166	1449	8017751175861231	CMakeFiles/jni.dir/third_party/global_jni_env.c.o	48b0b4f7ee15445c
-1449	1866	8017751180091459	D:/new apps/storeapp/bestoffer/build/jni/intermediates/cxx/RelWithDebInfo/2q3k6f4v/obj/arm64-v8a/libdartjni.so	95fedc49f895ef86
+0	564	8055676319312564	CMakeFiles/jni.dir/include/dart_api_dl.c.o	1c11da2d2d3c6905
+182	960	8055676323229230	CMakeFiles/jni.dir/dartjni.c.o	eda76d5f2aa87d9
+174	1368	8055676327297195	CMakeFiles/jni.dir/third_party/global_jni_env.c.o	48b0b4f7ee15445c
+1368	1819	8055676331874848	D:/new apps/storeapp/bestoffer/build/jni/intermediates/cxx/RelWithDebInfo/2q3k6f4v/obj/arm64-v8a/libdartjni.so	95fedc49f895ef86

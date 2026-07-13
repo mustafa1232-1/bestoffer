@@ -456,7 +456,10 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
 
     if (nextErrors.isEmpty &&
         (parsed.formCode == null || parsed.formCode!.isEmpty) &&
-        topLevelCode != 'PHONE_EXISTS') {
+        topLevelCode != 'PHONE_EXISTS' &&
+        topLevelCode != 'OWNER_ALREADY_HAS_MERCHANT' &&
+        topLevelCode != 'OWNER_CONFLICT' &&
+        topLevelCode != 'OWNER_NOT_FOUND') {
       return false;
     }
 
@@ -475,14 +478,33 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
       _consentError = nextErrors['analyticsConsentAccepted'];
       _formError = nextErrors.isNotEmpty
           ? context.l10n.validationReviewRequiredFields
-          : resolveFormLevelError(
-              context.l10n,
+          : _resolveOwnerRegisterFormError(
               code: parsed.formCode ?? topLevelCode,
               fallback: auth.error,
             );
     });
     await _focusFirstError();
     return true;
+  }
+
+  String _resolveOwnerRegisterFormError({
+    required String? code,
+    required String? fallback,
+  }) {
+    final normalizedCode = code?.trim().toUpperCase();
+    switch (normalizedCode) {
+      case 'OWNER_ALREADY_HAS_MERCHANT':
+        return context.l10n.addMerchantOwnerAlreadyLinked;
+      case 'OWNER_CONFLICT':
+        return context.l10n.addMerchantOwnerConflict;
+      case 'OWNER_NOT_FOUND':
+        return context.l10n.addMerchantOwnerNotFound;
+    }
+    return resolveFormLevelError(
+      context.l10n,
+      code: normalizedCode,
+      fallback: fallback,
+    );
   }
 
   String _activityLabel(StoreActivityModel activity) {
@@ -614,7 +636,9 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
                   const SizedBox(height: 6),
                   Text(
                     _errorOf('merchantDepartment')!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ],
               ],

@@ -13,6 +13,8 @@ const SUPABASE_SHARED_TOPIC_READINESS_OBJECTS = Object.freeze([
   "realtime_channel_audit",
 ]);
 const SUPABASE_SQL_PROBE_TTL_MS = 30 * 1000;
+const RAILWAY_SCHEMA_RETRY_ATTEMPTS = 4;
+const RAILWAY_SCHEMA_RETRY_DELAY_MS = 5000;
 
 let supabaseAdminClient = null;
 let supabaseSqlProbeCache = {
@@ -129,21 +131,53 @@ export function getSupabaseBroadcastHeaders() {
 }
 
 async function checkRailwayRealtimeSchema() {
-  const result = await dependencies.query(
-    `SELECT table_name
-     FROM information_schema.tables
-     WHERE table_schema = 'public'
-       AND table_name = ANY($1::text[])`,
-    [LOCAL_REALTIME_READINESS_OBJECTS]
-  );
-  const existing = new Set((result.rows || []).map((row) => row.table_name));
-  const missingObjects = LOCAL_REALTIME_READINESS_OBJECTS.filter(
-    (tableName) => !existing.has(tableName)
-  );
-  return {
-    ok: missingObjects.length === 0,
-    missingObjects,
+  const transientPatterns = [
+    /econnreset/i,
+    /etimedout/i,
+    /timeout/i,
+    /connection terminated/i,
+    /read econnreset/i,
+  ];
+  const isTransientError = (error) => {
+    const code = String(error?.code || "").trim();
+    const message = String(error?.message || error || "");
+    return (
+      code === "ECONNRESET" ||
+      code === "ETIMEDOUT" ||
+      transientPatterns.some((pattern) => pattern.test(message))
+    );
   };
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= RAILWAY_SCHEMA_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await dependencies.query(
+        `SELECT table_name
+         FROM information_schema.tables
+         WHERE table_schema = 'public'
+           AND table_name = ANY($1::text[])`,
+        [LOCAL_REALTIME_READINESS_OBJECTS]
+      );
+      const existing = new Set((result.rows || []).map((row) => row.table_name));
+      const missingObjects = LOCAL_REALTIME_READINESS_OBJECTS.filter(
+        (tableName) => !existing.has(tableName)
+      );
+      return {
+        ok: missingObjects.length === 0,
+        missingObjects,
+      };
+    } catch (error) {
+      lastError = error;
+      if (!isTransientError(error) || attempt >= RAILWAY_SCHEMA_RETRY_ATTEMPTS) {
+        throw error;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, RAILWAY_SCHEMA_RETRY_DELAY_MS * attempt)
+      );
+    }
+  }
+
+  throw lastError;
 }
 
 async function checkSupabaseRealtimeAuthorizationTables() {

@@ -175,8 +175,9 @@ class AuthController extends StateNotifier<AuthState> {
     // guest/login instead of leaving controllers polling protected endpoints.
     SessionInvalidationBus.instance.addListener(_onSessionInvalidatedSignal);
     ref.onDispose(
-      () => SessionInvalidationBus.instance
-          .removeListener(_onSessionInvalidatedSignal),
+      () => SessionInvalidationBus.instance.removeListener(
+        _onSessionInvalidatedSignal,
+      ),
     );
   }
 
@@ -778,6 +779,17 @@ class AuthController extends StateNotifier<AuthState> {
     return mapDioError(
       e,
       fallback: 'Owner account creation failed.',
+      customMessages: {
+        'OWNER_ALREADY_HAS_MERCHANT': resolveLocalizedText(
+          (l10n) => l10n.addMerchantOwnerAlreadyLinked,
+        ),
+        'OWNER_CONFLICT': resolveLocalizedText(
+          (l10n) => l10n.addMerchantOwnerConflict,
+        ),
+        'OWNER_NOT_FOUND': resolveLocalizedText(
+          (l10n) => l10n.addMerchantOwnerNotFound,
+        ),
+      },
       appendRequestId: true,
     );
   }

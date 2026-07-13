@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:maslaki/features/taxi/data/taxi_route_service.dart';
+import 'package:maslaki/features/taxi/domain/taxi_assignment_contract.dart';
 import 'package:maslaki/features/taxi/domain/taxi_fare_policy.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -2207,8 +2208,7 @@ class _TaxiCaptainDashboardScreenState
   }
 
   Map<String, dynamic>? get _ride {
-    final r = _currentRideEnvelope?['ride'];
-    return r is Map ? Map<String, dynamic>.from(r) : null;
+    return taxiRideViewFromEnvelope(_currentRideEnvelope);
   }
 
   Map<String, dynamic>? get _profileMap {
@@ -2683,9 +2683,16 @@ class _TaxiCaptainDashboardScreenState
     final ride = _ride!;
     final nonAvailable = _t('غير متوفر', 'Not available');
     final fare =
-        _asInt(ride['agreedFareIqd']) ?? _asInt(ride['proposedFareIqd']);
+        _asInt(ride['finalFare']) ??
+        _asInt(ride['agreedFareIqd']) ??
+        _asInt(ride['proposedFareIqd']);
     final fareLabel = fare != null && fare > 0 ? _money(fare) : nonAvailable;
     final rideId = _asInt(ride['id']);
+    final vehicle = ride['vehicle'] is Map
+        ? Map<String, dynamic>.from(ride['vehicle'] as Map)
+        : ride['captain'] is Map && (ride['captain'] as Map)['vehicle'] is Map
+        ? Map<String, dynamic>.from((ride['captain'] as Map)['vehicle'] as Map)
+        : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2720,6 +2727,17 @@ class _TaxiCaptainDashboardScreenState
           '${_t('الأجرة', 'Fare')}: $fareLabel',
           style: const TextStyle(color: Colors.greenAccent),
         ),
+        if (vehicle != null)
+          Text(
+            [
+              _str(vehicle['vehicleMake']),
+              _str(vehicle['vehicleModel']),
+              _asInt(vehicle['vehicleYear'])?.toString(),
+              _str(vehicle['vehicleColor']),
+              _str(vehicle['vehiclePlate']),
+            ].whereType<String>().where((item) => item.isNotEmpty).join(' • '),
+            style: const TextStyle(color: Colors.white70),
+          ),
         Text(
           '${_t('النطاق التقديري للنظام', 'System estimate range')}: ${_systemEstimateLabel(ride)}',
           style: const TextStyle(color: Colors.lightBlueAccent),

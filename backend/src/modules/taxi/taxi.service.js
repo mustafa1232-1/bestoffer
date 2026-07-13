@@ -267,6 +267,269 @@ function buildCompactRidePayload(ride) {
   };
 }
 
+function toSafeNumber(value) {
+  if (value == null) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toSafeInt(value) {
+  const parsed = toSafeNumber(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function normalizeTaxiLabel(value) {
+  const text = value == null ? "" : String(value).trim();
+  return text.length > 0 ? text : null;
+}
+
+function haversineDistanceMeters(lat1, lng1, lat2, lng2) {
+  const values = [lat1, lng1, lat2, lng2].map((value) => Number(value));
+  if (values.some((value) => !Number.isFinite(value))) return null;
+
+  const [aLat, aLng, bLat, bLng] = values.map((value) => (value * Math.PI) / 180);
+  const deltaLat = bLat - aLat;
+  const deltaLng = bLng - aLng;
+  const sinLat = Math.sin(deltaLat / 2);
+  const sinLng = Math.sin(deltaLng / 2);
+  const a =
+    sinLat * sinLat +
+    Math.cos(aLat) * Math.cos(bLat) * sinLng * sinLng;
+  return Math.round(2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(a))));
+}
+
+function minutesFromDistance(distanceM, speedKmh = 35) {
+  const distance = toSafeNumber(distanceM);
+  if (distance == null || distance <= 0) return null;
+  const speed = Math.max(1, Number(speedKmh) || 35);
+  return Math.max(1, Math.ceil((distance / 1000 / speed) * 60));
+}
+
+function buildTaxiAssignmentPayload(ride, { latestLocation = null } = {}) {
+  if (!ride) return null;
+
+  const pickup = ride.pickup || null;
+  const dropoff = ride.dropoff || null;
+  const captain = ride.captain || null;
+  const latest = latestLocation && typeof latestLocation === "object"
+    ? latestLocation
+    : null;
+
+  const pickupLatitude = toSafeNumber(pickup?.latitude);
+  const pickupLongitude = toSafeNumber(pickup?.longitude);
+  const destinationLatitude = toSafeNumber(dropoff?.latitude);
+  const destinationLongitude = toSafeNumber(dropoff?.longitude);
+
+  const captainLatitude = toSafeNumber(latest?.latitude);
+  const captainLongitude = toSafeNumber(latest?.longitude);
+  const captainHeading = toSafeNumber(latest?.headingDeg ?? latest?.heading_deg);
+  const captainDistanceMeters =
+    pickupLatitude != null &&
+    pickupLongitude != null &&
+    captainLatitude != null &&
+    captainLongitude != null
+      ? haversineDistanceMeters(
+          pickupLatitude,
+          pickupLongitude,
+          captainLatitude,
+          captainLongitude
+        )
+      : null;
+
+  const routeDistance =
+    toSafeNumber(ride.routeDistanceMeters) ??
+    toSafeNumber(ride.routeDistance) ??
+    (pickupLatitude != null &&
+    pickupLongitude != null &&
+    destinationLatitude != null &&
+    destinationLongitude != null
+      ? haversineDistanceMeters(
+          pickupLatitude,
+          pickupLongitude,
+          destinationLatitude,
+          destinationLongitude
+        )
+      : null);
+  const routeDuration =
+    toSafeNumber(ride.routeDurationSeconds) ??
+    toSafeNumber(ride.routeDuration) ??
+    (routeDistance != null ? Math.round((routeDistance / 1000 / 35) * 3600) : null);
+  const estimatedArrivalMinutes =
+    minutesFromDistance(captainDistanceMeters, 30) ??
+    toSafeInt(ride.estimatedArrivalMinutes) ??
+    minutesFromDistance(routeDistance, 35);
+
+  const customerFare = toSafeInt(ride.proposedFareIqd ?? ride.customerFare);
+  const finalFare = toSafeInt(
+    ride.agreedFareIqd ?? ride.finalFare ?? ride.proposedFareIqd ?? ride.customerFare
+  );
+  const acceptedAt = ride.acceptedAt || ride.assignedAt || null;
+  const assignedCaptainUserId =
+    toSafeInt(ride.assignedCaptainUserId ?? ride.assigned_captain_user_id) ?? null;
+
+  const captainCompletedTrips = toSafeInt(captain?.ridesCount) ?? null;
+  const captainRating = toSafeNumber(captain?.ratingAvg);
+  const captainRatingCount = toSafeInt(
+    captain?.ratingCount ?? captain?.ridesCount
+  );
+
+  const captainSnapshot = captain
+    ? {
+        captainId:
+          toSafeInt(captain.id ?? assignedCaptainUserId ?? ride.captainId) ??
+          assignedCaptainUserId,
+        captainName:
+          normalizeTaxiLabel(captain.fullName) ||
+          normalizeTaxiLabel(captain.name) ||
+          null,
+        captainPhoto:
+          normalizeTaxiLabel(
+            captain.profileImageUrl ?? captain.imageUrl ?? captain.photoUrl
+          ) || null,
+        captainRating,
+        captainRatingCount,
+        captainCompletedTrips,
+        captainPhone: normalizeTaxiLabel(captain.phone) || null,
+        captainLatitude,
+        captainLongitude,
+        captainHeading,
+        captainDistanceMeters,
+        captainEstimatedArrivalMinutes: estimatedArrivalMinutes,
+      }
+    : null;
+
+  const vehicle = {
+    vehicleId: toSafeInt(captain?.vehicleId ?? ride.vehicleId),
+    vehicleMake: normalizeTaxiLabel(captain?.carMake ?? ride.vehicleMake) || null,
+    vehicleModel:
+      normalizeTaxiLabel(captain?.carModel ?? ride.vehicleModel) || null,
+    vehicleYear:
+      toSafeInt(captain?.carYear ?? ride.vehicleYear ?? ride.vehicleModelYear) ||
+      null,
+    vehicleColor: normalizeTaxiLabel(captain?.carColor ?? ride.vehicleColor) || null,
+    vehicleType: normalizeTaxiLabel(captain?.vehicleType ?? ride.vehicleType) || null,
+    vehiclePlate:
+      normalizeTaxiLabel(captain?.plateNumber ?? ride.vehiclePlate) || null,
+    vehicleNumber:
+      normalizeTaxiLabel(
+        captain?.plateNumber ??
+          ride.vehicleNumber ??
+          captain?.vehicleNumber ??
+          ride.vehiclePlate
+      ) || null,
+    vehicleImage:
+      normalizeTaxiLabel(captain?.carImageUrl ?? ride.vehicleImage) || null,
+  };
+
+  return {
+    rideId: toSafeInt(ride.id ?? ride.rideId),
+    status: normalizeTaxiLabel(ride.status) || null,
+    customerFare,
+    finalFare,
+    currency: normalizeTaxiLabel(ride.currency) || "IQD",
+    pickupAddress: normalizeTaxiLabel(pickup?.label ?? ride.pickupAddress) || null,
+    pickupLatitude,
+    pickupLongitude,
+    destinationAddress:
+      normalizeTaxiLabel(dropoff?.label ?? ride.destinationAddress) || null,
+    destinationLatitude,
+    destinationLongitude,
+    routeDistance,
+    routeDuration,
+    estimatedArrivalMinutes,
+    assignedAt: acceptedAt,
+    updatedAt: ride.updatedAt || null,
+    captain: captainSnapshot,
+    vehicle,
+  };
+}
+
+function buildTaxiRideCompatView(ride, { latestLocation = null } = {}) {
+  const assignment = buildTaxiAssignmentPayload(ride, { latestLocation });
+  if (!assignment) return null;
+
+  const captain = assignment.captain;
+  const vehicle = assignment.vehicle;
+
+  return {
+    ...ride,
+    id: assignment.rideId,
+    rideId: assignment.rideId,
+    status: assignment.status,
+    customerFare: assignment.customerFare,
+    finalFare: assignment.finalFare,
+    currency: assignment.currency,
+    pickupAddress: assignment.pickupAddress,
+    pickupLatitude: assignment.pickupLatitude,
+    pickupLongitude: assignment.pickupLongitude,
+    destinationAddress: assignment.destinationAddress,
+    destinationLatitude: assignment.destinationLatitude,
+    destinationLongitude: assignment.destinationLongitude,
+    routeDistance: assignment.routeDistance,
+    routeDistanceMeters: assignment.routeDistance,
+    routeDuration: assignment.routeDuration,
+    routeDurationSeconds: assignment.routeDuration,
+    estimatedArrivalMinutes: assignment.estimatedArrivalMinutes,
+    assignedAt: assignment.assignedAt,
+    acceptedAt: assignment.assignedAt,
+    updatedAt: assignment.updatedAt,
+    agreedFareIqd: assignment.finalFare ?? ride.agreedFareIqd ?? null,
+    proposedFareIqd: assignment.customerFare ?? ride.proposedFareIqd ?? null,
+    captain: captain
+      ? {
+          ...captain,
+          id: captain.captainId,
+          fullName: captain.captainName,
+          profileImageUrl: captain.captainPhoto,
+          phone: captain.captainPhone,
+          ratingAvg: captain.captainRating,
+          ratingCount: captain.captainRatingCount,
+          ridesCount: captain.captainCompletedTrips,
+          carMake: vehicle.vehicleMake,
+          carModel: vehicle.vehicleModel,
+          carYear: vehicle.vehicleYear,
+          carColor: vehicle.vehicleColor,
+          vehicleType: vehicle.vehicleType,
+          plateNumber: vehicle.vehiclePlate,
+          carImageUrl: vehicle.vehicleImage,
+          vehicle: {
+            ...vehicle,
+            id: vehicle.vehicleId,
+            make: vehicle.vehicleMake,
+            model: vehicle.vehicleModel,
+            year: vehicle.vehicleYear,
+            color: vehicle.vehicleColor,
+            type: vehicle.vehicleType,
+            plate: vehicle.vehiclePlate,
+            number: vehicle.vehicleNumber,
+            imageUrl: vehicle.vehicleImage,
+          },
+        }
+      : null,
+    vehicle: vehicle.vehicleId != null || vehicle.vehicleMake != null
+      ? {
+          ...vehicle,
+          id: vehicle.vehicleId,
+          make: vehicle.vehicleMake,
+          model: vehicle.vehicleModel,
+          year: vehicle.vehicleYear,
+          color: vehicle.vehicleColor,
+          type: vehicle.vehicleType,
+          plate: vehicle.vehiclePlate,
+          number: vehicle.vehicleNumber,
+          imageUrl: vehicle.vehicleImage,
+        }
+      : null,
+    assignment,
+  };
+}
+
 function buildTaxiOfferPayload(offer, { queuePosition = null } = {}) {
   if (!offer) return null;
 
@@ -287,6 +550,8 @@ function buildTaxiOfferPayload(offer, { queuePosition = null } = {}) {
 
 export const __taxiServiceTestApi = {
   buildCompactRidePayload,
+  buildTaxiAssignmentPayload,
+  buildTaxiRideCompatView,
   buildBidQueueMeta,
   buildOfferPresentationList,
   buildTaxiOfferPayload,
@@ -550,10 +815,13 @@ function emitTaxiRealtimeEvents(userId, eventNames, payload) {
 
 async function emitRideUpdate(ride, eventType, extra = {}) {
   if (!ride) return;
+  const latestLocation = extra.latestLocation || null;
+  const rideView = buildTaxiRideCompatView(ride, { latestLocation });
 
   const payload = {
     eventType,
-    ride: buildCompactRidePayload(ride),
+    ride: rideView,
+    assignment: rideView?.assignment || buildTaxiAssignmentPayload(ride, { latestLocation }),
     ...extra,
   };
 
@@ -1010,7 +1278,8 @@ export async function createRideRequest(customerUserId, dto) {
   const nearbyCaptainsCount = await notifyCaptainsNearRide(ride);
 
   return {
-    ride,
+    ride: buildTaxiRideCompatView(ride),
+    assignment: buildTaxiAssignmentPayload(ride),
     nearbyCaptainsCount,
   };
 }
@@ -1283,7 +1552,8 @@ export async function getCurrentRideForCustomer(customerUserId) {
   });
 
   return {
-    ride,
+    ride: buildTaxiRideCompatView(ride, { latestLocation }),
+    assignment: buildTaxiAssignmentPayload(ride, { latestLocation }),
     bids,
     bidQueue,
     offers,
@@ -1323,7 +1593,8 @@ export async function getCurrentRideForCaptain(captainUserId) {
   });
 
   return {
-    ride,
+    ride: buildTaxiRideCompatView(ride, { latestLocation }),
+    assignment: buildTaxiAssignmentPayload(ride, { latestLocation }),
     bids,
     bidQueue,
     offers,
@@ -1362,7 +1633,8 @@ export async function getRideDetails({ rideId, userId, role, isSuperAdmin }) {
   });
 
   return {
-    ride,
+    ride: buildTaxiRideCompatView(ride, { latestLocation }),
+    assignment: buildTaxiAssignmentPayload(ride, { latestLocation }),
     bids,
     bidQueue,
     offers,
@@ -2047,6 +2319,8 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
   }
 
   const ride = result.ride;
+  const latestLocation = await repo.getLatestRideLocation(ride.id);
+  const rideView = buildTaxiRideCompatView(ride, { latestLocation });
   const bids = await repo.listRideBids(ride.id);
   const bidQueue = buildBidQueueMeta({
     bids,
@@ -2097,7 +2371,8 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
   ], {
     eventType: "offer_accepted",
     rideId: ride.id,
-    ride,
+    ride: rideView,
+    assignment: rideView.assignment,
     acceptedBidId: ride.acceptedBidId,
     acceptedOfferId: ride.acceptedBidId,
     acceptedOffer,
@@ -2129,7 +2404,8 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
     ], {
       eventType: "offer_accepted",
       rideId: ride.id,
-      ride,
+      ride: rideView,
+      assignment: rideView.assignment,
       acceptedBidId: ride.acceptedBidId,
       acceptedOfferId: ride.acceptedBidId,
       acceptedOffer,
@@ -2188,7 +2464,8 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
   queueNotifications(rejectionPayloads);
 
   return {
-    ride,
+    ride: buildTaxiRideCompatView(ride, { latestLocation }),
+    assignment: buildTaxiAssignmentPayload(ride, { latestLocation }),
     bids,
     bidQueue,
     offers,
@@ -2231,6 +2508,8 @@ export async function acceptRideByCaptain({ captainUserId, rideId }) {
   }
 
   const ride = result.ride;
+  const latestLocation = await repo.getLatestRideLocation(ride.id);
+  const rideView = buildTaxiRideCompatView(ride, { latestLocation });
   const bids = await repo.listRideBids(ride.id);
   const bidQueue = buildBidQueueMeta({
     bids,
@@ -2278,7 +2557,8 @@ export async function acceptRideByCaptain({ captainUserId, rideId }) {
   ], {
     eventType: "customer_fare_accepted",
     rideId: ride.id,
-    ride,
+    ride: rideView,
+    assignment: rideView.assignment,
     acceptedBidId: ride.acceptedBidId,
     acceptedOfferId: ride.acceptedBidId,
     acceptedOffer,
@@ -2310,7 +2590,8 @@ export async function acceptRideByCaptain({ captainUserId, rideId }) {
     ], {
       eventType: "customer_fare_accepted",
       rideId: ride.id,
-      ride,
+      ride: rideView,
+      assignment: rideView.assignment,
       acceptedBidId: ride.acceptedBidId,
       acceptedOfferId: ride.acceptedBidId,
       acceptedOffer,
@@ -2353,7 +2634,7 @@ export async function acceptRideByCaptain({ captainUserId, rideId }) {
   queueNotifications(rejectionPayloads);
 
   return {
-    ride,
+    ride: buildTaxiRideCompatView(ride),
     bids,
     bidQueue,
     offers,
@@ -2531,7 +2812,8 @@ export async function rejectCurrentBid({
   });
 
   return {
-    ride,
+    ride: buildTaxiRideCompatView(ride, { latestLocation }),
+    assignment: buildTaxiAssignmentPayload(ride, { latestLocation }),
     bids,
     bidQueue,
     offers,
@@ -2758,7 +3040,7 @@ export async function counterOfferCurrentBid({
   });
 
   return {
-    ride,
+    ride: buildTaxiRideCompatView(ride),
     bids,
     bidQueue,
     offers,
@@ -2796,6 +3078,7 @@ export async function cancelRide({ customerUserId, rideId }) {
     eventType: "ride_canceled",
     rideId: result.ride.id,
     ride: buildCompactRidePayload(result.ride),
+    assignment: buildTaxiAssignmentPayload(result.ride),
     customerUserId: result.ride.customerUserId,
   });
 
@@ -2806,6 +3089,7 @@ export async function cancelRide({ customerUserId, rideId }) {
       eventType: "ride_canceled",
       rideId: result.ride.id,
       ride: buildCompactRidePayload(result.ride),
+      assignment: buildTaxiAssignmentPayload(result.ride),
       customerUserId: result.ride.customerUserId,
       captainId: result.ride.assignedCaptainUserId,
     });
@@ -2945,6 +3229,7 @@ async function transitionRideStatus({
       eventType,
       rideId: result.ride.id,
       ride: buildCompactRidePayload(result.ride),
+      assignment: buildTaxiAssignmentPayload(result.ride),
       previousStatus: result.previousStatus,
     };
     emitTaxiRealtimeEvents(result.ride.customerUserId, realtimeEventNames, payload);
@@ -3200,7 +3485,8 @@ export async function getSharedRideTrackForFriend({ friendUserId, rideId }) {
   const events = await repo.listRideEvents(data.ride.id, { limit: 50 });
 
   return {
-    ride: data.ride,
+    ride: buildTaxiRideCompatView(data.ride, { latestLocation: data.location }),
+    assignment: buildTaxiAssignmentPayload(data.ride, { latestLocation: data.location }),
     latestLocation: data.location,
     share: data.share,
     events: [...events].reverse(),
@@ -3216,7 +3502,8 @@ export async function getPublicTrack(token) {
   const events = await repo.listRideEvents(data.ride.id, { limit: 50 });
 
   return {
-    ride: data.ride,
+    ride: buildTaxiRideCompatView(data.ride, { latestLocation: data.location }),
+    assignment: buildTaxiAssignmentPayload(data.ride, { latestLocation: data.location }),
     latestLocation: data.location,
     events: [...events].reverse(),
   };

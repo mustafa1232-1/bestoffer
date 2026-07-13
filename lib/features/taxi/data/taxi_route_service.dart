@@ -130,24 +130,44 @@ class TaxiRouteService {
   }
 
   Future<void> openWazeNavigation(LatLng destination) async {
-    final waze = Uri.parse(
-      'https://waze.com/ul?ll=${destination.latitude},${destination.longitude}&navigate=yes',
-    );
-    if (await launchUrl(waze, mode: LaunchMode.externalApplication)) {
+    final appUri = buildWazeAppUri(destination);
+    if (await canLaunchUrl(appUri) &&
+        await launchUrl(appUri, mode: LaunchMode.externalApplication)) {
       return;
     }
 
-    final googleFallback = Uri.parse(
+    final wazeWeb = buildWazeWebUri(destination);
+    if (await canLaunchUrl(wazeWeb) &&
+        await launchUrl(wazeWeb, mode: LaunchMode.externalApplication)) {
+      return;
+    }
+
+    final googleFallback = buildGoogleMapsUri(destination);
+    if (await canLaunchUrl(googleFallback) &&
+        await launchUrl(googleFallback, mode: LaunchMode.externalApplication)) {
+      return;
+    }
+
+    throw Exception('NO_MAP_APP');
+  }
+
+  Uri buildWazeAppUri(LatLng destination) {
+    return Uri.parse(
+      'waze://?ll=${destination.latitude},${destination.longitude}&navigate=yes',
+    );
+  }
+
+  Uri buildWazeWebUri(LatLng destination) {
+    return Uri.parse(
+      'https://waze.com/ul?ll=${destination.latitude},${destination.longitude}&navigate=yes',
+    );
+  }
+
+  Uri buildGoogleMapsUri(LatLng destination) {
+    return Uri.parse(
       'https://www.google.com/maps/search/?api=1&query='
       '${destination.latitude},${destination.longitude}',
     );
-    final opened = await launchUrl(
-      googleFallback,
-      mode: LaunchMode.externalApplication,
-    );
-    if (!opened) {
-      throw Exception('NO_MAP_APP');
-    }
   }
 
   double? _toDouble(dynamic value) {
