@@ -232,9 +232,10 @@ class _ForbiddenOrdersApi extends OrdersApi {
 }
 
 class _FakeTaxiApi extends TaxiApi {
-  _FakeTaxiApi(this.envelope) : super(Dio());
+  _FakeTaxiApi(this.envelope, {this.streamController}) : super(Dio());
 
   final Map<String, dynamic> envelope;
+  final StreamController<TaxiLiveEvent>? streamController;
 
   @override
   Future<Map<String, dynamic>> getRideDetails(int rideId) async => envelope;
@@ -253,10 +254,82 @@ class _FakeTaxiApi extends TaxiApi {
   Stream<TaxiLiveEvent> streamRideEvents({
     required int rideId,
     int? lastEventId,
-  }) async* {}
+  }) => streamController?.stream ?? const Stream<TaxiLiveEvent>.empty();
 
   @override
   Stream<TaxiLiveEvent> streamPublicTrackByToken(String token) async* {}
+}
+
+Map<String, dynamic> _assignedTaxiEnvelope({
+  String status = 'captain_assigned',
+  Map<String, dynamic>? latestLocation,
+}) {
+  final envelope = <String, dynamic>{
+    'ride': <String, dynamic>{
+      'id': 77,
+      'status': status,
+      'captain': <String, dynamic>{
+        'id': 88,
+        'fullName': 'Captain Noor',
+        'phone': '07711111111',
+        'profileImageUrl': 'https://example.com/captain.jpg',
+        'ratingAvg': 4.8,
+        'ratingCount': 128,
+        'ridesCount': 321,
+        'carMake': 'Toyota',
+        'carModel': 'Corolla',
+        'carYear': 2022,
+        'carColor': 'White',
+        'vehicleType': 'sedan',
+        'plateNumber': 'TX-001',
+        'carImageUrl': 'https://example.com/vehicle.jpg',
+      },
+      'pickup': <String, dynamic>{
+        'latitude': 33.3128,
+        'longitude': 44.3615,
+        'label': 'Bismayah Gate',
+      },
+      'dropoff': <String, dynamic>{
+        'latitude': 33.3201,
+        'longitude': 44.3750,
+        'label': 'Central Mall',
+      },
+      'customerFare': 14500,
+      'finalFare': 16000,
+      'captainName': 'Captain Noor',
+      'captainPhotoUrl': 'https://example.com/captain.jpg',
+      'captainPhone': '07711111111',
+      'captainRating': 4.8,
+      'captainRatingCount': 128,
+      'captainCompletedTrips': 321,
+      'captainLatitude': 33.3152,
+      'captainLongitude': 44.3648,
+      'captainHeading': 82,
+      'captainDistanceMeters': 640,
+      'captainEstimatedArrivalMinutes': 4,
+      'vehicle': <String, dynamic>{
+        'vehicleId': 9,
+        'vehicleMake': 'Toyota',
+        'vehicleModel': 'Corolla',
+        'vehicleYear': 2022,
+        'vehicleColor': 'White',
+        'vehicleType': 'sedan',
+        'vehiclePlate': 'TX-001',
+        'vehicleNumber': 'TX-001',
+        'vehicleImage': 'https://example.com/vehicle.jpg',
+      },
+      if (status == 'ride_started')
+        'latestLocation': <String, dynamic>{
+          'latitude': 33.3181,
+          'longitude': 44.3701,
+          'updatedAt': '2026-07-13T10:00:00Z',
+        },
+    },
+  };
+  if (latestLocation != null) {
+    envelope['latestLocation'] = latestLocation;
+  }
+  return envelope;
 }
 
 Widget _wrapForTest(Widget child, {List<Override> overrides = const []}) {
@@ -270,6 +343,25 @@ Widget _wrapForTest(Widget child, {List<Override> overrides = const []}) {
       home: child,
     ),
   );
+}
+
+Future<void> _setTallSurface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(1080, 2400));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+}
+
+Future<void> _scrollTaxiActionsIntoView(WidgetTester tester) async {
+  final scrollable = find.byType(ListView).evaluate().isNotEmpty
+      ? find.byType(ListView).last
+      : find.byType(Scrollable).last;
+  for (var i = 0; i < 4; i++) {
+    await tester.drag(scrollable, const Offset(0, -560));
+    await tester.pump(const Duration(milliseconds: 200));
+    if (find.text('Message captain').evaluate().isNotEmpty ||
+        find.text('Ride details').evaluate().isNotEmpty) {
+      return;
+    }
+  }
 }
 
 void main() {
@@ -287,6 +379,7 @@ void main() {
   testWidgets('delivery tracking survives malformed tracking payloads', (
     tester,
   ) async {
+    await _setTallSurface(tester);
     final api = _FakeOrdersApi(<String, dynamic>{
       'stage': 'heading_to_customer',
       'merchant': 'bad-merchant-shape',
@@ -313,10 +406,11 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Live Order Tracking'), findsOneWidget);
     expect(find.text('Merchant'), findsOneWidget);
-    expect(find.text('Awaiting assignment'), findsOneWidget);
+    expect(find.text('Awaiting assignment'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('taxi tracking survives malformed ride payloads', (tester) async {
+    await _setTallSurface(tester);
     final api = _FakeTaxiApi(<String, dynamic>{
       'events': 'bad-events-shape',
       'latestLocation': 'bad-location-shape',
@@ -333,7 +427,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrapForTest(
-        const TaxiLiveTrackingScreen(rideId: 77),
+        TaxiLiveTrackingScreen(rideId: 77, initialEnvelope: api.envelope),
         overrides: [taxiApiProvider.overrideWithValue(api)],
       ),
     );
@@ -343,13 +437,14 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Taxi Live Tracking'), findsOneWidget);
-    expect(find.text('Captain assigned'), findsAtLeastNWidgets(1));
+    expect(find.text('Captain is heading to pickup'), findsOneWidget);
     expect(find.text('Not available'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('taxi tracking shows searching state without chat actions', (
     tester,
   ) async {
+    await _setTallSurface(tester);
     final api = _FakeTaxiApi(<String, dynamic>{
       'events': const <String, dynamic>{},
       'ride': <String, dynamic>{
@@ -373,7 +468,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrapForTest(
-        const TaxiLiveTrackingScreen(rideId: 78),
+        TaxiLiveTrackingScreen(rideId: 78, initialEnvelope: api.envelope),
         overrides: [taxiApiProvider.overrideWithValue(api)],
       ),
     );
@@ -388,9 +483,175 @@ void main() {
     expect(find.text('Call'), findsNothing);
   });
 
+  testWidgets('taxi tracking shows the assigned ride card with captain data', (
+    tester,
+  ) async {
+    await _setTallSurface(tester);
+    await tester.pumpWidget(
+      _wrapForTest(
+        TaxiLiveTrackingScreen(
+          rideId: 77,
+          initialEnvelope: _assignedTaxiEnvelope(status: 'captain_assigned'),
+        ),
+        overrides: [
+          taxiApiProvider.overrideWithValue(
+            _FakeTaxiApi(_assignedTaxiEnvelope()),
+          ),
+        ],
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Taxi Live Tracking'), findsOneWidget);
+    expect(find.text('Captain is heading to pickup'), findsOneWidget);
+    expect(find.text('Captain Noor'), findsWidgets);
+    expect(find.textContaining('Toyota'), findsWidgets);
+    expect(find.textContaining('TX-001'), findsWidgets);
+    await _scrollTaxiActionsIntoView(tester);
+    expect(find.text('Message captain'), findsOneWidget);
+    expect(find.text('Ride details'), findsOneWidget);
+    expect(find.text('Cancel ride'), findsOneWidget);
+  });
+
+  testWidgets(
+    'taxi tracking preserves captain and vehicle snapshot after location updates',
+    (tester) async {
+      await _setTallSurface(tester);
+      final events = StreamController<TaxiLiveEvent>.broadcast();
+      addTearDown(events.close);
+
+      await tester.pumpWidget(
+        _wrapForTest(
+          TaxiLiveTrackingScreen(
+            rideId: 77,
+            initialEnvelope: _assignedTaxiEnvelope(status: 'captain_assigned'),
+          ),
+          overrides: [
+            taxiApiProvider.overrideWithValue(
+              _FakeTaxiApi(_assignedTaxiEnvelope(), streamController: events),
+            ),
+          ],
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Captain Noor'), findsWidgets);
+      expect(find.textContaining('Toyota'), findsWidgets);
+
+      events.add(
+        const TaxiLiveEvent(
+          event: 'taxi_location_update',
+          data: <String, dynamic>{
+            'rideId': 77,
+            'ride': <String, dynamic>{'id': 77, 'status': 'captain_assigned'},
+            'location': <String, dynamic>{
+              'latitude': 33.3169,
+              'longitude': 44.3671,
+              'updatedAt': '2026-07-13T10:01:00Z',
+            },
+          },
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Captain Noor'), findsWidgets);
+      expect(find.textContaining('Toyota'), findsWidgets);
+      await _scrollTaxiActionsIntoView(tester);
+      expect(find.text('Cancel ride'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'taxi tracking only exposes cancel on cancellable active states',
+    (tester) async {
+      await _setTallSurface(tester);
+      await tester.pumpWidget(
+        _wrapForTest(
+          TaxiLiveTrackingScreen(
+            rideId: 77,
+            initialEnvelope: _assignedTaxiEnvelope(status: 'captain_assigned'),
+          ),
+          overrides: [
+            taxiApiProvider.overrideWithValue(
+              _FakeTaxiApi(_assignedTaxiEnvelope(status: 'captain_assigned')),
+            ),
+          ],
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.scrollUntilVisible(
+        find.text('Cancel ride'),
+        200.0,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('Cancel ride'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(
+        _wrapForTest(
+          TaxiLiveTrackingScreen(
+            rideId: 77,
+            initialEnvelope: _assignedTaxiEnvelope(status: 'ride_started'),
+          ),
+          overrides: [
+            taxiApiProvider.overrideWithValue(
+              _FakeTaxiApi(_assignedTaxiEnvelope(status: 'ride_started')),
+            ),
+          ],
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await _scrollTaxiActionsIntoView(tester);
+      expect(find.text('Cancel ride'), findsNothing);
+      expect(find.text('Message captain'), findsOneWidget);
+      expect(find.text('Ride details'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'taxi tracking shows terminal summary and no active actions for completed rides',
+    (tester) async {
+      await _setTallSurface(tester);
+      await tester.pumpWidget(
+        _wrapForTest(
+          TaxiLiveTrackingScreen(
+            rideId: 77,
+            initialEnvelope: _assignedTaxiEnvelope(status: 'completed'),
+          ),
+          overrides: [
+            taxiApiProvider.overrideWithValue(
+              _FakeTaxiApi(_assignedTaxiEnvelope(status: 'completed')),
+            ),
+          ],
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Ride completed successfully'), findsWidgets);
+      expect(find.text('Cancel ride'), findsNothing);
+      expect(find.text('Message captain'), findsNothing);
+      expect(find.text('Call'), findsNothing);
+    },
+  );
+
   testWidgets('delivery tracking shows a graceful 403 state with retry', (
     tester,
   ) async {
+    await _setTallSurface(tester);
     await tester.pumpWidget(
       _wrapForTest(
         const DeliveryLiveTrackingScreen(orderId: 7),

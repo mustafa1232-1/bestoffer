@@ -28,7 +28,9 @@ Map<String, dynamic>? _pickupLike({
 }) {
   final raw = _map(ride?['pickup']) ?? _map(assignment?['pickup']);
   final latitude = _double(raw?['latitude'] ?? assignment?['pickupLatitude']);
-  final longitude = _double(raw?['longitude'] ?? assignment?['pickupLongitude']);
+  final longitude = _double(
+    raw?['longitude'] ?? assignment?['pickupLongitude'],
+  );
   final label = _string(
     raw?['label'] ??
         raw?['addressText'] ??
@@ -48,8 +50,12 @@ Map<String, dynamic>? _dropoffLike({
   required Map<String, dynamic>? assignment,
 }) {
   final raw = _map(ride?['dropoff']) ?? _map(assignment?['dropoff']);
-  final latitude = _double(raw?['latitude'] ?? assignment?['destinationLatitude']);
-  final longitude = _double(raw?['longitude'] ?? assignment?['destinationLongitude']);
+  final latitude = _double(
+    raw?['latitude'] ?? assignment?['destinationLatitude'],
+  );
+  final longitude = _double(
+    raw?['longitude'] ?? assignment?['destinationLongitude'],
+  );
   final label = _string(
     raw?['label'] ??
         raw?['addressText'] ??
@@ -85,8 +91,7 @@ double? _distanceMeters({
   final deltaLng = bLng - aLng;
   final sinLat = math.sin(deltaLat / 2);
   final sinLng = math.sin(deltaLng / 2);
-  final a = sinLat * sinLat +
-      math.cos(aLat) * math.cos(bLat) * sinLng * sinLng;
+  final a = sinLat * sinLat + math.cos(aLat) * math.cos(bLat) * sinLng * sinLng;
   return (2 * earthRadius * math.asin(math.min(1, math.sqrt(a))));
 }
 
@@ -99,7 +104,8 @@ Map<String, dynamic>? _assignmentFromRide(
   final pickup = _pickupLike(ride: ride, assignment: null);
   final dropoff = _dropoffLike(ride: ride, assignment: null);
   final captain = _map(ride['captain']);
-  final vehicle = _map(ride['vehicle']) ??
+  final vehicle =
+      _map(ride['vehicle']) ??
       (captain == null
           ? null
           : {
@@ -115,20 +121,17 @@ Map<String, dynamic>? _assignmentFromRide(
               'vehicleImage': _string(captain['carImageUrl']),
             });
 
-  final captainLatitude =
-      _double(latestLocation?['latitude'] ?? latestLocation?['lat']);
-  final captainLongitude =
-      _double(latestLocation?['longitude'] ?? latestLocation?['lng']);
+  final captainLatitude = _double(
+    latestLocation?['latitude'] ?? latestLocation?['lat'],
+  );
+  final captainLongitude = _double(
+    latestLocation?['longitude'] ?? latestLocation?['lng'],
+  );
   final captainDistanceMeters =
-      pickup != null &&
-          captainLatitude != null &&
-          captainLongitude != null
+      pickup != null && captainLatitude != null && captainLongitude != null
       ? _distanceMeters(
           pickup: pickup,
-          dropoff: {
-            'latitude': captainLatitude,
-            'longitude': captainLongitude,
-          },
+          dropoff: {'latitude': captainLatitude, 'longitude': captainLongitude},
         )
       : null;
 
@@ -139,7 +142,9 @@ Map<String, dynamic>? _assignmentFromRide(
   final routeDuration =
       _int(ride['routeDurationSeconds']) ??
       _int(ride['routeDuration']) ??
-      (routeDistance == null ? null : ((routeDistance / 1000 / 35) * 3600).round());
+      (routeDistance == null
+          ? null
+          : ((routeDistance / 1000 / 35) * 3600).round());
   final estimatedArrivalMinutes =
       _int(ride['estimatedArrivalMinutes']) ??
       (captainDistanceMeters == null
@@ -155,21 +160,29 @@ Map<String, dynamic>? _assignmentFromRide(
       ? null
       : (() {
           final snapshot = <String, dynamic>{
-            'captainId':
-                _int(captain['captainId'] ?? captain['id'] ?? ride['captainId']),
-            'captainName':
-                _string(captain['captainName'] ?? captain['fullName'] ?? captain['name']),
-            'captainPhoto':
-                _string(captain['captainPhoto'] ?? captain['profileImageUrl'] ?? captain['imageUrl']),
-            'captainRating': _double(captain['captainRating'] ?? captain['ratingAvg']),
+            'captainId': _int(
+              captain['captainId'] ?? captain['id'] ?? ride['captainId'],
+            ),
+            'captainName': _string(
+              captain['captainName'] ?? captain['fullName'] ?? captain['name'],
+            ),
+            'captainPhoto': _string(
+              captain['captainPhoto'] ??
+                  captain['profileImageUrl'] ??
+                  captain['imageUrl'],
+            ),
+            'captainRating': _double(
+              captain['captainRating'] ?? captain['ratingAvg'],
+            ),
             'captainRatingCount': _int(
               captain['captainRatingCount'] ?? captain['ratingCount'],
             ),
             'captainCompletedTrips': _int(
               captain['captainCompletedTrips'] ?? captain['ridesCount'],
             ),
-            'captainPhone':
-                _string(captain['captainPhone'] ?? captain['phone']),
+            'captainPhone': _string(
+              captain['captainPhone'] ?? captain['phone'],
+            ),
             'captainLatitude': captainLatitude,
             'captainLongitude': captainLongitude,
             'captainHeading': _double(
@@ -187,21 +200,34 @@ Map<String, dynamic>? _assignmentFromRide(
       : (() {
           final snapshot = <String, dynamic>{
             'vehicleId': _int(vehicle['vehicleId'] ?? vehicle['id']),
-            'vehicleMake':
-                _string(vehicle['vehicleMake'] ?? vehicle['make'] ?? vehicle['carMake']),
-            'vehicleModel': _string(
-              vehicle['vehicleModel'] ?? vehicle['model'] ?? vehicle['carModel'],
+            'vehicleMake': _string(
+              vehicle['vehicleMake'] ?? vehicle['make'] ?? vehicle['carMake'],
             ),
-            'vehicleYear': _int(vehicle['vehicleYear'] ?? vehicle['year'] ?? vehicle['carYear']),
-            'vehicleColor':
-                _string(vehicle['vehicleColor'] ?? vehicle['color'] ?? vehicle['carColor']),
+            'vehicleModel': _string(
+              vehicle['vehicleModel'] ??
+                  vehicle['model'] ??
+                  vehicle['carModel'],
+            ),
+            'vehicleYear': _int(
+              vehicle['vehicleYear'] ?? vehicle['year'] ?? vehicle['carYear'],
+            ),
+            'vehicleColor': _string(
+              vehicle['vehicleColor'] ??
+                  vehicle['color'] ??
+                  vehicle['carColor'],
+            ),
             'vehicleType': _string(vehicle['vehicleType'] ?? vehicle['type']),
-            'vehiclePlate':
-                _string(vehicle['vehiclePlate'] ?? vehicle['plate']),
-            'vehicleNumber':
-                _string(vehicle['vehicleNumber'] ?? vehicle['number']),
-            'vehicleImage':
-                _string(vehicle['vehicleImage'] ?? vehicle['imageUrl'] ?? vehicle['carImageUrl']),
+            'vehiclePlate': _string(
+              vehicle['vehiclePlate'] ?? vehicle['plate'],
+            ),
+            'vehicleNumber': _string(
+              vehicle['vehicleNumber'] ?? vehicle['number'],
+            ),
+            'vehicleImage': _string(
+              vehicle['vehicleImage'] ??
+                  vehicle['imageUrl'] ??
+                  vehicle['carImageUrl'],
+            ),
           };
           snapshot.removeWhere((key, value) => value == null);
           return snapshot;
@@ -213,16 +239,18 @@ Map<String, dynamic>? _assignmentFromRide(
     'customerFare': customerFare,
     'finalFare': finalFare,
     'currency': _string(ride['currency']) ?? 'IQD',
-    'pickupAddress':
-        _string(ride['pickupAddress'] ?? pickup?['label']),
+    'pickupAddress': _string(ride['pickupAddress'] ?? pickup?['label']),
     'pickupLatitude': _double(ride['pickupLatitude'] ?? pickup?['latitude']),
     'pickupLongitude': _double(ride['pickupLongitude'] ?? pickup?['longitude']),
-    'destinationAddress':
-        _string(ride['destinationAddress'] ?? dropoff?['label']),
-    'destinationLatitude':
-        _double(ride['destinationLatitude'] ?? dropoff?['latitude']),
-    'destinationLongitude':
-        _double(ride['destinationLongitude'] ?? dropoff?['longitude']),
+    'destinationAddress': _string(
+      ride['destinationAddress'] ?? dropoff?['label'],
+    ),
+    'destinationLatitude': _double(
+      ride['destinationLatitude'] ?? dropoff?['latitude'],
+    ),
+    'destinationLongitude': _double(
+      ride['destinationLongitude'] ?? dropoff?['longitude'],
+    ),
     'routeDistance': routeDistance,
     'routeDuration': routeDuration,
     'estimatedArrivalMinutes': estimatedArrivalMinutes,
@@ -239,18 +267,26 @@ Map<String, dynamic>? taxiAssignmentFromEnvelope(dynamic raw) {
   final assignment = _map(envelope['assignment']);
   if (assignment != null) return assignment;
   final ride = _map(envelope['ride'] ?? raw);
-  return _assignmentFromRide(ride, latestLocation: _map(envelope['latestLocation']));
+  return _assignmentFromRide(
+    ride,
+    latestLocation: _map(envelope['latestLocation']),
+  );
 }
 
 Map<String, dynamic>? taxiRideViewFromEnvelope(dynamic raw) {
   final envelope = _map(raw);
   if (envelope == null) return null;
   final ride = _map(envelope['ride'] ?? raw);
-  final assignment = taxiAssignmentFromEnvelope(envelope) ??
-      _assignmentFromRide(ride, latestLocation: _map(envelope['latestLocation']));
+  final assignment =
+      taxiAssignmentFromEnvelope(envelope) ??
+      _assignmentFromRide(
+        ride,
+        latestLocation: _map(envelope['latestLocation']),
+      );
   if (ride == null && assignment == null) return null;
 
   final output = <String, dynamic>{...?ride};
+  final latestLocation = _map(envelope['latestLocation']);
   final pick = _pickupLike(ride: ride, assignment: assignment);
   final drop = _dropoffLike(ride: ride, assignment: assignment);
 
@@ -276,9 +312,13 @@ Map<String, dynamic>? taxiRideViewFromEnvelope(dynamic raw) {
     output['assignedAt'] = assignment['assignedAt'];
     output['acceptedAt'] = assignment['assignedAt'];
     output['updatedAt'] = assignment['updatedAt'];
-    output['agreedFareIqd'] = assignment['finalFare'] ?? output['agreedFareIqd'];
+    output['agreedFareIqd'] =
+        assignment['finalFare'] ?? output['agreedFareIqd'];
     output['proposedFareIqd'] =
         assignment['customerFare'] ?? output['proposedFareIqd'];
+  }
+  if (latestLocation != null) {
+    output['latestLocation'] = latestLocation;
   }
 
   if (pick != null) output['pickup'] = pick;
@@ -305,7 +345,8 @@ Map<String, dynamic>? taxiRideViewFromEnvelope(dynamic raw) {
     mergedCaptain['plateNumber'] ??=
         vehicleFromAssignment['vehiclePlate'] ?? vehicleFromAssignment['plate'];
     mergedCaptain['carImageUrl'] ??=
-        vehicleFromAssignment['vehicleImage'] ?? vehicleFromAssignment['imageUrl'];
+        vehicleFromAssignment['vehicleImage'] ??
+        vehicleFromAssignment['imageUrl'];
   }
   if (mergedCaptain.isNotEmpty) {
     output['captain'] = mergedCaptain;
@@ -314,6 +355,64 @@ Map<String, dynamic>? taxiRideViewFromEnvelope(dynamic raw) {
   if (vehicleFromAssignment != null) {
     output['vehicle'] = vehicleFromAssignment;
   }
+  final mergedVehicle = _map(output['vehicle']);
+  final assignmentCaptain = _map(assignment?['captain']);
+
+  final captainName =
+      _string(assignmentCaptain?['captainName']) ??
+      _string(captainFromRide?['fullName']) ??
+      _string(captainFromRide?['name']);
+  final captainPhotoUrl =
+      _string(assignmentCaptain?['captainPhoto']) ??
+      _string(captainFromRide?['profileImageUrl']) ??
+      _string(captainFromRide?['imageUrl']) ??
+      _string(captainFromRide?['photoUrl']);
+
+  output['rideStatus'] = _string(output['status']);
+  output['proposedFare'] = output['customerFare'];
+  output['distanceMeters'] =
+      assignment?['routeDistance'] ?? output['routeDistance'];
+  output['durationSeconds'] =
+      assignment?['routeDuration'] ?? output['routeDuration'];
+  output['captainName'] = captainName;
+  output['captainPhotoUrl'] = captainPhotoUrl;
+  output['captainPhoto'] = captainPhotoUrl;
+  output['captainPhone'] =
+      _string(assignmentCaptain?['captainPhone']) ??
+      _string(captainFromRide?['phone']);
+  output['captainRating'] =
+      assignmentCaptain?['captainRating'] ?? captainFromRide?['ratingAvg'];
+  output['captainRatingCount'] =
+      assignmentCaptain?['captainRatingCount'] ??
+      captainFromRide?['ratingCount'] ??
+      captainFromRide?['ridesCount'];
+  output['captainCompletedTrips'] =
+      assignmentCaptain?['captainCompletedTrips'] ??
+      captainFromRide?['ridesCount'];
+  output['captainLatitude'] =
+      assignmentCaptain?['captainLatitude'] ??
+      captainFromRide?['latitude'] ??
+      output['captainLatitude'];
+  output['captainLongitude'] =
+      assignmentCaptain?['captainLongitude'] ??
+      captainFromRide?['longitude'] ??
+      output['captainLongitude'];
+  output['captainHeading'] = assignmentCaptain?['captainHeading'];
+  output['captainDistanceMeters'] = assignmentCaptain?['captainDistanceMeters'];
+  output['captainEstimatedArrivalMinutes'] =
+      assignmentCaptain?['captainEstimatedArrivalMinutes'] ??
+      output['estimatedArrivalMinutes'];
+  output['vehicleId'] = mergedVehicle?['vehicleId'];
+  output['vehicleMake'] = mergedVehicle?['vehicleMake'];
+  output['vehicleModel'] = mergedVehicle?['vehicleModel'];
+  output['vehicleYear'] = mergedVehicle?['vehicleYear'];
+  output['vehicleColor'] = mergedVehicle?['vehicleColor'];
+  output['vehicleType'] = mergedVehicle?['vehicleType'];
+  output['vehiclePlate'] = mergedVehicle?['vehiclePlate'];
+  output['vehicleNumber'] = mergedVehicle?['vehicleNumber'];
+  output['vehicleImage'] = mergedVehicle?['vehicleImage'];
+  output['pickupAddress'] = output['pickupAddress'] ?? pick?['label'];
+  output['destinationAddress'] = output['destinationAddress'] ?? drop?['label'];
 
   return output;
 }

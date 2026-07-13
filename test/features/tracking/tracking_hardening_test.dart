@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:maslaki/features/taxi/domain/taxi_assignment_contract.dart';
 import 'package:maslaki/features/tracking/tracking_map_utils.dart';
 
 void main() {
@@ -44,6 +45,40 @@ void main() {
     },
   );
 
+  test(
+    'taxi route starts at captain before pickup and switches to live location after pickup',
+    () {
+      final beforePickup = <String, dynamic>{
+        'id': 9,
+        'status': 'captain_assigned',
+        'captainLatitude': 33.3152,
+        'captainLongitude': 44.3648,
+        'pickup': {'latitude': 33.3128, 'longitude': 44.3615},
+        'dropoff': {'latitude': 33.3201, 'longitude': 44.3750},
+      };
+
+      expect(taxiRideHasPickedUp(beforePickup), isFalse);
+      expect(taxiRideRouteStartPoint(beforePickup)?.latitude, 33.3152);
+      expect(taxiRideRouteEndPoint(beforePickup)?.latitude, 33.3128);
+
+      final afterPickup = <String, dynamic>{
+        'id': 9,
+        'status': 'ride_started',
+        'latestLocation': {
+          'latitude': 33.3181,
+          'longitude': 44.3701,
+          'updatedAt': '2026-07-13T10:00:00Z',
+        },
+        'pickup': {'latitude': 33.3128, 'longitude': 44.3615},
+        'dropoff': {'latitude': 33.3201, 'longitude': 44.3750},
+      };
+
+      expect(taxiRideHasPickedUp(afterPickup), isTrue);
+      expect(taxiRideRouteStartPoint(afterPickup)?.latitude, 33.3181);
+      expect(taxiRideRouteEndPoint(afterPickup)?.latitude, 33.3201);
+    },
+  );
+
   test('searching taxi rides stay out of active-tracking mode', () {
     final searching = {
       'ride': {'id': 22, 'status': 'searching', 'currentBidId': 11},
@@ -54,6 +89,38 @@ void main() {
       'negotiating',
     );
     expect(taxiTrackingIsActive(searching), isFalse);
+  });
+
+  test('assigned taxi rides normalize to active display state', () {
+    final ride = taxiRideViewFromEnvelope({
+      'ride': {
+        'id': 77,
+        'status': 'captain_assigned',
+        'pickup': {'latitude': 33.3128, 'longitude': 44.3615},
+        'dropoff': {'latitude': 33.3201, 'longitude': 44.3750},
+        'captain': {
+          'fullName': 'Captain Noor',
+          'phone': '07711111111',
+          'profileImageUrl': 'https://example.com/captain.jpg',
+          'ratingAvg': 4.8,
+          'ratingCount': 128,
+          'ridesCount': 321,
+          'carMake': 'Toyota',
+          'carModel': 'Corolla',
+          'carYear': 2022,
+          'carColor': 'White',
+          'vehicleType': 'sedan',
+          'plateNumber': 'TX-001',
+          'carImageUrl': 'https://example.com/vehicle.jpg',
+          'latitude': 33.3152,
+          'longitude': 44.3648,
+        },
+      },
+    });
+
+    expect(ride, isNotNull);
+    expect(taxiRideDisplayState(ride), 'active');
+    expect(taxiTrackingIsActive({'ride': ride}), isTrue);
   });
 
   test(

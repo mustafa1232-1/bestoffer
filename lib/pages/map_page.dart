@@ -3579,10 +3579,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
         _readInt(ride?['agreedFareIqd']) ??
         _readInt(ride?['proposedFareIqd']);
     final canCancel =
-        rideStatus == 'searching' ||
-        rideStatus == 'captain_assigned' ||
-        rideStatus == 'captain_arriving' ||
-        rideStatus == 'ride_started';
+        rideStatus == 'captain_assigned' || rideStatus == 'captain_arriving';
     final scheme = Theme.of(context).colorScheme;
     final canPop = Navigator.of(context).canPop();
 
@@ -4582,20 +4579,19 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                       ),
                       const SizedBox(height: 8),
                     ],
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: _submitting || !canCancel
-                            ? null
-                            : _cancelRide,
-                        icon: const Icon(Icons.cancel_rounded),
-                        label: Text(
-                          _submitting
-                              ? l10n.mapPageRideCancelling
-                              : l10n.mapPageRideCancelAction,
+                    if (canCancel)
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _submitting ? null : _cancelRide,
+                          icon: const Icon(Icons.cancel_rounded),
+                          label: Text(
+                            _submitting
+                                ? l10n.mapPageRideCancelling
+                                : l10n.mapPageRideCancelAction,
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),

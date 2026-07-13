@@ -83,10 +83,18 @@ const _activeTaxiStatuses = <String>{
   'captain_arriving',
   'ride_started',
 };
+const _postPickupTaxiStatuses = <String>{'ride_started', 'completed'};
+
+double? _trackingDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString());
+}
 
 String? _trackingStatus(Map<String, dynamic>? envelope) {
-  final nested =
-      trackingMap(envelope?['order'] ?? envelope?['ride'] ?? envelope?['assignment']);
+  final nested = trackingMap(
+    envelope?['order'] ?? envelope?['ride'] ?? envelope?['assignment'],
+  );
   return trackingString(
     nested?['status'] ?? envelope?['status'],
   )?.toLowerCase();
@@ -111,6 +119,83 @@ bool orderTrackingIsActive(Map<String, dynamic>? snapshot) {
 bool taxiTrackingIsActive(Map<String, dynamic>? envelope) {
   final status = _trackingStatus(envelope);
   return status != null && _activeTaxiStatuses.contains(status);
+}
+
+bool taxiRideHasPickedUp(Map<String, dynamic>? ride) {
+  final status = trackingString(ride?['status'])?.toLowerCase();
+  return status != null && _postPickupTaxiStatuses.contains(status);
+}
+
+LatLng? taxiRideCurrentLocationPoint(Map<String, dynamic>? ride) {
+  return latLngFromMap(ride?['latestLocation']);
+}
+
+LatLng? taxiRideCaptainPoint(Map<String, dynamic>? ride) {
+  final liveLocation = taxiRideCurrentLocationPoint(ride);
+  if (liveLocation != null) return liveLocation;
+
+  final captain = trackingMap(ride?['captain']);
+  final captainFromMap = latLngFromMap(captain);
+  if (captainFromMap != null) return captainFromMap;
+
+  final latitude = _trackingDouble(
+    ride?['captainLatitude'] ?? ride?['captainLat'],
+  );
+  final longitude = _trackingDouble(
+    ride?['captainLongitude'] ?? ride?['captainLng'],
+  );
+  if (latitude == null || longitude == null) return null;
+  return LatLng(latitude, longitude);
+}
+
+LatLng? taxiRidePickupPoint(Map<String, dynamic>? ride) {
+  final pickup = latLngFromMap(ride?['pickup']);
+  if (pickup != null) return pickup;
+  final latitude = _trackingDouble(
+    ride?['pickupLatitude'] ?? ride?['pickupLat'],
+  );
+  final longitude = _trackingDouble(
+    ride?['pickupLongitude'] ?? ride?['pickupLng'],
+  );
+  if (latitude == null || longitude == null) return null;
+  return LatLng(latitude, longitude);
+}
+
+LatLng? taxiRideDropoffPoint(Map<String, dynamic>? ride) {
+  final dropoff = latLngFromMap(ride?['dropoff']);
+  if (dropoff != null) return dropoff;
+  final latitude = _trackingDouble(
+    ride?['destinationLatitude'] ?? ride?['dropoffLatitude'],
+  );
+  final longitude = _trackingDouble(
+    ride?['destinationLongitude'] ?? ride?['dropoffLongitude'],
+  );
+  if (latitude == null || longitude == null) return null;
+  return LatLng(latitude, longitude);
+}
+
+LatLng? taxiRideRouteStartPoint(Map<String, dynamic>? ride) {
+  if (taxiRideHasPickedUp(ride)) {
+    return taxiRideCurrentLocationPoint(ride) ??
+        taxiRidePickupPoint(ride) ??
+        taxiRideCaptainPoint(ride);
+  }
+  return taxiRideCaptainPoint(ride) ??
+      taxiRideCurrentLocationPoint(ride) ??
+      taxiRidePickupPoint(ride);
+}
+
+LatLng? taxiRideRouteEndPoint(Map<String, dynamic>? ride) {
+  if (taxiRideHasPickedUp(ride)) {
+    return taxiRideDropoffPoint(ride) ?? taxiRidePickupPoint(ride);
+  }
+  return taxiRidePickupPoint(ride) ?? taxiRideDropoffPoint(ride);
+}
+
+LatLng? taxiRideMapFocusPoint(Map<String, dynamic>? ride) {
+  return taxiRideRouteStartPoint(ride) ??
+      taxiRidePickupPoint(ride) ??
+      taxiRideDropoffPoint(ride);
 }
 
 Map<String, dynamic> mergeOrderTrackingEvent(
@@ -148,7 +233,13 @@ Map<String, dynamic> mergeTaxiTrackingEvent(
   final eventRide = trackingMap(event['ride']);
   final currentRide = trackingMap(merged['ride']);
   if (eventRide != null) {
-    merged['ride'] = <String, dynamic>{...?currentRide, ...eventRide};
+    final nextRide = <String, dynamic>{...?currentRide};
+    eventRide.forEach((key, value) {
+      if (value != null) {
+        nextRide[key] = value;
+      }
+    });
+    merged['ride'] = nextRide;
   } else if (event['status'] != null && currentRide != null) {
     merged['ride'] = <String, dynamic>{
       ...currentRide,
@@ -158,10 +249,13 @@ Map<String, dynamic> mergeTaxiTrackingEvent(
   final eventAssignment = trackingMap(event['assignment']);
   final currentAssignment = trackingMap(merged['assignment']);
   if (eventAssignment != null) {
-    merged['assignment'] = <String, dynamic>{
-      ...?currentAssignment,
-      ...eventAssignment,
-    };
+    final nextAssignment = <String, dynamic>{...?currentAssignment};
+    eventAssignment.forEach((key, value) {
+      if (value != null) {
+        nextAssignment[key] = value;
+      }
+    });
+    merged['assignment'] = nextAssignment;
   } else if (event['assignmentStatus'] != null && currentAssignment != null) {
     merged['assignment'] = <String, dynamic>{
       ...currentAssignment,

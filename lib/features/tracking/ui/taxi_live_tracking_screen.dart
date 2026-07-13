@@ -1,8 +1,10 @@
+import 'dart:math' as math;
 import 'dart:async';
 
 import 'package:maslaki/core/constants/api.dart';
 import 'package:maslaki/core/i18n/app_localizations_context.dart';
 import 'package:maslaki/core/i18n/locale_text.dart';
+import 'package:maslaki/core/media/cached_app_image.dart';
 import 'package:maslaki/core/utils/currency.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/core/network/session_invalidation.dart';
@@ -50,6 +52,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
   bool _lifecycleResumed = true;
+  bool _submitting = false;
   late final VoidCallback _sessionInvalidationListener;
 
   TaxiApi get _taxiApi => ref.read(taxiApiProvider);
@@ -72,7 +75,9 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
+    SessionInvalidationBus.instance.removeListener(
+      _sessionInvalidationListener,
+    );
     _stopLiveUpdates();
     super.dispose();
   }
@@ -225,6 +230,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     );
   }
 
+  // ignore: unused_element
   Future<void> _shareRide() async {
     final auth = ref.read(authControllerProvider);
     final currentUserId = auth.user?.id;
@@ -304,12 +310,70 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   }
 
   Future<void> _callCaptain() async {
-    final phone = _string(_captain?['phone']);
+    final phone =
+        _string(_ride?['captainPhone']) ??
+        _string(_captain?['phone']) ??
+        _string(_captain?['captainPhone']);
     if (phone == null || phone.isEmpty) return;
     await launchUrl(
       Uri.parse('tel:$phone'),
       mode: LaunchMode.externalApplication,
     );
+  }
+
+  Future<void> _cancelRide() async {
+    if (_isReadonly || !_isActiveRide(_ride ?? const <String, dynamic>{})) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(context.lt(ar: 'إلغاء الرحلة', en: 'Cancel ride')),
+          content: Text(
+            context.lt(
+              ar: 'هل تريد إلغاء هذه الرحلة الآن؟',
+              en: 'Do you want to cancel this ride now?',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(context.lt(ar: 'لا', en: 'No')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(context.lt(ar: 'نعم', en: 'Yes')),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _submitting = true;
+    });
+
+    try {
+      await _taxiApi.cancelRide(widget.rideId);
+      await _load(silent: false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = context.lt(
+          ar: 'تعذر إلغاء الرحلة حالياً.',
+          en: 'Unable to cancel the ride right now.',
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
+      }
+    }
   }
 
   Future<void> _openRideChat() async {
@@ -466,6 +530,867 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     controller.dispose();
   }
 
+  Future<void> _openRideDetails() async {
+    final ride = _ride;
+    if (ride == null || !mounted) return;
+
+    final captain = _captain;
+    final vehicle = trackingMap(ride['vehicle']);
+    final rideId = _readInt(ride['rideId'] ?? ride['id']);
+    final statusLabel = _statusLabel(_string(ride['status']) ?? '');
+    final finalFare =
+        ride['finalFare'] ?? ride['agreedFareIqd'] ?? ride['customerFare'];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        final tokens = context.maslakiTokens;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            8,
+            16,
+            16 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Text(
+                context.lt(ar: 'تفاصيل الرحلة', en: 'Ride details'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: tokens.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'رقم الرحلة', en: 'Ride number'),
+                value: rideId != null && rideId > 0 ? '#$rideId' : '-',
+              ),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'الحالة', en: 'Status'),
+                value: statusLabel,
+              ),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'السائق', en: 'Captain'),
+                value:
+                    _string(ride['captainName']) ??
+                    _string(captain?['fullName']) ??
+                    context.lt(ar: 'غير متوفر', en: 'Not available'),
+              ),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'المركبة', en: 'Vehicle'),
+                value: _formatVehicleSummary(
+                  vehicle,
+                  captain,
+                  context.lt(ar: 'غير متوفر', en: 'Not available'),
+                ),
+              ),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'نقطة الاستلام', en: 'Pickup'),
+                value:
+                    trackingNestedString(ride['pickup'], const ['label']) ??
+                    _string(ride['pickupAddress']) ??
+                    context.lt(ar: 'غير متوفر', en: 'Not available'),
+              ),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'الوجهة', en: 'Destination'),
+                value:
+                    trackingNestedString(ride['dropoff'], const ['label']) ??
+                    _string(ride['destinationAddress']) ??
+                    context.lt(ar: 'غير متوفر', en: 'Not available'),
+              ),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'الأجرة النهائية', en: 'Final fare'),
+                value: _formatRideFareLabel(
+                  context,
+                  finalFare,
+                  context.lt(ar: 'بانتظار تحديد السعر', en: 'Waiting for fare'),
+                ),
+              ),
+              if (_latestLocation != null)
+                _TaxiInfoTile(
+                  title: context.lt(ar: 'آخر تحديث', en: 'Last update'),
+                  value:
+                      trackingNestedString(_latestLocation, const [
+                        'updatedAt',
+                      ]) ??
+                      trackingNestedString(_latestLocation, const [
+                        'createdAt',
+                      ]) ??
+                      context.lt(ar: 'غير متوفر', en: 'Not available'),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  bool _isTerminalRide(Map<String, dynamic> ride) {
+    final status = _string(ride['status'])?.toLowerCase();
+    return status == 'completed' ||
+        status == 'cancelled' ||
+        status == 'expired';
+  }
+
+  bool _isActiveRide(Map<String, dynamic> ride) {
+    final status = _string(ride['status'])?.toLowerCase();
+    return status == 'captain_assigned' ||
+        status == 'captain_arriving' ||
+        status == 'ride_started';
+  }
+
+  bool _isBeforePickup(Map<String, dynamic> ride) {
+    final status = _string(ride['status'])?.toLowerCase();
+    return status == 'captain_assigned' || status == 'captain_arriving';
+  }
+
+  bool _canCancelRide(Map<String, dynamic> ride) {
+    return _isBeforePickup(ride);
+  }
+
+  String _phaseMessage(Map<String, dynamic> ride) {
+    final status = _string(ride['status'])?.toLowerCase();
+    switch (status) {
+      case 'captain_assigned':
+        return context.lt(
+          ar: 'الكابتن في الطريق إلى نقطة الاستلام',
+          en: 'Captain is heading to pickup',
+        );
+      case 'captain_arriving':
+        return context.lt(
+          ar: 'الكابتن يقترب من نقطة الاستلام',
+          en: 'Captain is arriving at pickup',
+        );
+      case 'ride_started':
+        return context.lt(
+          ar: 'الرحلة جارية إلى الوجهة',
+          en: 'Ride is on the way to the destination',
+        );
+      case 'completed':
+        return context.lt(
+          ar: 'اكتملت الرحلة بنجاح',
+          en: 'Ride completed successfully',
+        );
+      case 'cancelled':
+        return context.lt(ar: 'تم إلغاء الرحلة', en: 'Ride was cancelled');
+      default:
+        return context.lt(ar: 'تم تعيين الرحلة', en: 'Ride assigned');
+    }
+  }
+
+  String _formatDistanceLabel(double? distanceMeters) {
+    if (distanceMeters == null || distanceMeters <= 0) {
+      return context.lt(ar: 'غير متوفر', en: 'Not available');
+    }
+    if (distanceMeters < 1000) {
+      return '${distanceMeters.round()} m';
+    }
+    return '${(distanceMeters / 1000).toStringAsFixed(distanceMeters >= 10000 ? 0 : 1)} km';
+  }
+
+  String _formatDurationLabel(int? durationSeconds) {
+    if (durationSeconds == null || durationSeconds <= 0) {
+      return context.lt(ar: 'غير متوفر', en: 'Not available');
+    }
+    final minutes = (durationSeconds / 60).round();
+    if (minutes < 60) return '$minutes min';
+    final hours = minutes ~/ 60;
+    final remaining = minutes % 60;
+    if (remaining == 0) return '$hours h';
+    return '$hours h $remaining min';
+  }
+
+  String _formatEtaLabel(int? minutes) {
+    if (minutes == null || minutes <= 0) {
+      return context.lt(ar: 'غير متوفر', en: 'Not available');
+    }
+    return '$minutes min';
+  }
+
+  String _formatVehicleSummary(
+    Map<String, dynamic>? vehicle,
+    Map<String, dynamic>? captain,
+    String fallback,
+  ) {
+    final parts = <String?>[
+      _string(vehicle?['vehicleMake'] ?? captain?['carMake']),
+      _string(vehicle?['vehicleModel'] ?? captain?['carModel']),
+      _readInt(vehicle?['vehicleYear'] ?? captain?['carYear'])?.toString(),
+    ].whereType<String>().where((value) => value.trim().isNotEmpty).toList();
+    if (parts.isEmpty) return fallback;
+    return parts.join(' • ');
+  }
+
+  bool _isLocationStale(Map<String, dynamic>? location) {
+    final updatedAt = DateTime.tryParse(
+      _string(location?['updatedAt'] ?? location?['createdAt']) ?? '',
+    );
+    if (updatedAt == null) return false;
+    return DateTime.now().difference(updatedAt).inSeconds > 120;
+  }
+
+  Widget _buildTrackingSheet(
+    BuildContext context,
+    ScrollController scrollController,
+    Map<String, dynamic> ride,
+  ) {
+    final tokens = context.maslakiTokens;
+    final displayState = taxiRideDisplayState(ride);
+    final isWaitingState =
+        displayState == 'searching' || displayState == 'negotiating';
+    final isTerminalState = _isTerminalRide(ride);
+    final isActiveState = displayState == 'active';
+    final rideStatus = _string(ride['status']) ?? '';
+    final nonAvailable = context.lt(ar: 'غير متوفر', en: 'Not available');
+
+    final captain = _captain;
+    final vehicle = trackingMap(ride['vehicle']);
+    final finalFare =
+        ride['finalFare'] ??
+        ride['agreedFareIqd'] ??
+        ride['customerFare'] ??
+        ride['proposedFareIqd'];
+    final paymentMethod = _string(
+      ride['paymentMethod'] ?? ride['paymentType'] ?? ride['payment_method'],
+    );
+    final pickupLabel =
+        trackingNestedString(ride['pickup'], const ['label']) ??
+        _string(ride['pickupAddress']) ??
+        nonAvailable;
+    final dropoffLabel =
+        trackingNestedString(ride['dropoff'], const ['label']) ??
+        _string(ride['destinationAddress']) ??
+        nonAvailable;
+    final currentLocation = _latestLocation;
+    final captainName =
+        _string(ride['captainName']) ??
+        _string(captain?['fullName']) ??
+        nonAvailable;
+    final captainPhoto =
+        _string(ride['captainPhotoUrl']) ??
+        _string(captain?['profileImageUrl']) ??
+        _string(captain?['imageUrl']) ??
+        _string(captain?['photoUrl']);
+    final captainPhone =
+        _string(ride['captainPhone']) ??
+        _string(captain?['phone']) ??
+        _string(captain?['captainPhone']);
+    final captainRating =
+        _readNum(ride['captainRating']) ?? _readNum(captain?['ratingAvg']);
+    final captainRatingCount =
+        _readInt(ride['captainRatingCount']) ??
+        _readInt(captain?['ratingCount']) ??
+        _readInt(captain?['ridesCount']);
+    final captainCompletedTrips =
+        _readInt(ride['captainCompletedTrips']) ??
+        _readInt(captain?['ridesCount']);
+    final captainDistanceMeters = _readNum(ride['captainDistanceMeters']);
+    final estimatedArrivalMinutes = _readInt(
+      ride['captainEstimatedArrivalMinutes'] ?? ride['estimatedArrivalMinutes'],
+    );
+    final routeDistance = _readNum(
+      ride['distanceMeters'] ??
+          ride['routeDistance'] ??
+          ride['routeDistanceMeters'],
+    );
+    final routeDuration = _readInt(
+      ride['durationSeconds'] ??
+          ride['routeDuration'] ??
+          ride['routeDurationSeconds'],
+    );
+    final currentLocationAgeStale = _isLocationStale(currentLocation);
+    final currentLocationUpdatedAt =
+        trackingNestedString(currentLocation, const ['updatedAt']) ??
+        trackingNestedString(currentLocation, const ['createdAt']) ??
+        nonAvailable;
+
+    Widget sectionCard(Widget child) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: tokens.cardPrimary.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: tokens.primaryAccent.withValues(alpha: 0.18),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: child,
+      );
+    }
+
+    Widget sectionHeader({
+      required IconData icon,
+      required String title,
+      String? subtitle,
+    }) {
+      return Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: tokens.primaryAccent.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: tokens.primaryAccent, size: 20),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  title,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    textAlign: TextAlign.end,
+                    style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    Widget statChip(String label, String value, {IconData? icon}) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: tokens.surfaceSecondary.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: tokens.borderSubtle),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 16, color: tokens.primaryAccent),
+              const SizedBox(width: 6),
+            ],
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isWaitingState) {
+      return ListView(
+        controller: scrollController,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+        children: [
+          Text(
+            displayState == 'negotiating'
+                ? context.lt(
+                    ar: 'جاري التفاوض مع الكابتن',
+                    en: 'Negotiation in progress',
+                  )
+                : context.lt(
+                    ar: 'جاري البحث عن كابتن',
+                    en: 'Searching for a captain',
+                  ),
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: tokens.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          sectionCard(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                sectionHeader(
+                  icon: Icons.route_rounded,
+                  title: context.lt(ar: 'الحالة الحالية', en: 'Current status'),
+                  subtitle: _phaseMessage(ride),
+                ),
+                const SizedBox(height: 12),
+                _TaxiInfoTile(
+                  title: context.lt(ar: 'الانطلاق', en: 'Pickup'),
+                  value: pickupLabel,
+                ),
+                _TaxiInfoTile(
+                  title: context.lt(ar: 'الوجهة', en: 'Destination'),
+                  value: dropoffLabel,
+                ),
+                _TaxiInfoTile(
+                  title: context.lt(ar: 'الأجرة', en: 'Fare'),
+                  value: _formatRideFareLabel(context, finalFare, nonAvailable),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  displayState == 'negotiating'
+                      ? context.lt(
+                          ar: 'بانتظار قبول العرض أو إرسال عرض مضاد.',
+                          en: 'Waiting for the captain to respond.',
+                        )
+                      : context.lt(
+                          ar: 'سيبدأ التتبع الحي بعد تعيين الكابتن.',
+                          en: 'Live tracking starts after a captain is assigned.',
+                        ),
+                  style: TextStyle(color: tokens.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    return ListView(
+      controller: scrollController,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+      children: [
+        sectionCard(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              sectionHeader(
+                icon: Icons.local_taxi_rounded,
+                title: context.lt(ar: 'الحالة الحالية', en: 'Current status'),
+                subtitle: _phaseMessage(ride),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  statChip(
+                    context.lt(ar: 'الوصول', en: 'ETA'),
+                    _formatEtaLabel(estimatedArrivalMinutes),
+                    icon: Icons.schedule_rounded,
+                  ),
+                  statChip(
+                    context.lt(ar: 'المتبقي', en: 'Distance'),
+                    _formatDistanceLabel(
+                      captainDistanceMeters ?? routeDistance,
+                    ),
+                    icon: Icons.straighten_rounded,
+                  ),
+                  statChip(
+                    context.lt(ar: 'التحديث', en: 'Update'),
+                    currentLocationAgeStale
+                        ? context.lt(ar: 'قديم', en: 'Stale')
+                        : currentLocationUpdatedAt,
+                    icon: currentLocationAgeStale
+                        ? Icons.warning_amber_rounded
+                        : Icons.bolt_rounded,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        sectionCard(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              sectionHeader(
+                icon: Icons.person_pin_circle_rounded,
+                title: context.lt(
+                  ar: 'الكابتن والمركبة',
+                  en: 'Captain and vehicle',
+                ),
+                subtitle: captainName,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (captainPhoto != null) ...[
+                    CircleAvatar(
+                      radius: 30,
+                      backgroundColor: tokens.surfaceSecondary,
+                      backgroundImage: AppCachedImageProvider(captainPhoto),
+                    ),
+                    const SizedBox(width: 12),
+                  ] else ...[
+                    CircleAvatar(
+                      radius: 30,
+                      backgroundColor: tokens.surfaceSecondary,
+                      child: Icon(
+                        Icons.person_rounded,
+                        color: tokens.primaryAccent,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          captainName,
+                          textAlign: TextAlign.end,
+                          style: TextStyle(
+                            color: tokens.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.end,
+                          children: [
+                            if (captainRating != null && captainRating > 0)
+                              statChip(
+                                context.lt(ar: 'التقييم', en: 'Rating'),
+                                '${captainRating.toStringAsFixed(1)}${captainRatingCount != null ? ' • $captainRatingCount' : ''}',
+                                icon: Icons.star_rounded,
+                              ),
+                            if (captainCompletedTrips != null &&
+                                captainCompletedTrips > 0)
+                              statChip(
+                                context.lt(ar: 'الرحلات', en: 'Trips'),
+                                '$captainCompletedTrips',
+                                icon: Icons.emoji_transportation_rounded,
+                              ),
+                            if (captainPhone != null && captainPhone.isNotEmpty)
+                              statChip(
+                                context.lt(ar: 'الهاتف', en: 'Phone'),
+                                captainPhone,
+                                icon: Icons.call_rounded,
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  if (vehicle != null &&
+                      _string(vehicle['vehicleImage']) != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: CachedAppImage(
+                        imageUrl: _string(vehicle['vehicleImage'])!,
+                        width: 92,
+                        height: 60,
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  else
+                    Container(
+                      width: 92,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: tokens.surfaceSecondary,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: tokens.borderSubtle),
+                      ),
+                      child: Icon(
+                        Icons.directions_car_rounded,
+                        color: tokens.primaryAccent,
+                      ),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _formatVehicleSummary(
+                            vehicle,
+                            captain,
+                            context.lt(
+                              ar: 'معلومات المركبة غير مكتملة',
+                              en: 'Vehicle information not complete',
+                            ),
+                          ),
+                          textAlign: TextAlign.end,
+                          style: TextStyle(
+                            color: tokens.textPrimary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          [
+                                _string(
+                                  vehicle?['vehicleColor'] ??
+                                      captain?['carColor'],
+                                ),
+                                _string(
+                                  vehicle?['vehicleType'] ??
+                                      captain?['vehicleType'],
+                                ),
+                                _string(
+                                  vehicle?['vehiclePlate'] ??
+                                      captain?['plateNumber'],
+                                ),
+                                _string(vehicle?['vehicleNumber']),
+                              ]
+                              .whereType<String>()
+                              .where((value) => value.trim().isNotEmpty)
+                              .join(' • '),
+                          textAlign: TextAlign.end,
+                          style: TextStyle(color: tokens.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        sectionCard(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              sectionHeader(
+                icon: Icons.alt_route_rounded,
+                title: context.lt(
+                  ar: 'نقطة الالتقاط والوجهة',
+                  en: 'Pickup and destination',
+                ),
+                subtitle: context.lt(
+                  ar: 'المسافة والوقت المتوقع',
+                  en: 'Distance and ETA',
+                ),
+              ),
+              const SizedBox(height: 12),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'الانطلاق', en: 'Pickup'),
+                value: pickupLabel,
+              ),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'الوجهة', en: 'Destination'),
+                value: dropoffLabel,
+              ),
+              _TaxiInfoTile(
+                title: context.lt(ar: 'الوقت المتوقع', en: 'ETA'),
+                value: _formatEtaLabel(estimatedArrivalMinutes),
+              ),
+              _TaxiInfoTile(
+                title: context.lt(
+                  ar: 'المسافة المتبقية',
+                  en: 'Remaining distance',
+                ),
+                value: _formatDistanceLabel(
+                  taxiRideHasPickedUp(ride)
+                      ? routeDistance
+                      : captainDistanceMeters,
+                ),
+              ),
+              if (routeDuration != null)
+                _TaxiInfoTile(
+                  title: context.lt(ar: 'مدة الرحلة', en: 'Trip duration'),
+                  value: _formatDurationLabel(routeDuration),
+                ),
+            ],
+          ),
+        ),
+        if (isActiveState) ...[
+          const SizedBox(height: 12),
+          sectionCard(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                sectionHeader(
+                  icon: Icons.contact_support_rounded,
+                  title: context.lt(ar: 'إجراءات الرحلة', en: 'Ride actions'),
+                  subtitle: context.lt(
+                    ar: 'اتصال ومراسلة وتفاصيل الرحلة',
+                    en: 'Call, message, and ride details',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    if (captainPhone != null && captainPhone.isNotEmpty)
+                      FilledButton.icon(
+                        onPressed: _callCaptain,
+                        icon: const Icon(Icons.call_outlined),
+                        label: Text(context.lt(ar: 'اتصال', en: 'Call')),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: _openRideChat,
+                      icon: const Icon(Icons.chat_bubble_outline_rounded),
+                      label: Text(
+                        context.lt(ar: 'مراسلة السائق', en: 'Message captain'),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _openRideDetails,
+                      icon: const Icon(Icons.info_outline_rounded),
+                      label: Text(
+                        context.lt(ar: 'تفاصيل الرحلة', en: 'Ride details'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        sectionCard(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      context.lt(ar: 'الأجرة النهائية', en: 'Final fare'),
+                      textAlign: TextAlign.end,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatRideFareLabel(
+                        context,
+                        finalFare,
+                        context.lt(
+                          ar: 'بانتظار تحديد السعر',
+                          en: 'Waiting for fare',
+                        ),
+                      ),
+                      textAlign: TextAlign.end,
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 22,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      paymentMethod == null || paymentMethod.isEmpty
+                          ? context.lt(
+                              ar: 'طريقة الدفع غير محددة',
+                              en: 'Payment method not set',
+                            )
+                          : '${context.lt(ar: 'الدفع', en: 'Payment')}: $paymentMethod',
+                      textAlign: TextAlign.end,
+                      style: TextStyle(color: tokens.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              if (_canCancelRide(ride)) ...[
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  onPressed: _submitting ? null : _cancelRide,
+                  icon: const Icon(Icons.close_rounded),
+                  label: Text(
+                    context.lt(ar: 'إلغاء الرحلة', en: 'Cancel ride'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (isTerminalState) ...[
+          const SizedBox(height: 12),
+          sectionCard(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                sectionHeader(
+                  icon: rideStatus == 'completed'
+                      ? Icons.check_circle_rounded
+                      : Icons.block_rounded,
+                  title: rideStatus == 'completed'
+                      ? context.lt(ar: 'الرحلة منتهية', en: 'Ride completed')
+                      : context.lt(ar: 'الرحلة ملغاة', en: 'Ride cancelled'),
+                  subtitle: _phaseMessage(ride),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  context.lt(
+                    ar: 'يمكنك مراجعة التفاصيل أو مشاركة الرحلة إن كانت متاحة.',
+                    en: 'You can review the ride details or share it if available.',
+                  ),
+                  textAlign: TextAlign.end,
+                  style: TextStyle(color: tokens.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        sectionCard(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              sectionHeader(
+                icon: Icons.timeline_rounded,
+                title: context.lt(ar: 'خط زمني للرحلة', en: 'Ride timeline'),
+                subtitle: context.lt(
+                  ar: 'المراحل المهمة للرحلة الحالية',
+                  en: 'Important ride milestones',
+                ),
+              ),
+              const SizedBox(height: 10),
+              ..._timeline.map((entry) => _TaxiTimelineRow(entry: entry)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Map<String, dynamic>? get _ride {
     return taxiRideViewFromEnvelope(_envelope);
   }
@@ -479,15 +1404,14 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   }
 
   LatLng get _initialCenter =>
-      latLngFromMap(_latestLocation) ??
-      latLngFromMap(_ride?['pickup']) ??
-      basmayaTrackingCenter;
+      taxiRideMapFocusPoint(_ride) ?? basmayaTrackingCenter;
 
   List<Marker> get _markers {
     final tokens = context.maslakiTokens;
-    final pickup = latLngFromMap(_ride?['pickup']);
-    final dropoff = latLngFromMap(_ride?['dropoff']);
-    final live = latLngFromMap(_latestLocation);
+    final pickup = taxiRidePickupPoint(_ride);
+    final dropoff = taxiRideDropoffPoint(_ride);
+    final captainPoint = taxiRideCaptainPoint(_ride);
+    final heading = _readNum(_ride?['captainHeading']);
     return [
       if (pickup != null)
         Marker(
@@ -511,28 +1435,31 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
             size: 40,
           ),
         ),
-      if (live != null)
+      if (captainPoint != null)
         Marker(
-          point: live,
+          point: captainPoint,
           width: 56,
           height: 56,
-          child: Container(
-            decoration: BoxDecoration(
-              color: tokens.surfaceSecondary,
-              shape: BoxShape.circle,
-              border: Border.all(color: tokens.primaryAccent, width: 1.4),
-              boxShadow: [
-                BoxShadow(
-                  color: tokens.glowPrimary.withValues(alpha: 0.36),
-                  blurRadius: 18,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-            child: Icon(
-              Icons.directions_car_rounded,
-              color: tokens.primaryAccent,
-              size: 30,
+          child: Transform.rotate(
+            angle: (heading ?? 0) * math.pi / 180,
+            child: Container(
+              decoration: BoxDecoration(
+                color: tokens.surfaceSecondary,
+                shape: BoxShape.circle,
+                border: Border.all(color: tokens.primaryAccent, width: 1.4),
+                boxShadow: [
+                  BoxShadow(
+                    color: tokens.glowPrimary.withValues(alpha: 0.36),
+                    blurRadius: 18,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.directions_car_rounded,
+                color: tokens.primaryAccent,
+                size: 30,
+              ),
             ),
           ),
         ),
@@ -541,17 +1468,12 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
 
   List<Polyline> get _polylines {
     final tokens = context.maslakiTokens;
-    final points = <LatLng>[];
-    final pickup = latLngFromMap(_ride?['pickup']);
-    final dropoff = latLngFromMap(_ride?['dropoff']);
-    final live = latLngFromMap(_latestLocation);
-    if (live != null) {
-      points.add(live);
-      if (dropoff != null) points.add(dropoff);
-    } else {
-      if (pickup != null) points.add(pickup);
-      if (dropoff != null) points.add(dropoff);
-    }
+    final start = taxiRideRouteStartPoint(_ride);
+    final end = taxiRideRouteEndPoint(_ride);
+    final points = <LatLng?>[
+      start,
+      end,
+    ].whereType<LatLng>().toList(growable: false);
     if (points.length < 2) return const [];
     return [
       Polyline(
@@ -593,6 +1515,8 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
       markers: _markers,
       polylines: _polylines,
       sheetBuilder: (context, scrollController) {
+        return _buildTrackingSheet(context, scrollController, ride);
+        /*
         final tokens = context.maslakiTokens;
         final displayState = taxiRideDisplayState(ride);
         final isWaitingState =
@@ -604,7 +1528,9 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
 
         final vehicle = trackingMap(ride['vehicle']);
         final finalFare =
-            ride['finalFare'] ?? ride['agreedFareIqd'] ?? ride['proposedFareIqd'];
+            ride['finalFare'] ??
+            ride['agreedFareIqd'] ??
+            ride['proposedFareIqd'];
         if (isWaitingState) {
           return ListView(
             controller: scrollController,
@@ -641,11 +1567,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
               ),
               _TaxiInfoTile(
                 title: context.lt(ar: 'Ø§Ù„Ø£Ø¬Ø±Ø©', en: 'Fare'),
-                value: _formatRideFareLabel(
-                  context,
-                  finalFare,
-                  nonAvailable,
-                ),
+                value: _formatRideFareLabel(context, finalFare, nonAvailable),
               ),
               const SizedBox(height: 12),
               Text(
@@ -710,14 +1632,13 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
             ),
             _TaxiInfoTile(
               title: context.lt(ar: 'Ã˜Â§Ã™â€žÃ˜Â£Ã˜Â¬Ã˜Â±Ã˜Â©', en: 'Fare'),
-              value: _formatRideFareLabel(
-                context,
-                finalFare,
-                nonAvailable,
-              ),
+              value: _formatRideFareLabel(context, finalFare, nonAvailable),
             ),
             _TaxiInfoTile(
-              title: context.lt(ar: 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒËœÃ‚Â·Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±Ãƒâ„¢Ã‚Â©', en: 'Trip distance'),
+              title: context.lt(
+                ar: 'ÃƒËœÃ‚Â§Ãƒâ„¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒËœÃ‚Â·Ãƒâ„¢Ã…Â ÃƒËœÃ‚Â±Ãƒâ„¢Ã‚Â©',
+                en: 'Trip distance',
+              ),
               value: (() {
                 final distanceM = _readNum(
                   ride['routeDistance'] ?? ride['routeDistanceMeters'],
@@ -732,7 +1653,10 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
               })(),
             ),
             _TaxiInfoTile(
-              title: context.lt(ar: 'ÃƒËœÃ‚Â§Ã™â€žÃ˜ÂªÃ™â€¦Ã™Å Ã˜Â± Ã˜Â§Ã™â‚¬Ã˜ÂªÃ¢â‚¬Â¦Ã™â€¡Ã™Å ', en: 'Estimated arrival'),
+              title: context.lt(
+                ar: 'ÃƒËœÃ‚Â§Ã™â€žÃ˜ÂªÃ™â€¦Ã™Å Ã˜Â± Ã˜Â§Ã™â‚¬Ã˜ÂªÃ¢â‚¬Â¦Ã™â€¡Ã™Å ',
+                en: 'Estimated arrival',
+              ),
               value: (() {
                 final minutes = _readInt(ride['estimatedArrivalMinutes']);
                 return minutes == null || minutes <= 0
@@ -742,17 +1666,21 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
             ),
             if (vehicle != null)
               _TaxiInfoTile(
-                title: context.lt(ar: 'ÃƒËœÃ‚Â§Ã™â€žÃ˜Â³Ã™Å Ã˜Â§Ã˜Â±Ã˜Â©', en: 'Vehicle'),
-                value: [
-                  trackingString(vehicle['vehicleMake']),
-                  trackingString(vehicle['vehicleModel']),
-                  trackingString(vehicle['vehicleYear']),
-                  trackingString(vehicle['vehicleColor']),
-                  trackingString(vehicle['vehiclePlate']),
-                ]
-                    .whereType<String>()
-                    .where((value) => value.isNotEmpty)
-                    .join(' • '),
+                title: context.lt(
+                  ar: 'ÃƒËœÃ‚Â§Ã™â€žÃ˜Â³Ã™Å Ã˜Â§Ã˜Â±Ã˜Â©',
+                  en: 'Vehicle',
+                ),
+                value:
+                    [
+                          trackingString(vehicle['vehicleMake']),
+                          trackingString(vehicle['vehicleModel']),
+                          trackingString(vehicle['vehicleYear']),
+                          trackingString(vehicle['vehicleColor']),
+                          trackingString(vehicle['vehiclePlate']),
+                        ]
+                        .whereType<String>()
+                        .where((value) => value.isNotEmpty)
+                        .join(' • '),
               ),
             if (_latestLocation != null)
               _TaxiInfoTile(
@@ -814,6 +1742,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
             ],
           ],
         );
+        */
       },
     );
   }
@@ -952,6 +1881,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     return double.tryParse(value.toString());
   }
 
+  // ignore: unused_element
   String _rideIdLabel(Map<String, dynamic> ride) {
     final rideId = _readInt(ride['id']) ?? widget.rideId;
     if (rideId <= 0) {
@@ -971,6 +1901,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   }
 }
 
+// ignore: unused_element
 class _TaxiStatusBadge extends StatelessWidget {
   final String label;
 

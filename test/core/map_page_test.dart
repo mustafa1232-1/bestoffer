@@ -338,6 +338,7 @@ void main() {
 
       final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
       expect(find.text(l10n.mapPageTitle), findsOneWidget);
+      expect(find.text(l10n.mapPageActiveRideTitle('41')), findsNothing);
       expect(find.text(l10n.mapPageCurrentLocation), findsWidgets);
     },
   );
@@ -357,6 +358,8 @@ void main() {
     expect(find.text('Available offers'), findsOneWidget);
     expect(find.text(l10n.mapPageChatWithCaptain), findsNothing);
     expect(find.text(l10n.mapPageActiveRideTitle('41')), findsNothing);
+    expect(find.text(l10n.mapPageRideRequestCreateTitle), findsNothing);
+    expect(find.text(l10n.mapPageRideCancelAction), findsNothing);
   });
 
   testWidgets(
