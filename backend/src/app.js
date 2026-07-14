@@ -116,6 +116,12 @@ function shouldCompress(req, res) {
   return compression.filter(req, res);
 }
 
+function captureJsonRawBody(req, res, buf) {
+  if (buf && buf.length > 0) {
+    req.rawBody = Buffer.from(buf);
+  }
+}
+
 function setUploadResponseHeaders(res, filePath) {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
@@ -266,7 +272,12 @@ app.use(
   })
 );
 app.use(activityAuditMiddleware());
-app.use(express.json({ limit: env.jsonBodyLimit }));
+app.use(
+  express.json({
+    limit: env.jsonBodyLimit,
+    verify: captureJsonRawBody,
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: env.jsonBodyLimit }));
 app.use(jsonSyntaxErrorHandler);
 app.use(

@@ -10,7 +10,12 @@ import * as c from "./feed.controller.js";
 
 export const feedRouter = Router();
 
+feedRouter.post("/media/stream/webhook", c.streamWebhook);
+
 feedRouter.use(requireAuth);
+
+feedRouter.post("/media/stream/upload-session", c.createStreamUploadSession);
+feedRouter.get("/media/assets/:assetId", c.getSocialMediaAssetById);
 
 feedRouter.get("/explore", c.listExplore);
 feedRouter.get("/trending", c.listTrending);

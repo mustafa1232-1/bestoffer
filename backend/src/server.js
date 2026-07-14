@@ -9,6 +9,8 @@ import { runSqlMigrations } from "./config/sqlMigrations.js";
 import {
   startSocialCallLifecycleWorker,
   startSocialScheduledMessageWorker,
+  startSocialStreamReconciliationWorker,
+  stopSocialStreamReconciliationWorker,
 } from "./modules/feed/feed.service.js";
 import { startOrderAttentionReminderWorker, stopOrderAttentionReminderWorker } from "./modules/notifications/order-attention.worker.js";
 import { startInventoryReservationWorker, stopInventoryReservationWorker } from "./modules/orders/inventory-reservation.worker.js";
@@ -267,6 +269,7 @@ async function start() {
   startRealtimeOutboxPump();
   startSocialCallLifecycleWorker();
   startSocialScheduledMessageWorker();
+  startSocialStreamReconciliationWorker();
   startTaxiLifecycleWorker();
   startOrderAttentionReminderWorker();
   startInventoryReservationWorker();
@@ -325,6 +328,7 @@ async function shutdown(reason, exitCode = 0) {
   stopOrderAttentionReminderWorker();
   stopInventoryReservationWorker();
   await stopDeliveryAssignmentRecoveryWorker();
+  stopSocialStreamReconciliationWorker();
   stopPaidUpgradeMaintenanceWorker();
 
   try {

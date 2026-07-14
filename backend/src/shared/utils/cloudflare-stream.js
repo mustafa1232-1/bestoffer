@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import https from "node:https";
@@ -24,6 +25,12 @@ export function isCloudflareStreamConfigured() {
     env.cfStreamAccountId &&
       env.cfStreamApiToken &&
       (env.cfStreamCustomerCode || env.cfStreamPlaybackBaseUrl)
+  );
+}
+
+export function isCloudflareStreamWebhookConfigured() {
+  return Boolean(
+    isCloudflareStreamConfigured() && String(env.cfStreamWebhookSecret || "").trim()
   );
 }
 
@@ -115,6 +122,228 @@ function readResponseBody(response) {
     response.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     response.on("error", reject);
   });
+}
+
+function encodeUploadMetadataValue(value) {
+  return Buffer.from(String(value || ""), "utf8").toString("base64");
+}
+
+function parseStreamUidFromLocation(location = "") {
+  const raw = String(location || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw, "https://api.cloudflare.com");
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    if (segments.length <= 0) return "";
+    if (segments.at(-1) === "upload" && segments.length >= 2) {
+      return String(segments.at(-2) || "").trim();
+    }
+    return String(segments.at(-1) || "").trim();
+  } catch {
+    return raw.split("/").filter(Boolean).at(-1) || "";
+  }
+}
+
+function parseCloudflareWebhookSignature(signatureHeader) {
+  const raw = String(signatureHeader || "").trim();
+  if (!raw) return null;
+  const parts = raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const result = {};
+  for (const part of parts) {
+    const index = part.indexOf("=");
+    if (index <= 0) continue;
+    const key = part.slice(0, index).trim().toLowerCase();
+    const value = part.slice(index + 1).trim();
+    if (key && value) result[key] = value;
+  }
+  if (!result.time || !result.sig1) return null;
+  return result;
+}
+
+export function verifyCloudflareStreamWebhookSignature({
+  rawBody,
+  signatureHeader,
+  secret = env.cfStreamWebhookSecret,
+  maxSkewSeconds = 300,
+}) {
+  const parsed = parseCloudflareWebhookSignature(signatureHeader);
+  const secretValue = String(secret || "").trim();
+  const body =
+    Buffer.isBuffer(rawBody)
+      ? rawBody.toString("utf8")
+      : String(rawBody || "");
+
+  if (!parsed || !secretValue || !body) {
+    return { ok: false, reason: "WEBHOOK_SIGNATURE_MISSING" };
+  }
+
+  const timestamp = Number(parsed.time);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return { ok: false, reason: "WEBHOOK_SIGNATURE_INVALID_TIME" };
+  }
+  const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - Math.floor(timestamp));
+  if (Number.isFinite(maxSkewSeconds) && ageSeconds > maxSkewSeconds) {
+    return { ok: false, reason: "WEBHOOK_SIGNATURE_EXPIRED" };
+  }
+
+  const expected = crypto
+    .createHmac("sha256", secretValue)
+    .update(`${parsed.time}.${body}`)
+    .digest("hex");
+  const expectedBuffer = Buffer.from(expected, "hex");
+  const signatureBuffer = Buffer.from(parsed.sig1, "hex");
+  if (
+    expectedBuffer.length <= 0 ||
+    signatureBuffer.length <= 0 ||
+    expectedBuffer.length !== signatureBuffer.length
+  ) {
+    return { ok: false, reason: "WEBHOOK_SIGNATURE_MISMATCH" };
+  }
+
+  if (!crypto.timingSafeEqual(expectedBuffer, signatureBuffer)) {
+    return { ok: false, reason: "WEBHOOK_SIGNATURE_MISMATCH" };
+  }
+
+  return { ok: true, reason: null };
+}
+
+export async function createCloudflareStreamUploadSession({
+  title = null,
+  sizeBytes,
+  filename = null,
+  mimeType = null,
+  sourceType = null,
+} = {}) {
+  if (!isCloudflareStreamConfigured()) {
+    const error = new Error("STREAM_NOT_CONFIGURED");
+    error.status = 503;
+    throw error;
+  }
+
+  const normalizedSize = Number(sizeBytes);
+  if (!Number.isFinite(normalizedSize) || normalizedSize <= 0) {
+    const error = new Error("STREAM_UPLOAD_SIZE_REQUIRED");
+    error.status = 400;
+    throw error;
+  }
+
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
+    env.cfStreamAccountId
+  )}/stream`;
+  const headers = {
+    Authorization: `Bearer ${env.cfStreamApiToken}`,
+    "Tus-Resumable": "1.0.0",
+    "Upload-Length": String(Math.max(1, Math.floor(normalizedSize))),
+  };
+  const metadata = [];
+  const safeTitle = String(title || "").trim().slice(0, 180);
+  const safeFileName = String(filename || "").trim().slice(0, 180);
+  const safeMimeType = String(mimeType || "").trim().slice(0, 120);
+  const safeSourceType = String(sourceType || "").trim().slice(0, 40);
+  if (safeTitle) metadata.push(`title ${encodeUploadMetadataValue(safeTitle)}`);
+  if (safeFileName) metadata.push(`name ${encodeUploadMetadataValue(safeFileName)}`);
+  if (safeMimeType) metadata.push(`mimeType ${encodeUploadMetadataValue(safeMimeType)}`);
+  if (safeSourceType) metadata.push(`sourceType ${encodeUploadMetadataValue(safeSourceType)}`);
+  if (metadata.length > 0) {
+    headers["Upload-Metadata"] = metadata.join(",");
+  }
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers,
+  });
+
+  const text = await response.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch (_) {
+    json = null;
+  }
+
+  if (!response.ok) {
+    const message =
+      json?.errors?.[0]?.message ||
+      json?.messages?.[0]?.message ||
+      text ||
+      `STREAM_UPLOAD_SESSION_FAILED_${response.status}`;
+    const error = new Error(message);
+    error.status = response.status || 502;
+    error.details = json || null;
+    throw error;
+  }
+
+  const uploadUrl =
+    response.headers.get("location") ||
+    json?.result?.location ||
+    json?.result?.uploadURL ||
+    "";
+  const streamUid =
+    response.headers.get("stream-media-id") ||
+    response.headers.get("stream-media-id".toUpperCase()) ||
+    json?.result?.uid ||
+    parseStreamUidFromLocation(uploadUrl);
+
+  return {
+    uploadUrl: String(uploadUrl || "").trim() || null,
+    streamUid: String(streamUid || "").trim() || null,
+    readyToStream: Boolean(
+      json?.result?.readyToStream ??
+        json?.result?.ready_to_stream ??
+        json?.result?.status === "ready"
+    ),
+    raw: json?.result || json || null,
+    responseHeaders: Object.fromEntries(response.headers.entries()),
+  };
+}
+
+export async function fetchCloudflareStreamVideoDetails(streamUid) {
+  if (!isCloudflareStreamConfigured()) {
+    const error = new Error("STREAM_NOT_CONFIGURED");
+    error.status = 503;
+    throw error;
+  }
+  const uid = String(streamUid || "").trim();
+  if (!uid) {
+    const error = new Error("STREAM_UID_REQUIRED");
+    error.status = 400;
+    throw error;
+  }
+
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
+    env.cfStreamAccountId
+  )}/stream/${encodeURIComponent(uid)}`;
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${env.cfStreamApiToken}`,
+      Accept: "application/json",
+    },
+  });
+  const text = await response.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch (_) {
+    json = null;
+  }
+
+  if (!response.ok || json?.success === false) {
+    const message =
+      json?.errors?.[0]?.message ||
+      json?.messages?.[0]?.message ||
+      text ||
+      `STREAM_VIDEO_DETAILS_FAILED_${response.status}`;
+    const error = new Error(message);
+    error.status = response.status || 502;
+    error.details = json || null;
+    throw error;
+  }
+
+  return json?.result || null;
 }
 
 async function requestStreamUpload({

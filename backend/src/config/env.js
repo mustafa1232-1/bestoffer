@@ -321,6 +321,17 @@ export const env = {
   cfStreamCustomerCode: readString("CF_STREAM_CUSTOMER_CODE", ""),
   cfStreamPlaybackBaseUrl: readString("CF_STREAM_PLAYBACK_BASE_URL", ""),
   cfStreamThumbnailBaseUrl: readString("CF_STREAM_THUMBNAIL_BASE_URL", ""),
+  cfStreamWebhookSecret: readString("CF_STREAM_WEBHOOK_SECRET", ""),
+  socialStreamReconcileIntervalMs: readNumber(
+    "SOCIAL_STREAM_RECONCILE_INTERVAL_MS",
+    30000,
+    { min: 5000, max: 600000 }
+  ),
+  socialStreamReconcileBatchSize: readNumber(
+    "SOCIAL_STREAM_RECONCILE_BATCH_SIZE",
+    20,
+    { min: 1, max: 100 }
+  ),
   nearbyStoresRadiusKmDefault: readNumber("NEARBY_STORES_RADIUS_KM_DEFAULT", 10, {
     min: 1,
     max: 50,

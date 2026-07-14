@@ -6737,6 +6737,95 @@ export async function insertSocialMediaAsset({
   return r.rows[0] || null;
 }
 
+export async function findSocialMediaAssetById(assetId) {
+  const r = await q(
+    `SELECT *
+     FROM social_media_asset
+     WHERE id = $1
+     LIMIT 1`,
+    [Number(assetId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function findSocialMediaAssetByStreamUid(streamUid) {
+  const uid = String(streamUid || "").trim();
+  if (!uid) return null;
+  const r = await q(
+    `SELECT *
+     FROM social_media_asset
+     WHERE stream_uid = $1
+     LIMIT 1`,
+    [uid]
+  );
+  return r.rows[0] || null;
+}
+
+export async function listPendingSocialMediaAssets({
+  limit = 20,
+  sourceType = null,
+} = {}) {
+  const r = await q(
+    `SELECT *
+     FROM social_media_asset
+     WHERE provider = 'stream'
+       AND processing_status IN ('pending', 'processing')
+       AND ($2::text IS NULL OR source_type = $2::text)
+     ORDER BY created_at ASC, id ASC
+     LIMIT $1`,
+    [Math.max(1, Math.min(100, Number(limit) || 20)), sourceType == null ? null : String(sourceType).trim().toLowerCase()]
+  );
+  return r.rows;
+}
+
+export async function updateSocialMediaAssetStatus({
+  assetId = null,
+  streamUid = null,
+  processingStatus,
+  processingError = null,
+  normalizedUrl = null,
+  posterUrl = null,
+  playbackUrl = null,
+  thumbnailUrl = null,
+  durationMs = null,
+  width = null,
+  height = null,
+}) {
+  const hasAssetId = assetId != null;
+  const hasStreamUid = String(streamUid || "").trim().length > 0;
+  if (!hasAssetId && !hasStreamUid) return null;
+  const r = await q(
+    `UPDATE social_media_asset
+     SET processing_status = COALESCE($3::text, processing_status),
+         processing_error = $4,
+         normalized_url = COALESCE($5::text, normalized_url),
+         poster_url = COALESCE($6::text, poster_url),
+         playback_url = COALESCE($7::text, playback_url),
+         thumbnail_url = COALESCE($8::text, thumbnail_url),
+         duration_ms = COALESCE($9::bigint, duration_ms),
+         width = COALESCE($10::integer, width),
+         height = COALESCE($11::integer, height),
+         updated_at = NOW()
+     WHERE ($1::bigint IS NULL OR id = $1::bigint)
+       AND ($2::text IS NULL OR stream_uid = $2::text)
+     RETURNING *`,
+    [
+      hasAssetId ? Number(assetId) : null,
+      hasStreamUid ? String(streamUid).trim() : null,
+      processingStatus == null ? null : String(processingStatus).trim().toLowerCase(),
+      processingError == null ? null : String(processingError).trim() || null,
+      normalizedUrl == null ? null : String(normalizedUrl).trim() || null,
+      posterUrl == null ? null : String(posterUrl).trim() || null,
+      playbackUrl == null ? null : String(playbackUrl).trim() || null,
+      thumbnailUrl == null ? null : String(thumbnailUrl).trim() || null,
+      durationMs == null ? null : Number(durationMs),
+      width == null ? null : Number(width),
+      height == null ? null : Number(height),
+    ]
+  );
+  return r.rows[0] || null;
+}
+
 export async function insertSocialMediaProcessingJob({
   assetId,
   jobType,

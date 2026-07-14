@@ -3749,6 +3749,16 @@ export async function createPost(userId, dto, media) {
     : media?.url
       ? [media]
       : [];
+  const mediaAssetId =
+    dto?.mediaAssetId == null || dto.mediaAssetId === ""
+      ? null
+      : Number(dto.mediaAssetId);
+  if (dto?.mediaAssetId != null && Number.isFinite(mediaAssetId) === false) {
+    throw new AppError("MEDIA_ASSET_ID_INVALID", { status: 400 });
+  }
+  if (mediaAssetId != null && uploadedMediaList.length > 0) {
+    throw new AppError("MEDIA_ASSET_CONFLICT", { status: 400 });
+  }
   const requestedPostKind = String(dto.postKind || "text").trim().toLowerCase();
   const requestedIsReel = requestedPostKind === "reel";
   if (requestedIsReel && uploadedMediaList.length > 1) {
@@ -3758,15 +3768,25 @@ export async function createPost(userId, dto, media) {
     throw new AppError("POST_MEDIA_LIMIT_EXCEEDED", { status: 400 });
   }
   const preparedMediaItems = [];
-  for (const mediaItem of uploadedMediaList) {
-    const uploadedMediaKind = resolveMediaKindFromMime(mediaItem?.mimetype);
-    const preparedMedia = await mediaService.prepareSocialMediaAsset({
-      userId,
-      media: mediaItem,
-      preferredKind: requestedIsReel ? "reel" : uploadedMediaKind,
-      sourceType: requestedIsReel ? "reel" : "post",
-    });
-    preparedMediaItems.push(preparedMedia);
+  if (mediaAssetId != null) {
+    preparedMediaItems.push(
+      await mediaService.resolveSocialMediaAssetForPublishing({
+        userId,
+        mediaAssetId,
+        expectedSourceType: requestedIsReel ? "reel" : "post",
+      })
+    );
+  } else {
+    for (const mediaItem of uploadedMediaList) {
+      const uploadedMediaKind = resolveMediaKindFromMime(mediaItem?.mimetype);
+      const preparedMedia = await mediaService.prepareSocialMediaAsset({
+        userId,
+        media: mediaItem,
+        preferredKind: requestedIsReel ? "reel" : uploadedMediaKind,
+        sourceType: requestedIsReel ? "reel" : "post",
+      });
+      preparedMediaItems.push(preparedMedia);
+    }
   }
   const primaryMedia = preparedMediaItems[0] || null;
   const mediaKind = primaryMedia?.mediaKind || null;
@@ -3918,13 +3938,29 @@ export async function createStory(userId, dto, media) {
   await assertSocialWriteAllowed(userId, "story_create");
   assertContentAllowed(dto.caption || "");
 
-  const uploadedMediaKind = resolveMediaKindFromMime(media?.mimetype);
-  const preparedMedia = await mediaService.prepareSocialMediaAsset({
-    userId,
-    media,
-    preferredKind: uploadedMediaKind,
-    sourceType: "story",
-  });
+  const mediaAssetId =
+    dto?.mediaAssetId == null || dto.mediaAssetId === ""
+      ? null
+      : Number(dto.mediaAssetId);
+  if (dto?.mediaAssetId != null && Number.isFinite(mediaAssetId) === false) {
+    throw new AppError("MEDIA_ASSET_ID_INVALID", { status: 400 });
+  }
+  if (mediaAssetId != null && media?.url) {
+    throw new AppError("MEDIA_ASSET_CONFLICT", { status: 400 });
+  }
+
+  const preparedMedia = mediaAssetId != null
+    ? await mediaService.resolveSocialMediaAssetForPublishing({
+        userId,
+        mediaAssetId,
+        expectedSourceType: "story",
+      })
+    : await mediaService.prepareSocialMediaAsset({
+        userId,
+        media,
+        preferredKind: resolveMediaKindFromMime(media?.mimetype),
+        sourceType: "story",
+      });
   const mediaKind = preparedMedia.mediaKind;
   const mediaUrl = preparedMedia.mediaUrl;
   const contentLink = normalizeContentLinkPayload(dto);
@@ -6481,6 +6517,30 @@ export function startSocialScheduledMessageWorker({ intervalMs = 5000 } = {}) {
   }, Math.max(5000, Number(intervalMs) || 10000));
   socialScheduledMessageWorker.unref?.();
   void processScheduledThreadMessages();
+}
+
+export function startSocialStreamReconciliationWorker(options = {}) {
+  mediaService.startSocialStreamReconciliationWorker(options);
+}
+
+export function stopSocialStreamReconciliationWorker() {
+  mediaService.stopSocialStreamReconciliationWorker();
+}
+
+export async function createSocialMediaStreamUploadSession(args) {
+  return mediaService.createSocialMediaStreamUploadSession(args);
+}
+
+export async function getSocialMediaAssetById(args) {
+  return mediaService.getSocialMediaAssetById(args);
+}
+
+export async function handleCloudflareStreamWebhook(args) {
+  return mediaService.handleCloudflareStreamWebhook(args);
+}
+
+export async function reconcileSocialMediaStreamAssets() {
+  return mediaService.reconcileSocialMediaStreamAssets();
 }
 
 export async function acceptChatRequest({ userId, threadId }) {

@@ -5,6 +5,8 @@ import {
   validateCreateComment,
   validateUpdateComment,
   validateCreatePost,
+  validateStreamUploadSessionBody,
+  validateMediaAssetId,
   validateResubmitModeratedPost,
   validateResubmitModeratedStory,
   validateCreateThread,
@@ -668,6 +670,50 @@ export async function createStory(req, res, next) {
       media
     );
     return res.status(201).json({ story });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function createStreamUploadSession(req, res, next) {
+  try {
+    const v = validateStreamUploadSessionBody(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const out = await service.createSocialMediaStreamUploadSession({
+      userId: req.userId,
+      sourceType: v.value.sourceType,
+      sizeBytes: v.value.sizeBytes,
+      title: v.value.title,
+      fileName: v.value.fileName,
+      mimeType: v.value.mimeType,
+    });
+    return res.status(201).json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getSocialMediaAssetById(req, res, next) {
+  try {
+    const asset = validateMediaAssetId(req.params.assetId);
+    if (!asset.ok) return badRequest(res, asset.errors);
+    const out = await service.getSocialMediaAssetById({
+      userId: req.userId,
+      assetId: asset.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function streamWebhook(req, res, next) {
+  try {
+    const out = await service.handleCloudflareStreamWebhook({
+      rawBody: req.rawBody || req.body,
+      signatureHeader: req.headers["webhook-signature"],
+    });
+    return res.json(out);
   } catch (error) {
     return next(error);
   }

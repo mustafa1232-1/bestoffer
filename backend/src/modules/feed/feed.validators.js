@@ -249,6 +249,10 @@ export function validateCreatePost(body = {}) {
     body.merchantId == null || body.merchantId === ""
       ? null
       : asPositiveInt(body.merchantId);
+  const mediaAssetId =
+    body.mediaAssetId == null || body.mediaAssetId === ""
+      ? null
+      : asPositiveInt(body.mediaAssetId);
   const reviewRating =
     body.reviewRating == null || body.reviewRating === ""
       ? null
@@ -262,6 +266,7 @@ export function validateCreatePost(body = {}) {
     errors.push("postKind");
   }
   if (body.merchantId != null && merchantId == null) errors.push("merchantId");
+  if (body.mediaAssetId != null && mediaAssetId == null) errors.push("mediaAssetId");
   if (
     body.reviewRating != null &&
     (!Number.isInteger(reviewRating) || reviewRating < 1 || reviewRating > 5)
@@ -304,6 +309,7 @@ export function validateCreatePost(body = {}) {
       caption,
       postKind,
       merchantId,
+      mediaAssetId,
       reviewRating: reviewRating == null ? null : Math.trunc(reviewRating),
       taggedUserIds,
       audienceScopeType,
@@ -316,8 +322,13 @@ export function validateCreateStory(body = {}) {
   const errors = [];
   const caption = asTrimmed(body.caption);
   const storyStyle = _parseStoryStyle(body.storyStyle ?? body.story_style, errors);
+  const mediaAssetId =
+    body.mediaAssetId == null || body.mediaAssetId === ""
+      ? null
+      : asPositiveInt(body.mediaAssetId);
 
   if (caption.length > 500) errors.push("caption");
+  if (body.mediaAssetId != null && mediaAssetId == null) errors.push("mediaAssetId");
 
   return {
     ok: errors.length === 0,
@@ -325,7 +336,47 @@ export function validateCreateStory(body = {}) {
     value: {
       caption,
       storyStyle,
+      mediaAssetId,
     },
+  };
+}
+
+export function validateStreamUploadSessionBody(body = {}) {
+  const errors = [];
+  const sourceType = asTrimmed(body.sourceType || body.source_type).toLowerCase();
+  const sizeBytesRaw =
+    body.sizeBytes ?? body.size_bytes ?? body.fileSizeBytes ?? body.file_size_bytes;
+  const sizeBytes =
+    sizeBytesRaw == null || sizeBytesRaw === "" ? null : Number(sizeBytesRaw);
+  const title = asTrimmed(body.title);
+  const fileName = asTrimmed(body.fileName || body.file_name);
+  const mimeType = asTrimmed(body.mimeType || body.mime_type) || "video/mp4";
+
+  if (!["story", "reel"].includes(sourceType)) errors.push("sourceType");
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) errors.push("sizeBytes");
+  if (title.length > 180) errors.push("title");
+  if (fileName.length > 180) errors.push("fileName");
+  if (mimeType.length > 120) errors.push("mimeType");
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      sourceType: sourceType || null,
+      sizeBytes: sizeBytes == null ? null : Math.trunc(sizeBytes),
+      title: title || null,
+      fileName: fileName || null,
+      mimeType: mimeType || "video/mp4",
+    },
+  };
+}
+
+export function validateMediaAssetId(value) {
+  const parsed = value == null || value === "" ? null : asPositiveInt(value);
+  return {
+    ok: parsed != null,
+    errors: parsed == null ? ["mediaAssetId"] : [],
+    value: parsed,
   };
 }
 
