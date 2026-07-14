@@ -100,9 +100,11 @@ void main() {
       expect(scope?.scope, StoryAudienceScope.global);
     });
 
-    testWidgets('locked building scope is shown and passed on publish',
-        (tester) async {
-      StoryComposerScope? published;
+    testWidgets(
+        'SAFETY: building-scoped story is NOT published globally when backend '
+        'scope is unsupported (§1)', (tester) async {
+      var published = false;
+      var draftSaved = false;
       await tester.pumpWidget(
         MaterialApp(
           home: StoryComposerV3(
@@ -113,8 +115,9 @@ void main() {
               label: 'المبنى B12',
               locked: true,
             ),
+            onSaveDraft: (_) => draftSaved = true,
             onPublish: (c, s) async {
-              published = s;
+              published = true; // must NOT happen — would be a global publish
               return true;
             },
           ),
@@ -123,8 +126,14 @@ void main() {
       expect(find.text('المبنى B12'), findsOneWidget);
       await tester.tap(find.text('نشر'));
       await tester.pump();
-      expect(published?.scope, StoryAudienceScope.building);
-      expect(published?.scopeCode, 'B12');
+      // The scoped story was NOT published (no silent global downgrade)...
+      expect(published, isFalse);
+      // ...the draft is preserved and the user is told.
+      expect(draftSaved, isTrue);
+      expect(
+        find.text('نشر القصص المخصصة للبناية غير متاح حالياً. تم حفظ المسودة.'),
+        findsOneWidget,
+      );
     });
   });
 }

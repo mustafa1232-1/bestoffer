@@ -6,6 +6,16 @@ import '../media/social_media_presentation.dart';
 /// What a story is being composed from (§6/§7).
 enum StorySourceKind { localImage, localVideo, sharedReel, sharedPost, text }
 
+/// Whether the backend persists & enforces **story-level** audience scope.
+///
+/// SAFETY GUARD: the backend `validateCreateStory` + story service currently
+/// ignore story scope (only `social_post` has an `audience_scope` column), so a
+/// building/block/compound story would be published **globally**. Until the
+/// story-scope migration + service ship, this is `false` and the composer
+/// **blocks** non-global story publication instead of silently going global.
+/// Flip to `true` (or wire to the backend capability) once the feature lands.
+const bool kStoryAudienceScopeSupported = false;
+
 /// Publishing audience scope for a story (§2). The authoritative value is
 /// re-validated by the backend against the user's permissions — Flutter never
 /// decides authorization.

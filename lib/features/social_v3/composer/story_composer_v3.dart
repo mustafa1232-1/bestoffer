@@ -54,9 +54,32 @@ class _StoryComposerV3State extends State<StoryComposerV3> {
   bool _editingText = false;
   bool _publishing = false;
 
+  /// True when a non-global scope cannot be published because the backend does
+  /// not yet enforce story scope. Exposed for tests.
+  bool get isScopedPublishBlocked =>
+      _scope.scope != StoryAudienceScope.global && !kStoryAudienceScopeSupported;
+
   Future<void> _publish() async {
     if (_publishing) return;
-    setState(() => _publishing = true);
+    // SAFETY GUARD (§1): never silently publish a scoped story globally. If a
+    // non-global scope is requested but the backend does not yet persist/enforce
+    // story scope, refuse publication and preserve the draft.
+    if (isScopedPublishBlocked) {
+      widget.onSaveDraft?.call(_caption.text.trim());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'نشر القصص المخصصة للبناية غير متاح حالياً. تم حفظ المسودة.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    setState(() {
+      _publishing = true;
+    });
     final ok = await (widget.onPublish?.call(_caption.text.trim(), _scope) ??
         Future.value(true));
     if (!mounted) return;
