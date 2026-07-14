@@ -276,6 +276,43 @@ Missing keystore env vars (from `android/app/build.gradle.kts` release
 `Maslaki-user-social-v3-e335c786-release.aab`. Release builds pass **no** QA
 defines, so the badge is absent in production.
 
+## Final live-cutover cleanup (create entries) — now PASS
+
+Every **generic** live create action opens V3:
+
+| Live entry | Opens | Proof |
+|-----------|-------|-------|
+| Feed create (post/story) | `SocialCreateSelectorV3` → Post/Story/Reel | `showSocialCreatePostSheet` delegates |
+| Create Reel | native video picker → `ReelComposerV3` | `live_create_routes_test.dart` |
+| Create Story | native picker → `StoryComposerV3` | `live_create_routes_test.dart` |
+| Create Post | native multi-pick → `PostComposerV3` | `live_create_routes_test.dart` |
+| Reel → Add to Story | `StoryComposerV3` (`SharedReelSource`) | `live_create_routes_test.dart` |
+| Full-screen Reels route | no floating Create button | `live_create_routes_test.dart` (`floatingActionButton == null`) |
+
+Deleted: old create-post sheet UI, `social_post_composer_screen.dart`. Active
+old create-route counts are **0** (see `SOCIAL_V3_LEGACY_REMOVAL.md`), except two
+documented non-generic gaps: `ScopedCommunityStorySheet` (audience-scoped) and
+merchant-review creation.
+
+Flutter `social_v3` suite: **72 passing**. Backend: **11 passing**.
+
+### Final QA APK — from the newest SHA `d083d875`
+
+| Field | Value |
+|------|-------|
+| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-d083d875-qa.apk` |
+| APK SHA-256 | `1105558ac0151780721d8e146f4bd23fe69c126b4143c7a0c8428a398295e7d5` |
+| Git SHA | `d083d8758f0deeaa2fcd505432316882700ada6b` |
+| Branch | `closure/full-application-closure` |
+| Flavor / appId | `user` / `com.maslaki.user` |
+| versionName / versionCode | `1.0.1` / `9` |
+| Build mode | debug (QA), QA badge + diagnostics show `d083d875` |
+
+Built after `flutter clean` + `pub get` + `flutter analyze lib` (clean) + the
+72-test suite. **Supersedes** `e335c786` and `cbd42c46`. The QA source tag
+`social-v3-qa-e335c786` remains the tagged prior QA point; this newer APK is
+built from `d083d87` per the "new source → new SHA" rule.
+
 ## Overall Social V3 status: **PARTIAL** (by design)
 
 Per §11 completion language, Social V3 stays **PARTIAL** until direct upload is

@@ -33,6 +33,16 @@ for data and wires like/save/comments/share/view to the existing API.
 pushes `SocialStoryViewerV3.route(...)`. The old `SocialStoryQuickViewerScreen`
 (fullscreenDialog) is unreachable.
 
+## Create entries — every generic create action opens V3
+
+| Action | Route | Mechanism |
+|--------|-------|-----------|
+| Feed / community create | `SocialCreateSelectorV3` (Post/Story/Reel) | `showSocialCreatePostSheet` → `showSocialCreateSelectorV3` |
+| Create Story (ring add) | `StoryComposerV3` | `showSocialStoryComposerEntrySheet` → `openStoryComposerV3FromGallery` |
+| Reels tab create icon | native video picker → `ReelComposerV3` | `SocialReelsScreenV3.onCreate` → `openReelComposerV3` |
+| Reel → Add to Story | `StoryComposerV3(SharedReelSource)` | `ShareSheetV3.onAddToStory` |
+| Create Post | native multi-pick → `PostComposerV3` | `openPostComposerV3` |
+
 ## Feed reel preview
 
 The in-feed reel preview target is `SocialFeedReelPreviewV3` (rectangular,
