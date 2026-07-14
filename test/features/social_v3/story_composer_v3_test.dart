@@ -78,25 +78,53 @@ void main() {
       expect(gone.toPresentation().processingStatus.isPublicEligible, isFalse);
     });
 
-    testWidgets('publish fires the callback with caption + audience',
+    testWidgets('publish fires the callback with caption + scope',
         (tester) async {
       String? cap;
-      String? aud;
+      StoryComposerScope? scope;
       await tester.pumpWidget(
         MaterialApp(
           home: StoryComposerV3(
             source: StoryComposerSource.sharedReel(_reel(vertical: true)),
-            onPublish: (c, a) {
+            onPublish: (c, s) async {
               cap = c;
-              aud = a;
+              scope = s;
+              return true;
             },
           ),
         ),
       );
       await tester.tap(find.text('نشر'));
       await tester.pump();
-      expect(aud, 'public');
       expect(cap, '');
+      expect(scope?.scope, StoryAudienceScope.global);
+    });
+
+    testWidgets('locked building scope is shown and passed on publish',
+        (tester) async {
+      StoryComposerScope? published;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StoryComposerV3(
+            source: StoryComposerSource.sharedReel(_reel(vertical: true)),
+            scope: const StoryComposerScope(
+              scope: StoryAudienceScope.building,
+              scopeCode: 'B12',
+              label: 'المبنى B12',
+              locked: true,
+            ),
+            onPublish: (c, s) async {
+              published = s;
+              return true;
+            },
+          ),
+        ),
+      );
+      expect(find.text('المبنى B12'), findsOneWidget);
+      await tester.tap(find.text('نشر'));
+      await tester.pump();
+      expect(published?.scope, StoryAudienceScope.building);
+      expect(published?.scopeCode, 'B12');
     });
   });
 }

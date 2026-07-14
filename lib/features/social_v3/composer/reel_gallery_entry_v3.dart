@@ -63,10 +63,12 @@ Future<void> openReelComposerV3(
   );
 }
 
-/// Live "Create Story": native gallery → V3 story composer.
+/// Live "Create Story": native gallery → V3 story composer, publishing via the
+/// existing `createStory` controller with the (backend-validated) scope.
 Future<void> openStoryComposerV3FromGallery(
   BuildContext context, {
   SocialMediaPickerV3? picker,
+  StoryComposerScope scope = StoryComposerScope.global,
 }) async {
   final p = picker ?? SocialMediaPickerV3();
   final media = await p.pickStoryImageOrVideo();
@@ -80,7 +82,63 @@ Future<void> openStoryComposerV3FromGallery(
   final source = media.isVideo
       ? StoryComposerSource.localVideo(local)
       : StoryComposerSource.localImage(local);
-  await Navigator.of(context).push(StoryComposerV3.route(source));
+  final container = ProviderScope.containerOf(context, listen: false);
+  await Navigator.of(context).push(
+    StoryComposerV3.route(
+      source,
+      scope: scope,
+      onPublish: (caption, publishScope) => _publishStory(
+        container,
+        caption: caption,
+        media: media,
+        scope: publishScope,
+      ),
+    ),
+  );
+}
+
+/// Live scoped-community story (§2): opens the V3 story composer with a locked,
+/// preselected building/block/area scope. Replaces `ScopedCommunityStorySheet`.
+Future<void> openStoryComposerV3Scoped(
+  BuildContext context, {
+  required String scopeType,
+  required String scopeCode,
+  String? label,
+  bool official = false,
+  SocialMediaPickerV3? picker,
+}) {
+  return openStoryComposerV3FromGallery(
+    context,
+    picker: picker,
+    scope: StoryComposerScope(
+      scope: StoryAudienceScopeX.fromWire(scopeType),
+      scopeCode: scopeCode,
+      label: label,
+      isOfficial: official,
+      locked: true,
+    ),
+  );
+}
+
+Future<bool> _publishStory(
+  ProviderContainer container, {
+  required String caption,
+  required PickedSocialMedia media,
+  required StoryComposerScope scope,
+}) async {
+  await container.read(socialControllerProvider.notifier).createStory(
+        caption: caption,
+        mediaFile: LocalMediaFile(
+          name: media.name,
+          path: media.path,
+          bytes: null,
+          mimeType: media.mimeType,
+        ),
+        audienceScopeType: scope.scope.wireType,
+        audienceScopeCode: scope.scopeCode,
+      );
+  final err = container.read(socialControllerProvider).error;
+  return err == null || err.trim().isEmpty;
 }
 
 /// Live "Create text Story": V3 story composer in text mode.
@@ -96,6 +154,35 @@ Future<void> openStoryComposerV3WithReel(
 }) {
   return Navigator.of(context)
       .push(StoryComposerV3.route(StoryComposerSource.sharedReel(reel)));
+}
+
+/// Live merchant review (§3): opens the V3 post composer in review mode with
+/// the merchant preselected. Publishes via `createPost(postKind:merchant_review)`
+/// — the backend validates the merchant, rating, and verified-purchase state.
+Future<bool?> openPostComposerV3Review(
+  BuildContext context, {
+  required MerchantReviewDraft review,
+}) {
+  final container = ProviderScope.containerOf(context, listen: false);
+  return Navigator.of(context).push<bool>(
+    MaterialPageRoute<bool>(
+      builder: (_) => PostComposerV3(
+        initialMedia: const [],
+        mode: PostComposerMode.merchantReview,
+        review: review,
+        onPublish: (result) async {
+          await container.read(socialControllerProvider.notifier).createPost(
+                caption: result.caption,
+                postKind: 'merchant_review',
+                merchantId: result.review?.merchantId,
+                reviewRating: result.rating,
+              );
+          final err = container.read(socialControllerProvider).error;
+          return err == null || err.trim().isEmpty;
+        },
+      ),
+    ),
+  );
 }
 
 /// Live "Create Post" (§2): native multi-select gallery → V3 post composer.

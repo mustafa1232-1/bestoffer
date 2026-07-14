@@ -12,6 +12,7 @@ import {
   startSocialStreamReconciliationWorker,
   stopSocialStreamReconciliationWorker,
 } from "./modules/feed/feed.service.js";
+import { logStreamConfigStartup } from "./modules/feed/feed.stream-config.js";
 import { startOrderAttentionReminderWorker, stopOrderAttentionReminderWorker } from "./modules/notifications/order-attention.worker.js";
 import { startInventoryReservationWorker, stopInventoryReservationWorker } from "./modules/orders/inventory-reservation.worker.js";
 import {
@@ -270,6 +271,7 @@ async function start() {
   startSocialCallLifecycleWorker();
   startSocialScheduledMessageWorker();
   startSocialStreamReconciliationWorker();
+  logStreamConfigStartup();
   startTaxiLifecycleWorker();
   startOrderAttentionReminderWorker();
   startInventoryReservationWorker();

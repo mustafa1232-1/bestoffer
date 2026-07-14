@@ -314,6 +314,8 @@ class SocialController extends StateNotifier<SocialState> {
     int? mediaAssetId,
     LocalMediaFile? mediaFile,
     Map<String, dynamic>? storyStyle,
+    String? audienceScopeType,
+    String? audienceScopeCode,
   }) async {
     _safeSetState(state.copyWith(creatingStory: true, error: null));
     try {
@@ -330,6 +332,8 @@ class SocialController extends StateNotifier<SocialState> {
         mediaAssetId: resolvedAssetId,
         mediaFile: resolvedAssetId != null ? null : mediaFile,
         storyStyle: storyStyle,
+        audienceScopeType: audienceScopeType,
+        audienceScopeCode: audienceScopeCode,
       );
       _safeSetState(state.copyWith(creatingStory: false));
       await loadStories();

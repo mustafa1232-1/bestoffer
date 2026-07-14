@@ -103,6 +103,40 @@ void main() {
     expect(composer.source.kind, StorySourceKind.sharedReel);
   });
 
+  testWidgets('Scoped community Story → StoryComposerV3 with locked scope',
+      (tester) async {
+    await _pumpButton(
+      tester,
+      (ctx) => openStoryComposerV3Scoped(
+        ctx,
+        scopeType: 'building',
+        scopeCode: 'B12',
+        label: 'المبنى B12',
+        picker: _FakePicker(single: _image),
+      ),
+    );
+    final composer = tester.widget<StoryComposerV3>(find.byType(StoryComposerV3));
+    expect(composer.scope.scope, StoryAudienceScope.building);
+    expect(composer.scope.scopeCode, 'B12');
+    expect(composer.scope.locked, isTrue);
+  });
+
+  testWidgets('Merchant review → PostComposerV3 in review mode', (tester) async {
+    await _pumpButton(
+      tester,
+      (ctx) => openPostComposerV3Review(
+        ctx,
+        review: const MerchantReviewDraft(
+          merchantId: 3, merchantName: 'سوبر ماركت',
+        ),
+      ),
+    );
+    final composer = tester.widget<PostComposerV3>(find.byType(PostComposerV3));
+    expect(composer.mode, PostComposerMode.merchantReview);
+    expect(composer.review?.merchantId, 3);
+    expect(find.text('تقييم متجر'), findsOneWidget);
+  });
+
   testWidgets('create selector lists Post / Story / Reel', (tester) async {
     late BuildContext ctx;
     await tester.pumpWidget(

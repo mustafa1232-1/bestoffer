@@ -42,18 +42,37 @@ Every generic create entry now opens V3 via delegation:
 | `social_post_composer_screen.dart` (`showSocialPostComposerScreen`) | **DELETED** | orphaned, no imports |
 | `social_story_composer_screen.dart` (screen) | **DEAD_LEGACY** (unreachable) | kept only because its `SocialStoryComposerMode` enum is still referenced by `creator_adapters` + `social_story_draft_controller`; the screen widget is unreachable |
 | `pickPostMediaFromDevice` / `pickGalleryMediaFromDevice` | **DOCUMENT_ONLY / non-social** | remaining uses are profile-avatar, report-evidence, residence-proof, and community-scoped/camera creator — not generic Post/Story/Reel publishing; all are gallery pickers, not `FilePicker` |
-| `ScopedCommunityStorySheet` | **MUST_REPLACE (scoped)** | community/building-scoped story create; not yet migrated to V3 (needs audience-scope support in `StoryComposerV3`) — documented gap |
-| merchant-review create | removed from the create button | not exposed via the V3 selector yet — documented gap |
+| `ScopedCommunityStorySheet` | **DELETED** | community/building story now opens `StoryComposerV3` with a locked, backend-validated scope (`openStoryComposerV3Scoped`); the old sheet dropped scope entirely and is deleted |
+| `SocialStoryComposerMode` | **DOMAIN_MODEL** | already lives in `social_core/social_story_document.dart`; the old UI screen `social_story_composer_screen.dart` is **DELETED** |
+| merchant-review create | **ACTIVE_V3** | `PostComposerV3(mode: merchantReview)` via `openPostComposerV3Review`; old review sheet deleted |
 
-### Active-route counts
+### Active-route counts (final)
 
 ```
-Active old Reel viewer routes:   0
-Active old Story viewer routes:  0   (all → SocialStoryViewerV3)
-Active old Story composer routes: 0  (generic; ScopedCommunityStorySheet is audience-scoped, tracked above)
-Active old Reel composer routes:  0
-Active social FilePicker media routes: 0   (grep 'FilePicker.platform' lib/features/social → none)
+Active old Reel viewer routes:          0
+Active old Reel composer routes:        0
+Active old Story viewer routes:         0   (all → SocialStoryViewerV3)
+Active old generic Story composer routes: 0 (social_story_composer_screen.dart deleted)
+Active old scoped Story composer routes:  0 (ScopedCommunityStorySheet deleted)
+Active old Post composer routes:        0   (social_post_composer_screen.dart deleted)
+Active old merchant-review composer routes: 0
+Active social FilePicker media routes:  0   (grep 'FilePicker.platform' lib/features/social → none)
+Old small Reel-to-Story card routes:    0
 ```
+
+### Compatibility entry functions (not legacy UI)
+
+`showSocialCreatePostSheet` and `showSocialStoryComposerEntrySheet` contain **no
+old UI** — they only forward to V3. They are kept as thin compatibility wrappers
+so existing call sites don't need edits.
+
+### Scoped story now sends authoritative scope
+
+The V3 scoped path fixes a pre-existing bug: `ScopedCommunityStorySheet` called
+`createStory(caption, mediaFile)` with **no scope**, so community stories were
+published globally. `api.createStory` / `controller.createStory` now carry
+`audienceScopeType`/`audienceScopeCode`, re-validated by the backend
+(`feed.validators.js`).
 
 ## Not deleted (by design)
 

@@ -61,3 +61,53 @@ export function streamConfigHealth(source = env) {
     missing: d.missing,
   };
 }
+
+/**
+ * Per-variable classification: PRESENT | MISSING | INVALID_FORMAT (§6).
+ * Never returns the secret value.
+ */
+export function classifyStreamConfig(source = env) {
+  const str = (v) => (typeof v === "string" ? v.trim() : "");
+  const num = (v) => (typeof v === "number" ? v : Number.NaN);
+  const classifyStr = (v) => (str(v).length > 0 ? "PRESENT" : "MISSING");
+  const classifyUrl = (v) => {
+    const s = str(v);
+    if (!s) return "MISSING";
+    return /^https?:\/\//i.test(s) ? "PRESENT" : "INVALID_FORMAT";
+  };
+  const classifyPosInt = (v) => {
+    const n = num(v);
+    if (!Number.isFinite(n)) return "MISSING";
+    return Number.isInteger(n) && n > 0 ? "PRESENT" : "INVALID_FORMAT";
+  };
+
+  return {
+    CF_STREAM_ACCOUNT_ID: classifyStr(source.cfStreamAccountId ?? source.cfAccountId),
+    CF_STREAM_API_TOKEN: classifyStr(source.cfStreamApiToken),
+    CF_STREAM_CUSTOMER_CODE: classifyStr(source.cfStreamCustomerCode),
+    CF_STREAM_PLAYBACK_BASE_URL: classifyUrl(source.cfStreamPlaybackBaseUrl),
+    CF_STREAM_THUMBNAIL_BASE_URL: classifyUrl(source.cfStreamThumbnailBaseUrl),
+    CF_STREAM_WEBHOOK_SECRET: classifyStr(source.cfStreamWebhookSecret),
+    SOCIAL_STREAM_RECONCILE_INTERVAL_MS: classifyPosInt(
+      source.socialStreamReconcileIntervalMs
+    ),
+    SOCIAL_STREAM_RECONCILE_BATCH_SIZE: classifyPosInt(
+      source.socialStreamReconcileBatchSize
+    ),
+  };
+}
+
+/**
+ * Emits a single secret-free startup line, e.g.
+ *   "Social Stream configuration: READY"
+ *   "Social Stream configuration: UNAVAILABLE (missing: CF_STREAM_API_TOKEN)"
+ */
+export function logStreamConfigStartup(source = env, log = console.log) {
+  const d = describeStreamConfig(source);
+  if (d.streamAvailable && d.webhookConfigured) {
+    log("Social Stream configuration: READY");
+  } else {
+    const gaps = d.missing.length ? ` (missing: ${d.missing.join(", ")})` : "";
+    log(`Social Stream configuration: UNAVAILABLE${gaps}`);
+  }
+}

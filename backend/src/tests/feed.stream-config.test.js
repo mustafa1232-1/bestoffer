@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { describeStreamConfig, streamConfigHealth } from "../modules/feed/feed.stream-config.js";
+import {
+  describeStreamConfig,
+  streamConfigHealth,
+  classifyStreamConfig,
+  logStreamConfigStartup,
+} from "../modules/feed/feed.stream-config.js";
 
 const full = {
   cfStreamAccountId: "acc",
@@ -42,4 +47,28 @@ test("streamConfigHealth is a secret-free summary", () => {
   assert.equal(h.stream, "available");
   assert.equal(h.webhook, "configured");
   assert.equal(JSON.stringify(h).includes("tok"), false);
+});
+
+test("classifyStreamConfig returns PRESENT/MISSING/INVALID_FORMAT only", () => {
+  const c = classifyStreamConfig(full);
+  assert.equal(c.CF_STREAM_API_TOKEN, "PRESENT");
+  const missing = classifyStreamConfig({ ...full, cfStreamApiToken: "" });
+  assert.equal(missing.CF_STREAM_API_TOKEN, "MISSING");
+  const badUrl = classifyStreamConfig({ ...full, cfStreamPlaybackBaseUrl: "not-a-url" });
+  assert.equal(badUrl.CF_STREAM_PLAYBACK_BASE_URL, "INVALID_FORMAT");
+  const badInt = classifyStreamConfig({ ...full, socialStreamReconcileBatchSize: -3 });
+  assert.equal(badInt.SOCIAL_STREAM_RECONCILE_BATCH_SIZE, "INVALID_FORMAT");
+  // Never leaks values.
+  assert.equal(JSON.stringify(c).includes("tok"), false);
+});
+
+test("logStreamConfigStartup prints READY / UNAVAILABLE without secrets", () => {
+  const lines = [];
+  logStreamConfigStartup(full, (m) => lines.push(m));
+  assert.equal(lines[0], "Social Stream configuration: READY");
+  lines.length = 0;
+  logStreamConfigStartup({ ...full, cfStreamApiToken: "" }, (m) => lines.push(m));
+  assert.match(lines[0], /^Social Stream configuration: UNAVAILABLE/);
+  assert.match(lines[0], /CF_STREAM_API_TOKEN/);
+  assert.equal(lines[0].includes("tok"), false);
 });

@@ -6,6 +6,99 @@ import '../media/social_media_presentation.dart';
 /// What a story is being composed from (§6/§7).
 enum StorySourceKind { localImage, localVideo, sharedReel, sharedPost, text }
 
+/// Publishing audience scope for a story (§2). The authoritative value is
+/// re-validated by the backend against the user's permissions — Flutter never
+/// decides authorization.
+enum StoryAudienceScope {
+  global,
+  followers,
+  friends,
+  closeFriends,
+  area,
+  compound,
+  block,
+  building,
+  custom,
+}
+
+extension StoryAudienceScopeX on StoryAudienceScope {
+  /// The backend `audienceScopeType` string.
+  String get wireType {
+    switch (this) {
+      case StoryAudienceScope.global:
+        return 'global';
+      case StoryAudienceScope.followers:
+        return 'followers';
+      case StoryAudienceScope.friends:
+        return 'friends';
+      case StoryAudienceScope.closeFriends:
+        return 'close_friends';
+      case StoryAudienceScope.area:
+        return 'area';
+      case StoryAudienceScope.compound:
+        return 'compound';
+      case StoryAudienceScope.block:
+        return 'block';
+      case StoryAudienceScope.building:
+        return 'building';
+      case StoryAudienceScope.custom:
+        return 'custom';
+    }
+  }
+
+  static StoryAudienceScope fromWire(String? raw) {
+    switch ((raw ?? '').trim().toLowerCase()) {
+      case 'followers':
+        return StoryAudienceScope.followers;
+      case 'friends':
+        return StoryAudienceScope.friends;
+      case 'close_friends':
+        return StoryAudienceScope.closeFriends;
+      case 'area':
+        return StoryAudienceScope.area;
+      case 'compound':
+        return StoryAudienceScope.compound;
+      case 'block':
+        return StoryAudienceScope.block;
+      case 'building':
+        return StoryAudienceScope.building;
+      case 'custom':
+        return StoryAudienceScope.custom;
+      default:
+        return StoryAudienceScope.global;
+    }
+  }
+}
+
+/// Immutable publishing-scope context carried by the composer.
+@immutable
+class StoryComposerScope {
+  const StoryComposerScope({
+    required this.scope,
+    this.scopeCode,
+    this.label,
+    this.isOfficial = false,
+    this.locked = false,
+  });
+
+  final StoryAudienceScope scope;
+
+  /// Building/block/compound/area identifier (backend `audienceScopeCode`).
+  final String? scopeCode;
+  final String? label;
+
+  /// Whether this is an official building/community story (needs a privileged
+  /// role, enforced by the backend).
+  final bool isOfficial;
+
+  /// When true the user cannot change the preselected scope (e.g. opened from a
+  /// specific building context).
+  final bool locked;
+
+  static const StoryComposerScope global =
+      StoryComposerScope(scope: StoryAudienceScope.global);
+}
+
 /// Reference to a shared reel used as a story's **base media** (never an
 /// attachment card). The reel video is not duplicated — only a reference plus
 /// visual layout metadata is stored.

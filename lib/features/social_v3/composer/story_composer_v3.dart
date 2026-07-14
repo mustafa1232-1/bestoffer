@@ -16,23 +16,31 @@ class StoryComposerV3 extends StatefulWidget {
   const StoryComposerV3({
     super.key,
     required this.source,
+    this.scope = StoryComposerScope.global,
     this.onPublish,
     this.onSaveDraft,
   });
 
   final StoryComposerSource source;
 
-  /// Publishes with the composed caption + selected audience.
-  final void Function(String caption, String audience)? onPublish;
+  /// Preselected audience scope (§2). May be locked for building/community.
+  final StoryComposerScope scope;
+
+  /// Publishes with the composed caption + authoritative scope. Returns true on
+  /// success (composer then closes). The backend re-validates the scope.
+  final Future<bool> Function(String caption, StoryComposerScope scope)?
+      onPublish;
   final void Function(String caption)? onSaveDraft;
 
   static Route<void> route(
     StoryComposerSource source, {
-    void Function(String caption, String audience)? onPublish,
+    StoryComposerScope scope = StoryComposerScope.global,
+    Future<bool> Function(String caption, StoryComposerScope scope)? onPublish,
   }) {
     return MaterialPageRoute<void>(
       fullscreenDialog: true,
-      builder: (_) => StoryComposerV3(source: source, onPublish: onPublish),
+      builder: (_) =>
+          StoryComposerV3(source: source, scope: scope, onPublish: onPublish),
     );
   }
 
@@ -42,8 +50,61 @@ class StoryComposerV3 extends StatefulWidget {
 
 class _StoryComposerV3State extends State<StoryComposerV3> {
   final TextEditingController _caption = TextEditingController();
-  String _audience = 'public';
+  late StoryComposerScope _scope = widget.scope;
   bool _editingText = false;
+  bool _publishing = false;
+
+  static const _cycle = [
+    StoryAudienceScope.global,
+    StoryAudienceScope.followers,
+    StoryAudienceScope.closeFriends,
+  ];
+
+  void _cycleScope() {
+    if (_scope.locked) return;
+    final i = _cycle.indexOf(_scope.scope);
+    final next = _cycle[(i + 1) % _cycle.length];
+    setState(() => _scope = StoryComposerScope(scope: next));
+  }
+
+  Future<void> _publish() async {
+    if (_publishing) return;
+    setState(() => _publishing = true);
+    final ok = await (widget.onPublish?.call(_caption.text.trim(), _scope) ??
+        Future.value(true));
+    if (!mounted) return;
+    if (ok) {
+      Navigator.of(context).maybePop();
+    } else {
+      setState(() => _publishing = false);
+    }
+  }
+
+  String get _scopeLabel {
+    if (_scope.label != null && _scope.label!.trim().isNotEmpty) {
+      return _scope.label!.trim();
+    }
+    switch (_scope.scope) {
+      case StoryAudienceScope.global:
+        return 'الجميع';
+      case StoryAudienceScope.closeFriends:
+        return 'الأصدقاء المقربون';
+      case StoryAudienceScope.followers:
+        return 'المتابعون';
+      case StoryAudienceScope.building:
+        return 'المبنى';
+      case StoryAudienceScope.block:
+        return 'البلوك';
+      case StoryAudienceScope.compound:
+        return 'المجمع';
+      case StoryAudienceScope.area:
+        return 'المنطقة';
+      case StoryAudienceScope.friends:
+        return 'الأصدقاء';
+      case StoryAudienceScope.custom:
+        return 'مخصص';
+    }
+  }
 
   @override
   void dispose() {
@@ -143,12 +204,11 @@ class _StoryComposerV3State extends State<StoryComposerV3> {
             bottom: padding.bottom + 14,
             child: Row(
               children: [
-                _AudienceChip(
-                  audience: _audience,
-                  onTap: () => setState(
-                    () => _audience =
-                        _audience == 'public' ? 'close_friends' : 'public',
-                  ),
+                _ScopeChip(
+                  label: _scopeLabel,
+                  official: _scope.isOfficial,
+                  locked: _scope.locked,
+                  onTap: _scope.locked ? null : _cycleScope,
                 ),
                 const Spacer(),
                 TextButton(
@@ -159,12 +219,7 @@ class _StoryComposerV3State extends State<StoryComposerV3> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                _PublishButton(
-                  onTap: () {
-                    widget.onPublish?.call(_caption.text.trim(), _audience);
-                    Navigator.of(context).maybePop();
-                  },
-                ),
+                _PublishButton(onTap: _publishing ? null : _publish),
               ],
             ),
           ),
@@ -244,15 +299,21 @@ class _RoundButton extends StatelessWidget {
   }
 }
 
-class _AudienceChip extends StatelessWidget {
-  const _AudienceChip({required this.audience, required this.onTap});
+class _ScopeChip extends StatelessWidget {
+  const _ScopeChip({
+    required this.label,
+    required this.official,
+    required this.locked,
+    this.onTap,
+  });
 
-  final String audience;
-  final VoidCallback onTap;
+  final String label;
+  final bool official;
+  final bool locked;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final isPublic = audience == 'public';
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -260,21 +321,22 @@ class _AudienceChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0x66000000),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white24),
+          border: Border.all(
+            color: official ? const Color(0xFFE7B24B) : Colors.white24,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              isPublic ? Icons.public : Icons.star_rounded,
-              color: isPublic ? Colors.white : const Color(0xFFE7B24B),
+              official
+                  ? Icons.verified_rounded
+                  : (locked ? Icons.lock_outline : Icons.public),
+              color: official ? const Color(0xFFE7B24B) : Colors.white,
               size: 16,
             ),
             const SizedBox(width: 6),
-            Text(
-              isPublic ? 'الجميع' : 'الأصدقاء المقربون',
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-            ),
+            Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
           ],
         ),
       ),
@@ -285,7 +347,7 @@ class _AudienceChip extends StatelessWidget {
 class _PublishButton extends StatelessWidget {
   const _PublishButton({required this.onTap});
 
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

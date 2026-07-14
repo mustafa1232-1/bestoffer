@@ -35,6 +35,7 @@ import 'social_profile_screen.dart';
 import 'social_search_screen.dart';
 import 'widgets/basmaya_shell_bars.dart';
 import 'widgets/social_community_content_widgets.dart';
+import '../../social_v3/composer/reel_gallery_entry_v3.dart';
 import 'widgets/social_community_sheets.dart';
 import 'widgets/social_community_support.dart';
 import 'widgets/social_attachment_preview_card.dart';
@@ -2682,14 +2683,18 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       return;
     }
     if (!mounted) return;
-    final created = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => const ScopedCommunityStorySheet(),
+    // Cut over to Social V3: open StoryComposerV3 with this community's scope
+    // preselected and locked. Previously ScopedCommunityStorySheet dropped the
+    // scope entirely (bare const) — V3 sends the authoritative scope, which the
+    // backend re-validates against the user's permissions.
+    await openStoryComposerV3Scoped(
+      context,
+      scopeType: widget.scopeType,
+      scopeCode: widget.scopeCode,
+      label: _scopeTitle,
+      official: false,
     );
-    if (created != true || !mounted) return;
-    _snack(_t('تم نشر الستوري بنجاح.', 'Story published successfully.'));
+    if (!mounted) return;
     await _reload();
   }
 

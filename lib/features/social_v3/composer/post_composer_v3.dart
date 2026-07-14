@@ -3,6 +3,28 @@ import 'package:flutter/material.dart';
 import '../media/social_safe_image.dart';
 import '../pickers/social_media_picker_v3.dart';
 
+/// Post composer mode (§3).
+enum PostComposerMode { standard, merchantReview }
+
+/// Merchant-review context. `verifiedPurchase` is NEVER trusted from Flutter —
+/// the backend sets it only when [orderId] links to a completed order owned by
+/// the user.
+class MerchantReviewDraft {
+  const MerchantReviewDraft({
+    required this.merchantId,
+    required this.merchantName,
+    this.merchantImageUrl,
+    this.productId,
+    this.orderId,
+  });
+
+  final int merchantId;
+  final String merchantName;
+  final String? merchantImageUrl;
+  final int? productId;
+  final int? orderId;
+}
+
 /// Data emitted by the post composer on publish.
 class PostComposerResult {
   const PostComposerResult({
@@ -10,15 +32,24 @@ class PostComposerResult {
     required this.media,
     required this.audience,
     required this.commentsEnabled,
+    this.mode = PostComposerMode.standard,
+    this.rating,
+    this.review,
   });
 
   final String caption;
   final List<PickedSocialMedia> media;
   final String audience;
   final bool commentsEnabled;
+  final PostComposerMode mode;
+  final int? rating;
+  final MerchantReviewDraft? review;
 
-  /// 'image' when there is media, else 'text'.
-  String get postKind => media.isEmpty ? 'text' : 'image';
+  /// 'merchant_review' in review mode, else 'image'/'text'.
+  String get postKind {
+    if (mode == PostComposerMode.merchantReview) return 'merchant_review';
+    return media.isEmpty ? 'text' : 'image';
+  }
 }
 
 /// Full-screen V3 post composer (§2). Uses native-picker results only (never
@@ -29,11 +60,15 @@ class PostComposerV3 extends StatefulWidget {
   const PostComposerV3({
     super.key,
     required this.initialMedia,
+    this.mode = PostComposerMode.standard,
+    this.review,
     this.onPublish,
     this.onAddMore,
   });
 
   final List<PickedSocialMedia> initialMedia;
+  final PostComposerMode mode;
+  final MerchantReviewDraft? review;
 
   /// Returns true on success (composer then pops).
   final Future<bool> Function(PostComposerResult result)? onPublish;
@@ -52,6 +87,9 @@ class _PostComposerV3State extends State<PostComposerV3> {
   bool _comments = true;
   bool _publishing = false;
   String? _error;
+  int _rating = 0;
+
+  bool get _isReview => widget.mode == PostComposerMode.merchantReview;
 
   @override
   void initState() {
@@ -67,7 +105,11 @@ class _PostComposerV3State extends State<PostComposerV3> {
 
   Future<void> _publish() async {
     if (_publishing) return;
-    if (_media.isEmpty && _caption.text.trim().isEmpty) {
+    if (_isReview && _rating < 1) {
+      setState(() => _error = 'التقييم مطلوب');
+      return;
+    }
+    if (!_isReview && _media.isEmpty && _caption.text.trim().isEmpty) {
       setState(() => _error = 'أضف نصًا أو وسائط');
       return;
     }
@@ -81,6 +123,9 @@ class _PostComposerV3State extends State<PostComposerV3> {
             media: _media,
             audience: _audience,
             commentsEnabled: _comments,
+            mode: widget.mode,
+            rating: _isReview ? _rating : null,
+            review: widget.review,
           ),
         ) ??
         Future.value(false));
@@ -99,7 +144,7 @@ class _PostComposerV3State extends State<PostComposerV3> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('منشور جديد'),
+        title: Text(_isReview ? 'تقييم متجر' : 'منشور جديد'),
         actions: [
           TextButton(
             onPressed: _publishing ? null : _publish,
@@ -115,6 +160,30 @@ class _PostComposerV3State extends State<PostComposerV3> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
+          if (_isReview && widget.review != null) ...[
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const CircleAvatar(child: Icon(Icons.storefront_rounded)),
+              title: Text(
+                widget.review!.merchantName,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: const Text('تقييمك يساعد بقية السكان'),
+            ),
+            Row(
+              children: List.generate(
+                5,
+                (i) => IconButton(
+                  onPressed: () => setState(() => _rating = i + 1),
+                  icon: Icon(
+                    i < _rating ? Icons.star_rounded : Icons.star_border_rounded,
+                    color: Colors.amber,
+                  ),
+                ),
+              ),
+            ),
+            const Divider(),
+          ],
           if (_media.isNotEmpty)
             SizedBox(
               height: 220,
