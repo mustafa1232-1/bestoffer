@@ -386,7 +386,10 @@ suite. Supersedes `a35e8b67`. Filename, badge, diagnostics, report, tag all →
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| Privacy defect (UI promised scoped visibility; backend published globally) | **CLOSED** | `StoryComposerV3` blocks non-global publish while `kStoryAudienceScopeSupported=false`; draft preserved; no silent global downgrade; `story_composer_v3.dart` + regression test |
+| Privacy defect (UI promised scoped visibility; backend published globally) | **CLOSED (client + server)** | Flutter guard + **authoritative backend fail-closed gate** (`assertStoryAudienceScopeAllowed`, `STORY_AUDIENCE_SCOPE_ENABLED=false`, `STORY_AUDIENCE_SCOPE_NOT_AVAILABLE` 409). Backend rejects ANY non-global request before insert regardless of client. DB-verified no row created (`feed.story-scope-gate.test.js`) |
+| Status language | — | Flutter guard **PASS** · Backend safety **PASS** · Full feature **NOT_IMPLEMENTED/DISABLED** |
+| §3 Authoritative capability endpoint | PASS | `GET /api/feed/capabilities` → `storyAudienceScope.supported=false` |
+| §9 Git history secret audit | PASS | only local test config + scratch scripts entered history; no real secret; no rewrite needed |
 | §2 Migration `135_social_story_audience_scope.sql` | PASS | applied to local DB, idempotent (2×); scope cols + CHECKs + index; existing stories default global; non-destructive |
 | §3 `validateCreateStory` scope validation | PASS | normalizes global/block/compound/building; rejects relationship/forged/code-without-type; `isOfficial` request-only (`feed.scope-review-validation.test.js`) |
 | §4–§10 service authz + read-enforcement + notifications + capability flip | NOT_STARTED (atomic, security-critical) | full spec + 30-case matrix in `SOCIAL_V3_STORY_SCOPE.md`. Flag stays `false` until complete — a partial backend would leak |

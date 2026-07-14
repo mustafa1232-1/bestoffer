@@ -675,6 +675,15 @@ export async function createStory(req, res, next) {
   }
 }
 
+export async function getSocialCapabilities(req, res, next) {
+  try {
+    const { buildSocialCapabilities } = await import("./feed.capabilities.js");
+    return res.json(buildSocialCapabilities());
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function createStreamUploadSession(req, res, next) {
   try {
     const v = validateStreamUploadSessionBody(req.body || {});

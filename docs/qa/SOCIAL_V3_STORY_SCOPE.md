@@ -17,11 +17,22 @@ publish normally. Regression test: `story_composer_v3_test.dart`
 publishing while any read query does not enforce scope would leak "scoped"
 stories to everyone — worse than the current blocked state.
 
+## Status language (per the brief)
+
+- **Flutter scoped-Story guard:** PASS
+- **Backend scoped-Story safety (fail-closed gate):** PASS
+- **Full scoped-Story feature:** NOT_IMPLEMENTED / DISABLED (`STORY_AUDIENCE_SCOPE_ENABLED=false`)
+
 ## Done + verified
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| §1 Safety guard (no misleading scoped publish) | PASS | `story_composer_v3.dart` + regression test |
+| §1 Flutter safety guard | PASS | `story_composer_v3.dart` + regression test |
+| §1 **Backend fail-closed gate** | PASS | `assertStoryAudienceScopeAllowed` in `feed.service.js` rejects ANY non-global request (scope type/code/official, all key aliases + casing) **before any side-effect**, regardless of client or validator. `STORY_AUDIENCE_SCOPE_ENABLED=false`. `AppError STORY_AUDIENCE_SCOPE_NOT_AVAILABLE` (409) with ar/en messages |
+| §2 Fail-closed tests (incl. real service + DB) | PASS | `feed.story-scope-gate.test.js`: global allowed; every non-global rejected with code/status; **DB-verified no `social_story` row created** for a rejected scoped request (through the real service); retry creates no story |
+| §3 Authoritative capability endpoint | PASS | `GET /api/feed/capabilities` → `social.storyAudienceScope.supported=false, supportedTypes=[global]`; `feed.capabilities.test.js` |
+| §4 Migration 135 runner-registered | PASS | matches the runner's numbered-SQL pattern; content asserted; auto-applied by `runSqlMigrations` |
+| §9 Git history audit | PASS | commit `581655d` contained only local test config (localhost DB URL + dummy hex `JWT_SECRET`) + scratch scripts; secret-value scan empty → **no real secret**, no history rewrite required; `backend/tmp/` now gitignored |
 | §2 Migration `135_social_story_audience_scope.sql` | PASS | applied to local DB, idempotent (ran 2×); adds `audience_scope_type`/`audience_scope_code`/`is_official`, CHECK (global/block/compound/building), consistency CHECK, index `idx_social_story_scope_active`; existing stories default global; legacy media untouched |
 | §3 `validateCreateStory` scope validation | PASS | normalizes global/block/compound/building; rejects followers/close_friends/area/custom/forged codes/code-without-type; records `isOfficialRequested` only (`feed.scope-review-validation.test.js`) |
 

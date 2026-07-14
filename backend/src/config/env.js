@@ -332,6 +332,12 @@ export const env = {
     20,
     { min: 1, max: 100 }
   ),
+  // Social V3 §1: authoritative fail-closed gate for scoped stories. While
+  // false, the story service rejects ANY non-global scope request before any
+  // side-effect, regardless of what the client sends. Flip to true only after
+  // the complete story-scope feature (authorization + read enforcement +
+  // notifications + DB matrix) is implemented.
+  storyAudienceScopeEnabled: readBoolean("STORY_AUDIENCE_SCOPE_ENABLED", false),
   nearbyStoresRadiusKmDefault: readNumber("NEARBY_STORES_RADIUS_KM_DEFAULT", 10, {
     min: 1,
     max: 50,

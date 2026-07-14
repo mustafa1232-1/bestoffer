@@ -1,4 +1,5 @@
 import { AppError } from "../../shared/utils/errors.js";
+import { env } from "../../config/env.js";
 import { emitRealtimeToUser as emitToUser } from "../../shared/realtime/realtime-gateway.js";
 import {
   invalidateSessionAccessCacheForUser,
@@ -3934,9 +3935,60 @@ export async function createPost(userId, dto, media) {
   return mapped;
 }
 
+/**
+ * Fail-closed story audience-scope gate (Social V3 §1).
+ *
+ * While `STORY_AUDIENCE_SCOPE_ENABLED` is false the story service persists and
+ * enforces ONLY global stories. Any non-global scope request — a scope type, a
+ * scope code, or an official flag, in any casing / key alias — is rejected
+ * BEFORE any media/DB side-effect, so an old client, a modified client, or a
+ * direct API caller can never receive a silently-global "scoped" story. This is
+ * independent of the Flutter capability flag and of the input validator.
+ */
+export function assertStoryAudienceScopeAllowed(dto = {}) {
+  const type = String(
+    dto.audienceScopeType ??
+      dto.audience_scope_type ??
+      dto.scopeType ??
+      dto.scope_type ??
+      "global"
+  )
+    .trim()
+    .toLowerCase();
+  const code = String(
+    dto.audienceScopeCode ??
+      dto.audience_scope_code ??
+      dto.scopeCode ??
+      dto.scope_code ??
+      ""
+  ).trim();
+  const official =
+    dto.isOfficial === true ||
+    dto.isOfficial === "true" ||
+    dto.is_official === true ||
+    dto.is_official === "true" ||
+    dto.isOfficialRequested === true;
+
+  const nonGlobal = (type !== "" && type !== "global") || code !== "" || official;
+  if (nonGlobal && !env.storyAudienceScopeEnabled) {
+    throw new AppError("STORY_AUDIENCE_SCOPE_NOT_AVAILABLE", {
+      status: 409,
+      expose: true,
+      details: {
+        messages: {
+          ar: "نشر القصص المخصصة للبناية أو المنطقة غير متاح حالياً. تم حفظ المسودة ويمكنك المحاولة لاحقاً.",
+          en: "Scoped Story publishing is not available yet. Your draft has been preserved.",
+        },
+      },
+    });
+  }
+}
+
 export async function createStory(userId, dto, media) {
   await assertSocialWriteAllowed(userId, "story_create");
   assertContentAllowed(dto.caption || "");
+  // Fail-closed: reject scoped stories before any side-effect while disabled.
+  assertStoryAudienceScopeAllowed(dto);
 
   const mediaAssetId =
     dto?.mediaAssetId == null || dto.mediaAssetId === ""
