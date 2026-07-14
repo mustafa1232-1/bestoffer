@@ -406,21 +406,33 @@ Commit `581655d` inadvertently included a local `backend/.env.test` change
 and `backend/tmp/*.mjs` scratch scripts. Corrected in `757db30`: `.env.test`
 reverted, tmp untracked, `backend/tmp/` added to `.gitignore`.
 
-### Final QA APK — newest SHA `0abb72c4`
+### Configuration-misuse safety (env footgun) — PASS
+Scoped stories require `STORY_AUDIENCE_SCOPE_IMPLEMENTATION_READY` (code const,
+`false`) **AND** `STORY_AUDIENCE_SCOPE_ENABLED`, via one shared
+`getStoryAudienceScopeFeatureState()`. A forced/stale env flag alone cannot
+enable the feature or reopen the leak. Gate fires first in `createStory`;
+capability + startup diagnostics use the same effective state. Proven:
+env=true+not-ready still rejects; AND-logic (both true → enabled); hardened truthy
+parsing; DB unique-marker no-row; controller 409 path; capability route.
+
+**Status:** Flutter guard **PASS** · Backend fail-closed **PASS** ·
+Configuration-misuse **PASS** · Full feature **DISABLED/NOT IMPLEMENTED** ·
+Overall scoped-Story privacy **SAFE WHILE FEATURE DISABLED**.
+
+### Final QA APK — newest SHA `e5d6b44d`
 
 | Field | Value |
 |------|-------|
-| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-0abb72c4-qa.apk` |
-| APK SHA-256 | `0356c7aacb99ee7bde6aae544d4c5e19e636aa09cb4ce4cffee89fdadfa2d03e` |
-| Git SHA | `0abb72c4d5974d4ed9d8f8a34b0001ede002780d` |
-| QA tag | `social-v3-qa-0abb72c4` (prior tags preserved) |
+| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-e5d6b44d-qa.apk` |
+| APK SHA-256 | `6118370b07eb55655f55aa611dc43078ecbefa58f2358a4375ec8f35d9d8e261` |
+| Git SHA | `e5d6b44d3297644ea9cf3f190e7a25dc19d550d0` |
+| QA tag | `social-v3-qa-e5d6b44d` (prior tags preserved) |
 | appId / version | `com.maslaki.user` / `1.0.1+9` · debug (QA) |
 
-Supersedes `757db305`. Built after clean + analyze(clean) + 75 Flutter tests.
-Backend: **30 tests passing** (story-scope gate 3, capabilities 4, scope/review 10,
-stream-media 6, stream-config 6, media-routes 1). Contains the Flutter safety
-guard; the authoritative backend fail-closed gate protects all clients
-regardless of APK.
+Supersedes `0abb72c4`. Built after clean + analyze(clean) + 75 Flutter tests.
+Backend: **39 tests passing**. Contains the Flutter guard; the backend
+readiness-gated fail-closed enforcement protects all clients regardless of APK
+or env misconfiguration.
 
 ## Overall Social V3 status: **PARTIAL** (by design)
 
