@@ -91,3 +91,6 @@ keystores/
 # Local backup files
 *.backup.*
 *.backup
+
+# Local scratch/diagnostic scripts (never commit)
+backend/tmp/
