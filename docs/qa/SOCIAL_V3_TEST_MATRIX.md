@@ -19,20 +19,23 @@ thumbnail_url, poster_url` (all present), 3 indexes; `social_post.audience_scope
 present; legacy `provider='r2'` rows preserved (none in this DB). No destructive
 statements touch legacy R2 rows.
 
-## §3 Story scope authorization
-- **Validation layer (posts):** PASS — `feed.scope-review-validation.test.js`
-  proves `normalizeCommunityScope`/`validateCreatePost` reject forged/relationship/
-  malformed scopes (`followers`, `area`, `custom`, bad codes) and accept
-  `block A` / `building A101`. Authorization is not UI-only.
-- **Story-level scope:** **NOT_IMPLEMENTED (backend gap).** `validateCreateStory`
-  and the story create service **ignore** `audienceScopeType/Code`; only
-  `social_post` has an `audience_scope` column. So both the old
-  `ScopedCommunityStorySheet` and the new V3 path publish **global** stories. The
-  V3 change is a UI cutover; scope is forwarded and forward-compatible but not
-  persisted. **The role-based authz matrix (building admin / expired / revoked
-  role, cases 6–10) is NOT_TESTED because the feature does not exist server-side.**
-  Recommended scoped follow-up: add `audience_scope_*` to `social_story` +
-  validator + service + story-feed filtering + the 18-case matrix.
+## §3 Story scope authorization — see `SOCIAL_V3_STORY_SCOPE.md`
+- **Safety guard:** PASS — scoped story publish is blocked (no misleading UI /
+  no silent global downgrade); draft preserved. Regression test in
+  `story_composer_v3_test.dart`.
+- **Migration `135_social_story_audience_scope.sql`:** PASS — applied to local
+  DB, idempotent; columns + CHECK constraints + index; existing stories default
+  global.
+- **`validateCreateStory` scope validation:** PASS — normalizes
+  global/block/compound/building; rejects relationship/forged/code-without-type
+  (`feed.scope-review-validation.test.js`).
+- **Service authorization + read-query enforcement + notifications + capability
+  flip:** NOT_STARTED (must land atomically before scoped publishing is enabled —
+  a partial backend would leak). Full spec + 30-case matrix in
+  `SOCIAL_V3_STORY_SCOPE.md`. The capability flag stays `false` (publish blocked)
+  until then.
+- **Post scope validation** (unchanged): PASS — forged/relationship/malformed
+  scopes rejected, `block A`/`building A101` accepted.
 
 ## §4 Merchant review
 - **Validation layer:** PASS — `validateCreatePost` requires `merchantId` +

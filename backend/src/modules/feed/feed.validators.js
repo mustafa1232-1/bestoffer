@@ -330,6 +330,48 @@ export function validateCreateStory(body = {}) {
   if (caption.length > 500) errors.push("caption");
   if (body.mediaAssetId != null && mediaAssetId == null) errors.push("mediaAssetId");
 
+  // Authoritative audience scope (Social V3 §3). Mirrors validateCreatePost.
+  // Relationship scopes (followers/close_friends/area/custom) are rejected —
+  // only global/block/compound/building are supported for stories.
+  const requestedAudienceType = asTrimmed(
+    body.audienceScopeType ??
+      body.audience_scope_type ??
+      body.scopeType ??
+      body.scope_type
+  ).toLowerCase();
+  const requestedAudienceCode = asTrimmed(
+    body.audienceScopeCode ??
+      body.audience_scope_code ??
+      body.scopeCode ??
+      body.scope_code
+  ).toUpperCase();
+  const isOfficial =
+    body.isOfficial === true || body.isOfficial === "true" ||
+    body.is_official === true || body.is_official === "true";
+
+  let audienceScopeType = "global";
+  let audienceScopeCode = null;
+  if (requestedAudienceCode && !requestedAudienceType) {
+    errors.push("audienceScopeType");
+  }
+  if (requestedAudienceType) {
+    if (requestedAudienceType === "global") {
+      audienceScopeType = "global";
+      audienceScopeCode = null;
+    } else {
+      const normalizedScope = normalizeCommunityScope(
+        requestedAudienceType,
+        requestedAudienceCode
+      );
+      if (!normalizedScope.ok) {
+        errors.push("audienceScopeType", "audienceScopeCode");
+      } else {
+        audienceScopeType = normalizedScope.scopeType;
+        audienceScopeCode = normalizedScope.scopeCode;
+      }
+    }
+  }
+
   return {
     ok: errors.length === 0,
     errors,
@@ -337,6 +379,12 @@ export function validateCreateStory(body = {}) {
       caption,
       storyStyle,
       mediaAssetId,
+      audienceScopeType,
+      audienceScopeCode,
+      // NOTE: `isOfficial` is a *request* only. The service must re-authorize
+      // it against the user's active building role before persisting — never
+      // trust this flag from the client.
+      isOfficialRequested: isOfficial,
     },
   };
 }

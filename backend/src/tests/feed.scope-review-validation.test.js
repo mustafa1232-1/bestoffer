@@ -68,17 +68,60 @@ test("validateCreatePost accepts a valid merchant review", () => {
   assert.equal(ok.ok, true);
 });
 
-// Documents the current backend reality: story create does NOT process scope.
-test("validateCreateStory does not carry audience scope (backend gap)", async () => {
+// §3/§10: validateCreateStory now normalizes + validates authoritative scope.
+test("validateCreateStory normalizes a valid building scope", async () => {
   const { validateCreateStory } = await import(
     "../modules/feed/feed.validators.js"
   );
   const r = validateCreateStory({
     caption: "hi",
     audienceScopeType: "building",
-    audienceScopeCode: "A1",
+    audienceScopeCode: "A101",
   });
-  // The validator ignores scope entirely — story-level scope is not persisted.
   assert.equal(r.ok, true);
-  assert.equal("audienceScopeType" in r.value, false);
+  assert.equal(r.value.audienceScopeType, "building");
+  assert.equal(r.value.audienceScopeCode, "A101");
+});
+
+test("validateCreateStory rejects relationship/forged scopes", async () => {
+  const { validateCreateStory } = await import(
+    "../modules/feed/feed.validators.js"
+  );
+  assert.equal(
+    validateCreateStory({ caption: "x", audienceScopeType: "followers", audienceScopeCode: "X" }).ok,
+    false
+  );
+  assert.equal(
+    validateCreateStory({ caption: "x", audienceScopeType: "building", audienceScopeCode: "ZZZ" }).ok,
+    false
+  );
+  // Code without a type is rejected.
+  assert.equal(
+    validateCreateStory({ caption: "x", audienceScopeCode: "A101" }).ok,
+    false
+  );
+});
+
+test("validateCreateStory defaults to global with no scope", async () => {
+  const { validateCreateStory } = await import(
+    "../modules/feed/feed.validators.js"
+  );
+  const r = validateCreateStory({ caption: "hi" });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.audienceScopeType, "global");
+  assert.equal(r.value.audienceScopeCode, null);
+});
+
+test("validateCreateStory never trusts the isOfficial flag", async () => {
+  const { validateCreateStory } = await import(
+    "../modules/feed/feed.validators.js"
+  );
+  const r = validateCreateStory({
+    caption: "official",
+    audienceScopeType: "building",
+    audienceScopeCode: "A101",
+    isOfficial: true,
+  });
+  // The validator only records the *request*; authorization is the service's job.
+  assert.equal(r.value.isOfficialRequested, true);
 });
