@@ -13,6 +13,7 @@ import {
   stopSocialStreamReconciliationWorker,
 } from "./modules/feed/feed.service.js";
 import { logStreamConfigStartup } from "./modules/feed/feed.stream-config.js";
+import { getStoryAudienceScopeFeatureState } from "./modules/feed/feed.capabilities.js";
 import { startOrderAttentionReminderWorker, stopOrderAttentionReminderWorker } from "./modules/notifications/order-attention.worker.js";
 import { startInventoryReservationWorker, stopInventoryReservationWorker } from "./modules/orders/inventory-reservation.worker.js";
 import {
@@ -272,6 +273,17 @@ async function start() {
   startSocialScheduledMessageWorker();
   startSocialStreamReconciliationWorker();
   logStreamConfigStartup();
+  {
+    const s = getStoryAudienceScopeFeatureState();
+    if (s.requestedEnabled && !s.implementationReady) {
+      console.warn(
+        "Story audience scope requested by configuration but blocked because implementation is incomplete."
+      );
+    }
+    console.log(
+      `Social story audience scope: effectiveEnabled=${s.effectiveEnabled} reason=${s.reason}`
+    );
+  }
   startTaxiLifecycleWorker();
   startOrderAttentionReminderWorker();
   startInventoryReservationWorker();

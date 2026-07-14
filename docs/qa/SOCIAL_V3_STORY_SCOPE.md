@@ -20,8 +20,30 @@ stories to everyone — worse than the current blocked state.
 ## Status language (per the brief)
 
 - **Flutter scoped-Story guard:** PASS
-- **Backend scoped-Story safety (fail-closed gate):** PASS
-- **Full scoped-Story feature:** NOT_IMPLEMENTED / DISABLED (`STORY_AUDIENCE_SCOPE_ENABLED=false`)
+- **Backend fail-closed safety:** PASS
+- **Configuration-misuse safety:** PASS
+- **Full scoped-Story feature:** DISABLED / NOT IMPLEMENTED
+- **Overall scoped-Story privacy:** SAFE WHILE FEATURE DISABLED
+
+## Configuration-misuse safety (the env footgun)
+
+Enabling scoped stories requires **two** conditions, ANDed:
+
+```
+effectiveEnabled = STORY_AUDIENCE_SCOPE_IMPLEMENTATION_READY (code const, false)
+                   AND env.storyAudienceScopeEnabled
+```
+
+`STORY_AUDIENCE_SCOPE_IMPLEMENTATION_READY` is a **hardcoded code constant**, not
+an env var, and stays `false` until the full feature ships. Therefore setting
+`STORY_AUDIENCE_SCOPE_ENABLED=true` in Railway — accidentally or prematurely —
+**cannot** enable scoped publishing or reopen the leak. One shared resolver,
+`getStoryAudienceScopeFeatureState()`, is used by the service gate, the
+capability endpoint, and startup diagnostics, so the state cannot drift between
+surfaces. Startup logs `effectiveEnabled=false reason=IMPLEMENTATION_INCOMPLETE`
+and warns if the env flag is set while not ready. Proven by
+`feed.story-scope-gate.test.js` (env=true + not-ready → still rejected) and
+`feed.capabilities.test.js` (capability returns effective state).
 
 ## Done + verified
 

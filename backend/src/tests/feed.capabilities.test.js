@@ -3,25 +3,35 @@ import test from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 
-import { buildSocialCapabilities } from "../modules/feed/feed.capabilities.js";
+import {
+  buildSocialCapabilities,
+  getStoryAudienceScopeFeatureState,
+} from "../modules/feed/feed.capabilities.js";
 import { feedRouter } from "../modules/feed/feed.routes.js";
+import * as controller from "../modules/feed/feed.controller.js";
 
-test("capabilities: storyAudienceScope disabled → only global", () => {
-  const cap = buildSocialCapabilities({ storyAudienceScopeEnabled: false });
+test("§7: capability returns EFFECTIVE state — env=true but not ready → supported=false", () => {
+  const cap = buildSocialCapabilities({ storyAudienceScopeEnabled: true });
   assert.equal(cap.social.storyAudienceScope.supported, false);
   assert.deepEqual(cap.social.storyAudienceScope.supportedTypes, ["global"]);
   assert.equal(cap.social.storyAudienceScope.officialStoriesSupported, false);
+  assert.equal(cap.social.storyAudienceScope.reason, "IMPLEMENTATION_INCOMPLETE");
 });
 
-test("capabilities: storyAudienceScope enabled → full scope types", () => {
-  const cap = buildSocialCapabilities({ storyAudienceScopeEnabled: true });
-  assert.equal(cap.social.storyAudienceScope.supported, true);
-  assert.deepEqual(cap.social.storyAudienceScope.supportedTypes, [
-    "global",
-    "block",
-    "compound",
-    "building",
-  ]);
+test("feature-state resolver ANDs implementationReady with the env flag", () => {
+  assert.equal(getStoryAudienceScopeFeatureState({ storyAudienceScopeEnabled: false }).effectiveEnabled, false);
+  assert.equal(getStoryAudienceScopeFeatureState({ storyAudienceScopeEnabled: true }).effectiveEnabled, false);
+  // Only when BOTH are true (future implemented state) is it effective.
+  assert.equal(getStoryAudienceScopeFeatureState({ storyAudienceScopeEnabled: true }, true).effectiveEnabled, true);
+});
+
+test("§7 route: GET /capabilities returns supported=false while not ready", async () => {
+  let payload = null;
+  const res = { json(v) { payload = v; return this; }, status() { return this; } };
+  await controller.getSocialCapabilities({}, res, (e) => { throw e; });
+  assert.ok(payload, "capabilities controller must respond");
+  assert.equal(payload.social.storyAudienceScope.supported, false);
+  assert.deepEqual(payload.social.storyAudienceScope.supportedTypes, ["global"]);
 });
 
 test("GET /capabilities and cancel/publish routes are registered", () => {
