@@ -4,6 +4,7 @@ import 'package:social_core/local_media_file.dart';
 
 import '../../auth/state/auth_controller.dart';
 import '../../social/state/social_controller.dart';
+import '../capabilities/social_capabilities_controller.dart';
 import '../pickers/social_media_picker_v3.dart';
 import '../upload/dio_tus_transport.dart';
 import '../upload/reel_upload_api_impl.dart';
@@ -97,8 +98,10 @@ Future<void> openStoryComposerV3FromGallery(
   );
 }
 
-/// Live scoped-community story (§2): opens the V3 story composer with a locked,
-/// preselected building/block/area scope. Replaces `ScopedCommunityStorySheet`.
+/// Live scoped-community story (§2/§3): consults the authoritative backend
+/// capability first. When scoped stories are not yet supported, it informs the
+/// user and opens a **global** story instead — never implying restricted
+/// visibility, and never sending a scoped request the backend would reject.
 Future<void> openStoryComposerV3Scoped(
   BuildContext context, {
   required String scopeType,
@@ -106,8 +109,25 @@ Future<void> openStoryComposerV3Scoped(
   String? label,
   bool official = false,
   SocialMediaPickerV3? picker,
-}) {
-  return openStoryComposerV3FromGallery(
+}) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  await container.read(socialCapabilitiesProvider.notifier).ensureFresh();
+  final caps = container.read(socialCapabilitiesProvider);
+
+  if (!caps.storyAudienceScope.supportsType(scopeType)) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('القصص المخصصة للبناية ستتوفر قريباً')),
+      );
+    }
+    if (!context.mounted) return;
+    // Fall back to a clearly-global story (still fully functional).
+    await openStoryComposerV3FromGallery(context, picker: picker);
+    return;
+  }
+
+  if (!context.mounted) return;
+  await openStoryComposerV3FromGallery(
     context,
     picker: picker,
     scope: StoryComposerScope(

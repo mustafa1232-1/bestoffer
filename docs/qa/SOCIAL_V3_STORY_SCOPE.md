@@ -58,6 +58,25 @@ and warns if the env flag is set while not ready. Proven by
 | §2 Migration `135_social_story_audience_scope.sql` | PASS | applied to local DB, idempotent (ran 2×); adds `audience_scope_type`/`audience_scope_code`/`is_official`, CHECK (global/block/compound/building), consistency CHECK, index `idx_social_story_scope_active`; existing stories default global; legacy media untouched |
 | §3 `validateCreateStory` scope validation | PASS | normalizes global/block/compound/building; rejects followers/close_friends/area/custom/forged codes/code-without-type; records `isOfficialRequested` only (`feed.scope-review-validation.test.js`) |
 
+## Flutter capability UX integration — done (feature still disabled)
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| `SocialCapabilities` model (fail-closed) | PASS | `capabilities/social_capabilities.dart`; `supported=false` ignores advertised types → only `global`; missing/malformed → fail-closed |
+| `SocialCapabilitiesApi` (fail-closed on error) | PASS | `capabilities/social_capabilities_api.dart`; any Dio error → `failClosed` |
+| `socialCapabilitiesProvider` controller | PASS | short bounded cache (5 min TTL), `ensureFresh`/`refresh`, `markStoryScopeUnsupported` (reset after a 409); `social_capabilities_test.dart` (8 cases: parse, cache TTL, network-error→false, stale-true→reset) |
+| Disabled scoped UX | PASS | community "create story" consults the capability via `ensureFresh` before acting; when unsupported → shows "القصص المخصصة للبناية ستتوفر قريباً" and opens a **global** story (never a locked/misleading scope); `live_create_routes_test.dart` (unsupported→global+notice; supported→locked scope) |
+
+**§2 Endpoint access decision:** `GET /api/feed/capabilities` stays behind
+`requireAuth` (deliberate). Scoped-story creation is post-login only; guests/
+pre-login get the Flutter controller's fail-closed default (`supported=false`),
+which is correct. No guest endpoint is needed; the response carries no secrets.
+
+**Feature freeze (§4):** `STORY_AUDIENCE_SCOPE_IMPLEMENTATION_READY=false` and
+`STORY_AUDIENCE_SCOPE_ENABLED=false` — unchanged. Capability integration does NOT
+enable the feature; it only makes the disabled state a clean UX instead of a
+publish-time failure.
+
 ## Remaining (must land atomically before flipping the flag)
 
 | § | Item | Notes |

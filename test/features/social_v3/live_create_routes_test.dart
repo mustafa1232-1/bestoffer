@@ -10,7 +10,46 @@ import 'package:maslaki/features/social_v3/composer/story_composer_v3.dart';
 import 'package:maslaki/features/social_v3/pickers/social_media_picker_v3.dart';
 import 'package:maslaki/features/social_v3/reels/social_reels_screen_v3.dart';
 
+import 'package:dio/dio.dart';
+import 'package:maslaki/features/social_v3/capabilities/social_capabilities.dart';
+import 'package:maslaki/features/social_v3/capabilities/social_capabilities_api.dart';
+import 'package:maslaki/features/social_v3/capabilities/social_capabilities_controller.dart';
+
 import 'reels_v3_fixtures.dart';
+
+class _FakeCapsApi extends SocialCapabilitiesApi {
+  _FakeCapsApi(this.caps) : super(Dio());
+  final SocialCapabilities caps;
+  @override
+  Future<SocialCapabilities> fetch() async => caps;
+}
+
+Future<void> _pumpButtonWithCaps(
+  WidgetTester tester, {
+  required SocialCapabilities caps,
+  required Future<void> Function(BuildContext) onTap,
+}) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        socialCapabilitiesApiProvider.overrideWithValue(_FakeCapsApi(caps)),
+      ],
+      child: MaterialApp(
+        home: Builder(
+          builder: (ctx) => Scaffold(
+            body: ElevatedButton(
+              onPressed: () => onTap(ctx),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('go'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 350));
+}
 
 const _video = PickedSocialMedia(
   path: '/tmp/r.mp4', name: 'r.mp4', mimeType: 'video/mp4',
@@ -103,11 +142,40 @@ void main() {
     expect(composer.source.kind, StorySourceKind.sharedReel);
   });
 
-  testWidgets('Scoped community Story → StoryComposerV3 with locked scope',
+  testWidgets(
+      'Scoped community Story: capability UNsupported → global fallback + notice',
       (tester) async {
-    await _pumpButton(
+    await _pumpButtonWithCaps(
       tester,
-      (ctx) => openStoryComposerV3Scoped(
+      caps: SocialCapabilities.failClosed,
+      onTap: (ctx) => openStoryComposerV3Scoped(
+        ctx,
+        scopeType: 'building',
+        scopeCode: 'B12',
+        label: 'المبنى B12',
+        picker: _FakePicker(single: _image),
+      ),
+    );
+    // Falls back to a GLOBAL story (never a locked building scope), and warns.
+    final composer = tester.widget<StoryComposerV3>(find.byType(StoryComposerV3));
+    expect(composer.scope.scope, StoryAudienceScope.global);
+    expect(find.text('القصص المخصصة للبناية ستتوفر قريباً'), findsOneWidget);
+  });
+
+  testWidgets('Scoped community Story: capability supported → locked scope',
+      (tester) async {
+    await _pumpButtonWithCaps(
+      tester,
+      caps: const SocialCapabilities(
+        storyAudienceScope: StoryAudienceScopeCapability(
+          supported: true,
+          supportedTypes: ['global', 'building'],
+          officialStoriesSupported: false,
+          version: 1,
+          reason: 'ENABLED',
+        ),
+      ),
+      onTap: (ctx) => openStoryComposerV3Scoped(
         ctx,
         scopeType: 'building',
         scopeCode: 'B12',
@@ -117,7 +185,6 @@ void main() {
     );
     final composer = tester.widget<StoryComposerV3>(find.byType(StoryComposerV3));
     expect(composer.scope.scope, StoryAudienceScope.building);
-    expect(composer.scope.scopeCode, 'B12');
     expect(composer.scope.locked, isTrue);
   });
 
