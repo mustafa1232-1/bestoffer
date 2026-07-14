@@ -419,20 +419,29 @@ parsing; DB unique-marker no-row; controller 409 path; capability route.
 Configuration-misuse **PASS** · Full feature **DISABLED/NOT IMPLEMENTED** ·
 Overall scoped-Story privacy **SAFE WHILE FEATURE DISABLED**.
 
-### Final QA APK — newest SHA `e5d6b44d`
+### Flutter capability UX integration — PASS (feature still disabled)
+Flutter consumes the authoritative `GET /api/feed/capabilities` (fail-closed
+model/api/controller: 5-min bounded cache, `ensureFresh`/`refresh`, reset-on-409,
+network-error → `supported=false`). Community "create story" consults it and,
+while unsupported, shows "القصص المخصصة للبناية ستتوفر قريباً" and opens a
+**global** story (never a misleading scope). Endpoint stays behind `requireAuth`
+(scoped create is post-login; guests get the fail-closed default). Both feature
+flags remain **false** — the capability integration does not enable anything.
+8 capability + 2 scoped-UX tests.
+
+### Final QA APK — newest SHA `900a741e`
 
 | Field | Value |
 |------|-------|
-| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-e5d6b44d-qa.apk` |
-| APK SHA-256 | `6118370b07eb55655f55aa611dc43078ecbefa58f2358a4375ec8f35d9d8e261` |
-| Git SHA | `e5d6b44d3297644ea9cf3f190e7a25dc19d550d0` |
-| QA tag | `social-v3-qa-e5d6b44d` (prior tags preserved) |
+| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-900a741e-qa.apk` |
+| APK SHA-256 | `6d5529f196b8d5fa9216ddb1f5d8d401ee8e85ba293fa27433fc2cbbbec6cf35` |
+| Git SHA | `900a741ec28494d4dcdf4bc57a0f776445686c72` |
+| QA tag | `social-v3-qa-900a741e` (prior tags preserved) |
 | appId / version | `com.maslaki.user` / `1.0.1+9` · debug (QA) |
 
-Supersedes `0abb72c4`. Built after clean + analyze(clean) + 75 Flutter tests.
-Backend: **39 tests passing**. Contains the Flutter guard; the backend
-readiness-gated fail-closed enforcement protects all clients regardless of APK
-or env misconfiguration.
+Supersedes `e5d6b44d`. Built after clean + analyze(clean) + **84 Flutter tests**.
+Backend: **39 tests passing**. Story-scope feature disabled + fail-closed on all
+axes (client guard, backend readiness gate, config-misuse, and now UX).
 
 ## Overall Social V3 status: **PARTIAL** (by design)
 
