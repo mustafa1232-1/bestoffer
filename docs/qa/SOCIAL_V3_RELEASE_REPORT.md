@@ -382,6 +382,40 @@ Built after `flutter clean` + `pub get` + `flutter analyze lib` (clean) + 75-tes
 suite. Supersedes `a35e8b67`. Filename, badge, diagnostics, report, tag all →
 `d1d70214`. Backend tests: **20 passing**.
 
+## Story-scope privacy remediation
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Privacy defect (UI promised scoped visibility; backend published globally) | **CLOSED** | `StoryComposerV3` blocks non-global publish while `kStoryAudienceScopeSupported=false`; draft preserved; no silent global downgrade; `story_composer_v3.dart` + regression test |
+| §2 Migration `135_social_story_audience_scope.sql` | PASS | applied to local DB, idempotent (2×); scope cols + CHECKs + index; existing stories default global; non-destructive |
+| §3 `validateCreateStory` scope validation | PASS | normalizes global/block/compound/building; rejects relationship/forged/code-without-type; `isOfficial` request-only (`feed.scope-review-validation.test.js`) |
+| §4–§10 service authz + read-enforcement + notifications + capability flip | NOT_STARTED (atomic, security-critical) | full spec + 30-case matrix in `SOCIAL_V3_STORY_SCOPE.md`. Flag stays `false` until complete — a partial backend would leak |
+| Merchant-review DB business policy (§11) | NOT_STARTED | validation PASS; verified-purchase/order-ownership/one-per-merchant matrix pending |
+
+**Why not a partial backend:** persisting story scope without enforcing it in
+every story read query would store "scoped" stories that are visible to everyone
+— worse than the current safely-blocked state. So the read-enforcement feature
+must land atomically before scoped publishing is re-enabled.
+
+### Git hygiene note
+Commit `581655d` inadvertently included a local `backend/.env.test` change
+(localhost test-DB **port** only — no secret; the dummy test JWT was pre-existing)
+and `backend/tmp/*.mjs` scratch scripts. Corrected in `757db30`: `.env.test`
+reverted, tmp untracked, `backend/tmp/` added to `.gitignore`.
+
+### Final QA APK — newest SHA `757db305` (contains the privacy safety guard)
+
+| Field | Value |
+|------|-------|
+| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-757db305-qa.apk` |
+| APK SHA-256 | `85184cdb298397402ebf946b57cc5b64ca01940f4719d8983cc5af04900c66aa` |
+| Git SHA | `757db30556e1068eac8978f043046142318d7ce8` |
+| QA tag | `social-v3-qa-757db305` (prior tags preserved) |
+| appId / version | `com.maslaki.user` / `1.0.1+9` · debug (QA) |
+
+Supersedes `d1d70214`. Built after clean + analyze(clean) + 75-test suite.
+Backend: 24 tests passing.
+
 ## Overall Social V3 status: **PARTIAL** (by design)
 
 Per §11 completion language, Social V3 stays **PARTIAL** until direct upload is
