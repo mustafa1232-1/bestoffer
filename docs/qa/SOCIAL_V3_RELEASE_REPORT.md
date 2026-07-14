@@ -190,6 +190,92 @@ flutter build apk --release --flavor user -t lib/main.dart \
 `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Without them only the debug-signed
 QA APK can be produced.
 
+## Final closure phase (commit → live wiring → clean rebuild)
+
+### Source committed & pushed
+
+| | |
+|---|---|
+| Final frontend source SHA | `e335c78687bda8667ea10ba1bb3eab67509d8e69` |
+| Prior integration SHA | `b68fce8975024279378c92c42ba45131fb97ea8e` |
+| Branch | `closure/full-application-closure` (pushed to `origin`) |
+| Working tree after commit | clean except deliberately-excluded local/generated: `backend/.env.test`, `third_party/**/*.cxx/*.bin`, `backend/tmp/` |
+| Secret scan | PASS — no secret values staged (only variable **names** appear, in docs) |
+
+The stale-SHA problem is resolved: all Reel Composer / tus / picker / Share
+Sheet / backend / test / docs work is now committed at `e335c78`, and the final
+QA APK is built from that SHA.
+
+### Live composer/share wiring (§2/§3) — now PASS
+
+Previously the V3 composers existed but no live button opened them. Now:
+
+| Live action | Opens | Proof |
+|-------------|-------|-------|
+| Reels tab create icon | native video picker → `ReelComposerV3` | `composer_wiring_test.dart` (create control fires), `ReelGalleryEntryV3` |
+| Reel share button | `ShareSheetV3` | `SocialReelsV3Connector._share` |
+| Share → Add to Story | `StoryComposerV3` (`SharedReelSource`) | `composer_wiring_test.dart` (Add-to-Story fires) |
+| Create-reel pipeline | production `ReelComposerController` + `ReelUploadApiImpl` + `DioTusTransport` (no fakes) | `reel_publish_integration_test.dart` — picker→controller→real API over fake Dio→tus→poll→publish |
+
+**Remaining PARTIAL wiring:** the legacy feed/profile "create post" sheet
+(`showSocialCreatePostSheet`) and the old story-entry sheet
+(`SocialStoryComposerScreen`) still open the old composers — documented in
+`SOCIAL_V3_LEGACY_REMOVAL.md`; the primary Reels-tab create + reel-share paths
+are on V3.
+
+### Backend route/config verification (§4/§5)
+
+- Route registration: PASS — `feed.media-routes.test.js` proves
+  `POST /media/stream/upload-session`, `…/:assetId/cancel`, `GET /media/assets/:assetId`,
+  `POST /media/stream/webhook`, and `POST /reels` are registered on `feedRouter`
+  (not merely helpers).
+- Config validator: PASS — `feed.stream-config.test.js` (presence-only, no value
+  leak). See `SOCIAL_V3_CLOUDFLARE_SETUP.md`.
+- Full backend `npm test` / migration-integration matrix (idempotency, ownership,
+  oversize, expired, publish-before/after READY, duplicate webhook): BLOCKED on a
+  provisioned test DB in this environment; targeted logic + route-registration
+  tests pass.
+
+### Deploy/runtime (§6), real Stream upload matrix (§7), device (§9), signed release (§10)
+
+**BLOCKED** — no Railway deploy access, no Cloudflare credentials, no `adb`/device,
+no macOS/keystore. Code, config validation, mocked tests, and procedures are
+complete; runtime/device evidence must be produced where those are available.
+
+### Final QA APK (§8/§13) — clean rebuild from the new SHA
+
+Built after `flutter clean` + `flutter pub get` + `flutter analyze lib` (clean) +
+the 66-test Flutter suite.
+
+| Field | Value |
+|------|-------|
+| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-e335c786-qa.apk` |
+| APK SHA-256 | `a1f9d14567edcb4c2d1f0ed0bb52acffbc8821462ef846cf728e4398ea835af9` |
+| Git SHA | `e335c78687bda8667ea10ba1bb3eab67509d8e69` |
+| Branch | `closure/full-application-closure` |
+| Backend URL | `https://bestoffer-production.up.railway.app` |
+| Backend release SHA | pass `BACKEND_RELEASE_SHA` at build (not deployed from here) |
+| Flavor / appId | `user` / `com.maslaki.user` |
+| versionName / versionCode | `1.0.1` / `9` |
+| Build mode | debug (QA) |
+| QA badge | enabled via `SHOW_QA_BADGE=true` (also passed `QA_BUILD=true`) |
+| Signing cert | Android debug keystore (release keystore BLOCKED — see below) |
+
+This **supersedes** the earlier `cbd42c46` artifacts; the diagnostics screen and
+QA badge now report SHA `e335c786`, matching the committed source. The earlier
+`cbd42c46` APKs are intermediate and must not be used as final evidence.
+
+### Signed release (§10) — BLOCKED
+
+Missing keystore env vars (from `android/app/build.gradle.kts` release
+`signingConfig`): `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. With them:
+`flutter build apk --release --flavor user …` →
+`Maslaki-user-social-v3-e335c786-release.apk`, and
+`flutter build appbundle --release --flavor user …` →
+`Maslaki-user-social-v3-e335c786-release.aab`. Release builds pass **no** QA
+defines, so the badge is absent in production.
+
 ## Overall Social V3 status: **PARTIAL** (by design)
 
 Per §11 completion language, Social V3 stays **PARTIAL** until direct upload is
