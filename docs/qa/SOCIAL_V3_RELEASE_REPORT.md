@@ -429,19 +429,33 @@ while unsupported, shows "القصص المخصصة للبناية ستتوفر 
 flags remain **false** — the capability integration does not enable anything.
 8 capability + 2 scoped-UX tests.
 
-### Final QA APK — newest SHA `900a741e`
+### Capability-safety integrations (final targeted patch) — PASS
+- **§1 Auth lifecycle:** the provider refreshes capability on real `AuthState`
+  changes via `onAuthChanged` — login → fetch, logout → fail-closed reset,
+  account switch → reset + refetch (no cross-account reuse), network error →
+  stays `false`; non-blocking startup.
+- **§2 Server 409 reset:** `isStoryScopeUnavailableError` + a real call site in
+  `_publishStory` — on `STORY_AUDIENCE_SCOPE_NOT_AVAILABLE` it calls
+  `markStoryScopeUnsupported()`, preserves the draft, and never retries global.
+- **§3 No silent global fallback:** unsupported scoped action shows an explicit
+  confirmation dialog (default **Cancel**); only "إنشاء قصة عامة" opens a global
+  story, which shows "الجمهور: جميع المستخدمين".
+- Flags unchanged (both `false`).
+
+### Final QA APK — newest SHA `29b5c242`
 
 | Field | Value |
 |------|-------|
-| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-900a741e-qa.apk` |
-| APK SHA-256 | `6d5529f196b8d5fa9216ddb1f5d8d401ee8e85ba293fa27433fc2cbbbec6cf35` |
-| Git SHA | `900a741ec28494d4dcdf4bc57a0f776445686c72` |
-| QA tag | `social-v3-qa-900a741e` (prior tags preserved) |
+| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-29b5c242-qa.apk` |
+| APK SHA-256 | `6ff78b2de17a9b1b7448f8d11541e6f433ef0cd9f96198826d1a742d28c21521` |
+| Git SHA | `29b5c242f89f7d7a04f0f34d591c9beea0b00f40` |
+| QA tag | `social-v3-qa-29b5c242` (prior tags preserved) |
 | appId / version | `com.maslaki.user` / `1.0.1+9` · debug (QA) |
 
-Supersedes `e5d6b44d`. Built after clean + analyze(clean) + **84 Flutter tests**.
+Supersedes `900a741e`. Built after clean + analyze(clean) + **92 Flutter tests**.
 Backend: **39 tests passing**. Story-scope feature disabled + fail-closed on all
-axes (client guard, backend readiness gate, config-misuse, and now UX).
+axes (client guard, backend readiness gate, config-misuse, UX, auth-lifecycle,
+and server-409 reset).
 
 ## Overall Social V3 status: **PARTIAL** (by design)
 
