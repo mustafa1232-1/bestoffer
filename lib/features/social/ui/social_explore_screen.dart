@@ -16,7 +16,6 @@ import 'social_content_navigation.dart';
 import 'social_discovery_people_screen.dart';
 import 'social_hashtag_screen.dart';
 import 'social_profile_screen.dart';
-import 'social_reel_viewer_screen.dart';
 import 'social_search_screen.dart';
 import 'widgets/social_post_card_v2.dart';
 import 'widgets/social_save_sheet.dart';
@@ -212,11 +211,7 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
     if (reels.isEmpty) return;
     final safeIndex = initialIndex.clamp(0, reels.length - 1);
     final target = reels[safeIndex];
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SocialReelViewerScreen(initialReelId: target.id),
-      ),
-    );
+    openSocialReelsV3(context, reelId: target.id);
   }
 
   List<Widget> _buildPostSection(

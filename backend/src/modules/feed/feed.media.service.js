@@ -262,6 +262,29 @@ export async function createSocialMediaStreamUploadSession({
   };
 }
 
+export async function cancelSocialMediaStreamUploadSession({ userId, assetId }) {
+  const asset = await repo.findSocialMediaAssetById(assetId);
+  if (!asset) {
+    throw new AppError("MEDIA_ASSET_NOT_FOUND", { status: 404 });
+  }
+  if (Number(asset.owner_user_id) !== Number(userId)) {
+    throw new AppError("MEDIA_ASSET_FORBIDDEN", { status: 403 });
+  }
+  const status = String(asset.processing_status || "").trim().toLowerCase();
+  // Only in-flight (pre-ready) sessions may be cancelled; a published/ready
+  // asset must not be silently torn down here.
+  if (["ready", "published"].includes(status)) {
+    throw new AppError("MEDIA_ASSET_ALREADY_READY", { status: 409 });
+  }
+  const updated = await repo.updateSocialMediaAssetStatus({
+    assetId: asset.id,
+    streamUid: asset.stream_uid,
+    processingStatus: "cancelled",
+    processingError: "UPLOAD_CANCELLED_BY_OWNER",
+  });
+  return { asset: mapSocialMediaAssetRow(updated || asset) };
+}
+
 export async function getSocialMediaAssetById({ userId, assetId }) {
   const asset = await repo.findSocialMediaAssetById(assetId);
   if (!asset) {
@@ -273,7 +296,7 @@ export async function getSocialMediaAssetById({ userId, assetId }) {
   return { asset: mapSocialMediaAssetRow(asset) };
 }
 
-function mapStreamDetailsToStatus(details, fallbackStatus = "processing") {
+export function mapStreamDetailsToStatus(details, fallbackStatus = "processing") {
   const normalized = String(
     details?.status || details?.state || details?.readyToStreamStatus || ""
   )
@@ -289,7 +312,7 @@ function mapStreamDetailsToStatus(details, fallbackStatus = "processing") {
   return fallbackStatus;
 }
 
-function extractStreamUidFromWebhook(payload) {
+export function extractStreamUidFromWebhook(payload) {
   return String(
     payload?.uid ||
       payload?.streamUid ||
@@ -301,7 +324,7 @@ function extractStreamUidFromWebhook(payload) {
   ).trim();
 }
 
-function extractStreamPlaybacks(details) {
+export function extractStreamPlaybacks(details) {
   return {
     playbackUrl:
       details?.playback?.hls ||

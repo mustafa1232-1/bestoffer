@@ -182,17 +182,64 @@ class SocialMediaAsset {
       j['normalizedUrl'] ?? j['normalized_url'],
     ),
     posterUrl: parseNullableString(j['posterUrl'] ?? j['poster_url']),
-    playbackUrl: parseNullableString(
-      j['playbackUrl'] ?? j['playback_url'],
-    ),
-    thumbnailUrl: parseNullableString(
-      j['thumbnailUrl'] ?? j['thumbnail_url'],
-    ),
+    playbackUrl: parseNullableString(j['playbackUrl'] ?? j['playback_url']),
+    thumbnailUrl: parseNullableString(j['thumbnailUrl'] ?? j['thumbnail_url']),
     durationMs: parseNullableInt(j['durationMs'] ?? j['duration_ms']),
     processingStatus: parseNullableString(
       j['processingStatus'] ?? j['processing_status'],
     ),
   );
+
+  bool get isReady => (processingStatus ?? '').trim().toLowerCase() == 'ready';
+}
+
+class SocialMediaUploadSession {
+  final int assetId;
+  final String streamUid;
+  final String uploadUrl;
+  final String sourceType;
+  final String mediaKind;
+  final String processingStatus;
+  final bool readyToStream;
+  final SocialMediaAsset? asset;
+
+  const SocialMediaUploadSession({
+    required this.assetId,
+    required this.streamUid,
+    required this.uploadUrl,
+    required this.sourceType,
+    required this.mediaKind,
+    required this.processingStatus,
+    required this.readyToStream,
+    required this.asset,
+  });
+
+  factory SocialMediaUploadSession.fromJson(Map<String, dynamic> j) {
+    final nestedAsset = j['asset'] is Map
+        ? SocialMediaAsset.fromJson(
+            Map<String, dynamic>.from(j['asset'] as Map),
+          )
+        : null;
+    return SocialMediaUploadSession(
+      assetId: parseInt(j['assetId'] ?? j['asset_id']),
+      streamUid: parseString(j['streamUid'] ?? j['stream_uid']),
+      uploadUrl: parseString(j['uploadUrl'] ?? j['upload_url']),
+      sourceType: parseString(
+        j['sourceType'] ?? j['source_type'],
+        fallback: 'reel',
+      ),
+      mediaKind: parseString(
+        j['mediaKind'] ?? j['media_kind'],
+        fallback: 'video',
+      ),
+      processingStatus: parseString(
+        j['processingStatus'] ?? j['processing_status'],
+        fallback: 'pending',
+      ),
+      readyToStream: parseBool(j['readyToStream'] ?? j['ready_to_stream']),
+      asset: nestedAsset,
+    );
+  }
 }
 
 class SocialPostMediaItem {
@@ -466,10 +513,11 @@ String? resolveSocialPostPosterUrl(
   final galleryFirst = post.mediaGallery.isNotEmpty
       ? post.mediaGallery.first
       : null;
-  final galleryPoster = (galleryFirst?.asset?.thumbnailUrl ??
-          galleryFirst?.asset?.posterUrl ??
-          '')
-      .trim();
+  final galleryPoster =
+      (galleryFirst?.asset?.thumbnailUrl ??
+              galleryFirst?.asset?.posterUrl ??
+              '')
+          .trim();
   if (galleryPoster.isNotEmpty) return galleryPoster;
 
   final galleryUrl =
@@ -480,10 +528,12 @@ String? resolveSocialPostPosterUrl(
           .trim();
   if (galleryUrl.isNotEmpty) return galleryUrl;
 
-  final assetPoster = (post.asset?.thumbnailUrl ?? post.asset?.posterUrl ?? '').trim();
+  final assetPoster = (post.asset?.thumbnailUrl ?? post.asset?.posterUrl ?? '')
+      .trim();
   if (assetPoster.isNotEmpty) return assetPoster;
 
-  final assetUrl = (post.asset?.playbackUrl ?? post.asset?.normalizedUrl ?? '').trim();
+  final assetUrl = (post.asset?.playbackUrl ?? post.asset?.normalizedUrl ?? '')
+      .trim();
   if (assetUrl.isNotEmpty && !isSocialVideoPost(post)) return assetUrl;
 
   final mediaUrl = (post.mediaUrl ?? '').trim();
@@ -508,7 +558,8 @@ String? resolveSocialPostVideoUrl(SocialPost post) {
           .trim();
   if (galleryUrl.isNotEmpty) return galleryUrl;
   if (!isSocialVideoPost(post)) return null;
-  final assetUrl = (post.asset?.playbackUrl ?? post.asset?.normalizedUrl ?? '').trim();
+  final assetUrl = (post.asset?.playbackUrl ?? post.asset?.normalizedUrl ?? '')
+      .trim();
   if (assetUrl.isNotEmpty) return assetUrl;
   final mediaUrl = (post.mediaUrl ?? '').trim();
   if (mediaUrl.isNotEmpty) return mediaUrl;
@@ -1944,8 +1995,9 @@ class SocialChatMessage {
       threadId: threadId,
       senderUserId: senderUserId,
       body: body ?? this.body,
-      clientMessageId:
-          clearClientMessageId ? null : (clientMessageId ?? this.clientMessageId),
+      clientMessageId: clearClientMessageId
+          ? null
+          : (clientMessageId ?? this.clientMessageId),
       replyToMessage: replyToMessage ?? this.replyToMessage,
       attachment: attachment ?? this.attachment,
       sharedEntity: sharedEntity ?? this.sharedEntity,

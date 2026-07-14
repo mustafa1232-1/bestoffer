@@ -5,6 +5,7 @@ import '../../../core/files/local_media_file.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/social_api.dart';
+import '../data/social_stream_upload_service.dart';
 import '../models/social_models.dart';
 
 final socialApiProvider = Provider<SocialApi>((ref) {
@@ -126,6 +127,21 @@ class SocialController extends StateNotifier<SocialState> {
 
   bool _isAuthFailure(Object error) {
     return error is DioException && isAuthDioError(error);
+  }
+
+  Future<int?> _uploadStreamVideoIfNeeded({
+    required String sourceType,
+    required LocalMediaFile? mediaFile,
+    required String title,
+  }) async {
+    if (mediaFile == null || !mediaFile.isVideo) return null;
+    final uploader = SocialStreamUploadService(ref.read(socialApiProvider));
+    final asset = await uploader.uploadVideoAndWaitReady(
+      mediaFile: mediaFile,
+      sourceType: sourceType,
+      title: title,
+    );
+    return asset.id;
   }
 
   /// يحمل القصص والمنشورات والـ threads معاً عند فتح التجربة الاجتماعية.
@@ -267,12 +283,7 @@ class SocialController extends StateNotifier<SocialState> {
       );
     } on DioException catch (e) {
       if (_isAuthFailure(e)) {
-        _safeSetState(
-          state.copyWith(
-            loadingStories: false,
-            error: null,
-          ),
-        );
+        _safeSetState(state.copyWith(loadingStories: false, error: null));
         return;
       }
       if (silent) return;
@@ -300,18 +311,26 @@ class SocialController extends StateNotifier<SocialState> {
 
   Future<void> createStory({
     required String caption,
+    int? mediaAssetId,
     LocalMediaFile? mediaFile,
     Map<String, dynamic>? storyStyle,
   }) async {
     _safeSetState(state.copyWith(creatingStory: true, error: null));
     try {
-      await ref
-          .read(socialApiProvider)
-          .createStory(
-            caption: caption,
+      final api = ref.read(socialApiProvider);
+      final resolvedAssetId =
+          mediaAssetId ??
+          await _uploadStreamVideoIfNeeded(
+            sourceType: 'story',
             mediaFile: mediaFile,
-            storyStyle: storyStyle,
+            title: caption.isNotEmpty ? caption : 'story',
           );
+      await api.createStory(
+        caption: caption,
+        mediaAssetId: resolvedAssetId,
+        mediaFile: resolvedAssetId != null ? null : mediaFile,
+        storyStyle: storyStyle,
+      );
       _safeSetState(state.copyWith(creatingStory: false));
       await loadStories();
     } on DioException catch (e) {
@@ -437,6 +456,7 @@ class SocialController extends StateNotifier<SocialState> {
     required String postKind,
     int? merchantId,
     int? reviewRating,
+    int? mediaAssetId,
     LocalMediaFile? mediaFile,
     List<LocalMediaFile>? mediaFiles,
     Map<String, dynamic>? reelStyle,
@@ -445,19 +465,37 @@ class SocialController extends StateNotifier<SocialState> {
   }) async {
     _safeSetState(state.copyWith(creatingPost: true, error: null));
     try {
-      final out = await ref
-          .read(socialApiProvider)
-          .createPost(
-            caption: caption,
-            postKind: postKind,
-            merchantId: merchantId,
-            reviewRating: reviewRating,
-            mediaFile: mediaFile,
-            mediaFiles: mediaFiles,
-            reelStyle: reelStyle,
-            audienceScopeType: audienceScopeType,
-            audienceScopeCode: audienceScopeCode,
-          );
+      final api = ref.read(socialApiProvider);
+      final normalizedKind = postKind.trim().toLowerCase();
+      final normalizedMediaFiles = <LocalMediaFile>[
+        ...?mediaFiles,
+        ...(mediaFile == null
+            ? const <LocalMediaFile>[]
+            : <LocalMediaFile>[mediaFile]),
+      ];
+      int? resolvedAssetId = mediaAssetId;
+      if (resolvedAssetId == null &&
+          normalizedMediaFiles.length == 1 &&
+          normalizedMediaFiles.single.isVideo &&
+          (normalizedKind == 'reel' || normalizedKind == 'video')) {
+        resolvedAssetId = await _uploadStreamVideoIfNeeded(
+          sourceType: normalizedKind == 'reel' ? 'reel' : 'post',
+          mediaFile: normalizedMediaFiles.single,
+          title: caption.isNotEmpty ? caption : normalizedKind,
+        );
+      }
+      final out = await api.createPost(
+        caption: caption,
+        postKind: postKind,
+        merchantId: merchantId,
+        reviewRating: reviewRating,
+        mediaAssetId: resolvedAssetId,
+        mediaFile: resolvedAssetId != null ? null : mediaFile,
+        mediaFiles: resolvedAssetId != null ? null : mediaFiles,
+        reelStyle: reelStyle,
+        audienceScopeType: audienceScopeType,
+        audienceScopeCode: audienceScopeCode,
+      );
       final postMap = Map<String, dynamic>.from(out['post'] as Map);
       final post = SocialPost.fromJson(postMap);
       _safeSetState(
@@ -623,12 +661,7 @@ class SocialController extends StateNotifier<SocialState> {
 
   Future<void> loadThreads({bool silent = false}) async {
     if (!_hasVerifiedSession()) {
-      _safeSetState(
-        state.copyWith(
-          loadingThreads: false,
-          error: null,
-        ),
-      );
+      _safeSetState(state.copyWith(loadingThreads: false, error: null));
       return;
     }
     if (!silent) {
@@ -651,12 +684,7 @@ class SocialController extends StateNotifier<SocialState> {
       );
     } on DioException catch (e) {
       if (_isAuthFailure(e)) {
-        _safeSetState(
-          state.copyWith(
-            loadingThreads: false,
-            error: null,
-          ),
-        );
+        _safeSetState(state.copyWith(loadingThreads: false, error: null));
         return;
       }
       if (silent) return;

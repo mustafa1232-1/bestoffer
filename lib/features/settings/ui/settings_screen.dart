@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/app_permission_matrix.dart';
+import '../../../core/diagnostics/build_diagnostics_screen.dart';
+import '../../../core/diagnostics/build_info.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/settings/app_settings_controller.dart';
@@ -183,7 +185,54 @@ class SettingsScreen extends ConsumerWidget {
             ),
             onTap: () => open(const TermsOfUseScreen()),
           ),
+          const SizedBox(height: 8),
+          const _SettingsAboutFooter(),
         ],
+      ),
+    );
+  }
+}
+
+/// App "About" footer. Tapping the version label seven times is the deliberate
+/// gesture that opens the hidden build-identity diagnostics screen (Social V3
+/// §0) so an on-device screenshot can prove which SHA is installed.
+class _SettingsAboutFooter extends StatefulWidget {
+  const _SettingsAboutFooter();
+
+  @override
+  State<_SettingsAboutFooter> createState() => _SettingsAboutFooterState();
+}
+
+class _SettingsAboutFooterState extends State<_SettingsAboutFooter> {
+  int _taps = 0;
+
+  void _onTap() {
+    _taps += 1;
+    if (_taps >= 7) {
+      _taps = 0;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const BuildDiagnosticsScreen(),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    final info = BuildInfo.compileTime;
+    return Center(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            'Maslaki • ${info.appVersion} • ${info.shortSha}',
+            style: TextStyle(color: tokens.textMuted, fontSize: 12),
+          ),
+        ),
       ),
     );
   }

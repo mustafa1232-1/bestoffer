@@ -707,6 +707,20 @@ export async function getSocialMediaAssetById(req, res, next) {
   }
 }
 
+export async function cancelStreamUploadSession(req, res, next) {
+  try {
+    const asset = validateMediaAssetId(req.params.assetId);
+    if (!asset.ok) return badRequest(res, asset.errors);
+    const out = await service.cancelSocialMediaStreamUploadSession({
+      userId: req.userId,
+      assetId: asset.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function streamWebhook(req, res, next) {
   try {
     const out = await service.handleCloudflareStreamWebhook({

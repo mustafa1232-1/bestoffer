@@ -11,7 +11,6 @@ import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'social_content_navigation.dart';
 import 'social_profile_screen.dart';
-import 'social_reel_viewer_screen.dart';
 import 'widgets/social_post_card_v2.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
@@ -230,11 +229,7 @@ class _SocialProfilePostsScreenState
   }
 
   void _openReel(SocialPost target) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SocialReelViewerScreen(initialReelId: target.id),
-      ),
-    );
+    openSocialReelsV3(context, reelId: target.id);
   }
 
   Widget _buildGrid() {

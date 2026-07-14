@@ -1,8 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'social_reel_viewer_screen.dart';
+import '../../social_v3/state/social_reels_v3_connector.dart';
 
+/// Live Reels tab. Cut over to Social V3 — this now renders the full-screen
+/// [SocialReelsScreenV3] via [SocialReelsV3Connector]. The old
+/// `SocialReelViewerScreen` is no longer reachable from this route.
 class SocialReelsScreen extends StatelessWidget {
   final int? initialReelId;
   final bool playbackEnabled;
@@ -17,21 +20,9 @@ class SocialReelsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final listenable = playbackEnabledListenable;
-    if (listenable == null) {
-      return SocialReelViewerScreen(
-        initialReelId: initialReelId,
-        playbackEnabled: playbackEnabled,
-      );
-    }
-    return ValueListenableBuilder<bool>(
-      valueListenable: listenable,
-      builder: (context, enabled, _) {
-        return SocialReelViewerScreen(
-          initialReelId: initialReelId,
-          playbackEnabled: enabled,
-        );
-      },
+    return SocialReelsV3Connector(
+      initialReelId: initialReelId,
+      playbackEnabledListenable: playbackEnabledListenable,
     );
   }
 }

@@ -11,15 +11,24 @@ import '../../../core/media/media_cache_models.dart';
 import '../../../core/media/media_cache_service.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
+import '../../social_v3/state/social_story_v3_connector.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
 import '../models/social_story_document.dart';
+import 'social_content_navigation.dart';
 import 'social_post_details_screen.dart';
 import 'social_profile_screen.dart';
 import 'social_share_sheet.dart';
 import 'social_shell_screen.dart';
 import 'widgets/social_story_canvas.dart';
 
+/// Live story entry point — cut over to Social V3.
+///
+/// Every story call site (feed ring, profile, archive, chat) routes through
+/// this function, so delegating here to [openSocialStoryViewerV3] cuts them all
+/// over to the full-screen [SocialStoryViewerV3] at once. The old
+/// [SocialStoryQuickViewerScreen] (a fullscreenDialog bottom-sheet-style viewer)
+/// is no longer reachable.
 Future<void> showSocialStoryQuickViewer({
   required BuildContext context,
   required SocialStoryGroup group,
@@ -29,19 +38,45 @@ Future<void> showSocialStoryQuickViewer({
   SocialApi? api,
   VoidCallback? onStoryArchiveChanged,
 }) async {
-  await showModalBottomSheet<void>(
+  await openSocialStoryViewerV3(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (_) => _SocialStoryQuickViewerSheet(
+    group: group,
+    storyGroups: storyGroups,
+    initialStoryId: initialStoryId,
+    onStoryViewed: onStoryViewed,
+    onOpenSharedReel: (reelId) => openSocialReelsV3(context, reelId: reelId),
+  );
+}
+
+class SocialStoryQuickViewerScreen extends StatelessWidget {
+  final SocialStoryGroup group;
+  final List<SocialStoryGroup>? storyGroups;
+  final int? initialStoryId;
+  final ValueChanged<int>? onStoryViewed;
+  final SocialApi? api;
+  final VoidCallback? onStoryArchiveChanged;
+
+  const SocialStoryQuickViewerScreen({
+    super.key,
+    required this.group,
+    this.storyGroups,
+    this.initialStoryId,
+    this.onStoryViewed,
+    this.api,
+    this.onStoryArchiveChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _SocialStoryQuickViewerSheet(
       group: group,
       storyGroups: storyGroups,
       initialStoryId: initialStoryId,
       onStoryViewed: onStoryViewed,
       api: api,
       onStoryArchiveChanged: onStoryArchiveChanged,
-    ),
-  );
+    );
+  }
 }
 
 class _SocialStoryQuickViewerSheet extends StatefulWidget {
@@ -87,10 +122,14 @@ class _SocialStoryQuickViewerSheetState
   late final AnimationController _progressController;
   late final List<_StoryTimelineEntry> _timeline;
   late int _index;
+  int _currentGroupIndex = 0;
+  int _currentItemIndex = 0;
   bool _consumeNextTapUp = false;
   bool _pausedByLifecycle = false;
   bool _pausedByGesture = false;
   bool _pausedByOverlay = false;
+  bool _pausedByBuffering = false;
+  bool _advancing = false;
 
   // Local optimistic state for like/comment counts (SocialStory has no copyWith).
   final Map<int, bool> _likedById = <int, bool>{};
@@ -119,6 +158,11 @@ class _SocialStoryQuickViewerSheetState
     WidgetsBinding.instance.addObserver(this);
     _timeline = _buildTimeline();
     _index = _resolveInitialIndex();
+    if (_timeline.isNotEmpty) {
+      final initialEntry = _timeline[_index];
+      _currentGroupIndex = initialEntry.groupIndex;
+      _currentItemIndex = initialEntry.storyIndex;
+    }
     _controller = PageController(initialPage: _index);
     _progressController = AnimationController(vsync: this)
       ..addStatusListener((status) {
@@ -128,6 +172,7 @@ class _SocialStoryQuickViewerSheetState
       });
     _markViewed(_index);
     _syncProgress(restart: true);
+    unawaited(_preloadAround(_index));
   }
 
   List<_StoryTimelineEntry> _buildTimeline() {
@@ -135,7 +180,11 @@ class _SocialStoryQuickViewerSheetState
     final groups = _groups;
     for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
       final group = groups[groupIndex];
-      for (var storyIndex = 0; storyIndex < group.stories.length; storyIndex++) {
+      for (
+        var storyIndex = 0;
+        storyIndex < group.stories.length;
+        storyIndex++
+      ) {
         entries.add(
           _StoryTimelineEntry(
             groupIndex: groupIndex,
@@ -162,7 +211,10 @@ class _SocialStoryQuickViewerSheetState
   }
 
   bool get _isProgressPaused =>
-      _pausedByLifecycle || _pausedByGesture || _pausedByOverlay;
+      _pausedByLifecycle ||
+      _pausedByGesture ||
+      _pausedByOverlay ||
+      _pausedByBuffering;
 
   void _syncProgress({bool restart = false}) {
     if (_timeline.isEmpty) return;
@@ -174,7 +226,9 @@ class _SocialStoryQuickViewerSheetState
       }
       return;
     }
-    if (restart || _progressController.value <= 0 || _progressController.value >= 1) {
+    if (restart ||
+        _progressController.value <= 0 ||
+        _progressController.value >= 1) {
       _progressController.forward(from: 0);
       return;
     }
@@ -194,6 +248,13 @@ class _SocialStoryQuickViewerSheetState
     if (_pausedByGesture == paused) return;
     if (!mounted) return;
     setState(() => _pausedByGesture = paused);
+    _syncProgress();
+  }
+
+  void _setBufferingPaused(bool paused) {
+    if (_pausedByBuffering == paused) return;
+    if (!mounted) return;
+    setState(() => _pausedByBuffering = paused);
     _syncProgress();
   }
 
@@ -226,7 +287,43 @@ class _SocialStoryQuickViewerSheetState
     widget.onStoryViewed?.call(_timeline[index].story.id);
   }
 
+  Future<void> _preloadAround(int index) async {
+    final candidateIndices = <int>{index + 1, index - 1};
+    for (final candidate in candidateIndices) {
+      if (candidate < 0 || candidate >= _timeline.length) continue;
+      final story = _timeline[candidate].story;
+      final url =
+          (story.asset?.playbackUrl ??
+                  story.asset?.normalizedUrl ??
+                  story.mediaUrl ??
+                  '')
+              .trim();
+      if (url.isEmpty) continue;
+      try {
+        if ((story.mediaKind ?? '').trim().toLowerCase() == 'video') {
+          await MediaCacheService.instance.resolveVideoSource(
+            url: url,
+            cacheIdentity: 'story_preload_${story.id}',
+            scope: MediaCacheScope.public,
+          );
+        } else {
+          final provider = appCachedImageProvider(
+            url,
+            cacheIdentity: 'story_preload_${story.id}',
+          );
+          if (provider != null) {
+            await precacheImage(provider, context);
+          }
+        }
+      } catch (_) {
+        // best effort only
+      }
+    }
+  }
+
   void _advance({bool autoAdvance = false}) {
+    if (_advancing) return;
+    _advancing = true;
     if (_timeline.isEmpty) {
       Navigator.of(context).maybePop();
       return;
@@ -268,7 +365,10 @@ class _SocialStoryQuickViewerSheetState
     setState(() {
       _likeBusy = true;
       _likedById[story.id] = !wasLiked;
-      _likesById[story.id] = (originalLikes + (wasLiked ? -1 : 1)).clamp(0, 1 << 30);
+      _likesById[story.id] = (originalLikes + (wasLiked ? -1 : 1)).clamp(
+        0,
+        1 << 30,
+      );
     });
     try {
       final out = await api.toggleStoryLike(story.id);
@@ -329,8 +429,9 @@ class _SocialStoryQuickViewerSheetState
         entityType: 'story',
         entityId: story.id,
         previewTitle: _currentGroup.author.fullName,
-        previewSubtitle:
-            story.caption.trim().isEmpty ? null : story.caption.trim(),
+        previewSubtitle: story.caption.trim().isEmpty
+            ? null
+            : story.caption.trim(),
       );
     });
   }
@@ -423,21 +524,25 @@ class _SocialStoryQuickViewerSheetState
   @override
   Widget build(BuildContext context) {
     if (_timeline.isEmpty) {
-      return SafeArea(
-        child: SizedBox(
-          height: 260,
+      return Scaffold(
+        backgroundColor: const Color(0xFF090D18),
+        body: SafeArea(
           child: Center(
-            child: Text(context.l10n.socialProfileArchiveEmptyStories),
+            child: Text(
+              context.l10n.socialProfileArchiveEmptyStories,
+              style: const TextStyle(color: Colors.white),
+            ),
           ),
         ),
       );
     }
 
     final currentEntry = _timeline[_index];
+    final currentGroupStories = _groups[_currentGroupIndex].stories;
 
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.84,
+    return Scaffold(
+      backgroundColor: const Color(0xFF090D18),
+      body: SafeArea(
         child: Stack(
           children: [
             Positioned.fill(
@@ -449,10 +554,16 @@ class _SocialStoryQuickViewerSheetState
                     return;
                   }
                   final width = MediaQuery.of(context).size.width;
-                  if (details.localPosition.dx < width / 2) {
+                  if (details.localPosition.dx >= width / 2) {
                     _next();
                   } else {
                     _prev();
+                  }
+                },
+                onVerticalDragEnd: (details) {
+                  final velocity = details.primaryVelocity ?? 0;
+                  if (velocity > 600) {
+                    Navigator.of(context).maybePop();
                   }
                 },
                 onLongPressStart: _handleLongPressStart,
@@ -461,25 +572,40 @@ class _SocialStoryQuickViewerSheetState
                   controller: _controller,
                   itemCount: _timeline.length,
                   onPageChanged: (value) {
-                    setState(() => _index = value);
+                    final entry = _timeline[value];
+                    setState(() {
+                      _advancing = false;
+                      _index = value;
+                      _currentGroupIndex = entry.groupIndex;
+                      _currentItemIndex = entry.storyIndex;
+                    });
                     _markViewed(value);
                     _syncProgress(restart: true);
+                    unawaited(_preloadAround(value));
                   },
                   itemBuilder: (context, idx) {
                     final entry = _timeline[idx];
                     return _StoryCanvas(
+                      key: ValueKey('story_${entry.story.id}_$idx'),
                       story: entry.story,
                       isActive: idx == _index,
                       onAttachmentTap: () => _openAttachment(entry.story),
                       onMentionTap: _openMentionProfile,
+                      onBufferingChanged: (buffering) =>
+                          _setBufferingPaused(buffering),
+                      onCompleted: () {
+                        if (idx == _index) {
+                          _advance(autoAdvance: true);
+                        }
+                      },
                     );
                   },
                 ),
               ),
             ),
             Positioned(
-              right: 12,
-              left: 12,
+              right: 14,
+              left: 14,
               top: 10,
               child: Row(
                 textDirection: TextDirection.rtl,
@@ -488,29 +614,46 @@ class _SocialStoryQuickViewerSheetState
                     radius: 20,
                     backgroundImage:
                         (currentEntry.group.author.imageUrl ?? '')
-                                .trim()
-                                .isNotEmpty
+                            .trim()
+                            .isNotEmpty
                         ? appCachedImageProvider(
                             currentEntry.group.author.imageUrl!,
                             cacheIdentity:
                                 'user_avatar_${currentEntry.group.author.id}',
                           )
                         : null,
-                    child: (currentEntry.group.author.imageUrl ?? '')
-                                .trim()
-                                .isEmpty
+                    child:
+                        (currentEntry.group.author.imageUrl ?? '')
+                            .trim()
+                            .isEmpty
                         ? const Icon(Icons.person_outline)
                         : null,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      currentEntry.group.author.fullName,
-                      textDirection: TextDirection.rtl,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          currentEntry.group.author.fullName,
+                          textDirection: TextDirection.rtl,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${_currentItemIndex + 1}/${currentGroupStories.length}',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   if (_currentStory.isMine && widget.api != null)
@@ -547,21 +690,21 @@ class _SocialStoryQuickViewerSheetState
               ),
             ),
             Positioned(
-              right: 12,
-              left: 12,
-              top: 56,
+              right: 14,
+              left: 14,
+              top: 62,
               child: AnimatedBuilder(
                 animation: _progressController,
                 builder: (context, child) {
                   return Row(
-                    children: List.generate(_timeline.length, (idx) {
-                      final progress = idx < _index
+                    children: List.generate(currentGroupStories.length, (idx) {
+                      final progress = idx < _currentItemIndex
                           ? 1.0
-                          : idx > _index
-                              ? 0.0
-                              : _progressController.value
-                                  .clamp(0.0, 1.0)
-                                  .toDouble();
+                          : idx > _currentItemIndex
+                          ? 0.0
+                          : _progressController.value
+                                .clamp(0.0, 1.0)
+                                .toDouble();
                       return Expanded(
                         child: Container(
                           margin: const EdgeInsets.symmetric(horizontal: 1.5),
@@ -645,7 +788,9 @@ class _StoryActionBar extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _StoryActionButton(
-              icon: liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+              icon: liked
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
               color: liked ? const Color(0xFFFF4D67) : Colors.white,
               label: likes > 0 ? '$likes' : context.lt(ar: 'إعجاب', en: 'Like'),
               onTap: busy ? null : () => onLike(),
@@ -756,7 +901,9 @@ class _StoryCommentsSheetState extends State<_StoryCommentsSheet> {
       final out = await widget.api.listStoryComments(widget.storyId);
       final raw = List<dynamic>.from(out['comments'] as List? ?? const []);
       final parsed = raw
-          .map((e) => SocialComment.fromJson(Map<String, dynamic>.from(e as Map)))
+          .map(
+            (e) => SocialComment.fromJson(Map<String, dynamic>.from(e as Map)),
+          )
           .toList(growable: false);
       if (!mounted) return;
       setState(() {
@@ -779,7 +926,9 @@ class _StoryCommentsSheetState extends State<_StoryCommentsSheet> {
     try {
       final out = await widget.api.addStoryComment(widget.storyId, body);
       final comment = out['comment'] is Map
-          ? SocialComment.fromJson(Map<String, dynamic>.from(out['comment'] as Map))
+          ? SocialComment.fromJson(
+              Map<String, dynamic>.from(out['comment'] as Map),
+            )
           : null;
       if (!mounted) return;
       setState(() {
@@ -794,7 +943,9 @@ class _StoryCommentsSheetState extends State<_StoryCommentsSheet> {
       if (!mounted) return;
       setState(() => _sending = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mapAnyError(error, fallback: context.l10n.commonRetry))),
+        SnackBar(
+          content: Text(mapAnyError(error, fallback: context.l10n.commonRetry)),
+        ),
       );
     }
   }
@@ -802,7 +953,9 @@ class _StoryCommentsSheetState extends State<_StoryCommentsSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: SafeArea(
         child: SizedBox(
           height: MediaQuery.of(context).size.height * 0.7,
@@ -814,10 +967,9 @@ class _StoryCommentsSheetState extends State<_StoryCommentsSheet> {
                   alignment: AlignmentDirectional.centerStart,
                   child: Text(
                     context.lt(ar: 'التعليقات', en: 'Comments'),
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w800),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ),
@@ -825,62 +977,61 @@ class _StoryCommentsSheetState extends State<_StoryCommentsSheet> {
                 child: _loading
                     ? const Center(child: CircularProgressIndicator())
                     : _error != null
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(20),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(_error!, textAlign: TextAlign.center),
-                                  const SizedBox(height: 10),
-                                  FilledButton(
-                                    onPressed: _load,
-                                    child: Text(context.l10n.commonRetry),
-                                  ),
-                                ],
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(_error!, textAlign: TextAlign.center),
+                              const SizedBox(height: 10),
+                              FilledButton(
+                                onPressed: _load,
+                                child: Text(context.l10n.commonRetry),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : _comments.isEmpty
+                    ? Center(
+                        child: Text(
+                          context.lt(
+                            ar: 'كن أول من يعلّق',
+                            en: 'Be the first to comment',
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        itemCount: _comments.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 4),
+                        itemBuilder: (context, index) {
+                          final c = _comments[index];
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundImage:
+                                  (c.author.imageUrl ?? '').trim().isNotEmpty
+                                  ? appCachedImageProvider(
+                                      c.author.imageUrl!,
+                                      cacheIdentity:
+                                          'user_avatar_${c.author.id}',
+                                    )
+                                  : null,
+                              child: (c.author.imageUrl ?? '').trim().isEmpty
+                                  ? const Icon(Icons.person_outline)
+                                  : null,
+                            ),
+                            title: Text(
+                              c.author.fullName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                          )
-                        : _comments.isEmpty
-                            ? Center(
-                                child: Text(
-                                  context.lt(
-                                    ar: 'كن أول من يعلّق',
-                                    en: 'Be the first to comment',
-                                  ),
-                                ),
-                              )
-                            : ListView.separated(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                itemCount: _comments.length,
-                                separatorBuilder: (_, _) =>
-                                    const SizedBox(height: 4),
-                                itemBuilder: (context, index) {
-                                  final c = _comments[index];
-                                  return ListTile(
-                                    leading: CircleAvatar(
-                                      backgroundImage:
-                                          (c.author.imageUrl ?? '').trim().isNotEmpty
-                                          ? appCachedImageProvider(
-                                              c.author.imageUrl!,
-                                              cacheIdentity:
-                                                  'user_avatar_${c.author.id}',
-                                            )
-                                          : null,
-                                      child: (c.author.imageUrl ?? '').trim().isEmpty
-                                          ? const Icon(Icons.person_outline)
-                                          : null,
-                                    ),
-                                    title: Text(
-                                      c.author.fullName,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    subtitle: Text(c.body),
-                                  );
-                                },
-                              ),
+                            subtitle: Text(c.body),
+                          );
+                        },
+                      ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
@@ -931,12 +1082,17 @@ class _StoryCanvas extends StatelessWidget {
   final bool isActive;
   final VoidCallback? onAttachmentTap;
   final void Function(int userId, String? displayLabel)? onMentionTap;
+  final ValueChanged<bool>? onBufferingChanged;
+  final VoidCallback? onCompleted;
 
   const _StoryCanvas({
+    super.key,
     required this.story,
     required this.isActive,
     this.onAttachmentTap,
     this.onMentionTap,
+    this.onBufferingChanged,
+    this.onCompleted,
   });
 
   @override
@@ -961,6 +1117,8 @@ class _StoryCanvas extends StatelessWidget {
                   version: story.createdAt?.toIso8601String(),
                   clipStartSec: story.style.clipStartSec,
                   clipDurationSec: story.style.clipDurationSec,
+                  onBufferingChanged: onBufferingChanged,
+                  onCompleted: onCompleted,
                 )
               : null,
           onAttachmentTap: onAttachmentTap,
@@ -989,6 +1147,8 @@ class _StoryVideoCanvas extends StatefulWidget {
   final String? version;
   final double? clipStartSec;
   final double? clipDurationSec;
+  final ValueChanged<bool>? onBufferingChanged;
+  final VoidCallback? onCompleted;
 
   const _StoryVideoCanvas({
     required this.mediaUrl,
@@ -997,6 +1157,8 @@ class _StoryVideoCanvas extends StatefulWidget {
     required this.version,
     required this.clipStartSec,
     required this.clipDurationSec,
+    this.onBufferingChanged,
+    this.onCompleted,
   });
 
   @override
@@ -1010,6 +1172,8 @@ class _StoryVideoCanvasState extends State<_StoryVideoCanvas>
   bool _muted = false;
   String? _error;
   bool _appActive = true;
+  bool _reportedBuffering = false;
+  bool _completedNotified = false;
 
   @override
   void initState() {
@@ -1036,13 +1200,9 @@ class _StoryVideoCanvasState extends State<_StoryVideoCanvas>
       await controller.initialize();
       await controller.setLooping(false);
       await controller.setVolume(_muted ? 0 : 1);
-      controller.addListener(_enforceClipWindow);
+      controller.addListener(_handleVideoTick);
       await _seekToClipStart(controller);
-      if (widget.isActive && _appActive) {
-        await controller.play();
-      } else {
-        await controller.pause();
-      }
+      await _syncPlaybackState(controller);
       if (!mounted) {
         await controller.dispose();
         return;
@@ -1050,6 +1210,8 @@ class _StoryVideoCanvasState extends State<_StoryVideoCanvas>
       setState(() {
         _video = controller;
         _videoReady = true;
+        _reportedBuffering = controller.value.isBuffering;
+        _completedNotified = false;
       });
     } catch (_) {
       if (!mounted) return;
@@ -1057,35 +1219,8 @@ class _StoryVideoCanvasState extends State<_StoryVideoCanvas>
     }
   }
 
-  @override
-  void didUpdateWidget(covariant _StoryVideoCanvas oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final video = _video;
-    if (video == null || !video.value.isInitialized) return;
-    if (widget.isActive && _appActive) {
-      unawaited(_seekToClipStart(video));
-      unawaited(video.play());
-    } else {
-      unawaited(video.pause());
-    }
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    _appActive = state == AppLifecycleState.resumed;
-    final video = _video;
-    if (video == null || !video.value.isInitialized) return;
-    if (widget.isActive && _appActive) {
-      unawaited(_seekToClipStart(video));
-      unawaited(video.play());
-    } else {
-      unawaited(video.pause());
-    }
-  }
-
-  Duration get _clipStart => Duration(
-    milliseconds: ((widget.clipStartSec ?? 0) * 1000).round(),
-  );
+  Duration get _clipStart =>
+      Duration(milliseconds: ((widget.clipStartSec ?? 0) * 1000).round());
 
   Duration? get _clipDuration {
     final seconds = widget.clipDurationSec;
@@ -1106,17 +1241,61 @@ class _StoryVideoCanvasState extends State<_StoryVideoCanvas>
     }
   }
 
-  void _enforceClipWindow() {
+  Future<void> _syncPlaybackState(VideoPlayerController controller) async {
+    if (!controller.value.isInitialized) return;
+    if (!widget.isActive || !_appActive || _completedNotified) {
+      await controller.pause();
+      return;
+    }
+    await _seekToClipStart(controller);
+    await controller.play();
+  }
+
+  void _handleVideoTick() {
     final controller = _video;
     if (controller == null || !controller.value.isInitialized) return;
-    final end = _clipEnd;
-    if (end == null) return;
-    if (controller.value.position < _clipStart) return;
-    if (controller.value.position < end) return;
-    unawaited(controller.seekTo(_clipStart));
-    if (widget.isActive && _appActive) {
-      unawaited(controller.play());
+    final buffering = controller.value.isBuffering;
+    if (buffering != _reportedBuffering) {
+      _reportedBuffering = buffering;
+      widget.onBufferingChanged?.call(buffering);
     }
+    final end = _clipEnd;
+    final currentDuration = controller.value.duration;
+    final effectiveEnd = end ?? currentDuration;
+    if (_completedNotified || effectiveEnd <= Duration.zero) {
+      return;
+    }
+    final position = controller.value.position;
+    final completed =
+        position >= effectiveEnd - const Duration(milliseconds: 120);
+    if (!completed) return;
+    _completedNotified = true;
+    widget.onBufferingChanged?.call(false);
+    unawaited(controller.pause());
+    widget.onCompleted?.call();
+  }
+
+  @override
+  void didUpdateWidget(covariant _StoryVideoCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.mediaUrl != widget.mediaUrl ||
+        oldWidget.version != widget.version ||
+        oldWidget.storyId != widget.storyId ||
+        oldWidget.clipStartSec != widget.clipStartSec ||
+        oldWidget.clipDurationSec != widget.clipDurationSec) {
+      _completedNotified = false;
+    }
+    final video = _video;
+    if (video == null || !video.value.isInitialized) return;
+    unawaited(_syncPlaybackState(video));
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appActive = state == AppLifecycleState.resumed;
+    final video = _video;
+    if (video == null || !video.value.isInitialized) return;
+    unawaited(_syncPlaybackState(video));
   }
 
   Future<void> _toggleMute() async {
@@ -1131,7 +1310,7 @@ class _StoryVideoCanvasState extends State<_StoryVideoCanvas>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _video?.removeListener(_enforceClipWindow);
+    _video?.removeListener(_handleVideoTick);
     unawaited(_video?.dispose());
     super.dispose();
   }

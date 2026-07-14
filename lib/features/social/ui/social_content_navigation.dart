@@ -3,10 +3,19 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../customer/ui/customer_car_listing_details_screen.dart';
 import '../../real_estate/ui/real_estate_listing_details_screen.dart';
+import '../../social_v3/state/social_reels_v3_connector.dart';
 import '../models/social_models.dart';
 import 'social_post_details_screen.dart';
 import 'social_reel_comments_sheet.dart';
-import 'social_reel_viewer_screen.dart';
+
+/// Opens the full-screen Social V3 reels experience pinned to [reelId].
+Future<void> openSocialReelsV3(BuildContext context, {required int reelId}) {
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => SocialReelsV3Connector(initialReelId: reelId),
+    ),
+  );
+}
 
 Future<void> openSocialContent(
   BuildContext context, {
@@ -21,23 +30,7 @@ Future<void> openSocialContent(
     );
   }
 
-  final reelPosts = (reelContextPosts ?? const <SocialPost>[])
-      .where(isSocialVideoPost)
-      .toList(growable: false);
-
-  if (reelPosts.isEmpty) {
-    return Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SocialReelViewerScreen(initialReelId: post.id),
-      ),
-    );
-  }
-
-  return Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => SocialReelViewerScreen(initialReelId: post.id),
-    ),
-  );
+  return openSocialReelsV3(context, reelId: post.id);
 }
 
 Future<int?> openSocialComments(
@@ -68,11 +61,7 @@ Future<void> openSocialSharedEntity(
     return;
   }
   if (normalizedType == 'reel') {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SocialReelViewerScreen(initialReelId: entity.id),
-      ),
-    );
+    await openSocialReelsV3(context, reelId: entity.id);
     return;
   }
   if (normalizedType == 'car_listing') {

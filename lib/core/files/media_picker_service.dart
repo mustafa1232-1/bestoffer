@@ -78,20 +78,7 @@ Future<LocalMediaFile?> pickChatFileFromDevice() {
 }
 
 Future<LocalMediaFile?> pickPostMediaFromDevice() async {
-  return _pickSingleFile(
-    allowedExtensions: const [
-      'jpg',
-      'jpeg',
-      'png',
-      'webp',
-      'gif',
-      'mp4',
-      'mov',
-      'webm',
-      'mkv',
-      '3gp',
-    ],
-  );
+  return pickGalleryMediaFromDevice();
 }
 
 Future<List<LocalMediaFile>> pickMultiplePostMediaFromDevice({
@@ -121,13 +108,14 @@ List<LocalMediaFile> buildLocalMediaFilesFromPickedMedia(
     final extension = path.contains('.')
         ? path.split('.').last.toLowerCase()
         : '';
-    final resolvedMime =
-        (file.mimeType != null && file.mimeType!.contains('/'))
+    final resolvedMime = (file.mimeType != null && file.mimeType!.contains('/'))
         ? file.mimeType!
         : _guessMimeType(extension);
     final resolvedName = (() {
       final rawName = file.name.trim();
-      if (rawName.isNotEmpty && !rawName.contains('/') && !rawName.contains('\\')) {
+      if (rawName.isNotEmpty &&
+          !rawName.contains('/') &&
+          !rawName.contains('\\')) {
         return rawName;
       }
       final baseName = path.split(RegExp(r'[\\/]+')).last.trim();

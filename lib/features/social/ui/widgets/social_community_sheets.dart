@@ -122,7 +122,7 @@ class _ScopedCommunityPostSheetState
     });
     try {
       await ref
-          .read(socialApiProvider)
+          .read(socialControllerProvider.notifier)
           .createPost(
             caption: caption,
             postKind: _postKind,
@@ -382,7 +382,7 @@ class _ScopedCommunityStorySheetState
 
     try {
       await ref
-          .read(socialApiProvider)
+          .read(socialControllerProvider.notifier)
           .createStory(caption: caption, mediaFile: _mediaFile);
       if (!mounted) return;
       Navigator.of(context).pop(true);

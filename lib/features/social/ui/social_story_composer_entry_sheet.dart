@@ -1,17 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/auth/auth_guard.dart';
-import '../creator/creator_adapters.dart';
-import '../creator/social_camera_creator_screen.dart';
 import '../models/social_story_document.dart';
 import 'social_story_composer_screen.dart';
 
-/// Story creation entry point. Opens the full-screen Maslaki story camera hub
-/// directly (camera first), then routes the outcome into the composer:
-/// - media (camera capture / layout composite / gallery import) → media composer
-/// - text mode → text composer
-///
-/// Returns `true` when a story was published, mirroring the previous contract.
+/// Story creation entry point. Opens the gallery-first composer directly so
+/// the user lands in the photo/video picker flow instead of a generic file
+/// picker or camera-first hub. Camera capture remains available from the
+/// composer itself as a secondary action.
 Future<bool?> showSocialStoryComposerEntrySheet(BuildContext context) async {
   if (!await requireAuthBeforeAction(
     context,
@@ -21,25 +17,12 @@ Future<bool?> showSocialStoryComposerEntrySheet(BuildContext context) async {
     return null;
   }
   if (!context.mounted) return null;
-  final outcome = await showStoryCamera(context);
-  if (outcome == null || !context.mounted) return null;
-
-  SocialStoryDraft? initialDraft;
-  final SocialStoryComposerMode mode;
-  if (outcome.textMode) {
-    mode = SocialStoryComposerMode.text;
-  } else {
-    final mediaDraft = outcome.mediaDraft;
-    if (mediaDraft == null) return null;
-    initialDraft = buildStoryDraftFromCreator(mediaDraft);
-    mode = SocialStoryComposerMode.media;
-  }
-
   return Navigator.of(context).push<bool>(
     MaterialPageRoute(
       fullscreenDialog: true,
-      builder: (_) =>
-          SocialStoryComposerScreen(initialMode: mode, initialDraft: initialDraft),
+      builder: (_) => const SocialStoryComposerScreen(
+        initialMode: SocialStoryComposerMode.media,
+      ),
     ),
   );
 }

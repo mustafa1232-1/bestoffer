@@ -9,6 +9,7 @@ The branch now includes the core release-closure work for the proven media pipel
 - gallery-first publishing picker
 - rebuild-safe story timeline viewer
 - Stream-aware reel/story playback and sharing helpers
+- real user APK build for the current closure snapshot
 
 ## Files Changed
 
@@ -27,6 +28,7 @@ The branch now includes the core release-closure work for the proven media pipel
 ### Flutter / Shared Dart
 
 - `lib/core/files/media_picker_service.dart`
+- `lib/features/social/data/social_stream_upload_service.dart`
 - `lib/features/social/state/social_controller.dart`
 - `lib/features/social/ui/social_explore_screen.dart`
 - `lib/features/social/ui/social_feed_screen.dart`
@@ -47,23 +49,25 @@ The branch now includes the core release-closure work for the proven media pipel
 
 ## Root Cause Summary
 
-1. Social video playback lacked provider-aware asset metadata.
-2. Gallery publishing used a generic file-picker path.
-3. Story progression could restart on rebuild instead of advancing deterministically.
-4. Reel/story sharing needed to reference the original normalized asset.
+1. Social video playback lacked provider-aware asset metadata, so the UI could not tell Stream-backed media from legacy R2 content reliably.
+2. Gallery publishing used a generic file-picker path instead of a gallery-first media picker.
+3. Story progression could restart or desync on rebuild instead of keeping a deterministic timeline state.
+4. Reel/story sharing needed to reference the original normalized asset instead of re-uploading or losing the source relationship.
+5. Story quick-viewer coverage needed a public screen wrapper so the render/test contract could be exercised without route-plumbing ambiguity.
 
 ## Test Results
 
 - `flutter analyze` - PASS
-- `flutter test` - PASS, 405 tests
+- `flutter test` - PASS, 435 tests
 - `cd backend && npm test` - PASS, 284 tests
 - `cd backend && npm run verify:release:local` - PASS
-- `cd backend && npm run verify:release:runtime` - BLOCKED by Railway proxy connectivity from this workstation
+- `cd backend && railway run --service bestoffer npm run verify:release:runtime` - BLOCKED by `orderE2ECheck.js` returning `401 INVALID_TOKEN` at the owner order-preparing step after the auth/session and realtime subchecks passed
 
 ## Build Results
 
 - Android user release APK built successfully
 - Artifact: `build/app/outputs/flutter-apk/app-user-release.apk`
+- iOS release build: NOT TESTED in this workspace
 
 ## Device Results
 
@@ -73,7 +77,6 @@ The branch now includes the core release-closure work for the proven media pipel
 
 ## Remaining Blocked Items
 
-- Runtime verification against the Railway proxy from this workstation
+- `orderE2ECheck.js` needs a separate auth-token investigation before the full Railway runtime chain can be promoted to PASS
 - Real-device validation for push and tap flows
 - Any broader social subsystems not touched in this closure pass
-

@@ -8,6 +8,7 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../creator/creator_models.dart';
 import '../creator/story_segmentation_service.dart';
+import '../data/social_stream_upload_service.dart';
 import '../models/social_story_document.dart';
 import '../state/social_controller.dart';
 import '../state/social_story_draft_controller.dart';
@@ -117,7 +118,7 @@ class _SocialStoryPublishScreenState
       _error = null;
     });
     try {
-      final api = ref.read(socialApiProvider);
+      final uploader = SocialStreamUploadService(ref.read(socialApiProvider));
       final baseStyle = Map<String, dynamic>.from(draft.toStoryStyleJson())
         ..remove('clipStartSec')
         ..remove('clipDurationSec');
@@ -142,6 +143,15 @@ class _SocialStoryPublishScreenState
       if ((draft.maslakiMoodKey ?? '').trim().isNotEmpty) {
         baseStyle['maslakiMoodKey'] = draft.maslakiMoodKey;
       }
+      int? streamAssetId;
+      if (media != null && media.isVideo) {
+        final uploaded = await uploader.uploadVideoAndWaitReady(
+          mediaFile: media,
+          sourceType: 'story',
+          title: caption.isNotEmpty ? caption : 'story',
+        );
+        streamAssetId = uploaded.id;
+      }
       if (media != null && media.isVideo && _segments.length > 1) {
         final sequenceId =
             '${draft.draftId}-${DateTime.now().microsecondsSinceEpoch}';
@@ -153,28 +163,34 @@ class _SocialStoryPublishScreenState
             ..['sequenceId'] = sequenceId
             ..['segmentIndex'] = index
             ..['segmentCount'] = _segments.length;
-          await api.createStory(
-            caption: index == 0 ? caption : '',
-            mediaFile: media,
-            storyStyle: storyStyle,
-          );
+          await ref
+              .read(socialControllerProvider.notifier)
+              .createStory(
+                caption: index == 0 ? caption : '',
+                mediaAssetId: streamAssetId,
+                storyStyle: storyStyle,
+              );
         }
       } else if (media != null && media.isVideo && _segments.length == 1) {
         final onlySegment = _segments.first;
         final storyStyle = Map<String, dynamic>.from(baseStyle)
           ..['clipStartSec'] = onlySegment.startSec
           ..['clipDurationSec'] = onlySegment.durationSec;
-        await api.createStory(
-          caption: caption,
-          mediaFile: media,
-          storyStyle: storyStyle,
-        );
+        await ref
+            .read(socialControllerProvider.notifier)
+            .createStory(
+              caption: caption,
+              mediaAssetId: streamAssetId,
+              storyStyle: storyStyle,
+            );
       } else {
-        await api.createStory(
-          caption: caption,
-          mediaFile: media,
-          storyStyle: baseStyle,
-        );
+        await ref
+            .read(socialControllerProvider.notifier)
+            .createStory(
+              caption: caption,
+              mediaFile: media,
+              storyStyle: baseStyle,
+            );
       }
       await ref
           .read(socialControllerProvider.notifier)

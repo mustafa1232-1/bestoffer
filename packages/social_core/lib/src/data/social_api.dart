@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'dart:convert';
 
 import '../core/local_media_file.dart';
+import '../models/social_models.dart';
 
 class SocialApi {
   final Dio dio;
@@ -77,6 +78,44 @@ class SocialApi {
   Future<Map<String, dynamic>> getPostById(int postId) async {
     final response = await dio.get('/api/feed/posts/$postId');
     return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<SocialMediaUploadSession> createStreamUploadSession({
+    required String sourceType,
+    required int sizeBytes,
+    String? fileName,
+    String? mimeType,
+    String? title,
+  }) async {
+    final payload = <String, dynamic>{
+      'sourceType': sourceType.trim().toLowerCase(),
+      'sizeBytes': sizeBytes,
+      'fileName': fileName,
+      'mimeType': mimeType,
+      'title': title,
+    }..removeWhere((_, value) => value == null);
+    final response = await dio.post(
+      '/api/feed/media/stream/upload-session',
+      data: payload,
+    );
+    final body = Map<String, dynamic>.from(response.data as Map);
+    final rawSession = body['uploadSession'] ?? body['upload_session'] ?? body;
+    return SocialMediaUploadSession.fromJson(
+      Map<String, dynamic>.from(rawSession as Map),
+    );
+  }
+
+  Future<SocialMediaAsset?> getMediaAsset(int assetId) async {
+    final response = await dio.get('/api/feed/media/assets/$assetId');
+    final body = Map<String, dynamic>.from(response.data as Map);
+    final raw = body['asset'] ?? body['mediaAsset'] ?? body['media_asset'];
+    if (raw is Map) {
+      return SocialMediaAsset.fromJson(Map<String, dynamic>.from(raw));
+    }
+    if (body.isNotEmpty) {
+      return SocialMediaAsset.fromJson(body);
+    }
+    return null;
   }
 
   Future<Map<String, dynamic>> getUserProfile(int userId) async {
@@ -406,6 +445,7 @@ class SocialApi {
     required String postKind,
     int? merchantId,
     int? reviewRating,
+    int? mediaAssetId,
     LocalMediaFile? mediaFile,
     List<LocalMediaFile>? mediaFiles,
     Map<String, dynamic>? reelStyle,
@@ -422,6 +462,7 @@ class SocialApi {
       'postKind': postKind,
       'merchantId': merchantId,
       'reviewRating': reviewRating,
+      'mediaAssetId': mediaAssetId,
       'reelStyle': reelStyle,
       'audienceScopeType': audienceScopeType,
       'audienceScopeCode': audienceScopeCode,
@@ -455,6 +496,7 @@ class SocialApi {
 
   Future<Map<String, dynamic>> createStory({
     required String caption,
+    int? mediaAssetId,
     LocalMediaFile? mediaFile,
     Map<String, dynamic>? storyStyle,
     String? linkTargetType,
@@ -465,6 +507,7 @@ class SocialApi {
   }) async {
     final payload = <String, dynamic>{
       'caption': caption,
+      'mediaAssetId': mediaAssetId,
       'storyStyle': storyStyle,
       'linkTargetType': linkTargetType,
       'linkMerchantId': linkMerchantId,

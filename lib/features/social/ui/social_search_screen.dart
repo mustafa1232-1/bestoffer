@@ -12,7 +12,6 @@ import '../state/social_search_controller.dart';
 import 'social_content_navigation.dart';
 import 'social_hashtag_screen.dart';
 import 'social_profile_screen.dart';
-import 'social_reel_viewer_screen.dart';
 import 'widgets/social_identity_view.dart';
 import 'widgets/social_post_card_v2.dart';
 
@@ -303,13 +302,7 @@ class _SocialSearchScreenState extends ConsumerState<SocialSearchScreen> {
                             child: SocialPostCardV2(
                               post: post,
                               onOpenDetails: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => SocialReelViewerScreen(
-                                      initialReelId: post.id,
-                                    ),
-                                  ),
-                                );
+                                openSocialReelsV3(context, reelId: post.id);
                               },
                             ),
                           ),

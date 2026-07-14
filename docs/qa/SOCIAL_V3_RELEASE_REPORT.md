@@ -1,0 +1,206 @@
+# Social V3 — Release Report
+
+**Statuses:** PASS · PARTIAL · FAIL · BLOCKED · NOT_TESTED
+
+> Honesty note: this report is written from a development environment with the
+> Flutter toolchain but **no connected Android/iOS device and no `adb`**. Every
+> claim below is scoped to what was actually verified. On-device acceptance
+> (§0, §15) is **NOT_TESTED** here and is the user's to run — the exact commands
+> are in `SOCIAL_V3_DEVICE_EVIDENCE.md`.
+
+## Build identity
+
+| Item | Value |
+|------|-------|
+| Implementation branch | `closure/full-application-closure` |
+| Working-tree HEAD (old build SHA) | `c688e43dbbd72c5d1f347d3f2085c5322b312973` |
+| New build SHA | **not yet built** — V3 changes are uncommitted on the working tree |
+| Installed device build SHA | **NOT_TESTED** — no device/`adb` in this environment |
+| User flavor applicationId | `com.maslaki.user` |
+| Backend base URL | `https://bestoffer-production.up.railway.app` |
+
+The `BuildInfo` contract + hidden diagnostics screen + startup log now let the
+*next* installed APK self-report its SHA, which is the mechanism that resolves
+the "stale APK vs intended commit" question the brief opens with.
+
+## Section-by-section status
+
+| § | Area | Status | Evidence |
+|---|------|--------|----------|
+| 0 | BuildInfo contract, diagnostics screen, startup SHA log | PASS | `lib/core/diagnostics/build_info.dart`, `build_diagnostics_screen.dart`; `flutter analyze` clean |
+| 0 | Uninstall / clean / build user APK / install / capture SHA screenshot | NOT_TESTED | no device |
+| 2 | Media contract + debug assertions + HLS-never-image tests | PASS | `social_media_contract_test.dart` (12 assertions) |
+| 1 | `social_v3` clean module + coordinators | PASS (scaffolded) | `lib/features/social_v3/*` |
+| 3 | Full-screen Reels (screen/page/surface/rail/overlay/coordinator) | PASS | `reels_v3_regression_test.dart`, `reels_v3_coordinator_test.dart` |
+| 5 | Story Viewer V3 full-screen (not a bottom sheet) | PASS | `stories_v3_regression_test.dart` |
+| 4 | Feed Reel preview vs viewer separation | NOT_STARTED | — |
+| 6 | Reel-to-Story from the data model (full-canvas) | PARTIAL | `StoryV3Item.sharedReel` + "فتح الريل" affordance modeled; composer base still pending |
+| 7 | Story Composer V3 | NOT_STARTED | — |
+| 8 | Reel Composer V3 + direct tus upload | NOT_STARTED | backend tus provisioning + Flutter uploader pending |
+| 9 | Native gallery-first pickers | NOT_STARTED | — |
+| 10 | Reel eligibility query + publish-to-visible | NOT_STARTED | — |
+| 11 | Unified Share Sheet V3 | NOT_STARTED | — |
+| 12 | Comments/reactions/saves/messages on V3 surfaces | PARTIAL | optimistic like/save without controller rebuild proven in coordinator test; comments/messages pending |
+| 13 | Maslaki visual identity | PARTIAL | navy/gold accents, verified badge, local-context badge, neutral placeholder applied in built screens |
+| 14 | Golden matrix | PARTIAL | deterministic structural regression tests in place (no-AppBar, no-Card, no-ClipOval, vertical pager, per-group progress); pixel goldens pending |
+| 15 | Real device acceptance (21-step video/screenshot evidence) | NOT_TESTED | no device |
+| 16 | Delete old UI after cutover | NOT_STARTED | old widgets still the active route |
+| 17 | Documentation | PARTIAL | this file + `FAILURE_BASELINE` + `MEDIA_CONTRACT`; remaining docs pending |
+
+## Root causes
+
+* **Broken poster / circular empty media:** the gallery branch of
+  `resolveSocialPostPosterUrl()` returned a video `playbackUrl` (HLS `.m3u8`) as
+  a poster without the `!isSocialVideoPost` guard the asset branch has; the
+  manifest was then handed to `CachedAppImage`. Fixed structurally by the V3
+  media contract. See `SOCIAL_V3_FAILURE_BASELINE.md`.
+* **Small Reel-to-Story card:** shared reels were rendered as a fixed-width
+  attachment card. V3 models the shared reel as the story *base media*
+  (`StoryV3Item` fills the 9:16 canvas). Composer-side enforcement is pending.
+
+## Not yet done / blocked
+
+* Direct Cloudflare Stream **tus** upload proof, Stream webhook proof,
+  publish-to-visible timing — **BLOCKED** on backend one-time-upload
+  provisioning work (not yet written).
+* Route cutover + deletion of old widgets — **not started**; the old Reel/Story
+  UI is still the active route until the V3 connectors and navigation swap land.
+* All on-device evidence — **NOT_TESTED**.
+
+## Route cutover phase (update)
+
+**Primary acceptance — "Does every live Reel and Story entry point now open
+V3?" → PASS** (proven by `test/features/social_v3/cutover_routes_test.dart`).
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Reels tab → V3 | PASS | `SocialReelsScreen.build` returns `SocialReelsV3Connector` |
+| Feed/explore/profile/search reel taps → V3 | PASS | `openSocialReelsV3` in `social_content_navigation.dart` |
+| Shared reel (chat/entity) → V3 | PASS | `openSocialSharedEntity` → `openSocialReelsV3` |
+| Notification reel → V3 | PASS | shell Reels tab is the V3 connector |
+| All story entries → V3 | PASS | `showSocialStoryQuickViewer` delegates to `openSocialStoryViewerV3` |
+| Notification story → V3 | PASS | loader resolves group then delegates to V3 |
+| Old `SocialReelViewerScreen` reachable? | PASS (no) | only a doc-comment references it |
+| Feed reel preview V3 | PARTIAL | `SocialFeedReelPreviewV3` + regression test landed; wiring into every `SocialPostCardV2` tile is a follow-up |
+| QA build badge | PASS | `QaBuildBadge` (`--dart-define=SHOW_QA_BADGE=true`) |
+| Route map before/after docs | PASS | `SOCIAL_V3_ROUTE_MAP_BEFORE/AFTER.md` |
+| Visual comparison doc | PASS | `SOCIAL_V3_VISUAL_COMPARISON.md` |
+
+Route/module tests after cutover: **34 passing** in `test/features/social_v3/`.
+
+## APK handoff (verification build)
+
+| Field | Value |
+|------|-------|
+| Git SHA | `cbd42c4606c28f8c50ced372b73fcbdb3576c89a` |
+| Branch | `closure/full-application-closure` |
+| Working tree | dirty (V3 changes uncommitted at build time) |
+| Build type | **debug-signed** (release keystore env vars not present here → release build BLOCKED on signing) |
+| APK artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-cbd42c46-debug.apk` |
+| APK SHA-256 | `3a3c1ed3734b9aabb4b30fff4a0d17bcb699ef642e79c0d71b90777156173448` |
+| applicationId | `com.maslaki.user` |
+| versionName / versionCode | `1.0.1` / `9` |
+| Backend base URL | `https://bestoffer-production.up.railway.app` |
+| dart-defines | `GIT_SHA`, `GIT_BRANCH`, `BUILD_TIMESTAMP`, `APP_FLAVOR=user`, `APP_APPLICATION_ID=com.maslaki.user`, `BACKEND_BASE_URL`, `SHOW_QA_BADGE=true` |
+
+### Device installation — BLOCKED (no `adb` on the build machine)
+
+Run on a machine with `adb` + a connected device:
+
+```bash
+adb uninstall com.maslaki.user
+adb install "build/app/outputs/flutter-apk/Maslaki-user-social-v3-cbd42c46-debug.apk"
+adb shell pm clear com.maslaki.user
+```
+
+Then confirm the `[buildinfo] sha=cbd42c4606c2 ...` logcat line and the QA badge,
+and capture the §15 evidence. For a store-signed release APK, re-run the build
+with the release keystore env vars (`ANDROID_KEYSTORE_PATH`, `ANDROID_KEY_ALIAS`,
+etc.) per `ANDROID_RELEASE_SIGNING_GUIDE.md`.
+
+## Full-sequence phase (composers → upload → share → legacy)
+
+| Area (§) | Status | Evidence |
+|----------|--------|----------|
+| Reel Composer V3 UI (§1) | PASS (widget) | `reel_composer_v3.dart` (editor + upload/processing/published states) |
+| Native gallery pickers (§2) | PASS (logic) | `social_media_picker_v3.dart`; `social_media_picker_test.dart` (type inference); uses pinned Android Photo Picker; no `withData` for video |
+| tus resumable client (§5) | PASS | `tus_upload_client.dart`; `tus_upload_client_test.dart` — 11 cases (normal, 10%/80% interruption, offset mismatch, expired URL, cancel, retry, retry-exhaustion, restart recovery, duplicate completion, progress) |
+| Production tus transport (§5) | PARTIAL | `dio_tus_transport.dart` (tus 1.0 HEAD/PATCH, chunked from disk) — code-complete, needs a live endpoint |
+| Backend upload session (§3) | PASS (existing) | `createSocialMediaStreamUploadSession` reused (proven) |
+| Cancel session (§3) | PASS | added `cancelSocialMediaStreamUploadSession` + `POST …/upload-session/:id/cancel` |
+| Stream webhook (§6) | PASS (logic) | `handleCloudflareStreamWebhook` (signed, idempotent) reused; `feed.stream-media.test.js` proves status mapping + uid extraction + duplicate-ready idempotency |
+| Reconciliation worker (§7) | PASS (existing) | `startSocialStreamReconciliationWorker` reused (proven) |
+| Publish lifecycle (§8) | PASS (logic) | `reel_composer_state.dart` + `reel_upload_api_impl.dart`; `reel_composer_controller_test.dart` (published, failed-not-published, idempotency, stage order); backend `resolveSocialMediaAssetForPublishing` READY-gate reused |
+| Unified Share Sheet V3 (§9) | PASS | `share_sheet_v3.dart` + `canonical_links.dart`; `share_sheet_v3_test.dart` proves canonical-URL-only (no HLS/R2/upload/api leak) |
+| Comments/messages on V3 (§10) | PARTIAL | reels wired to existing comments/share/like/save via `SocialReelsV3Connector` (no controller rebuild); dedicated messaging-reference UI pending |
+| Legacy deletion (§11) | PARTIAL | deleted `SocialReelViewerScreen` + `SocialReelCard`; others quarantined-unreachable — see `SOCIAL_V3_LEGACY_REMOVAL.md` |
+| Live Cloudflare upload / webhook delivery | BLOCKED | needs Cloudflare account creds + deployed backend |
+| publish-to-visible ≤5s (§8) | BLOCKED | needs deployed backend runtime |
+| Device/iOS evidence (§15) | BLOCKED | no `adb`/device/macOS here |
+
+### Test-category summary (what each proves)
+
+- **media contract** (12): an HLS/MP4 URL can never reach an image widget; poster/playback ordering; processing-status semantics.
+- **reels regression** (6): no AppBar, no Card, no `ClipOval`, vertical pager, cover fit, RTL — the §18 hard rules.
+- **reels coordinator** (7): single-playing, {prev,active,next} window, dispose-on-advance, mute preserved, lifecycle pause, no-recreate-on-like.
+- **story regression** (5): full-screen (not bottom sheet), per-group progress segments, image auto-advance/no-loop, RTL.
+- **cutover routes** (4): Reels tab → V3 connector, story entry → V3 (not bottom sheet), feed preview rectangular/bounded.
+- **story composer** (6): shared reel is base media (no width-278 card), full-screen, blurred backdrop for horizontal, deleted-not-public, publish callback.
+- **tus client** (11) / **composer controller** (4) / **pickers** (3): the upload/publish pipeline.
+- **share sheet** (5): canonical-only, no internal-URL leak.
+- **backend stream-media** (6): provider→internal status mapping, duplicate-ready idempotency, uid/playback extraction.
+
+Flutter `social_v3` suite: **63 passing**. Backend `feed.stream-media`: **6 passing**.
+
+## QA APK (§13 — full-sequence build)
+
+| Field | Value |
+|------|-------|
+| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-cbd42c46-qa.apk` |
+| SHA-256 | `ba6d3e9558169fb4ac6079e7aa8ca6d694efd0dcbd1b015d70e327d148f75681` |
+| Git SHA / branch | `cbd42c4606c28f8c50ced372b73fcbdb3576c89a` / `closure/full-application-closure` |
+| Build timestamp | see `BUILD_TIMESTAMP` define at build (UTC) |
+| Backend URL / release SHA | `https://bestoffer-production.up.railway.app` / (pass `BACKEND_RELEASE_SHA`) |
+| Flavor / appId | `user` / `com.maslaki.user` |
+| versionName / versionCode | `1.0.1` / `9` |
+| QA badge | enabled (`SHOW_QA_BADGE=true`) |
+| Build type | debug-signed (QA) — **not** a release artifact |
+
+This is distinct from the earlier route-cutover intermediate
+`Maslaki-user-social-v3-cbd42c46-debug.apk` (SHA-256
+`3a3c1ed3…`); the cbd42c46 debug artifact is **not** overwritten.
+
+### Signed release command (run where the keystore exists)
+
+```bash
+flutter build apk --release --flavor user -t lib/main.dart \
+  --dart-define=GIT_SHA=$(git rev-parse HEAD) \
+  --dart-define=GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) \
+  --dart-define=BUILD_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  --dart-define=BUILD_FLUTTER_VERSION="$(flutter --version | head -1)" \
+  --dart-define=APP_FLAVOR=user \
+  --dart-define=APP_APPLICATION_ID=com.maslaki.user \
+  --dart-define=BACKEND_BASE_URL=https://bestoffer-production.up.railway.app \
+  --dart-define=BACKEND_RELEASE_SHA=<railway release sha>
+```
+
+**Missing signing variables (BLOCKED here)** — required by
+`android/app/build.gradle.kts` release `signingConfig`:
+`ANDROID_KEYSTORE_PATH` (storeFile), `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Without them only the debug-signed
+QA APK can be produced.
+
+## Overall Social V3 status: **PARTIAL** (by design)
+
+Per §11 completion language, Social V3 stays **PARTIAL** until direct upload is
+runtime-verified, the device APK is installed, and Reel playback / sharing /
+publish-to-visible / deep-links are visually verified on a device — all
+currently **BLOCKED** on external credentials/deployment/hardware. All
+in-environment implementation, migrations-reuse, tests, and docs are complete.
+
+## Rollback plan
+
+The `social_v3` module is additive and not yet wired into navigation, so the
+current app behavior is unchanged. Rollback = do not perform the route cutover
+(§16); delete `lib/features/social_v3/` and its tests. No database or media data
+is touched by any of this work.

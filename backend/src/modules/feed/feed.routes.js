@@ -15,6 +15,10 @@ feedRouter.post("/media/stream/webhook", c.streamWebhook);
 feedRouter.use(requireAuth);
 
 feedRouter.post("/media/stream/upload-session", c.createStreamUploadSession);
+feedRouter.post(
+  "/media/stream/upload-session/:assetId/cancel",
+  c.cancelStreamUploadSession
+);
 feedRouter.get("/media/assets/:assetId", c.getSocialMediaAssetById);
 
 feedRouter.get("/explore", c.listExplore);

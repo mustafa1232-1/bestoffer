@@ -13,6 +13,8 @@ import 'package:maslaki/l10n/app_localizations.dart';
 
 import 'core/calls/in_app_call_overlay_coordinator.dart';
 import 'core/constants/api.dart';
+import 'core/diagnostics/build_info.dart';
+import 'core/diagnostics/qa_build_badge.dart';
 import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
 import 'core/navigation/app_route_observer.dart';
@@ -117,6 +119,14 @@ void runUserAppBootstrap() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
     installAppRuntimeErrorPresentation();
+
+    // Build-identity contract (Social V3 §0): prove which binary is running.
+    // The compile-time line is emitted synchronously so it survives even an
+    // early crash; the enriched line adds the runtime applicationId/version.
+    debugPrint(BuildInfo.compileTime.toLogLine());
+    unawaited(
+      BuildInfo.load().then((info) => debugPrint(info.toLogLine())),
+    );
 
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
@@ -892,10 +902,12 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       themeAnimationCurve: Curves.easeOutCubic,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
-        return AppBackdrop(
-          animationsEnabled: settings.animationsEnabled,
-          weatherEffectsEnabled: settings.weatherEffectsEnabled,
-          child: AppResponsiveShell(child: child),
+        return QaBuildBadge(
+          child: AppBackdrop(
+            animationsEnabled: settings.animationsEnabled,
+            weatherEffectsEnabled: settings.weatherEffectsEnabled,
+            child: AppResponsiveShell(child: child),
+          ),
         );
       },
       home: appHome,
