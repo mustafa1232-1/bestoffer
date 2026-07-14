@@ -66,13 +66,20 @@ Old small Reel-to-Story card routes:    0
 old UI** — they only forward to V3. They are kept as thin compatibility wrappers
 so existing call sites don't need edits.
 
-### Scoped story now sends authoritative scope
+### Correction — story-level scope is a backend gap (not yet enforced)
 
-The V3 scoped path fixes a pre-existing bug: `ScopedCommunityStorySheet` called
-`createStory(caption, mediaFile)` with **no scope**, so community stories were
-published globally. `api.createStory` / `controller.createStory` now carry
-`audienceScopeType`/`audienceScopeCode`, re-validated by the backend
-(`feed.validators.js`).
+Earlier notes claimed the V3 scoped path "fixes a bug where community stories
+were published globally." That is **incorrect** and is retracted. On review:
+`validateCreateStory` and the story create service **ignore**
+`audienceScopeType/Code`, and only `social_post` (not `social_story`) has an
+`audience_scope` column. So both the old `ScopedCommunityStorySheet` and the new
+V3 path publish **global** stories — this is a long-standing backend limitation,
+not a regression. The V3 change is a **UI cutover** (community create-story now
+opens `StoryComposerV3`); `api.createStory`/`controller.createStory` forward the
+scope for **forward-compatibility**, but the backend does not persist or enforce
+story scope yet. Community **posts** do have working scope
+(`validateCreatePost` + `social_post.audience_scope`). See
+`SOCIAL_V3_TEST_MATRIX.md` §3 for the recommended backend follow-up.
 
 ## Not deleted (by design)
 

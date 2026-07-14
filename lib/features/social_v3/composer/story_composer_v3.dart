@@ -50,22 +50,9 @@ class StoryComposerV3 extends StatefulWidget {
 
 class _StoryComposerV3State extends State<StoryComposerV3> {
   final TextEditingController _caption = TextEditingController();
-  late StoryComposerScope _scope = widget.scope;
+  late final StoryComposerScope _scope = widget.scope;
   bool _editingText = false;
   bool _publishing = false;
-
-  static const _cycle = [
-    StoryAudienceScope.global,
-    StoryAudienceScope.followers,
-    StoryAudienceScope.closeFriends,
-  ];
-
-  void _cycleScope() {
-    if (_scope.locked) return;
-    final i = _cycle.indexOf(_scope.scope);
-    final next = _cycle[(i + 1) % _cycle.length];
-    setState(() => _scope = StoryComposerScope(scope: next));
-  }
 
   Future<void> _publish() async {
     if (_publishing) return;
@@ -204,11 +191,15 @@ class _StoryComposerV3State extends State<StoryComposerV3> {
             bottom: padding.bottom + 14,
             child: Row(
               children: [
+                // Story scope is set by the entry point (generic = global,
+                // community = a locked block/compound/building scope). The
+                // backend only accepts global/block/compound/building for
+                // stories, so there is no free-form audience toggle here.
                 _ScopeChip(
                   label: _scopeLabel,
                   official: _scope.isOfficial,
                   locked: _scope.locked,
-                  onTap: _scope.locked ? null : _cycleScope,
+                  onTap: null,
                 ),
                 const Spacer(),
                 TextButton(

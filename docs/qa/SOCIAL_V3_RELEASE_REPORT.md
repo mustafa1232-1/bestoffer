@@ -317,8 +317,10 @@ built from `d083d87` per the "new source → new SHA" rule.
 
 | Item (§) | Status | Evidence |
 |----------|--------|----------|
-| Scoped community Story → V3 (§2) | PASS | `openStoryComposerV3Scoped` (locked scope); community `_openCreateStorySheet` rewired; `ScopedCommunityStorySheet` deleted; `live_create_routes_test.dart` + `story_composer_v3_test.dart` (scope publish) |
-| Story scope sent to backend (§2) | PASS | `api.createStory`/`controller.createStory` carry `audienceScopeType/Code`; backend validates (`feed.validators.js`). Fixes prior bug (scope was dropped → global) |
+| Scoped community Story → V3 **UI** (§2) | PASS | `openStoryComposerV3Scoped`; community `_openCreateStorySheet` rewired; `ScopedCommunityStorySheet` deleted; `live_create_routes_test.dart` + `story_composer_v3_test.dart` |
+| Story-level scope **persistence/enforcement** (§2/§3) | **NOT_IMPLEMENTED (backend gap)** | `validateCreateStory` + story service ignore scope; only `social_post` has `audience_scope`. Old & new paths both publish global stories. Flutter forwards scope (forward-compatible). Follow-up spec in `SOCIAL_V3_TEST_MATRIX.md` §3. Earlier "fixes a bug" claim retracted |
+| Post scope validation (never trust Flutter) | PASS | `feed.scope-review-validation.test.js` — forged/relationship/malformed scopes rejected, `block A`/`building A101` accepted |
+| Composer scope-value safety | PASS | fixed a defect: the generic composer previously cycled to `followers`/`close_friends`, which the backend rejects; now only backend-valid scopes are emitted |
 | Merchant review → V3 (§3) | PASS | `PostComposerV3(mode: merchantReview)` + `openPostComposerV3Review`; rating required; `live_create_routes_test.dart` |
 | Old Story composer screen removed (§4) | PASS | `social_story_composer_screen.dart` deleted; `SocialStoryComposerMode` already in `social_core` domain |
 | Legacy counts all 0 (§5) | PASS | see `SOCIAL_V3_LEGACY_REMOVAL.md` |
