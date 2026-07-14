@@ -30,6 +30,31 @@ grep -rn "SocialReelViewerScreen|SocialReelCard" lib  → only a doc comment in 
 grep -rn "showSocialStoryQuickViewer" lib             → 7 call sites, all now → V3 via the delegating function
 ```
 
+## Final live-cutover cleanup (create entries)
+
+Every generic create entry now opens V3 via delegation:
+
+| Old symbol | Status | Now |
+|------------|--------|-----|
+| `showSocialCreatePostSheet` | **ACTIVE_V3** | delegates to `showSocialCreateSelectorV3` (Post/Story/Reel) |
+| `showSocialStoryComposerEntrySheet` | **ACTIVE_V3** | delegates to `openStoryComposerV3FromGallery` |
+| `SocialCreatePostSheet` / `_CreatePostModePickerSheet` | **DELETED** | old create-post sheet UI removed |
+| `social_post_composer_screen.dart` (`showSocialPostComposerScreen`) | **DELETED** | orphaned, no imports |
+| `social_story_composer_screen.dart` (screen) | **DEAD_LEGACY** (unreachable) | kept only because its `SocialStoryComposerMode` enum is still referenced by `creator_adapters` + `social_story_draft_controller`; the screen widget is unreachable |
+| `pickPostMediaFromDevice` / `pickGalleryMediaFromDevice` | **DOCUMENT_ONLY / non-social** | remaining uses are profile-avatar, report-evidence, residence-proof, and community-scoped/camera creator — not generic Post/Story/Reel publishing; all are gallery pickers, not `FilePicker` |
+| `ScopedCommunityStorySheet` | **MUST_REPLACE (scoped)** | community/building-scoped story create; not yet migrated to V3 (needs audience-scope support in `StoryComposerV3`) — documented gap |
+| merchant-review create | removed from the create button | not exposed via the V3 selector yet — documented gap |
+
+### Active-route counts
+
+```
+Active old Reel viewer routes:   0
+Active old Story viewer routes:  0   (all → SocialStoryViewerV3)
+Active old Story composer routes: 0  (generic; ScopedCommunityStorySheet is audience-scoped, tracked above)
+Active old Reel composer routes:  0
+Active social FilePicker media routes: 0   (grep 'FilePicker.platform' lib/features/social → none)
+```
+
 ## Not deleted (by design)
 
 * Database tables/rows — none touched.

@@ -134,8 +134,7 @@ class _SocialReelsV3ConnectorState
     );
   }
 
-  Future<void> _createReel() =>
-      openReelComposerV3(context, ref, onPublished: (_) {
+  Future<void> _createReel() => openReelComposerV3(context, onPublished: (_) {
         ref.read(socialReelsControllerProvider.notifier).load(refresh: true);
       });
 

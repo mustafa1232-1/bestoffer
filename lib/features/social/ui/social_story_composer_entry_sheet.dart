@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/auth/auth_guard.dart';
-import '../models/social_story_document.dart';
-import 'social_story_composer_screen.dart';
+import '../../social_v3/composer/reel_gallery_entry_v3.dart';
 
-/// Story creation entry point. Opens the gallery-first composer directly so
-/// the user lands in the photo/video picker flow instead of a generic file
-/// picker or camera-first hub. Camera capture remains available from the
-/// composer itself as a secondary action.
+/// Story creation entry point — cut over to Social V3 (§3).
+///
+/// Delegates to the V3 gallery-first story composer so every "Create Story"
+/// caller (feed ring add, community) opens `StoryComposerV3`. The old
+/// `SocialStoryComposerScreen` is no longer reachable from normal creation.
 Future<bool?> showSocialStoryComposerEntrySheet(BuildContext context) async {
   if (!await requireAuthBeforeAction(
     context,
@@ -17,12 +17,6 @@ Future<bool?> showSocialStoryComposerEntrySheet(BuildContext context) async {
     return null;
   }
   if (!context.mounted) return null;
-  return Navigator.of(context).push<bool>(
-    MaterialPageRoute(
-      fullscreenDialog: true,
-      builder: (_) => const SocialStoryComposerScreen(
-        initialMode: SocialStoryComposerMode.media,
-      ),
-    ),
-  );
+  await openStoryComposerV3FromGallery(context);
+  return true;
 }
