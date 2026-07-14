@@ -313,6 +313,37 @@ Built after `flutter clean` + `pub get` + `flutter analyze lib` (clean) + the
 `social-v3-qa-e335c786` remains the tagged prior QA point; this newer APK is
 built from `d083d87` per the "new source → new SHA" rule.
 
+## Specialized-flow closure (scoped story + merchant review)
+
+| Item (§) | Status | Evidence |
+|----------|--------|----------|
+| Scoped community Story → V3 (§2) | PASS | `openStoryComposerV3Scoped` (locked scope); community `_openCreateStorySheet` rewired; `ScopedCommunityStorySheet` deleted; `live_create_routes_test.dart` + `story_composer_v3_test.dart` (scope publish) |
+| Story scope sent to backend (§2) | PASS | `api.createStory`/`controller.createStory` carry `audienceScopeType/Code`; backend validates (`feed.validators.js`). Fixes prior bug (scope was dropped → global) |
+| Merchant review → V3 (§3) | PASS | `PostComposerV3(mode: merchantReview)` + `openPostComposerV3Review`; rating required; `live_create_routes_test.dart` |
+| Old Story composer screen removed (§4) | PASS | `social_story_composer_screen.dart` deleted; `SocialStoryComposerMode` already in `social_core` domain |
+| Legacy counts all 0 (§5) | PASS | see `SOCIAL_V3_LEGACY_REMOVAL.md` |
+| Stream config classifier + startup log (§6) | PASS | `classifyStreamConfig` (PRESENT/MISSING/INVALID_FORMAT) + `logStreamConfigStartup`; `feed.stream-config.test.js` |
+| Backend scope permission enforcement | PARTIAL | backend re-validates scope via existing validators; a dedicated per-scope authorization test matrix (unauthorized building / expired-role / revoked-role) needs a provisioned DB → BLOCKED here |
+| Real Stream smoke + size matrix (§8) | BLOCKED | Cloudflare creds + deployed backend |
+| Deploy/runtime (§7), device QA (§9), signed release (§10) | BLOCKED | no Railway/creds/device/keystore |
+
+Flutter `social_v3` suite: **75 passing**. Backend: **13 passing** (media 6, config 6, routes 1).
+
+### Final QA APK — newest SHA `a35e8b67`
+
+| Field | Value |
+|------|-------|
+| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-a35e8b67-qa.apk` |
+| APK SHA-256 | `5ca4b7bd5dd296bd1b51fa163f789adfea403e7fb398f378cb75037c7c4e6fe2` |
+| Git SHA | `a35e8b676a670753ef65ec96615906833bf501e6` |
+| QA tag | `social-v3-qa-a35e8b67` (prior tags `d083d875`, `e335c786` preserved) |
+| Flavor / appId / version | `user` / `com.maslaki.user` / `1.0.1+9` |
+| QA badge + diagnostics | show `a35e8b67` |
+
+Built after `flutter clean` + `pub get` + `flutter analyze lib` (clean) + 75-test
+suite. **Supersedes** `d083d875`. Filename, QA badge, diagnostics, release report,
+and Git tag all refer to `a35e8b67`.
+
 ## Overall Social V3 status: **PARTIAL** (by design)
 
 Per §11 completion language, Social V3 stays **PARTIAL** until direct upload is
