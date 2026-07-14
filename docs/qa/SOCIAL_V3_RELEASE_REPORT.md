@@ -406,18 +406,21 @@ Commit `581655d` inadvertently included a local `backend/.env.test` change
 and `backend/tmp/*.mjs` scratch scripts. Corrected in `757db30`: `.env.test`
 reverted, tmp untracked, `backend/tmp/` added to `.gitignore`.
 
-### Final QA APK — newest SHA `757db305` (contains the privacy safety guard)
+### Final QA APK — newest SHA `0abb72c4`
 
 | Field | Value |
 |------|-------|
-| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-757db305-qa.apk` |
-| APK SHA-256 | `85184cdb298397402ebf946b57cc5b64ca01940f4719d8983cc5af04900c66aa` |
-| Git SHA | `757db30556e1068eac8978f043046142318d7ce8` |
-| QA tag | `social-v3-qa-757db305` (prior tags preserved) |
+| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-0abb72c4-qa.apk` |
+| APK SHA-256 | `0356c7aacb99ee7bde6aae544d4c5e19e636aa09cb4ce4cffee89fdadfa2d03e` |
+| Git SHA | `0abb72c4d5974d4ed9d8f8a34b0001ede002780d` |
+| QA tag | `social-v3-qa-0abb72c4` (prior tags preserved) |
 | appId / version | `com.maslaki.user` / `1.0.1+9` · debug (QA) |
 
-Supersedes `d1d70214`. Built after clean + analyze(clean) + 75-test suite.
-Backend: 24 tests passing.
+Supersedes `757db305`. Built after clean + analyze(clean) + 75 Flutter tests.
+Backend: **30 tests passing** (story-scope gate 3, capabilities 4, scope/review 10,
+stream-media 6, stream-config 6, media-routes 1). Contains the Flutter safety
+guard; the authoritative backend fail-closed gate protects all clients
+regardless of APK.
 
 ## Overall Social V3 status: **PARTIAL** (by design)
 
