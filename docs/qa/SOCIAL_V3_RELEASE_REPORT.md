@@ -346,6 +346,42 @@ Built after `flutter clean` + `pub get` + `flutter analyze lib` (clean) + 75-tes
 suite. **Supersedes** `d083d875`. Filename, QA badge, diagnostics, release report,
 and Git tag all refer to `a35e8b67`.
 
+## Production runtime closure (in-environment portion)
+
+| Item (§) | Status | Evidence |
+|----------|--------|----------|
+| Source baseline (§1) | PASS | HEAD `e9a1a66`→ now `d1d7021`; a35e8b6 ancestor; tree clean |
+| Migration review (§2) | PASS | non-destructive DB introspection: `social_media_asset` V3 cols + 3 indexes present, `social_post.audience_scope_type` present, legacy R2 preserved; migrations idempotent (`IF NOT EXISTS`) |
+| Story-scope authz (§3) | PARTIAL / NOT_IMPLEMENTED | post-scope validation PASS (`feed.scope-review-validation.test.js`); **story-level scope not backend-implemented** — role matrix NOT_TESTED (no feature). See `SOCIAL_V3_TEST_MATRIX.md` §3 |
+| Merchant-review authz (§4) | PARTIAL | validation PASS (merchant+rating required, 1–5); verified-purchase/order-ownership/one-per-merchant DB matrix NOT_TESTED (needs fixtures) |
+| Railway env / Stream config (§5) | PARTIAL | validator run locally → `UNAVAILABLE (missing: CF_STREAM_*)` (correct; secrets absent); Railway set BLOCKED |
+| Webhook (§6) / reconciliation (§7) | PASS (logic) / BLOCKED (runtime) | route-registration + signature/idempotency tests pass |
+| Real upload smoke + matrix (§8/§9) | BLOCKED | Cloudflare creds + deployed backend |
+| Publish-to-visible (§10) | PASS (gate logic) / BLOCKED (timing) | READY-gate + controller tests |
+| Install QA APK (§11) | NOT_TESTED | no `adb`/device |
+| Device / deep links / notifications / iOS (§12–15) | BLOCKED | no device/macOS |
+| Signed release APK/AAB (§16) | BLOCKED | keystore env vars absent |
+
+**Defect found & fixed during this closure:** the generic `StoryComposerV3`
+scope toggle previously cycled to `followers`/`close_friends`, which the backend
+rejects (`normalizeCommunityScope` accepts only global/block/compound/building);
+now only backend-valid scopes are emitted. This is exactly the kind of defect
+runtime/DB review is meant to catch.
+
+### Final QA APK — newest SHA `d1d70214`
+
+| Field | Value |
+|------|-------|
+| Artifact | `build/app/outputs/flutter-apk/Maslaki-user-social-v3-d1d70214-qa.apk` |
+| APK SHA-256 | `3f76cd74e3e54f980435823b39616eabe591b8a54cfc1e73d271862bf6d885ea` |
+| Git SHA | `d1d702145d11e51b1eb94c3290d5a062009d9311` |
+| QA tag | `social-v3-qa-d1d70214` (prior tags preserved) |
+| appId / version | `com.maslaki.user` / `1.0.1+9` · debug (QA) |
+
+Built after `flutter clean` + `pub get` + `flutter analyze lib` (clean) + 75-test
+suite. Supersedes `a35e8b67`. Filename, badge, diagnostics, report, tag all →
+`d1d70214`. Backend tests: **20 passing**.
+
 ## Overall Social V3 status: **PARTIAL** (by design)
 
 Per §11 completion language, Social V3 stays **PARTIAL** until direct upload is
