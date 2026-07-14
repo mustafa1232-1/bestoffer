@@ -87,9 +87,20 @@ bool isTerminalAuthError(DioException error) {
   final code = _extractAuthCode(error.response?.data);
   final hasBearer = _hasBearerAuthorization(request);
 
-  if (code == 'INVALID_CREDENTIALS') return false;
-  if (hasBearer) return true;
-  return false;
+  if (!isSessionAuthFailureCode(code)) {
+    return false;
+  }
+  return hasBearer;
+}
+
+bool isSessionAuthFailureCode(String? code) {
+  final normalized = code?.trim().toUpperCase();
+  if (normalized == null || normalized.isEmpty) return false;
+  return normalized == 'INVALID_TOKEN' ||
+      normalized == 'NO_TOKEN' ||
+      normalized == 'INVALID_REFRESH_TOKEN' ||
+      normalized == 'TOKEN_EXPIRED' ||
+      normalized == 'SESSION_EXPIRED';
 }
 
 bool isSessionInvalidationExemptRequest(RequestOptions request) {

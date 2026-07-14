@@ -39,15 +39,28 @@ function readList(data, key = "items") {
 }
 
 async function login(actor, baseUrl, phone, pin, label) {
-  const response = await request(baseUrl, actor, "POST", "/api/auth/login", {
-    phone,
-    pin,
-  });
-  assertStatus(response, 200, label);
-  actor.token = readToken(response, label);
-  actor.userId = readUserId(response, label);
-  actor.sessionId = Number(response?.data?.sessionId || 0) || null;
-  return response.data;
+  let lastResponse = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await request(baseUrl, actor, "POST", "/api/auth/login", {
+      phone,
+      pin,
+    });
+    assertStatus(response, 200, label);
+    actor.token = readToken(response, label);
+    actor.userId = readUserId(response, label);
+    actor.sessionId = Number(response?.data?.sessionId || 0) || null;
+    lastResponse = response.data;
+
+    const sessionProbe = await request(baseUrl, actor, "GET", "/api/auth/sessions");
+    if (sessionProbe.status === 200) {
+      return lastResponse;
+    }
+
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw new Error(`LOGIN_SESSION_NOT_READY:${label}`);
 }
 
 async function registerCustomer(actor, baseUrl, payload, label) {
@@ -251,8 +264,13 @@ async function main() {
   assert.ok(allowedPostId > 0, "allowed post id missing");
   console.log("[e2e:new-streams] social restriction workflow passed");
 
+  const paidUpgradesAdmin = createActor(
+    "super-admin-paid-upgrades",
+    `${runTag}-paid-upgrades`,
+    "e2e-new-streams/1"
+  );
   await login(
-    admin,
+    paidUpgradesAdmin,
     baseUrl,
     env.superAdminPhone,
     env.superAdminPin,
@@ -281,7 +299,7 @@ async function main() {
 
   const pendingUpgrades = await request(
     baseUrl,
-    admin,
+    paidUpgradesAdmin,
     "GET",
     "/api/admin/paid-upgrades/requests?status=pending_admin_review&limit=100"
   );
@@ -294,7 +312,7 @@ async function main() {
   assert.ok(pendingUpgradeRow, "pending paid upgrade request not visible to admin");
 
   await login(
-    admin,
+    paidUpgradesAdmin,
     baseUrl,
     env.superAdminPhone,
     env.superAdminPin,
@@ -303,7 +321,7 @@ async function main() {
 
   const paidUpgradeApprove = await request(
     baseUrl,
-    admin,
+    paidUpgradesAdmin,
     "PATCH",
     `/api/admin/paid-upgrades/requests/${paidUpgradeRequestId}/approve`,
     {
@@ -313,7 +331,7 @@ async function main() {
   assertStatus(paidUpgradeApprove, 200, "approve paid upgrade request");
 
   await login(
-    admin,
+    paidUpgradesAdmin,
     baseUrl,
     env.superAdminPhone,
     env.superAdminPin,
@@ -322,7 +340,7 @@ async function main() {
 
   const paidUpgradeActivate = await request(
     baseUrl,
-    admin,
+    paidUpgradesAdmin,
     "PATCH",
     `/api/admin/paid-upgrades/requests/${paidUpgradeRequestId}/activate`,
     {}
@@ -343,8 +361,13 @@ async function main() {
   );
   console.log("[e2e:new-streams] paid upgrades workflow passed");
 
+  const realEstateAdmin = createActor(
+    "super-admin-real-estate",
+    `${runTag}-real-estate`,
+    "e2e-new-streams/1"
+  );
   await login(
-    admin,
+    realEstateAdmin,
     baseUrl,
     env.superAdminPhone,
     env.superAdminPin,
@@ -385,7 +408,7 @@ async function main() {
 
   const pendingListings = await request(
     baseUrl,
-    admin,
+    realEstateAdmin,
     "GET",
     "/api/admin/real-estate/listings/pending?limit=100"
   );
@@ -399,7 +422,7 @@ async function main() {
 
   const listingApprove = await request(
     baseUrl,
-    admin,
+    realEstateAdmin,
     "PATCH",
     `/api/admin/real-estate/listings/${listingId}/approve`,
     {

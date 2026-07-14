@@ -255,7 +255,9 @@ class DioClient {
       );
       final raw = response.data;
       if (raw is! Map) return null;
-      final accessToken = '${raw['token'] ?? ''}'.trim();
+      final accessToken =
+          '${raw['token'] ?? raw['accessToken'] ?? raw['access_token'] ?? ''}'
+              .trim();
       final nextRefreshToken =
           '${raw['refreshToken'] ?? raw['refresh_token'] ?? ''}'.trim();
       if (accessToken.isEmpty) return null;
@@ -287,6 +289,11 @@ class DioClient {
         request.extra['skipAuthRefresh'] == true ||
         request.extra['skipTerminalSessionInvalidation'] == true ||
         request.extra['_authRefreshRetried'] == true) {
+      return null;
+    }
+
+    final responseCode = _extractAuthCode(error.response?.data);
+    if (!isSessionAuthFailureCode(responseCode)) {
       return null;
     }
 
@@ -597,6 +604,19 @@ String? _readBearerHeader(Object? value) {
   if (!raw.startsWith(prefix)) return null;
   final token = raw.substring(prefix.length).trim();
   return token.isEmpty ? null : token;
+}
+
+String? _extractAuthCode(dynamic data) {
+  if (data is Map) {
+    final raw = data['message'] ?? data['code'];
+    final normalized = '$raw'.trim().toUpperCase();
+    return normalized.isEmpty ? null : normalized;
+  }
+  if (data is String) {
+    final normalized = data.trim().toUpperCase();
+    return normalized.isEmpty ? null : normalized;
+  }
+  return null;
 }
 
 List<String> _readTriedBaseUrls(RequestOptions request) {

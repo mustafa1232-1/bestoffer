@@ -137,6 +137,17 @@ void main() {
         isTerminalAuthError(
           _err(
             401,
+            {'message': 'UNAUTHORIZED'},
+            path: '/api/company/dashboard',
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        isTerminalAuthError(
+          _err(
+            401,
             {'code': 'INVALID_REFRESH_TOKEN'},
             path: '/api/auth/refresh',
             headers: const {'Authorization': 'Bearer access-token'},
@@ -144,6 +155,17 @@ void main() {
           ),
         ),
         isTrue,
+      );
+      expect(
+        isTerminalAuthError(
+          _err(
+            401,
+            {'message': 'REQUEST_SIGNATURE_INVALID'},
+            path: '/api/accountant/summary',
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        isFalse,
       );
     });
 

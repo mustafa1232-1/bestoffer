@@ -258,7 +258,8 @@ class AuthRepoImpl implements AuthRepo {
 }
 
 String _readToken(Map<String, dynamic> payload) {
-  final rawToken = payload['token'];
+  final rawToken =
+      payload['token'] ?? payload['accessToken'] ?? payload['access_token'];
   if (rawToken is String && rawToken.trim().isNotEmpty) {
     return rawToken;
   }

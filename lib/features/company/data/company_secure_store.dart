@@ -6,12 +6,28 @@ class CompanySecureStore {
 
   final SecureStore _store = SecureStore(flavor: AppFlavor.company);
 
+  SecureStore get secureStore => _store;
+
   Future<void> saveToken(String token) async {
     await _store.saveToken(token);
   }
 
+  Future<void> saveAuthTokens({
+    required String accessToken,
+    String? refreshToken,
+  }) async {
+    await _store.saveAuthTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+    );
+  }
+
   Future<String?> readToken() async {
     return _store.readToken();
+  }
+
+  Future<String?> readRefreshToken() async {
+    return _store.readRefreshToken();
   }
 
   Future<void> saveActiveCompanyId(int companyId) async {
@@ -39,4 +55,3 @@ class CompanySecureStore {
 
   Future<void> writeDeviceId(String value) => writeString('device_id', value);
 }
-

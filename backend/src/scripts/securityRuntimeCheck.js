@@ -670,21 +670,43 @@ async function main() {
   );
   assertStatus(superOnSuperRoute, 200, "super admin insight route");
 
-  const logout = await request(cfg.baseUrl, customer.actor, "POST", "/api/auth/logout");
+  const logoutCustomer = await registerCustomer(cfg.baseUrl, `${cfg.runTag}-logout`);
+  logoutCustomer.actor.token = null;
+  const logoutCustomerLogin = await request(
+    cfg.baseUrl,
+    logoutCustomer.actor,
+    "POST",
+    "/api/auth/login",
+    {
+      phone: logoutCustomer.phone,
+      pin: "1234",
+    }
+  );
+  assertStatus(logoutCustomerLogin, 200, "logout probe customer login");
+  logoutCustomer.actor.token = String(logoutCustomerLogin.data?.token || "");
+
+  const logout = await request(cfg.baseUrl, logoutCustomer.actor, "POST", "/api/auth/logout");
   assertStatus(logout, 200, "customer logout");
 
   let postLogoutProbe = null;
-  const logoutProbeDelaysMs = [0, 500, 1500];
+  const logoutProbeDelaysMs = [0, 500, 1500, 3000, 5000];
   for (const delayMs of logoutProbeDelaysMs) {
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
-    postLogoutProbe = await request(
-      cfg.baseUrl,
-      customer.actor,
-      "GET",
-      "/api/auth/sessions"
-    );
+    postLogoutProbe = await rawRequest(cfg.baseUrl, "GET", "/api/auth/sessions", {
+      headers: {
+        Authorization: `Bearer ${logoutCustomer.actor.token}`,
+        "X-Device-Id": logoutCustomer.actor.deviceId,
+        "X-Client-Platform": `flutter:${logoutCustomer.actor.appFlavor}`,
+        "X-App-Flavor": logoutCustomer.actor.appFlavor,
+        "X-App-Version": logoutCustomer.actor.appVersion,
+        "X-Device-Model": logoutCustomer.actor.model,
+        "User-Agent": logoutCustomer.actor.userAgent,
+        "Cache-Control": "no-cache, no-store, max-age=0",
+        Pragma: "no-cache",
+      },
+    });
     if (postLogoutProbe.status === 401) {
       break;
     }

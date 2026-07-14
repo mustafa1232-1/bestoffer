@@ -856,11 +856,15 @@ class CompanyPortalBootstrap {
 
 class CompanyPortalLoginResult {
   final String token;
+  final String? refreshToken;
+  final int? sessionId;
   final CompanyPortalUser user;
   final List<CompanyMembership> memberships;
 
   const CompanyPortalLoginResult({
     required this.token,
+    this.refreshToken,
+    this.sessionId,
     required this.user,
     required this.memberships,
   });
@@ -871,7 +875,15 @@ class CompanyPortalLoginResult {
         .map(CompanyMembership.fromJson)
         .toList();
     return CompanyPortalLoginResult(
-      token: '${json['token'] ?? ''}',
+      token:
+          '${json['token'] ?? json['accessToken'] ?? json['access_token'] ?? ''}'
+              .trim(),
+      refreshToken: _toNullableString(
+        json['refreshToken'] ?? json['refresh_token'],
+      ),
+      sessionId: json['sessionId'] == null && json['session_id'] == null
+          ? null
+          : _toInt(json['sessionId'] ?? json['session_id']),
       user: CompanyPortalUser.fromJson(_toMap(json['user'])),
       memberships: memberships,
     );

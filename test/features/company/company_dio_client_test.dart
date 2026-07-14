@@ -2,15 +2,17 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:maslaki/core/platform/app_flavor.dart';
+import 'package:maslaki/core/storage/secure_storage.dart';
 import 'package:maslaki/features/company/data/company_dio_client.dart';
-import 'package:maslaki/features/company/data/company_secure_store.dart';
 
-class _FakeCompanySecureStore extends CompanySecureStore {
-  _FakeCompanySecureStore({
+class _FakeSecureStore extends SecureStore {
+  _FakeSecureStore({
     String? token,
     String? deviceId,
   })  : _token = token,
-        _deviceId = deviceId;
+        _deviceId = deviceId,
+        super(flavor: AppFlavor.company);
 
   String? _token;
   String? _deviceId;
@@ -20,9 +22,6 @@ class _FakeCompanySecureStore extends CompanySecureStore {
     _token = null;
     _deviceId = null;
   }
-
-  @override
-  Future<String?> readDeviceId() async => _deviceId;
 
   @override
   Future<String?> readString(String key) async {
@@ -36,11 +35,6 @@ class _FakeCompanySecureStore extends CompanySecureStore {
   @override
   Future<void> saveToken(String token) async {
     _token = token;
-  }
-
-  @override
-  Future<void> writeDeviceId(String value) async {
-    _deviceId = value;
   }
 
   @override
@@ -78,7 +72,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('company dio client sends company surface headers', () async {
-    final store = _FakeCompanySecureStore(
+    final store = _FakeSecureStore(
       token: 'access-token',
       deviceId: 'company-device-1',
     );

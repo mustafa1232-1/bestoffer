@@ -11,7 +11,7 @@ final companySecureStoreProvider = Provider<CompanySecureStore>((ref) {
 });
 
 final companyDioClientProvider = Provider<CompanyDioClient>((ref) {
-  return CompanyDioClient(ref.read(companySecureStoreProvider));
+  return CompanyDioClient();
 });
 
 final companyApiProvider = Provider<CompanyApi>((ref) {
@@ -133,7 +133,10 @@ class CompanySessionController extends StateNotifier<CompanySessionState> {
     state = state.copyWith(loggingIn: true, clearError: true);
     try {
       final result = await _api.login(phone: phone, pin: pin);
-      await _store.saveToken(result.token);
+      await _store.saveAuthTokens(
+        accessToken: result.token,
+        refreshToken: result.refreshToken,
+      );
       final activeCompanyId = await _resolveActiveCompanyId(result.memberships);
       state = CompanySessionState(
         bootstrapping: false,
@@ -172,8 +175,11 @@ class CompanySessionController extends StateNotifier<CompanySessionState> {
   Future<int?> _resolveActiveCompanyId(List<CompanyMembership> memberships) async {
     if (memberships.isEmpty) return null;
     final saved = await _store.readActiveCompanyId();
-    final match = memberships.where((item) => item.companyId == saved).firstOrNull;
-    final effective = match?.companyId ?? memberships.first.companyId;
+    final match = memberships
+        .where((item) => item.companyId == saved)
+        .toList(growable: false);
+    final savedMembership = match.isEmpty ? null : match.first;
+    final effective = savedMembership?.companyId ?? memberships.first.companyId;
     await _store.saveActiveCompanyId(effective);
     return effective;
   }
