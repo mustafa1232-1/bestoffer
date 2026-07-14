@@ -13,8 +13,10 @@ function makeSuffix(prefix = "") {
   return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const phoneSalt = Math.floor(Math.random() * 1_000_000);
+
 function makePhone(seed = 0) {
-  const tail = String(Date.now() + Number(seed || 0)).slice(-9);
+  const tail = String(Date.now() + Number(seed || 0) + phoneSalt).slice(-9);
   return `07${tail}`;
 }
 
@@ -354,6 +356,82 @@ test("taxi negotiation keeps multi-offer rides separate from captain availabilit
     });
     assert.equal(nearby.total, 0);
     assert.equal(nearby.items.length, 0);
+  } finally {
+    await cleanupRows({
+      userIds: state.userIds,
+      rideIds: state.rideIds,
+    });
+  }
+});
+
+test("taxi request notifications skip captains that already have an active ride", async () => {
+  const state = {
+    userIds: [],
+    rideIds: [],
+  };
+
+  try {
+    const customerA = await createTaxiUser({
+      fullName: `Taxi Notify Customer A ${makeSuffix("cust-a-")}`,
+      phone: makePhone(60),
+      role: "user",
+    });
+    state.userIds.push(Number(customerA.id));
+
+    const customerB = await createTaxiUser({
+      fullName: `Taxi Notify Customer B ${makeSuffix("cust-b-")}`,
+      phone: makePhone(61),
+      role: "user",
+    });
+    state.userIds.push(Number(customerB.id));
+
+    const busyCaptain = await createTaxiUser({
+      fullName: `Taxi Busy Notify Captain ${makeSuffix("cap-busy-notify-")}`,
+      phone: makePhone(62),
+      role: "taxi_captain",
+    });
+    state.userIds.push(Number(busyCaptain.id));
+    await seedCaptainReady(busyCaptain.id, 0);
+
+    const freeCaptain = await createTaxiUser({
+      fullName: `Taxi Free Notify Captain ${makeSuffix("cap-free-notify-")}`,
+      phone: makePhone(63),
+      role: "taxi_captain",
+    });
+    state.userIds.push(Number(freeCaptain.id));
+    await seedCaptainReady(freeCaptain.id, 1);
+
+    const busyRide = await seedRequestRide(customerA.id, "busy-notify");
+    state.rideIds.push(busyRide.rideId);
+    await taxiService.acceptRideByCaptain({
+      captainUserId: busyCaptain.id,
+      rideId: busyRide.rideId,
+    });
+
+    const notifiedRide = await seedRequestRide(customerB.id, "notify-check");
+    state.rideIds.push(notifiedRide.rideId);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const busyNotificationCount = await q(
+      `SELECT COUNT(*)::int AS count
+       FROM app_notification
+       WHERE user_id = $1
+         AND type = 'taxi.ride.requested'
+         AND payload->>'rideId' = $2`,
+      [Number(busyCaptain.id), String(notifiedRide.rideId)]
+    );
+    const freeNotificationCount = await q(
+      `SELECT COUNT(*)::int AS count
+       FROM app_notification
+       WHERE user_id = $1
+         AND type = 'taxi.ride.requested'
+         AND payload->>'rideId' = $2`,
+      [Number(freeCaptain.id), String(notifiedRide.rideId)]
+    );
+
+    assert.equal(busyNotificationCount.rows[0].count, 0);
+    assert.equal(freeNotificationCount.rows[0].count, 1);
   } finally {
     await cleanupRows({
       userIds: state.userIds,

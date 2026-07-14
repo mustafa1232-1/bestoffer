@@ -117,6 +117,45 @@ Map<String, dynamic> _wrappedEnvelope() {
   return <String, dynamic>{'ride': _assignmentEnvelope()};
 }
 
+Map<String, dynamic> _assignedRideEnvelopeWithOffers() {
+  final ride = taxiRideViewFromEnvelope(_assignmentEnvelope());
+  return <String, dynamic>{
+    'ride': ride,
+    'assignment': _assignmentEnvelope()['assignment'],
+    'offers': <Map<String, dynamic>>[
+      <String, dynamic>{
+        'id': 12,
+        'offerId': 12,
+        'bidId': 12,
+        'captainUserId': 77,
+        'captainId': 77,
+        'status': 'active',
+        'offeredFareIqd': 16000,
+        'etaMinutes': 6,
+      },
+    ],
+    'bidQueue': <String, dynamic>{
+      'currentBidId': 12,
+      'currentOfferId': 12,
+      'queueSize': 1,
+      'queue': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'bidId': 12,
+          'offerId': 12,
+          'captainUserId': 77,
+          'status': 'active',
+          'queuePosition': 1,
+        },
+      ],
+    },
+    'latestLocation': <String, dynamic>{
+      'latitude': 33.315,
+      'longitude': 44.367,
+      'headingDeg': 180,
+    },
+  };
+}
+
 void main() {
   test('TaxiApi unwraps direct current ride envelopes', () async {
     final dio = Dio()..httpClientAdapter = _StaticJsonAdapter(_assignmentEnvelope());
@@ -152,5 +191,23 @@ void main() {
     expect(ride['status'], 'captain_assigned');
     expect(ride['assignment']['rideId'], 41);
     expect(ride['captain']['captainName'], 'Captain Noor');
+  });
+
+  test('TaxiApi preserves offer collections when the ride view already carries assignment data', () async {
+    final dio = Dio()
+      ..httpClientAdapter = _StaticJsonAdapter(_assignedRideEnvelopeWithOffers());
+    dio.options.baseUrl = 'http://127.0.0.1';
+    final api = TaxiApi(dio);
+
+    final payload = await api.getCurrentRideForCustomer();
+    final ride = taxiRideViewFromEnvelope(payload);
+
+    expect(payload, isNotNull);
+    expect(payload!['offers'], isA<List>());
+    expect(payload['bidQueue'], isA<Map>());
+    expect(payload['assignment'], isA<Map>());
+    expect(ride, isNotNull);
+    expect(ride!['assignment'], isA<Map>());
+    expect(ride['vehicle']['vehiclePlate'], 'TX-001');
   });
 }

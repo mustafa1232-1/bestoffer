@@ -584,6 +584,7 @@ void main() {
     await _scrollTaxiActionsIntoView(tester);
     expect(find.text('Message captain'), findsOneWidget);
     expect(find.text('Ride details'), findsOneWidget);
+    expect(find.text('Share ride'), findsOneWidget);
     expect(find.text('Cancel ride'), findsOneWidget);
   });
 
@@ -689,6 +690,7 @@ void main() {
       expect(find.text('Cancel ride'), findsNothing);
       expect(find.text('Message captain'), findsOneWidget);
       expect(find.text('Ride details'), findsOneWidget);
+      expect(find.text('Share ride'), findsOneWidget);
     },
   );
 
@@ -716,6 +718,7 @@ void main() {
       expect(find.text('Cancel ride'), findsNothing);
       expect(find.text('Message captain'), findsNothing);
       expect(find.text('Call'), findsNothing);
+      expect(find.text('Share ride'), findsNothing);
     },
   );
 

@@ -8,8 +8,10 @@ import * as adminRepo from "../modules/admin/admin.repo.js";
 import * as deliveryService from "../modules/delivery/delivery.service.js";
 import * as taxiRepo from "../modules/taxi/taxi.repo.js";
 
+const phoneSalt = Math.floor(Math.random() * 1_000_000);
+
 function makePhone(seed = 0) {
-  const tail = String(Date.now() + Number(seed || 0)).slice(-9);
+  const tail = String(Date.now() + Number(seed || 0) + phoneSalt).slice(-9);
   return `07${tail}`;
 }
 

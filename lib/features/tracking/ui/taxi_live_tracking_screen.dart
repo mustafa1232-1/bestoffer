@@ -1245,8 +1245,8 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                   icon: Icons.contact_support_rounded,
                   title: context.lt(ar: 'إجراءات الرحلة', en: 'Ride actions'),
                   subtitle: context.lt(
-                    ar: 'اتصال ومراسلة وتفاصيل الرحلة',
-                    en: 'Call, message, and ride details',
+                    ar: 'اتصال ومراسلة وتفاصيل الرحلة والمشاركة',
+                    en: 'Call, message, ride details, and sharing',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -1272,6 +1272,13 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                       icon: const Icon(Icons.info_outline_rounded),
                       label: Text(
                         context.lt(ar: 'تفاصيل الرحلة', en: 'Ride details'),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _shareRide,
+                      icon: const Icon(Icons.share_rounded),
+                      label: Text(
+                        context.lt(ar: 'مشاركة الرحلة', en: 'Share ride'),
                       ),
                     ),
                   ],

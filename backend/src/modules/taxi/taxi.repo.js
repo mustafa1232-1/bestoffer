@@ -179,6 +179,12 @@ export async function listNearbyCaptainsForPickup({
        AND p.latitude IS NOT NULL
        AND p.longitude IS NOT NULL
        AND p.last_seen_at >= NOW() - INTERVAL '3 minutes'
+       AND NOT EXISTS (
+         SELECT 1
+         FROM taxi_ride_request active_ride
+         WHERE active_ride.assigned_captain_user_id = p.captain_user_id
+           AND active_ride.status = ANY($5::text[])
+       )
        AND ${distanceExpr} <= $3
      ORDER BY distance_m ASC, p.last_seen_at DESC
      LIMIT $4`,
@@ -187,6 +193,7 @@ export async function listNearbyCaptainsForPickup({
       Number(pickupLongitude),
       Number(radiusM),
       Math.max(1, Math.min(200, Number(limit) || 50)),
+      ACTIVE_ASSIGNED_RIDE_STATUSES,
     ]
   );
 

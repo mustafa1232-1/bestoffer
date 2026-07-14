@@ -45,15 +45,29 @@ class TaxiApi {
   }
 
   /// The taxi backend has historically emitted both wrapped and direct current
-  /// ride bodies while the UI evolved. Accept either shape and normalize to the
-  /// inner ride envelope so the active-ride screen never depends on the
-  /// transport wrapper or on one extra `ride` layer.
+  /// ride bodies while the UI evolved. Preserve the outer envelope whenever it
+  /// already carries offer/queue collections so the customer screen keeps the
+  /// authoritative negotiation state instead of dropping it with the nested
+  /// `ride` view.
   Map<String, dynamic>? _unwrapCurrentRideEnvelope(dynamic data) {
     if (data is! Map) return null;
     final map = Map<String, dynamic>.from(data);
     final inner = map['ride'];
     if (inner is! Map) return null; // no active ride
     final innerMap = Map<String, dynamic>.from(inner);
+    final topLevelTaxiCollections = map.containsKey('offers') ||
+        map.containsKey('offerQueue') ||
+        map.containsKey('bidQueue') ||
+        map.containsKey('bids') ||
+        map.containsKey('currentOffer') ||
+        map.containsKey('currentBid') ||
+        map.containsKey('events') ||
+        map.containsKey('chatMessages') ||
+        map.containsKey('latestLocation') ||
+        map.containsKey('assignment');
+    if (topLevelTaxiCollections) {
+      return map;
+    }
     final looksLikeEnvelope = innerMap['ride'] is Map ||
         innerMap['assignment'] is Map ||
         innerMap.containsKey('offers') ||

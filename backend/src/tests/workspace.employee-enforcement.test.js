@@ -21,8 +21,10 @@ function makeSuffix(prefix = "") {
     .slice(2, 8)}`;
 }
 
+const phoneSalt = Math.floor(Math.random() * 1_000_000);
+
 function makePhone(seed = 0) {
-  const tail = String(Date.now() + Number(seed || 0)).slice(-9);
+  const tail = String(Date.now() + Number(seed || 0) + phoneSalt).slice(-9);
   return `07${tail}`;
 }
 

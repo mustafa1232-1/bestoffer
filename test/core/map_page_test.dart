@@ -12,6 +12,7 @@ import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
 import 'package:maslaki/features/taxi/data/taxi_route_service.dart';
+import 'package:maslaki/features/taxi/domain/taxi_assignment_contract.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
 import 'package:maslaki/pages/map_page.dart';
 
@@ -290,6 +291,51 @@ Map<String, dynamic> _rideEnvelope({
   };
 }
 
+Map<String, dynamic> _searchingEnvelopeWithOfferCollections() {
+  final ride = taxiRideViewFromEnvelope(_rideEnvelope(status: 'searching'));
+  return <String, dynamic>{
+    'ride': ride,
+    'offers': <Map<String, dynamic>>[
+      <String, dynamic>{
+        'id': 11,
+        'offerId': 11,
+        'bidId': 11,
+        'captainUserId': 21,
+        'captainId': 21,
+        'status': 'active',
+        'offeredFareIqd': 13500,
+        'etaMinutes': 6,
+        'captain': <String, dynamic>{
+          'fullName': 'Captain Noor',
+          'ratingAvg': 4.9,
+          'vehicleType': 'sedan',
+          'carMake': 'Toyota',
+          'carModel': 'Corolla',
+          'carYear': 2022,
+          'plateNumber': 'BGD-123',
+        },
+      },
+    ],
+    'bidQueue': <String, dynamic>{
+      'currentBidId': 11,
+      'currentOfferId': 11,
+      'queueSize': 1,
+      'negotiationTimeoutSeconds': 180,
+      'queue': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'bidId': 11,
+          'offerId': 11,
+          'queuePosition': 1,
+          'isCurrent': true,
+          'isBestPrice': true,
+          'isNearest': true,
+          'isHighestRated': true,
+        },
+      ],
+    },
+  };
+}
+
 Future<void> _pumpMapPage(
   WidgetTester tester, {
   Map<String, dynamic>? currentRideEnvelope,
@@ -437,6 +483,24 @@ void main() {
       expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
       expect(find.text('#-'), findsNothing);
       expect(find.text('Captain Ali'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'map page preserves captain offers when the ride envelope already includes assignment data',
+    (tester) async {
+      await _pumpMapPage(
+        tester,
+        currentRideEnvelope: _searchingEnvelopeWithOfferCollections(),
+      );
+
+      final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
+
+      expect(tester.takeException(), isNull);
+      expect(find.text(l10n.mapPageRideSearchingTitle), findsAtLeastNWidgets(1));
+      expect(find.text('Available offers'), findsOneWidget);
+      expect(find.text('Captain Noor'), findsAtLeastNWidgets(1));
+      expect(find.text('#-'), findsNothing);
     },
   );
 
