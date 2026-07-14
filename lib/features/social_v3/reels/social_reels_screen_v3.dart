@@ -28,6 +28,7 @@ class SocialReelsScreenV3 extends StatefulWidget {
     this.onOpenAuthor,
     this.onView,
     this.onReachedEnd,
+    this.onCreate,
     this.coordinatorFactory,
   });
 
@@ -46,6 +47,9 @@ class SocialReelsScreenV3 extends StatefulWidget {
   final void Function(ReelV3ViewData reel)? onOpenAuthor;
   final void Function(ReelV3ViewData reel)? onView;
   final VoidCallback? onReachedEnd;
+
+  /// Opens the native gallery → V3 reel composer.
+  final VoidCallback? onCreate;
 
   /// Test seam for injecting a coordinator with a fake controller factory.
   final ReelPlaybackCoordinator Function()? coordinatorFactory;
@@ -168,6 +172,7 @@ class _SocialReelsScreenV3State extends State<SocialReelsScreenV3>
                       isPaused: index == _coordinator.activeIndex &&
                           _coordinator.isActivePaused,
                       isMuted: _coordinator.isMuted,
+                      onCreate: widget.onCreate,
                       onTogglePlay: _coordinator.togglePlay,
                       onToggleMute: _coordinator.toggleMuted,
                       onLike: () => _toggleLike(index),

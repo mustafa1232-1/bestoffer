@@ -2,14 +2,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../social/data/social_api.dart';
 import '../../social/models/social_models.dart';
 import '../../social/state/social_controller.dart';
 import '../../social/state/social_reels_controller.dart';
 import '../../social/ui/social_reel_comments_sheet.dart';
-import '../../social/ui/social_share_sheet.dart';
+import '../composer/reel_gallery_entry_v3.dart';
+import '../composer/story_composer_source.dart';
 import '../domain/reel_view_data.dart';
 import '../reels/social_reels_screen_v3.dart';
+import '../sharing/share_sheet_v3.dart';
 
 /// Riverpod-connected wrapper that feeds live reel data into
 /// [SocialReelsScreenV3] and wires interaction callbacks to the existing API.
@@ -104,14 +105,39 @@ class _SocialReelsV3ConnectorState
   }
 
   Future<void> _share(ReelV3ViewData reel) async {
-    await showSocialShareSheet(
-      context: context,
-      entityType: 'reel',
-      entityId: reel.postId,
-      previewTitle: reel.authorName,
-      previewSubtitle: reel.caption,
+    await ShareSheetV3.show(
+      context,
+      target: ShareTargetV3(
+        kind: ShareEntityKind.reel,
+        entityId: reel.postId,
+        ownerId: reel.authorId,
+        title: reel.authorName,
+        subtitle: reel.caption,
+      ),
+      onAddToStory: () {
+        Navigator.of(context).pop();
+        openStoryComposerV3WithReel(
+          context,
+          reel: SharedReelSource(
+            reelId: reel.postId,
+            originalOwnerId: reel.authorId,
+            playbackUrl: reel.media.videoPlaybackUrl,
+            thumbnailUrl: reel.media.posterImageUrl,
+            posterUrl: reel.media.posterImageUrl,
+            width: reel.media.width,
+            height: reel.media.height,
+            caption: reel.caption,
+            available: true,
+          ),
+        );
+      },
     );
   }
+
+  Future<void> _createReel() =>
+      openReelComposerV3(context, ref, onPublished: (_) {
+        ref.read(socialReelsControllerProvider.notifier).load(refresh: true);
+      });
 
   void _recordView(ReelV3ViewData reel) {
     ref.read(socialReelsControllerProvider.notifier).recordView(
@@ -141,6 +167,7 @@ class _SocialReelsV3ConnectorState
       onComments: _comments,
       onShare: _share,
       onView: _recordView,
+      onCreate: _createReel,
       onReachedEnd: () =>
           ref.read(socialReelsControllerProvider.notifier).loadMore(),
     );

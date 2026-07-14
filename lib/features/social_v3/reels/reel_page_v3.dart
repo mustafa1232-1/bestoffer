@@ -20,6 +20,7 @@ class ReelPageV3 extends StatefulWidget {
     this.isBuffering = false,
     this.isPaused = false,
     this.isMuted = false,
+    this.onCreate,
     this.onTogglePlay,
     this.onToggleMute,
     this.onLike,
@@ -39,6 +40,7 @@ class ReelPageV3 extends StatefulWidget {
   final bool isPaused;
   final bool isMuted;
 
+  final VoidCallback? onCreate;
   final VoidCallback? onTogglePlay;
   final VoidCallback? onToggleMute;
   final VoidCallback? onLike;
@@ -138,11 +140,21 @@ class _ReelPageV3State extends State<ReelPageV3>
                     shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
                   ),
                 ),
-                _CircleGlyphButton(
-                  icon: widget.isMuted
-                      ? Icons.volume_off_rounded
-                      : Icons.volume_up_rounded,
-                  onTap: widget.onToggleMute,
+                Row(
+                  children: [
+                    if (widget.onCreate != null)
+                      _CircleGlyphButton(
+                        icon: Icons.videocam_rounded,
+                        onTap: widget.onCreate,
+                      ),
+                    if (widget.onCreate != null) const SizedBox(width: 8),
+                    _CircleGlyphButton(
+                      icon: widget.isMuted
+                          ? Icons.volume_off_rounded
+                          : Icons.volume_up_rounded,
+                      onTap: widget.onToggleMute,
+                    ),
+                  ],
                 ),
               ],
             ),
