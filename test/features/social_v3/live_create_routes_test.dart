@@ -143,7 +143,7 @@ void main() {
   });
 
   testWidgets(
-      'Scoped community Story: capability UNsupported → global fallback + notice',
+      '§3 unsupported scoped: shows confirmation dialog, no composer yet',
       (tester) async {
     await _pumpButtonWithCaps(
       tester,
@@ -152,14 +152,52 @@ void main() {
         ctx,
         scopeType: 'building',
         scopeCode: 'B12',
-        label: 'المبنى B12',
         picker: _FakePicker(single: _image),
       ),
     );
-    // Falls back to a GLOBAL story (never a locked building scope), and warns.
+    // The confirmation dialog appears; NO composer opens before confirmation.
+    expect(find.text('القصص المخصصة غير متاحة حالياً'), findsOneWidget);
+    expect(find.text('إنشاء قصة عامة'), findsOneWidget);
+    expect(find.byType(StoryComposerV3), findsNothing);
+  });
+
+  testWidgets('§3 unsupported scoped: Cancel opens nothing', (tester) async {
+    await _pumpButtonWithCaps(
+      tester,
+      caps: SocialCapabilities.failClosed,
+      onTap: (ctx) => openStoryComposerV3Scoped(
+        ctx,
+        scopeType: 'building',
+        scopeCode: 'B12',
+        picker: _FakePicker(single: _image),
+      ),
+    );
+    await tester.tap(find.text('إلغاء'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byType(StoryComposerV3), findsNothing);
+  });
+
+  testWidgets(
+      '§3 unsupported scoped: explicit "global" opens global composer with label',
+      (tester) async {
+    await _pumpButtonWithCaps(
+      tester,
+      caps: SocialCapabilities.failClosed,
+      onTap: (ctx) => openStoryComposerV3Scoped(
+        ctx,
+        scopeType: 'building',
+        scopeCode: 'B12',
+        picker: _FakePicker(single: _image),
+      ),
+    );
+    await tester.tap(find.text('إنشاء قصة عامة'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
     final composer = tester.widget<StoryComposerV3>(find.byType(StoryComposerV3));
     expect(composer.scope.scope, StoryAudienceScope.global);
-    expect(find.text('القصص المخصصة للبناية ستتوفر قريباً'), findsOneWidget);
+    // The global audience label is visible.
+    expect(find.text('الجمهور: جميع المستخدمين'), findsOneWidget);
   });
 
   testWidgets('Scoped community Story: capability supported → locked scope',

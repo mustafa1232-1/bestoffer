@@ -17,6 +17,7 @@ class StoryComposerV3 extends StatefulWidget {
     super.key,
     required this.source,
     this.scope = StoryComposerScope.global,
+    this.audienceScopeSupported = kStoryAudienceScopeSupported,
     this.onPublish,
     this.onSaveDraft,
   });
@@ -25,6 +26,11 @@ class StoryComposerV3 extends StatefulWidget {
 
   /// Preselected audience scope (§2). May be locked for building/community.
   final StoryComposerScope scope;
+
+  /// Whether the backend currently supports the requested scope (from the live
+  /// capability). Defaults to the code constant so any caller that does not pass
+  /// it stays fail-closed. Only when true may a non-global scope be published.
+  final bool audienceScopeSupported;
 
   /// Publishes with the composed caption + authoritative scope. Returns true on
   /// success (composer then closes). The backend re-validates the scope.
@@ -35,12 +41,17 @@ class StoryComposerV3 extends StatefulWidget {
   static Route<void> route(
     StoryComposerSource source, {
     StoryComposerScope scope = StoryComposerScope.global,
+    bool audienceScopeSupported = kStoryAudienceScopeSupported,
     Future<bool> Function(String caption, StoryComposerScope scope)? onPublish,
   }) {
     return MaterialPageRoute<void>(
       fullscreenDialog: true,
-      builder: (_) =>
-          StoryComposerV3(source: source, scope: scope, onPublish: onPublish),
+      builder: (_) => StoryComposerV3(
+        source: source,
+        scope: scope,
+        audienceScopeSupported: audienceScopeSupported,
+        onPublish: onPublish,
+      ),
     );
   }
 
@@ -57,7 +68,7 @@ class _StoryComposerV3State extends State<StoryComposerV3> {
   /// True when a non-global scope cannot be published because the backend does
   /// not yet enforce story scope. Exposed for tests.
   bool get isScopedPublishBlocked =>
-      _scope.scope != StoryAudienceScope.global && !kStoryAudienceScopeSupported;
+      _scope.scope != StoryAudienceScope.global && !widget.audienceScopeSupported;
 
   Future<void> _publish() async {
     if (_publishing) return;
@@ -96,7 +107,7 @@ class _StoryComposerV3State extends State<StoryComposerV3> {
     }
     switch (_scope.scope) {
       case StoryAudienceScope.global:
-        return 'الجميع';
+        return 'الجمهور: جميع المستخدمين';
       case StoryAudienceScope.closeFriends:
         return 'الأصدقاء المقربون';
       case StoryAudienceScope.followers:

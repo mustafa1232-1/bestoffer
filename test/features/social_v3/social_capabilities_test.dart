@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/features/social_v3/capabilities/social_capabilities.dart';
 import 'package:maslaki/features/social_v3/capabilities/social_capabilities_api.dart';
 import 'package:maslaki/features/social_v3/capabilities/social_capabilities_controller.dart';
+import 'package:maslaki/features/social_v3/capabilities/story_scope_error.dart';
 
 class _FakeApi extends SocialCapabilitiesApi {
   _FakeApi(this._result) : super(Dio());
@@ -131,6 +132,74 @@ void main() {
       await c.ensureFresh();
       expect(c.state.storyAudienceScope.supported, isFalse);
       expect(api.calls, 2);
+    });
+  });
+
+  group('§1 auth-lifecycle wiring (onAuthChanged)', () {
+    test('login triggers a fetch', () async {
+      final api = _FakeApi(_caps(supported: true));
+      final c = SocialCapabilitiesController(api);
+      await c.onAuthChanged(wasAuthed: false, isAuthed: true, nextUserId: 7);
+      expect(api.calls, 1);
+      expect(c.state.storyAudienceScope.supported, isTrue);
+    });
+
+    test('logout resets to fail-closed and does not fetch', () async {
+      final api = _FakeApi(_caps(supported: true));
+      final c = SocialCapabilitiesController(api);
+      await c.onAuthChanged(wasAuthed: false, isAuthed: true, nextUserId: 7);
+      await c.onAuthChanged(
+          wasAuthed: true, prevUserId: 7, isAuthed: false, nextUserId: null);
+      expect(c.state.storyAudienceScope.supported, isFalse);
+      expect(api.calls, 1); // logout does not fetch
+    });
+
+    test('account switch resets prior state then refetches', () async {
+      final api = _FakeApi(_caps(supported: true));
+      final c = SocialCapabilitiesController(api);
+      await c.onAuthChanged(wasAuthed: false, isAuthed: true, nextUserId: 7);
+      expect(c.state.storyAudienceScope.supported, isTrue);
+      // Different account: must not reuse the previous account's capabilities.
+      api.setResult(_caps(supported: false));
+      await c.onAuthChanged(
+          wasAuthed: true, prevUserId: 7, isAuthed: true, nextUserId: 99);
+      expect(api.calls, 2);
+      expect(c.state.storyAudienceScope.supported, isFalse);
+    });
+
+    test('network error on login stays fail-closed', () async {
+      final api = _FakeApi(SocialCapabilities.failClosed); // fetch returns failClosed
+      final c = SocialCapabilitiesController(api);
+      await c.onAuthChanged(wasAuthed: false, isAuthed: true, nextUserId: 7);
+      expect(c.state.storyAudienceScope.supported, isFalse);
+    });
+  });
+
+  group('§2 isStoryScopeUnavailableError', () {
+    DioException _dio(int status, dynamic data) => DioException(
+          requestOptions: RequestOptions(path: '/api/feed/stories'),
+          response: Response(
+            requestOptions: RequestOptions(path: '/api/feed/stories'),
+            statusCode: status,
+            data: data,
+          ),
+        );
+
+    test('detects the 409 STORY_AUDIENCE_SCOPE_NOT_AVAILABLE code', () {
+      final e = _dio(409, {
+        'message': 'STORY_AUDIENCE_SCOPE_NOT_AVAILABLE',
+        'details': {
+          'messages': {'ar': 'غير متاح', 'en': 'unavailable'}
+        }
+      });
+      expect(isStoryScopeUnavailableError(e), isTrue);
+      expect(storyScopeUnavailableMessage(e), 'غير متاح');
+    });
+
+    test('ignores other errors', () {
+      expect(isStoryScopeUnavailableError(_dio(500, {'message': 'SERVER_ERROR'})), isFalse);
+      expect(isStoryScopeUnavailableError(_dio(400, {'message': 'VALIDATION_ERROR'})), isFalse);
+      expect(isStoryScopeUnavailableError(Exception('x')), isFalse);
     });
   });
 }

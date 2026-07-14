@@ -5,6 +5,7 @@ import 'package:social_core/local_media_file.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../social/state/social_controller.dart';
 import '../capabilities/social_capabilities_controller.dart';
+import '../capabilities/story_scope_error.dart';
 import '../pickers/social_media_picker_v3.dart';
 import '../upload/dio_tus_transport.dart';
 import '../upload/reel_upload_api_impl.dart';
@@ -70,6 +71,7 @@ Future<void> openStoryComposerV3FromGallery(
   BuildContext context, {
   SocialMediaPickerV3? picker,
   StoryComposerScope scope = StoryComposerScope.global,
+  bool audienceScopeSupported = false,
 }) async {
   final p = picker ?? SocialMediaPickerV3();
   final media = await p.pickStoryImageOrVideo();
@@ -88,6 +90,7 @@ Future<void> openStoryComposerV3FromGallery(
     StoryComposerV3.route(
       source,
       scope: scope,
+      audienceScopeSupported: audienceScopeSupported,
       onPublish: (caption, publishScope) => _publishStory(
         container,
         caption: caption,
@@ -115,13 +118,30 @@ Future<void> openStoryComposerV3Scoped(
   final caps = container.read(socialCapabilitiesProvider);
 
   if (!caps.storyAudienceScope.supportsType(scopeType)) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('القصص المخصصة للبناية ستتوفر قريباً')),
-      );
-    }
     if (!context.mounted) return;
-    // Fall back to a clearly-global story (still fully functional).
+    // Explicit confirmation (§3) — never silently redirect a scoped intent into
+    // a global publish. Default action is Cancel.
+    final createGlobal = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('القصص المخصصة غير متاحة حالياً'),
+        content: const Text(
+          'ميزة نشر قصة خاصة بسكان البناية ستتوفر قريباً. لن يتم نشر قصتك بشكل '
+          'عام دون موافقتك.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('إنشاء قصة عامة'),
+          ),
+        ],
+      ),
+    );
+    if (createGlobal != true || !context.mounted) return; // default: Cancel
     await openStoryComposerV3FromGallery(context, picker: picker);
     return;
   }
@@ -130,6 +150,7 @@ Future<void> openStoryComposerV3Scoped(
   await openStoryComposerV3FromGallery(
     context,
     picker: picker,
+    audienceScopeSupported: true,
     scope: StoryComposerScope(
       scope: StoryAudienceScopeX.fromWire(scopeType),
       scopeCode: scopeCode,
@@ -146,19 +167,44 @@ Future<bool> _publishStory(
   required PickedSocialMedia media,
   required StoryComposerScope scope,
 }) async {
-  await container.read(socialControllerProvider.notifier).createStory(
-        caption: caption,
-        mediaFile: LocalMediaFile(
-          name: media.name,
-          path: media.path,
-          bytes: null,
-          mimeType: media.mimeType,
-        ),
-        audienceScopeType: scope.scope.wireType,
-        audienceScopeCode: scope.scopeCode,
-      );
-  final err = container.read(socialControllerProvider).error;
-  return err == null || err.trim().isEmpty;
+  final mediaFile = LocalMediaFile(
+    name: media.name,
+    path: media.path,
+    bytes: null,
+    mimeType: media.mimeType,
+  );
+
+  if (scope.scope == StoryAudienceScope.global) {
+    await container.read(socialControllerProvider.notifier).createStory(
+          caption: caption,
+          mediaFile: mediaFile,
+        );
+    final err = container.read(socialControllerProvider).error;
+    return err == null || err.trim().isEmpty;
+  }
+
+  // Non-global (capability-gated). Call the API directly so we can handle the
+  // backend 409 STORY_AUDIENCE_SCOPE_NOT_AVAILABLE. This is the real production
+  // call site for markStoryScopeUnsupported().
+  try {
+    await container.read(socialApiProvider).createStory(
+          caption: caption,
+          mediaFile: mediaFile,
+          audienceScopeType: scope.scope.wireType,
+          audienceScopeCode: scope.scopeCode,
+        );
+    await container.read(socialControllerProvider.notifier).loadStories();
+    return true;
+  } catch (error) {
+    if (isStoryScopeUnavailableError(error)) {
+      // Draft preserved (composer stays open); capability drops to fail-closed;
+      // do NOT retry as global.
+      container
+          .read(socialCapabilitiesProvider.notifier)
+          .markStoryScopeUnsupported();
+    }
+    return false;
+  }
 }
 
 /// Live "Create text Story": V3 story composer in text mode.

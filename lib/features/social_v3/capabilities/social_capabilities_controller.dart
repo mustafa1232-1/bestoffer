@@ -58,11 +58,55 @@ class SocialCapabilitiesController extends StateNotifier<SocialCapabilities> {
     state = SocialCapabilities.failClosed;
     _fetchedAt = null; // force the next ensureFresh() to refetch
   }
+
+  /// Resets to fail-closed and clears the cache. Used on logout and account
+  /// switch so capabilities from a previous session/account are never reused.
+  void resetForSession() {
+    state = SocialCapabilities.failClosed;
+    _fetchedAt = null;
+    _inFlight = false;
+  }
+
+  /// Reacts to an auth-lifecycle transition (login / logout / account switch /
+  /// session restore). Extracted with primitive params so it is unit-testable.
+  Future<void> onAuthChanged({
+    required bool wasAuthed,
+    int? prevUserId,
+    required bool isAuthed,
+    int? nextUserId,
+  }) async {
+    if (isAuthed && (!wasAuthed || prevUserId != nextUserId)) {
+      // Login or account switch: drop any prior-account state, then fetch.
+      resetForSession();
+      await ensureFresh();
+    } else if (!isAuthed && wasAuthed) {
+      // Logout: reset to fail-closed.
+      resetForSession();
+    }
+  }
 }
 
 final socialCapabilitiesProvider =
     StateNotifierProvider<SocialCapabilitiesController, SocialCapabilities>(
-  (ref) => SocialCapabilitiesController(
-    ref.read(socialCapabilitiesApiProvider),
-  ),
+  (ref) {
+    final controller = SocialCapabilitiesController(
+      ref.read(socialCapabilitiesApiProvider),
+    );
+    // Wire to the REAL auth lifecycle: AuthState changes on login, authenticated
+    // bootstrap, session restore, token refresh, logout, and account switch.
+    ref.listen<AuthState>(
+      authControllerProvider,
+      (previous, next) {
+        // Fire-and-forget — never block startup on this request.
+        controller.onAuthChanged(
+          wasAuthed: previous?.isAuthed == true && previous?.user != null,
+          prevUserId: previous?.user?.id,
+          isAuthed: next.isAuthed && next.user != null,
+          nextUserId: next.user?.id,
+        );
+      },
+      fireImmediately: true,
+    );
+    return controller;
+  },
 );
