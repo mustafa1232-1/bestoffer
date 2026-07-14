@@ -160,8 +160,12 @@ function mapPostMediaItemRow(row) {
       row.media_asset_id || row.asset_poster_url || row.asset_normalized_url
         ? {
             id: row.media_asset_id == null ? null : Number(row.media_asset_id),
+            provider: row.asset_provider || null,
+            streamUid: row.asset_stream_uid || null,
             normalizedUrl: row.asset_normalized_url || row.media_url || null,
             posterUrl: row.asset_poster_url || null,
+            playbackUrl: row.asset_playback_url || row.asset_normalized_url || null,
+            thumbnailUrl: row.asset_thumbnail_url || row.asset_poster_url || null,
             durationMs:
               row.asset_duration_ms == null ? null : Number(row.asset_duration_ms),
             processingStatus: row.asset_processing_status || null,
@@ -284,6 +288,21 @@ function mapStoryRow(row, viewerUserId) {
     caption: row.caption || "",
     mediaUrl: row.media_url || null,
     mediaKind: row.media_kind || null,
+    asset:
+      row.media_asset_id || row.asset_poster_url || row.asset_normalized_url
+        ? {
+            id: row.media_asset_id == null ? null : Number(row.media_asset_id),
+            provider: row.asset_provider || null,
+            streamUid: row.asset_stream_uid || null,
+            normalizedUrl: row.asset_normalized_url || row.media_url || null,
+            posterUrl: row.asset_poster_url || null,
+            playbackUrl: row.asset_playback_url || row.asset_normalized_url || null,
+            thumbnailUrl: row.asset_thumbnail_url || row.asset_poster_url || null,
+            durationMs:
+              row.asset_duration_ms == null ? null : Number(row.asset_duration_ms),
+            processingStatus: row.asset_processing_status || null,
+          }
+        : null,
     storyStyle,
     archivedAt: row.archived_by_owner_at || null,
     createdAt: row.created_at,

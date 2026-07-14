@@ -97,44 +97,48 @@ Future<LocalMediaFile?> pickPostMediaFromDevice() async {
 Future<List<LocalMediaFile>> pickMultiplePostMediaFromDevice({
   int maxFiles = 10,
 }) async {
-  final FilePickerResult? result;
   try {
-    result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowMultiple: true,
-      withData: true,
-      allowedExtensions: const [
-        'jpg',
-        'jpeg',
-        'png',
-        'webp',
-        'gif',
-        'mp4',
-        'mov',
-        'webm',
-        'mkv',
-        '3gp',
-      ],
+    _ensureAndroidPhotoPicker();
+    final picker = ImagePicker();
+    final files = await picker.pickMultipleMedia(
+      limit: maxFiles,
+      requestFullMetadata: true,
     );
+    return buildLocalMediaFilesFromPickedMedia(files, maxFiles: maxFiles);
   } catch (_) {
     return const <LocalMediaFile>[];
   }
-  if (result == null || result.files.isEmpty) {
-    return const <LocalMediaFile>[];
-  }
+}
+
+List<LocalMediaFile> buildLocalMediaFilesFromPickedMedia(
+  Iterable<XFile> files, {
+  int maxFiles = 10,
+}) {
   final out = <LocalMediaFile>[];
-  for (final file in result.files.take(maxFiles)) {
-    if ((file.path == null || file.path!.isEmpty) &&
-        (file.bytes == null || file.bytes!.isEmpty)) {
-      continue;
-    }
-    final extension = file.extension?.toLowerCase() ?? '';
+  for (final file in files.take(maxFiles)) {
+    final path = file.path.trim();
+    if (path.isEmpty) continue;
+    final extension = path.contains('.')
+        ? path.split('.').last.toLowerCase()
+        : '';
+    final resolvedMime =
+        (file.mimeType != null && file.mimeType!.contains('/'))
+        ? file.mimeType!
+        : _guessMimeType(extension);
+    final resolvedName = (() {
+      final rawName = file.name.trim();
+      if (rawName.isNotEmpty && !rawName.contains('/') && !rawName.contains('\\')) {
+        return rawName;
+      }
+      final baseName = path.split(RegExp(r'[\\/]+')).last.trim();
+      return baseName.isNotEmpty ? baseName : 'gallery_media';
+    })();
     out.add(
       LocalMediaFile(
-        name: file.name,
-        path: file.path,
-        bytes: file.bytes,
-        mimeType: _guessMimeType(extension),
+        name: resolvedName,
+        path: path,
+        bytes: null,
+        mimeType: resolvedMime,
       ),
     );
   }

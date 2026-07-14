@@ -23,6 +23,7 @@ class _SocialStoryViewerScreenState
   String? _error;
   bool _opened = false;
   SocialStoryGroup? _group;
+  List<SocialStoryGroup> _groups = const <SocialStoryGroup>[];
 
   Future<void> _load() async {
     setState(() {
@@ -34,11 +35,15 @@ class _SocialStoryViewerScreenState
           .read(socialApiProvider)
           .listStories(limitUsers: 60, maxPerUser: 12);
       final rawGroups = List<dynamic>.from(out['stories'] as List? ?? const []);
+      final groups = rawGroups
+          .map(
+            (item) => SocialStoryGroup.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
+          .toList(growable: false);
       SocialStoryGroup? targetGroup;
-      for (final item in rawGroups) {
-        final group = SocialStoryGroup.fromJson(
-          Map<String, dynamic>.from(item as Map),
-        );
+      for (final group in groups) {
         if (group.stories.any((story) => story.id == widget.storyId)) {
           targetGroup = group;
           break;
@@ -47,6 +52,7 @@ class _SocialStoryViewerScreenState
       if (!mounted) return;
       setState(() {
         _group = targetGroup;
+        _groups = groups;
         _loading = false;
         if (targetGroup == null) {
           _error = context.l10n.socialStoryViewerUnavailable;
@@ -73,6 +79,7 @@ class _SocialStoryViewerScreenState
       await showSocialStoryQuickViewer(
         context: context,
         group: _group!,
+        storyGroups: _groups,
         initialStoryId: widget.storyId,
         api: ref.read(socialApiProvider),
       );

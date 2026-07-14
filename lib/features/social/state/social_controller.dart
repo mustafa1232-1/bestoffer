@@ -367,6 +367,7 @@ class SocialController extends StateNotifier<SocialState> {
                     caption: story.caption,
                     mediaUrl: story.mediaUrl,
                     mediaKind: story.mediaKind,
+                    asset: story.asset,
                     style: story.style,
                     archivedAt: story.archivedAt,
                     likesCount: story.likesCount,

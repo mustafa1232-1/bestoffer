@@ -563,7 +563,13 @@ class SocialStoryDraft {
 
 SocialStoryDraft buildReelShareDraft(SocialReelItem item) {
   final poster =
+      item.post.asset?.thumbnailUrl ??
       item.post.asset?.posterUrl ??
+      item.post.asset?.playbackUrl ??
+      item.post.asset?.normalizedUrl ??
+      item.post.mediaUrl;
+  final reelMediaUrl =
+      item.post.asset?.playbackUrl ??
       item.post.asset?.normalizedUrl ??
       item.post.mediaUrl;
   final attachment = SocialStoryAttachment(
@@ -575,7 +581,7 @@ SocialStoryDraft buildReelShareDraft(SocialReelItem item) {
         : item.post.author.fullName,
     posterUrl: poster,
     caption: item.post.caption,
-    mediaUrl: item.post.mediaUrl,
+    mediaUrl: reelMediaUrl,
     mediaKind: item.post.mediaKind,
     label: 'Watch reel',
   );
@@ -592,7 +598,7 @@ SocialStoryDraft buildReelShareDraft(SocialReelItem item) {
     ),
     attachment: attachment,
     layers: [
-      SocialStoryLayer(
+      const SocialStoryLayer(
         id: 'reel-card',
         type: SocialStoryLayerType.reelShare,
         x: 0.5,
@@ -643,7 +649,7 @@ SocialStoryDraft buildPostShareDraft(SocialPost post) {
     ),
     attachment: attachment,
     layers: [
-      SocialStoryLayer(
+      const SocialStoryLayer(
         id: 'post-card',
         type: SocialStoryLayerType.postShare,
         x: 0.5,

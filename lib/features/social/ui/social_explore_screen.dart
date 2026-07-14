@@ -771,7 +771,11 @@ class _ReelPreviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cover =
-        reel.asset?.posterUrl ?? reel.asset?.normalizedUrl ?? reel.mediaUrl;
+        reel.asset?.thumbnailUrl ??
+        reel.asset?.posterUrl ??
+        reel.asset?.playbackUrl ??
+        reel.asset?.normalizedUrl ??
+        reel.mediaUrl;
     return InkWell(
       borderRadius: BorderRadius.circular(24),
       onTap: onTap,

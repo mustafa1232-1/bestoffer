@@ -23,6 +23,7 @@ import 'widgets/social_story_canvas.dart';
 Future<void> showSocialStoryQuickViewer({
   required BuildContext context,
   required SocialStoryGroup group,
+  List<SocialStoryGroup>? storyGroups,
   int? initialStoryId,
   ValueChanged<int>? onStoryViewed,
   SocialApi? api,
@@ -34,6 +35,7 @@ Future<void> showSocialStoryQuickViewer({
     showDragHandle: true,
     builder: (_) => _SocialStoryQuickViewerSheet(
       group: group,
+      storyGroups: storyGroups,
       initialStoryId: initialStoryId,
       onStoryViewed: onStoryViewed,
       api: api,
@@ -44,6 +46,7 @@ Future<void> showSocialStoryQuickViewer({
 
 class _SocialStoryQuickViewerSheet extends StatefulWidget {
   final SocialStoryGroup group;
+  final List<SocialStoryGroup>? storyGroups;
   final int? initialStoryId;
   final ValueChanged<int>? onStoryViewed;
   final SocialApi? api;
@@ -51,6 +54,7 @@ class _SocialStoryQuickViewerSheet extends StatefulWidget {
 
   const _SocialStoryQuickViewerSheet({
     required this.group,
+    this.storyGroups,
     this.initialStoryId,
     this.onStoryViewed,
     this.api,
@@ -62,11 +66,31 @@ class _SocialStoryQuickViewerSheet extends StatefulWidget {
       _SocialStoryQuickViewerSheetState();
 }
 
+class _StoryTimelineEntry {
+  final int groupIndex;
+  final int storyIndex;
+  final SocialStoryGroup group;
+  final SocialStory story;
+
+  const _StoryTimelineEntry({
+    required this.groupIndex,
+    required this.storyIndex,
+    required this.group,
+    required this.story,
+  });
+}
+
 class _SocialStoryQuickViewerSheetState
-    extends State<_SocialStoryQuickViewerSheet> {
+    extends State<_SocialStoryQuickViewerSheet>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final PageController _controller;
+  late final AnimationController _progressController;
+  late final List<_StoryTimelineEntry> _timeline;
   late int _index;
   bool _consumeNextTapUp = false;
+  bool _pausedByLifecycle = false;
+  bool _pausedByGesture = false;
+  bool _pausedByOverlay = false;
 
   // Local optimistic state for like/comment counts (SocialStory has no copyWith).
   final Map<int, bool> _likedById = <int, bool>{};
@@ -74,7 +98,16 @@ class _SocialStoryQuickViewerSheetState
   final Map<int, int> _commentsById = <int, int>{};
   bool _likeBusy = false;
 
-  SocialStory get _currentStory => widget.group.stories[_index];
+  List<SocialStoryGroup> get _groups {
+    final storyGroups = widget.storyGroups;
+    if (storyGroups != null && storyGroups.isNotEmpty) {
+      return storyGroups;
+    }
+    return <SocialStoryGroup>[widget.group];
+  }
+
+  SocialStory get _currentStory => _timeline[_index].story;
+  SocialStoryGroup get _currentGroup => _timeline[_index].group;
 
   bool _isLiked(SocialStory s) => _likedById[s.id] ?? s.isLiked;
   int _likes(SocialStory s) => _likesById[s.id] ?? s.likesCount;
@@ -83,9 +116,139 @@ class _SocialStoryQuickViewerSheetState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _timeline = _buildTimeline();
     _index = _resolveInitialIndex();
     _controller = PageController(initialPage: _index);
+    _progressController = AnimationController(vsync: this)
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          _advance(autoAdvance: true);
+        }
+      });
     _markViewed(_index);
+    _syncProgress(restart: true);
+  }
+
+  List<_StoryTimelineEntry> _buildTimeline() {
+    final entries = <_StoryTimelineEntry>[];
+    final groups = _groups;
+    for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+      final group = groups[groupIndex];
+      for (var storyIndex = 0; storyIndex < group.stories.length; storyIndex++) {
+        entries.add(
+          _StoryTimelineEntry(
+            groupIndex: groupIndex,
+            storyIndex: storyIndex,
+            group: group,
+            story: group.stories[storyIndex],
+          ),
+        );
+      }
+    }
+    return entries;
+  }
+
+  Duration _storyDuration(SocialStory story) {
+    final clipSeconds = story.style.clipDurationSec;
+    if (clipSeconds != null && clipSeconds > 0) {
+      return Duration(milliseconds: (clipSeconds * 1000).round());
+    }
+    final assetDuration = story.asset?.durationMs;
+    if (assetDuration != null && assetDuration > 0) {
+      return Duration(milliseconds: assetDuration.clamp(2500, 12000).toInt());
+    }
+    return const Duration(seconds: 5);
+  }
+
+  bool get _isProgressPaused =>
+      _pausedByLifecycle || _pausedByGesture || _pausedByOverlay;
+
+  void _syncProgress({bool restart = false}) {
+    if (_timeline.isEmpty) return;
+    final duration = _storyDuration(_currentStory);
+    _progressController.duration = duration;
+    if (_isProgressPaused) {
+      if (_progressController.isAnimating) {
+        _progressController.stop();
+      }
+      return;
+    }
+    if (restart || _progressController.value <= 0 || _progressController.value >= 1) {
+      _progressController.forward(from: 0);
+      return;
+    }
+    if (!_progressController.isAnimating) {
+      _progressController.forward(from: _progressController.value);
+    }
+  }
+
+  void _setLifecyclePaused(bool paused) {
+    if (_pausedByLifecycle == paused) return;
+    if (!mounted) return;
+    setState(() => _pausedByLifecycle = paused);
+    _syncProgress();
+  }
+
+  void _setGesturePaused(bool paused) {
+    if (_pausedByGesture == paused) return;
+    if (!mounted) return;
+    setState(() => _pausedByGesture = paused);
+    _syncProgress();
+  }
+
+  Future<T> _withOverlayPause<T>(Future<T> Function() action) async {
+    if (mounted) {
+      setState(() => _pausedByOverlay = true);
+      _syncProgress();
+    }
+    try {
+      return await action();
+    } finally {
+      if (mounted) {
+        setState(() => _pausedByOverlay = false);
+        _syncProgress();
+      }
+    }
+  }
+
+  int _resolveInitialIndex() {
+    if (_timeline.isEmpty) return 0;
+    if (widget.initialStoryId == null || widget.initialStoryId! <= 0) return 0;
+    final idx = _timeline.indexWhere(
+      (entry) => entry.story.id == widget.initialStoryId,
+    );
+    return idx >= 0 ? idx : 0;
+  }
+
+  void _markViewed(int index) {
+    if (index < 0 || index >= _timeline.length) return;
+    widget.onStoryViewed?.call(_timeline[index].story.id);
+  }
+
+  void _advance({bool autoAdvance = false}) {
+    if (_timeline.isEmpty) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    if (_index >= _timeline.length - 1) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    _controller.nextPage(
+      duration: autoAdvance
+          ? const Duration(milliseconds: 180)
+          : const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _previous() {
+    if (_index <= 0) return;
+    _controller.previousPage(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   Future<void> _toggleLike() async {
@@ -140,63 +303,36 @@ class _SocialStoryQuickViewerSheetState
     if (api == null) return;
     final story = _currentStory;
     _consumeNextTapUp = true;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => _StoryCommentsSheet(
-        api: api,
-        storyId: story.id,
-        onCommentAdded: () {
-          if (!mounted) return;
-          setState(() => _commentsById[story.id] = _comments(story) + 1);
-        },
-      ),
-    );
+    await _withOverlayPause(() {
+      return showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (_) => _StoryCommentsSheet(
+          api: api,
+          storyId: story.id,
+          onCommentAdded: () {
+            if (!mounted) return;
+            setState(() => _commentsById[story.id] = _comments(story) + 1);
+          },
+        ),
+      );
+    });
   }
 
   Future<void> _shareStory() async {
     final story = _currentStory;
     _consumeNextTapUp = true;
-    await showSocialShareSheet(
-      context: context,
-      entityType: 'story',
-      entityId: story.id,
-      previewTitle: widget.group.author.fullName,
-      previewSubtitle: story.caption.trim().isEmpty ? null : story.caption.trim(),
-    );
-  }
-
-  int _resolveInitialIndex() {
-    if (widget.initialStoryId == null || widget.initialStoryId! <= 0) return 0;
-    final idx = widget.group.stories.indexWhere(
-      (story) => story.id == widget.initialStoryId,
-    );
-    return idx >= 0 ? idx : 0;
-  }
-
-  void _markViewed(int index) {
-    if (index < 0 || index >= widget.group.stories.length) return;
-    widget.onStoryViewed?.call(widget.group.stories[index].id);
-  }
-
-  void _next() {
-    if (_index >= widget.group.stories.length - 1) {
-      Navigator.of(context).maybePop();
-      return;
-    }
-    _controller.nextPage(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  void _prev() {
-    if (_index <= 0) return;
-    _controller.previousPage(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
+    await _withOverlayPause(() {
+      return showSocialShareSheet(
+        context: context,
+        entityType: 'story',
+        entityId: story.id,
+        previewTitle: _currentGroup.author.fullName,
+        previewSubtitle:
+            story.caption.trim().isEmpty ? null : story.caption.trim(),
+      );
+    });
   }
 
   Future<void> _openAttachment(SocialStory story) async {
@@ -204,20 +340,24 @@ class _SocialStoryQuickViewerSheetState
     if (!mounted || attachment == null) return;
     _consumeNextTapUp = true;
     if (attachment.isReelShare && (attachment.reelId ?? 0) > 0) {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => SocialShellScreen(
-            initialTab: SocialShellTab.reels,
-            initialReelId: attachment.reelId,
+      await _withOverlayPause(
+        () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => SocialShellScreen(
+              initialTab: SocialShellTab.reels,
+              initialReelId: attachment.reelId,
+            ),
           ),
         ),
       );
       return;
     }
     if (attachment.isPostShare && (attachment.postId ?? 0) > 0) {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => SocialPostDetailsScreen(postId: attachment.postId),
+      await _withOverlayPause(
+        () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => SocialPostDetailsScreen(postId: attachment.postId),
+          ),
         ),
       );
     }
@@ -226,10 +366,12 @@ class _SocialStoryQuickViewerSheetState
   Future<void> _openMentionProfile(int userId, String? displayLabel) async {
     if (userId <= 0) return;
     _consumeNextTapUp = true;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            SocialProfileScreen(userId: userId, initialName: displayLabel),
+    await _withOverlayPause(
+      () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              SocialProfileScreen(userId: userId, initialName: displayLabel),
+        ),
       ),
     );
   }
@@ -250,15 +392,37 @@ class _SocialStoryQuickViewerSheetState
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _setLifecyclePaused(state != AppLifecycleState.resumed);
+  }
+
+  void _handleLongPressStart(LongPressStartDetails details) {
+    _setGesturePaused(true);
+  }
+
+  void _handleLongPressEnd(LongPressEndDetails details) {
+    _setGesturePaused(false);
+  }
+
+  void _next() {
+    _advance();
+  }
+
+  void _prev() {
+    _previous();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _progressController.dispose();
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final stories = widget.group.stories;
-    if (stories.isEmpty) {
+    if (_timeline.isEmpty) {
       return SafeArea(
         child: SizedBox(
           height: 260,
@@ -268,6 +432,8 @@ class _SocialStoryQuickViewerSheetState
         ),
       );
     }
+
+    final currentEntry = _timeline[_index];
 
     return SafeArea(
       child: SizedBox(
@@ -289,19 +455,22 @@ class _SocialStoryQuickViewerSheetState
                     _prev();
                   }
                 },
+                onLongPressStart: _handleLongPressStart,
+                onLongPressEnd: _handleLongPressEnd,
                 child: PageView.builder(
                   controller: _controller,
-                  itemCount: stories.length,
+                  itemCount: _timeline.length,
                   onPageChanged: (value) {
                     setState(() => _index = value);
                     _markViewed(value);
+                    _syncProgress(restart: true);
                   },
                   itemBuilder: (context, idx) {
-                    final story = stories[idx];
+                    final entry = _timeline[idx];
                     return _StoryCanvas(
-                      story: story,
+                      story: entry.story,
                       isActive: idx == _index,
-                      onAttachmentTap: () => _openAttachment(story),
+                      onAttachmentTap: () => _openAttachment(entry.story),
                       onMentionTap: _openMentionProfile,
                     );
                   },
@@ -318,21 +487,25 @@ class _SocialStoryQuickViewerSheetState
                   CircleAvatar(
                     radius: 20,
                     backgroundImage:
-                        (widget.group.author.imageUrl ?? '').trim().isNotEmpty
+                        (currentEntry.group.author.imageUrl ?? '')
+                                .trim()
+                                .isNotEmpty
                         ? appCachedImageProvider(
-                            widget.group.author.imageUrl!,
+                            currentEntry.group.author.imageUrl!,
                             cacheIdentity:
-                                'user_avatar_${widget.group.author.id}',
+                                'user_avatar_${currentEntry.group.author.id}',
                           )
                         : null,
-                    child: (widget.group.author.imageUrl ?? '').trim().isEmpty
+                    child: (currentEntry.group.author.imageUrl ?? '')
+                                .trim()
+                                .isEmpty
                         ? const Icon(Icons.person_outline)
                         : null,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      widget.group.author.fullName,
+                      currentEntry.group.author.fullName,
                       textDirection: TextDirection.rtl,
                       style: const TextStyle(
                         color: Colors.white,
@@ -377,20 +550,43 @@ class _SocialStoryQuickViewerSheetState
               right: 12,
               left: 12,
               top: 56,
-              child: Row(
-                children: List.generate(stories.length, (idx) {
-                  final active = idx <= _index;
-                  return Expanded(
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                      height: 3,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        color: active ? Colors.white : Colors.white24,
-                      ),
-                    ),
+              child: AnimatedBuilder(
+                animation: _progressController,
+                builder: (context, child) {
+                  return Row(
+                    children: List.generate(_timeline.length, (idx) {
+                      final progress = idx < _index
+                          ? 1.0
+                          : idx > _index
+                              ? 0.0
+                              : _progressController.value
+                                  .clamp(0.0, 1.0)
+                                  .toDouble();
+                      return Expanded(
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                          height: 3,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            color: Colors.white24,
+                          ),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: FractionallySizedBox(
+                              widthFactor: progress,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(999),
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
                   );
-                }),
+                },
               ),
             ),
             if (widget.api != null)

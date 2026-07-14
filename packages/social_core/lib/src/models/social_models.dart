@@ -153,25 +153,41 @@ class SocialAuthor {
 
 class SocialMediaAsset {
   final int? id;
+  final String? provider;
+  final String? streamUid;
   final String? normalizedUrl;
   final String? posterUrl;
+  final String? playbackUrl;
+  final String? thumbnailUrl;
   final int? durationMs;
   final String? processingStatus;
 
   const SocialMediaAsset({
     required this.id,
+    required this.provider,
+    required this.streamUid,
     required this.normalizedUrl,
     required this.posterUrl,
+    required this.playbackUrl,
+    required this.thumbnailUrl,
     required this.durationMs,
     required this.processingStatus,
   });
 
   factory SocialMediaAsset.fromJson(Map<String, dynamic> j) => SocialMediaAsset(
     id: parseNullableInt(j['id']),
+    provider: parseNullableString(j['provider'] ?? j['provider_type']),
+    streamUid: parseNullableString(j['streamUid'] ?? j['stream_uid']),
     normalizedUrl: parseNullableString(
       j['normalizedUrl'] ?? j['normalized_url'],
     ),
     posterUrl: parseNullableString(j['posterUrl'] ?? j['poster_url']),
+    playbackUrl: parseNullableString(
+      j['playbackUrl'] ?? j['playback_url'],
+    ),
+    thumbnailUrl: parseNullableString(
+      j['thumbnailUrl'] ?? j['thumbnail_url'],
+    ),
     durationMs: parseNullableInt(j['durationMs'] ?? j['duration_ms']),
     processingStatus: parseNullableString(
       j['processingStatus'] ?? j['processing_status'],
@@ -450,18 +466,24 @@ String? resolveSocialPostPosterUrl(
   final galleryFirst = post.mediaGallery.isNotEmpty
       ? post.mediaGallery.first
       : null;
-  final galleryPoster = (galleryFirst?.asset?.posterUrl ?? '').trim();
+  final galleryPoster = (galleryFirst?.asset?.thumbnailUrl ??
+          galleryFirst?.asset?.posterUrl ??
+          '')
+      .trim();
   if (galleryPoster.isNotEmpty) return galleryPoster;
 
   final galleryUrl =
-      (galleryFirst?.asset?.normalizedUrl ?? galleryFirst?.mediaUrl ?? '')
+      (galleryFirst?.asset?.playbackUrl ??
+              galleryFirst?.asset?.normalizedUrl ??
+              galleryFirst?.mediaUrl ??
+              '')
           .trim();
   if (galleryUrl.isNotEmpty) return galleryUrl;
 
-  final assetPoster = (post.asset?.posterUrl ?? '').trim();
+  final assetPoster = (post.asset?.thumbnailUrl ?? post.asset?.posterUrl ?? '').trim();
   if (assetPoster.isNotEmpty) return assetPoster;
 
-  final assetUrl = (post.asset?.normalizedUrl ?? '').trim();
+  final assetUrl = (post.asset?.playbackUrl ?? post.asset?.normalizedUrl ?? '').trim();
   if (assetUrl.isNotEmpty && !isSocialVideoPost(post)) return assetUrl;
 
   final mediaUrl = (post.mediaUrl ?? '').trim();
@@ -479,11 +501,14 @@ String? resolveSocialPostVideoUrl(SocialPost post) {
       ? post.mediaGallery.first
       : null;
   final galleryUrl =
-      (galleryFirst?.asset?.normalizedUrl ?? galleryFirst?.mediaUrl ?? '')
+      (galleryFirst?.asset?.playbackUrl ??
+              galleryFirst?.asset?.normalizedUrl ??
+              galleryFirst?.mediaUrl ??
+              '')
           .trim();
   if (galleryUrl.isNotEmpty) return galleryUrl;
   if (!isSocialVideoPost(post)) return null;
-  final assetUrl = (post.asset?.normalizedUrl ?? '').trim();
+  final assetUrl = (post.asset?.playbackUrl ?? post.asset?.normalizedUrl ?? '').trim();
   if (assetUrl.isNotEmpty) return assetUrl;
   final mediaUrl = (post.mediaUrl ?? '').trim();
   if (mediaUrl.isNotEmpty) return mediaUrl;
@@ -591,6 +616,7 @@ class SocialStory {
   final String caption;
   final String? mediaUrl;
   final String? mediaKind;
+  final SocialMediaAsset? asset;
   final SocialStoryStyle style;
   final bool isViewed;
   final bool isMine;
@@ -607,6 +633,7 @@ class SocialStory {
     required this.caption,
     required this.mediaUrl,
     required this.mediaKind,
+    required this.asset,
     required this.style,
     required this.isViewed,
     required this.isMine,
@@ -624,6 +651,11 @@ class SocialStory {
     caption: parseString(j['caption']),
     mediaUrl: parseNullableString(j['mediaUrl'] ?? j['media_url']),
     mediaKind: parseNullableString(j['mediaKind'] ?? j['media_kind']),
+    asset: j['asset'] is Map
+        ? SocialMediaAsset.fromJson(
+            Map<String, dynamic>.from(j['asset'] as Map),
+          )
+        : null,
     style: SocialStoryStyle.fromJson(
       Map<String, dynamic>.from(
         j['storyStyle'] ?? j['story_style'] ?? const <String, dynamic>{},

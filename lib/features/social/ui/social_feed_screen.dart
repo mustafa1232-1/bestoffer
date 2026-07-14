@@ -121,6 +121,7 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
     await showSocialStoryQuickViewer(
       context: context,
       group: group,
+      storyGroups: ref.read(socialControllerProvider).stories,
       onStoryViewed: (storyId) =>
           ref.read(socialControllerProvider.notifier).markStoryViewed(storyId),
       api: ref.read(socialApiProvider),

@@ -603,6 +603,11 @@ export async function resubmitModeratedPost(req, res, next) {
       ? {
           url: buildUploadedFileUrl(req, req.file),
           mimetype: req.file.mimetype,
+          sizeBytes: req.file.size,
+          path: req.file.path || null,
+          key: req.file.key || null,
+          r2Key: req.file.r2Key || null,
+          name: req.file.originalname || req.file.filename || null,
         }
       : null;
     const out = await service.resubmitModeratedPost({
@@ -2352,6 +2357,10 @@ export async function createReel(req, res, next) {
           url: buildUploadedFileUrl(req, req.file),
           mimetype: req.file.mimetype,
           sizeBytes: req.file.size,
+          path: req.file.path || null,
+          key: req.file.key || null,
+          r2Key: req.file.r2Key || null,
+          name: req.file.originalname || req.file.filename || null,
         }
       : null;
     const reel = await service.createReel(

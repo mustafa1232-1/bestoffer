@@ -658,7 +658,9 @@ List<_PostMediaDisplayItem> _buildPostMediaDisplayItems(SocialPost post) {
       final isVideo = mediaKind == 'video' || mediaKind == 'reel';
       final isReel = mediaKind == 'reel';
       final posterUrl =
-          (media.asset?.posterUrl ??
+          (media.asset?.thumbnailUrl ??
+                  media.asset?.posterUrl ??
+                  media.asset?.playbackUrl ??
                   media.asset?.normalizedUrl ??
                   media.mediaUrl ??
                   '')
@@ -667,14 +669,17 @@ List<_PostMediaDisplayItem> _buildPostMediaDisplayItems(SocialPost post) {
         continue;
       }
       items.add(
-        _PostMediaDisplayItem(
-          posterUrl: posterUrl,
-          videoUrl: isVideo
-              ? (media.asset?.normalizedUrl ?? media.mediaUrl)?.trim()
+          _PostMediaDisplayItem(
+            posterUrl: posterUrl,
+            videoUrl: isVideo
+              ? (media.asset?.playbackUrl ??
+                      media.asset?.normalizedUrl ??
+                      media.mediaUrl)
+                  ?.trim()
               : null,
-          isVideo: isVideo,
-          isReel: isReel,
-        ),
+            isVideo: isVideo,
+            isReel: isReel,
+          ),
       );
     }
     if (items.isNotEmpty) {

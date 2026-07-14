@@ -29,7 +29,8 @@ Map<String, dynamic> buildSocialSharedSnapshotFromPost(SocialPost post) {
     'caption': post.caption,
     'mediaKind': post.mediaKind,
     'mediaUrl': post.mediaUrl,
-    'posterUrl': post.asset?.posterUrl,
+    'posterUrl': post.asset?.thumbnailUrl ?? post.asset?.posterUrl,
+    'playbackUrl': post.asset?.playbackUrl,
     'createdAt': post.createdAt?.toIso8601String(),
     'author': <String, dynamic>{
       'id': post.author.id,

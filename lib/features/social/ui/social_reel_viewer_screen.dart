@@ -399,7 +399,13 @@ class _SocialReelViewerScreenState extends ConsumerState<SocialReelViewerScreen>
       previewSubtitle: item.post.caption.trim(),
       externalShareText: [
         item.post.caption.trim(),
-        (item.post.asset?.posterUrl ?? item.post.mediaUrl ?? '').trim(),
+        (
+          item.post.asset?.playbackUrl ??
+          item.post.asset?.thumbnailUrl ??
+          item.post.asset?.posterUrl ??
+          item.post.mediaUrl ??
+          ''
+        ).trim(),
       ].where((item) => item.isNotEmpty).join('\n'),
       sharedSnapshot: buildSocialSharedSnapshotFromPost(item.post),
     );

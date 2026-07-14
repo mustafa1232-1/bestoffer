@@ -187,8 +187,12 @@ export async function listUserFeedPosts({
        COALESCE(ps.impressions_count, 0)::int AS impressions_count,
        COALESCE(ps.reel_views_count, 0)::int AS reel_views_count,
        COALESCE(rp.report_count, 0)::int AS report_count,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
        asset.normalized_url AS asset_normalized_url,
        asset.poster_url AS asset_poster_url,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
        asset.duration_ms AS asset_duration_ms,
        asset.processing_status AS asset_processing_status,
        scl.target_type AS link_target_type,
@@ -513,6 +517,7 @@ export async function listActiveStoriesRaw({
        s.caption,
        s.media_url,
        s.media_kind,
+       s.media_asset_id,
        s.story_style,
        s.created_at,
        s.updated_at,
@@ -521,9 +526,18 @@ export async function listActiveStoriesRaw({
        u.phone AS user_phone,
        u.image_url AS user_image_url,
        u.role AS user_role,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
+       asset.normalized_url AS asset_normalized_url,
+       asset.poster_url AS asset_poster_url,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
+       asset.duration_ms AS asset_duration_ms,
+       asset.processing_status AS asset_processing_status,
        COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
      FROM social_story s
      JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_media_asset asset ON asset.id = s.media_asset_id
      LEFT JOIN social_user_relation rel
        ON rel.user_a_id = LEAST($1::bigint, s.user_id)
       AND rel.user_b_id = GREATEST($1::bigint, s.user_id)
@@ -578,18 +592,28 @@ export async function listArchivedStoriesRaw({
        s.caption,
        s.media_url,
        s.media_kind,
-      s.story_style,
-      s.archived_by_owner_at,
-      s.created_at,
-      s.updated_at,
-      s.expires_at,
+       s.media_asset_id,
+       s.story_style,
+       s.archived_by_owner_at,
+       s.created_at,
+       s.updated_at,
+       s.expires_at,
        u.full_name AS user_full_name,
        u.phone AS user_phone,
        u.image_url AS user_image_url,
        u.role AS user_role,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
+       asset.normalized_url AS asset_normalized_url,
+       asset.poster_url AS asset_poster_url,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
+       asset.duration_ms AS asset_duration_ms,
+       asset.processing_status AS asset_processing_status,
        COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
      FROM social_story s
      JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_media_asset asset ON asset.id = s.media_asset_id
      LEFT JOIN social_story_view v
        ON v.story_id = s.id
       AND v.user_id = $1
@@ -833,9 +857,18 @@ export async function findStoryById({
        u.phone AS user_phone,
        u.image_url AS user_image_url,
        u.role AS user_role,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
+       asset.normalized_url AS asset_normalized_url,
+       asset.poster_url AS asset_poster_url,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
+       asset.duration_ms AS asset_duration_ms,
+       asset.processing_status AS asset_processing_status,
        COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
      FROM social_story s
      JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_media_asset asset ON asset.id = s.media_asset_id
      LEFT JOIN social_user_relation rel
        ON rel.user_a_id = LEAST($1::bigint, s.user_id)
       AND rel.user_b_id = GREATEST($1::bigint, s.user_id)
@@ -891,6 +924,7 @@ export async function findStoryForHighlight({ ownerUserId, storyId }) {
        s.caption,
        s.media_url,
        s.media_kind,
+       s.media_asset_id,
        s.story_style,
        s.created_at,
        s.updated_at,
@@ -898,9 +932,18 @@ export async function findStoryForHighlight({ ownerUserId, storyId }) {
        u.full_name AS user_full_name,
        u.phone AS user_phone,
        u.image_url AS user_image_url,
-       u.role AS user_role
+       u.role AS user_role,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
+       asset.normalized_url AS asset_normalized_url,
+       asset.poster_url AS asset_poster_url,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
+       asset.duration_ms AS asset_duration_ms,
+       asset.processing_status AS asset_processing_status
      FROM social_story s
      JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_media_asset asset ON asset.id = s.media_asset_id
      WHERE s.id = $1
        AND s.user_id = $2
        AND s.is_deleted = FALSE
@@ -1204,8 +1247,12 @@ export async function listPostMediaItemsByPostIds(postIds = []) {
        pm.media_url,
        pm.media_kind,
        pm.media_asset_id,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
        asset.normalized_url AS asset_normalized_url,
        asset.poster_url AS asset_poster_url,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
        asset.duration_ms AS asset_duration_ms,
        asset.processing_status AS asset_processing_status
      FROM social_post_media pm
@@ -1295,8 +1342,12 @@ export async function listArchivedPostsRaw({
        COALESCE(ps.impressions_count, 0)::int AS impressions_count,
        COALESCE(ps.reel_views_count, 0)::int AS reel_views_count,
        COALESCE(rp.report_count, 0)::int AS report_count,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
        asset.normalized_url AS asset_normalized_url,
        asset.poster_url AS asset_poster_url,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
        asset.duration_ms AS asset_duration_ms,
        asset.processing_status AS asset_processing_status,
        scl.target_type AS link_target_type,
@@ -1459,8 +1510,12 @@ export async function findPostById(postId) {
      m.name AS merchant_name,
      m.type AS merchant_type,
      m.image_url AS merchant_image_url,
+     asset.provider AS asset_provider,
+     asset.stream_uid AS asset_stream_uid,
      asset.normalized_url AS asset_normalized_url,
      asset.poster_url AS asset_poster_url,
+     asset.playback_url AS asset_playback_url,
+     asset.thumbnail_url AS asset_thumbnail_url,
      asset.duration_ms AS asset_duration_ms,
      asset.processing_status AS asset_processing_status,
      scl.target_type AS link_target_type,
@@ -1496,15 +1551,19 @@ export async function findPostByIdForViewer({
        u.phone AS user_phone,
        u.role AS user_role,
        u.image_url AS user_image_url,
-       u.social_posts_public AS user_posts_public,
-       m.name AS merchant_name,
-       m.type AS merchant_type,
-       m.image_url AS merchant_image_url,
-       asset.normalized_url AS asset_normalized_url,
-       asset.poster_url AS asset_poster_url,
-       asset.duration_ms AS asset_duration_ms,
-       asset.processing_status AS asset_processing_status,
-       scl.target_type AS link_target_type,
+     u.social_posts_public AS user_posts_public,
+     m.name AS merchant_name,
+     m.type AS merchant_type,
+     m.image_url AS merchant_image_url,
+     asset.provider AS asset_provider,
+     asset.stream_uid AS asset_stream_uid,
+     asset.normalized_url AS asset_normalized_url,
+     asset.poster_url AS asset_poster_url,
+     asset.playback_url AS asset_playback_url,
+     asset.thumbnail_url AS asset_thumbnail_url,
+     asset.duration_ms AS asset_duration_ms,
+     asset.processing_status AS asset_processing_status,
+     scl.target_type AS link_target_type,
        scl.merchant_id AS link_merchant_id,
        scl.product_id AS link_product_id,
        scl.offer_id AS link_offer_id,
@@ -6618,9 +6677,13 @@ export async function insertScopeBill({
 export async function insertSocialMediaAsset({
   ownerUserId,
   sourceType,
+  provider = "r2",
+  streamUid = null,
   originalUrl,
   normalizedUrl = null,
   posterUrl = null,
+  playbackUrl = null,
+  thumbnailUrl = null,
   mimeType = null,
   mediaKind = null,
   durationMs = null,
@@ -6633,25 +6696,37 @@ export async function insertSocialMediaAsset({
       (
         owner_user_id,
         source_type,
+        provider,
+        stream_uid,
         media_kind,
         original_url,
         normalized_url,
         poster_url,
+        playback_url,
+        thumbnail_url,
         mime_type,
         duration_ms,
         width,
         height,
         processing_status
       )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     VALUES (
+       $1, $2, $3, $4, $5,
+       $6, $7, $8, $9, $10,
+       $11, $12, $13, $14, $15
+     )
      RETURNING *`,
     [
       Number(ownerUserId),
       String(sourceType || "post").trim().toLowerCase(),
+      String(provider || "r2").trim().toLowerCase(),
+      streamUid == null ? null : String(streamUid).trim() || null,
       mediaKind == null ? null : String(mediaKind).trim().toLowerCase(),
       String(originalUrl || "").trim(),
       normalizedUrl == null ? null : String(normalizedUrl).trim() || null,
       posterUrl == null ? null : String(posterUrl).trim() || null,
+      playbackUrl == null ? null : String(playbackUrl).trim() || null,
+      thumbnailUrl == null ? null : String(thumbnailUrl).trim() || null,
       mimeType == null ? null : String(mimeType).trim() || null,
       durationMs == null ? null : Number(durationMs),
       width == null ? null : Number(width),

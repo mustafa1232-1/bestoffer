@@ -82,6 +82,7 @@ class _SocialReelCardState extends State<SocialReelCard> {
       });
     }
     final url =
+        widget.item.post.asset?.playbackUrl ??
         widget.item.post.asset?.normalizedUrl ??
         widget.item.post.mediaUrl ??
         '';
@@ -186,7 +187,11 @@ class _SocialReelCardState extends State<SocialReelCard> {
     final l10n = context.l10n;
     final post = widget.item.post;
     final poster =
-        post.asset?.posterUrl ?? post.asset?.normalizedUrl ?? post.mediaUrl;
+        post.asset?.thumbnailUrl ??
+        post.asset?.posterUrl ??
+        post.asset?.playbackUrl ??
+        post.asset?.normalizedUrl ??
+        post.mediaUrl;
 
     return Container(
       decoration: const BoxDecoration(

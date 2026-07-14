@@ -316,6 +316,11 @@ export const env = {
     min: 0,
     max: 104857600,
   }),
+  cfStreamAccountId: readString("CF_STREAM_ACCOUNT_ID", ""),
+  cfStreamApiToken: readString("CF_STREAM_API_TOKEN", ""),
+  cfStreamCustomerCode: readString("CF_STREAM_CUSTOMER_CODE", ""),
+  cfStreamPlaybackBaseUrl: readString("CF_STREAM_PLAYBACK_BASE_URL", ""),
+  cfStreamThumbnailBaseUrl: readString("CF_STREAM_THUMBNAIL_BASE_URL", ""),
   nearbyStoresRadiusKmDefault: readNumber("NEARBY_STORES_RADIUS_KM_DEFAULT", 10, {
     min: 1,
     max: 50,
