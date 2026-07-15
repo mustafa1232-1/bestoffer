@@ -40,6 +40,11 @@ class SocialApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> getStoryById(int storyId) async {
+    final response = await dio.get('/api/feed/stories/$storyId');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> listMyStoryArchive({
     int limit = 40,
     int? beforeId,

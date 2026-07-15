@@ -23,21 +23,57 @@ String socialEntityTypeFromPost(SocialPost post) {
 }
 
 Map<String, dynamic> buildSocialSharedSnapshotFromPost(SocialPost post) {
+  final isMerchantReview = isSocialMerchantReviewPost(post);
   return <String, dynamic>{
     'id': post.id,
     'postKind': post.postKind,
+    'title': isMerchantReview ? post.merchantName : null,
     'caption': post.caption,
     'mediaKind': post.mediaKind,
     'mediaUrl': post.mediaUrl,
     'posterUrl': post.asset?.thumbnailUrl ?? post.asset?.posterUrl,
     'playbackUrl': post.asset?.playbackUrl,
     'createdAt': post.createdAt?.toIso8601String(),
+    'authorName': post.author.fullName,
+    'authorUsername': post.author.username,
+    'authorImageUrl': post.author.imageUrl,
+    'merchantId': post.merchantId,
+    'merchantName': post.merchantName,
+    'merchantType': post.merchantType,
+    'merchantImageUrl': post.merchantImageUrl,
+    'reviewRating': post.reviewRating,
     'author': <String, dynamic>{
       'id': post.author.id,
       'fullName': post.author.fullName,
       'username': post.author.username,
       'imageUrl': post.author.imageUrl,
     },
+  }..removeWhere((_, value) => value == null);
+}
+
+Map<String, dynamic> buildSocialSharedSnapshotFromStory({
+  required SocialStoryGroup group,
+  required SocialStory story,
+}) {
+  return <String, dynamic>{
+    'id': story.id,
+    'type': 'story',
+    'title': group.author.fullName,
+    'caption': story.caption,
+    'mediaKind': story.mediaKind,
+    'mediaUrl': story.mediaUrl,
+    'posterUrl': story.asset?.thumbnailUrl ?? story.asset?.posterUrl,
+    'playbackUrl': story.asset?.playbackUrl,
+    'createdAt': story.createdAt?.toIso8601String(),
+    'author': <String, dynamic>{
+      'id': group.author.id,
+      'fullName': group.author.fullName,
+      'username': group.author.username,
+      'imageUrl': group.author.imageUrl,
+    },
+    'authorName': group.author.fullName,
+    'authorUsername': group.author.username,
+    'authorImageUrl': group.author.imageUrl,
   }..removeWhere((_, value) => value == null);
 }
 

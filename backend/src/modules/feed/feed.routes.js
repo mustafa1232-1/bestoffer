@@ -196,6 +196,7 @@ feedRouter.post("/posts/:postId/report", c.reportPost);
 feedRouter.get("/stories", c.listStories);
 feedRouter.get("/stories/archive/me", c.listMyStoryArchive);
 feedRouter.post("/stories", mediaUpload.single("mediaFile"), c.createStory);
+feedRouter.get("/stories/:storyId", c.getStoryById);
 feedRouter.post("/stories/:storyId/archive", c.archiveStory);
 feedRouter.post("/stories/:storyId/restore", c.restoreStory);
 feedRouter.post("/stories/:storyId/view", c.markStoryViewed);

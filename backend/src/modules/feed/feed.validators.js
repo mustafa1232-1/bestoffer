@@ -69,6 +69,35 @@ function asBooleanOrNull(value) {
   return null;
 }
 
+function readBooleanField(body, keys, errors, fieldName, fallback = true) {
+  for (const key of keys) {
+    if (!(key in body)) continue;
+    const parsed = asBooleanOrNull(body[key]);
+    if (parsed == null) {
+      errors.push(fieldName);
+      return fallback;
+    }
+    return parsed;
+  }
+  return fallback;
+}
+
+const sharedEntityTypeAllowlist = new Set([
+  "post",
+  "reel",
+  "story",
+  "profile",
+  "user",
+  "review",
+  "merchant_review",
+  "car_listing",
+  "real_estate_listing",
+  "location",
+  "service_offering",
+  "service_provider",
+  "service_request",
+]);
+
 function asFutureDateTimeOrNull(value) {
   if (value === undefined || value === null || value === "") return null;
   const parsed = new Date(value);
@@ -322,6 +351,13 @@ export function validateCreateStory(body = {}) {
   const errors = [];
   const caption = asTrimmed(body.caption);
   const storyStyle = _parseStoryStyle(body.storyStyle ?? body.story_style, errors);
+  const storyInteractionSettings =
+    body.storyInteractionSettings && typeof body.storyInteractionSettings === "object"
+      ? body.storyInteractionSettings
+      : body.story_interaction_settings &&
+          typeof body.story_interaction_settings === "object"
+        ? body.story_interaction_settings
+        : {};
   const mediaAssetId =
     body.mediaAssetId == null || body.mediaAssetId === ""
       ? null
@@ -372,6 +408,42 @@ export function validateCreateStory(body = {}) {
     }
   }
 
+  const allowLikes = readBooleanField(
+    { ...storyInteractionSettings, ...body },
+    ["allowLikes", "allow_likes"],
+    errors,
+    "allowLikes",
+    true
+  );
+  const allowPrivateReplies = readBooleanField(
+    { ...storyInteractionSettings, ...body },
+    ["allowPrivateReplies", "allow_private_replies"],
+    errors,
+    "allowPrivateReplies",
+    true
+  );
+  const allowComments = readBooleanField(
+    { ...storyInteractionSettings, ...body },
+    ["allowComments", "allow_comments"],
+    errors,
+    "allowComments",
+    true
+  );
+  const allowSharing = readBooleanField(
+    { ...storyInteractionSettings, ...body },
+    ["allowSharing", "allow_sharing"],
+    errors,
+    "allowSharing",
+    true
+  );
+  const allowReshare = readBooleanField(
+    { ...storyInteractionSettings, ...body },
+    ["allowReshare", "allow_reshare"],
+    errors,
+    "allowReshare",
+    true
+  );
+
   return {
     ok: errors.length === 0,
     errors,
@@ -381,6 +453,11 @@ export function validateCreateStory(body = {}) {
       mediaAssetId,
       audienceScopeType,
       audienceScopeCode,
+      allowLikes,
+      allowPrivateReplies,
+      allowComments,
+      allowSharing,
+      allowReshare,
       // NOTE: `isOfficial` is a *request* only. The service must re-authorize
       // it against the user's active building role before persisting — never
       // trust this flag from the client.
@@ -1214,19 +1291,7 @@ export function validateSendMessage(body = {}) {
     errors.push("attachmentDurationMs_requiresAttachment");
   }
   if (sharedEntityType.length > 0) {
-    if (
-      ![
-        "post",
-        "reel",
-        "review",
-        "car_listing",
-        "real_estate_listing",
-        "location",
-        "service_offering",
-        "service_provider",
-        "service_request",
-      ].includes(sharedEntityType)
-    ) {
+    if (!sharedEntityTypeAllowlist.has(sharedEntityType)) {
       errors.push("sharedEntityType");
     }
     if (sharedEntityId == null) {
@@ -1827,19 +1892,7 @@ export function validateCommunityChatMessageBody(body = {}) {
     errors.push("attachmentDurationMs_requiresAttachment");
   }
   if (sharedEntityType.length > 0) {
-    if (
-      ![
-        "post",
-        "reel",
-        "review",
-        "car_listing",
-        "real_estate_listing",
-        "location",
-        "service_offering",
-        "service_provider",
-        "service_request",
-      ].includes(sharedEntityType)
-    ) {
+    if (!sharedEntityTypeAllowlist.has(sharedEntityType)) {
       errors.push("sharedEntityType");
     }
     if (sharedEntityId == null) {

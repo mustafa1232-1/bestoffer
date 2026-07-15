@@ -9,6 +9,7 @@ import path from "node:path";
 import { env } from "../config/env.js";
 import {
   createActor,
+  buildRunTag,
   readId,
   request,
 } from "./e2eTestUtils.js";
@@ -263,30 +264,52 @@ async function loginAccount(baseUrl, account) {
   const loginPath =
     readString(account.loginPath) ||
     (appFlavor === "company" ? "/api/company/auth/login" : "/api/auth/login");
-  const actor = createActor(label, buildRunTag("perm"), "permissions-check/1");
-  actor.appFlavor = appFlavor;
   const phone = readString(account.phone);
   const pin = readString(account.pin);
   if (!phone || !pin) {
     throw new Error(`MATRIX_ACCOUNT_MISSING_CREDENTIALS role=${role} label=${label}`);
   }
 
-  const response = await requestJson(baseUrl, actor, "POST", loginPath, { phone, pin });
+  const actor = createActor(label, buildRunTag("perm"), "permissions-check/1");
+  actor.label = label;
+  actor.appFlavor = appFlavor;
+  const response = await fetch(`${baseUrl}${loginPath}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Client-Platform": `flutter:${appFlavor}`,
+      "X-App-Flavor": appFlavor,
+      "X-Device-Id": actor.deviceId,
+      "X-App-Version": actor.appVersion,
+      "X-Device-Model": actor.model,
+      "User-Agent": actor.userAgent,
+    },
+    body: JSON.stringify({ phone, pin }),
+  });
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch (_) {
+      payload = text;
+    }
+  }
   assert.equal(
     response.status,
     200,
-    `${label} login -> expected 200, received ${response.status}, body=${JSON.stringify(response.data)}`
+    `${label} login -> expected 200, received ${response.status}, body=${JSON.stringify(payload)}`
   );
 
-  const token = readString(response.data?.token);
+  const token = readString(payload?.token);
   assert.ok(token, `${label} login -> missing token`);
   actor.token = token;
-  actor.sessionId = Number(response.data?.sessionId || 0) || null;
-  actor.userId = readId(response.data?.user);
-  actor.isSuperAdmin = response.data?.user?.isSuperAdmin === true || account.isSuperAdmin === true;
+  actor.sessionId = Number(payload?.sessionId || 0) || null;
+  actor.userId = readId(payload?.user);
+  actor.isSuperAdmin = payload?.user?.isSuperAdmin === true || account.isSuperAdmin === true;
   actor.companyId = account.companyId;
   actor.companyRole = readString(account.companyRole);
-  const memberships = Array.isArray(response.data?.memberships) ? response.data.memberships : [];
+  const memberships = Array.isArray(payload?.memberships) ? payload.memberships : [];
   if (memberships.length > 0) {
     actor.companyId =
       actor.companyId || readId(memberships[0]?.company) || readId(memberships[0]?.companyId);
@@ -295,8 +318,8 @@ async function loginAccount(baseUrl, account) {
   }
   actor.permissionsRole = actor.isSuperAdmin
     ? "super_admin"
-    : actor.companyRole || role || readString(response.data?.user?.role || "");
-  actor.authRole = readString(response.data?.user?.role || role || "");
+    : actor.companyRole || role || readString(payload?.user?.role || "");
+  actor.authRole = readString(payload?.user?.role || role || "");
   assert.ok(actor.userId, `${label} login -> missing user id`);
   return actor;
 }

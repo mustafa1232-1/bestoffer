@@ -11,6 +11,7 @@ import '../../../core/media/media_cache_models.dart';
 import '../../../core/media/media_cache_service.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
+import '../../social_v3/domain/story_view_data.dart';
 import '../../social_v3/state/social_story_v3_connector.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
@@ -38,6 +39,18 @@ Future<void> showSocialStoryQuickViewer({
   SocialApi? api,
   VoidCallback? onStoryArchiveChanged,
 }) async {
+  final sourceGroups = (storyGroups == null || storyGroups.isEmpty)
+      ? <SocialStoryGroup>[group]
+      : storyGroups;
+  final storyById = <int, SocialStory>{};
+  final groupByStoryId = <int, SocialStoryGroup>{};
+  for (final sourceGroup in sourceGroups) {
+    for (final story in sourceGroup.stories) {
+      storyById[story.id] = story;
+      groupByStoryId[story.id] = sourceGroup;
+    }
+  }
+
   await openSocialStoryViewerV3(
     context: context,
     group: group,
@@ -45,6 +58,68 @@ Future<void> showSocialStoryQuickViewer({
     initialStoryId: initialStoryId,
     onStoryViewed: onStoryViewed,
     onOpenSharedReel: (reelId) => openSocialReelsV3(context, reelId: reelId),
+    onToggleLike: api == null
+        ? null
+        : (storyId) async {
+            if (!await requireAuthBeforeAction(
+              context,
+              featureArabic: 'إعجاب بالقصة',
+              featureEnglish: 'liking a story',
+            )) {
+              return null;
+            }
+            final out = await api.toggleStoryLike(storyId);
+            final liked = out['isLiked'] ?? out['is_liked'];
+            final rawCount = out['likesCount'] ?? out['likes_count'];
+            return StoryV3LikeResult(
+              isLiked: liked is bool ? liked : null,
+              likesCount: rawCount is num
+                  ? rawCount.toInt()
+                  : int.tryParse('$rawCount'),
+            );
+          },
+    onOpenComments: api == null
+        ? null
+        : (storyId) async {
+            if (!await requireAuthBeforeAction(
+              context,
+              featureArabic: 'التعليق على القصة',
+              featureEnglish: 'commenting on a story',
+            )) {
+              return null;
+            }
+            if (!context.mounted) return null;
+            var commentsAdded = 0;
+            await showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              showDragHandle: true,
+              builder: (_) => _StoryCommentsSheet(
+                api: api,
+                storyId: storyId,
+                onCommentAdded: () => commentsAdded += 1,
+              ),
+            );
+            return commentsAdded;
+          },
+    onShare: (storyId) async {
+      final story = storyById[storyId];
+      final sourceGroup = groupByStoryId[storyId];
+      if (story == null || sourceGroup == null || !context.mounted) return;
+      await showSocialShareSheet(
+        context: context,
+        entityType: 'story',
+        entityId: story.id,
+        previewTitle: sourceGroup.author.fullName,
+        previewSubtitle: story.caption.trim().isEmpty
+            ? null
+            : story.caption.trim(),
+        sharedSnapshot: buildSocialSharedSnapshotFromStory(
+          group: sourceGroup,
+          story: story,
+        ),
+      );
+    },
   );
 }
 
@@ -432,6 +507,10 @@ class _SocialStoryQuickViewerSheetState
         previewSubtitle: story.caption.trim().isEmpty
             ? null
             : story.caption.trim(),
+        sharedSnapshot: buildSocialSharedSnapshotFromStory(
+          group: _currentGroup,
+          story: story,
+        ),
       );
     });
   }
@@ -738,6 +817,9 @@ class _SocialStoryQuickViewerSheetState
                 right: 14,
                 bottom: 14,
                 child: _StoryActionBar(
+                  canLike: _currentStory.allowLikes,
+                  canComment: _currentStory.allowComments,
+                  canShare: _currentStory.allowSharing,
                   liked: _isLiked(_currentStory),
                   likes: _likes(_currentStory),
                   comments: _comments(_currentStory),
@@ -756,6 +838,9 @@ class _SocialStoryQuickViewerSheetState
 
 /// Like / comment / share bar pinned to the bottom of the story viewer.
 class _StoryActionBar extends StatelessWidget {
+  final bool canLike;
+  final bool canComment;
+  final bool canShare;
   final bool liked;
   final int likes;
   final int comments;
@@ -765,6 +850,9 @@ class _StoryActionBar extends StatelessWidget {
   final Future<void> Function() onShare;
 
   const _StoryActionBar({
+    required this.canLike,
+    required this.canComment,
+    required this.canShare,
     required this.liked,
     required this.likes,
     required this.comments,
@@ -776,6 +864,35 @@ class _StoryActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final buttons = <Widget>[
+      if (canLike)
+        _StoryActionButton(
+          icon: liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+          color: liked ? const Color(0xFFFF4D67) : Colors.white,
+          label: likes > 0 ? '$likes' : context.lt(ar: 'إعجاب', en: 'Like'),
+          onTap: busy ? null : () => onLike(),
+        ),
+      if (canComment)
+        _StoryActionButton(
+          icon: Icons.mode_comment_outlined,
+          color: Colors.white,
+          label: comments > 0
+              ? '$comments'
+              : context.lt(ar: 'تعليق', en: 'Comment'),
+          onTap: () => onComment(),
+        ),
+      if (canShare)
+        _StoryActionButton(
+          icon: Icons.send_rounded,
+          color: Colors.white,
+          label: context.lt(ar: 'مشاركة', en: 'Share'),
+          onTap: () => onShare(),
+        ),
+    ];
+    if (buttons.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.4),
@@ -786,30 +903,7 @@ class _StoryActionBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _StoryActionButton(
-              icon: liked
-                  ? Icons.favorite_rounded
-                  : Icons.favorite_border_rounded,
-              color: liked ? const Color(0xFFFF4D67) : Colors.white,
-              label: likes > 0 ? '$likes' : context.lt(ar: 'إعجاب', en: 'Like'),
-              onTap: busy ? null : () => onLike(),
-            ),
-            _StoryActionButton(
-              icon: Icons.mode_comment_outlined,
-              color: Colors.white,
-              label: comments > 0
-                  ? '$comments'
-                  : context.lt(ar: 'تعليق', en: 'Comment'),
-              onTap: () => onComment(),
-            ),
-            _StoryActionButton(
-              icon: Icons.send_rounded,
-              color: Colors.white,
-              label: context.lt(ar: 'مشاركة', en: 'Share'),
-              onTap: () => onShare(),
-            ),
-          ],
+          children: buttons,
         ),
       ),
     );

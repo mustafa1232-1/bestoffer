@@ -376,19 +376,54 @@ export async function listMyReportedStories({
        s.caption,
        s.media_url,
        s.media_kind,
+       s.media_asset_id,
        s.story_style,
+       s.allow_likes,
+       s.allow_private_replies,
+       s.allow_comments,
+       s.allow_sharing,
+       s.allow_reshare,
        s.moderation_status,
        s.moderation_note,
        s.moderation_requested_at,
        s.created_at,
        s.updated_at,
        s.expires_at,
+       u.username AS user_username,
        u.full_name AS user_full_name,
        u.phone AS user_phone,
        u.image_url AS user_image_url,
-       u.role AS user_role
+       u.role AS user_role,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
+       asset.normalized_url AS asset_normalized_url,
+       asset.poster_url AS asset_poster_url,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
+       asset.duration_ms AS asset_duration_ms,
+       asset.processing_status AS asset_processing_status,
+       (SELECT COUNT(*)::int
+          FROM social_story_like sl
+         WHERE sl.story_id = s.id) AS likes_count,
+       (SELECT COUNT(*)::int
+          FROM social_story_comment sc
+         WHERE sc.story_id = s.id
+           AND sc.is_deleted = FALSE) AS comments_count,
+       EXISTS (
+         SELECT 1
+         FROM social_story_like viewer_like
+         WHERE viewer_like.story_id = s.id
+           AND viewer_like.user_id = $1
+       ) AS is_liked,
+       EXISTS (
+         SELECT 1
+         FROM social_story_view viewer_view
+         WHERE viewer_view.story_id = s.id
+           AND viewer_view.user_id = $1
+       ) AS is_viewed
      FROM social_story s
      JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_media_asset asset ON asset.id = s.media_asset_id
      WHERE s.user_id = $1
        AND s.is_deleted = FALSE
        AND s.moderation_status = 'pending'
@@ -526,9 +561,18 @@ export async function listActiveStoriesRaw({
        s.media_kind,
        s.media_asset_id,
        s.story_style,
+       s.allow_likes,
+       s.allow_private_replies,
+       s.allow_comments,
+       s.allow_sharing,
+       s.allow_reshare,
+       s.moderation_status,
+       s.moderation_note,
+       s.moderation_requested_at,
        s.created_at,
        s.updated_at,
        s.expires_at,
+       u.username AS user_username,
        u.full_name AS user_full_name,
        u.phone AS user_phone,
        u.image_url AS user_image_url,
@@ -541,6 +585,19 @@ export async function listActiveStoriesRaw({
        asset.thumbnail_url AS asset_thumbnail_url,
        asset.duration_ms AS asset_duration_ms,
        asset.processing_status AS asset_processing_status,
+       (SELECT COUNT(*)::int
+          FROM social_story_like sl
+         WHERE sl.story_id = s.id) AS likes_count,
+       (SELECT COUNT(*)::int
+          FROM social_story_comment sc
+         WHERE sc.story_id = s.id
+           AND sc.is_deleted = FALSE) AS comments_count,
+       EXISTS (
+         SELECT 1
+         FROM social_story_like viewer_like
+         WHERE viewer_like.story_id = s.id
+           AND viewer_like.user_id = $1
+       ) AS is_liked,
        COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
      FROM social_story s
      JOIN app_user u ON u.id = s.user_id
@@ -602,9 +659,18 @@ export async function listArchivedStoriesRaw({
        s.media_asset_id,
        s.story_style,
        s.archived_by_owner_at,
+       s.allow_likes,
+       s.allow_private_replies,
+       s.allow_comments,
+       s.allow_sharing,
+       s.allow_reshare,
+       s.moderation_status,
+       s.moderation_note,
+       s.moderation_requested_at,
        s.created_at,
        s.updated_at,
        s.expires_at,
+       u.username AS user_username,
        u.full_name AS user_full_name,
        u.phone AS user_phone,
        u.image_url AS user_image_url,
@@ -617,6 +683,19 @@ export async function listArchivedStoriesRaw({
        asset.thumbnail_url AS asset_thumbnail_url,
        asset.duration_ms AS asset_duration_ms,
        asset.processing_status AS asset_processing_status,
+       (SELECT COUNT(*)::int
+          FROM social_story_like sl
+         WHERE sl.story_id = s.id) AS likes_count,
+       (SELECT COUNT(*)::int
+          FROM social_story_comment sc
+         WHERE sc.story_id = s.id
+           AND sc.is_deleted = FALSE) AS comments_count,
+       EXISTS (
+         SELECT 1
+         FROM social_story_like viewer_like
+         WHERE viewer_like.story_id = s.id
+           AND viewer_like.user_id = $1
+       ) AS is_liked,
        COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
      FROM social_story s
      JOIN app_user u ON u.id = s.user_id
@@ -669,18 +748,50 @@ export async function listUserHighlightsRaw({
        s.caption,
        s.media_url,
        s.media_kind,
+       s.media_asset_id,
        s.story_style,
+       s.allow_likes,
+       s.allow_private_replies,
+       s.allow_comments,
+       s.allow_sharing,
+       s.allow_reshare,
+       s.moderation_status,
+       s.moderation_note,
+       s.moderation_requested_at,
        s.created_at,
        s.updated_at,
        s.expires_at,
+       u.username AS user_username,
        u.full_name AS user_full_name,
        u.phone AS user_phone,
        u.image_url AS user_image_url,
        u.role AS user_role,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
+       asset.normalized_url AS asset_normalized_url,
+       asset.poster_url AS asset_poster_url,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
+       asset.duration_ms AS asset_duration_ms,
+       asset.processing_status AS asset_processing_status,
+       (SELECT COUNT(*)::int
+          FROM social_story_like sl
+         WHERE sl.story_id = s.id) AS likes_count,
+       (SELECT COUNT(*)::int
+          FROM social_story_comment sc
+         WHERE sc.story_id = s.id
+           AND sc.is_deleted = FALSE) AS comments_count,
+       EXISTS (
+         SELECT 1
+         FROM social_story_like viewer_like
+         WHERE viewer_like.story_id = s.id
+           AND viewer_like.user_id = $1
+       ) AS is_liked,
        COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
      FROM social_story_highlight h
      JOIN social_story s ON s.id = h.story_id
      JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_media_asset asset ON asset.id = s.media_asset_id
      LEFT JOIN social_user_relation rel
        ON rel.user_a_id = LEAST($1::bigint, s.user_id)
       AND rel.user_b_id = GREATEST($1::bigint, s.user_id)
@@ -754,18 +865,50 @@ export async function findHighlightById({ viewerUserId, highlightId }) {
        s.caption,
        s.media_url,
        s.media_kind,
+       s.media_asset_id,
        s.story_style,
+       s.allow_likes,
+       s.allow_private_replies,
+       s.allow_comments,
+       s.allow_sharing,
+       s.allow_reshare,
+       s.moderation_status,
+       s.moderation_note,
+       s.moderation_requested_at,
        s.created_at,
        s.updated_at,
        s.expires_at,
+       u.username AS user_username,
        u.full_name AS user_full_name,
        u.phone AS user_phone,
        u.image_url AS user_image_url,
        u.role AS user_role,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
+       asset.normalized_url AS asset_normalized_url,
+       asset.poster_url AS asset_poster_url,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
+       asset.duration_ms AS asset_duration_ms,
+       asset.processing_status AS asset_processing_status,
+       (SELECT COUNT(*)::int
+          FROM social_story_like sl
+         WHERE sl.story_id = s.id) AS likes_count,
+       (SELECT COUNT(*)::int
+          FROM social_story_comment sc
+         WHERE sc.story_id = s.id
+           AND sc.is_deleted = FALSE) AS comments_count,
+       EXISTS (
+         SELECT 1
+         FROM social_story_like viewer_like
+         WHERE viewer_like.story_id = s.id
+           AND viewer_like.user_id = $1
+       ) AS is_liked,
        COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
      FROM social_story_highlight h
      JOIN social_story s ON s.id = h.story_id
      JOIN app_user u ON u.id = s.user_id
+     LEFT JOIN social_media_asset asset ON asset.id = s.media_asset_id
      LEFT JOIN social_user_relation rel
        ON rel.user_a_id = LEAST($1::bigint, s.user_id)
       AND rel.user_b_id = GREATEST($1::bigint, s.user_id)
@@ -824,11 +967,29 @@ export async function insertStory({
   mediaKind = null,
   mediaAssetId = null,
   storyStyle = {},
+  allowLikes = true,
+  allowPrivateReplies = true,
+  allowComments = true,
+  allowSharing = true,
+  allowReshare = true,
 }) {
   const r = await q(
     `INSERT INTO social_story
-      (user_id, caption, media_url, media_kind, media_asset_id, story_style, moderation_status)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'approved')
+      (
+        user_id,
+        caption,
+        media_url,
+        media_kind,
+        media_asset_id,
+        story_style,
+        allow_likes,
+        allow_private_replies,
+        allow_comments,
+        allow_sharing,
+        allow_reshare,
+        moderation_status
+      )
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, 'approved')
      RETURNING *`,
     [
       Number(userId),
@@ -837,6 +998,11 @@ export async function insertStory({
       mediaKind,
       mediaAssetId == null ? null : Number(mediaAssetId),
       JSON.stringify(storyStyle && typeof storyStyle === "object" ? storyStyle : {}),
+      allowLikes !== false,
+      allowPrivateReplies !== false,
+      allowComments !== false,
+      allowSharing !== false,
+      allowReshare !== false,
     ]
   );
   return r.rows[0] || null;
@@ -856,10 +1022,19 @@ export async function findStoryById({
        s.media_kind,
        s.media_asset_id,
        s.story_style,
+       s.allow_likes,
+       s.allow_private_replies,
+       s.allow_comments,
+       s.allow_sharing,
+       s.allow_reshare,
        s.archived_by_owner_at,
+       s.moderation_status,
+       s.moderation_note,
+       s.moderation_requested_at,
        s.created_at,
        s.updated_at,
        s.expires_at,
+       u.username AS user_username,
        u.full_name AS user_full_name,
        u.phone AS user_phone,
        u.image_url AS user_image_url,
@@ -872,6 +1047,19 @@ export async function findStoryById({
        asset.thumbnail_url AS asset_thumbnail_url,
        asset.duration_ms AS asset_duration_ms,
        asset.processing_status AS asset_processing_status,
+       (SELECT COUNT(*)::int
+          FROM social_story_like sl
+         WHERE sl.story_id = s.id) AS likes_count,
+       (SELECT COUNT(*)::int
+          FROM social_story_comment sc
+         WHERE sc.story_id = s.id
+           AND sc.is_deleted = FALSE) AS comments_count,
+       EXISTS (
+         SELECT 1
+         FROM social_story_like viewer_like
+         WHERE viewer_like.story_id = s.id
+           AND viewer_like.user_id = $1
+       ) AS is_liked,
        COALESCE(v.story_id IS NOT NULL, FALSE) AS is_viewed
      FROM social_story s
      JOIN app_user u ON u.id = s.user_id
@@ -933,9 +1121,18 @@ export async function findStoryForHighlight({ ownerUserId, storyId }) {
        s.media_kind,
        s.media_asset_id,
        s.story_style,
+       s.allow_likes,
+       s.allow_private_replies,
+       s.allow_comments,
+       s.allow_sharing,
+       s.allow_reshare,
+       s.moderation_status,
+       s.moderation_note,
+       s.moderation_requested_at,
        s.created_at,
        s.updated_at,
        s.expires_at,
+       u.username AS user_username,
        u.full_name AS user_full_name,
        u.phone AS user_phone,
        u.image_url AS user_image_url,
@@ -947,7 +1144,26 @@ export async function findStoryForHighlight({ ownerUserId, storyId }) {
        asset.playback_url AS asset_playback_url,
        asset.thumbnail_url AS asset_thumbnail_url,
        asset.duration_ms AS asset_duration_ms,
-       asset.processing_status AS asset_processing_status
+       asset.processing_status AS asset_processing_status,
+       (SELECT COUNT(*)::int
+          FROM social_story_like sl
+         WHERE sl.story_id = s.id) AS likes_count,
+       (SELECT COUNT(*)::int
+          FROM social_story_comment sc
+         WHERE sc.story_id = s.id
+           AND sc.is_deleted = FALSE) AS comments_count,
+       EXISTS (
+         SELECT 1
+         FROM social_story_like viewer_like
+         WHERE viewer_like.story_id = s.id
+           AND viewer_like.user_id = $2
+       ) AS is_liked,
+       EXISTS (
+         SELECT 1
+         FROM social_story_view viewer_view
+         WHERE viewer_view.story_id = s.id
+           AND viewer_view.user_id = $2
+       ) AS is_viewed
      FROM social_story s
      JOIN app_user u ON u.id = s.user_id
      LEFT JOIN social_media_asset asset ON asset.id = s.media_asset_id

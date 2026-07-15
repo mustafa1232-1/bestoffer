@@ -454,11 +454,32 @@ class CommunityChatBubble extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        Icon(
-                          message.sharedEntity!.type.trim().toLowerCase() ==
-                                  'location'
-                              ? Icons.location_on_outlined
-                              : Icons.link_rounded,
+                        CircleAvatar(
+                          radius: 15,
+                          backgroundImage:
+                              (message.sharedEntity!.authorAvatarUrl ?? '')
+                                  .trim()
+                                  .isNotEmpty
+                              ? appCachedImageProvider(
+                                  message.sharedEntity!.authorAvatarUrl!,
+                                  cacheIdentity:
+                                      'shared_${message.sharedEntity!.type}_${message.sharedEntity!.id}',
+                                )
+                              : null,
+                          child:
+                              (message.sharedEntity!.authorAvatarUrl ?? '')
+                                  .trim()
+                                  .isEmpty
+                              ? Icon(
+                                  message.sharedEntity!.type
+                                              .trim()
+                                              .toLowerCase() ==
+                                          'location'
+                                      ? Icons.location_on_outlined
+                                      : Icons.link_rounded,
+                                  size: 18,
+                                )
+                              : null,
                         ),
                         const SizedBox(width: 8),
                         Expanded(

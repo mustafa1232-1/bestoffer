@@ -14,6 +14,9 @@ Future<void> openSocialStoryViewerV3({
   int? initialStoryId,
   ValueChanged<int>? onStoryViewed,
   void Function(int reelId)? onOpenSharedReel,
+  StoryV3LikeCallback? onToggleLike,
+  StoryV3CommentsCallback? onOpenComments,
+  StoryV3ShareCallback? onShare,
 }) {
   final groups = (storyGroups == null || storyGroups.isEmpty)
       ? <SocialStoryGroup>[group]
@@ -24,15 +27,26 @@ Future<void> openSocialStoryViewerV3({
   if (initialGroupIndex < 0) initialGroupIndex = 0;
 
   final v3Groups = groups.map(StoryV3Group.fromGroup).toList(growable: false);
+  var initialItemIndex = 0;
+  if (initialStoryId != null && initialStoryId > 0) {
+    final resolved = v3Groups[initialGroupIndex].items.indexWhere(
+      (item) => item.storyId == initialStoryId,
+    );
+    if (resolved >= 0) initialItemIndex = resolved;
+  }
 
   return Navigator.of(context).push(
     SocialStoryViewerV3.route(
       groups: v3Groups,
       initialGroupIndex: initialGroupIndex,
+      initialItemIndex: initialItemIndex,
       onView: (userId, storyId) => onStoryViewed?.call(storyId),
       onOpenSharedReel: onOpenSharedReel == null
           ? null
           : (ref) => onOpenSharedReel(ref.reelId),
+      onToggleLike: onToggleLike,
+      onOpenComments: onOpenComments,
+      onShare: onShare,
     ),
   );
 }

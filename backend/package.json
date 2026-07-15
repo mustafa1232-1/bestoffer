@@ -35,6 +35,7 @@
     "e2e:social:check": "node src/scripts/socialE2ECheck.js",
     "e2e:stories:check": "node src/scripts/storiesE2ECheck.js",
     "e2e:reels:check": "node src/scripts/reelsE2ECheck.js",
+    "verify:social-recovery:railway": "node src/scripts/socialRecoveryRailwaySmoke.js",
     "test": "node --env-file=.env.test --test \"src/tests/**/*.test.js\"",
     "verify:release:local": "npm test && npm run flow:check",
     "realtime:runtime:check": "node src/scripts/realtimeRuntimeCheck.js",
