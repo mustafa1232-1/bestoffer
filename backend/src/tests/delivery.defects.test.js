@@ -83,7 +83,7 @@ test("Defect A (§2): current grouped job never returns a delivered job", async 
     current = await getCourierCurrentGroupedJob(fx.courierId);
     assert.equal(current, null, "delivered job is NOT returned as current");
     const history = await listCourierGroupedJobHistory(fx.courierId);
-    assert.ok(history.some((h) => Number(h.delivery_job_id) === Number(job.id)), "delivered job in history");
+    assert.ok(history.some((h) => Number(h.deliveryJobId) === Number(job.id)), "delivered job in history");
 
     // Cancelled-only → still no current job.
     await c.query(`UPDATE delivery_job SET lifecycle_status='CANCELLED' WHERE id=$1`, [job.id]);

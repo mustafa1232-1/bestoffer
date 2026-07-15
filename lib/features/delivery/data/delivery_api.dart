@@ -495,6 +495,80 @@ class DeliveryApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  // ---- Grouped multi-store delivery jobs (delivery closure §3) ----
+  // Backend routes are mounted under /api/delivery (deliveryRouter).
+
+  Future<Map<String, dynamic>?> currentGroupedJob({
+    bool skipTerminalSessionInvalidation = false,
+  }) async {
+    final response = await dio.get(
+      '/api/delivery/delivery-jobs/current',
+      options: Options(
+        extra: _requestExtra(
+          skipTerminalSessionInvalidation: skipTerminalSessionInvalidation,
+        ),
+      ),
+    );
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final job = map['job'];
+    return job == null ? null : Map<String, dynamic>.from(job as Map);
+  }
+
+  Future<List<dynamic>> listGroupedJobs() async {
+    final response = await dio.get('/api/delivery/delivery-jobs');
+    final map = Map<String, dynamic>.from(response.data as Map);
+    return List<dynamic>.from(map['jobs'] as List? ?? const []);
+  }
+
+  Future<List<dynamic>> groupedJobHistory({int limit = 50}) async {
+    final response = await dio.get(
+      '/api/delivery/delivery-jobs/history',
+      queryParameters: {'limit': limit},
+    );
+    final map = Map<String, dynamic>.from(response.data as Map);
+    return List<dynamic>.from(map['jobs'] as List? ?? const []);
+  }
+
+  Future<Map<String, dynamic>> groupedJobDetails(int deliveryJobId) async {
+    final response =
+        await dio.get('/api/delivery/delivery-jobs/$deliveryJobId');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> _jobAction(
+    int deliveryJobId,
+    String action, {
+    int? expectedVersion,
+    Map<String, dynamic>? extraBody,
+  }) async {
+    final response = await dio.post(
+      '/api/delivery/delivery-jobs/$deliveryJobId/$action',
+      data: {
+        if (expectedVersion != null) 'expectedVersion': expectedVersion,
+        ...?extraBody,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> acknowledgeJob(int id, {int? expectedVersion}) =>
+      _jobAction(id, 'acknowledge', expectedVersion: expectedVersion);
+
+  Future<Map<String, dynamic>> headingToPickups(int id, {int? expectedVersion}) =>
+      _jobAction(id, 'heading-to-pickups', expectedVersion: expectedVersion);
+
+  Future<Map<String, dynamic>> stopArrived(int id, int stopId, {int? expectedVersion}) =>
+      _jobAction(id, 'stops/$stopId/arrived', expectedVersion: expectedVersion);
+
+  Future<Map<String, dynamic>> stopCollected(int id, int stopId, {int? expectedVersion}) =>
+      _jobAction(id, 'stops/$stopId/collected', expectedVersion: expectedVersion);
+
+  Future<Map<String, dynamic>> headingToCustomer(int id, {int? expectedVersion}) =>
+      _jobAction(id, 'heading-to-customer', expectedVersion: expectedVersion);
+
+  Future<Map<String, dynamic>> markGroupedDelivered(int id, {int? expectedVersion}) =>
+      _jobAction(id, 'delivered', expectedVersion: expectedVersion);
+
   Future<Map<String, dynamic>> _getCourierMapWithFallback({
     required String courierPath,
     required String legacyPath,

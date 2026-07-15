@@ -10,6 +10,18 @@
 
 const DEFAULT_MARK = "fixt_ms_";
 
+// Deterministic digit phone unique per (mark, suffix). Prefix-slicing the raw
+// marker collides when the marker is long (e.g. own01/own02 → same 15 chars), so
+// hash instead. Digits only, ≤15 chars.
+function phoneFor(mark, suffix) {
+  // Keep h * 131 within 2^53 so the modular hash stays exact (a larger modulus
+  // overflowed and produced colliding phones). mod 1e12 → h*131 < 1.31e14.
+  const s = `${mark}|${suffix}`;
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 131 + s.charCodeAt(i)) % 1000000000000;
+  return `0${String(h).padStart(12, "0")}`.slice(0, 15);
+}
+
 async function insertUser(client, mark, { role, name, suffix }) {
   const uname = `${mark}${suffix}`;
   const row = (
@@ -18,9 +30,7 @@ async function insertUser(client, mark, { role, name, suffix }) {
          (full_name, phone, pin_hash, block, building_number, apartment, username, role, delivery_account_approved)
        VALUES ($1,$2,'x',$3,$4,$5,$6,$7,$8)
        RETURNING id`,
-      // Phone must be unique across concurrently-running markers, so scope it to
-      // the marker (not just the suffix).
-      [name, `${mark}${suffix}`.slice(0, 15), "A", "A101", "1", uname, role, role === "delivery"]
+      [name, phoneFor(mark, suffix), "A", "A101", "1", uname, role, role === "delivery"]
     )
   ).rows[0];
   return Number(row.id);

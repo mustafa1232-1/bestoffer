@@ -148,6 +148,95 @@ export async function recomputeGroupReadiness(client, orderGroupId) {
 }
 
 /**
+ * Authoritative single-courier eligibility check for (re)assignment (§1A). Runs
+ * inside the caller's transaction and LOCKS the courier's account/profile rows so
+ * eligibility cannot change between validation and assignment. Throws
+ * COURIER_NOT_ELIGIBLE (with a safe reason) when any rule fails; returns the
+ * courier id on success. `ignoreDeliveryJobId` lets a courier remain eligible for
+ * the very job being reassigned.
+ */
+export async function assertCourierEligibleForAssignment(
+  client,
+  courierUserId,
+  { presenceFreshnessSec = DEFAULT_PRESENCE_FRESHNESS_SEC, ignoreDeliveryJobId = null } = {}
+) {
+  const uid = Number(courierUserId);
+  // Lock the account + profile rows.
+  const acct = (
+    await client.query(
+      `SELECT u.role, u.delivery_account_approved, u.is_account_disabled, u.locked_until,
+              cp.is_app_courier, cp.active_status, cp.availability_status
+         FROM app_user u
+         JOIN courier_profile cp ON cp.user_id=u.id
+        WHERE u.id=$1
+        FOR UPDATE OF u, cp`,
+      [uid]
+    )
+  ).rows[0];
+  const fail = (reason) => {
+    throw new AppError("COURIER_NOT_ELIGIBLE", { status: 409, details: { courierUserId: uid, reason } });
+  };
+  if (!acct) fail("no_courier_profile");
+  if (String(acct.role || "").toLowerCase() !== "delivery") fail("not_delivery_role");
+  if (acct.delivery_account_approved !== true) fail("account_not_approved");
+  if (acct.is_account_disabled === true) fail("account_disabled");
+  if (acct.locked_until && new Date(acct.locked_until).getTime() > Date.now()) fail("account_locked");
+  if (acct.is_app_courier !== true) fail("not_app_courier");
+  if (acct.active_status !== true) fail("account_not_active");
+  if (String(acct.availability_status || "").toLowerCase() !== "online") fail("offline");
+
+  // Lock + read the latest presence row.
+  const presence = (
+    await client.query(
+      `SELECT is_online, EXTRACT(EPOCH FROM (NOW()-recorded_at)) AS presence_age
+         FROM courier_presence
+        WHERE courier_user_id=$1
+        ORDER BY recorded_at DESC
+        LIMIT 1
+        FOR UPDATE`,
+      [uid]
+    )
+  ).rows[0];
+  if (!presence || presence.is_online !== true) fail("offline");
+  if (Number(presence.presence_age) > presenceFreshnessSec) fail("presence_stale");
+
+  // Busy in ANOTHER active grouped job (ignoring the job under reassignment).
+  const groupedBusy = (
+    await client.query(
+      `SELECT 1 FROM delivery_job
+        WHERE delivery_user_id=$1 AND assignment_status='ASSIGNED'
+          AND lifecycle_status <> ALL($3::text[])
+          AND ($2::bigint IS NULL OR id <> $2)
+        LIMIT 1`,
+      [uid, ignoreDeliveryJobId == null ? null : Number(ignoreDeliveryJobId), TERMINAL_LIFECYCLE]
+    )
+  ).rows.length > 0;
+  if (groupedBusy) fail("busy_grouped_job");
+
+  // Busy in the legacy per-order flow.
+  const legacyBusy =
+    (
+      await client.query(
+        `SELECT 1 FROM courier_assignment
+          WHERE courier_user_id=$1 AND order_id IS NOT NULL AND ended_at IS NULL
+            AND status IN ('pending','assigned','accepted') LIMIT 1`,
+        [uid]
+      )
+    ).rows.length > 0 ||
+    (
+      await client.query(
+        `SELECT 1 FROM customer_order
+          WHERE delivery_user_id=$1 AND delivery_assignment_status='ASSIGNED'
+            AND order_group_id IS NULL LIMIT 1`,
+        [uid]
+      )
+    ).rows.length > 0;
+  if (legacyBusy) fail("busy_legacy_order");
+
+  return uid;
+}
+
+/**
  * Select one eligible app courier, returning explicit (safe, internal) exclusion
  * reasons. No PII in the reasons.
  */
@@ -926,6 +1015,12 @@ export const reassignGroupedJob = withTx(async (client, { orderGroupId, newCouri
     "SELECT id FROM courier_assignment WHERE delivery_job_id=$1 AND ended_at IS NULL FOR UPDATE",
     [job.id]
   );
+  // §1A: prove the NEW courier is eligible (with row locks) BEFORE closing the
+  // old assignment. If ineligible this throws now, so the job keeps its old
+  // courier — a bad newCourierUserId never leaves the job driverless.
+  await assertCourierEligibleForAssignment(client, Number(newCourierUserId), {
+    ignoreDeliveryJobId: Number(job.id),
+  });
   // 3-4. Close the old assignment with an audited ended reason.
   await client.query(
     `UPDATE courier_assignment
@@ -981,23 +1076,46 @@ export async function listCourierActiveGroupedJobs(courierUserId) {
   }
 }
 
-/** Completed/terminal grouped jobs (history) for the courier. */
+/**
+ * Grouped-job history for a courier (§1B). Built from courier_assignment, NOT
+ * from delivery_job.delivery_user_id (which holds only the CURRENT courier after
+ * a reassignment). Each courier sees the assignments they actually held —
+ * including ones that were reassigned away — with the ended reason and the final
+ * status known to that assignment.
+ */
 export async function listCourierGroupedJobHistory(courierUserId, { limit = 50 } = {}) {
   const client = await pool.connect();
   try {
     const rows = (
       await client.query(
-        `SELECT j.id AS delivery_job_id, j.order_group_id, j.lifecycle_status,
-                j.assigned_at, j.completed_at, j.cancelled_at, g.public_id, g.stores_count
-           FROM delivery_job j
+        `SELECT ca.id AS assignment_id, ca.delivery_job_id, ca.status AS assignment_status,
+                ca.assigned_at, ca.ended_at, ca.ended_reason, ca.completed_at,
+                j.lifecycle_status, j.order_group_id,
+                (SELECT COUNT(*)::int FROM delivery_pickup_stop s WHERE s.delivery_job_id=j.id) AS store_count,
+                g.public_id
+           FROM courier_assignment ca
+           JOIN delivery_job j ON j.id=ca.delivery_job_id
            JOIN order_group g ON g.id=j.order_group_id
-          WHERE j.delivery_user_id=$1 AND j.lifecycle_status = ANY($2::text[])
-          ORDER BY COALESCE(j.completed_at, j.cancelled_at, j.updated_at) DESC
+          WHERE ca.courier_user_id=$1
+            AND ca.delivery_job_id IS NOT NULL
+            AND (ca.ended_at IS NOT NULL OR j.lifecycle_status = ANY($2::text[]))
+          ORDER BY COALESCE(ca.ended_at, ca.completed_at, ca.assigned_at) DESC
           LIMIT $3`,
         [Number(courierUserId), TERMINAL_LIFECYCLE, Math.max(1, Math.min(100, Number(limit) || 50))]
       )
     ).rows;
-    return rows;
+    return rows.map((r) => ({
+      assignmentId: Number(r.assignment_id),
+      deliveryJobId: Number(r.delivery_job_id),
+      orderGroupId: Number(r.order_group_id),
+      assignmentStatus: r.assignment_status,
+      lifecycleStatus: r.lifecycle_status,
+      storeCount: Number(r.store_count || 0),
+      assignedAt: r.assigned_at,
+      endedAt: r.ended_at,
+      endedReason: r.ended_reason,
+      completedAt: r.completed_at,
+    }));
   } finally {
     client.release();
   }
