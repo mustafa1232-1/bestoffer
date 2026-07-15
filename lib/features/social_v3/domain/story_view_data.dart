@@ -14,6 +14,13 @@ class StoryV3Item {
     required this.clipStart,
     required this.clipDuration,
     required this.isLiked,
+    this.likesCount = 0,
+    this.commentsCount = 0,
+    this.allowLikes = true,
+    this.allowPrivateReplies = true,
+    this.allowComments = true,
+    this.allowSharing = true,
+    this.allowReshare = true,
     required this.sharedReel,
   });
 
@@ -31,6 +38,13 @@ class StoryV3Item {
   final Duration? clipDuration;
 
   final bool isLiked;
+  final int likesCount;
+  final int commentsCount;
+  final bool allowLikes;
+  final bool allowPrivateReplies;
+  final bool allowComments;
+  final bool allowSharing;
+  final bool allowReshare;
 
   /// When this story is a shared reel, the reference to open the original.
   final SharedReelRef? sharedReel;
@@ -41,7 +55,10 @@ class StoryV3Item {
 
   bool get isImage => !isVideo;
 
-  static Color _parseColor(String hex, {Color fallback = const Color(0xFF1E3A8A)}) {
+  static Color _parseColor(
+    String hex, {
+    Color fallback = const Color(0xFF1E3A8A),
+  }) {
     var value = hex.trim().replaceFirst('#', '');
     if (value.length == 6) value = 'FF$value';
     final parsed = int.tryParse(value, radix: 16);
@@ -55,11 +72,15 @@ class StoryV3Item {
       'reel' => SocialMediaKind.reel,
       'video' => SocialMediaKind.video,
       'image' || 'photo' => SocialMediaKind.image,
-      _ => story.asset?.playbackUrl != null
-          ? SocialMediaKind.video
-          : SocialMediaKind.image,
+      _ =>
+        story.asset?.playbackUrl != null
+            ? SocialMediaKind.video
+            : SocialMediaKind.image,
     };
-    final media = SocialMediaPresentation.fromAsset(story.asset, kind: mediaKind);
+    final media = SocialMediaPresentation.fromAsset(
+      story.asset,
+      kind: mediaKind,
+    );
     final clipDurationSec = style.clipDurationSec;
     final clipStartSec = style.clipStartSec;
     return StoryV3Item(
@@ -75,6 +96,13 @@ class StoryV3Item {
           ? null
           : Duration(milliseconds: (clipDurationSec * 1000).round()),
       isLiked: story.isLiked,
+      likesCount: story.likesCount,
+      commentsCount: story.commentsCount,
+      allowLikes: story.allowLikes,
+      allowPrivateReplies: story.allowPrivateReplies,
+      allowComments: story.allowComments,
+      allowSharing: story.allowSharing,
+      allowReshare: story.allowReshare,
       sharedReel: style.sharedPostId == null
           ? null
           : SharedReelRef(
@@ -85,6 +113,25 @@ class StoryV3Item {
     );
   }
 }
+
+/// The authoritative fields returned after toggling a story like.
+///
+/// Either field may be absent when an older API response only acknowledges the
+/// mutation. In that case the viewer keeps its optimistic value for that field.
+class StoryV3LikeResult {
+  const StoryV3LikeResult({this.isLiked, this.likesCount});
+
+  final bool? isLiked;
+  final int? likesCount;
+}
+
+typedef StoryV3LikeCallback = Future<StoryV3LikeResult?> Function(int storyId);
+
+/// Returns how many comments were added while the comments overlay was open.
+/// A null result means the action was cancelled before opening the overlay.
+typedef StoryV3CommentsCallback = Future<int?> Function(int storyId);
+
+typedef StoryV3ShareCallback = Future<void> Function(int storyId);
 
 /// A per-user story group (the progress bar only ever shows one group's items).
 class StoryV3Group {
@@ -111,9 +158,7 @@ class StoryV3Group {
           : group.author.fullName.trim(),
       authorHandle: handle.isEmpty ? '' : '@$handle',
       authorAvatarUrl: group.author.imageUrl,
-      items: group.stories
-          .map(StoryV3Item.fromStory)
-          .toList(growable: false),
+      items: group.stories.map(StoryV3Item.fromStory).toList(growable: false),
     );
   }
 }

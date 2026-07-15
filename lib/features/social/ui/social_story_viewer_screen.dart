@@ -33,30 +33,29 @@ class _SocialStoryViewerScreenState
     try {
       final out = await ref
           .read(socialApiProvider)
-          .listStories(limitUsers: 60, maxPerUser: 12);
-      final rawGroups = List<dynamic>.from(out['stories'] as List? ?? const []);
-      final groups = rawGroups
-          .map(
-            (item) => SocialStoryGroup.fromJson(
-              Map<String, dynamic>.from(item as Map),
-            ),
-          )
-          .toList(growable: false);
-      SocialStoryGroup? targetGroup;
-      for (final group in groups) {
-        if (group.stories.any((story) => story.id == widget.storyId)) {
-          targetGroup = group;
-          break;
-        }
+          .getStoryById(widget.storyId);
+      final rawStory = out['story'];
+      if (rawStory is! Map) {
+        throw StateError('STORY_NOT_FOUND');
       }
+      final storyJson = Map<String, dynamic>.from(rawStory);
+      final story = SocialStory.fromJson(storyJson);
+      final author = SocialAuthor.fromJson(
+        Map<String, dynamic>.from(storyJson['author'] as Map? ?? const {}),
+      );
+      final targetGroup = SocialStoryGroup(
+        userId: story.userId,
+        author: author,
+        latestAt: story.createdAt,
+        hasUnviewed: !story.isViewed,
+        stories: <SocialStory>[story],
+      );
+      final groups = <SocialStoryGroup>[targetGroup];
       if (!mounted) return;
       setState(() {
         _group = targetGroup;
         _groups = groups;
         _loading = false;
-        if (targetGroup == null) {
-          _error = context.l10n.socialStoryViewerUnavailable;
-        }
       });
       _openIfReady();
     } catch (error) {

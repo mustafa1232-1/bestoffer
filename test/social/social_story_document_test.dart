@@ -98,4 +98,53 @@ void main() {
     expect(draft.attachment?.authorName, '@basmaya.creator');
     expect(draft.layers.single.type, SocialStoryLayerType.reelShare);
   });
+
+  test(
+    'SocialStory parses authoritative interaction settings with safe defaults',
+    () {
+      final defaultStory = SocialStory.fromJson({
+        'id': 19,
+        'userId': 7,
+        'caption': 'Default flags',
+        'isViewed': false,
+        'isMine': false,
+        'likesCount': 0,
+        'commentsCount': 0,
+        'isLiked': false,
+        'createdAt': '2026-03-28T08:00:00.000Z',
+        'expiresAt': '2026-03-29T08:00:00.000Z',
+      });
+      expect(defaultStory.allowLikes, isTrue);
+      expect(defaultStory.allowPrivateReplies, isTrue);
+      expect(defaultStory.allowComments, isTrue);
+      expect(defaultStory.allowSharing, isTrue);
+      expect(defaultStory.allowReshare, isTrue);
+
+      final lockedStory = SocialStory.fromJson({
+        'id': 20,
+        'userId': 7,
+        'caption': 'Locked flags',
+        'storyInteractionSettings': {
+          'allowLikes': false,
+          'allowPrivateReplies': false,
+          'allowComments': false,
+          'allowSharing': false,
+          'allowReshare': false,
+        },
+        'isViewed': false,
+        'isMine': false,
+        'likesCount': 0,
+        'commentsCount': 0,
+        'isLiked': false,
+        'createdAt': '2026-03-28T08:00:00.000Z',
+        'expiresAt': '2026-03-29T08:00:00.000Z',
+      });
+
+      expect(lockedStory.allowLikes, isFalse);
+      expect(lockedStory.allowPrivateReplies, isFalse);
+      expect(lockedStory.allowComments, isFalse);
+      expect(lockedStory.allowSharing, isFalse);
+      expect(lockedStory.allowReshare, isFalse);
+    },
+  );
 }

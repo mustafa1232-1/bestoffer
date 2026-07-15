@@ -323,6 +323,18 @@ export async function listStories(req, res, next) {
   }
 }
 
+export async function getStoryById(req, res, next) {
+  try {
+    const story = validateStoryId(req.params.storyId);
+    if (!story.ok) return badRequest(res, story.errors);
+
+    const out = await service.getStoryById(req.userId, story.value);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function listMyStoryArchive(req, res, next) {
   try {
     const v = validateListStoryArchive(req.query || {});

@@ -669,6 +669,11 @@ class SocialStory {
   final String? mediaKind;
   final SocialMediaAsset? asset;
   final SocialStoryStyle style;
+  final bool allowLikes;
+  final bool allowPrivateReplies;
+  final bool allowComments;
+  final bool allowSharing;
+  final bool allowReshare;
   final bool isViewed;
   final bool isMine;
   final int likesCount;
@@ -686,6 +691,11 @@ class SocialStory {
     required this.mediaKind,
     required this.asset,
     required this.style,
+    this.allowLikes = true,
+    this.allowPrivateReplies = true,
+    this.allowComments = true,
+    this.allowSharing = true,
+    this.allowReshare = true,
     required this.isViewed,
     required this.isMine,
     required this.likesCount,
@@ -702,6 +712,74 @@ class SocialStory {
     caption: parseString(j['caption']),
     mediaUrl: parseNullableString(j['mediaUrl'] ?? j['media_url']),
     mediaKind: parseNullableString(j['mediaKind'] ?? j['media_kind']),
+    allowLikes: parseBool(
+      j['allowLikes'] ??
+          j['allow_likes'] ??
+          (j['storyInteractionSettings'] is Map
+              ? (j['storyInteractionSettings'] as Map)['allowLikes'] ??
+                    (j['storyInteractionSettings'] as Map)['allow_likes']
+              : null) ??
+          (j['story_interaction_settings'] is Map
+              ? (j['story_interaction_settings'] as Map)['allowLikes'] ??
+                    (j['story_interaction_settings'] as Map)['allow_likes']
+              : null),
+      fallback: true,
+    ),
+    allowPrivateReplies: parseBool(
+      j['allowPrivateReplies'] ??
+          j['allow_private_replies'] ??
+          (j['storyInteractionSettings'] is Map
+              ? (j['storyInteractionSettings'] as Map)['allowPrivateReplies'] ??
+                    (j['storyInteractionSettings']
+                        as Map)['allow_private_replies']
+              : null) ??
+          (j['story_interaction_settings'] is Map
+              ? (j['story_interaction_settings']
+                        as Map)['allowPrivateReplies'] ??
+                    (j['story_interaction_settings']
+                        as Map)['allow_private_replies']
+              : null),
+      fallback: true,
+    ),
+    allowComments: parseBool(
+      j['allowComments'] ??
+          j['allow_comments'] ??
+          (j['storyInteractionSettings'] is Map
+              ? (j['storyInteractionSettings'] as Map)['allowComments'] ??
+                    (j['storyInteractionSettings'] as Map)['allow_comments']
+              : null) ??
+          (j['story_interaction_settings'] is Map
+              ? (j['story_interaction_settings'] as Map)['allowComments'] ??
+                    (j['story_interaction_settings'] as Map)['allow_comments']
+              : null),
+      fallback: true,
+    ),
+    allowSharing: parseBool(
+      j['allowSharing'] ??
+          j['allow_sharing'] ??
+          (j['storyInteractionSettings'] is Map
+              ? (j['storyInteractionSettings'] as Map)['allowSharing'] ??
+                    (j['storyInteractionSettings'] as Map)['allow_sharing']
+              : null) ??
+          (j['story_interaction_settings'] is Map
+              ? (j['story_interaction_settings'] as Map)['allowSharing'] ??
+                    (j['story_interaction_settings'] as Map)['allow_sharing']
+              : null),
+      fallback: true,
+    ),
+    allowReshare: parseBool(
+      j['allowReshare'] ??
+          j['allow_reshare'] ??
+          (j['storyInteractionSettings'] is Map
+              ? (j['storyInteractionSettings'] as Map)['allowReshare'] ??
+                    (j['storyInteractionSettings'] as Map)['allow_reshare']
+              : null) ??
+          (j['story_interaction_settings'] is Map
+              ? (j['story_interaction_settings'] as Map)['allowReshare'] ??
+                    (j['story_interaction_settings'] as Map)['allow_reshare']
+              : null),
+      fallback: true,
+    ),
     asset: j['asset'] is Map
         ? SocialMediaAsset.fromJson(
             Map<String, dynamic>.from(j['asset'] as Map),
@@ -1418,13 +1496,25 @@ class SocialSharedEntity {
             : null,
       );
 
+  Map<String, dynamic> get _snapshot => snapshot ?? const <String, dynamic>{};
+
+  Map<String, dynamic> get _authorSnapshot => _snapshot['author'] is Map
+      ? Map<String, dynamic>.from(_snapshot['author'] as Map)
+      : const <String, dynamic>{};
+
   String get previewLabel {
     switch (type.trim().toLowerCase()) {
       case 'location':
         return 'موقع مشارك';
       case 'reel':
         return 'ريل مشارك';
+      case 'story':
+        return 'ستوري مشارك';
+      case 'profile':
+      case 'user':
+        return 'ملف شخصي';
       case 'review':
+      case 'merchant_review':
         return 'مراجعة مشاركة';
       case 'car_listing':
         return 'إعلان سيارة';
@@ -1436,20 +1526,76 @@ class SocialSharedEntity {
   }
 
   String get title {
-    final source = snapshot ?? const <String, dynamic>{};
+    final source = _snapshot;
+    final normalizedType = type.trim().toLowerCase();
     final value = parseString(
-      source['title'] ?? source['caption'] ?? source['name'],
+      normalizedType == 'profile' || normalizedType == 'user'
+          ? source['authorName'] ??
+                source['author_name'] ??
+                source['fullName'] ??
+                source['full_name'] ??
+                _authorSnapshot['fullName'] ??
+                _authorSnapshot['full_name'] ??
+                source['name'] ??
+                source['title']
+          : source['title'] ?? source['name'],
     );
     return value.isNotEmpty ? value : previewLabel;
   }
 
-  String? get subtitle =>
-      parseNullableString((snapshot ?? const <String, dynamic>{})['subtitle']);
+  String? get subtitle {
+    final value = parseNullableString(
+      _snapshot['subtitle'] ??
+          _snapshot['caption'] ??
+          _snapshot['description'] ??
+          _snapshot['body'],
+    );
+    if (value == null || value.trim() == title.trim()) return null;
+    return value;
+  }
 
   String? get imageUrl => parseNullableString(
-    (snapshot ?? const <String, dynamic>{})['imageUrl'] ??
-        (snapshot ?? const <String, dynamic>{})['posterUrl'] ??
-        (snapshot ?? const <String, dynamic>{})['mediaUrl'],
+    _snapshot['imageUrl'] ??
+        _snapshot['posterUrl'] ??
+        _snapshot['thumbnailUrl'] ??
+        _snapshot['mediaUrl'] ??
+        _snapshot['authorImageUrl'] ??
+        _snapshot['authorAvatarUrl'] ??
+        _authorSnapshot['imageUrl'] ??
+        _authorSnapshot['image_url'],
+  );
+
+  String? get authorDisplayName => parseNullableString(
+    _snapshot['authorDisplayName'] ??
+        _snapshot['authorName'] ??
+        _snapshot['authorFullName'] ??
+        _snapshot['fullName'] ??
+        _authorSnapshot['fullName'] ??
+        _authorSnapshot['full_name'] ??
+        _authorSnapshot['name'],
+  );
+
+  String? get authorUsername {
+    final value = parseNullableString(
+      _snapshot['authorUsername'] ??
+          _snapshot['username'] ??
+          _snapshot['author_handle'] ??
+          _authorSnapshot['username'] ??
+          _authorSnapshot['handle'],
+    );
+    if (value == null) return null;
+    final normalized = value.replaceFirst(RegExp(r'^@+'), '').trim();
+    return normalized.isEmpty ? null : normalized;
+  }
+
+  String? get authorAvatarUrl => parseNullableString(
+    _snapshot['authorAvatarUrl'] ??
+        _snapshot['authorImageUrl'] ??
+        _snapshot['author_image_url'] ??
+        _authorSnapshot['imageUrl'] ??
+        _authorSnapshot['image_url'] ??
+        _authorSnapshot['avatarUrl'] ??
+        _authorSnapshot['avatar_url'],
   );
 
   num? get price {

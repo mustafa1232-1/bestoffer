@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/i18n/locale_text.dart';
 import '../domain/story_view_data.dart';
 import '../media/social_safe_image.dart';
 import 'story_media_surface_v3.dart';
@@ -22,17 +23,25 @@ class SocialStoryViewerV3 extends StatefulWidget {
     super.key,
     required this.groups,
     this.initialGroupIndex = 0,
+    this.initialItemIndex = 0,
     this.onView,
     this.onOpenSharedReel,
+    this.onToggleLike,
+    this.onOpenComments,
+    this.onShare,
     this.videoFactory,
-  });
+  }) : assert(groups.length > 0);
 
   final List<StoryV3Group> groups;
   final int initialGroupIndex;
+  final int initialItemIndex;
 
   /// Called once per (user, story) per session for view counting.
   final void Function(int userId, int storyId)? onView;
   final void Function(SharedReelRef ref)? onOpenSharedReel;
+  final StoryV3LikeCallback? onToggleLike;
+  final StoryV3CommentsCallback? onOpenComments;
+  final StoryV3ShareCallback? onShare;
 
   /// Test seam for the video controller.
   final VideoPlayerController Function(String url)? videoFactory;
@@ -41,8 +50,12 @@ class SocialStoryViewerV3 extends StatefulWidget {
   static Route<void> route({
     required List<StoryV3Group> groups,
     int initialGroupIndex = 0,
+    int initialItemIndex = 0,
     void Function(int userId, int storyId)? onView,
     void Function(SharedReelRef ref)? onOpenSharedReel,
+    StoryV3LikeCallback? onToggleLike,
+    StoryV3CommentsCallback? onOpenComments,
+    StoryV3ShareCallback? onShare,
   }) {
     return PageRouteBuilder<void>(
       opaque: true,
@@ -50,11 +63,15 @@ class SocialStoryViewerV3 extends StatefulWidget {
       transitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (context, animation, secondaryAnimation) =>
           SocialStoryViewerV3(
-        groups: groups,
-        initialGroupIndex: initialGroupIndex,
-        onView: onView,
-        onOpenSharedReel: onOpenSharedReel,
-      ),
+            groups: groups,
+            initialGroupIndex: initialGroupIndex,
+            initialItemIndex: initialItemIndex,
+            onView: onView,
+            onOpenSharedReel: onOpenSharedReel,
+            onToggleLike: onToggleLike,
+            onOpenComments: onOpenComments,
+            onShare: onShare,
+          ),
       transitionsBuilder: (context, animation, secondaryAnimation, child) =>
           FadeTransition(opacity: animation, child: child),
     );
@@ -70,20 +87,45 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
   late final AnimationController _imageCtrl;
   final ValueNotifier<double> _progress = ValueNotifier<double>(0);
   final Set<String> _viewed = {};
+  final Map<int, bool> _likedByStoryId = <int, bool>{};
+  final Map<int, int> _likesByStoryId = <int, int>{};
+  final Map<int, int> _commentsByStoryId = <int, int>{};
+  final Set<int> _likeBusyStoryIds = <int>{};
 
   VideoPlayerController? _video;
   int _groupIndex = 0;
   int _itemIndex = 0;
   bool _gesturePaused = false;
+  bool _lifecyclePaused = false;
+  int _overlayPauseDepth = 0;
 
   StoryV3Group get _group => widget.groups[_groupIndex];
   StoryV3Item? get _item =>
       _itemIndex < _group.items.length ? _group.items[_itemIndex] : null;
+  bool get _isProgressPaused =>
+      _gesturePaused || _lifecyclePaused || _overlayPauseDepth > 0;
+
+  bool _isLiked(StoryV3Item item) =>
+      _likedByStoryId[item.storyId] ?? item.isLiked;
+
+  int _likesCount(StoryV3Item item) =>
+      _likesByStoryId[item.storyId] ?? item.likesCount;
+
+  int _commentsCount(StoryV3Item item) =>
+      _commentsByStoryId[item.storyId] ?? item.commentsCount;
 
   @override
   void initState() {
     super.initState();
-    _groupIndex = widget.initialGroupIndex;
+    _groupIndex = widget.initialGroupIndex
+        .clamp(0, widget.groups.length - 1)
+        .toInt();
+    final initialItems = widget.groups[_groupIndex].items;
+    if (initialItems.isNotEmpty) {
+      _itemIndex = widget.initialItemIndex
+          .clamp(0, initialItems.length - 1)
+          .toInt();
+    }
     _groupPager = PageController(initialPage: _groupIndex);
     _imageCtrl = AnimationController(vsync: this)
       ..addListener(() => _progress.value = _imageCtrl.value)
@@ -106,10 +148,11 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      if (!_gesturePaused) _resume();
-    } else {
+    _lifecyclePaused = state != AppLifecycleState.resumed;
+    if (_lifecyclePaused) {
       _pause();
+    } else {
+      _resume();
     }
   }
 
@@ -144,30 +187,34 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
       _startVideo(item);
     } else {
       _imageCtrl.duration = item.imageDuration;
-      _imageCtrl.forward(from: 0);
+      if (!_isProgressPaused) _imageCtrl.forward(from: 0);
     }
   }
 
   void _startVideo(StoryV3Item item) {
     final url = item.media.videoPlaybackUrl!;
-    final controller = widget.videoFactory?.call(url) ??
+    final controller =
+        widget.videoFactory?.call(url) ??
         VideoPlayerController.networkUrl(Uri.parse(url));
     _video = controller;
     controller.setLooping(false);
     controller.addListener(_onVideoTick);
-    controller.initialize().then((_) {
-      if (!mounted || _video != controller) return;
-      final start = item.clipStart;
-      if (start != null) controller.seekTo(start);
-      controller.play();
-      setState(() {});
-    }).catchError((Object _) {
-      // Failed media briefly shows a controlled failure then advances.
-      if (!mounted || _video != controller) return;
-      Future<void>.delayed(const Duration(milliseconds: 900), () {
-        if (mounted && _video == controller) _next();
-      });
-    });
+    controller
+        .initialize()
+        .then((_) {
+          if (!mounted || _video != controller) return;
+          final start = item.clipStart;
+          if (start != null) controller.seekTo(start);
+          if (!_isProgressPaused) controller.play();
+          setState(() {});
+        })
+        .catchError((Object _) {
+          // Failed media briefly shows a controlled failure then advances.
+          if (!mounted || _video != controller) return;
+          Future<void>.delayed(const Duration(milliseconds: 900), () {
+            if (mounted && _video == controller) _next();
+          });
+        });
   }
 
   void _onVideoTick() {
@@ -184,7 +231,8 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
 
     _progress.value = (posMs / totalMs).clamp(0.0, 1.0);
 
-    final reachedEnd = posMs >= totalMs ||
+    final reachedEnd =
+        posMs >= totalMs ||
         (controller.value.position >= controller.value.duration &&
             !controller.value.isPlaying);
     if (reachedEnd) {
@@ -199,6 +247,7 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
   }
 
   void _resume() {
+    if (_isProgressPaused) return;
     final item = _item;
     if (item == null) return;
     if (item.isVideo && item.media.hasVideo) {
@@ -206,6 +255,82 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
     } else if (!_imageCtrl.isAnimating) {
       _imageCtrl.forward();
     }
+  }
+
+  Future<T> _withOverlayPause<T>(Future<T> Function() action) async {
+    _overlayPauseDepth += 1;
+    _pause();
+    try {
+      return await action();
+    } finally {
+      _overlayPauseDepth = (_overlayPauseDepth - 1).clamp(0, 1 << 30).toInt();
+      if (mounted) _resume();
+    }
+  }
+
+  Future<void> _toggleLike(StoryV3Item item) async {
+    final callback = widget.onToggleLike;
+    if (!item.allowLikes ||
+        callback == null ||
+        _likeBusyStoryIds.contains(item.storyId)) {
+      return;
+    }
+
+    final wasLiked = _isLiked(item);
+    final originalCount = _likesCount(item);
+    setState(() {
+      _likeBusyStoryIds.add(item.storyId);
+      _likedByStoryId[item.storyId] = !wasLiked;
+      _likesByStoryId[item.storyId] = (originalCount + (wasLiked ? -1 : 1))
+          .clamp(0, 1 << 30)
+          .toInt();
+    });
+
+    try {
+      final result = await callback(item.storyId);
+      if (!mounted) return;
+      setState(() {
+        if (result == null) {
+          _likedByStoryId[item.storyId] = wasLiked;
+          _likesByStoryId[item.storyId] = originalCount;
+          return;
+        }
+        final liked = result.isLiked;
+        final likesCount = result.likesCount;
+        if (liked != null) _likedByStoryId[item.storyId] = liked;
+        if (likesCount != null) {
+          _likesByStoryId[item.storyId] = likesCount.clamp(0, 1 << 30).toInt();
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _likedByStoryId[item.storyId] = wasLiked;
+        _likesByStoryId[item.storyId] = originalCount;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _likeBusyStoryIds.remove(item.storyId));
+      }
+    }
+  }
+
+  Future<void> _openComments(StoryV3Item item) async {
+    final callback = widget.onOpenComments;
+    if (!item.allowComments || callback == null) return;
+    final added = await _withOverlayPause(() => callback(item.storyId));
+    if (!mounted || added == null || added <= 0) return;
+    setState(() {
+      _commentsByStoryId[item.storyId] = (_commentsCount(item) + added)
+          .clamp(0, 1 << 30)
+          .toInt();
+    });
+  }
+
+  Future<void> _share(StoryV3Item item) async {
+    final callback = widget.onShare;
+    if (!item.allowSharing || callback == null) return;
+    await _withOverlayPause(() => callback(item.storyId));
   }
 
   void _next() {
@@ -305,7 +430,20 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
                   progress: _progress,
                   isActive: isActive,
                   onClose: _close,
-                  onOpenSharedReel: item.sharedReel == null
+                  liked: _isLiked(item),
+                  likesCount: _likesCount(item),
+                  commentsCount: _commentsCount(item),
+                  likeBusy: _likeBusyStoryIds.contains(item.storyId),
+                  onLike: !isActive || widget.onToggleLike == null
+                      ? null
+                      : () => _toggleLike(item),
+                  onComments: !isActive || widget.onOpenComments == null
+                      ? null
+                      : () => _openComments(item),
+                  onShare: !isActive || widget.onShare == null
+                      ? null
+                      : () => _share(item),
+                  onOpenSharedReel: !isActive || item.sharedReel == null
                       ? null
                       : () => widget.onOpenSharedReel?.call(item.sharedReel!),
                 );
@@ -328,6 +466,13 @@ class _StoryGroupPage extends StatelessWidget {
     required this.isActive,
     required this.onClose,
     required this.onOpenSharedReel,
+    required this.liked,
+    required this.likesCount,
+    required this.commentsCount,
+    required this.likeBusy,
+    required this.onLike,
+    required this.onComments,
+    required this.onShare,
   });
 
   final StoryV3Group group;
@@ -338,10 +483,21 @@ class _StoryGroupPage extends StatelessWidget {
   final bool isActive;
   final VoidCallback onClose;
   final VoidCallback? onOpenSharedReel;
+  final bool liked;
+  final int likesCount;
+  final int commentsCount;
+  final bool likeBusy;
+  final Future<void> Function()? onLike;
+  final Future<void> Function()? onComments;
+  final Future<void> Function()? onShare;
 
   @override
   Widget build(BuildContext context) {
     final padding = MediaQuery.of(context).padding;
+    final hasActions =
+        (item.allowLikes && onLike != null) ||
+        (item.allowComments && onComments != null) ||
+        (item.allowSharing && onShare != null);
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -372,7 +528,9 @@ class _StoryGroupPage extends StatelessWidget {
             ],
           ),
         ),
-        if (item.caption.trim().isNotEmpty || onOpenSharedReel != null)
+        if (item.caption.trim().isNotEmpty ||
+            onOpenSharedReel != null ||
+            hasActions)
           Positioned(
             left: 16,
             right: 16,
@@ -394,10 +552,148 @@ class _StoryGroupPage extends StatelessWidget {
                   const SizedBox(height: 10),
                   _OpenReelChip(onTap: onOpenSharedReel!),
                 ],
+                if (hasActions) ...[
+                  const SizedBox(height: 12),
+                  _StoryActionBarV3(
+                    storyId: item.storyId,
+                    canLike: item.allowLikes && onLike != null,
+                    canComment: item.allowComments && onComments != null,
+                    canShare: item.allowSharing && onShare != null,
+                    liked: liked,
+                    likesCount: likesCount,
+                    commentsCount: commentsCount,
+                    likeBusy: likeBusy,
+                    onLike: onLike,
+                    onComments: onComments,
+                    onShare: onShare,
+                  ),
+                ],
               ],
             ),
           ),
       ],
+    );
+  }
+}
+
+class _StoryActionBarV3 extends StatelessWidget {
+  const _StoryActionBarV3({
+    required this.storyId,
+    required this.canLike,
+    required this.canComment,
+    required this.canShare,
+    required this.liked,
+    required this.likesCount,
+    required this.commentsCount,
+    required this.likeBusy,
+    required this.onLike,
+    required this.onComments,
+    required this.onShare,
+  });
+
+  final int storyId;
+  final bool canLike;
+  final bool canComment;
+  final bool canShare;
+  final bool liked;
+  final int likesCount;
+  final int commentsCount;
+  final bool likeBusy;
+  final Future<void> Function()? onLike;
+  final Future<void> Function()? onComments;
+  final Future<void> Function()? onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    final buttons = <Widget>[
+      if (canLike)
+        _StoryActionButtonV3(
+          key: ValueKey<String>('story-v3-like-$storyId'),
+          icon: liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+          color: liked ? const Color(0xFFFF4D67) : Colors.white,
+          label: likesCount > 0
+              ? '$likesCount'
+              : context.lt(ar: 'إعجاب', en: 'Like'),
+          onTap: likeBusy ? null : onLike,
+        ),
+      if (canComment)
+        _StoryActionButtonV3(
+          key: ValueKey<String>('story-v3-comment-$storyId'),
+          icon: Icons.mode_comment_outlined,
+          color: Colors.white,
+          label: commentsCount > 0
+              ? '$commentsCount'
+              : context.lt(ar: 'تعليق', en: 'Comment'),
+          onTap: onComments,
+        ),
+      if (canShare)
+        _StoryActionButtonV3(
+          key: ValueKey<String>('story-v3-share-$storyId'),
+          icon: Icons.send_rounded,
+          color: Colors.white,
+          label: context.lt(ar: 'مشاركة', en: 'Share'),
+          onTap: onShare,
+        ),
+    ];
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [for (final button in buttons) Expanded(child: button)],
+        ),
+      ),
+    );
+  }
+}
+
+class _StoryActionButtonV3 extends StatelessWidget {
+  const _StoryActionButtonV3({
+    super.key,
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -422,7 +718,9 @@ class _StoryHeader extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: Text(
-            group.authorHandle.isNotEmpty ? group.authorHandle : group.authorName,
+            group.authorHandle.isNotEmpty
+                ? group.authorHandle
+                : group.authorName,
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,

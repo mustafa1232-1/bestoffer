@@ -3895,30 +3895,31 @@ class _SharedEntityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final snapshot = entity.snapshot ?? const <String, dynamic>{};
-    final authorRaw = snapshot['author'] is Map
-        ? Map<String, dynamic>.from(snapshot['author'] as Map)
-        : const <String, dynamic>{};
     final subtitle = entity.subtitle;
     final subtitleParts = <String>[
-      if ('${authorRaw['fullName'] ?? ''}'.trim().isNotEmpty)
-        '${authorRaw['fullName']}'.trim(),
-      if ('${authorRaw['username'] ?? ''}'.trim().isNotEmpty)
-        '@${authorRaw['username']}',
+      if ((entity.authorDisplayName ?? '').trim().isNotEmpty)
+        entity.authorDisplayName!.trim(),
+      if ((entity.authorUsername ?? '').trim().isNotEmpty)
+        '@${entity.authorUsername}',
     ];
-    final posterUrl = (entity.imageUrl ?? '').trim();
+    final posterUrl = (entity.imageUrl ?? entity.authorAvatarUrl ?? '').trim();
     final icon = switch (entity.type.trim().toLowerCase()) {
       'reel' => Icons.play_circle_outline_rounded,
+      'story' => Icons.bolt_rounded,
       'review' => Icons.rate_review_outlined,
+      'merchant_review' => Icons.rate_review_outlined,
       'car_listing' => Icons.directions_car_filled_rounded,
       'real_estate_listing' => Icons.apartment_rounded,
       'location' => Icons.location_on_rounded,
+      'profile' => Icons.person_outline_rounded,
+      'user' => Icons.person_outline_rounded,
       _ => Icons.article_outlined,
     };
-    final titleText = entity.type.trim().toLowerCase() == 'location'
+    final normalizedType = entity.type.trim().toLowerCase();
+    final titleText = normalizedType == 'location'
         ? (entity.address ?? entity.title)
         : entity.title;
-    final typeLabel = entity.type.trim().toLowerCase() == 'location'
+    final typeLabel = normalizedType == 'location'
         ? 'موقع مشترك'
         : entity.previewLabel;
 

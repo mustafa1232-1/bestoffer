@@ -16,8 +16,8 @@ class SocialCapabilitiesController extends StateNotifier<SocialCapabilities> {
     this._api, {
     this.cacheTtl = const Duration(minutes: 5),
     DateTime Function() clock = DateTime.now,
-  })  : _clock = clock,
-        super(SocialCapabilities.failClosed);
+  }) : _clock = clock,
+       super(SocialCapabilities.failClosed);
 
   final SocialCapabilitiesApi _api;
   final Duration cacheTtl;
@@ -25,6 +25,7 @@ class SocialCapabilitiesController extends StateNotifier<SocialCapabilities> {
 
   DateTime? _fetchedAt;
   bool _inFlight = false;
+  int _sessionGeneration = 0;
 
   bool get _isStale {
     final at = _fetchedAt;
@@ -41,9 +42,11 @@ class SocialCapabilitiesController extends StateNotifier<SocialCapabilities> {
   /// Force a fetch (explicit refresh).
   Future<void> refresh() async {
     if (_inFlight) return;
+    final generation = _sessionGeneration;
     _inFlight = true;
     try {
       final caps = await _api.fetch();
+      if (generation != _sessionGeneration) return;
       state = caps;
       _fetchedAt = _clock();
     } finally {
@@ -55,6 +58,7 @@ class SocialCapabilitiesController extends StateNotifier<SocialCapabilities> {
   /// stale "supported=true" cache must immediately drop to fail-closed, then a
   /// refresh confirms the authoritative state.
   void markStoryScopeUnsupported() {
+    _sessionGeneration++;
     state = SocialCapabilities.failClosed;
     _fetchedAt = null; // force the next ensureFresh() to refetch
   }
@@ -62,6 +66,7 @@ class SocialCapabilitiesController extends StateNotifier<SocialCapabilities> {
   /// Resets to fail-closed and clears the cache. Used on logout and account
   /// switch so capabilities from a previous session/account are never reused.
   void resetForSession() {
+    _sessionGeneration++;
     state = SocialCapabilities.failClosed;
     _fetchedAt = null;
     _inFlight = false;
@@ -87,16 +92,15 @@ class SocialCapabilitiesController extends StateNotifier<SocialCapabilities> {
 }
 
 final socialCapabilitiesProvider =
-    StateNotifierProvider<SocialCapabilitiesController, SocialCapabilities>(
-  (ref) {
-    final controller = SocialCapabilitiesController(
-      ref.read(socialCapabilitiesApiProvider),
-    );
-    // Wire to the REAL auth lifecycle: AuthState changes on login, authenticated
-    // bootstrap, session restore, token refresh, logout, and account switch.
-    ref.listen<AuthState>(
-      authControllerProvider,
-      (previous, next) {
+    StateNotifierProvider<SocialCapabilitiesController, SocialCapabilities>((
+      ref,
+    ) {
+      final controller = SocialCapabilitiesController(
+        ref.read(socialCapabilitiesApiProvider),
+      );
+      // Wire to the REAL auth lifecycle: AuthState changes on login, authenticated
+      // bootstrap, session restore, token refresh, logout, and account switch.
+      ref.listen<AuthState>(authControllerProvider, (previous, next) {
         // Fire-and-forget — never block startup on this request.
         controller.onAuthChanged(
           wasAuthed: previous?.isAuthed == true && previous?.user != null,
@@ -104,9 +108,6 @@ final socialCapabilitiesProvider =
           isAuthed: next.isAuthed && next.user != null,
           nextUserId: next.user?.id,
         );
-      },
-      fireImmediately: true,
-    );
-    return controller;
-  },
-);
+      }, fireImmediately: true);
+      return controller;
+    });

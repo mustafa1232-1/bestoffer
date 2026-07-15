@@ -286,6 +286,13 @@ function mapStoryRow(row, viewerUserId) {
     row.story_style && typeof row.story_style === "object" && !Array.isArray(row.story_style)
       ? row.story_style
       : {};
+  // Story queries must always project these columns. Fail closed if a future
+  // read shape accidentally omits one instead of silently turning it on.
+  const allowLikes = row.allow_likes === true;
+  const allowPrivateReplies = row.allow_private_replies === true;
+  const allowComments = row.allow_comments === true;
+  const allowSharing = row.allow_sharing === true;
+  const allowReshare = row.allow_reshare === true;
   return {
     id: Number(row.id),
     userId: Number(row.user_id),
@@ -308,6 +315,18 @@ function mapStoryRow(row, viewerUserId) {
           }
         : null,
     storyStyle,
+    allowLikes,
+    allowPrivateReplies,
+    allowComments,
+    allowSharing,
+    allowReshare,
+    storyInteractionSettings: {
+      allowLikes,
+      allowPrivateReplies,
+      allowComments,
+      allowSharing,
+      allowReshare,
+    },
     archivedAt: row.archived_by_owner_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -4051,6 +4070,11 @@ export async function createStory(userId, dto, media) {
     mediaKind,
     mediaAssetId: preparedMedia.mediaAssetId,
     storyStyle: dto.storyStyle,
+    allowLikes: dto.allowLikes,
+    allowPrivateReplies: dto.allowPrivateReplies,
+    allowComments: dto.allowComments,
+    allowSharing: dto.allowSharing,
+    allowReshare: dto.allowReshare,
   });
   if (!inserted?.id) {
     throw new AppError("STORY_CREATE_FAILED", { status: 500 });
@@ -4113,6 +4137,91 @@ async function getStoryForViewerOrThrow({ storyId, viewerUserId }) {
     ownerUserId: story.user_id,
   });
   return { story, owner };
+}
+
+function buildCanonicalStorySharedSnapshot(story) {
+  const author = {
+    id: Number(story.user_id),
+    fullName: story.user_full_name || "",
+    username: story.user_username || null,
+    imageUrl: story.user_image_url || null,
+  };
+  const snapshot = {
+    id: Number(story.id),
+    type: "story",
+    title: author.fullName,
+    caption: story.caption || "",
+    mediaKind: story.media_kind || null,
+    mediaUrl: story.media_url || null,
+    posterUrl: story.asset_thumbnail_url || story.asset_poster_url || null,
+    playbackUrl:
+      story.asset_playback_url || story.asset_normalized_url || story.media_url || null,
+    createdAt: story.created_at || null,
+    expiresAt: story.expires_at || null,
+    author,
+    // Keep the flat aliases consumed by existing native chat cards while the
+    // nested author remains the canonical structured representation.
+    authorName: author.fullName,
+    authorUsername: author.username,
+    authorImageUrl: author.imageUrl,
+  };
+  return Object.fromEntries(
+    Object.entries(snapshot).filter(([, value]) => value !== null && value !== undefined)
+  );
+}
+
+/**
+ * Canonicalizes a shared entity before any chat persistence.
+ *
+ * Story shares are authoritative: the sender must be able to view the live,
+ * approved, unarchived Story, sharing must be enabled, and every client
+ * snapshot field is replaced with a server-built snapshot. Private replies
+ * and reshares remain unsupported mutations; this path is only native sharing.
+ */
+export async function resolveSharedEntityForSender({
+  senderUserId,
+  sharedEntity = null,
+}) {
+  const type = String(sharedEntity?.type || "").trim().toLowerCase();
+  const id = Number(sharedEntity?.id || 0);
+  if (!type || !Number.isInteger(id) || id <= 0) return null;
+
+  if (type !== "story") {
+    return {
+      type,
+      id,
+      snapshot:
+        sharedEntity?.snapshot &&
+        typeof sharedEntity.snapshot === "object" &&
+        !Array.isArray(sharedEntity.snapshot)
+          ? sharedEntity.snapshot
+          : null,
+    };
+  }
+
+  const { story } = await getStoryForViewerOrThrow({
+    storyId: id,
+    viewerUserId: senderUserId,
+  });
+  if (story.allow_sharing !== true) {
+    throw new AppError("STORY_SHARING_DISABLED", { status: 403 });
+  }
+
+  return {
+    type: "story",
+    id: Number(story.id),
+    snapshot: buildCanonicalStorySharedSnapshot(story),
+  };
+}
+
+export async function getStoryById(viewerUserId, storyId) {
+  const { story } = await getStoryForViewerOrThrow({
+    storyId,
+    viewerUserId,
+  });
+  return {
+    story: mapStoryRow(story, viewerUserId),
+  };
 }
 
 export async function highlightStory({ userId, storyId, title = null }) {
@@ -4183,6 +4292,9 @@ export async function toggleStoryLike({ storyId, userId }) {
     storyId,
     viewerUserId: userId,
   });
+  if (story.allow_likes !== true) {
+    throw new AppError("STORY_LIKES_DISABLED", { status: 403 });
+  }
   const existed = await repo.hasStoryLike({ storyId, userId });
   if (existed) {
     await repo.removeStoryLike({ storyId, userId });
@@ -4233,6 +4345,9 @@ export async function addStoryComment({ storyId, userId, body }) {
     storyId,
     viewerUserId: userId,
   });
+  if (story.allow_comments !== true) {
+    throw new AppError("STORY_COMMENTS_DISABLED", { status: 403 });
+  }
   assertContentAllowed(body);
   const inserted = await repo.insertStoryComment({
     storyId,
@@ -6242,7 +6357,7 @@ export async function sendMessage({
       }
     : null;
 
-  const normalizedSharedEntity =
+  const clientSharedEntity =
     sharedEntity?.type && Number(sharedEntity?.id || 0) > 0
       ? {
           type: String(sharedEntity.type).trim().toLowerCase(),
@@ -6255,6 +6370,10 @@ export async function sendMessage({
               : null,
         }
       : null;
+  const normalizedSharedEntity = await resolveSharedEntityForSender({
+    senderUserId: userId,
+    sharedEntity: clientSharedEntity,
+  });
 
   if (!text && !attachmentMeta && !normalizedSharedEntity) {
     throw new AppError("EMPTY_MESSAGE", { status: 400 });
@@ -6427,13 +6546,17 @@ export async function scheduleMessage({
   sharedEntity = null,
 }) {
   await resolveThreadSendAccess({ userId, threadId });
-  const { text, normalizedAttachment, normalizedSharedEntity } =
+  const { text, normalizedAttachment, normalizedSharedEntity: clientSharedEntity } =
     normalizeOutgoingThreadMessagePayload({
       body,
       attachmentDurationMs,
       attachment,
       sharedEntity,
     });
+  const normalizedSharedEntity = await resolveSharedEntityForSender({
+    senderUserId: userId,
+    sharedEntity: clientSharedEntity,
+  });
   const replyTo = await resolveReplyMessage({ threadId, replyToMessageId });
   const inserted = await repo.insertScheduledThreadMessage({
     threadId,
@@ -8409,7 +8532,7 @@ export async function sendCommunityChatMessage({
           kind: resolveChatAttachmentKind(attachment),
         }
       : null;
-  const normalizedSharedEntity =
+  const clientSharedEntity =
     dto.sharedEntity?.type && Number(dto.sharedEntity?.id || 0) > 0
       ? {
           type: String(dto.sharedEntity.type).trim().toLowerCase(),
@@ -8422,6 +8545,10 @@ export async function sendCommunityChatMessage({
               : null,
         }
       : null;
+  const normalizedSharedEntity = await resolveSharedEntityForSender({
+    senderUserId: userId,
+    sharedEntity: clientSharedEntity,
+  });
   const inserted = await repo.insertScopeChatMessage({
     scopeType: scope.scopeType,
     scopeCode: scope.scopeCode,
