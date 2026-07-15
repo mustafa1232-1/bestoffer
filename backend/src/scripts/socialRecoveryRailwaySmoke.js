@@ -11,7 +11,6 @@ import {
   request,
 } from "./e2eTestUtils.js";
 import {
-  buildMultipartForm,
   cleanupSocialArtifacts,
   DEFAULT_BASE_URL,
   registerActor,
@@ -41,6 +40,36 @@ const DISABLED_STORY_SETTINGS = Object.freeze({
   allowSharing: false,
   allowReshare: false,
 });
+
+const REEL_FIXTURE_URL =
+  "https://raw.githubusercontent.com/youtube/api-samples/master/java/src/main/resources/sample-video.mp4";
+
+async function buildVideoMultipartForm({
+  fields = {},
+  fileFieldName = "mediaFile",
+  fileName = "social-fixture.mp4",
+  mimeType = "video/mp4",
+} = {}) {
+  const response = await fetch(REEL_FIXTURE_URL, {
+    headers: {
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  });
+  assert.equal(
+    response.ok,
+    true,
+    `failed to fetch reel fixture ${REEL_FIXTURE_URL} (${response.status})`
+  );
+  const bytes = await response.arrayBuffer();
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value === undefined || value === null) continue;
+    formData.append(key, typeof value === "string" ? value : JSON.stringify(value));
+  }
+  formData.append(fileFieldName, new Blob([bytes], { type: mimeType }), fileName);
+  return formData;
+}
 
 function resolveBaseUrl() {
   const raw = String(
@@ -254,7 +283,7 @@ async function updateAndVerifyPublicProfile(baseUrl, actor, runTag) {
 
   const persisted = await q(
     `SELECT
-       bio,
+       social_bio AS bio,
        social_account_private,
        social_posts_public,
        social_stories_public,
@@ -744,7 +773,7 @@ async function createPostAndReelCards({
   });
 
   const reelCaption = `Social recovery Reel ${runTag}`;
-  const reelForm = buildMultipartForm({
+  const reelForm = await buildVideoMultipartForm({
     fields: { caption: reelCaption },
     fileFieldName: "mediaFile",
     fileName: `social-recovery-${runTag}.mp4`,

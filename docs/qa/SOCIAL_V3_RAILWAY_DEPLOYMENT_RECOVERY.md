@@ -169,3 +169,12 @@ The permissions checker needed a minimal local matrix file plus the live device
 headers because the auth sessions are bound to client identity in this branch.
 That is a local verification concern only; it does not change the product
 contract.
+
+## Production smoke
+
+The authenticated production smoke reached the story and native-DM assertions
+and then failed on reel creation with `STREAM_NOT_CONFIGURED` from the live
+service. The failure is real: the deployed environment is missing the Cloudflare
+Stream configuration required to exercise the reel upload path. The smoke
+harness remains in the repo so the missing runtime config is visible rather than
+being silently skipped.
