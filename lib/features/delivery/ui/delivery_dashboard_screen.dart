@@ -270,6 +270,16 @@ class _DeliveryDashboardScreenState
         appBar: AppBar(
           title: Text(_tabTitle()),
           actions: [
+            IconButton(
+              key: const Key('open_grouped_history'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const GroupedDeliveryHistoryScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.history),
+              tooltip: 'سجل المهام المجمّعة',
+            ),
             if (activeTab == _DeliveryTab.history)
               IconButton(
                 onPressed: _pickHistoryDate,

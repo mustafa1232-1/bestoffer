@@ -12,6 +12,7 @@ class GroupedDeliveryState {
   final bool loading;
   final bool saving;
   final bool historyLoading;
+  final bool cachedOffline;
   final GroupedDeliveryJob? job;
   final List<GroupedDeliveryAssignmentHistory> history;
   final String? error;
@@ -20,6 +21,7 @@ class GroupedDeliveryState {
     this.loading = false,
     this.saving = false,
     this.historyLoading = false,
+    this.cachedOffline = false,
     this.job,
     this.history = const [],
     this.error,
@@ -27,10 +29,19 @@ class GroupedDeliveryState {
 
   bool get hasActiveJob => job != null && !job!.isTerminal;
 
+  /// True when bootstrap failed and there is nothing to show — the UI must show
+  /// an error + Retry, NOT a "no active job" state.
+  bool get isErrorWithoutJob => error != null && job == null;
+
+  /// Unsafe mutations are blocked while showing a cached/offline job until an
+  /// authoritative refresh succeeds.
+  bool get mutationsBlocked => cachedOffline;
+
   GroupedDeliveryState copyWith({
     bool? loading,
     bool? saving,
     bool? historyLoading,
+    bool? cachedOffline,
     GroupedDeliveryJob? job,
     bool clearJob = false,
     List<GroupedDeliveryAssignmentHistory>? history,
@@ -41,6 +52,7 @@ class GroupedDeliveryState {
       loading: loading ?? this.loading,
       saving: saving ?? this.saving,
       historyLoading: historyLoading ?? this.historyLoading,
+      cachedOffline: cachedOffline ?? this.cachedOffline,
       job: clearJob ? null : (job ?? this.job),
       history: history ?? this.history,
       error: clearError ? null : (error ?? this.error),
@@ -55,6 +67,9 @@ class GroupedDeliveryState {
 class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
   final DeliveryApi _api;
   Future<void>? _bootstrapInFlight;
+  // Generation guard: bumped on logout / account switch so results from a prior
+  // user are ignored and never leak into the next session.
+  int _generation = 0;
 
   GroupedDeliveryController(this._api) : super(const GroupedDeliveryState());
 
@@ -88,18 +103,30 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
   }
 
   Future<void> _bootstrap({required bool silent}) async {
+    final gen = _generation;
     if (!silent) state = state.copyWith(loading: true, clearError: true);
     try {
       final raw = await _api.currentGroupedJob();
+      if (gen != _generation) return; // superseded by logout / account switch
       if (raw == null) {
-        state = state.copyWith(loading: false, clearJob: true);
+        state = state.copyWith(
+            loading: false, clearJob: true, clearError: true, cachedOffline: false);
         return;
       }
       // The `current` row is a summary; fetch authoritative details.
       final job = await _fetchDetails(GroupedDeliveryJob.fromMap(raw).deliveryJobId);
-      state = state.copyWith(loading: false, job: job, clearError: true);
+      if (gen != _generation) return;
+      state = state.copyWith(
+          loading: false, job: job, clearError: true, cachedOffline: false);
     } catch (e) {
-      state = state.copyWith(loading: false, error: _mapError(e));
+      if (gen != _generation) return;
+      // §4: keep any existing job as a cached/offline view (mutations blocked)
+      // and surface a retryable error; never silently read as "no job".
+      state = state.copyWith(
+        loading: false,
+        error: _mapError(e),
+        cachedOffline: state.job != null,
+      );
     }
   }
 
@@ -115,19 +142,39 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
       await bootstrap(silent: true);
       return;
     }
+    final gen = _generation;
     try {
       final job = await _fetchDetails(id);
+      if (gen != _generation) return;
       // A terminal job leaves Current (mirrors the server `current` contract).
       state = job.isTerminal
-          ? state.copyWith(clearJob: true, clearError: true)
-          : state.copyWith(job: job, clearError: true);
+          ? state.copyWith(clearJob: true, clearError: true, cachedOffline: false)
+          : state.copyWith(job: job, clearError: true, cachedOffline: false);
     } catch (e) {
+      if (gen != _generation) return;
       if (e is DioException && e.response?.statusCode == 404) {
-        state = state.copyWith(clearJob: true);
+        state = state.copyWith(clearJob: true, cachedOffline: false);
       } else {
-        state = state.copyWith(error: _mapError(e));
+        state = state.copyWith(error: _mapError(e), cachedOffline: state.job != null);
       }
     }
+  }
+
+  /// Live authoritative resync (§5). Single-flight via bootstrap; used for every
+  /// runtime trigger (resume, reconnect, availability-online, push events,
+  /// notification tap). Burst events collapse onto the in-flight request.
+  Future<void> resync() => bootstrap(silent: state.job != null);
+
+  /// Called on push/socket events that mean "the assignment changed" — resyncs
+  /// authoritatively rather than trusting the push body.
+  Future<void> onAssignmentEvent() => resync();
+
+  /// Logout / account switch: drop all grouped state and invalidate in-flight
+  /// results so nothing leaks into the next user's session.
+  void reset() {
+    _generation++;
+    _bootstrapInFlight = null;
+    state = const GroupedDeliveryState();
   }
 
   Future<void> loadHistory() async {
@@ -155,7 +202,12 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
   }) async {
     final job = state.job;
     if (job == null || state.saving) return; // duplicate-tap / no-op guard
-    final previous = job;
+    if (state.cachedOffline) {
+      // Block unsafe mutations on a cached/offline job; try to re-sync instead.
+      await refresh();
+      if (state.cachedOffline) return;
+    }
+    final previous = state.job!;
     state = state.copyWith(saving: true, clearError: true, job: optimistic ?? job);
     try {
       await call(job.deliveryJobId, job.version);

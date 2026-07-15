@@ -1144,7 +1144,8 @@ export async function getCourierGroupedJobDetails(courierUserId, deliveryJobId) 
       await client.query(
         `SELECT s.id, s.child_order_id, s.store_id, s.sequence_number, s.pickup_status,
                 s.preparation_status, s.arrived_at, s.collected_at,
-                m.name AS store_name, m.image_url AS store_photo, m.phone AS store_phone
+                m.name AS store_name, m.image_url AS store_photo, m.phone AS store_phone,
+                m.latitude AS store_lat, m.longitude AS store_lng
            FROM delivery_pickup_stop s
            LEFT JOIN merchant m ON m.id=s.store_id
           WHERE s.delivery_job_id=$1 AND s.pickup_status<>'CANCELLED'
@@ -1152,16 +1153,72 @@ export async function getCourierGroupedJobDetails(courierUserId, deliveryJobId) 
         [Number(deliveryJobId)]
       )
     ).rows;
+
+    // §1: ONE authoritative customer destination for the whole grouped job —
+    // taken from the order_group's customer, not an arbitrary child order.
+    // All child orders of a group share the same customer + drop-off address.
+    const dest = (
+      await client.query(
+        `SELECT u.id AS customer_user_id, u.full_name AS customer_name, u.phone AS customer_phone,
+                co.customer_full_name, co.customer_phone AS order_phone,
+                co.customer_block, co.customer_building_number, co.customer_apartment,
+                co.customer_city, co.note,
+                g.total_amount, g.delivery_fee_total, g.notes AS group_notes
+           FROM order_group g
+           JOIN app_user u ON u.id=g.customer_user_id
+           LEFT JOIN LATERAL (
+             SELECT * FROM customer_order c
+              WHERE c.order_group_id=g.id AND c.status NOT IN ('cancelled')
+              ORDER BY c.id LIMIT 1
+           ) co ON TRUE
+          WHERE g.id=$1`,
+        [Number(job.order_group_id)]
+      )
+    ).rows[0] || {};
+
+    const payment = String(job.payment_method || "").toLowerCase();
+    const isCash = payment.includes("cash");
+    const totalAmount = Number(dest.total_amount || 0);
+    const displayName = String(dest.customer_full_name || dest.customer_name || "").trim();
+    const addressParts = [
+      dest.customer_city,
+      dest.customer_block ? `بلوك ${dest.customer_block}` : null,
+      dest.customer_building_number ? `بناية ${dest.customer_building_number}` : null,
+      dest.customer_apartment ? `شقة ${dest.customer_apartment}` : null,
+    ].filter(Boolean);
+
     return {
       deliveryJobId: Number(job.id),
       assignmentId: job.assignment_id ? Number(job.assignment_id) : null,
       orderGroupId: Number(job.order_group_id),
+      orderGroupPublicId: job.public_id || null,
       lifecycleStatus: job.lifecycle_status,
       assignmentStatus: job.assignment_status,
       numberOfStores: stops.length,
       paymentMethod: job.payment_method,
+      totalAmount,
+      amountToCollect: isCash ? totalAmount : 0,
+      deliveryFee: Number(dest.delivery_fee_total || 0),
       courierEarning: Number(job.courier_earning || 0),
+      assignedAt: job.assigned_at || null,
+      acceptedAt: job.accepted_at || null,
+      completedAt: job.completed_at || null,
+      cancelledAt: job.cancelled_at || null,
       version: Number(job.version),
+      customer: {
+        // The assigned courier is authorized to see the drop-off contact.
+        userId: dest.customer_user_id ? Number(dest.customer_user_id) : null,
+        displayName: displayName || null,
+        phone: (dest.order_phone || dest.customer_phone || null),
+        address: addressParts.join("، ") || null,
+        block: dest.customer_block || null,
+        building: dest.customer_building_number || null,
+        apartment: dest.customer_apartment || null,
+        city: dest.customer_city || null,
+        latitude: job.dropoff_latitude == null ? null : Number(job.dropoff_latitude),
+        longitude: job.dropoff_longitude == null ? null : Number(job.dropoff_longitude),
+        deliveryNotes: (dest.group_notes || dest.note || null),
+      },
       pickupStops: stops.map((s) => ({
         stopId: Number(s.id),
         childOrderId: Number(s.child_order_id),
@@ -1169,6 +1226,8 @@ export async function getCourierGroupedJobDetails(courierUserId, deliveryJobId) 
         storeName: s.store_name,
         storePhoto: s.store_photo,
         storePhone: s.store_phone,
+        latitude: s.store_lat == null ? null : Number(s.store_lat),
+        longitude: s.store_lng == null ? null : Number(s.store_lng),
         sequence: Number(s.sequence_number),
         preparationStatus: s.preparation_status,
         pickupStatus: s.pickup_status,

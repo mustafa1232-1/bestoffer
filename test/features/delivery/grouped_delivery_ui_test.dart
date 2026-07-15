@@ -24,10 +24,21 @@ class FakeDeliveryApi extends DeliveryApi {
         'lifecycleStatus': lifecycle,
         'assignmentStatus': 'ASSIGNED',
         'paymentMethod': 'cash',
+        'amountToCollect': 25000,
+        'totalAmount': 25000,
         'courierEarning': 4000,
         'version': version,
+        'customer': {
+          'userId': 500,
+          'displayName': 'زبون تجريبي',
+          'phone': '07701234567',
+          'address': 'بلوك A101، بناية 1',
+          'latitude': 33.3,
+          'longitude': 44.4,
+          'deliveryNotes': 'اتركه عند الباب',
+        },
         'pickupStops': [
-          {'stopId': 101, 'childOrderId': 1001, 'storeId': 11, 'storeName': 'متجر ١', 'sequence': 1, 'preparationStatus': 'READY', 'pickupStatus': stopStatus[101]},
+          {'stopId': 101, 'childOrderId': 1001, 'storeId': 11, 'storeName': 'متجر ١', 'sequence': 1, 'preparationStatus': 'READY', 'pickupStatus': stopStatus[101], 'storePhone': '07801', 'latitude': 33.1, 'longitude': 44.1},
           {'stopId': 102, 'childOrderId': 1002, 'storeId': 12, 'storeName': 'متجر ٢', 'sequence': 2, 'preparationStatus': 'READY', 'pickupStatus': stopStatus[102]},
         ],
       };
@@ -61,7 +72,7 @@ class FakeDeliveryApi extends DeliveryApi {
       ];
 }
 
-ProviderContainer _container(FakeDeliveryApi api) => ProviderContainer(
+ProviderContainer _container(DeliveryApi api) => ProviderContainer(
       overrides: [deliveryApiProvider.overrideWithValue(api)],
     );
 
@@ -73,6 +84,13 @@ Widget _wrap(ProviderContainer c, Widget child) => UncontrolledProviderScope(
     );
 
 void main() {
+  // Detail screens are content-tall; give widget tests a large surface so the
+  // lazy ListView lays everything out (no off-screen tap/find misses).
+  Future<void> tallSurface(WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(1080, 3200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+  }
+
   testWidgets('dashboard section shows the grouped job card', (tester) async {
     final api = FakeDeliveryApi();
     final c = _container(api);
@@ -84,6 +102,7 @@ void main() {
   });
 
   testWidgets('details: collect store 1 leaves store 2; heading gated then enabled', (tester) async {
+    await tallSurface(tester);
     final api = FakeDeliveryApi();
     final c = _container(api);
     await c.read(groupedDeliveryControllerProvider.notifier).bootstrap();
@@ -142,4 +161,58 @@ void main() {
     expect(find.byKey(const Key('history_row_9')), findsOneWidget);
     expect(find.textContaining('أُعيد تعيينها'), findsOneWidget);
   });
+
+  testWidgets('details show one customer destination with navigate/call', (tester) async {
+    await tallSurface(tester);
+    final api = FakeDeliveryApi();
+    final c = _container(api);
+    await c.read(groupedDeliveryControllerProvider.notifier).bootstrap();
+    await tester.pumpWidget(_wrap(c, const GroupedDeliveryDetailsScreen()));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('customer_destination_card')), findsOneWidget);
+    expect(find.textContaining('زبون تجريبي'), findsOneWidget);
+    expect(find.textContaining('اتركه عند الباب'), findsOneWidget);
+    // Navigate enabled (coords present); store 1 has a call button.
+    expect(
+      tester.widget<ElevatedButton>(find.byKey(const Key('customer_navigate'))).onPressed,
+      isNotNull,
+    );
+    expect(find.byKey(const Key('stop_navigate_101')), findsOneWidget);
+  });
+
+  testWidgets('details AppBar opens the grouped history', (tester) async {
+    await tallSurface(tester);
+    final api = FakeDeliveryApi();
+    final c = _container(api);
+    await c.read(groupedDeliveryControllerProvider.notifier).bootstrap();
+    await tester.pumpWidget(_wrap(c, const GroupedDeliveryDetailsScreen()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open_history_from_details')));
+    await tester.pumpAndSettle();
+    expect(find.text('سجل المهام المجمّعة'), findsOneWidget);
+  });
+
+  testWidgets('error without job shows error card + retry (not "no job")', (tester) async {
+    final api = ThrowingDeliveryApi();
+    final c = _container(api);
+    await c.read(groupedDeliveryControllerProvider.notifier).bootstrap();
+    await tester.pumpWidget(_wrap(c, const Scaffold(body: GroupedDeliveryDashboardSection())));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('grouped_error_card')), findsOneWidget);
+    expect(find.byKey(const Key('grouped_retry')), findsOneWidget);
+    expect(find.byKey(const Key('grouped_job_card')), findsNothing);
+  });
+}
+
+/// An API whose bootstrap always fails — used to exercise the error state.
+class ThrowingDeliveryApi extends DeliveryApi {
+  ThrowingDeliveryApi() : super(Dio());
+  @override
+  Future<Map<String, dynamic>?> currentGroupedJob({bool skipTerminalSessionInvalidation = false}) async {
+    throw DioException(
+      requestOptions: RequestOptions(path: '/x'),
+      error: 'offline',
+      type: DioExceptionType.connectionError,
+    );
+  }
 }

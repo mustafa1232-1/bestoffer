@@ -1,8 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/grouped_delivery_job.dart';
 import '../state/grouped_delivery_controller.dart';
+
+Future<void> _safeLaunch(Uri uri) async {
+  try {
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  } catch (_) {
+    // Navigation/dial is best-effort; never crash the delivery flow.
+  }
+}
+
+Future<void> _dial(String? phone) async {
+  final p = (phone ?? '').trim();
+  if (p.isEmpty) return;
+  await _safeLaunch(Uri(scheme: 'tel', path: p));
+}
+
+Future<void> _navigateTo(double? lat, double? lng, String? label) async {
+  if (lat == null || lng == null) return;
+  await _safeLaunch(Uri.parse('geo:$lat,$lng?q=$lat,$lng(${Uri.encodeComponent(label ?? '')})'));
+}
 
 /// Grouped multi-store delivery UI (delivery closure client §3/§4).
 ///
@@ -37,24 +59,57 @@ class GroupedDeliveryDashboardSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(groupedDeliveryControllerProvider);
+    final controller = ref.read(groupedDeliveryControllerProvider.notifier);
+
     if (state.loading && state.job == null) {
       return const Padding(
         padding: EdgeInsets.all(16),
         child: Center(child: CircularProgressIndicator()),
       );
     }
+    // §4: an error with no job must NOT read as "no active job".
+    if (state.isErrorWithoutJob) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+        child: Card(
+          key: const Key('grouped_error_card'),
+          color: Colors.red.withValues(alpha: 0.06),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(state.error ?? 'تعذّر تحميل المهمة',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: OutlinedButton.icon(
+                    key: const Key('grouped_retry'),
+                    onPressed: controller.resync,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('إعادة المحاولة'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     final job = state.job;
     if (job == null || job.isTerminal) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-      child: _GroupedJobCard(job: job),
+      child: _GroupedJobCard(job: job, cached: state.cachedOffline),
     );
   }
 }
 
 class _GroupedJobCard extends ConsumerWidget {
   final GroupedDeliveryJob job;
-  const _GroupedJobCard({required this.job});
+  final bool cached;
+  const _GroupedJobCard({required this.job, this.cached = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -71,6 +126,15 @@ class _GroupedJobCard extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (cached)
+                Container(
+                  key: const Key('grouped_cached_banner'),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  color: Colors.orange.withValues(alpha: 0.15),
+                  child: const Text('نسخة مخزّنة — بانتظار المزامنة',
+                      style: TextStyle(fontSize: 12)),
+                ),
               Row(
                 children: [
                   const Icon(Icons.storefront_outlined),
@@ -131,7 +195,18 @@ class GroupedDeliveryDetailsScreen extends ConsumerWidget {
     final job = state.job;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('تفاصيل المهمة')),
+      appBar: AppBar(
+        title: const Text('تفاصيل المهمة'),
+        actions: [
+          IconButton(
+            key: const Key('open_history_from_details'),
+            icon: const Icon(Icons.history),
+            tooltip: 'السجل',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const GroupedDeliveryHistoryScreen())),
+          ),
+        ],
+      ),
       body: job == null
           ? const Center(child: Text('لا توجد مهمة نشطة'))
           : RefreshIndicator(
@@ -142,6 +217,13 @@ class GroupedDeliveryDetailsScreen extends ConsumerWidget {
                   Text(job.storesLabel,
                       style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
+                  if (state.cachedOffline)
+                    Container(
+                      key: const Key('grouped_details_cached_banner'),
+                      padding: const EdgeInsets.all(8),
+                      color: Colors.orange.withValues(alpha: 0.15),
+                      child: const Text('نسخة مخزّنة — الإجراءات معطّلة حتى المزامنة'),
+                    ),
                   if (state.error != null)
                     Container(
                       key: const Key('grouped_error_banner'),
@@ -151,10 +233,25 @@ class GroupedDeliveryDetailsScreen extends ConsumerWidget {
                           style: const TextStyle(color: Colors.red)),
                     ),
                   const SizedBox(height: 8),
-                  ...job.activeStops.map((s) => _StopCard(stop: s, controller: controller, saving: state.saving)),
-                  const SizedBox(height: 16),
-                  _lifecycleActions(context, job, controller, state.saving),
+                  ...job.activeStops.map((s) => _StopCard(
+                      stop: s,
+                      controller: controller,
+                      saving: state.saving || state.mutationsBlocked)),
+                  const SizedBox(height: 12),
+                  if (job.customer != null) _CustomerDestinationCard(job: job),
+                  const SizedBox(height: 24),
                 ],
+              ),
+            ),
+      // Lifecycle actions live in a persistent bottom bar so they are always
+      // visible and reachable regardless of scroll position.
+      bottomNavigationBar: job == null
+          ? null
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: _lifecycleActions(
+                    context, job, controller, state.saving || state.mutationsBlocked),
               ),
             ),
     );
@@ -187,6 +284,7 @@ class GroupedDeliveryDetailsScreen extends ConsumerWidget {
       (saving || !job.canDeliver) ? null : controller.markDelivered,
     ));
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (final b in buttons) Padding(padding: const EdgeInsets.only(bottom: 8), child: b),
@@ -228,8 +326,33 @@ class _StopCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text('طلب رقم #${stop.childOrderId}',
                 style: Theme.of(context).textTheme.bodySmall),
-            if (stop.storePhone != null) Text('هاتف المتجر: ${stop.storePhone}'),
-            const SizedBox(height: 8),
+            if (stop.storeAddress != null && '${stop.storeAddress}'.trim().isNotEmpty)
+              Text('العنوان: ${stop.storeAddress}'),
+            if (stop.arrivedAt != null)
+              Text('وقت الوصول: ${_time(stop.arrivedAt!)}',
+                  style: Theme.of(context).textTheme.bodySmall),
+            if (stop.collectedAt != null)
+              Text('وقت الاستلام: ${_time(stop.collectedAt!)}',
+                  style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                IconButton(
+                  key: Key('stop_call_${stop.stopId}'),
+                  icon: const Icon(Icons.call, size: 20),
+                  tooltip: 'اتصال بالمتجر',
+                  onPressed: stop.storePhone == null ? null : () => _dial(stop.storePhone),
+                ),
+                IconButton(
+                  key: Key('stop_navigate_${stop.stopId}'),
+                  icon: const Icon(Icons.navigation_outlined, size: 20),
+                  tooltip: 'الملاحة إلى المتجر',
+                  onPressed: (stop.latitude == null || stop.longitude == null)
+                      ? null
+                      : () => _navigateTo(stop.latitude, stop.longitude, stop.storeName),
+                ),
+              ],
+            ),
             Row(
               children: [
                 Expanded(
@@ -258,6 +381,92 @@ class _StopCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _time(DateTime dt) =>
+    '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+
+/// One customer drop-off section for the whole grouped job.
+class _CustomerDestinationCard extends StatelessWidget {
+  final GroupedDeliveryJob job;
+  const _CustomerDestinationCard({required this.job});
+
+  @override
+  Widget build(BuildContext context) {
+    final d = job.customer!;
+    return Card(
+      key: const Key('customer_destination_card'),
+      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.25),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.person_pin_circle_outlined),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('وجهة الزبون: ${d.displayName ?? 'الزبون'}',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            if (d.address != null) Text('العنوان: ${d.address}'),
+            if (d.deliveryNotes != null && d.deliveryNotes!.trim().isNotEmpty)
+              Text('ملاحظات: ${d.deliveryNotes}'),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                _kv('طريقة الدفع', job.paymentMethod ?? '-'),
+                const SizedBox(width: 16),
+                _kv('المبلغ المطلوب', job.amountToCollect.toStringAsFixed(0)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('customer_call'),
+                    icon: const Icon(Icons.call, size: 18),
+                    label: const Text('اتصال'),
+                    onPressed: d.phone == null ? null : () => _dial(d.phone),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    key: const Key('customer_navigate'),
+                    icon: const Icon(Icons.navigation, size: 18),
+                    label: const Text('الملاحة'),
+                    onPressed: d.hasCoordinates
+                        ? () => _navigateTo(d.latitude, d.longitude, d.displayName)
+                        : null,
+                  ),
+                ),
+              ],
+            ),
+            if (!d.hasCoordinates)
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text('لا تتوفر إحداثيات دقيقة للوجهة',
+                    style: TextStyle(fontSize: 11, color: Colors.grey)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _kv(String k, String v) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(k, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          Text(v, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      );
 }
 
 /// Grouped-job history (delivery closure client §4). Shows completed and

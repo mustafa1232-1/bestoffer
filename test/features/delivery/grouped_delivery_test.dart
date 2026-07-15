@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/features/delivery/data/delivery_api.dart';
@@ -250,5 +252,74 @@ void main() {
       await Future.wait([f1, f2]);
       expect(c.state.job!.collectedCount, 1);
     });
+
+    test('bootstrap failure with a cached job → cachedOffline, mutations blocked', () async {
+      final api = TogglingDeliveryApi();
+      final c = GroupedDeliveryController(api);
+      await c.bootstrap(); // ok → job present
+      expect(c.state.job, isNotNull);
+
+      api.fail = true;
+      await c.resync(); // fails → keep cached job, mark offline
+      expect(c.state.cachedOffline, isTrue);
+      expect(c.state.isErrorWithoutJob, isFalse);
+      expect(c.state.mutationsBlocked, isTrue);
+
+      // A mutation while offline does not mutate (it tries to re-sync first).
+      await c.collectStore(101);
+      expect(c.state.job!.collectedCount, 0);
+
+      // Recover → offline flag cleared, mutations allowed again.
+      api.fail = false;
+      await c.resync();
+      expect(c.state.cachedOffline, isFalse);
+    });
+
+    test('reset() invalidates in-flight results (no cross-user leak)', () async {
+      final api = SlowDeliveryApi();
+      final c = GroupedDeliveryController(api);
+      final f = c.bootstrap(); // starts slow request
+      c.reset(); // logout / account switch before it resolves
+      api.complete();
+      await f;
+      expect(c.state.job, isNull, reason: 'stale result must not leak in');
+    });
   });
+}
+
+/// Fake whose currentGroupedJob can be toggled to fail.
+class TogglingDeliveryApi extends FakeDeliveryApi {
+  bool fail = false;
+  @override
+  Future<Map<String, dynamic>?> currentGroupedJob({bool skipTerminalSessionInvalidation = false}) async {
+    if (fail) {
+      throw DioException(
+        requestOptions: RequestOptions(path: '/x'),
+        type: DioExceptionType.connectionError,
+      );
+    }
+    return super.currentGroupedJob();
+  }
+
+  @override
+  Future<Map<String, dynamic>> groupedJobDetails(int id) async {
+    if (fail) {
+      throw DioException(
+        requestOptions: RequestOptions(path: '/x'),
+        type: DioExceptionType.connectionError,
+      );
+    }
+    return super.groupedJobDetails(id);
+  }
+}
+
+/// Fake with a manually-completed currentGroupedJob to test the generation guard.
+class SlowDeliveryApi extends FakeDeliveryApi {
+  final _c = Completer<void>();
+  void complete() => _c.complete();
+  @override
+  Future<Map<String, dynamic>?> currentGroupedJob({bool skipTerminalSessionInvalidation = false}) async {
+    await _c.future;
+    return super.currentGroupedJob();
+  }
 }

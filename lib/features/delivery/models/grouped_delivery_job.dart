@@ -159,16 +159,71 @@ enum GroupedJobLifecycle {
       this == GroupedJobLifecycle.failed;
 }
 
+/// The single authoritative customer drop-off for a grouped job (not derived
+/// from an arbitrary child order).
+class CustomerDestination {
+  final int? userId;
+  final String? displayName;
+  final String? phone;
+  final String? address;
+  final String? block;
+  final String? building;
+  final String? apartment;
+  final String? city;
+  final double? latitude;
+  final double? longitude;
+  final String? deliveryNotes;
+
+  const CustomerDestination({
+    this.userId,
+    this.displayName,
+    this.phone,
+    this.address,
+    this.block,
+    this.building,
+    this.apartment,
+    this.city,
+    this.latitude,
+    this.longitude,
+    this.deliveryNotes,
+  });
+
+  bool get hasCoordinates => latitude != null && longitude != null;
+
+  static CustomerDestination? fromMap(Object? raw) {
+    if (raw is! Map) return null;
+    final m = Map<String, dynamic>.from(raw);
+    return CustomerDestination(
+      userId: _asIntOrNull(m['userId']),
+      displayName: m['displayName']?.toString(),
+      phone: m['phone']?.toString(),
+      address: m['address']?.toString(),
+      block: m['block']?.toString(),
+      building: m['building']?.toString(),
+      apartment: m['apartment']?.toString(),
+      city: m['city']?.toString(),
+      latitude: m['latitude'] == null ? null : _asDouble(m['latitude']),
+      longitude: m['longitude'] == null ? null : _asDouble(m['longitude']),
+      deliveryNotes: m['deliveryNotes']?.toString(),
+    );
+  }
+}
+
 class GroupedDeliveryJob {
   final int deliveryJobId;
   final int? assignmentId;
   final int orderGroupId;
+  final String? orderGroupPublicId;
   final GroupedJobLifecycle lifecycle;
   final String assignmentStatus;
   final String? paymentMethod;
   final double courierEarning;
+  final double totalAmount;
+  final double amountToCollect;
+  final double deliveryFee;
   final int version;
   final List<DeliveryPickupStop> pickupStops;
+  final CustomerDestination? customer;
 
   const GroupedDeliveryJob({
     required this.deliveryJobId,
@@ -178,8 +233,13 @@ class GroupedDeliveryJob {
     required this.version,
     required this.pickupStops,
     this.assignmentId,
+    this.orderGroupPublicId,
     this.paymentMethod,
     this.courierEarning = 0,
+    this.totalAmount = 0,
+    this.amountToCollect = 0,
+    this.deliveryFee = 0,
+    this.customer,
   });
 
   /// Active (non-cancelled) stops in sequence order.
@@ -219,14 +279,20 @@ class GroupedDeliveryJob {
       deliveryJobId: _asInt(_pick(m, ['deliveryJobId', 'delivery_job_id'])),
       assignmentId: _asIntOrNull(_pick(m, ['assignmentId', 'assignment_id'])),
       orderGroupId: _asInt(_pick(m, ['orderGroupId', 'order_group_id'])),
+      orderGroupPublicId:
+          _pick(m, ['orderGroupPublicId', 'public_id'])?.toString(),
       lifecycle: GroupedJobLifecycle.parse(
         _asString(_pick(m, ['lifecycleStatus', 'lifecycle_status'])),
       ),
       assignmentStatus: _asString(_pick(m, ['assignmentStatus', 'assignment_status'])),
       paymentMethod: _pick(m, ['paymentMethod', 'payment_method'])?.toString(),
       courierEarning: _earning(m),
+      totalAmount: _asDouble(_pick(m, ['totalAmount', 'total_amount']) ?? 0),
+      amountToCollect: _asDouble(_pick(m, ['amountToCollect', 'amount_to_collect']) ?? 0),
+      deliveryFee: _asDouble(_pick(m, ['deliveryFee', 'delivery_fee']) ?? 0),
       version: _asInt(_pick(m, ['version']) ?? 0),
       pickupStops: stops,
+      customer: CustomerDestination.fromMap(_pick(m, ['customer'])),
     );
   }
 
@@ -239,12 +305,17 @@ class GroupedDeliveryJob {
       deliveryJobId: deliveryJobId,
       assignmentId: assignmentId,
       orderGroupId: orderGroupId,
+      orderGroupPublicId: orderGroupPublicId,
       lifecycle: lifecycle ?? this.lifecycle,
       assignmentStatus: assignmentStatus,
       paymentMethod: paymentMethod,
       courierEarning: courierEarning,
+      totalAmount: totalAmount,
+      amountToCollect: amountToCollect,
+      deliveryFee: deliveryFee,
       version: version ?? this.version,
       pickupStops: pickupStops ?? this.pickupStops,
+      customer: customer,
     );
   }
 
