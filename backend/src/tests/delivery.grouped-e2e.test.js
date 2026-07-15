@@ -227,7 +227,7 @@ test("E2E: real checkout → store acceptance → grouped worker assigns one cou
       (
         await client.query(
           `SELECT COUNT(*)::int n FROM app_notification WHERE event_id=$1`,
-          [`deliveryjob-assign-${job.id}`]
+          [`deliveryjob-assign-${job.id}-${fx.courierId}`]
         )
       ).rows[0].n
     );
@@ -235,7 +235,7 @@ test("E2E: real checkout → store acceptance → grouped worker assigns one cou
   const obState = (
     await client.query(
       `SELECT status, provider_result_json FROM notification_outbox WHERE event_id=$1`,
-      [`deliveryjob-assign-${job.id}`]
+      [`deliveryjob-assign-${job.id}-${fx.courierId}`]
     )
   ).rows[0];
   assert.equal(obState.status, "PUSH_ACCEPTED", "truthful accepted status");

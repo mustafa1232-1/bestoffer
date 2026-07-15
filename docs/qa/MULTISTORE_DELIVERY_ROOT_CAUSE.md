@@ -173,6 +173,37 @@ per-stop collect (stop 1 collected, stop 2 pending) → head-to-customer gating 
 delivered on all surfaces). The final acceptance never calls `assignDeliveryJobTx`
 directly.
 
+## Fourth pass — Social integration + four verified backend defects
+- **Social baseline integrated** — merged `feat/social-v3-interactions-reviews-closure`
+  (`ca6a5c0`) into this branch (merge `210328a`). Disjoint file sets except
+  `package.json` (clean). Source migration order preserved:
+  `136_delivery_grouped_job` → `137_delivery_grouped_notification_truth` →
+  `140_social_story_interaction_settings`. Full suite green afterward.
+- **Defect A (§2)** — `getCourierCurrentGroupedJob` now returns only an active,
+  non-terminal job (never DELIVERED/CANCELLED/FAILED) or null;
+  `listCourierGroupedJobs` excludes terminal lifecycle states; added
+  `listCourierActiveGroupedJobs` + `listCourierGroupedJobHistory` and a
+  `/delivery-jobs/history` route. App-restart after delivery does not reopen work.
+- **Defect B (§3)** — `selectEligibleCourier` accepts `excludeCourierUserIds`;
+  the conflict-retry loop excludes each collided candidate and uses a SAVEPOINT so
+  a failed attempt rolls back cleanly, then assigns the NEXT eligible courier —
+  `PENDING_NO_DRIVER` only when no candidate remains (DB-tested: A collides → B
+  wins, one active assignment).
+- **Defect C (§4)** — the grouped `courier_assignment` insert no longer silently
+  replaces the courier: same courier is idempotent, a different courier throws
+  `ASSIGNMENT_CONFLICT`. Added an explicit audited `reassignGroupedJob`
+  transaction (lock job + active assignment → close old with reason → assign new →
+  fresh per-courier outbox event). Outbox `event_id` is now per-courier so a
+  reassignment notifies the new courier.
+- **Defect D (§5)** — normalized `assignment.active` derives from IDENTITY
+  (assignmentId + deliveryJobId + courierUserId + ASSIGNED + non-ended assignment
+  + non-terminal lifecycle), never from `courier_name`; name/photo/phone are
+  presentation with safe fallbacks. The view now returns the full `pickupStops`
+  array (store identity, address, coords, sequence, statuses).
+
+Tests: full backend suite **340/340 pass**. New `delivery.defects.test.js` covers
+all four defects incl. reassignment and the retry-to-next-courier path.
+
 ## Not yet done (honest — next layers)
 - **§10/§11 Flutter Delivery + Store/User apps** — grouped-job models, API
   client, controllers, screens, lifecycle controls, cache invalidation. Not

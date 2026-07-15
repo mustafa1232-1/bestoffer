@@ -37,6 +37,7 @@ deliveryRouter.get("/ratings", c.ratings);
 // Grouped multi-store delivery jobs (delivery closure §8). Literal segments
 // precede the parameterized :deliveryJobId route so they are not shadowed.
 deliveryRouter.get("/delivery-jobs/current", c.currentGroupedJob);
+deliveryRouter.get("/delivery-jobs/history", c.groupedJobHistory);
 deliveryRouter.get("/delivery-jobs", c.listGroupedJobs);
 deliveryRouter.get("/delivery-jobs/:deliveryJobId(\\d+)", c.groupedJobDetails);
 deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/acknowledge", c.acknowledgeGroupedJob);

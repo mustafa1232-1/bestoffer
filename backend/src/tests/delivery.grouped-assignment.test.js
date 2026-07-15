@@ -81,7 +81,7 @@ test("FIX: one grouped job, one courier, two pickup stops, courier sees it", asy
     // Notification outbox event created in the same transaction.
     const outbox = await c.query(
       `SELECT event_type, target_surface FROM notification_outbox WHERE event_id=$1`,
-      [`deliveryjob-assign-${result.job.id}`]
+      [`deliveryjob-assign-${result.job.id}-${fx.courierId}`]
     );
     assert.equal(outbox.rowCount, 1);
     assert.equal(outbox.rows[0].event_type, "COURIER_MULTI_STORE_DELIVERY_ASSIGNED");

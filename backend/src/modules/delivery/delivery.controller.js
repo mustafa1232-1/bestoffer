@@ -188,14 +188,19 @@ export async function currentGroupedJob(req, res, next) {
 
 export async function listGroupedJobs(req, res, next) {
   try {
-    const { pool } = await import("../../config/db.js");
-    const client = await pool.connect();
-    try {
-      const list = await jobs.listCourierGroupedJobs(client, req.userId);
-      res.json({ jobs: list });
-    } finally {
-      client.release();
-    }
+    const list = await jobs.listCourierActiveGroupedJobs(req.userId);
+    res.json({ jobs: list });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function groupedJobHistory(req, res, next) {
+  try {
+    const list = await jobs.listCourierGroupedJobHistory(req.userId, {
+      limit: Number(req.query?.limit) || 50,
+    });
+    res.json({ jobs: list });
   } catch (e) {
     next(e);
   }

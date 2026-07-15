@@ -4,92 +4,96 @@
 // two approved stores, one multi-store order_group, two accepted child
 // customer_orders, and one approved+online app courier with fresh presence.
 //
-// Rows are tagged with a `fixt_ms_` marker so the fixture is idempotent
-// (cleans its own prior rows first).
+// The row marker is parameterizable (`mark`) so multiple test files can use this
+// fixture concurrently against the shared DB without colliding on unique
+// usernames or cross-deleting each other's rows. Default marker: `fixt_ms_`.
 
-const MARK = "fixt_ms_";
+const DEFAULT_MARK = "fixt_ms_";
 
-async function insertUser(client, { role, name, suffix }) {
-  const uname = `${MARK}${suffix}`;
+async function insertUser(client, mark, { role, name, suffix }) {
+  const uname = `${mark}${suffix}`;
   const row = (
     await client.query(
       `INSERT INTO app_user
-         (full_name, phone, pin_hash, block, building_number, apartment, username, role)
-       VALUES ($1,$2,'x',$3,$4,$5,$6,$7)
+         (full_name, phone, pin_hash, block, building_number, apartment, username, role, delivery_account_approved)
+       VALUES ($1,$2,'x',$3,$4,$5,$6,$7,$8)
        RETURNING id`,
-      [name, `0${suffix}`.slice(0, 15), "A", "A101", "1", uname, role]
+      // Phone must be unique across concurrently-running markers, so scope it to
+      // the marker (not just the suffix).
+      [name, `${mark}${suffix}`.slice(0, 15), "A", "A101", "1", uname, role, role === "delivery"]
     )
   ).rows[0];
   return Number(row.id);
 }
 
-export async function cleanupMultiStoreFixture(client) {
+export async function cleanupMultiStoreFixture(client, mark = DEFAULT_MARK) {
   // FK-safe teardown by marker.
   await client.query(
+    `DELETE FROM courier_assignment WHERE delivery_job_id IN
+       (SELECT id FROM delivery_job WHERE order_group_id IN
+          (SELECT id FROM order_group WHERE public_id LIKE '${mark}%'))`
+  ).catch(() => {});
+  await client.query(
     `DELETE FROM delivery_pickup_stop WHERE child_order_id IN
-       (SELECT id FROM customer_order WHERE customer_full_name LIKE '${MARK}%')`
+       (SELECT id FROM customer_order WHERE customer_full_name LIKE '${mark}%')`
   );
   await client.query(
     `DELETE FROM delivery_job WHERE order_group_id IN
-       (SELECT id FROM order_group WHERE public_id LIKE '${MARK}%')`
+       (SELECT id FROM order_group WHERE public_id LIKE '${mark}%')`
   );
   await client.query(
-    `DELETE FROM notification_outbox WHERE event_id LIKE 'deliveryjob-assign-%'
-       AND target_entity_id NOT IN (SELECT id FROM delivery_job)`
+    `DELETE FROM customer_order WHERE customer_full_name LIKE '${mark}%'`
   );
-  await client.query(
-    `DELETE FROM customer_order WHERE customer_full_name LIKE '${MARK}%'`
-  );
-  await client.query(`DELETE FROM order_group WHERE public_id LIKE '${MARK}%'`);
+  await client.query(`DELETE FROM order_group WHERE public_id LIKE '${mark}%'`);
   await client.query(
     `DELETE FROM courier_presence WHERE courier_user_id IN
-       (SELECT id FROM app_user WHERE username LIKE '${MARK}%')`
+       (SELECT id FROM app_user WHERE username LIKE '${mark}%')`
   );
   await client.query(
     `DELETE FROM courier_profile WHERE user_id IN
-       (SELECT id FROM app_user WHERE username LIKE '${MARK}%')`
+       (SELECT id FROM app_user WHERE username LIKE '${mark}%')`
   );
-  await client.query(`DELETE FROM merchant WHERE name LIKE '${MARK}%'`);
-  await client.query(`DELETE FROM app_user WHERE username LIKE '${MARK}%'`);
+  await client.query(`DELETE FROM merchant WHERE name LIKE '${mark}%'`);
+  await client.query(`DELETE FROM app_user WHERE username LIKE '${mark}%'`);
 }
 
 export async function createMultiStoreFixture(
   client,
-  { childStatus = "accepted_by_store", courierOnline = true, presenceAgeSec = 5 } = {}
+  { childStatus = "accepted_by_store", courierOnline = true, presenceAgeSec = 5, mark = DEFAULT_MARK } = {}
 ) {
-  await cleanupMultiStoreFixture(client);
+  await cleanupMultiStoreFixture(client, mark);
 
-  const customerId = await insertUser(client, {
+  const customerId = await insertUser(client, mark, {
     role: "user",
-    name: `${MARK}customer`,
+    name: `${mark}customer`,
     suffix: "cust01",
   });
-  const owner1 = await insertUser(client, {
+  const owner1 = await insertUser(client, mark, {
     role: "owner",
-    name: `${MARK}owner1`,
+    name: `${mark}owner1`,
     suffix: "own01",
   });
-  const owner2 = await insertUser(client, {
+  const owner2 = await insertUser(client, mark, {
     role: "owner",
-    name: `${MARK}owner2`,
+    name: `${mark}owner2`,
     suffix: "own02",
   });
-  const courierId = await insertUser(client, {
+  const courierId = await insertUser(client, mark, {
     role: "delivery",
-    name: `${MARK}courier`,
+    name: `${mark}courier`,
     suffix: "cour01",
   });
 
   const merchant1 = (
     await client.query(
       `INSERT INTO merchant (name, type, owner_user_id) VALUES ($1,'market',$2) RETURNING id`,
-      [`${MARK}store1`, owner1]
+      [`${mark}store1`, owner1]
     )
   ).rows[0].id;
   const merchant2 = (
     await client.query(
       `INSERT INTO merchant (name, type, owner_user_id) VALUES ($1,'market',$2) RETURNING id`,
-      [`${MARK}store2`, owner2]
+      [`${mark}store2`, owner2]
     )
   ).rows[0].id;
 
@@ -112,7 +116,7 @@ export async function createMultiStoreFixture(
       `INSERT INTO order_group
          (public_id, customer_user_id, status, is_multi_store, stores_count, payment_method)
        VALUES ($1,$2,'active',TRUE,2,'cash') RETURNING id`,
-      [`${MARK}${Math.floor(presenceAgeSec)}_grp`, customerId]
+      [`${mark}${Math.floor(presenceAgeSec)}_grp`, customerId]
     )
   ).rows[0].id;
 
@@ -127,14 +131,7 @@ export async function createMultiStoreFixture(
               order_scope, courier_source)
            VALUES ($1,$2,$3,'0770',$4,'1','1',$5,$6,'delivery','NOT_REQUIRED','group_child','app')
            RETURNING id`,
-          [
-            merchantId,
-            customerId,
-            `${MARK}order`,
-            "A101",
-            orderGroupId,
-            childStatus,
-          ]
+          [merchantId, customerId, `${mark}order`, "A101", orderGroupId, childStatus]
         )
       ).rows[0].id
     );

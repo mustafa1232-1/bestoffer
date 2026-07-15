@@ -156,8 +156,14 @@ export async function selectEligibleCourier(
   {
     presenceFreshnessSec = DEFAULT_PRESENCE_FRESHNESS_SEC,
     restrictToCourierUserIds = null,
+    excludeCourierUserIds = null,
   } = {}
 ) {
+  // Candidates that already lost an assignment collision this round — never
+  // re-select them (§3), so the retry advances to the next eligible courier.
+  const excludeSet = new Set(
+    (Array.isArray(excludeCourierUserIds) ? excludeCourierUserIds : []).map((v) => Number(v))
+  );
   // Optional allow-list: scopes selection to a specific candidate set. Used by
   // targeted/manual dispatch (and to make assignment deterministic in tests
   // that run against a shared database). Production passes nothing → global.
@@ -188,6 +194,10 @@ export async function selectEligibleCourier(
   let chosen = null;
   for (const r of rows) {
     const uid = Number(r.courier_user_id);
+    if (excludeSet.has(uid)) {
+      excluded.push({ courierUserId: uid, reason: "previously_failed_candidate" });
+      continue;
+    }
     // Account-level authority (§7).
     if (String(r.role || "").toLowerCase() !== "delivery") {
       excluded.push({ courierUserId: uid, reason: "not_delivery_role" });
@@ -358,19 +368,42 @@ export async function assignDeliveryJobTx(
   // delivery_job_id set). Created in the same transaction as the delivery_job
   // ASSIGNED + child mirror + outbox. Not one row per child order. Idempotent
   // via the partial unique index uq_courier_assignment_active_job.
-  const assignment = (
+  // Safe contract (§4): never silently replace the courier on an active
+  // assignment. Insert; on conflict read the existing active assignment — same
+  // courier is idempotent, a different courier is a hard ASSIGNMENT_CONFLICT
+  // (legitimate reassignment goes through reassignGroupedJob).
+  const inserted = (
     await client.query(
       `INSERT INTO courier_assignment
          (delivery_job_id, courier_user_id, assignment_type, status,
           assigned_at, requested_at, requested_by_user_id, correlation_id)
        VALUES ($1,$2,'grouped','assigned',NOW(),NOW(),NULL,$3)
        ON CONFLICT (delivery_job_id) WHERE delivery_job_id IS NOT NULL AND ended_at IS NULL
-       DO UPDATE SET courier_user_id=EXCLUDED.courier_user_id
+       DO NOTHING
        RETURNING id`,
       [job.id, courierUserId, `job-${job.id}-assign`]
     )
   ).rows[0];
-  const assignmentId = assignment ? Number(assignment.id) : null;
+  let assignmentId;
+  if (inserted) {
+    assignmentId = Number(inserted.id);
+  } else {
+    const existing = (
+      await client.query(
+        `SELECT id, courier_user_id FROM courier_assignment
+          WHERE delivery_job_id=$1 AND ended_at IS NULL`,
+        [job.id]
+      )
+    ).rows[0];
+    if (existing && Number(existing.courier_user_id) === Number(courierUserId)) {
+      assignmentId = Number(existing.id); // idempotent same-courier re-assign
+    } else {
+      throw new AppError("ASSIGNMENT_CONFLICT", {
+        status: 409,
+        details: { activeCourierUserId: existing ? Number(existing.courier_user_id) : null },
+      });
+    }
+  }
 
   // Notification-outbox event in the SAME transaction (§4/§9/§10). Idempotent.
   // target_surface is the authoritative `delivery` (not `courier`).
@@ -381,7 +414,9 @@ export async function assignDeliveryJobTx(
      VALUES ($1,$2,$3,'delivery','delivery_job',$4,$5,'high')
      ON CONFLICT (event_id) DO NOTHING`,
     [
-      `deliveryjob-assign-${job.id}`,
+      // Per-courier event id: a reassignment to a new courier produces a fresh,
+      // deliverable event instead of being deduped against the old courier's.
+      `deliveryjob-assign-${job.id}-${courierUserId}`,
       stops.length > 1
         ? "COURIER_MULTI_STORE_DELIVERY_ASSIGNED"
         : "COURIER_DELIVERY_ASSIGNED",
@@ -491,18 +526,25 @@ export async function runGroupedAssignmentForGroupTx(
     const { courierUserId, excluded } = await selectEligibleCourier(client, {
       presenceFreshnessSec,
       restrictToCourierUserIds,
+      excludeCourierUserIds: [...tried], // §3: never re-pick a collided candidate
     });
     lastExcluded = excluded;
-    if (!courierUserId || tried.has(courierUserId)) {
+    if (!courierUserId) {
       break;
     }
     tried.add(courierUserId);
+    // Savepoint so a collision (ASSIGNMENT_CONFLICT) cleanly rolls back this
+    // attempt's partial writes (delivery_job UPDATE + mirror) before the retry
+    // selects the next candidate — otherwise the failed attempt's state would
+    // make the retry read the job as already assigned to the collided courier.
+    await client.query("SAVEPOINT grp_attempt");
     try {
       const result = await assignDeliveryJobTx(client, {
         orderGroupId,
         courierUserId,
         idempotencyKey: `grp-${job.id}`,
       });
+      await client.query("RELEASE SAVEPOINT grp_attempt");
       if (result.alreadyAssigned) return { status: "ALREADY_ASSIGNED", job: result.job };
       return {
         status: "ASSIGNED",
@@ -511,6 +553,7 @@ export async function runGroupedAssignmentForGroupTx(
         stops: result.stops,
       };
     } catch (err) {
+      await client.query("ROLLBACK TO SAVEPOINT grp_attempt").catch(() => {});
       // Another worker/courier won the row, or the courier just became busy —
       // retry with the next eligible courier rather than failing the job.
       // (NO_ACTIVE_PICKUPS / DELIVERY_JOB_NOT_READY are terminal → rethrow.)
@@ -536,7 +579,14 @@ export async function runGroupedAssignmentForGroupTx(
  * The authoritative courier grouped-job query. Joins through delivery_job (NOT a
  * single child order), returning one grouped job with all active pickup stops.
  */
-export async function listCourierGroupedJobs(client, courierUserId) {
+// Terminal lifecycle states — a job in one of these is NOT an active job.
+const TERMINAL_LIFECYCLE = ["DELIVERED", "CANCELLED", "FAILED"];
+
+export async function listCourierGroupedJobs(
+  client,
+  courierUserId,
+  { includeTerminal = false } = {}
+) {
   const jobs = (
     await client.query(
       `SELECT j.id AS delivery_job_id, j.order_group_id, j.assignment_status,
@@ -545,8 +595,9 @@ export async function listCourierGroupedJobs(client, courierUserId) {
          FROM delivery_job j
          JOIN order_group g ON g.id=j.order_group_id
         WHERE j.delivery_user_id=$1 AND j.assignment_status='ASSIGNED'
+          ${includeTerminal ? "" : "AND j.lifecycle_status <> ALL($2::text[])"}
         ORDER BY j.assigned_at DESC`,
-      [courierUserId]
+      includeTerminal ? [courierUserId] : [courierUserId, TERMINAL_LIFECYCLE]
     )
   ).rows;
 
@@ -591,14 +642,48 @@ export async function getGroupedAssignmentView(client, orderGroupId) {
       [orderGroupId]
     )
   ).rows[0];
-  if (!row) return { active: false, status: "PENDING_STORES" };
-  // §9: active only when the authoritative grouped assignment is complete —
-  // never from a stale child-order flag alone.
+  if (!row) return { active: false, status: "PENDING_STORES", pickupStops: [] };
+  // §5: authority comes from the assignment IDENTITY, not from presentation
+  // fields. Active when the assignment exists (courier_assignment not ended →
+  // assignment_id present), the job is ASSIGNED to a courier, and the job is not
+  // in a terminal lifecycle. A null courier display name does NOT deactivate it.
   const active =
-    row.assignment_status === "ASSIGNED" &&
+    Number(row.assignment_id) > 0 &&
     Number(row.delivery_user_id) > 0 &&
-    Boolean(row.courier_name) &&
-    Number(row.assignment_id) > 0;
+    row.assignment_status === "ASSIGNED" &&
+    !TERMINAL_LIFECYCLE.includes(row.lifecycle_status);
+
+  const pickupStops = active
+    ? (
+        await client.query(
+          `SELECT s.id, s.child_order_id, s.store_id, s.sequence_number,
+                  s.preparation_status, s.pickup_status, s.arrived_at, s.collected_at,
+                  s.latitude, s.longitude, s.address_snapshot_json,
+                  m.name AS store_name, m.image_url AS store_photo, m.phone AS store_phone
+             FROM delivery_pickup_stop s
+             LEFT JOIN merchant m ON m.id=s.store_id
+            WHERE s.delivery_job_id=$1 AND s.pickup_status<>'CANCELLED'
+            ORDER BY s.sequence_number`,
+          [Number(row.delivery_job_id)]
+        )
+      ).rows.map((s) => ({
+        stopId: Number(s.id),
+        childOrderId: Number(s.child_order_id),
+        storeId: Number(s.store_id),
+        storeName: s.store_name || null,
+        storePhoto: s.store_photo || null,
+        storePhone: s.store_phone || null,
+        storeAddress: s.address_snapshot_json || null,
+        latitude: s.latitude == null ? null : Number(s.latitude),
+        longitude: s.longitude == null ? null : Number(s.longitude),
+        sequence: Number(s.sequence_number),
+        preparationStatus: s.preparation_status,
+        pickupStatus: s.pickup_status,
+        arrivedAt: s.arrived_at,
+        collectedAt: s.collected_at,
+      }))
+    : [];
+
   return {
     active,
     id: active ? Number(row.assignment_id) : null,
@@ -609,15 +694,17 @@ export async function getGroupedAssignmentView(client, orderGroupId) {
     assignmentStatus: row.assignment_status,
     lifecycleStatus: row.lifecycle_status,
     courierUserId: active ? Number(row.delivery_user_id) : null,
-    courierName: active ? row.courier_name : null,
-    courierPhone: active ? row.courier_phone : null,
-    courierPhoto: active ? row.courier_photo : null,
+    // Presentation fields — safe fallbacks; never gate `active`.
+    courierName: active ? row.courier_name || "الدلفري" : null,
+    courierPhone: active ? row.courier_phone || null : null,
+    courierPhoto: active ? row.courier_photo || null : null,
     assignedAt: active ? row.assigned_at : null,
     numberOfStores: Number(row.active_stops || 0),
     pickupProgress: {
       collected: Number(row.collected_stops || 0),
       total: Number(row.active_stops || 0),
     },
+    pickupStops,
   };
 }
 
@@ -816,12 +903,101 @@ export const markGroupedDelivered = withTx(async (client, { courierUserId, deliv
   return { deliveryJobId: Number(job.id), lifecycleStatus: "DELIVERED" };
 });
 
-/** Courier's current active grouped job (assigned, not yet delivered). */
+/**
+ * Courier's current active grouped job. Returns ONLY an active, non-terminal job
+ * (never DELIVERED/CANCELLED/FAILED); null when the courier has no active job —
+ * so an app restart after delivery does not reopen completed work.
+ */
+export const reassignGroupedJob = withTx(async (client, { orderGroupId, newCourierUserId, reason = "REASSIGNED" }) => {
+  // 1-2. Lock the job and its active assignment.
+  const job = (
+    await client.query("SELECT * FROM delivery_job WHERE order_group_id=$1 FOR UPDATE", [
+      Number(orderGroupId),
+    ])
+  ).rows[0];
+  if (!job) throw new AppError("DELIVERY_JOB_NOT_FOUND", { status: 404 });
+  if (job.lifecycle_status === "DELIVERED") {
+    throw new AppError("JOB_ALREADY_DELIVERED", { status: 409 });
+  }
+  if (Number(newCourierUserId) === Number(job.delivery_user_id)) {
+    throw new AppError("SAME_COURIER_REASSIGNMENT", { status: 409 });
+  }
+  await client.query(
+    "SELECT id FROM courier_assignment WHERE delivery_job_id=$1 AND ended_at IS NULL FOR UPDATE",
+    [job.id]
+  );
+  // 3-4. Close the old assignment with an audited ended reason.
+  await client.query(
+    `UPDATE courier_assignment
+        SET ended_at=NOW(), cancelled_at=NOW(), status='released', ended_reason=$2
+      WHERE delivery_job_id=$1 AND ended_at IS NULL`,
+    [job.id, String(reason).slice(0, 60)]
+  );
+  // 5-7. Release the job so assignDeliveryJobTx can re-assign it authoritatively.
+  await client.query(
+    `UPDATE delivery_job
+        SET delivery_user_id=NULL, assignment_status='READY_FOR_ASSIGNMENT',
+            lifecycle_status='READY_FOR_ASSIGNMENT', version=version+1, updated_at=NOW()
+      WHERE id=$1`,
+    [job.id]
+  );
+  // 8. Clear child compatibility fields for the old courier.
+  await client.query(
+    `UPDATE customer_order
+        SET delivery_user_id=NULL, delivery_assignment_status='PENDING_NO_DRIVER', updated_at=NOW()
+      WHERE order_group_id=$1 AND status NOT IN ('cancelled','delivered')`,
+    [Number(orderGroupId)]
+  );
+  // 9-11. Assign the new courier (creates assignment + child mirror + outbox).
+  const result = await assignDeliveryJobTx(client, {
+    orderGroupId: Number(orderGroupId),
+    courierUserId: Number(newCourierUserId),
+  });
+  return {
+    deliveryJobId: Number(job.id),
+    assignmentId: result.assignmentId,
+    courierUserId: Number(newCourierUserId),
+  };
+});
+
 export async function getCourierCurrentGroupedJob(courierUserId) {
   const client = await pool.connect();
   try {
     const jobs = await listCourierGroupedJobs(client, Number(courierUserId));
-    return jobs.find((j) => j.lifecycle_status !== "DELIVERED") || jobs[0] || null;
+    // listCourierGroupedJobs already excludes terminal lifecycle states.
+    return jobs[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Active (assigned, non-terminal) grouped jobs for the courier. */
+export async function listCourierActiveGroupedJobs(courierUserId) {
+  const client = await pool.connect();
+  try {
+    return await listCourierGroupedJobs(client, Number(courierUserId));
+  } finally {
+    client.release();
+  }
+}
+
+/** Completed/terminal grouped jobs (history) for the courier. */
+export async function listCourierGroupedJobHistory(courierUserId, { limit = 50 } = {}) {
+  const client = await pool.connect();
+  try {
+    const rows = (
+      await client.query(
+        `SELECT j.id AS delivery_job_id, j.order_group_id, j.lifecycle_status,
+                j.assigned_at, j.completed_at, j.cancelled_at, g.public_id, g.stores_count
+           FROM delivery_job j
+           JOIN order_group g ON g.id=j.order_group_id
+          WHERE j.delivery_user_id=$1 AND j.lifecycle_status = ANY($2::text[])
+          ORDER BY COALESCE(j.completed_at, j.cancelled_at, j.updated_at) DESC
+          LIMIT $3`,
+        [Number(courierUserId), TERMINAL_LIFECYCLE, Math.max(1, Math.min(100, Number(limit) || 50))]
+      )
+    ).rows;
+    return rows;
   } finally {
     client.release();
   }
