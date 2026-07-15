@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/features/social_v3/composer/story_composer_source.dart';
 import 'package:maslaki/features/social_v3/composer/story_composer_v3.dart';
@@ -18,10 +19,12 @@ SharedReelSource _reel({required bool vertical}) => SharedReelSource(
 
 Future<void> _pump(WidgetTester tester, StoryComposerSource source) async {
   await tester.pumpWidget(
-    MaterialApp(
-      home: MediaQuery(
-        data: const MediaQueryData(size: Size(393, 852)),
-        child: StoryComposerV3(source: source),
+    ProviderScope(
+      child: MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(size: Size(393, 852)),
+          child: StoryComposerV3(source: source),
+        ),
       ),
     ),
   );
@@ -64,7 +67,7 @@ void main() {
 
     testWidgets('deleted reel presentation is not public-eligible',
         (tester) async {
-      final gone = SharedReelSource(
+      const gone = SharedReelSource(
         reelId: 1,
         originalOwnerId: 7,
         playbackUrl: null,
@@ -83,14 +86,16 @@ void main() {
       String? cap;
       StoryComposerScope? scope;
       await tester.pumpWidget(
-        MaterialApp(
-          home: StoryComposerV3(
-            source: StoryComposerSource.sharedReel(_reel(vertical: true)),
-            onPublish: (c, s) async {
-              cap = c;
-              scope = s;
-              return true;
-            },
+        ProviderScope(
+          child: MaterialApp(
+            home: StoryComposerV3(
+              source: StoryComposerSource.sharedReel(_reel(vertical: true)),
+              onPublish: (c, s) async {
+                cap = c;
+                scope = s;
+                return true;
+              },
+            ),
           ),
         ),
       );
@@ -106,20 +111,22 @@ void main() {
       var published = false;
       var draftSaved = false;
       await tester.pumpWidget(
-        MaterialApp(
-          home: StoryComposerV3(
-            source: StoryComposerSource.sharedReel(_reel(vertical: true)),
-            scope: const StoryComposerScope(
-              scope: StoryAudienceScope.building,
-              scopeCode: 'B12',
-              label: 'المبنى B12',
-              locked: true,
+        ProviderScope(
+          child: MaterialApp(
+            home: StoryComposerV3(
+              source: StoryComposerSource.sharedReel(_reel(vertical: true)),
+              scope: const StoryComposerScope(
+                scope: StoryAudienceScope.building,
+                scopeCode: 'B12',
+                label: 'المبنى B12',
+                locked: true,
+              ),
+              onSaveDraft: (_) => draftSaved = true,
+              onPublish: (c, s) async {
+                published = true; // must NOT happen — would be a global publish
+                return true;
+              },
             ),
-            onSaveDraft: (_) => draftSaved = true,
-            onPublish: (c, s) async {
-              published = true; // must NOT happen — would be a global publish
-              return true;
-            },
           ),
         ),
       );

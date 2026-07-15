@@ -12,12 +12,14 @@ class ReelMetadataOverlayV3 extends StatefulWidget {
     super.key,
     required this.reel,
     this.showFollow = true,
+    this.followLabel = 'Follow',
     this.onFollow,
     this.onOpenAuthor,
   });
 
   final ReelV3ViewData reel;
   final bool showFollow;
+  final String followLabel;
   final VoidCallback? onFollow;
   final VoidCallback? onOpenAuthor;
 
@@ -58,7 +60,10 @@ class _ReelMetadataOverlayV3State extends State<ReelMetadataOverlayV3> {
             ],
             if (widget.showFollow) ...[
               const SizedBox(width: 10),
-              _FollowChip(onTap: widget.onFollow),
+              _FollowChip(
+                label: widget.followLabel,
+                onTap: widget.onFollow,
+              ),
             ],
           ],
         ),
@@ -108,8 +113,9 @@ class _ReelMetadataOverlayV3State extends State<ReelMetadataOverlayV3> {
 }
 
 class _FollowChip extends StatelessWidget {
-  const _FollowChip({this.onTap});
+  const _FollowChip({required this.label, this.onTap});
 
+  final String label;
   final VoidCallback? onTap;
 
   @override
@@ -122,9 +128,9 @@ class _FollowChip extends StatelessWidget {
           border: Border.all(color: Colors.white, width: 1.2),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: const Text(
-          'Follow',
-          style: TextStyle(
+        child: Text(
+          label,
+          style: const TextStyle(
             color: Colors.white,
             fontSize: 12,
             fontWeight: FontWeight.w700,

@@ -1,5 +1,6 @@
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 import * as service from "./feed.service.js";
+import { hotResponseCache } from "./feed.cache.js";
 import {
   validateCreateStory,
   validateCreateComment,
@@ -75,9 +76,6 @@ import {
   validateTranslateThreadMessageBody,
 } from "./feed.validators.js";
 
-const HOT_RESPONSE_TTL_MS = 10_000;
-const hotResponseCache = new Map();
-
 function buildHotResponseCacheKey(prefix, userId, query = {}) {
   const parts = Object.entries(query || {})
     .filter(([, value]) => value !== undefined)
@@ -101,7 +99,7 @@ function writeHotResponse(prefix, userId, query = {}, payload) {
   const key = buildHotResponseCacheKey(prefix, userId, query);
   hotResponseCache.set(key, {
     serialized: JSON.stringify(payload),
-    expiresAt: Date.now() + HOT_RESPONSE_TTL_MS,
+    expiresAt: Date.now() + 10_000,
   });
 }
 

@@ -75,10 +75,12 @@ class _SocialReelsV3ConnectorState
         .toList(growable: false);
   }
 
-  Future<void> _like(ReelV3ViewData reel) async {
+  Future<bool> _like(ReelV3ViewData reel, bool desiredLiked) async {
     try {
       await ref.read(socialApiProvider).toggleLike(reel.postId);
+      return true;
     } catch (_) {}
+    return false;
   }
 
   Future<void> _save(ReelV3ViewData reel) async {
@@ -128,6 +130,9 @@ class _SocialReelsV3ConnectorState
             height: reel.media.height,
             caption: reel.caption,
             available: true,
+            authorName: reel.authorName,
+            authorAvatarUrl: reel.authorAvatarUrl,
+            authorHandle: reel.authorHandle,
           ),
         );
       },
@@ -159,6 +164,16 @@ class _SocialReelsV3ConnectorState
       );
     }
 
+    if (_bootstrapped && reels.isEmpty && (state.error?.trim().isNotEmpty ?? false)) {
+      return _ReelsErrorState(
+        errorText: state.error!.trim(),
+        onRetry: () => ref.read(socialReelsControllerProvider.notifier).load(
+              refresh: true,
+            ),
+        onCreate: _createReel,
+      );
+    }
+
     return SocialReelsScreenV3(
       reels: reels,
       onLike: _like,
@@ -169,6 +184,64 @@ class _SocialReelsV3ConnectorState
       onCreate: _createReel,
       onReachedEnd: () =>
           ref.read(socialReelsControllerProvider.notifier).loadMore(),
+    );
+  }
+}
+
+class _ReelsErrorState extends StatelessWidget {
+  const _ReelsErrorState({
+    required this.errorText,
+    required this.onRetry,
+    required this.onCreate,
+  });
+
+  final String errorText;
+  final VoidCallback onRetry;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Colors.black,
+      child: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.movie_creation_outlined,
+                  color: Colors.white54,
+                  size: 72,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  errorText,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 16),
+                ),
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    ElevatedButton(
+                      onPressed: onRetry,
+                      child: const Text('Retry'),
+                    ),
+                    OutlinedButton(
+                      onPressed: onCreate,
+                      child: const Text('Create reel'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

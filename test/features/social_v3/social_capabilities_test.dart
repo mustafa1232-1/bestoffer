@@ -32,7 +32,7 @@ SocialCapabilities _caps({required bool supported, List<String>? types}) =>
 void main() {
   group('SocialCapabilities parsing (fail-closed)', () {
     test('disabled payload → only global', () {
-      final c = SocialCapabilities.fromJson({
+      final c = SocialCapabilities.fromJson(const {
         'social': {
           'storyAudienceScope': {
             'supported': false,
@@ -42,12 +42,12 @@ void main() {
         },
       });
       expect(c.storyAudienceScope.supported, isFalse);
-      expect(c.storyAudienceScope.supportedTypes, ['global']);
+      expect(c.storyAudienceScope.supportedTypes, const ['global']);
       expect(c.storyAudienceScope.supportsType('building'), isFalse);
     });
 
     test('supported=false ignores any advertised types (fail-closed)', () {
-      final c = SocialCapabilities.fromJson({
+      final c = SocialCapabilities.fromJson(const {
         'social': {
           'storyAudienceScope': {
             'supported': false,
@@ -55,11 +55,11 @@ void main() {
           },
         },
       });
-      expect(c.storyAudienceScope.supportedTypes, ['global']);
+      expect(c.storyAudienceScope.supportedTypes, const ['global']);
     });
 
     test('enabled payload exposes its types', () {
-      final c = SocialCapabilities.fromJson({
+      final c = SocialCapabilities.fromJson(const {
         'social': {
           'storyAudienceScope': {
             'supported': true,
@@ -73,10 +73,10 @@ void main() {
 
     test('missing/malformed → fail-closed', () {
       expect(SocialCapabilities.fromJson(null).storyAudienceScope.supported, isFalse);
-      expect(SocialCapabilities.fromJson({}).storyAudienceScope.supported, isFalse);
+      expect(SocialCapabilities.fromJson(const {}).storyAudienceScope.supported, isFalse);
       expect(
-        SocialCapabilities.fromJson({'social': 'nope'}).storyAudienceScope.supportedTypes,
-        ['global'],
+        SocialCapabilities.fromJson(const {'social': 'nope'}).storyAudienceScope.supportedTypes,
+        const ['global'],
       );
     });
   });
@@ -176,7 +176,7 @@ void main() {
   });
 
   group('§2 isStoryScopeUnavailableError', () {
-    DioException _dio(int status, dynamic data) => DioException(
+    DioException dio(int status, dynamic data) => DioException(
           requestOptions: RequestOptions(path: '/api/feed/stories'),
           response: Response(
             requestOptions: RequestOptions(path: '/api/feed/stories'),
@@ -186,7 +186,7 @@ void main() {
         );
 
     test('detects the 409 STORY_AUDIENCE_SCOPE_NOT_AVAILABLE code', () {
-      final e = _dio(409, {
+      final e = dio(409, {
         'message': 'STORY_AUDIENCE_SCOPE_NOT_AVAILABLE',
         'details': {
           'messages': {'ar': 'غير متاح', 'en': 'unavailable'}
@@ -197,8 +197,8 @@ void main() {
     });
 
     test('ignores other errors', () {
-      expect(isStoryScopeUnavailableError(_dio(500, {'message': 'SERVER_ERROR'})), isFalse);
-      expect(isStoryScopeUnavailableError(_dio(400, {'message': 'VALIDATION_ERROR'})), isFalse);
+      expect(isStoryScopeUnavailableError(dio(500, {'message': 'SERVER_ERROR'})), isFalse);
+      expect(isStoryScopeUnavailableError(dio(400, {'message': 'VALIDATION_ERROR'})), isFalse);
       expect(isStoryScopeUnavailableError(Exception('x')), isFalse);
     });
   });

@@ -4,6 +4,11 @@ function normalizePostKinds(postKinds) {
   if (!Array.isArray(postKinds) || postKinds.length <= 0) return null;
   const values = postKinds
     .map((value) => String(value || "").trim().toLowerCase())
+    .flatMap((value) => {
+      if (value.length <= 0) return [];
+      if (value === "reel") return ["reel", "video"];
+      return [value];
+    })
     .filter((value) => value.length > 0);
   return values.length > 0 ? [...new Set(values)] : null;
 }

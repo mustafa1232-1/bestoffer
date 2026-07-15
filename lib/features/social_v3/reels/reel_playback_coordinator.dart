@@ -86,6 +86,19 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
 
   void toggleMuted() => setMuted(!_muted);
 
+  Future<void> replayActive() async {
+    if (_disposed || _activeIndex < 0 || _activeIndex >= _items.length) return;
+    final controller = _controllers[_activeIndex];
+    if (controller == null) return;
+    try {
+      await controller.seekTo(Duration.zero);
+    } catch (_) {
+      // If the player cannot seek synchronously (or is already resetting),
+      // the subsequent play-state application still keeps playback correct.
+    }
+    _applyPlayState();
+  }
+
   /// Route visibility (e.g. pushed a comments route on top or left the tab).
   void setRouteVisible(bool visible) {
     if (_routeVisible == visible) return;

@@ -1,21 +1,41 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:dio/dio.dart';
+import 'package:maslaki/features/social/data/social_api.dart';
+import 'package:maslaki/features/social/state/social_controller.dart';
 import 'package:maslaki/features/social_v3/reels/reel_page_v3.dart';
 import 'package:maslaki/features/social_v3/reels/reel_video_surface_v3.dart';
 import 'package:maslaki/features/social_v3/reels/social_reels_screen_v3.dart';
 
 import 'reels_v3_fixtures.dart';
 
+class _FakeSocialApi extends SocialApi {
+  _FakeSocialApi() : super(Dio());
+
+  @override
+  Future<Map<String, dynamic>> getUserRelation(int userId) async {
+    return <String, dynamic>{
+      'relation': <String, dynamic>{'state': 'none'},
+    };
+  }
+}
+
 Future<void> _pumpReels(WidgetTester tester, {bool rtl = false}) async {
   await tester.pumpWidget(
-    Directionality(
-      textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
-      child: MediaQuery(
-        data: const MediaQueryData(size: Size(393, 852)),
-        child: MaterialApp(
-          home: SocialReelsScreenV3(
-            reels: fakeReels(3),
-            coordinatorFactory: fakeCoordinator,
+    ProviderScope(
+      overrides: [
+        socialApiProvider.overrideWithValue(_FakeSocialApi()),
+      ],
+      child: Directionality(
+        textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
+        child: MediaQuery(
+          data: const MediaQueryData(size: Size(393, 852)),
+          child: MaterialApp(
+            home: SocialReelsScreenV3(
+              reels: fakeReels(3),
+              coordinatorFactory: fakeCoordinator,
+            ),
           ),
         ),
       ),

@@ -90,6 +90,11 @@ class FakeVideoPlayerController extends VideoPlayerController {
   }
 
   @override
+  Future<void> seekTo(Duration position) async {
+    value = value.copyWith(position: position, isCompleted: false);
+  }
+
+  @override
   Future<void> setVolume(double volume) async {}
 
   @override

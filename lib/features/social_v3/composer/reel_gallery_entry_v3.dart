@@ -15,6 +15,7 @@ import 'reel_composer_state.dart';
 import 'reel_composer_v3.dart';
 import 'story_composer_source.dart';
 import 'story_composer_v3.dart';
+import '../../social/state/social_story_draft_controller.dart';
 
 /// Builds a **production** [ReelComposerController] — real HTTP API + real tus
 /// transport, no fakes. Reads providers from [context] via the enclosing
@@ -81,6 +82,8 @@ Future<void> openStoryComposerV3FromGallery(
     isVideo: media.isVideo,
     width: media.width,
     height: media.height,
+    name: media.name,
+    mimeType: media.mimeType,
   );
   final source = media.isVideo
       ? StoryComposerSource.localVideo(local)
@@ -91,10 +94,9 @@ Future<void> openStoryComposerV3FromGallery(
       source,
       scope: scope,
       audienceScopeSupported: audienceScopeSupported,
-      onPublish: (caption, publishScope) => _publishStory(
+      onPublish: (caption, publishScope) => _publishStoryDraft(
         container,
         caption: caption,
-        media: media,
         scope: publishScope,
       ),
     ),
@@ -161,23 +163,23 @@ Future<void> openStoryComposerV3Scoped(
   );
 }
 
-Future<bool> _publishStory(
+Future<bool> _publishStoryDraft(
   ProviderContainer container, {
   required String caption,
-  required PickedSocialMedia media,
   required StoryComposerScope scope,
 }) async {
-  final mediaFile = LocalMediaFile(
-    name: media.name,
-    path: media.path,
-    bytes: null,
-    mimeType: media.mimeType,
-  );
+  final draft = container.read(socialStoryDraftControllerProvider).draft;
+  final mediaFile = draft.buildLocalMediaFile();
+  final storyStyle = Map<String, dynamic>.from(draft.toStoryStyleJson());
+  final publishCaption = caption.trim().isNotEmpty
+      ? caption.trim()
+      : draft.caption.trim();
 
   if (scope.scope == StoryAudienceScope.global) {
     await container.read(socialControllerProvider.notifier).createStory(
-          caption: caption,
+          caption: publishCaption,
           mediaFile: mediaFile,
+          storyStyle: storyStyle,
         );
     final err = container.read(socialControllerProvider).error;
     return err == null || err.trim().isEmpty;
@@ -188,8 +190,9 @@ Future<bool> _publishStory(
   // call site for markStoryScopeUnsupported().
   try {
     await container.read(socialApiProvider).createStory(
-          caption: caption,
+          caption: publishCaption,
           mediaFile: mediaFile,
+          storyStyle: storyStyle,
           audienceScopeType: scope.scope.wireType,
           audienceScopeCode: scope.scopeCode,
         );
@@ -209,8 +212,14 @@ Future<bool> _publishStory(
 
 /// Live "Create text Story": V3 story composer in text mode.
 Future<void> openStoryComposerV3Text(BuildContext context) {
-  return Navigator.of(context)
-      .push(StoryComposerV3.route(StoryComposerSource.text('')));
+  final container = ProviderScope.containerOf(context, listen: false);
+  return Navigator.of(context).push(
+    StoryComposerV3.route(
+      StoryComposerSource.text(''),
+      onPublish: (caption, scope) =>
+          _publishStoryDraft(container, caption: caption, scope: scope),
+    ),
+  );
 }
 
 /// Live "Add Reel to Story" (§5): reel is the full-canvas base media.
@@ -218,8 +227,14 @@ Future<void> openStoryComposerV3WithReel(
   BuildContext context, {
   required SharedReelSource reel,
 }) {
-  return Navigator.of(context)
-      .push(StoryComposerV3.route(StoryComposerSource.sharedReel(reel)));
+  final container = ProviderScope.containerOf(context, listen: false);
+  return Navigator.of(context).push(
+    StoryComposerV3.route(
+      StoryComposerSource.sharedReel(reel),
+      onPublish: (caption, scope) =>
+          _publishStoryDraft(container, caption: caption, scope: scope),
+    ),
+  );
 }
 
 /// Live merchant review (§3): opens the V3 post composer in review mode with

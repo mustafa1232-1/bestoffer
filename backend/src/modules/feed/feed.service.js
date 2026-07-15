@@ -34,6 +34,12 @@ import * as savedService from "./feed.saved.service.js";
 import * as searchService from "./feed.search.service.js";
 import * as tagsService from "./feed.tags.service.js";
 import { buildPreferenceWeightMap, rankFeedRows } from "./feed.ranking.service.js";
+import {
+  clearFeedMutationCaches,
+  getFeedTransientCacheTtlMs,
+  transientFeedCache,
+  viewerScopeCache,
+} from "./feed.cache.js";
 
 /**
  * Purpose:
@@ -61,10 +67,6 @@ let socialCallLifecycleWorker = null;
 let socialCallLifecycleRunning = false;
 let socialScheduledMessageWorker = null;
 let socialScheduledMessageRunning = false;
-const FEED_TRANSIENT_CACHE_TTL_MS = 10000;
-const transientFeedCache = new Map();
-const viewerScopeCache = new Map();
-
 const moderationLexicon = {
   violence: [
     "اقتل",
@@ -229,7 +231,7 @@ function readTransientFeedCache(key) {
 function writeTransientFeedCache(key, value) {
   transientFeedCache.set(key, {
     value,
-    expiresAt: Date.now() + FEED_TRANSIENT_CACHE_TTL_MS,
+    expiresAt: Date.now() + getFeedTransientCacheTtlMs(),
   });
   return value;
 }
@@ -247,7 +249,7 @@ function readViewerScopeCache(viewerUserId) {
 function writeViewerScopeCache(viewerUserId, value) {
   viewerScopeCache.set(Number(viewerUserId), {
     value,
-    expiresAt: Date.now() + FEED_TRANSIENT_CACHE_TTL_MS,
+    expiresAt: Date.now() + getFeedTransientCacheTtlMs(),
   });
   return value;
 }
@@ -3460,7 +3462,7 @@ export async function recordReelView({ viewerUserId, reelId, dto }) {
   });
   if (
     visibleRows.length <= 0 ||
-    String(visibleRows[0].post_kind || "").trim().toLowerCase() !== "reel"
+    !isReelPostKind(visibleRows[0].post_kind)
   ) {
     throw new AppError("REEL_NOT_FOUND", { status: 404 });
   }
@@ -3590,6 +3592,7 @@ export async function setPostArchivedState({
     includeArchivedForOwner: true,
   });
   const enrichedRow = await attachPostMediaRow(mappedRow);
+  clearFeedMutationCaches();
   return {
     ok: true,
     archived: archived === true,
@@ -3610,6 +3613,7 @@ export async function deletePost({ userId, postId }) {
   if (!deleted?.id) {
     throw new AppError("POST_DELETE_FAILED", { status: 500 });
   }
+  clearFeedMutationCaches();
   return {
     ok: true,
     postId: Number(postId),
@@ -3638,6 +3642,7 @@ export async function setStoryArchivedState({
     storyId,
     includeArchivedForOwner: true,
   });
+  clearFeedMutationCaches();
   return {
     ok: true,
     archived: archived === true,
@@ -3884,6 +3889,7 @@ export async function createPost(userId, dto, media) {
     merchant_type: created.merchant_type || null,
     merchant_image_url: created.merchant_image_url || null,
   });
+  clearFeedMutationCaches();
   emitToUser(Number(userId), "social_post_created", { post: mapped });
 
   const isActorSuperAdmin = isSuperAdminUser(actor);
@@ -4073,6 +4079,7 @@ export async function createStory(userId, dto, media) {
   if (!created) throw new AppError("STORY_CREATE_FAILED", { status: 500 });
   const mapped = mapStoryRow(created, userId);
 
+  clearFeedMutationCaches();
   emitToUser(Number(userId), "social_story_created", { story: mapped });
 
   const actor = await repo.findUserPublicProfile(userId);
@@ -4376,6 +4383,7 @@ export async function resubmitModeratedPost({
   });
 
   const view = await repo.findPostById(postId);
+  clearFeedMutationCaches();
   return {
     post: mapPostRow(view || updated),
   };
@@ -4447,6 +4455,7 @@ export async function resubmitModeratedStory({
     viewerUserId: userId,
     storyId,
   });
+  clearFeedMutationCaches();
   return {
     story: mapStoryRow(view || updated, userId),
   };

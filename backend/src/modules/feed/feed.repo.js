@@ -274,7 +274,14 @@ export async function listUserFeedPosts({
           )
         )
         AND ($3::bigint IS NULL OR p.id < $3::bigint)
-       AND ($4::text IS NULL OR p.post_kind = $4::text)
+       AND (
+         $4::text IS NULL
+         OR (
+           $4::text = 'reel'
+           AND p.post_kind IN ('reel', 'video')
+         )
+         OR p.post_kind = $4::text
+       )
      ORDER BY p.id DESC
      LIMIT $8`,
     [
@@ -1402,7 +1409,14 @@ export async function listArchivedPostsRaw({
        AND p.moderation_status = 'approved'
        AND p.archived_by_owner_at IS NOT NULL
        AND ($3::bigint IS NULL OR p.id < $3::bigint)
-       AND ($4::text IS NULL OR p.post_kind = $4::text)
+       AND (
+         $4::text IS NULL
+         OR (
+           $4::text = 'reel'
+           AND p.post_kind IN ('reel', 'video')
+         )
+         OR p.post_kind = $4::text
+       )
      ORDER BY p.archived_by_owner_at DESC, p.id DESC
      LIMIT $5`,
     [

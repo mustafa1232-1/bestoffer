@@ -27,6 +27,7 @@ class ReelV3ViewData {
     required this.isSaved,
     required this.audioLabel,
     required this.localContextBadge,
+    this.followState = 'none',
   });
 
   final int postId;
@@ -53,11 +54,18 @@ class ReelV3ViewData {
   /// Maslaki local-context badge (building/block/residence), or null.
   final String? localContextBadge;
 
+  /// Follow relation to the author from the viewer's perspective.
+  ///
+  /// Supported values: `none`, `pending_outgoing`, `pending_incoming`,
+  /// `accepted`, `blocked`, `self`.
+  final String followState;
+
   ReelV3ViewData copyWith({
     int? likesCount,
     int? savesCount,
     bool? isLiked,
     bool? isSaved,
+    String? nextFollowState,
   }) {
     return ReelV3ViewData(
       postId: postId,
@@ -76,6 +84,7 @@ class ReelV3ViewData {
       isSaved: isSaved ?? this.isSaved,
       audioLabel: audioLabel,
       localContextBadge: localContextBadge,
+      followState: nextFollowState ?? followState,
     );
   }
 
@@ -104,6 +113,7 @@ class ReelV3ViewData {
       isSaved: post.isSaved,
       audioLabel: defaultAudioLabel,
       localContextBadge: _localContextBadge(post),
+      followState: 'none',
     );
   }
 

@@ -1,22 +1,42 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:dio/dio.dart';
+import 'package:maslaki/features/social/data/social_api.dart';
+import 'package:maslaki/features/social/state/social_controller.dart';
 import 'package:maslaki/features/social_v3/reels/social_reels_screen_v3.dart';
 import 'package:maslaki/features/social_v3/sharing/share_sheet_v3.dart';
 
 import 'reels_v3_fixtures.dart';
+
+class _FakeSocialApi extends SocialApi {
+  _FakeSocialApi() : super(Dio());
+
+  @override
+  Future<Map<String, dynamic>> getUserRelation(int userId) async {
+    return <String, dynamic>{
+      'relation': <String, dynamic>{'state': 'none'},
+    };
+  }
+}
 
 void main() {
   testWidgets('Reels screen exposes a create control that fires onCreate',
       (tester) async {
     var created = false;
     await tester.pumpWidget(
-      MediaQuery(
-        data: const MediaQueryData(size: Size(393, 852)),
-        child: MaterialApp(
-          home: SocialReelsScreenV3(
-            reels: fakeReels(1),
-            coordinatorFactory: fakeCoordinator,
-            onCreate: () => created = true,
+      ProviderScope(
+        overrides: [
+          socialApiProvider.overrideWithValue(_FakeSocialApi()),
+        ],
+        child: MediaQuery(
+          data: const MediaQueryData(size: Size(393, 852)),
+          child: MaterialApp(
+            home: SocialReelsScreenV3(
+              reels: fakeReels(1),
+              coordinatorFactory: fakeCoordinator,
+              onCreate: () => created = true,
+            ),
           ),
         ),
       ),

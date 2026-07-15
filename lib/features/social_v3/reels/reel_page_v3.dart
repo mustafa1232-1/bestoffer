@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -20,6 +22,7 @@ class ReelPageV3 extends StatefulWidget {
     this.isBuffering = false,
     this.isPaused = false,
     this.isMuted = false,
+    this.onPlaybackCompleted,
     this.onCreate,
     this.onTogglePlay,
     this.onToggleMute,
@@ -32,6 +35,7 @@ class ReelPageV3 extends StatefulWidget {
     this.onFollow,
     this.onOpenAuthor,
     this.showFollow = true,
+    this.followLabel = 'Follow',
   });
 
   final ReelV3ViewData reel;
@@ -39,12 +43,13 @@ class ReelPageV3 extends StatefulWidget {
   final bool isBuffering;
   final bool isPaused;
   final bool isMuted;
+  final VoidCallback? onPlaybackCompleted;
 
   final VoidCallback? onCreate;
   final VoidCallback? onTogglePlay;
   final VoidCallback? onToggleMute;
-  final VoidCallback? onLike;
-  final VoidCallback? onDoubleTapLike;
+  final Future<bool> Function(bool desiredLiked)? onLike;
+  final Future<bool> Function(bool desiredLiked)? onDoubleTapLike;
   final VoidCallback? onComments;
   final VoidCallback? onShare;
   final VoidCallback? onSave;
@@ -52,6 +57,7 @@ class ReelPageV3 extends StatefulWidget {
   final VoidCallback? onFollow;
   final VoidCallback? onOpenAuthor;
   final bool showFollow;
+  final String followLabel;
 
   @override
   State<ReelPageV3> createState() => _ReelPageV3State();
@@ -63,16 +69,92 @@ class _ReelPageV3State extends State<ReelPageV3>
     vsync: this,
     duration: const Duration(milliseconds: 700),
   );
+  VideoPlayerController? _observedController;
+  bool _showHeart = false;
+  bool _completionNotified = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _heart.addStatusListener(_onHeartStatus);
+    _attachController(widget.controller);
+  }
+
+  @override
+  void didUpdateWidget(covariant ReelPageV3 oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _attachController(widget.controller);
+    }
+  }
 
   @override
   void dispose() {
+    _detachController();
+    _heart.removeStatusListener(_onHeartStatus);
     _heart.dispose();
     super.dispose();
   }
 
-  void _onDoubleTap() {
+  Future<void> _handleLikeAction({
+    required bool desiredLiked,
+    bool fromDoubleTap = false,
+  }) async {
+    final callback = fromDoubleTap
+        ? (widget.onDoubleTapLike ?? widget.onLike)
+        : widget.onLike;
+    if (callback == null) return;
+    final success = await callback(desiredLiked);
+    if (!mounted || !success || !desiredLiked) return;
+    if (!_showHeart) {
+      setState(() => _showHeart = true);
+    }
     _heart.forward(from: 0);
-    widget.onDoubleTapLike?.call();
+  }
+
+  void _onDoubleTap() {
+    unawaited(_handleLikeAction(desiredLiked: true, fromDoubleTap: true));
+  }
+
+  void _onHeartStatus(AnimationStatus status) {
+    if (!mounted || status != AnimationStatus.completed || !_showHeart) return;
+    setState(() => _showHeart = false);
+  }
+
+  void _attachController(VideoPlayerController? controller) {
+    if (identical(_observedController, controller)) return;
+    _detachController();
+    _observedController = controller;
+    _completionNotified = false;
+    _observedController?.addListener(_handleControllerTick);
+  }
+
+  void _detachController() {
+    final controller = _observedController;
+    if (controller != null) {
+      controller.removeListener(_handleControllerTick);
+    }
+    _observedController = null;
+    _completionNotified = false;
+  }
+
+  void _handleControllerTick() {
+    final controller = _observedController;
+    if (!mounted || controller == null) return;
+    final value = controller.value;
+    if (!value.isInitialized) return;
+    final duration = value.duration;
+    final position = value.position;
+    if (position <= const Duration(milliseconds: 500)) {
+      _completionNotified = false;
+      return;
+    }
+    if (duration <= Duration.zero) return;
+    final remaining = duration - position;
+    if (remaining <= const Duration(milliseconds: 250) && !_completionNotified) {
+      _completionNotified = true;
+      widget.onPlaybackCompleted?.call();
+    }
   }
 
   @override
@@ -104,24 +186,26 @@ class _ReelPageV3State extends State<ReelPageV3>
               ),
             ),
 
-          // Double-tap heart burst.
-          Center(
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.6, end: 1.25).animate(
-                CurvedAnimation(parent: _heart, curve: Curves.easeOutBack),
-              ),
-              child: FadeTransition(
-                opacity: Tween<double>(begin: 0.9, end: 0.0).animate(
-                  CurvedAnimation(parent: _heart, curve: Curves.easeIn),
+          // Double-tap heart burst. It is inserted only while the animation is
+          // running, then removed entirely from the tree when complete.
+          if (_showHeart)
+            Center(
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.6, end: 1.25).animate(
+                  CurvedAnimation(parent: _heart, curve: Curves.easeOutBack),
                 ),
-                child: const Icon(
-                  Icons.favorite,
-                  color: Color(0xFFFF3B5C),
-                  size: 120,
+                child: FadeTransition(
+                  opacity: Tween<double>(begin: 0.9, end: 0.0).animate(
+                    CurvedAnimation(parent: _heart, curve: Curves.easeIn),
+                  ),
+                  child: const Icon(
+                    Icons.favorite,
+                    color: Color(0xFFFF3B5C),
+                    size: 120,
+                  ),
                 ),
               ),
             ),
-          ),
 
           // Top bar: "ريلز" + mute control (no toolbar / AppBar).
           Positioned(
@@ -162,11 +246,13 @@ class _ReelPageV3State extends State<ReelPageV3>
 
           // Right action rail.
           Positioned(
-            right: 8,
-            bottom: padding.bottom + 96,
+            right: 12,
+            bottom: padding.bottom + 84,
             child: ReelActionRailV3(
               reel: widget.reel,
-              onLike: widget.onLike,
+              onLike: () => unawaited(
+                _handleLikeAction(desiredLiked: !widget.reel.isLiked),
+              ),
               onComments: widget.onComments,
               onShare: widget.onShare,
               onSave: widget.onSave,
@@ -183,6 +269,7 @@ class _ReelPageV3State extends State<ReelPageV3>
             child: ReelMetadataOverlayV3(
               reel: widget.reel,
               showFollow: widget.showFollow,
+              followLabel: widget.followLabel,
               onFollow: widget.onFollow,
               onOpenAuthor: widget.onOpenAuthor,
             ),

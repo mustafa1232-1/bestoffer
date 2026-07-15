@@ -23,6 +23,7 @@ class SocialStoryCanvas extends StatefulWidget {
   final bool showBackground;
   final bool showBaseMedia;
   final bool active;
+  final BorderRadius borderRadius;
   final ValueChanged<String?>? onSelectLayer;
   final ValueChanged<SocialStoryLayer>? onLayerChanged;
   final ValueChanged<SocialStoryDrawStroke>? onDrawStroke;
@@ -40,6 +41,7 @@ class SocialStoryCanvas extends StatefulWidget {
     this.showBackground = true,
     this.showBaseMedia = true,
     this.active = true,
+    this.borderRadius = const BorderRadius.all(Radius.circular(28)),
     this.onSelectLayer,
     this.onLayerChanged,
     this.onDrawStroke,
@@ -64,7 +66,7 @@ class _SocialStoryCanvasState extends State<SocialStoryCanvas> {
           final sortedLayers = [...widget.draft.layers]
             ..sort((a, b) => a.zIndex.compareTo(b.zIndex));
           return ClipRRect(
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: widget.borderRadius,
             child: Stack(
               fit: StackFit.expand,
               children: [

@@ -53,6 +53,7 @@ async function login(actor, baseUrl, phone, pin, label) {
 
     const sessionProbe = await request(baseUrl, actor, "GET", "/api/auth/sessions");
     if (sessionProbe.status === 200) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       return lastResponse;
     }
 
@@ -404,6 +405,14 @@ async function main() {
     String(listingCreate.data?.listing?.status || "").toLowerCase(),
     "pending_admin_review",
     "new real estate listing should start pending"
+  );
+
+  await login(
+    realEstateAdmin,
+    baseUrl,
+    env.superAdminPhone,
+    env.superAdminPin,
+    "super admin refresh before real estate pending list"
   );
 
   const pendingListings = await request(

@@ -7,6 +7,8 @@ import 'package:maslaki/features/social_v3/composer/reel_gallery_entry_v3.dart';
 import 'package:maslaki/features/social_v3/composer/social_create_selector_v3.dart';
 import 'package:maslaki/features/social_v3/composer/story_composer_source.dart';
 import 'package:maslaki/features/social_v3/composer/story_composer_v3.dart';
+import 'package:maslaki/features/social/data/social_api.dart';
+import 'package:maslaki/features/social/state/social_controller.dart';
 import 'package:maslaki/features/social_v3/pickers/social_media_picker_v3.dart';
 import 'package:maslaki/features/social_v3/reels/social_reels_screen_v3.dart';
 
@@ -24,6 +26,19 @@ class _FakeCapsApi extends SocialCapabilitiesApi {
   Future<SocialCapabilities> fetch() async => caps;
 }
 
+class _FakeSocialApi extends SocialApi {
+  _FakeSocialApi() : super(Dio());
+
+  @override
+  Future<Map<String, dynamic>> getUserRelation(int userId) async {
+    return <String, dynamic>{
+      'relation': <String, dynamic>{
+        'state': 'none',
+      },
+    };
+  }
+}
+
 Future<void> _pumpButtonWithCaps(
   WidgetTester tester, {
   required SocialCapabilities caps,
@@ -33,6 +48,7 @@ Future<void> _pumpButtonWithCaps(
     ProviderScope(
       overrides: [
         socialCapabilitiesApiProvider.overrideWithValue(_FakeCapsApi(caps)),
+        socialApiProvider.overrideWithValue(_FakeSocialApi()),
       ],
       child: MaterialApp(
         home: Builder(
@@ -80,6 +96,9 @@ Future<void> _pumpButton(
 ) async {
   await tester.pumpWidget(
     ProviderScope(
+      overrides: [
+        socialApiProvider.overrideWithValue(_FakeSocialApi()),
+      ],
       child: MaterialApp(
         home: Builder(
           builder: (ctx) => Scaffold(
@@ -264,13 +283,18 @@ void main() {
   testWidgets('full-screen Reels route renders NO floating Create button',
       (tester) async {
     await tester.pumpWidget(
-      MediaQuery(
-        data: const MediaQueryData(size: Size(393, 852)),
-        child: MaterialApp(
-          home: SocialReelsScreenV3(
-            reels: fakeReels(1),
-            coordinatorFactory: fakeCoordinator,
-            onCreate: () {},
+      ProviderScope(
+        overrides: [
+          socialApiProvider.overrideWithValue(_FakeSocialApi()),
+        ],
+        child: MediaQuery(
+          data: const MediaQueryData(size: Size(393, 852)),
+          child: MaterialApp(
+            home: SocialReelsScreenV3(
+              reels: fakeReels(1),
+              coordinatorFactory: fakeCoordinator,
+              onCreate: () {},
+            ),
           ),
         ),
       ),

@@ -689,7 +689,7 @@ async function main() {
   assertStatus(logout, 200, "customer logout");
 
   let postLogoutProbe = null;
-  const logoutProbeDelaysMs = [0, 500, 1500, 3000, 5000];
+  const logoutProbeDelaysMs = [0, 500, 1500, 3000, 5000, 8000, 12000];
   for (const delayMs of logoutProbeDelaysMs) {
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));

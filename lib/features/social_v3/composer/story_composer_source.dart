@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../social/models/social_story_document.dart';
 import '../domain/story_view_data.dart';
 import '../media/social_media_presentation.dart';
 
@@ -124,6 +125,9 @@ class SharedReelSource {
     required this.height,
     required this.caption,
     required this.available,
+    this.authorName,
+    this.authorAvatarUrl,
+    this.authorHandle,
   });
 
   final int reelId;
@@ -135,6 +139,9 @@ class SharedReelSource {
   final int? height;
   final String caption;
   final bool available;
+  final String? authorName;
+  final String? authorAvatarUrl;
+  final String? authorHandle;
 
   double get aspectRatio {
     final w = width, h = height;
@@ -185,6 +192,9 @@ class SharedReelSource {
         height: null,
         caption: ref.caption ?? '',
         available: true,
+        authorName: null,
+        authorAvatarUrl: null,
+        authorHandle: null,
       );
 }
 
@@ -196,12 +206,16 @@ class LocalStoryMedia {
     required this.isVideo,
     required this.width,
     required this.height,
+    this.name,
+    this.mimeType,
   });
 
   final String path;
   final bool isVideo;
   final int? width;
   final int? height;
+  final String? name;
+  final String? mimeType;
 }
 
 /// The immutable source description handed to the composer.
@@ -237,4 +251,73 @@ class StoryComposerSource {
   /// True when the source reel/media is locked (not manually resizable) —
   /// shared reels are locked by default (§6).
   bool get isSourceLocked => kind == StorySourceKind.sharedReel;
+
+  /// Normalized draft seeded from the source. The composer mutates this draft
+  /// through the shared Riverpod controller so publishing always sees the live
+  /// state.
+  SocialStoryDraft buildInitialDraft() {
+    switch (kind) {
+      case StorySourceKind.sharedReel:
+        final reel = sharedReel!;
+        final poster = (reel.posterUrl ?? reel.thumbnailUrl ?? '').trim();
+        final caption = reel.caption.trim().isNotEmpty
+            ? reel.caption.trim()
+            : [
+                (reel.authorName ?? '').trim(),
+                (reel.authorHandle ?? '').trim(),
+              ].where((value) => value.isNotEmpty).join(' ');
+        return SocialStoryDraft.initialText().copyWith(
+          mode: SocialStoryComposerMode.reelShare,
+          caption: '',
+          background: SocialStoryBackground(
+            type: poster.isEmpty
+                ? SocialStoryBackgroundType.gradient
+                : SocialStoryBackgroundType.posterBlur,
+            primaryColor: '#0F172A',
+            secondaryColor: '#1D4ED8',
+            imageUrl: poster.isEmpty ? null : poster,
+          ),
+          attachment: SocialStoryAttachment(
+            type: 'reel_share',
+            reelId: reel.reelId,
+            postId: null,
+            authorName: (reel.authorName ?? '').trim().isEmpty
+                ? null
+                : reel.authorName!.trim(),
+            posterUrl: poster.isEmpty ? null : poster,
+            caption: caption,
+            mediaUrl: reel.playbackUrl,
+            mediaKind: 'video',
+            label: 'Open original reel',
+          ),
+          layers: const <SocialStoryLayer>[],
+        );
+      case StorySourceKind.localImage:
+      case StorySourceKind.localVideo:
+        final media = localMedia!;
+        return SocialStoryDraft.initialText().copyWith(
+          mode: SocialStoryComposerMode.media,
+          caption: text?.trim() ?? '',
+          mediaPath: media.path,
+          mediaName: media.name,
+          mediaMimeType: media.mimeType,
+          background: const SocialStoryBackground(
+            type: SocialStoryBackgroundType.gradient,
+            primaryColor: '#0D1B2A',
+            secondaryColor: '#16324F',
+            imageUrl: null,
+          ),
+        );
+      case StorySourceKind.sharedPost:
+        return SocialStoryDraft.initialText().copyWith(
+          mode: SocialStoryComposerMode.postShare,
+          caption: text?.trim() ?? '',
+        );
+      case StorySourceKind.text:
+        return SocialStoryDraft.initialText().copyWith(
+          mode: SocialStoryComposerMode.text,
+          caption: text?.trim() ?? '',
+        );
+    }
+  }
 }

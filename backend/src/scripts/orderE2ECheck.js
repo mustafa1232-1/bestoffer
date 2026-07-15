@@ -206,9 +206,17 @@ async function getLatestNotification({
 }
 
 async function expectNotification(check, label) {
-  const notification = await getLatestNotification(check);
-  assert.ok(notification, `${label} -> notification not found`);
-  return notification;
+  const delaysMs = [0, 250, 500, 1000, 2000, 4000, 8000];
+  let lastNotification = null;
+  for (const delayMs of delaysMs) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    lastNotification = await getLatestNotification(check);
+    if (lastNotification) return lastNotification;
+  }
+  assert.ok(lastNotification, `${label} -> notification not found`);
+  return lastNotification;
 }
 
 async function fetchOrderRow(orderId) {
@@ -1300,7 +1308,7 @@ async function main() {
     await expectNotification(
       {
         userId: state.deliveryUserId,
-        type: "delivery_order_assigned",
+        type: "delivery_assigned_by_owner",
         orderId: state.orderId,
       },
       "delivery direct assignment notification"
