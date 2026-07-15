@@ -1,4 +1,5 @@
 import { AppError } from "../../shared/utils/errors.js";
+import { pool } from "../../config/db.js";
 
 /**
  * Grouped multi-store delivery service (delivery closure §3–§10).
@@ -169,9 +170,14 @@ export async function selectEligibleCourier(
       `SELECT p.courier_user_id,
               cp.is_app_courier, cp.active_status, cp.availability_status,
               p.is_online,
-              EXTRACT(EPOCH FROM (NOW()-p.recorded_at)) AS presence_age
+              EXTRACT(EPOCH FROM (NOW()-p.recorded_at)) AS presence_age,
+              u.role AS role,
+              u.delivery_account_approved,
+              u.is_account_disabled,
+              u.locked_until
          FROM courier_presence p
          JOIN courier_profile cp ON cp.user_id=p.courier_user_id
+         JOIN app_user u ON u.id=p.courier_user_id
         ${scoped ? "WHERE p.courier_user_id = ANY($1)" : ""}
         ORDER BY p.recorded_at DESC`,
       scoped ? [scoped] : []
@@ -182,6 +188,24 @@ export async function selectEligibleCourier(
   let chosen = null;
   for (const r of rows) {
     const uid = Number(r.courier_user_id);
+    // Account-level authority (§7).
+    if (String(r.role || "").toLowerCase() !== "delivery") {
+      excluded.push({ courierUserId: uid, reason: "not_delivery_role" });
+      continue;
+    }
+    if (r.delivery_account_approved !== true) {
+      excluded.push({ courierUserId: uid, reason: "account_not_approved" });
+      continue;
+    }
+    if (r.is_account_disabled === true) {
+      excluded.push({ courierUserId: uid, reason: "account_disabled" });
+      continue;
+    }
+    if (r.locked_until && new Date(r.locked_until).getTime() > Date.now()) {
+      excluded.push({ courierUserId: uid, reason: "account_locked" });
+      continue;
+    }
+    // Courier-profile authority.
     if (r.is_app_courier !== true) {
       excluded.push({ courierUserId: uid, reason: "not_app_courier" });
       continue;
@@ -201,7 +225,8 @@ export async function selectEligibleCourier(
       excluded.push({ courierUserId: uid, reason: "presence_stale" });
       continue;
     }
-    const busy =
+    // Busy in an active GROUPED job.
+    const groupedBusy =
       (
         await client.query(
           `SELECT 1 FROM delivery_job
@@ -209,8 +234,39 @@ export async function selectEligibleCourier(
           [uid]
         )
       ).rows.length > 0;
-    if (busy) {
-      excluded.push({ courierUserId: uid, reason: "already_assigned" });
+    if (groupedBusy) {
+      excluded.push({ courierUserId: uid, reason: "busy_grouped_job" });
+      continue;
+    }
+    // Busy in the legacy per-order flow (active courier_assignment on a single
+    // order, or a single order still mirrored ASSIGNED to this courier). A
+    // courier mid single-order delivery must not also take a grouped job.
+    const legacyBusy =
+      (
+        await client.query(
+          `SELECT 1
+             FROM courier_assignment
+            WHERE courier_user_id=$1
+              AND order_id IS NOT NULL
+              AND ended_at IS NULL
+              AND status IN ('pending','assigned','accepted')
+            LIMIT 1`,
+          [uid]
+        )
+      ).rows.length > 0 ||
+      (
+        await client.query(
+          `SELECT 1
+             FROM customer_order
+            WHERE delivery_user_id=$1
+              AND delivery_assignment_status='ASSIGNED'
+              AND order_group_id IS NULL
+            LIMIT 1`,
+          [uid]
+        )
+      ).rows.length > 0;
+    if (legacyBusy) {
+      excluded.push({ courierUserId: uid, reason: "busy_legacy_order" });
       continue;
     }
     if (!chosen) chosen = uid;
@@ -298,12 +354,31 @@ export async function assignDeliveryJobTx(
     [job.id, courierUserId]
   );
 
-  // Notification-outbox event in the SAME transaction (§9/§10). Idempotent.
+  // §6: the ONE authoritative grouped courier_assignment (order_id NULL,
+  // delivery_job_id set). Created in the same transaction as the delivery_job
+  // ASSIGNED + child mirror + outbox. Not one row per child order. Idempotent
+  // via the partial unique index uq_courier_assignment_active_job.
+  const assignment = (
+    await client.query(
+      `INSERT INTO courier_assignment
+         (delivery_job_id, courier_user_id, assignment_type, status,
+          assigned_at, requested_at, requested_by_user_id, correlation_id)
+       VALUES ($1,$2,'grouped','assigned',NOW(),NOW(),NULL,$3)
+       ON CONFLICT (delivery_job_id) WHERE delivery_job_id IS NOT NULL AND ended_at IS NULL
+       DO UPDATE SET courier_user_id=EXCLUDED.courier_user_id
+       RETURNING id`,
+      [job.id, courierUserId, `job-${job.id}-assign`]
+    )
+  ).rows[0];
+  const assignmentId = assignment ? Number(assignment.id) : null;
+
+  // Notification-outbox event in the SAME transaction (§4/§9/§10). Idempotent.
+  // target_surface is the authoritative `delivery` (not `courier`).
   await client.query(
     `INSERT INTO notification_outbox
        (event_id, event_type, recipient_user_id, target_surface,
         target_entity_type, target_entity_id, payload_json, priority)
-     VALUES ($1,$2,$3,'courier','delivery_job',$4,$5,'high')
+     VALUES ($1,$2,$3,'delivery','delivery_job',$4,$5,'high')
      ON CONFLICT (event_id) DO NOTHING`,
     [
       `deliveryjob-assign-${job.id}`,
@@ -315,13 +390,16 @@ export async function assignDeliveryJobTx(
       JSON.stringify({
         deliveryJobId: job.id,
         orderGroupId,
+        assignmentId,
+        numberOfStores: stops.length,
         stores: stops.length,
         route: `/delivery/job/${job.id}`,
+        requiresAction: true,
       }),
     ]
   );
 
-  return { job: updated, stops, alreadyAssigned: false };
+  return { job: updated, stops, assignmentId, alreadyAssigned: false };
 }
 
 // Grouped assignment statuses the production worker is allowed to act on.
@@ -497,25 +575,314 @@ export async function listCourierGroupedJobs(client, courierUserId) {
 export async function getGroupedAssignmentView(client, orderGroupId) {
   const row = (
     await client.query(
-      `SELECT j.id AS delivery_job_id, j.assignment_status, j.delivery_user_id,
-              j.assigned_at, u.full_name AS courier_name, u.phone AS courier_phone
+      `SELECT j.id AS delivery_job_id, j.order_group_id, j.assignment_status,
+              j.lifecycle_status, j.delivery_user_id, j.assigned_at,
+              u.full_name AS courier_name, u.phone AS courier_phone, u.image_url AS courier_photo,
+              ca.id AS assignment_id,
+              (SELECT COUNT(*)::int FROM delivery_pickup_stop s
+                 WHERE s.delivery_job_id=j.id AND s.pickup_status<>'CANCELLED') AS active_stops,
+              (SELECT COUNT(*)::int FROM delivery_pickup_stop s
+                 WHERE s.delivery_job_id=j.id AND s.pickup_status='COLLECTED') AS collected_stops
          FROM delivery_job j
          LEFT JOIN app_user u ON u.id=j.delivery_user_id
+         LEFT JOIN courier_assignment ca
+                ON ca.delivery_job_id=j.id AND ca.ended_at IS NULL
         WHERE j.order_group_id=$1`,
       [orderGroupId]
     )
   ).rows[0];
   if (!row) return { active: false, status: "PENDING_STORES" };
+  // §9: active only when the authoritative grouped assignment is complete —
+  // never from a stale child-order flag alone.
   const active =
     row.assignment_status === "ASSIGNED" &&
     Number(row.delivery_user_id) > 0 &&
-    Boolean(row.courier_name);
+    Boolean(row.courier_name) &&
+    Number(row.assignment_id) > 0;
   return {
     active,
-    status: row.assignment_status,
+    id: active ? Number(row.assignment_id) : null,
+    assignmentId: active ? Number(row.assignment_id) : null,
     deliveryJobId: Number(row.delivery_job_id),
+    orderGroupId: Number(row.order_group_id),
+    status: row.assignment_status,
+    assignmentStatus: row.assignment_status,
+    lifecycleStatus: row.lifecycle_status,
     courierUserId: active ? Number(row.delivery_user_id) : null,
     courierName: active ? row.courier_name : null,
+    courierPhone: active ? row.courier_phone : null,
+    courierPhoto: active ? row.courier_photo : null,
     assignedAt: active ? row.assigned_at : null,
+    numberOfStores: Number(row.active_stops || 0),
+    pickupProgress: {
+      collected: Number(row.collected_stops || 0),
+      total: Number(row.active_stops || 0),
+    },
   };
+}
+
+// =========================================================================
+// Grouped-job courier lifecycle (§8). Server-enforced transition order:
+//   ASSIGNED → ACKNOWLEDGED → HEADING_TO_PICKUPS → (per stop: ARRIVED →
+//   COLLECTED) → HEADING_TO_CUSTOMER (only when every active stop COLLECTED)
+//   → DELIVERED. Every mutation validates courier ownership; duplicates are
+//   idempotent; a stale version cannot reverse a newer state.
+// =========================================================================
+
+async function loadOwnedJobForUpdate(client, courierUserId, deliveryJobId, expectedVersion) {
+  const job = (
+    await client.query("SELECT * FROM delivery_job WHERE id=$1 FOR UPDATE", [
+      Number(deliveryJobId),
+    ])
+  ).rows[0];
+  if (!job) throw new AppError("DELIVERY_JOB_NOT_FOUND", { status: 404 });
+  if (Number(job.delivery_user_id) !== Number(courierUserId)) {
+    throw new AppError("NOT_JOB_OWNER", { status: 403 });
+  }
+  if (
+    expectedVersion != null &&
+    Number(expectedVersion) !== Number(job.version)
+  ) {
+    throw new AppError("STALE_JOB_VERSION", {
+      status: 409,
+      details: { current: Number(job.version), provided: Number(expectedVersion) },
+    });
+  }
+  return job;
+}
+
+async function bumpLifecycle(client, jobId, lifecycle) {
+  await client.query(
+    `UPDATE delivery_job
+        SET lifecycle_status=$2, version=version+1, updated_at=NOW()
+      WHERE id=$1`,
+    [Number(jobId), lifecycle]
+  );
+}
+
+async function activeStops(client, jobId) {
+  return (
+    await client.query(
+      `SELECT * FROM delivery_pickup_stop
+        WHERE delivery_job_id=$1 AND pickup_status<>'CANCELLED'
+        ORDER BY sequence_number`,
+      [Number(jobId)]
+    )
+  ).rows;
+}
+
+function withTx(fn) {
+  return async (args) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const out = await fn(client, args);
+      await client.query("COMMIT");
+      return out;
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  };
+}
+
+export const acknowledgeGroupedJob = withTx(async (client, { courierUserId, deliveryJobId, expectedVersion }) => {
+  const job = await loadOwnedJobForUpdate(client, courierUserId, deliveryJobId, expectedVersion);
+  if (job.assignment_status !== "ASSIGNED") {
+    throw new AppError("JOB_NOT_ASSIGNED", { status: 409 });
+  }
+  // Idempotent: acknowledging twice is a no-op success.
+  if (!job.accepted_at) {
+    await client.query(
+      `UPDATE delivery_job SET accepted_at=NOW(), lifecycle_status='ACKNOWLEDGED', version=version+1, updated_at=NOW() WHERE id=$1`,
+      [job.id]
+    );
+    await client.query(
+      `UPDATE courier_assignment SET acknowledged_at=COALESCE(acknowledged_at,NOW()), status='accepted'
+         WHERE delivery_job_id=$1 AND ended_at IS NULL`,
+      [job.id]
+    );
+  }
+  return { deliveryJobId: Number(job.id), lifecycleStatus: "ACKNOWLEDGED" };
+});
+
+export const headingToPickups = withTx(async (client, { courierUserId, deliveryJobId, expectedVersion }) => {
+  const job = await loadOwnedJobForUpdate(client, courierUserId, deliveryJobId, expectedVersion);
+  if (!["ACKNOWLEDGED", "ASSIGNED", "HEADING_TO_PICKUPS"].includes(job.lifecycle_status)) {
+    throw new AppError("INVALID_TRANSITION", { status: 409, details: { from: job.lifecycle_status } });
+  }
+  if (job.lifecycle_status !== "HEADING_TO_PICKUPS") {
+    await bumpLifecycle(client, job.id, "HEADING_TO_PICKUPS");
+  }
+  return { deliveryJobId: Number(job.id), lifecycleStatus: "HEADING_TO_PICKUPS" };
+});
+
+export const markStopArrived = withTx(async (client, { courierUserId, deliveryJobId, stopId, expectedVersion }) => {
+  const job = await loadOwnedJobForUpdate(client, courierUserId, deliveryJobId, expectedVersion);
+  const stop = (
+    await client.query(
+      `SELECT * FROM delivery_pickup_stop WHERE id=$1 AND delivery_job_id=$2 FOR UPDATE`,
+      [Number(stopId), job.id]
+    )
+  ).rows[0];
+  if (!stop) throw new AppError("PICKUP_STOP_NOT_FOUND", { status: 404 });
+  if (stop.pickup_status === "CANCELLED") throw new AppError("STOP_CANCELLED", { status: 409 });
+  if (stop.pickup_status === "COLLECTED") {
+    return { stopId: Number(stop.id), pickupStatus: "COLLECTED" }; // idempotent
+  }
+  if (stop.pickup_status !== "COURIER_ARRIVED") {
+    await client.query(
+      `UPDATE delivery_pickup_stop SET pickup_status='COURIER_ARRIVED', arrived_at=COALESCE(arrived_at,NOW()), updated_at=NOW() WHERE id=$1`,
+      [stop.id]
+    );
+  }
+  return { stopId: Number(stop.id), pickupStatus: "COURIER_ARRIVED" };
+});
+
+export const markStopCollected = withTx(async (client, { courierUserId, deliveryJobId, stopId, expectedVersion }) => {
+  const job = await loadOwnedJobForUpdate(client, courierUserId, deliveryJobId, expectedVersion);
+  const stop = (
+    await client.query(
+      `SELECT * FROM delivery_pickup_stop WHERE id=$1 AND delivery_job_id=$2 FOR UPDATE`,
+      [Number(stopId), job.id]
+    )
+  ).rows[0];
+  if (!stop) throw new AppError("PICKUP_STOP_NOT_FOUND", { status: 404 });
+  if (stop.pickup_status === "CANCELLED") throw new AppError("STOP_CANCELLED", { status: 409 });
+  // Collecting one stop must NOT affect the others.
+  if (stop.pickup_status !== "COLLECTED") {
+    await client.query(
+      `UPDATE delivery_pickup_stop SET pickup_status='COLLECTED', collected_at=COALESCE(collected_at,NOW()), updated_at=NOW() WHERE id=$1`,
+      [stop.id]
+    );
+  }
+  const stops = await activeStops(client, job.id);
+  const remaining = stops.filter((s) => s.pickup_status !== "COLLECTED").length;
+  return {
+    stopId: Number(stop.id),
+    pickupStatus: "COLLECTED",
+    remainingStops: remaining,
+    allCollected: remaining === 0,
+  };
+});
+
+export const headingToCustomer = withTx(async (client, { courierUserId, deliveryJobId, expectedVersion }) => {
+  const job = await loadOwnedJobForUpdate(client, courierUserId, deliveryJobId, expectedVersion);
+  const stops = await activeStops(client, job.id);
+  if (stops.length === 0) throw new AppError("NO_ACTIVE_PICKUPS", { status: 409 });
+  const notCollected = stops.filter((s) => s.pickup_status !== "COLLECTED");
+  if (notCollected.length > 0) {
+    // Cannot head to the customer before every active store is collected.
+    throw new AppError("PICKUPS_INCOMPLETE", {
+      status: 409,
+      details: { pending: notCollected.map((s) => Number(s.id)) },
+    });
+  }
+  if (job.lifecycle_status !== "HEADING_TO_CUSTOMER") {
+    await bumpLifecycle(client, job.id, "HEADING_TO_CUSTOMER");
+    await client.query(
+      `UPDATE customer_order SET status='on_the_way', updated_at=NOW()
+        WHERE order_group_id=$1 AND status NOT IN ('cancelled','delivered')`,
+      [Number(job.order_group_id)]
+    );
+  }
+  return { deliveryJobId: Number(job.id), lifecycleStatus: "HEADING_TO_CUSTOMER" };
+});
+
+export const markGroupedDelivered = withTx(async (client, { courierUserId, deliveryJobId, expectedVersion }) => {
+  const job = await loadOwnedJobForUpdate(client, courierUserId, deliveryJobId, expectedVersion);
+  if (job.lifecycle_status === "DELIVERED") {
+    return { deliveryJobId: Number(job.id), lifecycleStatus: "DELIVERED" }; // idempotent
+  }
+  if (job.lifecycle_status !== "HEADING_TO_CUSTOMER") {
+    throw new AppError("MUST_HEAD_TO_CUSTOMER_FIRST", { status: 409, details: { from: job.lifecycle_status } });
+  }
+  await client.query(
+    `UPDATE delivery_job SET lifecycle_status='DELIVERED', completed_at=NOW(), version=version+1, updated_at=NOW() WHERE id=$1`,
+    [job.id]
+  );
+  await client.query(
+    `UPDATE courier_assignment SET status='completed', completed_at=NOW(), ended_at=COALESCE(ended_at,NOW()), ended_reason=COALESCE(ended_reason,'COMPLETED')
+       WHERE delivery_job_id=$1 AND ended_at IS NULL`,
+    [job.id]
+  );
+  await client.query(
+    `UPDATE customer_order SET status='delivered', delivered_at=COALESCE(delivered_at,NOW()), delivery_assignment_status='COMPLETED', updated_at=NOW()
+      WHERE order_group_id=$1 AND status NOT IN ('cancelled','delivered')`,
+    [Number(job.order_group_id)]
+  );
+  return { deliveryJobId: Number(job.id), lifecycleStatus: "DELIVERED" };
+});
+
+/** Courier's current active grouped job (assigned, not yet delivered). */
+export async function getCourierCurrentGroupedJob(courierUserId) {
+  const client = await pool.connect();
+  try {
+    const jobs = await listCourierGroupedJobs(client, Number(courierUserId));
+    return jobs.find((j) => j.lifecycle_status !== "DELIVERED") || jobs[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Full grouped-job detail for the owning courier (ownership validated). */
+export async function getCourierGroupedJobDetails(courierUserId, deliveryJobId) {
+  const client = await pool.connect();
+  try {
+    const job = (
+      await client.query(
+        `SELECT j.*, g.public_id, g.is_multi_store, g.stores_count, g.payment_method,
+                g.total_amount, ca.id AS assignment_id
+           FROM delivery_job j
+           JOIN order_group g ON g.id=j.order_group_id
+           LEFT JOIN courier_assignment ca ON ca.delivery_job_id=j.id AND ca.ended_at IS NULL
+          WHERE j.id=$1`,
+        [Number(deliveryJobId)]
+      )
+    ).rows[0];
+    if (!job) throw new AppError("DELIVERY_JOB_NOT_FOUND", { status: 404 });
+    if (Number(job.delivery_user_id) !== Number(courierUserId)) {
+      throw new AppError("NOT_JOB_OWNER", { status: 403 });
+    }
+    const stops = (
+      await client.query(
+        `SELECT s.id, s.child_order_id, s.store_id, s.sequence_number, s.pickup_status,
+                s.preparation_status, s.arrived_at, s.collected_at,
+                m.name AS store_name, m.image_url AS store_photo, m.phone AS store_phone
+           FROM delivery_pickup_stop s
+           LEFT JOIN merchant m ON m.id=s.store_id
+          WHERE s.delivery_job_id=$1 AND s.pickup_status<>'CANCELLED'
+          ORDER BY s.sequence_number`,
+        [Number(deliveryJobId)]
+      )
+    ).rows;
+    return {
+      deliveryJobId: Number(job.id),
+      assignmentId: job.assignment_id ? Number(job.assignment_id) : null,
+      orderGroupId: Number(job.order_group_id),
+      lifecycleStatus: job.lifecycle_status,
+      assignmentStatus: job.assignment_status,
+      numberOfStores: stops.length,
+      paymentMethod: job.payment_method,
+      courierEarning: Number(job.courier_earning || 0),
+      version: Number(job.version),
+      pickupStops: stops.map((s) => ({
+        stopId: Number(s.id),
+        childOrderId: Number(s.child_order_id),
+        storeId: Number(s.store_id),
+        storeName: s.store_name,
+        storePhoto: s.store_photo,
+        storePhone: s.store_phone,
+        sequence: Number(s.sequence_number),
+        preparationStatus: s.preparation_status,
+        pickupStatus: s.pickup_status,
+        arrivedAt: s.arrived_at,
+        collectedAt: s.collected_at,
+      })),
+    };
+  } finally {
+    client.release();
+  }
 }

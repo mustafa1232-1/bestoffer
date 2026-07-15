@@ -48,6 +48,18 @@ export async function cleanupCheckoutFixture(client) {
        (SELECT id FROM merchant WHERE name LIKE '${MARK}%')`
   );
   await client.query(
+    `DELETE FROM user_push_token WHERE user_id IN
+       (SELECT id FROM app_user WHERE username LIKE '${MARK}%')`
+  ).catch(() => {});
+  await client.query(
+    `DELETE FROM app_notification WHERE user_id IN
+       (SELECT id FROM app_user WHERE username LIKE '${MARK}%')`
+  ).catch(() => {});
+  await client.query(
+    `DELETE FROM user_session WHERE user_id IN
+       (SELECT id FROM app_user WHERE username LIKE '${MARK}%')`
+  ).catch(() => {});
+  await client.query(
     `DELETE FROM courier_presence WHERE courier_user_id IN
        (SELECT id FROM app_user WHERE username LIKE '${MARK}%')`
   );

@@ -85,7 +85,18 @@ test("FIX: one grouped job, one courier, two pickup stops, courier sees it", asy
     );
     assert.equal(outbox.rowCount, 1);
     assert.equal(outbox.rows[0].event_type, "COURIER_MULTI_STORE_DELIVERY_ASSIGNED");
-    assert.equal(outbox.rows[0].target_surface, "courier");
+    assert.equal(outbox.rows[0].target_surface, "delivery");
+
+    // §6: exactly one authoritative grouped courier_assignment (not per child).
+    assert.ok(Number(result.assignmentId) > 0, "assignmentId returned");
+    const ca = await c.query(
+      `SELECT id, order_id, delivery_job_id, assignment_type, status
+         FROM courier_assignment WHERE delivery_job_id=$1 AND ended_at IS NULL`,
+      [result.job.id]
+    );
+    assert.equal(ca.rowCount, 1, "one grouped courier_assignment");
+    assert.equal(ca.rows[0].order_id, null, "grouped row has no order_id");
+    assert.equal(ca.rows[0].assignment_type, "grouped");
 
     // Both legacy child orders point at the same courier (compatibility).
     const kids = await c.query(

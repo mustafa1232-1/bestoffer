@@ -34,7 +34,24 @@ import {
 import {
   listCourierGroupedJobs,
   getGroupedAssignmentView,
+  acknowledgeGroupedJob,
+  headingToPickups,
+  markStopArrived,
+  markStopCollected,
+  headingToCustomer,
+  markGroupedDelivered,
 } from "../modules/delivery/delivery-job.service.js";
+import { drainNotificationOutbox } from "../modules/delivery/notification-outbox.worker.js";
+import { __setFirebaseMessagingForTests } from "../modules/notifications/notifications.repo.js";
+
+function mockMessaging() {
+  return {
+    async sendEachForMulticast(msg) {
+      const responses = msg.tokens.map(() => ({ success: true, messageId: "m" }));
+      return { responses, successCount: responses.length, failureCount: 0 };
+    },
+  };
+}
 
 async function jobRow(client, orderGroupId) {
   return (
@@ -64,6 +81,26 @@ test("E2E: real checkout → store acceptance → grouped worker assigns one cou
 
   const fx = await createRealMultiStoreCheckout(client);
   assert.equal(fx.childOrderIds.length, 2, "two child orders created");
+
+  // Seed the courier's push targets + Firebase mock BEFORE assignment, because
+  // the assignment worker drains the outbox at assignment time. A correct
+  // delivery-surface token plus a wrong store-surface token: only the delivery
+  // token must receive the courier event (§14.13 surface suppression).
+  const sid = Number(
+    (
+      await client.query(
+        `INSERT INTO user_session (user_id, refresh_token, expires_at)
+         VALUES ($1,$2, NOW() + INTERVAL '1 day') RETURNING id`,
+        [fx.courierId, `fixt_co_sess_${fx.courierId}`]
+      )
+    ).rows[0].id
+  );
+  await client.query(
+    `INSERT INTO user_push_token (user_id, push_token, app_surface, is_active, auth_session_id, locale)
+     VALUES ($1,$2,'delivery',TRUE,$3,'ar'), ($1,$4,'store',TRUE,$3,'ar')`,
+    [fx.courierId, `fixt_co_tokD_${fx.courierId}`, sid, `fixt_co_tokS_${fx.courierId}`]
+  );
+  __setFirebaseMessagingForTests(mockMessaging());
 
   // (2) checkout auto-created the grouped job + two pickup stops.
   let job = await jobRow(client, fx.orderGroupId);
@@ -166,4 +203,90 @@ test("E2E: real checkout → store acceptance → grouped worker assigns one cou
   await client.query("COMMIT");
   const leaked = perOrder.filter((r) => fx.childOrderIds.includes(Number(r.id)));
   assert.equal(leaked.length, 0, "per-order worker excludes group children");
+
+  // (6) The authoritative grouped courier_assignment exists (§14.6).
+  const assignmentId = Number(view.assignmentId);
+  assert.ok(assignmentId > 0, "grouped assignment id present in normalized view");
+  const caCount = Number(
+    (
+      await client.query(
+        `SELECT COUNT(*)::int n FROM courier_assignment
+          WHERE delivery_job_id=$1 AND order_id IS NULL AND ended_at IS NULL`,
+        [job.id]
+      )
+    ).rows[0].n
+  );
+  assert.equal(caCount, 1, "exactly one grouped courier_assignment (not per child)");
+
+  // (10-13) Outbox → exactly one app_notification, truthful status, no dupes.
+  // The assignment worker already drained once (mock + tokens were set before
+  // assignment); drain again to prove terminal rows are not reprocessed.
+  await drainNotificationOutbox({ limit: 50 });
+  const notifCount = async () =>
+    Number(
+      (
+        await client.query(
+          `SELECT COUNT(*)::int n FROM app_notification WHERE event_id=$1`,
+          [`deliveryjob-assign-${job.id}`]
+        )
+      ).rows[0].n
+    );
+  assert.equal(await notifCount(), 1, "outbox creates exactly one app_notification");
+  const obState = (
+    await client.query(
+      `SELECT status, provider_result_json FROM notification_outbox WHERE event_id=$1`,
+      [`deliveryjob-assign-${job.id}`]
+    )
+  ).rows[0];
+  assert.equal(obState.status, "PUSH_ACCEPTED", "truthful accepted status");
+  assert.equal(obState.provider_result_json.acceptedTokens, 1, "only the delivery-surface token accepted");
+  // Re-drain: terminal row is not reprocessed → still one notification.
+  await drainNotificationOutbox({ limit: 50 });
+  assert.equal(await notifCount(), 1, "retry does not duplicate the notification");
+
+  // (14-16) Lifecycle: acknowledge → head → collect stop1 (stop2 pending) →
+  // cannot head to customer → collect stop2 → head → deliver all surfaces.
+  const [stopA, stopB] = jobs[0].pickupStops.map((s) => Number(s.id));
+  await acknowledgeGroupedJob({ courierUserId: fx.courierId, deliveryJobId: job.id });
+  await headingToPickups({ courierUserId: fx.courierId, deliveryJobId: job.id });
+  await markStopArrived({ courierUserId: fx.courierId, deliveryJobId: job.id, stopId: stopA });
+  const col1 = await markStopCollected({ courierUserId: fx.courierId, deliveryJobId: job.id, stopId: stopA });
+  assert.equal(col1.allCollected, false, "collecting stop 1 leaves stop 2 pending");
+  assert.equal(col1.remainingStops, 1);
+
+  await assert.rejects(
+    headingToCustomer({ courierUserId: fx.courierId, deliveryJobId: job.id }),
+    /PICKUPS_INCOMPLETE/,
+    "cannot head to customer before all stops collected"
+  );
+
+  const col2 = await markStopCollected({ courierUserId: fx.courierId, deliveryJobId: job.id, stopId: stopB });
+  assert.equal(col2.allCollected, true, "both stops collected");
+  const htc = await headingToCustomer({ courierUserId: fx.courierId, deliveryJobId: job.id });
+  assert.equal(htc.lifecycleStatus, "HEADING_TO_CUSTOMER");
+
+  const delivered = await markGroupedDelivered({ courierUserId: fx.courierId, deliveryJobId: job.id });
+  assert.equal(delivered.lifecycleStatus, "DELIVERED");
+
+  // All surfaces complete: children delivered, grouped assignment completed.
+  const finalChildren = (
+    await client.query(
+      `SELECT status FROM customer_order WHERE order_group_id=$1`,
+      [fx.orderGroupId]
+    )
+  ).rows;
+  assert.ok(
+    finalChildren.every((r) => r.status === "delivered"),
+    "all child orders delivered"
+  );
+  const caFinal = (
+    await client.query(
+      `SELECT status, completed_at FROM courier_assignment WHERE delivery_job_id=$1`,
+      [job.id]
+    )
+  ).rows[0];
+  assert.equal(caFinal.status, "completed", "grouped assignment completed");
+  assert.ok(caFinal.completed_at, "assignment completed_at set");
+
+  __setFirebaseMessagingForTests(null);
 });

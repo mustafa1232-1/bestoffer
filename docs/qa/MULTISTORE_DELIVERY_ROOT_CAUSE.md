@@ -111,14 +111,81 @@ event present, and that the per-order worker excludes the group children.
 Full backend suite: **324/324 passing** (was 324 before + this work; existing
 single-order delivery flow unaffected).
 
+## Third pass — notification truth + authoritative assignment + courier APIs
+Migration **137** (additive on top of 136, which is untouched) plus code:
+
+- **Truthful outbox delivery (§1)** — `notification_outbox` now has a real state
+  machine (`CREATED → PROCESSING → NOTIFICATION_CREATED → PUSH_ACCEPTED /
+  PUSH_PARTIAL / PUSH_RETRY / PUSH_FAILED → DEAD_LETTER`) with
+  `app_notification_id`, `processing_started_at`, `lease_expires_at` (crash
+  recovery), `completed_at`, `provider_result_json`. Creating an app_notification
+  is no longer mistaken for provider acceptance; Firebase-not-configured and
+  no-tokens are never `PUSH_ACCEPTED`.
+- **Idempotent notifications (§2)** — `app_notification.event_id` + partial
+  unique index; `createNotificationAndAwaitDelivery` inserts one row per event
+  (`ON CONFLICT (event_id) DO NOTHING`). A crash after creation but before outbox
+  completion recovers via the lease and does **not** duplicate the notification
+  (regression-tested).
+- **Awaited push API (§3)** — `dispatchNotificationWithResult` returns a
+  structured `{firebaseConfigured, totalTokens, acceptedTokens, deadTokens,
+  retryableFailures, permanentFailures, providerMessageIds}`; the outbox worker
+  derives the truthful state from it. `queuePushNotification` (fire-and-forget)
+  is unchanged for existing callers.
+- **Urgent channel contract (§4)** — allow-listed
+  `maslaki_courier_assignments_urgent_v2` / `maslaki_store_orders_urgent_v2`
+  honored from the event contract (arbitrary client channel IDs ignored); FCM
+  data carries `eventId/eventType/schemaVersion/deliveryJobId/orderGroupId/
+  assignmentId/numberOfStores/route/requiresAction`; urgent events do not
+  collapse.
+- **Surface enforcement (§5)** — authoritative surface is `delivery` (migration
+  137 normalizes the old `courier` rows); the worker fails closed on a
+  role/target-surface mismatch and records a safe diagnostic. Only tokens of the
+  matching surface receive the event.
+- **Authoritative grouped `courier_assignment` (§6)** — `order_id` is now
+  nullable; `delivery_job_id` added with `CHECK (num_nonnulls(order_id,
+  delivery_job_id)=1)` and a partial unique index (one active grouped assignment
+  per job). `assignDeliveryJobTx` creates exactly ONE grouped row in the same
+  transaction and returns `assignmentId`; migration backfills jobs assigned
+  before 137. Views/payloads expose `assignmentId`.
+- **Complete eligibility (§7)** — `selectEligibleCourier` verifies role,
+  `delivery_account_approved`, not-disabled, not-locked, app-courier, active,
+  online, fresh presence, not busy in a grouped job, and not busy in the legacy
+  per-order flow — each with a precise exclusion reason (DB-tested).
+- **Courier grouped-job APIs (§8)** — registered on `deliveryRouter`
+  (`requireDeliveryAgent`): list/current/details + `acknowledge`,
+  `heading-to-pickups`, `stops/:id/arrived`, `stops/:id/collected`,
+  `heading-to-customer`, `delivered`. Server enforces transition order
+  (cannot head to customer before all active stops collected; cannot deliver
+  before heading; duplicates idempotent; stale `version` rejected; ownership
+  validated).
+- **Normalized assignment view (§9)** — `getGroupedAssignmentView` returns
+  `{id, assignmentId, deliveryJobId, orderGroupId, courierUserId/Name/Phone/Photo,
+  active, assignmentStatus, lifecycleStatus, numberOfStores, pickupProgress}` and
+  is active only when the authoritative assignment is complete.
+
+### Tests
+Full backend suite **326/326 passing**, including: outbox truthful-delivery (8
+provider scenarios incl. crash-window idempotency + surface suppression),
+eligibility exclusions, grouped `courier_assignment`, and an extended real
+end-to-end (checkout → acceptance → worker assignment → grouped assignment →
+outbox→one app_notification→no-duplicate → surface suppression → acknowledge →
+per-stop collect (stop 1 collected, stop 2 pending) → head-to-customer gating →
+delivered on all surfaces). The final acceptance never calls `assignDeliveryJobTx`
+directly.
+
 ## Not yet done (honest — next layers)
-- **§6 authoritative `courier_assignment` record** — grouped assignment updates
-  `delivery_job` + mirrors `customer_order.delivery_user_id`, but does not yet
-  create ONE grouped `courier_assignment` row. Legacy per-child rows are
-  intentionally NOT created (the e2e asserts their absence).
-- **§9/§10 Flutter Courier + Store/User apps** — grouped-job models, screens,
-  lifecycle controls, cache invalidation.
-- **§12 Android urgent channels** + foreground/background/terminated handling.
-- **§13/§14 presence cadence + session persistence** audit.
-- **§15 full Store release audit.**
+- **§10/§11 Flutter Delivery + Store/User apps** — grouped-job models, API
+  client, controllers, screens, lifecycle controls, cache invalidation. Not
+  started; no Flutter source changed.
+- **§12 Android urgent channel implementation** in the Flutter/Android targets
+  (channel creation, sound/vibration, POST_NOTIFICATIONS, getInitialMessage /
+  onMessageOpenedApp, foreground/background/terminated handling). The backend
+  emits the correct channel + payload contract; the client side is not built.
+- **§13 presence cadence + session persistence audit** and
+  `docs/qa/STORE_APP_FULL_RELEASE_AUDIT.md` — not done.
+- **§15 QA APKs** — not built (no Flutter changes this pass).
 - Device / iOS / signed-release / Railway verification remain externally BLOCKED.
+
+Per the atomic-cutover rule, migrations 136+137 must not be merged to
+`closure/full-application-closure` or applied to Railway until the Flutter/client
+layers land.

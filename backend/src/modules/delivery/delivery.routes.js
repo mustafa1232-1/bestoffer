@@ -33,3 +33,15 @@ deliveryRouter.post("/end-day", c.endDay);
 deliveryRouter.get("/analytics", c.analytics);
 deliveryRouter.get("/earnings", c.earnings);
 deliveryRouter.get("/ratings", c.ratings);
+
+// Grouped multi-store delivery jobs (delivery closure §8). Literal segments
+// precede the parameterized :deliveryJobId route so they are not shadowed.
+deliveryRouter.get("/delivery-jobs/current", c.currentGroupedJob);
+deliveryRouter.get("/delivery-jobs", c.listGroupedJobs);
+deliveryRouter.get("/delivery-jobs/:deliveryJobId(\\d+)", c.groupedJobDetails);
+deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/acknowledge", c.acknowledgeGroupedJob);
+deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/heading-to-pickups", c.groupedHeadingToPickups);
+deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/stops/:stopId(\\d+)/arrived", c.groupedStopArrived);
+deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/stops/:stopId(\\d+)/collected", c.groupedStopCollected);
+deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/heading-to-customer", c.groupedHeadingToCustomer);
+deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/delivered", c.groupedDelivered);

@@ -1,4 +1,5 @@
 import * as service from "./delivery.service.js";
+import * as jobs from "./delivery-job.service.js";
 import { validateDeliveryRegister } from "./delivery.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 
@@ -163,6 +164,129 @@ export async function earnings(req, res, next) {
 export async function ratings(req, res, next) {
   try {
     const out = await service.ratingsReport(req.userId);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+// ---- Grouped multi-store delivery jobs (delivery closure §8) ----
+
+function expectedVersion(req) {
+  const v = req.body?.expectedVersion ?? req.query?.expectedVersion;
+  return v == null || v === "" ? null : Number(v);
+}
+
+export async function currentGroupedJob(req, res, next) {
+  try {
+    const job = await jobs.getCourierCurrentGroupedJob(req.userId);
+    res.json({ job });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function listGroupedJobs(req, res, next) {
+  try {
+    const { pool } = await import("../../config/db.js");
+    const client = await pool.connect();
+    try {
+      const list = await jobs.listCourierGroupedJobs(client, req.userId);
+      res.json({ jobs: list });
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function groupedJobDetails(req, res, next) {
+  try {
+    const job = await jobs.getCourierGroupedJobDetails(
+      req.userId,
+      req.params.deliveryJobId
+    );
+    res.json(job);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function acknowledgeGroupedJob(req, res, next) {
+  try {
+    const out = await jobs.acknowledgeGroupedJob({
+      courierUserId: req.userId,
+      deliveryJobId: req.params.deliveryJobId,
+      expectedVersion: expectedVersion(req),
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function groupedHeadingToPickups(req, res, next) {
+  try {
+    const out = await jobs.headingToPickups({
+      courierUserId: req.userId,
+      deliveryJobId: req.params.deliveryJobId,
+      expectedVersion: expectedVersion(req),
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function groupedStopArrived(req, res, next) {
+  try {
+    const out = await jobs.markStopArrived({
+      courierUserId: req.userId,
+      deliveryJobId: req.params.deliveryJobId,
+      stopId: req.params.stopId,
+      expectedVersion: expectedVersion(req),
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function groupedStopCollected(req, res, next) {
+  try {
+    const out = await jobs.markStopCollected({
+      courierUserId: req.userId,
+      deliveryJobId: req.params.deliveryJobId,
+      stopId: req.params.stopId,
+      expectedVersion: expectedVersion(req),
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function groupedHeadingToCustomer(req, res, next) {
+  try {
+    const out = await jobs.headingToCustomer({
+      courierUserId: req.userId,
+      deliveryJobId: req.params.deliveryJobId,
+      expectedVersion: expectedVersion(req),
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function groupedDelivered(req, res, next) {
+  try {
+    const out = await jobs.markGroupedDelivered({
+      courierUserId: req.userId,
+      deliveryJobId: req.params.deliveryJobId,
+      expectedVersion: expectedVersion(req),
+    });
     res.json(out);
   } catch (e) {
     next(e);

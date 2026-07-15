@@ -180,6 +180,13 @@ function getFirebaseMessaging() {
   return firebaseMessaging;
 }
 
+// Test seam: inject a fake Firebase messaging (with sendEachForMulticast) or
+// null to simulate "Firebase not configured". Never used in production paths.
+export function __setFirebaseMessagingForTests(mock) {
+  firebaseMessaging = mock || null;
+  firebaseInitAttempted = true;
+}
+
 function isDeadTokenError(code) {
   return (
     code === "messaging/registration-token-not-registered" ||
@@ -450,9 +457,8 @@ function buildMulticastMessage(
     payload.actionableExpiresAt ||
     payload.expiresAt ||
     (requiresAction ? new Date(Date.now() + 120 * 1000).toISOString() : "");
-  const androidChannelId = requiresAction
-    ? "maslaki_action_required_v2"
-    : "maslaki_live_updates";
+  const androidChannelId = resolveEventChannelId(notification);
+  const isUrgentChannel = URGENT_CHANNEL_ALLOWLIST.has(androidChannelId);
   const reminderTag =
     requiresAction && orderId != null
       ? `${String(payload.reminderKind || notification?.type || "order_action")}:${orderId}`
@@ -540,28 +546,50 @@ function buildMulticastMessage(
         Number.isFinite(senderUserId) && senderUserId > 0
           ? String(senderUserId)
           : "",
+      // §4 grouped-assignment urgent event contract (strings — FCM data must be
+      // string-valued). Empty when not applicable.
+      eventId: payload.eventId == null ? "" : String(payload.eventId),
+      eventType: payload.eventType == null ? "" : String(payload.eventType),
+      schemaVersion:
+        payload.schemaVersion == null ? "" : String(payload.schemaVersion),
+      deliveryJobId:
+        payload.deliveryJobId == null ? "" : String(payload.deliveryJobId),
+      orderGroupId:
+        payload.orderGroupId == null ? "" : String(payload.orderGroupId),
+      assignmentId:
+        payload.assignmentId == null ? "" : String(payload.assignmentId),
+      numberOfStores:
+        payload.numberOfStores == null ? "" : String(payload.numberOfStores),
+      route: payload.route == null ? "" : String(payload.route),
+      createdAt: payload.createdAt == null ? "" : String(payload.createdAt),
+      urgentChannelId: isUrgentChannel ? androidChannelId : "",
     },
     android: {
       priority: "high",
       ttl: 60 * 60 * 1000,
       notification: {
         channelId: androidChannelId,
-        sound: requiresAction ? "maslaki_attention" : "default",
+        // Urgent operational channels carry a distinctive sound; the OS honors
+        // the channel's own sound/vibration for the final presentation.
+        sound: isUrgentChannel || requiresAction ? "maslaki_attention" : "default",
         clickAction: "FLUTTER_NOTIFICATION_CLICK",
-        tag: reminderTag || undefined,
+        // Distinct assignment events must NOT collapse into each other.
+        tag: isUrgentChannel ? undefined : reminderTag || undefined,
       },
     },
     apns: {
       headers: {
         "apns-priority": "10",
         "apns-push-type": "alert",
-        ...(reminderTag ? { "apns-collapse-id": reminderTag } : {}),
+        ...(reminderTag && !isUrgentChannel
+          ? { "apns-collapse-id": reminderTag }
+          : {}),
       },
       payload: {
         aps: {
-          sound: "default",
-          contentAvailable: true,
-          ...(reminderTag ? { threadId: reminderTag } : {}),
+          sound: isUrgentChannel ? "maslaki_attention.caf" : "default",
+          ...(isUrgentChannel ? {} : { contentAvailable: true }),
+          ...(reminderTag && !isUrgentChannel ? { threadId: reminderTag } : {}),
         },
       },
     },
@@ -579,12 +607,31 @@ async function deactivatePushTokensByValue(tokens = []) {
   );
 }
 
+function emptyDeliveryResult(overrides = {}) {
+  return {
+    firebaseConfigured: true,
+    intendedSurface: null,
+    totalTokens: 0,
+    acceptedTokens: 0,
+    failedTokens: 0,
+    deadTokens: 0,
+    retryableFailures: 0,
+    permanentFailures: 0,
+    providerMessageIds: [],
+    ...overrides,
+  };
+}
+
 async function dispatchPushNotification(notification) {
   const messaging = getFirebaseMessaging();
-  if (!messaging) return;
+  // §3: Firebase not configured is NOT acceptance — report it truthfully and
+  // let the caller decide to retry (config may appear later) vs. fail.
+  if (!messaging) return emptyDeliveryResult({ firebaseConfigured: false });
 
   const userId = Number(notification.user_id ?? notification.userId);
-  if (!Number.isFinite(userId) || userId <= 0) return;
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return emptyDeliveryResult({ invalidUser: true });
+  }
 
   const intendedSurface = normalizeAppSurface(
     notification?.payload?.appSurface || notification?.payload?.app_surface
@@ -592,7 +639,12 @@ async function dispatchPushNotification(notification) {
   const targets = (await listActivePushTargets(userId)).filter(
     (target) => !intendedSurface || target.appSurface === intendedSurface
   );
-  if (!targets.length) return;
+  // §5: no token matching the intended surface → suppressed (not accepted).
+  if (!targets.length) {
+    return emptyDeliveryResult({ intendedSurface, noTokens: true });
+  }
+
+  const deliveryResult = emptyDeliveryResult({ intendedSurface });
 
   const orderId =
     notification.order_id ??
@@ -612,9 +664,13 @@ async function dispatchPushNotification(notification) {
       byDeliveryContext.set(key, { locale, appSurface, tokens: [] });
     }
     byDeliveryContext.get(key).tokens.push(token);
+    deliveryResult.totalTokens += 1;
   }
 
   const staleTokens = new Set();
+  const acceptedSet = new Set();
+  const retryableSet = new Set();
+  const permanentSet = new Set();
   let totalFailedEvents = 0;
   const resolvedTarget = resolveNotificationTarget(notification, orderId);
   for (const context of byDeliveryContext.values()) {
@@ -650,14 +706,16 @@ async function dispatchPushNotification(notification) {
         const status = attempt < PUSH_MAX_RETRIES && isRetryablePushError(code)
           ? "retry"
           : "failed";
+        for (const token of pendingTokens) {
+          if (status === "retry") retryableSet.add(token);
+          else permanentSet.add(token);
+        }
         const errorRows = pendingTokens.map((token) => ({
           notificationId: notification.id,
           userId,
           pushToken: token,
           platform: "fcm",
-          channelId: notification?.payload?.requiresAction
-            ? "maslaki_action_required_v2"
-            : "maslaki_live_updates",
+          channelId: resolveEventChannelId(notification),
           target: resolvedTarget,
           eventStatus: status,
           errorCode: code || "messaging/send-exception",
@@ -696,14 +754,18 @@ async function dispatchPushNotification(notification) {
         if (!token) continue;
 
         if (result.success) {
+          acceptedSet.add(token);
+          retryableSet.delete(token);
+          permanentSet.delete(token);
+          if (result.messageId) {
+            deliveryResult.providerMessageIds.push(String(result.messageId));
+          }
           eventRows.push({
             notificationId: notification.id,
             userId,
             pushToken: token,
             platform: "fcm",
-            channelId: notification?.payload?.requiresAction
-              ? "maslaki_action_required_v2"
-              : "maslaki_live_updates",
+            channelId: resolveEventChannelId(notification),
             target: resolvedTarget,
             eventStatus: "sent",
             errorCode: null,
@@ -719,10 +781,22 @@ async function dispatchPushNotification(notification) {
 
         if (isDeadTokenError(code)) {
           staleTokens.add(token);
+          retryableSet.delete(token);
+          permanentSet.delete(token);
           eventStatus = "dead_token";
         } else if (attempt < PUSH_MAX_RETRIES && isRetryablePushError(code)) {
           retryTokens.push(token);
+          retryableSet.add(token);
           eventStatus = "retry";
+        } else if (isRetryablePushError(code)) {
+          // Retryable code but no internal attempts remain → defer to the
+          // outbox-level retry (transient failure stays retryable, §3).
+          retryableSet.add(token);
+          permanentSet.delete(token);
+          eventStatus = "retry";
+        } else {
+          permanentSet.add(token);
+          retryableSet.delete(token);
         }
 
         eventRows.push({
@@ -730,9 +804,7 @@ async function dispatchPushNotification(notification) {
           userId,
           pushToken: token,
           platform: "fcm",
-          channelId: notification?.payload?.requiresAction
-            ? "maslaki_action_required_v2"
-            : "maslaki_live_updates",
+          channelId: resolveEventChannelId(notification),
           target: resolvedTarget,
           eventStatus,
           errorCode: code || null,
@@ -810,6 +882,60 @@ async function dispatchPushNotification(notification) {
     target: resolvedTarget,
     failedEvents: totalFailedEvents,
   });
+
+  // Finalize the truthful per-token disposition. accepted/dead win over
+  // retryable/permanent; whatever remains unaccounted is a permanent failure.
+  for (const t of acceptedSet) {
+    retryableSet.delete(t);
+    permanentSet.delete(t);
+  }
+  for (const t of staleTokens) {
+    retryableSet.delete(t);
+    permanentSet.delete(t);
+  }
+  deliveryResult.acceptedTokens = acceptedSet.size;
+  deliveryResult.deadTokens = staleTokens.size;
+  deliveryResult.retryableFailures = retryableSet.size;
+  deliveryResult.permanentFailures = permanentSet.size;
+  deliveryResult.failedTokens = permanentSet.size + staleTokens.size;
+  return deliveryResult;
+}
+
+// §4: allow-listed urgent Android channels. The generic mapper must NOT replace
+// a critical operational event's channel with maslaki_live_updates /
+// maslaki_action_required_v2. Only these authoritative channel IDs are honored
+// from the event contract; arbitrary client-provided IDs are ignored.
+const URGENT_CHANNEL_ALLOWLIST = new Set([
+  "maslaki_courier_assignments_urgent_v2",
+  "maslaki_store_orders_urgent_v2",
+]);
+
+function resolveEventChannelId(notification) {
+  const requested = String(notification?.payload?.urgentChannelId || "").trim();
+  if (URGENT_CHANNEL_ALLOWLIST.has(requested)) return requested;
+  return notification?.payload?.requiresAction
+    ? "maslaki_action_required_v2"
+    : "maslaki_live_updates";
+}
+
+/**
+ * §3: awaited push delivery. Sends `notification` and RETURNS a structured,
+ * truthful provider result. Unlike queuePushNotification (fire-and-forget), the
+ * caller can record an accurate outbox state from the result.
+ */
+export async function dispatchNotificationWithResult(notification) {
+  try {
+    const result = await dispatchPushNotification(notification);
+    return result || emptyDeliveryResult();
+  } catch (error) {
+    // A total exception is a retryable failure, not acceptance.
+    return emptyDeliveryResult({
+      totalTokens: 0,
+      retryableFailures: 1,
+      exception: true,
+      errorCode: String(error?.code || error?.message || "dispatch_exception").slice(0, 64),
+    });
+  }
 }
 
 function queuePushNotification(notification) {
@@ -977,6 +1103,83 @@ export async function createNotification({
   const enriched = await enrichPreparedNotificationAudiences([prepared]);
   const inserted = await insertPreparedNotifications(enriched);
   return finalizeCreatedNotification(inserted[0] || null);
+}
+
+/**
+ * §2 + §3: idempotently create ONE app_notification keyed by `eventId`, then
+ * await push delivery and return the app_notification id together with the
+ * truthful provider result. Safe to call again after a crash: the unique
+ * `event_id` index guarantees at most one notification row per event; a retry
+ * re-sends push (bounded by the outbox attempt policy) but never duplicates the
+ * in-app notification.
+ */
+export async function createNotificationAndAwaitDelivery({
+  userId,
+  type,
+  title,
+  body,
+  orderId,
+  merchantId,
+  payload,
+  eventId,
+}) {
+  if (!eventId) {
+    throw new Error("createNotificationAndAwaitDelivery requires eventId");
+  }
+  const prepared = prepareNotificationInsertRow({
+    userId,
+    type,
+    title,
+    body,
+    orderId,
+    merchantId,
+    payload: { ...(payload || {}), eventId },
+  });
+  if (!prepared) {
+    return { notificationId: null, created: false, delivery: emptyDeliveryResult() };
+  }
+  const [enriched] = await enrichPreparedNotificationAudiences([prepared]);
+
+  // Idempotent insert. If the row already exists (crash-retry), fetch it.
+  let row = (
+    await q(
+      `INSERT INTO app_notification
+        (user_id, order_id, merchant_id, type, title, body, payload, event_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)
+       ON CONFLICT (event_id) WHERE event_id IS NOT NULL DO NOTHING
+       RETURNING *`,
+      [
+        Number(enriched.userId),
+        enriched.orderId == null ? null : Number(enriched.orderId),
+        enriched.merchantId == null ? null : Number(enriched.merchantId),
+        enriched.type,
+        enriched.title,
+        enriched.body,
+        enriched.payloadJson,
+        String(eventId),
+      ]
+    )
+  ).rows[0];
+  const created = Boolean(row);
+  if (!row) {
+    row = (
+      await q(`SELECT * FROM app_notification WHERE event_id=$1 LIMIT 1`, [
+        String(eventId),
+      ])
+    ).rows[0];
+  }
+  const notification = toNotificationRow(row);
+  if (created && notification) {
+    void emitRealtimeToUser(Number(notification.user_id), "notification", {
+      notification,
+    });
+  }
+  const delivery = await dispatchNotificationWithResult(notification);
+  return {
+    notificationId: notification ? Number(notification.id) : null,
+    created,
+    delivery,
+  };
 }
 
 /**
