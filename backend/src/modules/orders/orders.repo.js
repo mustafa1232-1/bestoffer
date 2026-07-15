@@ -38,6 +38,10 @@ import {
   normalizeDeliveryAssignmentStatus,
 } from "./delivery-assignment.logic.js";
 import { requestDeliveryAssignmentRecovery } from "./delivery-assignment.worker.js";
+import {
+  ensureDeliveryJobForGroup,
+  recomputeGroupReadiness,
+} from "../delivery/delivery-job.service.js";
 import { directAssignDeliveryOrderTx } from "../commerce/commerce.repo.js";
 import crypto from "crypto";
 import {
@@ -2749,6 +2753,12 @@ export async function createOrderGroupWithItems({
       [Number(orderGroup.id), status]
     );
 
+    // Delivery closure §2: create the authoritative grouped delivery job + one
+    // pickup stop per child order in the SAME checkout transaction. Idempotent
+    // on retries. The job stays PENDING_STORES until stores accept — no courier
+    // is assigned here.
+    await ensureDeliveryJobForGroup(client, Number(orderGroup.id));
+
     await client.query("COMMIT");
 
     queueOrderSideEffect(async () => {
@@ -3945,9 +3955,28 @@ export async function updateOwnerOrderStatus(
       nextStatus: String(status),
       reason: `owner_status_transition:${String(status || "").trim() || "updated"}`,
     });
+
+    // Delivery closure §3: for a multi-store group child, keep the grouped
+    // delivery job in sync with this store's acceptance/cancellation and
+    // recompute grouped readiness inside the SAME transaction. When every active
+    // child is accepted the job flips to READY_FOR_ASSIGNMENT; when the last
+    // active child is cancelled it flips to CANCELLED. The grouped worker (not
+    // the per-child worker) then assigns exactly one courier.
+    const orderGroupId = updated.order_group_id
+      ? Number(updated.order_group_id)
+      : null;
+    if (orderGroupId) {
+      await ensureDeliveryJobForGroup(client, orderGroupId);
+      await recomputeGroupReadiness(client, orderGroupId);
+    }
+
     await client.query("COMMIT");
 
-    if (["cancelled", "delivered", "ready_for_delivery"].includes(String(status))) {
+    const shouldTriggerRecovery =
+      ["cancelled", "delivered", "ready_for_delivery"].includes(String(status)) ||
+      (orderGroupId != null &&
+        ["approved", "preparing"].includes(String(status)));
+    if (shouldTriggerRecovery) {
       void requestDeliveryAssignmentRecovery({ limit: 25 }).catch((error) => {
         console.error("[delivery-assignment] recovery trigger failed", {
           orderId: Number(orderId),

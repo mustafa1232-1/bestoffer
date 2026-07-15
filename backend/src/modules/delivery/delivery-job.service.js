@@ -23,15 +23,22 @@ const CANCELLED_CHILD_STATUSES = new Set([
 
 // "Accepted and progressing" child states — a group is READY_FOR_ASSIGNMENT only
 // when every active child order has reached at least store acceptance.
+//
+// NOTE: the real owner acceptance transition (order-flow.logic.js) uses
+// `approved` as the "store accepted" state, so it MUST be included here or a
+// group created through the production flow would never become ready.
 const ACCEPTED_CHILD_STATUSES = new Set([
+  "approved",
   "accepted_by_store",
   "preparing",
   "ready_for_delivery",
+  "ready_for_pickup",
   "courier_requested",
   "courier_assigned",
   "picked_up",
   "on_the_way",
   "arrived",
+  "delivered",
 ]);
 
 export const DEFAULT_PRESENCE_FRESHNESS_SEC = 90;
@@ -117,14 +124,21 @@ export async function recomputeGroupReadiness(client, orderGroupId) {
   const active = children.filter((c) => !isCancelled(c.status));
   const ready =
     active.length > 0 && active.every((c) => isAccepted(c.status));
-  const next = ready ? "READY_FOR_ASSIGNMENT" : "PENDING_STORES";
+  // No active child remains (every store cancelled) → the grouped job is dead.
+  const next =
+    active.length === 0
+      ? "CANCELLED"
+      : ready
+        ? "READY_FOR_ASSIGNMENT"
+        : "PENDING_STORES";
   await client.query(
     `UPDATE delivery_job
         SET assignment_status = CASE
-              WHEN assignment_status IN ('ASSIGNED','REASSIGNING','CANCELLED','FAILED')
+              WHEN assignment_status IN ('ASSIGNED','REASSIGNING','FAILED')
               THEN assignment_status ELSE $2 END,
             lifecycle_status = CASE
-              WHEN lifecycle_status IN ('ASSIGNED','CANCELLED') THEN lifecycle_status ELSE $2 END,
+              WHEN lifecycle_status IN ('ASSIGNED') THEN lifecycle_status ELSE $2 END,
+            cancelled_at = CASE WHEN $2 = 'CANCELLED' THEN COALESCE(cancelled_at, NOW()) ELSE cancelled_at END,
             updated_at = NOW()
       WHERE order_group_id=$1`,
     [orderGroupId, next]
@@ -138,8 +152,18 @@ export async function recomputeGroupReadiness(client, orderGroupId) {
  */
 export async function selectEligibleCourier(
   client,
-  { presenceFreshnessSec = DEFAULT_PRESENCE_FRESHNESS_SEC } = {}
+  {
+    presenceFreshnessSec = DEFAULT_PRESENCE_FRESHNESS_SEC,
+    restrictToCourierUserIds = null,
+  } = {}
 ) {
+  // Optional allow-list: scopes selection to a specific candidate set. Used by
+  // targeted/manual dispatch (and to make assignment deterministic in tests
+  // that run against a shared database). Production passes nothing → global.
+  const scoped =
+    Array.isArray(restrictToCourierUserIds) && restrictToCourierUserIds.length > 0
+      ? restrictToCourierUserIds.map((v) => Number(v))
+      : null;
   const rows = (
     await client.query(
       `SELECT p.courier_user_id,
@@ -148,7 +172,9 @@ export async function selectEligibleCourier(
               EXTRACT(EPOCH FROM (NOW()-p.recorded_at)) AS presence_age
          FROM courier_presence p
          JOIN courier_profile cp ON cp.user_id=p.courier_user_id
-        ORDER BY p.recorded_at DESC`
+        ${scoped ? "WHERE p.courier_user_id = ANY($1)" : ""}
+        ORDER BY p.recorded_at DESC`,
+      scoped ? [scoped] : []
     )
   ).rows;
 
@@ -296,6 +322,136 @@ export async function assignDeliveryJobTx(
   );
 
   return { job: updated, stops, alreadyAssigned: false };
+}
+
+// Grouped assignment statuses the production worker is allowed to act on.
+const WORKER_ASSIGNABLE_STATUSES = [
+  "READY_FOR_ASSIGNMENT",
+  "PENDING_NO_DRIVER",
+  "REASSIGNING",
+];
+
+/**
+ * Worker loader (§4). Returns order_group_ids of grouped jobs that still need a
+ * courier, locked with FOR UPDATE SKIP LOCKED so parallel workers never contend
+ * on the same job. Callers process each id in its own transaction.
+ */
+export async function loadAssignableGroupOrderIds(
+  client,
+  limit = 25,
+  { orderGroupIds = null } = {}
+) {
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25));
+  const scopedGroups =
+    Array.isArray(orderGroupIds) && orderGroupIds.length > 0
+      ? orderGroupIds.map((v) => Number(v))
+      : null;
+  const rows = (
+    await client.query(
+      `SELECT order_group_id
+         FROM delivery_job
+        WHERE assignment_status = ANY($1)
+          ${scopedGroups ? "AND order_group_id = ANY($3)" : ""}
+        ORDER BY updated_at ASC, id ASC
+        LIMIT $2
+        FOR UPDATE SKIP LOCKED`,
+      scopedGroups
+        ? [WORKER_ASSIGNABLE_STATUSES, safeLimit, scopedGroups]
+        : [WORKER_ASSIGNABLE_STATUSES, safeLimit]
+    )
+  ).rows;
+  return rows.map((r) => Number(r.order_group_id));
+}
+
+/**
+ * Process ONE grouped job to a terminal per-attempt outcome, inside the caller's
+ * transaction (§4). Refreshes the job/stops from the current child-order state,
+ * recomputes readiness, selects a single eligible courier, and assigns
+ * atomically. On a concurrency conflict it transparently retries with the next
+ * eligible courier instead of failing the job. When no courier is eligible the
+ * job is parked at PENDING_NO_DRIVER (no false-assigned state).
+ *
+ * Returns one of:
+ *   { status: 'ASSIGNED', courierUserId, job, stops }
+ *   { status: 'ALREADY_ASSIGNED', job }
+ *   { status: 'PENDING_NO_DRIVER', excluded }
+ *   { status: 'CANCELLED' | 'NOT_READY', assignmentStatus }
+ */
+export async function runGroupedAssignmentForGroupTx(
+  client,
+  orderGroupId,
+  {
+    presenceFreshnessSec = DEFAULT_PRESENCE_FRESHNESS_SEC,
+    maxCourierAttempts = 5,
+    restrictToCourierUserIds = null,
+  } = {}
+) {
+  await ensureDeliveryJobForGroup(client, orderGroupId);
+  const readiness = await recomputeGroupReadiness(client, orderGroupId);
+
+  const job = (
+    await client.query(
+      "SELECT * FROM delivery_job WHERE order_group_id=$1",
+      [orderGroupId]
+    )
+  ).rows[0];
+  if (!job) return { status: "NOT_READY", assignmentStatus: null };
+
+  if (job.assignment_status === "ASSIGNED" && Number(job.delivery_user_id) > 0) {
+    return { status: "ALREADY_ASSIGNED", job };
+  }
+  if (readiness === "CANCELLED" || job.assignment_status === "CANCELLED") {
+    return { status: "CANCELLED", assignmentStatus: job.assignment_status };
+  }
+  if (!["READY_FOR_ASSIGNMENT", "PENDING_NO_DRIVER"].includes(job.assignment_status)) {
+    return { status: "NOT_READY", assignmentStatus: job.assignment_status };
+  }
+
+  const tried = new Set();
+  let lastExcluded = [];
+  for (let attempt = 0; attempt < maxCourierAttempts; attempt += 1) {
+    const { courierUserId, excluded } = await selectEligibleCourier(client, {
+      presenceFreshnessSec,
+      restrictToCourierUserIds,
+    });
+    lastExcluded = excluded;
+    if (!courierUserId || tried.has(courierUserId)) {
+      break;
+    }
+    tried.add(courierUserId);
+    try {
+      const result = await assignDeliveryJobTx(client, {
+        orderGroupId,
+        courierUserId,
+        idempotencyKey: `grp-${job.id}`,
+      });
+      if (result.alreadyAssigned) return { status: "ALREADY_ASSIGNED", job: result.job };
+      return {
+        status: "ASSIGNED",
+        courierUserId,
+        job: result.job,
+        stops: result.stops,
+      };
+    } catch (err) {
+      // Another worker/courier won the row, or the courier just became busy —
+      // retry with the next eligible courier rather than failing the job.
+      // (NO_ACTIVE_PICKUPS / DELIVERY_JOB_NOT_READY are terminal → rethrow.)
+      if (err?.code === "ASSIGNMENT_CONFLICT") {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  // No courier could be assigned this round → park at PENDING_NO_DRIVER.
+  await client.query(
+    `UPDATE delivery_job
+        SET assignment_status='PENDING_NO_DRIVER', lifecycle_status='PENDING_NO_DRIVER',
+            assignment_attempt_count=assignment_attempt_count+1, updated_at=NOW()
+      WHERE order_group_id=$1 AND assignment_status IN ('READY_FOR_ASSIGNMENT','PENDING_NO_DRIVER','REASSIGNING')`,
+    [orderGroupId]
+  );
+  return { status: "PENDING_NO_DRIVER", excluded: lastExcluded };
 }
 
 /**

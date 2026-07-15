@@ -73,8 +73,52 @@ consistent multi-child assignment, the two sides disagreed.
 Existing delivery suite (21 tests) still passes → the single-order flow is not
 regressed by the index change.
 
-## Not yet done in this pass (honest)
-Flutter Courier grouped-job models/screens, Store/User assignment-view wiring,
-the outbox *worker* + FCM send, session refresh, and the full Store release audit
-are separate large layers. Device/iOS/signed-release/Railway verification are
-externally BLOCKED. See the closure report.
+## Production integration (second pass — the isolation is now closed)
+The grouped service is no longer isolated from production. It is wired into the
+real order lifecycle:
+
+- **Checkout (§2)** — `createOrderGroupWithItems` now calls
+  `ensureDeliveryJobForGroup` inside the checkout transaction, so every
+  multi-store group gets its `delivery_job` + one `delivery_pickup_stop` per
+  child atomically (job starts `PENDING_STORES`, no premature courier).
+- **Store acceptance/cancellation (§3)** — `updateOwnerOrderStatus` now, for a
+  group child, re-syncs the pickup stop and `recomputeGroupReadiness` inside the
+  same transaction. Readiness flips to `READY_FOR_ASSIGNMENT` only when every
+  active child is accepted (note: the real owner flow uses `approved`, so that
+  status is part of the accepted set); it flips to `CANCELLED` when the last
+  active child is cancelled.
+- **Assignment worker cutover (§4)** — `loadPendingAssignmentOrders` now excludes
+  `order_scope = 'group_child'`, so the per-child worker can never partially
+  assign a group. A new `processGroupedAssignmentBatch` pass loads assignable
+  `delivery_job`s (`FOR UPDATE SKIP LOCKED`), assigns one courier per job via the
+  authoritative transaction (conflict-retry to the next eligible courier), and is
+  invoked from the existing recovery batch + startup worker.
+- **Notification outbox worker (§11)** — `notification-outbox.worker.js` drains
+  `notification_outbox` rows through the existing notification infrastructure
+  with `FOR UPDATE SKIP LOCKED`, `eventId` idempotency, bounded exponential
+  backoff, and `DEAD_LETTER`. Registered in `server.js`
+  (`startNotificationOutboxWorker`).
+
+### Proof — real end-to-end test (§16)
+`src/tests/delivery.grouped-e2e.test.js` drives the REAL path (it never calls
+`assignDeliveryJobTx` directly): a real two-store checkout via
+`createOrderGroupWithItems` → real `updateOwnerOrderStatus` acceptance for both
+stores → the real `processGroupedAssignmentBatch` worker. It asserts one job, one
+courier, two stops, both children mirroring the courier, the courier grouped
+query returning one job (`numberOfStores=2`), the User view active, the outbox
+event present, and that the per-order worker excludes the group children.
+
+Full backend suite: **324/324 passing** (was 324 before + this work; existing
+single-order delivery flow unaffected).
+
+## Not yet done (honest — next layers)
+- **§6 authoritative `courier_assignment` record** — grouped assignment updates
+  `delivery_job` + mirrors `customer_order.delivery_user_id`, but does not yet
+  create ONE grouped `courier_assignment` row. Legacy per-child rows are
+  intentionally NOT created (the e2e asserts their absence).
+- **§9/§10 Flutter Courier + Store/User apps** — grouped-job models, screens,
+  lifecycle controls, cache invalidation.
+- **§12 Android urgent channels** + foreground/background/terminated handling.
+- **§13/§14 presence cadence + session persistence** audit.
+- **§15 full Store release audit.**
+- Device / iOS / signed-release / Railway verification remain externally BLOCKED.

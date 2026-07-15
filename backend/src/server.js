@@ -20,6 +20,10 @@ import {
   startDeliveryAssignmentRecoveryWorker,
   stopDeliveryAssignmentRecoveryWorker,
 } from "./modules/orders/delivery-assignment.worker.js";
+import {
+  startNotificationOutboxWorker,
+  stopNotificationOutboxWorker,
+} from "./modules/delivery/notification-outbox.worker.js";
 import { startPaidUpgradeMaintenanceWorker, stopPaidUpgradeMaintenanceWorker } from "./modules/paid-upgrades/paid-upgrades.service.js";
 import { startTaxiLifecycleWorker } from "./modules/taxi/taxi.service.js";
 import { seedOpsRunbooks } from "./ops/runbooksLoader.js";
@@ -288,6 +292,7 @@ async function start() {
   startOrderAttentionReminderWorker();
   startInventoryReservationWorker();
   startDeliveryAssignmentRecoveryWorker();
+  startNotificationOutboxWorker();
   startPaidUpgradeMaintenanceWorker();
 
   const server = app.listen(port, host, () => {
@@ -342,6 +347,7 @@ async function shutdown(reason, exitCode = 0) {
   stopOrderAttentionReminderWorker();
   stopInventoryReservationWorker();
   await stopDeliveryAssignmentRecoveryWorker();
+  await stopNotificationOutboxWorker();
   stopSocialStreamReconciliationWorker();
   stopPaidUpgradeMaintenanceWorker();
 

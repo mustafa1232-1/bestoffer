@@ -53,7 +53,7 @@ test("FIX: one grouped job, one courier, two pickup stops, courier sees it", asy
     const readiness = await recomputeGroupReadiness(c, fx.orderGroupId);
     assert.equal(readiness, "READY_FOR_ASSIGNMENT");
 
-    const { courierUserId, excluded } = await selectEligibleCourier(c);
+    const { courierUserId, excluded } = await selectEligibleCourier(c, { restrictToCourierUserIds: [fx.courierId] });
     assert.equal(courierUserId, fx.courierId, `courier chosen; excluded=${JSON.stringify(excluded)}`);
 
     const result = await assignDeliveryJobTx(c, {
@@ -153,7 +153,7 @@ test("PENDING_NO_DRIVER: no eligible courier → not assigned, no false state", 
     await recomputeGroupReadiness(c, fx.orderGroupId);
     await c.query("COMMIT");
 
-    const { courierUserId, excluded } = await selectEligibleCourier(c);
+    const { courierUserId, excluded } = await selectEligibleCourier(c, { restrictToCourierUserIds: [fx.courierId] });
     assert.equal(courierUserId, null);
     assert.ok(excluded.some((e) => e.courierUserId === fx.courierId));
 
@@ -179,7 +179,7 @@ test("partial cancellation: cancelled child removed from active pickups", async 
     await ensureDeliveryJobForGroup(c, fx.orderGroupId);
     const readiness = await recomputeGroupReadiness(c, fx.orderGroupId);
     assert.equal(readiness, "READY_FOR_ASSIGNMENT", "still ready with 1 active store");
-    const { courierUserId } = await selectEligibleCourier(c);
+    const { courierUserId } = await selectEligibleCourier(c, { restrictToCourierUserIds: [fx.courierId] });
     const r = await assignDeliveryJobTx(c, {
       orderGroupId: fx.orderGroupId,
       courierUserId,
