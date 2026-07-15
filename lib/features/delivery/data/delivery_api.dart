@@ -544,7 +544,9 @@ class DeliveryApi {
     final response = await dio.post(
       '/api/delivery/delivery-jobs/$deliveryJobId/$action',
       data: {
-        if (expectedVersion != null) 'expectedVersion': expectedVersion,
+        ...?(expectedVersion == null
+            ? null
+            : <String, dynamic>{'expectedVersion': expectedVersion}),
         ...?extraBody,
       },
     );
