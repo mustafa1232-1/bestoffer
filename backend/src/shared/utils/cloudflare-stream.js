@@ -243,10 +243,17 @@ export async function createCloudflareStreamUploadSession({
   const safeFileName = String(filename || "").trim().slice(0, 180);
   const safeMimeType = String(mimeType || "").trim().slice(0, 120);
   const safeSourceType = String(sourceType || "").trim().slice(0, 40);
+  // Cloudflare's direct-user tus flow expects the reserved maximum duration to
+  // be present in metadata. Without it, the generated upload URL can remain
+  // authenticated/unsupported for browser-side uploads.
+  const safeMaxDurationSeconds = 3600;
   if (safeTitle) metadata.push(`title ${encodeUploadMetadataValue(safeTitle)}`);
   if (safeFileName) metadata.push(`name ${encodeUploadMetadataValue(safeFileName)}`);
   if (safeMimeType) metadata.push(`mimeType ${encodeUploadMetadataValue(safeMimeType)}`);
   if (safeSourceType) metadata.push(`sourceType ${encodeUploadMetadataValue(safeSourceType)}`);
+  metadata.push(
+    `maxDurationSeconds ${encodeUploadMetadataValue(String(safeMaxDurationSeconds))}`
+  );
   if (metadata.length > 0) {
     headers["Upload-Metadata"] = metadata.join(",");
   }
