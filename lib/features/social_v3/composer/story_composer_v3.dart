@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import 'package:social_core/local_media_file.dart';
 
 import '../../social/models/social_story_document.dart';
+import '../../social/state/social_controller.dart';
 import '../../social/state/social_story_draft_controller.dart';
 import '../../social/ui/social_content_navigation.dart';
 import '../../social/ui/widgets/social_story_canvas.dart';
@@ -36,7 +37,7 @@ class StoryComposerV3 extends ConsumerStatefulWidget {
   final StoryComposerScope scope;
   final bool audienceScopeSupported;
   final Future<bool> Function(String caption, StoryComposerScope scope)?
-      onPublish;
+  onPublish;
   final void Function(String caption)? onSaveDraft;
 
   static Route<void> route(
@@ -70,7 +71,8 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
   StoryComposerScope get _scope => widget.scope;
 
   bool get isScopedPublishBlocked =>
-      _scope.scope != StoryAudienceScope.global && !widget.audienceScopeSupported;
+      _scope.scope != StoryAudienceScope.global &&
+      !widget.audienceScopeSupported;
 
   @override
   void initState() {
@@ -158,9 +160,7 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
       widget.onSaveDraft?.call(_captionController.text.trim());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('أضف نصاً أو وسائط قبل نشر القصة.'),
-        ),
+        const SnackBar(content: Text('أضف نصاً أو وسائط قبل نشر القصة.')),
       );
       return;
     }
@@ -169,13 +169,26 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
       _publishing = true;
     });
 
-    final ok = await (widget.onPublish?.call(publishCaption, _scope) ??
-        Future.value(true));
+    final ok =
+        await (widget.onPublish?.call(publishCaption, _scope) ??
+            Future.value(true));
     if (!mounted) return;
     if (ok) {
       Navigator.of(context).maybePop(true);
       return;
     }
+    // §5: never fail silently. Surface the authoritative reason so the user can
+    // retry (the draft is preserved because we do not pop).
+    final err = ref.read(socialControllerProvider).error;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          (err != null && err.trim().isNotEmpty)
+              ? err
+              : 'تعذّر نشر القصة. تحقّق من الاتصال وحاول مرة أخرى.',
+        ),
+      ),
+    );
     setState(() {
       _publishing = false;
     });
@@ -295,7 +308,8 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                 borderRadius: BorderRadius.zero,
                 baseMedia: _buildBaseMedia(draft),
                 onSelectLayer: notifier.selectLayer,
-                onLayerChanged: (layer) => notifier.updateLayer(layer.id, layer),
+                onLayerChanged: (layer) =>
+                    notifier.updateLayer(layer.id, layer),
                 onDrawStroke: notifier.addDrawStroke,
                 onLayerTap: (layer) {
                   if (layer.type == SocialStoryLayerType.mention &&
@@ -395,7 +409,8 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                       );
                     },
                     onReplaceMedia: _replaceMedia,
-                    onClearSelection: () => _setTool(SocialStoryComposerTool.none),
+                    onClearSelection: () =>
+                        _setTool(SocialStoryComposerTool.none),
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -432,7 +447,9 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                     const Spacer(),
                     TextButton(
                       onPressed: () async {
-                        widget.onSaveDraft?.call(_captionController.text.trim());
+                        widget.onSaveDraft?.call(
+                          _captionController.text.trim(),
+                        );
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('تم حفظ المسودة')),
@@ -453,7 +470,8 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
               ],
             ),
           ),
-          if ((_seeded && _captionController.text.trim().isNotEmpty &&
+          if ((_seeded &&
+                  _captionController.text.trim().isNotEmpty &&
                   draft.layers.isEmpty &&
                   draft.mode == SocialStoryComposerMode.text) ||
               (_captionController.text.trim().isNotEmpty &&
@@ -573,8 +591,8 @@ class _SharedReelPreview extends StatelessWidget {
     final topLeft = reel.authorName?.trim().isNotEmpty == true
         ? reel.authorName!.trim()
         : (reel.authorHandle?.trim().isNotEmpty == true
-            ? reel.authorHandle!.trim()
-            : 'Original reel');
+              ? reel.authorHandle!.trim()
+              : 'Original reel');
 
     final media = presentation.isVertical
         ? SocialSafeImage(
@@ -769,10 +787,7 @@ class _PublishButton extends StatelessWidget {
         foregroundColor: Colors.black,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       ),
-      child: const Text(
-        'نشر',
-        style: TextStyle(fontWeight: FontWeight.w800),
-      ),
+      child: const Text('نشر', style: TextStyle(fontWeight: FontWeight.w800)),
     );
   }
 }

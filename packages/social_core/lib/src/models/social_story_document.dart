@@ -353,16 +353,16 @@ class SocialStoryDraft {
     draftId: DateTime.now().microsecondsSinceEpoch.toString(),
     version: 2,
     mode: SocialStoryComposerMode.text,
-      caption: '',
-      mediaPath: null,
-      mediaName: null,
-      mediaMimeType: null,
-      filterId: null,
-      effectId: null,
-      captureSource: null,
-      background: const SocialStoryBackground(
-        type: SocialStoryBackgroundType.gradient,
-        primaryColor: '#1E3A8A',
+    caption: '',
+    mediaPath: null,
+    mediaName: null,
+    mediaMimeType: null,
+    filterId: null,
+    effectId: null,
+    captureSource: null,
+    background: const SocialStoryBackground(
+      type: SocialStoryBackgroundType.gradient,
+      primaryColor: '#1E3A8A',
       secondaryColor: '#0F766E',
       imageUrl: null,
     ),
@@ -500,9 +500,11 @@ class SocialStoryDraft {
     if (effectId != null) 'effectId': effectId,
     if (captureSource != null) 'captureSource': captureSource,
     if ((timeMoodKey ?? '').trim().isNotEmpty) 'timeMoodKey': timeMoodKey,
-    if ((placePulseLabel ?? '').trim().isNotEmpty) 'placePulseLabel': placePulseLabel,
+    if ((placePulseLabel ?? '').trim().isNotEmpty)
+      'placePulseLabel': placePulseLabel,
     if (hasMaslakiSeal) 'hasMaslakiSeal': true,
-    if ((maslakiMoodKey ?? '').trim().isNotEmpty) 'maslakiMoodKey': maslakiMoodKey,
+    if ((maslakiMoodKey ?? '').trim().isNotEmpty)
+      'maslakiMoodKey': maslakiMoodKey,
     'background': background.toJson(),
     if (attachment != null) 'attachment': attachment!.toJson(),
     'layers': layers.map((layer) => layer.toJson()).toList(growable: false),
@@ -552,12 +554,35 @@ class SocialStoryDraft {
   LocalMediaFile? buildLocalMediaFile() {
     final path = (mediaPath ?? '').trim();
     if (path.isEmpty) return null;
+    // The upload path chooses image (R2) vs video (Cloudflare Stream) purely from
+    // the mime type. Android content-URI pickers often return a null/empty mime,
+    // which would send a video down the image path. Infer a concrete mime from
+    // the file extension so a video Story always reaches Stream.
+    var mime = (mediaMimeType ?? '').trim();
+    if (mime.isEmpty || !mime.contains('/')) {
+      mime = _inferMimeFromName(path) ?? _inferMimeFromName(mediaName) ?? mime;
+    }
     return LocalMediaFile(
       name: mediaName ?? 'story-media',
       path: path,
       bytes: null,
-      mimeType: mediaMimeType,
+      mimeType: mime.isEmpty ? null : mime,
     );
+  }
+
+  static String? _inferMimeFromName(String? value) {
+    final v = (value ?? '').trim().toLowerCase().split('?').first;
+    if (v.isEmpty) return null;
+    if (v.endsWith('.mp4') || v.endsWith('.m4v')) return 'video/mp4';
+    if (v.endsWith('.mov')) return 'video/quicktime';
+    if (v.endsWith('.webm')) return 'video/webm';
+    if (v.endsWith('.mkv')) return 'video/x-matroska';
+    if (v.endsWith('.jpg') || v.endsWith('.jpeg')) return 'image/jpeg';
+    if (v.endsWith('.png')) return 'image/png';
+    if (v.endsWith('.webp')) return 'image/webp';
+    if (v.endsWith('.gif')) return 'image/gif';
+    if (v.endsWith('.heic')) return 'image/heic';
+    return null;
   }
 }
 

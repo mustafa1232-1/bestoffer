@@ -22,15 +22,21 @@ SocialMediaAsset _asset({
     posterUrl: posterUrl,
     playbackUrl: playbackUrl,
     thumbnailUrl: thumbnailUrl,
+    aspectRatio: null,
     durationMs: durationMs,
+    failureCode: null,
     processingStatus: processingStatus,
+    createdAt: null,
   );
 }
 
 void main() {
   group('isStreamingManifestUrl', () {
     test('detects HLS m3u8 with and without query', () {
-      expect(isStreamingManifestUrl('https://x/abc/manifest/video.m3u8'), isTrue);
+      expect(
+        isStreamingManifestUrl('https://x/abc/manifest/video.m3u8'),
+        isTrue,
+      );
       expect(isStreamingManifestUrl('https://x/v.m3u8?token=1'), isTrue);
       expect(isStreamingManifestUrl('https://x/v?format=hls'), isTrue);
     });
@@ -45,11 +51,16 @@ void main() {
   group('poster resolution never yields a playback URL', () {
     test('reel with only a playback HLS url has NO poster (falls back)', () {
       final p = SocialMediaPresentation.fromAsset(
-        _asset(playbackUrl: 'https://videodelivery.net/uid/manifest/video.m3u8'),
+        _asset(
+          playbackUrl: 'https://videodelivery.net/uid/manifest/video.m3u8',
+        ),
         kind: SocialMediaKind.reel,
       );
-      expect(p.posterImageUrl, isNull,
-          reason: 'a manifest must never become a poster');
+      expect(
+        p.posterImageUrl,
+        isNull,
+        reason: 'a manifest must never become a poster',
+      );
       expect(p.videoPlaybackUrl, isNotNull);
       expect(p.playbackType, SocialPlaybackType.hls);
     });
@@ -111,11 +122,16 @@ void main() {
 
   group('processing status semantics', () {
     test('maps common values', () {
-      expect(SocialProcessingStatusX.parse('processing'),
-          SocialProcessingStatus.processing);
+      expect(
+        SocialProcessingStatusX.parse('processing'),
+        SocialProcessingStatus.processing,
+      );
       expect(SocialProcessingStatusX.parse('READY').allowsPlayback, isTrue);
       expect(SocialProcessingStatusX.parse('draft').isCreatorOnly, isTrue);
-      expect(SocialProcessingStatusX.parse('deleted').isPublicEligible, isFalse);
+      expect(
+        SocialProcessingStatusX.parse('deleted').isPublicEligible,
+        isFalse,
+      );
       // Legacy empty status stays playable.
       expect(SocialProcessingStatusX.parse('').allowsPlayback, isTrue);
     });
@@ -142,8 +158,9 @@ void main() {
       expect(tester.takeException(), isA<FlutterError>());
     });
 
-    testWidgets('renders placeholder for null url without throwing',
-        (tester) async {
+    testWidgets('renders placeholder for null url without throwing', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const MaterialApp(home: SocialSafeImage(imageUrl: null)),
       );

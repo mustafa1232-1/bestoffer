@@ -1008,6 +1008,21 @@ export async function insertStory({
   return r.rows[0] || null;
 }
 
+/// Idempotency lookup: the most recent story this user created from a given
+/// media asset. Used so a create retry with the same mediaAssetId returns the
+/// existing Story instead of inserting a duplicate.
+export async function findStoryIdByOwnerAndAsset(userId, mediaAssetId) {
+  if (mediaAssetId == null) return null;
+  const r = await q(
+    `SELECT id FROM social_story
+      WHERE user_id = $1 AND media_asset_id = $2
+      ORDER BY id DESC
+      LIMIT 1`,
+    [Number(userId), Number(mediaAssetId)]
+  );
+  return r.rows[0]?.id == null ? null : Number(r.rows[0].id);
+}
+
 export async function findStoryById({
   viewerUserId,
   storyId,

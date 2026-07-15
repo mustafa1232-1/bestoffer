@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -133,6 +135,7 @@ class SocialController extends StateNotifier<SocialState> {
     required String sourceType,
     required LocalMediaFile? mediaFile,
     required String title,
+    bool waitForReady = true,
   }) async {
     if (mediaFile == null || !mediaFile.isVideo) return null;
     final uploader = SocialStreamUploadService(ref.read(socialApiProvider));
@@ -140,6 +143,8 @@ class SocialController extends StateNotifier<SocialState> {
       mediaFile: mediaFile,
       sourceType: sourceType,
       title: title,
+      // Stories publish while PROCESSING — do not block on encoding.
+      waitForReady: waitForReady,
     );
     return asset.id;
   }
@@ -205,7 +210,9 @@ class SocialController extends StateNotifier<SocialState> {
           .map((e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(growable: false);
 
-      final merged = loadingMore ? [...state.posts, ...parsed] : parsed;
+      final merged = loadingMore
+          ? _mergePosts(state.posts, parsed)
+          : _mergePosts(const <SocialPost>[], parsed);
       _safeSetState(
         state.copyWith(
           loadingPosts: silent ? state.loadingPosts : false,
@@ -326,8 +333,11 @@ class SocialController extends StateNotifier<SocialState> {
             sourceType: 'story',
             mediaFile: mediaFile,
             title: caption.isNotEmpty ? caption : 'story',
+            // A Story is published as soon as the video upload is accepted; it
+            // shows a PROCESSING state and is reconciled to READY afterwards.
+            waitForReady: false,
           );
-      await api.createStory(
+      final response = await api.createStory(
         caption: caption,
         mediaAssetId: resolvedAssetId,
         mediaFile: resolvedAssetId != null ? null : mediaFile,
@@ -336,7 +346,24 @@ class SocialController extends StateNotifier<SocialState> {
         audienceScopeCode: audienceScopeCode,
       );
       _safeSetState(state.copyWith(creatingStory: false));
-      await loadStories();
+
+      // §1: insert the authoritative created Story directly into the current
+      // user's group — no full loadStories()/loadPosts() reload.
+      final storyJson = response['story'];
+      if (storyJson is Map) {
+        final story = SocialStory.fromJson(
+          Map<String, dynamic>.from(storyJson),
+        );
+        _insertOrReplaceOwnStory(story);
+        // §2: if the video is still PROCESSING, reconcile only this asset.
+        final asset = story.asset;
+        if (asset?.id != null && asset?.isReady != true) {
+          unawaited(_reconcileStoryAsset(asset!.id!));
+        }
+      } else {
+        // Fallback only when the backend did not echo the story.
+        await loadStories(silent: true);
+      }
     } on DioException catch (e) {
       _safeSetState(
         state.copyWith(
@@ -356,6 +383,99 @@ class SocialController extends StateNotifier<SocialState> {
           error: mapAnyError(e, fallback: 'تعذر نشر الستوري.'),
         ),
       );
+    }
+  }
+
+  final Set<int> _reconcilingAssetIds = {};
+
+  /// Inserts/updates ONLY the current user's story group (§1). Dedupes by story
+  /// id and media asset id; preserves every other group; moves the current
+  /// user's group to the front.
+  void _insertOrReplaceOwnStory(SocialStory story) {
+    final user = ref.read(authControllerProvider).user;
+    if (user == null) return;
+    final groups = List<SocialStoryGroup>.of(state.stories);
+    final idx = groups.indexWhere((g) => g.userId == user.id);
+    if (idx >= 0) {
+      final g = groups[idx];
+      final stories = List<SocialStory>.of(g.stories)
+        ..removeWhere(
+          (s) =>
+              s.id == story.id ||
+              (story.asset?.id != null && s.asset?.id == story.asset?.id),
+        );
+      stories.insert(0, story);
+      groups.removeAt(idx);
+      groups.insert(
+        0,
+        SocialStoryGroup(
+          userId: g.userId,
+          author: g.author,
+          latestAt: story.createdAt ?? g.latestAt,
+          hasUnviewed: g.hasUnviewed,
+          stories: stories,
+        ),
+      );
+    } else {
+      groups.insert(
+        0,
+        SocialStoryGroup(
+          userId: user.id,
+          author: SocialAuthor(
+            id: user.id,
+            username: null,
+            fullName: user.fullName,
+            imageUrl: user.imageUrl,
+            phone: user.phone,
+            role: user.role,
+            badges: const [],
+            isResidentVerified: false,
+            isMerchantVerified: false,
+            isPremiumCreator: false,
+          ),
+          latestAt: story.createdAt,
+          hasUnviewed: false,
+          stories: [story],
+        ),
+      );
+    }
+    _safeSetState(state.copyWith(stories: groups));
+  }
+
+  /// §2: bounded, single-flight reconciliation for ONE processing media asset.
+  /// Polls only this asset (the backend reconcile worker refreshes it from
+  /// Cloudflare) and, when READY, pulls the authoritative story once. Stops on
+  /// terminal states, logout/account switch, disposal, or the attempt budget.
+  Future<void> _reconcileStoryAsset(int assetId) async {
+    if (assetId <= 0 || _reconcilingAssetIds.contains(assetId)) return;
+    _reconcilingAssetIds.add(assetId);
+    final ownerUserId = ref.read(authControllerProvider).user?.id;
+    try {
+      const maxAttempts = 20;
+      var delay = const Duration(seconds: 3);
+      for (var attempt = 0; attempt < maxAttempts; attempt += 1) {
+        await Future<void>.delayed(delay);
+        if (!mounted) return;
+        if (ref.read(authControllerProvider).user?.id != ownerUserId) return;
+        SocialMediaAsset? asset;
+        try {
+          asset = await ref.read(socialApiProvider).getMediaAsset(assetId);
+        } catch (_) {
+          // transient — keep trying within the budget
+        }
+        final status = (asset?.processingStatus ?? '').trim().toLowerCase();
+        if (asset?.isReady == true || status == 'ready') {
+          await loadStories(silent: true);
+          return;
+        }
+        if (status == 'failed' || status == 'rejected' || status == 'deleted') {
+          _safeSetState(state.copyWith(error: 'تعذّر تجهيز فيديو الستوري.'));
+          return;
+        }
+        delay = Duration(seconds: (delay.inSeconds + 2).clamp(3, 15));
+      }
+    } finally {
+      _reconcilingAssetIds.remove(assetId);
     }
   }
 
@@ -795,4 +915,25 @@ class SocialController extends StateNotifier<SocialState> {
 int? _parseInt(dynamic value) {
   if (value == null) return null;
   return int.tryParse('$value');
+}
+
+List<SocialPost> _mergePosts(
+  List<SocialPost> existing,
+  List<SocialPost> incoming,
+) {
+  if (existing.isEmpty) return incoming;
+  if (incoming.isEmpty) return existing;
+  final byId = <int, SocialPost>{for (final post in existing) post.id: post};
+  for (final post in incoming) {
+    byId[post.id] = post;
+  }
+  final merged = byId.values.toList(growable: false);
+  merged.sort((a, b) {
+    final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final timeCompare = bTime.compareTo(aTime);
+    if (timeCompare != 0) return timeCompare;
+    return b.id.compareTo(a.id);
+  });
+  return merged;
 }

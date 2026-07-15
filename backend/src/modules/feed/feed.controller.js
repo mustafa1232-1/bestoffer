@@ -667,10 +667,25 @@ export async function createStory(req, res, next) {
     const v = validateCreateStory(req.body || {});
     if (!v.ok) return badRequest(res, v.errors);
 
+    // Pass the FULL uploaded-file descriptor. prepareSocialMediaAsset needs the
+    // local path (for the Cloudflare Stream direct upload) and name/size, not
+    // just the public URL — dropping them broke the multipart video-story path.
     const media = req.file
       ? {
           url: buildUploadedFileUrl(req, req.file),
+          path: req.file.path || null,
+          name: req.file.originalname || req.file.filename || null,
+          filename: req.file.filename || null,
           mimetype: req.file.mimetype,
+          size: req.file.size || null,
+          width:
+            req.body?.mediaWidth == null ? null : Number(req.body.mediaWidth),
+          height:
+            req.body?.mediaHeight == null ? null : Number(req.body.mediaHeight),
+          durationMs:
+            req.body?.mediaDurationMs == null
+              ? null
+              : Number(req.body.mediaDurationMs),
         }
       : null;
 

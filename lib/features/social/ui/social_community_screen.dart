@@ -950,30 +950,40 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
             limit: 50,
           )
           .catchError((_) => const {'announcements': <dynamic>[]});
-
-      final feedResult = await publicFeedFuture;
-      final chatResult = hasSession
-          ? await _api.listCommunityChatMessages(
+      final chatFuture = hasSession
+          ? _api.listCommunityChatMessages(
               scopeType: _scopeType,
               scopeCode: _scopeCode,
               limit: 120,
             )
-          : const <String, dynamic>{'messages': <dynamic>[]};
-      final billsResult = hasSession
-          ? await _api.listCommunityBills(
+          : Future.value(const <String, dynamic>{'messages': <dynamic>[]});
+      final billsFuture = hasSession
+          ? _api.listCommunityBills(
               scopeType: _scopeType,
               scopeCode: _scopeCode,
               category: _billCategory,
               limit: 120,
             )
-          : const <String, dynamic>{'bills': <dynamic>[]};
-      final managersResult = hasSession
-          ? await _api.listCommunityManagers(
+          : Future.value(const <String, dynamic>{'bills': <dynamic>[]});
+      final managersFuture = hasSession
+          ? _api.listCommunityManagers(
               scopeType: _scopeType,
               scopeCode: _scopeCode,
             )
-          : const <String, dynamic>{'managers': <dynamic>[]};
-      final annResult = await announcementsFuture;
+          : Future.value(const <String, dynamic>{'managers': <dynamic>[]});
+
+      final results = await Future.wait([
+        publicFeedFuture,
+        chatFuture,
+        billsFuture,
+        managersFuture,
+        announcementsFuture,
+      ]);
+      final feedResult = results[0];
+      final chatResult = results[1];
+      final billsResult = results[2];
+      final managersResult = results[3];
+      final annResult = results[4];
 
       final feed = Map<String, dynamic>.from(feedResult);
       final chat = Map<String, dynamic>.from(chatResult);
@@ -1153,7 +1163,8 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
           scopeKey: 'community:$_scopeType:$_scopeCode',
           body: text,
           replyToMessageId: replyTo?.id,
-          attachmentFile: _voiceComposer.state.draft?.file ?? _chatAttachmentDraft,
+          attachmentFile:
+              _voiceComposer.state.draft?.file ?? _chatAttachmentDraft,
           attachmentDurationMs: _voiceComposer.state.draft?.durationMs,
           sharedEntityType: sharedDraft?.type,
           sharedEntityId: sharedDraft?.id,
@@ -2885,6 +2896,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
               ),
             for (final p in _posts) ...[
               SocialPostCardV2(
+                key: ValueKey(p.id),
                 post: p,
                 autoPlayVideoPreview: p.postKind == 'reel',
                 onOpenDetails: () => openSocialContent(

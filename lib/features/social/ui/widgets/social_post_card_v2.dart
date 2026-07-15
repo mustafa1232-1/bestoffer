@@ -219,15 +219,22 @@ class SocialPostCardV2 extends StatelessWidget {
               ],
               if (mediaItems.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: _InlineFeedMediaGalleryPreview(
-                    items: mediaItems,
-                    aspectRatio: isReel ? 9 / 16 : 4 / 5,
-                    autoPlay: autoPlayVideoPreview,
-                    fallbackColor: scheme.surfaceContainerHighest,
-                    cacheIdentity: 'post_${post.id}',
-                    cacheVersion: post.updatedAt?.toIso8601String(),
+                ConstrainedBox(
+                  // Bound the media height so a reel/portrait card never occupies
+                  // almost the whole screen inside the Community feed (§9).
+                  constraints: const BoxConstraints(maxHeight: 460),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: _InlineFeedMediaGalleryPreview(
+                      items: mediaItems,
+                      // Compact vertical preview for reels (4:5), not full-screen
+                      // 9:16; normal images use 4:5 too.
+                      aspectRatio: 4 / 5,
+                      autoPlay: false,
+                      fallbackColor: scheme.surfaceContainerHighest,
+                      cacheIdentity: 'post_${post.id}',
+                      cacheVersion: post.updatedAt?.toIso8601String(),
+                    ),
                   ),
                 ),
               ],
@@ -456,16 +463,20 @@ class _InlineFeedMediaContent extends StatelessWidget {
             ),
           ),
         if (isVideo && !autoPlay)
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.42),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.play_arrow_rounded,
-              color: Colors.white,
-              size: 28,
+          PositionedDirectional(
+            end: 10,
+            bottom: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.42),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: const Icon(
+                Icons.play_arrow_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
             ),
           )
         else if (isReel && autoPlay)
@@ -669,17 +680,17 @@ List<_PostMediaDisplayItem> _buildPostMediaDisplayItems(SocialPost post) {
         continue;
       }
       items.add(
-          _PostMediaDisplayItem(
-            posterUrl: posterUrl,
-            videoUrl: isVideo
+        _PostMediaDisplayItem(
+          posterUrl: posterUrl,
+          videoUrl: isVideo
               ? (media.asset?.playbackUrl ??
-                      media.asset?.normalizedUrl ??
-                      media.mediaUrl)
-                  ?.trim()
+                        media.asset?.normalizedUrl ??
+                        media.mediaUrl)
+                    ?.trim()
               : null,
-            isVideo: isVideo,
-            isReel: isReel,
-          ),
+          isVideo: isVideo,
+          isReel: isReel,
+        ),
       );
     }
     if (items.isNotEmpty) {

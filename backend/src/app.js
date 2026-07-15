@@ -77,6 +77,10 @@ import { activityAuditMiddleware } from "./shared/middleware/activity-audit.midd
 import { getRequestSigningRuntimeStatus } from "./modules/security/security.service.js";
 import { getUploadRuntimeStatus } from "./shared/utils/upload.js";
 import {
+  streamConfigHealth,
+  classifyStreamConfig,
+} from "./modules/feed/feed.stream-config.js";
+import {
   missingImagePng,
   resolveUploadFilePath,
   uploadsDir,
@@ -350,6 +354,10 @@ app.get("/health", async (req, res, next) => {
       },
       realtime,
       uploads: getUploadRuntimeStatus(),
+      // Config-presence for the media pipeline (no secret values) so the active
+      // runtime can be verified from outside.
+      stream: streamConfigHealth(),
+      streamConfig: classifyStreamConfig(),
       responseMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     });

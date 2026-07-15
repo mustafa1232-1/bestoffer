@@ -71,64 +71,71 @@ class _OkTransport implements TusTransport {
   @override
   Future<int> head(String u) async => offset;
   @override
-  Future<TusTransportResult> patch(String u,
-      {required int offset, required int length, required int total}) async {
+  Future<TusTransportResult> patch(
+    String u, {
+    required int offset,
+    required int length,
+    required int total,
+  }) async {
     this.offset = (this.offset + length).clamp(0, this.total);
     return TusTransportResult(
-        offset: this.offset, completed: this.offset >= this.total);
+      offset: this.offset,
+      completed: this.offset >= this.total,
+    );
   }
 }
 
 void main() {
-  test('picker → controller → real ReelUploadApiImpl → tus → poll → publish',
-      () async {
-    final adapter = _FakeHttpAdapter();
-    final dio = Dio(BaseOptions(baseUrl: 'https://api.test'))
-      ..httpClientAdapter = adapter;
+  test(
+    'picker → controller → real ReelUploadApiImpl → tus → poll → publish',
+    () async {
+      final adapter = _FakeHttpAdapter();
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.test'))
+        ..httpClientAdapter = adapter;
 
-    // Real production API implementation, faked only at the HTTP transport.
-    final api = ReelUploadApiImpl(dio);
+      // Real production API implementation, faked only at the HTTP transport.
+      final api = ReelUploadApiImpl(dio);
 
-    const picked = PickedSocialMedia(
-      path: '/tmp/reel.mp4',
-      name: 'reel.mp4',
-      mimeType: 'video/mp4',
-      sizeBytes: 8 * 1024 * 1024,
-      type: PickedMediaType.video,
-    );
+      const picked = PickedSocialMedia(
+        path: '/tmp/reel.mp4',
+        name: 'reel.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 8 * 1024 * 1024,
+        type: PickedMediaType.video,
+      );
 
-    final controller = ReelComposerController(
-      api: api,
-      idempotencyKey: 'integ-1',
-      tusFactory: ({required uploadUrl, required totalBytes, required assetId}) {
-        return TusUploadClient(
-          transport: _OkTransport(totalBytes),
-          uploadUrl: uploadUrl,
-          totalBytes: totalBytes,
-          assetId: assetId,
-          chunkSize: totalBytes,
-        );
-      },
-    );
+      final controller = ReelComposerController(
+        api: api,
+        idempotencyKey: 'integ-1',
+        tusFactory:
+            ({required uploadUrl, required totalBytes, required assetId}) {
+              return TusUploadClient(
+                transport: _OkTransport(totalBytes),
+                uploadUrl: uploadUrl,
+                totalBytes: totalBytes,
+                assetId: assetId,
+                chunkSize: totalBytes,
+              );
+            },
+      );
 
-    await controller.publish(
-      video: picked,
-      caption: 'integration',
-      audience: 'public',
-      pollInterval: Duration.zero,
-    );
+      await controller.publish(
+        video: picked,
+        caption: 'integration',
+        audience: 'public',
+      );
 
-    expect(controller.stage, ReelComposerStage.published);
-    expect(controller.publishedReelId, 4242);
-    expect(controller.assetId, 777);
+      expect(controller.stage, ReelComposerStage.published);
+      expect(controller.publishedReelId, 4242);
+      expect(controller.assetId, 777);
 
-    // The real API impl hit exactly the expected endpoints in order.
-    expect(
-      adapter.paths.any((p) => p.contains('/media/stream/upload-session')),
-      isTrue,
-    );
-    expect(adapter.paths.any((p) => p.contains('/media/assets/777')), isTrue);
-    expect(adapter.paths.any((p) => p.endsWith('/api/feed/reels')), isTrue);
-    controller.dispose();
-  });
+      // The real API impl hit exactly the expected endpoints in order.
+      expect(
+        adapter.paths.any((p) => p.contains('/media/stream/upload-session')),
+        isTrue,
+      );
+      expect(adapter.paths.any((p) => p.endsWith('/api/feed/reels')), isTrue);
+      controller.dispose();
+    },
+  );
 }

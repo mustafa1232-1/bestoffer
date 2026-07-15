@@ -1,5 +1,60 @@
+import {
+  buildStreamPlaybackUrl,
+  buildStreamThumbnailUrl,
+} from "../../shared/utils/cloudflare-stream.js";
+
+/// Normalizes one media asset into the authoritative client contract, deriving
+/// Cloudflare Stream playback (HLS) + thumbnail (image) URLs from the stream UID
+/// when the stored columns are empty. A thumbnail is never an HLS manifest and a
+/// playback URL is never an image — this is what left reels blank in the feed.
+function normalizeAssetContract(a) {
+  if (!a) return null;
+  const streamUid = a.streamUid || null;
+  let playbackUrl = a.playbackUrl || null;
+  let thumbnailUrl = a.thumbnailUrl || null;
+  let posterUrl = a.posterUrl || null;
+  if (streamUid) {
+    if (!playbackUrl) {
+      const d = buildStreamPlaybackUrl(streamUid);
+      if (d) playbackUrl = d;
+    }
+    if (!thumbnailUrl) {
+      const d = buildStreamThumbnailUrl(streamUid);
+      if (d) thumbnailUrl = d;
+    }
+    if (!posterUrl && thumbnailUrl) posterUrl = thumbnailUrl;
+  }
+  const width = a.width == null ? null : Number(a.width);
+  const height = a.height == null ? null : Number(a.height);
+  return {
+    id: a.id == null ? null : Number(a.id),
+    provider: a.provider || null,
+    streamUid,
+    normalizedUrl: a.normalizedUrl || null,
+    posterUrl,
+    playbackUrl,
+    hlsUrl: playbackUrl,
+    thumbnailUrl,
+    durationMs: a.durationMs == null ? null : Number(a.durationMs),
+    width,
+    height,
+    aspectRatio: width && height && height > 0 ? width / height : null,
+    processingStatus: a.processingStatus || null,
+    failureCode: a.failureCode || null,
+    createdAt: a.createdAt || null,
+  };
+}
+
 export function mapSocialPostProductRow(row) {
   if (!row) return null;
+  const hasTopLevelAsset =
+    row.media_asset_id ||
+    row.asset_stream_uid ||
+    row.stream_uid ||
+    row.poster_url ||
+    row.asset_poster_url ||
+    row.asset_playback_url ||
+    row.playback_url;
   const authorBadges = [];
   if (row.author_is_resident_verified === true) {
     authorBadges.push("resident_verified");
@@ -54,18 +109,22 @@ export function mapSocialPostProductRow(row) {
     isSaved: row.is_saved === true,
     rankingScore: row.ranking_score == null ? null : Number(row.ranking_score),
     reportCount: Number(row.report_count || 0),
-    asset: row.media_asset_id || row.poster_url || row.asset_poster_url
-      ? {
-          id: row.media_asset_id == null ? null : Number(row.media_asset_id),
+    asset: hasTopLevelAsset
+      ? normalizeAssetContract({
+          id: row.media_asset_id,
           provider: row.asset_provider || row.provider || null,
           streamUid: row.asset_stream_uid || row.stream_uid || null,
-          normalizedUrl: row.asset_normalized_url || row.normalized_url || row.media_url || null,
+          normalizedUrl:
+            row.asset_normalized_url || row.normalized_url || row.media_url || null,
           posterUrl: row.asset_poster_url || row.poster_url || null,
-          playbackUrl: row.asset_playback_url || row.playback_url || row.asset_normalized_url || row.media_url || null,
-          thumbnailUrl: row.asset_thumbnail_url || row.thumbnail_url || row.asset_poster_url || row.poster_url || null,
-          durationMs: row.asset_duration_ms == null ? null : Number(row.asset_duration_ms),
-          processingStatus: row.asset_processing_status || row.processing_status || null,
-        }
+          playbackUrl: row.asset_playback_url || row.playback_url || null,
+          thumbnailUrl: row.asset_thumbnail_url || row.thumbnail_url || null,
+          durationMs: row.asset_duration_ms,
+          width: row.asset_width ?? row.width ?? null,
+          height: row.asset_height ?? row.height ?? null,
+          processingStatus:
+            row.asset_processing_status || row.processing_status || null,
+        })
       : null,
     mediaGallery: Array.isArray(row.media_gallery)
       ? row.media_gallery.map((item) => ({
@@ -75,35 +134,25 @@ export function mapSocialPostProductRow(row) {
           mediaKind: item.mediaKind || item.media_kind || null,
           asset:
             item.asset && typeof item.asset === "object"
-              ? {
-                  id: item.asset.id == null ? null : Number(item.asset.id),
+              ? normalizeAssetContract({
+                  id: item.asset.id,
                   provider: item.asset.provider || item.asset.provider_type || null,
                   streamUid: item.asset.streamUid || item.asset.stream_uid || null,
                   normalizedUrl:
                     item.asset.normalizedUrl || item.asset.normalized_url || null,
                   posterUrl: item.asset.posterUrl || item.asset.poster_url || null,
                   playbackUrl:
-                    item.asset.playbackUrl ||
-                    item.asset.playback_url ||
-                    item.asset.normalizedUrl ||
-                    item.asset.normalized_url ||
-                    null,
+                    item.asset.playbackUrl || item.asset.playback_url || null,
                   thumbnailUrl:
-                    item.asset.thumbnailUrl ||
-                    item.asset.thumbnail_url ||
-                    item.asset.posterUrl ||
-                    item.asset.poster_url ||
-                    null,
-                  durationMs:
-                    item.asset.durationMs == null &&
-                    item.asset.duration_ms == null
-                      ? null
-                      : Number(item.asset.durationMs ?? item.asset.duration_ms),
+                    item.asset.thumbnailUrl || item.asset.thumbnail_url || null,
+                  durationMs: item.asset.durationMs ?? item.asset.duration_ms,
+                  width: item.asset.width ?? null,
+                  height: item.asset.height ?? null,
                   processingStatus:
                     item.asset.processingStatus ||
                     item.asset.processing_status ||
                     null,
-                }
+                })
               : null,
         }))
       : [],

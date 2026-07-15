@@ -18,14 +18,17 @@ import '../media/social_media_presentation.dart';
 class ReelPlaybackCoordinator extends ChangeNotifier {
   ReelPlaybackCoordinator({
     VideoPlayerController Function(String url)? controllerFactory,
-  }) : _factory = controllerFactory ??
-            ((url) => VideoPlayerController.networkUrl(Uri.parse(url)));
+  }) : _factory =
+           controllerFactory ??
+           ((url) => VideoPlayerController.networkUrl(Uri.parse(url)));
 
   final VideoPlayerController Function(String url) _factory;
 
   final Map<int, VideoPlayerController> _controllers = {};
   final Map<int, String> _controllerUrls = {};
   final Set<int> _failed = {};
+  final Map<int, bool> _lastBufferingState = {};
+  final Map<int, bool> _lastInitializedState = {};
 
   List<SocialMediaPresentation> _items = const [];
   int _activeIndex = 0;
@@ -113,8 +116,7 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
     _applyPlayState();
   }
 
-  bool get _shouldPlayActive =>
-      _routeVisible && _appActive && !_userPaused;
+  bool get _shouldPlayActive => _routeVisible && _appActive && !_userPaused;
 
   void _applyPlayState() {
     for (final entry in _controllers.entries) {
@@ -161,32 +163,57 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
 
   void _createController(int index, String url) {
     _failed.remove(index);
+    _lastBufferingState.remove(index);
+    _lastInitializedState.remove(index);
     final controller = _factory(url);
     _controllers[index] = controller;
     _controllerUrls[index] = url;
     controller.addListener(_onControllerTick);
     controller.setLooping(false);
-    controller.initialize().then((_) {
-      if (_disposed || _controllers[index] != controller) return;
-      controller.setVolume(_muted ? 0 : 1);
-      _applyPlayState();
-      notifyListeners();
-    }).catchError((Object error) {
-      if (_disposed) return;
-      _failed.add(index);
-      notifyListeners();
-    });
+    controller
+        .initialize()
+        .then((_) {
+          if (_disposed || _controllers[index] != controller) return;
+          controller.setVolume(_muted ? 0 : 1);
+          _applyPlayState();
+          notifyListeners();
+        })
+        .catchError((Object error) {
+          if (_disposed) return;
+          _failed.add(index);
+          notifyListeners();
+        });
   }
 
   void _onControllerTick() {
     if (_disposed) return;
-    // Buffering state changes drive the surface spinner.
-    notifyListeners();
+    // Only the ACTIVE controller's init/buffering transitions drive UI rebuilds.
+    // Off-screen preload controllers buffering must NOT rebuild the reel pages
+    // (that churn was a primary source of playback stutter). Their state is
+    // reconciled lazily when they become active.
+    final index = _activeIndex;
+    final c = _controllers[index];
+    if (c == null) return;
+    final value = c.value;
+    final initialized = value.isInitialized;
+    final buffering = value.isBuffering || !initialized;
+    var changed = false;
+    if (_lastInitializedState[index] != initialized) {
+      _lastInitializedState[index] = initialized;
+      changed = true;
+    }
+    if (_lastBufferingState[index] != buffering) {
+      _lastBufferingState[index] = buffering;
+      changed = true;
+    }
+    if (changed) notifyListeners();
   }
 
   void _disposeController(int index) {
     final controller = _controllers.remove(index);
     _controllerUrls.remove(index);
+    _lastBufferingState.remove(index);
+    _lastInitializedState.remove(index);
     if (controller != null) {
       controller.removeListener(_onControllerTick);
       controller.pause();

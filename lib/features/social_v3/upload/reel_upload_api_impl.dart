@@ -9,7 +9,8 @@ import '../composer/reel_composer_state.dart';
 ///  * `GET  /api/feed/media/assets/:id` — processing status (driven by the
 ///    Stream webhook + reconciliation worker).
 ///  * `POST /api/feed/reels` with `mediaAssetId` (no file body) — publishes the
-///    reel from the already-uploaded, READY asset.
+///    reel from the already-uploaded asset while it is still PROCESSING; the
+///    backend reconciles it to READY independently.
 ///
 /// Cloudflare credentials stay on the backend; this client only ever handles the
 /// one-time upload URL it is handed.
@@ -39,8 +40,8 @@ class ReelUploadApiImpl implements ReelUploadApi {
     final session = Map<String, dynamic>.from(
       (body['uploadSession'] ?? body['upload_session'] ?? body) as Map,
     );
-    final uploadUrl =
-        (session['uploadUrl'] ?? session['upload_url'] ?? '').toString();
+    final uploadUrl = (session['uploadUrl'] ?? session['upload_url'] ?? '')
+        .toString();
     final assetId =
         int.tryParse('${session['assetId'] ?? session['asset_id']}') ?? 0;
     if (uploadUrl.isEmpty || assetId <= 0) {
@@ -51,10 +52,12 @@ class ReelUploadApiImpl implements ReelUploadApi {
 
   @override
   Future<String> pollStatus(int assetId) async {
-    final response =
-        await _dio.get<Map<String, dynamic>>('/api/feed/media/assets/$assetId');
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/feed/media/assets/$assetId',
+    );
     final body = Map<String, dynamic>.from(response.data as Map);
-    final asset = body['asset'] ?? body['mediaAsset'] ?? body['media_asset'] ?? body;
+    final asset =
+        body['asset'] ?? body['mediaAsset'] ?? body['media_asset'] ?? body;
     final map = Map<String, dynamic>.from(asset as Map);
     return (map['processingStatus'] ?? map['processing_status'] ?? 'processing')
         .toString();
@@ -70,7 +73,8 @@ class ReelUploadApiImpl implements ReelUploadApi {
     required String idempotencyKey,
   }) async {
     // Multipart form WITHOUT a file — the backend publishes from mediaAssetId
-    // via resolveSocialMediaAssetForPublishing (READY-gated, ownership-checked).
+    // via resolveSocialMediaAssetForPublishing (ownership-checked and allowed
+    // while PROCESSING for reels).
     final form = FormData.fromMap({
       'caption': caption,
       'postKind': 'reel',

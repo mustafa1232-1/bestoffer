@@ -81,7 +81,9 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
       state = state.copyWith(
         loading: false,
         loadingMore: false,
-        items: refresh ? items : [...state.items, ...items],
+        items: refresh
+            ? _mergeReels(const <SocialReelItem>[], items)
+            : _mergeReels(state.items, items),
         nextCursor: int.tryParse('${out['nextCursor']}'),
         nextCursorTouched: true,
       );
@@ -138,4 +140,27 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
       // keep viewer responsive
     }
   }
+}
+
+List<SocialReelItem> _mergeReels(
+  List<SocialReelItem> existing,
+  List<SocialReelItem> incoming,
+) {
+  if (existing.isEmpty) return incoming;
+  if (incoming.isEmpty) return existing;
+  final byId = <int, SocialReelItem>{
+    for (final item in existing) item.post.id: item,
+  };
+  for (final item in incoming) {
+    byId[item.post.id] = item;
+  }
+  final merged = byId.values.toList(growable: false);
+  merged.sort((a, b) {
+    final aTime = a.post.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final bTime = b.post.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final timeCompare = bTime.compareTo(aTime);
+    if (timeCompare != 0) return timeCompare;
+    return b.post.id.compareTo(a.post.id);
+  });
+  return merged;
 }

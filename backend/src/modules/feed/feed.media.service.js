@@ -33,23 +33,53 @@ function normalizeSourceType(value, fallback = "post") {
 
 function mapSocialMediaAssetRow(row) {
   if (!row) return null;
+  const streamUid = row.stream_uid || null;
+
+  // Derive Cloudflare Stream playback/thumbnail URLs from the stream UID when the
+  // stored columns are empty (e.g. rows written before the thumbnail existed, or
+  // where only the UID was persisted). The builders use the CONFIGURED customer
+  // base URL / thumbnail base URL — no hardcoded/unsigned host. A thumbnail is an
+  // image; a playback URL is an HLS manifest — they are never interchanged.
+  let playbackUrl = row.playback_url || null;
+  let thumbnailUrl = row.thumbnail_url || null;
+  let posterUrl = row.poster_url || null;
+  if (streamUid) {
+    if (!playbackUrl) {
+      const derived = buildStreamPlaybackUrl(streamUid);
+      if (derived) playbackUrl = derived;
+    }
+    if (!thumbnailUrl) {
+      const derived = buildStreamThumbnailUrl(streamUid);
+      if (derived) thumbnailUrl = derived;
+    }
+    // Poster falls back to the (image) thumbnail, never to the HLS manifest.
+    if (!posterUrl && thumbnailUrl) posterUrl = thumbnailUrl;
+  }
+
   return {
     id: row.id == null ? null : Number(row.id),
     ownerUserId: row.owner_user_id == null ? null : Number(row.owner_user_id),
     sourceType: row.source_type || null,
     provider: row.provider || null,
-    streamUid: row.stream_uid || null,
+    streamUid,
     originalUrl: row.original_url || null,
     normalizedUrl: row.normalized_url || null,
-    posterUrl: row.poster_url || null,
-    playbackUrl: row.playback_url || null,
-    thumbnailUrl: row.thumbnail_url || null,
+    posterUrl,
+    playbackUrl,
+    // hlsUrl is an explicit alias so the client contract is unambiguous.
+    hlsUrl: playbackUrl,
+    thumbnailUrl,
     mimeType: row.mime_type || null,
     mediaKind: row.media_kind || null,
     durationMs: row.duration_ms == null ? null : Number(row.duration_ms),
     width: row.width == null ? null : Number(row.width),
     height: row.height == null ? null : Number(row.height),
+    aspectRatio:
+      row.width && row.height && Number(row.height) > 0
+        ? Number(row.width) / Number(row.height)
+        : null,
     processingStatus: row.processing_status || null,
+    failureCode: row.processing_error || row.failure_code || null,
     processingError: row.processing_error || null,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
@@ -165,6 +195,10 @@ export async function resolveSocialMediaAssetForPublishing({
   userId,
   mediaAssetId,
   expectedSourceType = null,
+  // When true, a PROCESSING (not-yet-encoded) Stream asset is accepted so the
+  // Story/Reel can be created immediately; playback reconciles to READY later.
+  // FAILED/REJECTED/DELETED are still rejected.
+  allowProcessing = false,
 }) {
   const assetId = Number(mediaAssetId);
   if (!Number.isFinite(assetId) || assetId <= 0) {
@@ -184,8 +218,32 @@ export async function resolveSocialMediaAssetForPublishing({
       throw new AppError("MEDIA_ASSET_SOURCE_MISMATCH", { status: 409 });
     }
   }
-  if (String(asset.processing_status || "").trim().toLowerCase() !== "ready") {
-    throw new AppError("MEDIA_ASSET_NOT_READY", { status: 409 });
+  const status = String(asset.processing_status || "").trim().toLowerCase();
+  if (["failed", "rejected", "deleted", "cancelled", "expired", "moderated"].includes(status)) {
+    throw new AppError("MEDIA_ASSET_UNAVAILABLE", {
+      status: 409,
+      details: { processingStatus: status },
+    });
+  }
+  if (status !== "ready") {
+    if (!allowProcessing) {
+      throw new AppError("MEDIA_ASSET_NOT_READY", { status: 409 });
+    }
+    // §4: a non-READY asset may be published ONLY when it is a story-scoped
+    // Cloudflare Stream video whose upload has actually landed. Fail closed.
+    const provider = String(asset.provider || "").trim().toLowerCase();
+    const mediaKind = String(asset.media_kind || "").trim().toLowerCase();
+    if (
+      provider !== "stream" ||
+      mediaKind !== "video" ||
+      !String(asset.stream_uid || "").trim() ||
+      !["pending", "processing"].includes(status)
+    ) {
+      throw new AppError("MEDIA_ASSET_UPLOAD_INCOMPLETE", {
+        status: 409,
+        details: { provider, mediaKind, processingStatus: status },
+      });
+    }
   }
   const mediaUrl =
     asset.playback_url ||

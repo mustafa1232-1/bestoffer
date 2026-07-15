@@ -13,7 +13,8 @@ class SocialFeedPostsSliver extends StatelessWidget {
   final Future<void> Function(SocialPost post) onToggleSave;
   final Future<void> Function(SocialPost post)? onReportPost;
   final VoidCallback? Function(SocialPost post) onOpenMerchantLink;
-  final void Function(SocialPost post, int commentsCount) onCommentsCountChanged;
+  final void Function(SocialPost post, int commentsCount)
+  onCommentsCountChanged;
 
   const SocialFeedPostsSliver({
     super.key,
@@ -39,15 +40,14 @@ class SocialFeedPostsSliver extends StatelessWidget {
             }
             return const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
             );
           }
           final post = posts[index];
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: SocialPostCardV2(
+              key: ValueKey(post.id),
               post: post,
               autoPlayVideoPreview: post.postKind == 'reel',
               onOpenDetails: () => openSocialContent(
@@ -62,9 +62,7 @@ class SocialFeedPostsSliver extends StatelessWidget {
               },
               onToggleLike: () => onToggleLike(post),
               onToggleSave: () => onToggleSave(post),
-              onReport: onReportPost == null
-                  ? null
-                  : () => onReportPost!(post),
+              onReport: onReportPost == null ? null : () => onReportPost!(post),
               onOpenMerchantLink: onOpenMerchantLink(post),
               onOpenProfile: () {
                 Navigator.of(context).push(

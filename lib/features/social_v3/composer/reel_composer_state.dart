@@ -44,11 +44,12 @@ abstract class ReelUploadApi {
 }
 
 /// Factory for a [TusUploadClient] given an upload URL + size (injected for tests).
-typedef TusClientFactory = TusUploadClient Function({
-  required String uploadUrl,
-  required int totalBytes,
-  required int assetId,
-});
+typedef TusClientFactory =
+    TusUploadClient Function({
+      required String uploadUrl,
+      required int totalBytes,
+      required int assetId,
+    });
 
 /// Orchestrates the whole reel publish flow. Testable with a fake [ReelUploadApi]
 /// and a fake tus transport.
@@ -90,8 +91,6 @@ class ReelComposerController extends ChangeNotifier {
     required String audience,
     bool commentsEnabled = true,
     bool sharingEnabled = true,
-    Duration pollInterval = const Duration(seconds: 2),
-    int maxPolls = 30,
   }) async {
     try {
       _set(ReelComposerStage.creatingSession);
@@ -126,17 +125,10 @@ class ReelComposerController extends ChangeNotifier {
         return;
       }
 
-      // Processing — the backend/webhook/reconciliation own the terminal state.
+      // Processing — the backend/webhook/reconciliation own the terminal
+      // state. Publish immediately instead of waiting for READY so the reel can
+      // appear while the asset is still processing.
       _set(ReelComposerStage.processing, progress: 1);
-      final ready = await _awaitReady(
-        session.assetId,
-        pollInterval: pollInterval,
-        maxPolls: maxPolls,
-      );
-      if (!ready) {
-        _set(ReelComposerStage.failed, error: 'PROCESSING_TIMEOUT');
-        return;
-      }
 
       final reelId = await api.publishReel(
         assetId: session.assetId,
@@ -151,20 +143,6 @@ class ReelComposerController extends ChangeNotifier {
     } catch (error) {
       _set(ReelComposerStage.failed, error: '$error');
     }
-  }
-
-  Future<bool> _awaitReady(
-    int assetId, {
-    required Duration pollInterval,
-    required int maxPolls,
-  }) async {
-    for (var i = 0; i < maxPolls; i++) {
-      final status = (await api.pollStatus(assetId)).toLowerCase();
-      if (status == 'ready' || status == 'published') return true;
-      if (status == 'failed' || status == 'rejected') return false;
-      if (i < maxPolls - 1) await Future<void>.delayed(pollInterval);
-    }
-    return false;
   }
 
   void pauseUpload() {

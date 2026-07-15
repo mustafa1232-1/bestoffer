@@ -159,8 +159,11 @@ class SocialMediaAsset {
   final String? posterUrl;
   final String? playbackUrl;
   final String? thumbnailUrl;
+  final double? aspectRatio;
   final int? durationMs;
+  final String? failureCode;
   final String? processingStatus;
+  final DateTime? createdAt;
 
   const SocialMediaAsset({
     required this.id,
@@ -170,8 +173,11 @@ class SocialMediaAsset {
     required this.posterUrl,
     required this.playbackUrl,
     required this.thumbnailUrl,
+    required this.aspectRatio,
     required this.durationMs,
+    required this.failureCode,
     required this.processingStatus,
+    required this.createdAt,
   });
 
   factory SocialMediaAsset.fromJson(Map<String, dynamic> j) => SocialMediaAsset(
@@ -184,10 +190,15 @@ class SocialMediaAsset {
     posterUrl: parseNullableString(j['posterUrl'] ?? j['poster_url']),
     playbackUrl: parseNullableString(j['playbackUrl'] ?? j['playback_url']),
     thumbnailUrl: parseNullableString(j['thumbnailUrl'] ?? j['thumbnail_url']),
+    aspectRatio: j['aspectRatio'] == null
+        ? null
+        : parseDouble(j['aspectRatio'], fallback: 0),
     durationMs: parseNullableInt(j['durationMs'] ?? j['duration_ms']),
+    failureCode: parseNullableString(j['failureCode'] ?? j['failure_code']),
     processingStatus: parseNullableString(
       j['processingStatus'] ?? j['processing_status'],
     ),
+    createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
   );
 
   bool get isReady => (processingStatus ?? '').trim().toLowerCase() == 'ready';
@@ -506,6 +517,42 @@ bool isSocialVideoPost(SocialPost post) {
 bool isSocialImagePost(SocialPost post) =>
     normalizeSocialPostMediaClass(post) == 'image';
 
+/// True when [url] is a streaming manifest or a raw video file — such URLs must
+/// NEVER be used as a poster/image (doing so is exactly what produced the broken
+/// image placeholder for reels in the community feed).
+bool socialUrlIsVideoOrManifest(String? url) {
+  final value = (url ?? '').trim().toLowerCase();
+  if (value.isEmpty) return false;
+  final path = value.split('?').first;
+  return path.endsWith('.m3u8') ||
+      path.endsWith('.mpd') ||
+      path.endsWith('.ts') ||
+      value.contains('format=hls') ||
+      value.contains('/manifest/') ||
+      path.endsWith('.mp4') ||
+      path.endsWith('.mov') ||
+      path.endsWith('.m4v') ||
+      path.endsWith('.webm') ||
+      path.endsWith('.mkv');
+}
+
+/// A Cloudflare Stream reel can synthesize a still thumbnail from its stream UID.
+/// This is a provider-generated *image*, safe for the poster slot — the missing
+/// piece that left reels with no feed thumbnail.
+String? socialCloudflareThumbnail(SocialMediaAsset? asset) {
+  final uid = (asset?.streamUid ?? '').trim();
+  if (uid.isEmpty) return null;
+  final prov = (asset?.provider ?? '').trim().toLowerCase();
+  if (prov.contains('cloudflare') || prov.contains('stream') || prov.isEmpty) {
+    return 'https://videodelivery.net/$uid/thumbnails/thumbnail.jpg';
+  }
+  return null;
+}
+
+/// Resolves an IMAGE-ONLY poster for a post. Returns the first candidate that is
+/// a real image; a playback/HLS/MP4 URL is never returned (that mistake rendered
+/// reels as a broken-image placeholder). For Cloudflare reels with no explicit
+/// thumbnail, it synthesizes the provider thumbnail from the stream UID.
 String? resolveSocialPostPosterUrl(
   SocialPost post, {
   bool preferMerchantFallback = true,
@@ -513,31 +560,38 @@ String? resolveSocialPostPosterUrl(
   final galleryFirst = post.mediaGallery.isNotEmpty
       ? post.mediaGallery.first
       : null;
-  final galleryPoster =
-      (galleryFirst?.asset?.thumbnailUrl ??
-              galleryFirst?.asset?.posterUrl ??
-              '')
-          .trim();
-  if (galleryPoster.isNotEmpty) return galleryPoster;
+  final galleryAsset = galleryFirst?.asset;
+  final asset = post.asset;
 
-  final galleryUrl =
-      (galleryFirst?.asset?.playbackUrl ??
-              galleryFirst?.asset?.normalizedUrl ??
-              galleryFirst?.mediaUrl ??
-              '')
-          .trim();
-  if (galleryUrl.isNotEmpty) return galleryUrl;
+  final candidates = <String?>[
+    galleryAsset?.thumbnailUrl,
+    galleryAsset?.posterUrl,
+    socialCloudflareThumbnail(galleryAsset),
+    asset?.thumbnailUrl,
+    asset?.posterUrl,
+    socialCloudflareThumbnail(asset),
+  ];
 
-  final assetPoster = (post.asset?.thumbnailUrl ?? post.asset?.posterUrl ?? '')
-      .trim();
-  if (assetPoster.isNotEmpty) return assetPoster;
+  for (final candidate in candidates) {
+    final value = (candidate ?? '').trim();
+    if (value.isEmpty) continue;
+    if (socialUrlIsVideoOrManifest(value)) continue; // image slot only
+    return value;
+  }
 
-  final assetUrl = (post.asset?.playbackUrl ?? post.asset?.normalizedUrl ?? '')
-      .trim();
-  if (assetUrl.isNotEmpty && !isSocialVideoPost(post)) return assetUrl;
-
-  final mediaUrl = (post.mediaUrl ?? '').trim();
-  if (mediaUrl.isNotEmpty) return mediaUrl;
+  // Non-video posts may legitimately use their direct media url as the image.
+  if (!isSocialVideoPost(post)) {
+    for (final candidate in <String?>[
+      galleryAsset?.normalizedUrl,
+      galleryFirst?.mediaUrl,
+      asset?.normalizedUrl,
+      post.mediaUrl,
+    ]) {
+      final value = (candidate ?? '').trim();
+      if (value.isEmpty || socialUrlIsVideoOrManifest(value)) continue;
+      return value;
+    }
+  }
 
   if (preferMerchantFallback && isSocialMerchantReviewPost(post)) {
     final merchantImage = (post.merchantImageUrl ?? '').trim();

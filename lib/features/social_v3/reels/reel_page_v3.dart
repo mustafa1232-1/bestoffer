@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../domain/reel_view_data.dart';
 import 'reel_action_rail_v3.dart';
 import 'reel_metadata_overlay_v3.dart';
+import 'reel_playback_coordinator.dart';
 import 'reel_video_surface_v3.dart';
 
 /// One full-viewport reel page (§3 "ReelPageV3").
@@ -18,10 +19,8 @@ class ReelPageV3 extends StatefulWidget {
   const ReelPageV3({
     super.key,
     required this.reel,
-    this.controller,
-    this.isBuffering = false,
-    this.isPaused = false,
-    this.isMuted = false,
+    required this.coordinator,
+    required this.index,
     this.onPlaybackCompleted,
     this.onCreate,
     this.onTogglePlay,
@@ -39,10 +38,13 @@ class ReelPageV3 extends StatefulWidget {
   });
 
   final ReelV3ViewData reel;
-  final VideoPlayerController? controller;
-  final bool isBuffering;
-  final bool isPaused;
-  final bool isMuted;
+
+  /// The shared playback coordinator + this page's index. Only the video surface
+  /// listens to it, so a like/comment/follow never rebuilds the VideoPlayer and a
+  /// buffering flip never rebuilds the action rail/metadata.
+  final ReelPlaybackCoordinator coordinator;
+  final int index;
+
   final VoidCallback? onPlaybackCompleted;
 
   final VoidCallback? onCreate;
@@ -77,23 +79,34 @@ class _ReelPageV3State extends State<ReelPageV3>
   void initState() {
     super.initState();
     _heart.addStatusListener(_onHeartStatus);
-    _attachController(widget.controller);
+    widget.coordinator.addListener(_syncObservedController);
+    _syncObservedController();
   }
 
   @override
   void didUpdateWidget(covariant ReelPageV3 oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller) {
-      _attachController(widget.controller);
+    if (!identical(oldWidget.coordinator, widget.coordinator)) {
+      oldWidget.coordinator.removeListener(_syncObservedController);
+      widget.coordinator.addListener(_syncObservedController);
     }
+    _syncObservedController();
   }
 
   @override
   void dispose() {
+    widget.coordinator.removeListener(_syncObservedController);
     _detachController();
     _heart.removeStatusListener(_onHeartStatus);
     _heart.dispose();
     super.dispose();
+  }
+
+  /// Re-attach the completion observer whenever the coordinator swaps this
+  /// page's controller (created/disposed/retried). Does NOT call setState — the
+  /// video layer's own ListenableBuilder handles visual updates.
+  void _syncObservedController() {
+    _attachController(widget.coordinator.controllerFor(widget.index));
   }
 
   Future<void> _handleLikeAction({
@@ -151,15 +164,26 @@ class _ReelPageV3State extends State<ReelPageV3>
     }
     if (duration <= Duration.zero) return;
     final remaining = duration - position;
-    if (remaining <= const Duration(milliseconds: 250) && !_completionNotified) {
+    if (remaining <= const Duration(milliseconds: 250) &&
+        !_completionNotified) {
       _completionNotified = true;
       widget.onPlaybackCompleted?.call();
     }
   }
 
+  // Responsive layout constants (§11): the action rail's reserved footprint and
+  // the side inset, so the caption column never renders behind the rail.
+  static const double _railReservedWidth = 72;
+  static const double _sideInset = 12;
+
   @override
   Widget build(BuildContext context) {
-    final padding = MediaQuery.of(context).padding;
+    final mq = MediaQuery.of(context);
+    final padding = mq.padding;
+    // Lowest action sits just above the system navigation inset; the metadata
+    // column is bounded so a long caption expands within a safe maximum.
+    final bottomInset = padding.bottom + 16;
+    final metadataMaxHeight = mq.size.height * 0.42;
     return GestureDetector(
       onTap: widget.onTogglePlay,
       onDoubleTap: _onDoubleTap,
@@ -167,24 +191,48 @@ class _ReelPageV3State extends State<ReelPageV3>
       child: Stack(
         fit: StackFit.expand,
         children: [
-          ReelVideoSurfaceV3(
-            media: widget.reel.media,
-            controller: widget.controller,
-            isBuffering: widget.isBuffering,
+          // Video layer: the ONLY part that listens to the coordinator. It
+          // rebuilds on controller/buffering/pause changes for THIS page without
+          // touching the action rail, metadata, or caption.
+          RepaintBoundary(
+            child: ListenableBuilder(
+              listenable: widget.coordinator,
+              builder: (context, _) {
+                final controller = widget.coordinator.controllerFor(
+                  widget.index,
+                );
+                final isBuffering = widget.coordinator.isBuffering(
+                  widget.index,
+                );
+                final isPaused =
+                    widget.index == widget.coordinator.activeIndex &&
+                    widget.coordinator.isActivePaused;
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ReelVideoSurfaceV3(
+                      media: widget.reel.media,
+                      controller: controller,
+                      isBuffering: isBuffering,
+                    ),
+                    if (isPaused)
+                      const Center(
+                        child: Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.white70,
+                          size: 78,
+                          shadows: [
+                            Shadow(color: Colors.black54, blurRadius: 12),
+                          ],
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
           ),
           // Top + bottom scrims so white overlays stay legible over any frame.
           const _EdgeScrims(),
-
-          // Center pause glyph when explicitly paused.
-          if (widget.isPaused)
-            const Center(
-              child: Icon(
-                Icons.play_arrow_rounded,
-                color: Colors.white70,
-                size: 78,
-                shadows: [Shadow(color: Colors.black54, blurRadius: 12)],
-              ),
-            ),
 
           // Double-tap heart burst. It is inserted only while the animation is
           // running, then removed entirely from the tree when complete.
@@ -232,11 +280,14 @@ class _ReelPageV3State extends State<ReelPageV3>
                         onTap: widget.onCreate,
                       ),
                     if (widget.onCreate != null) const SizedBox(width: 8),
-                    _CircleGlyphButton(
-                      icon: widget.isMuted
-                          ? Icons.volume_off_rounded
-                          : Icons.volume_up_rounded,
-                      onTap: widget.onToggleMute,
+                    ListenableBuilder(
+                      listenable: widget.coordinator,
+                      builder: (context, _) => _CircleGlyphButton(
+                        icon: widget.coordinator.isMuted
+                            ? Icons.volume_off_rounded
+                            : Icons.volume_up_rounded,
+                        onTap: widget.onToggleMute,
+                      ),
                     ),
                   ],
                 ),
@@ -244,10 +295,10 @@ class _ReelPageV3State extends State<ReelPageV3>
             ),
           ),
 
-          // Right action rail.
+          // Right action rail (responsive: side inset + above the nav inset).
           Positioned(
-            right: 12,
-            bottom: padding.bottom + 84,
+            right: _sideInset,
+            bottom: bottomInset,
             child: ReelActionRailV3(
               reel: widget.reel,
               onLike: () => unawaited(
@@ -261,17 +312,25 @@ class _ReelPageV3State extends State<ReelPageV3>
             ),
           ),
 
-          // Bottom metadata (leaves room for the bottom nav overlay).
+          // Bottom metadata/caption: reserves the rail footprint on the right so
+          // it never renders behind the actions, and is height-bounded so a long
+          // caption expands safely rather than overflowing.
           Positioned(
             left: 16,
-            right: 84,
-            bottom: padding.bottom + 84,
-            child: ReelMetadataOverlayV3(
-              reel: widget.reel,
-              showFollow: widget.showFollow,
-              followLabel: widget.followLabel,
-              onFollow: widget.onFollow,
-              onOpenAuthor: widget.onOpenAuthor,
+            right: _railReservedWidth + _sideInset,
+            bottom: bottomInset,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: metadataMaxHeight),
+              child: SingleChildScrollView(
+                reverse: true,
+                child: ReelMetadataOverlayV3(
+                  reel: widget.reel,
+                  showFollow: widget.showFollow,
+                  followLabel: widget.followLabel,
+                  onFollow: widget.onFollow,
+                  onOpenAuthor: widget.onOpenAuthor,
+                ),
+              ),
             ),
           ),
         ],

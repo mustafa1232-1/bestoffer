@@ -60,6 +60,7 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
 
   void _onScroll() {
     if (!_scrollController.hasClients) return;
+    if (_scrollController.position.maxScrollExtent <= 0) return;
     final threshold = _scrollController.position.maxScrollExtent - 260;
     if (_scrollController.position.pixels < threshold) return;
     ref.read(socialControllerProvider.notifier).loadMorePosts();

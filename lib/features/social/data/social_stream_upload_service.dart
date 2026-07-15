@@ -28,6 +28,10 @@ class SocialStreamUploadService {
     void Function(double progress)? onProgress,
     Duration readyTimeout = defaultReadyTimeout,
     Duration readyPollInterval = defaultReadyPollInterval,
+    // When false, publishing does NOT block on Cloudflare encoding: the method
+    // returns as soon as the upload is accepted (asset is PROCESSING). The Story
+    // is created immediately and reconciled PROCESSING → READY later.
+    bool waitForReady = true,
   }) async {
     if (!mediaFile.isVideo) {
       throw StateError('Stream upload requires a video media file.');
@@ -110,16 +114,49 @@ class SocialStreamUploadService {
       throw StateError('Stream upload did not reach the expected size.');
     }
 
+    // Upload accepted. The Stream asset already exists (created by the upload
+    // session) and is now PROCESSING with a persisted stream UID.
+    if (!waitForReady) {
+      // KEEP the persisted session (upload bytes == full): a create retry then
+      // resumes with zero re-upload and reuses the SAME assetId — no duplicate
+      // upload or media asset. It expires naturally if never reused.
+      final processing = await api.getMediaAsset(session.assetId);
+      return processing ?? _processingAssetFrom(session);
+    }
+
+    await _removePersistedSession(persistedKey);
     final asset = await _waitForAssetReady(
       session.assetId,
       timeout: readyTimeout,
       pollInterval: readyPollInterval,
     );
     if (asset == null || !asset.isReady) {
-      throw StateError('Video processing has not completed yet.');
+      // Do not fail the publish just because encoding is still running — return
+      // the PROCESSING asset so the Story is created and reconciled later.
+      final processing = asset ?? await api.getMediaAsset(session.assetId);
+      return processing ?? _processingAssetFrom(session);
     }
-    await _removePersistedSession(persistedKey);
     return asset;
+  }
+
+  /// Minimal PROCESSING asset synthesized from the accepted upload session, so a
+  /// Story can be created immediately even before the media-asset row is
+  /// re-fetched.
+  SocialMediaAsset _processingAssetFrom(SocialMediaUploadSession session) {
+    return SocialMediaAsset(
+      id: session.assetId,
+      provider: 'stream',
+      streamUid: session.streamUid,
+      normalizedUrl: null,
+      posterUrl: null,
+      playbackUrl: null,
+      thumbnailUrl: null,
+      aspectRatio: null,
+      durationMs: null,
+      failureCode: null,
+      processingStatus: 'processing',
+      createdAt: DateTime.now().toUtc(),
+    );
   }
 
   Future<SocialMediaAsset?> waitForAssetReady(

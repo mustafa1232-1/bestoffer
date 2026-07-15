@@ -10,11 +10,17 @@ class _OkServer implements TusTransport {
   @override
   Future<int> head(String u) async => offset;
   @override
-  Future<TusTransportResult> patch(String u,
-      {required int offset, required int length, required int total}) async {
+  Future<TusTransportResult> patch(
+    String u, {
+    required int offset,
+    required int length,
+    required int total,
+  }) async {
     this.offset = (this.offset + length).clamp(0, this.total);
     return TusTransportResult(
-        offset: this.offset, completed: this.offset >= this.total);
+      offset: this.offset,
+      completed: this.offset >= this.total,
+    );
   }
 }
 
@@ -87,12 +93,7 @@ void main() {
   test('full publish lifecycle reaches published', () async {
     final api = _FakeApi();
     final c = _controller(api);
-    await c.publish(
-      video: _video,
-      caption: 'hello',
-      audience: 'public',
-      pollInterval: Duration.zero,
-    );
+    await c.publish(video: _video, caption: 'hello', audience: 'public');
     expect(c.stage, ReelComposerStage.published);
     expect(c.publishedReelId, 9001);
     expect(api.createCalls, 1);
@@ -100,29 +101,19 @@ void main() {
     c.dispose();
   });
 
-  test('processing failure stops before publish', () async {
+  test('processing does not block publish', () async {
     final api = _FakeApi(statuses: const ['processing', 'failed']);
     final c = _controller(api);
-    await c.publish(
-      video: _video,
-      caption: '',
-      audience: 'public',
-      pollInterval: Duration.zero,
-    );
-    expect(c.stage, ReelComposerStage.failed);
-    expect(api.publishCalls, 0, reason: 'must not publish a failed asset');
+    await c.publish(video: _video, caption: '', audience: 'public');
+    expect(c.stage, ReelComposerStage.published);
+    expect(api.publishCalls, 1);
     c.dispose();
   });
 
   test('publish carries an idempotency key (retry-safe)', () async {
     final api = _FakeApi();
     final c = _controller(api);
-    await c.publish(
-      video: _video,
-      caption: 'x',
-      audience: 'public',
-      pollInterval: Duration.zero,
-    );
+    await c.publish(video: _video, caption: 'x', audience: 'public');
     expect(api.publishKeys, ['idem-1']);
     c.dispose();
   });
@@ -132,12 +123,7 @@ void main() {
     final c = _controller(api);
     final stages = <ReelComposerStage>[];
     c.addListener(() => stages.add(c.stage));
-    await c.publish(
-      video: _video,
-      caption: 'x',
-      audience: 'public',
-      pollInterval: Duration.zero,
-    );
+    await c.publish(video: _video, caption: 'x', audience: 'public');
     expect(stages, contains(ReelComposerStage.creatingSession));
     expect(stages, contains(ReelComposerStage.uploading));
     expect(stages, contains(ReelComposerStage.processing));

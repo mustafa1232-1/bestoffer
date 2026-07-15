@@ -82,7 +82,8 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
     super.initState();
     _reels = List.of(widget.reels);
     _pageController = PageController(initialPage: widget.initialIndex);
-    _coordinator = widget.coordinatorFactory?.call() ?? ReelPlaybackCoordinator();
+    _coordinator =
+        widget.coordinatorFactory?.call() ?? ReelPlaybackCoordinator();
     _coordinator.setItems(_reels.map((r) => r.media).toList());
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -99,6 +100,15 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
       _reels = List.of(widget.reels);
       _coordinator.setItems(_reels.map((r) => r.media).toList());
       _syncFollowStates();
+      if (_reels.isNotEmpty && _pageController.hasClients) {
+        final safeIndex = _coordinator.activeIndex
+            .clamp(0, _reels.length - 1)
+            .toInt();
+        if (safeIndex != _coordinator.activeIndex) {
+          _pageController.jumpToPage(safeIndex);
+          unawaited(_coordinator.setActiveIndex(safeIndex));
+        }
+      }
     }
   }
 
@@ -158,7 +168,8 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
     if (authorId <= 0 || (currentUserId != null && currentUserId == authorId)) {
       return;
     }
-    if (_relationCache.containsKey(authorId) || _relationLoading.contains(authorId)) {
+    if (_relationCache.containsKey(authorId) ||
+        _relationLoading.contains(authorId)) {
       return;
     }
     _relationLoading.add(authorId);
@@ -214,10 +225,11 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
         isLiked: nextLiked,
         likesCount: (reel.likesCount + (nextLiked ? 1 : -1)).clamp(0, 1 << 31),
       ),
-      );
+    );
     try {
-      final ok = await (widget.onLike?.call(_reels[index], nextLiked) ??
-          Future.value(true));
+      final ok =
+          await (widget.onLike?.call(_reels[index], nextLiked) ??
+              Future.value(true));
       if (!ok && mounted) {
         _mutateReel(index, reel);
         return false;
@@ -364,45 +376,39 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
               onPageChanged: _onPageChanged,
               itemCount: _reels.length,
               itemBuilder: (context, index) {
-                return AnimatedBuilder(
-                  animation: _coordinator,
-                  builder: (context, _) {
-                    final reel = _reels[index];
-                    return ReelPageV3(
-                      reel: reel,
-                      controller: _coordinator.controllerFor(index),
-                      isBuffering: _coordinator.isBuffering(index),
-                      isPaused: index == _coordinator.activeIndex &&
-                          _coordinator.isActivePaused,
-                      isMuted: _coordinator.isMuted,
-                      onCreate: widget.onCreate,
-                      onTogglePlay: _coordinator.togglePlay,
-                      onToggleMute: _coordinator.toggleMuted,
-                      onPlaybackCompleted: () =>
-                          unawaited(_handlePlaybackCompleted(index)),
-                      onLike: (desiredLiked) =>
-                          _toggleLike(index, forceLiked: desiredLiked),
-                      onDoubleTapLike: (desiredLiked) =>
-                          _toggleLike(index, forceLiked: desiredLiked),
-                      onSave: () => _toggleSave(index),
-                      onComments: () => widget.onComments?.call(reel),
-                      onShare: () => widget.onShare?.call(reel),
-                      onMore: () => widget.onMore?.call(reel),
-                      onFollow: () => unawaited(_toggleFollow(index)),
-                      onOpenAuthor: () => unawaited(_openAuthor(index)),
-                      showFollow: _followStateFor(
-                            reel,
-                            currentUserId: currentUserId,
-                          ) !=
-                          'self',
-                      followLabel: _followLabel(
-                        _followStateFor(
-                          reel,
-                          currentUserId: currentUserId,
-                        ),
-                      ),
-                    );
-                  },
+                // Each page rebuilds only on this screen's setState (like/save/
+                // follow); the coordinator is passed down so ONLY the video layer
+                // inside ReelPageV3 listens to playback/buffering changes.
+                final reel = _reels[index];
+                return RepaintBoundary(
+                  key: ValueKey('reel_page_${reel.postId}'),
+                  child: ReelPageV3(
+                    key: ValueKey(reel.postId),
+                    reel: reel,
+                    coordinator: _coordinator,
+                    index: index,
+                    onCreate: widget.onCreate,
+                    onTogglePlay: _coordinator.togglePlay,
+                    onToggleMute: _coordinator.toggleMuted,
+                    onPlaybackCompleted: () =>
+                        unawaited(_handlePlaybackCompleted(index)),
+                    onLike: (desiredLiked) =>
+                        _toggleLike(index, forceLiked: desiredLiked),
+                    onDoubleTapLike: (desiredLiked) =>
+                        _toggleLike(index, forceLiked: desiredLiked),
+                    onSave: () => _toggleSave(index),
+                    onComments: () => widget.onComments?.call(reel),
+                    onShare: () => widget.onShare?.call(reel),
+                    onMore: () => widget.onMore?.call(reel),
+                    onFollow: () => unawaited(_toggleFollow(index)),
+                    onOpenAuthor: () => unawaited(_openAuthor(index)),
+                    showFollow:
+                        _followStateFor(reel, currentUserId: currentUserId) !=
+                        'self',
+                    followLabel: _followLabel(
+                      _followStateFor(reel, currentUserId: currentUserId),
+                    ),
+                  ),
                 );
               },
             ),

@@ -3800,6 +3800,7 @@ export async function createPost(userId, dto, media) {
         userId,
         mediaAssetId,
         expectedSourceType: requestedIsReel ? "reel" : "post",
+        allowProcessing: requestedIsReel,
       })
     );
   } else {
@@ -4041,11 +4042,27 @@ export async function createStory(userId, dto, media) {
     throw new AppError("MEDIA_ASSET_CONFLICT", { status: 400 });
   }
 
+  // §2 idempotency: a create retry that reuses the same (owner, mediaAssetId)
+  // returns the already-created Story instead of inserting a duplicate. Covers
+  // "upload completed but the create response was lost" and double taps.
+  if (mediaAssetId != null) {
+    const existingId = await repo.findStoryIdByOwnerAndAsset(userId, mediaAssetId);
+    if (existingId) {
+      const existing = await repo.findStoryById({
+        viewerUserId: userId,
+        storyId: existingId,
+      });
+      if (existing) return mapStoryRow(existing, userId);
+    }
+  }
+
   const preparedMedia = mediaAssetId != null
     ? await mediaService.resolveSocialMediaAssetForPublishing({
         userId,
         mediaAssetId,
         expectedSourceType: "story",
+        // Publish the Story immediately while the video is still PROCESSING.
+        allowProcessing: true,
       })
     : await mediaService.prepareSocialMediaAsset({
         userId,
