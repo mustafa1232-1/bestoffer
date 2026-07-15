@@ -62,6 +62,7 @@ app.*.map.json
 # Backend local artifacts
 /backend/node_modules/
 /backend/.env
+/backend/.env.test
 /backend/uploads/
 /tmp_r2_test/
 
