@@ -5,7 +5,12 @@ import test from "node:test";
 
 import { q } from "../config/db.js";
 import { createUser } from "../modules/auth/auth.repo.js";
-import { rateMerchant } from "../modules/orders/orders.service.js";
+import {
+  rateMerchant,
+} from "../modules/orders/orders.service.js";
+import {
+  setMerchantReviewNotificationOutboxWriter,
+} from "../modules/orders/orders.repo.js";
 import { hashPin } from "../shared/utils/hash.js";
 
 function makeSuffix(prefix = "") {
@@ -36,12 +41,12 @@ async function createTestUser() {
   });
 }
 
-async function createMerchant() {
+async function createMerchant({ ownerUserId = null } = {}) {
   const merchant = await q(
-    `INSERT INTO merchant (name, type)
-     VALUES ($1, 'restaurant')
+    `INSERT INTO merchant (name, type, owner_user_id)
+     VALUES ($1, 'restaurant', $2)
      RETURNING id`,
-    [`Merchant Review ${makeSuffix()}`]
+    [`Merchant Review ${makeSuffix()}`, ownerUserId == null ? null : Number(ownerUserId)]
   );
   assert.equal(merchant.rowCount, 1, "merchant fixture must insert");
   return Number(merchant.rows[0].id);
@@ -75,7 +80,7 @@ async function createDeliveredOrder({ merchantId, customer }) {
 
 async function readMerchantReview(merchantId, customerId) {
   return q(
-    `SELECT id, order_id, merchant_id, customer_user_id, rating, review_text, review_state
+    `SELECT id, order_id, merchant_id, customer_user_id, social_post_id, rating, review_text, review_state
      FROM merchant_verified_review
      WHERE merchant_id = $1 AND customer_user_id = $2
      ORDER BY updated_at DESC, id DESC`,
@@ -83,9 +88,52 @@ async function readMerchantReview(merchantId, customerId) {
   );
 }
 
-async function cleanupMerchantReviewFixture({ orderIds = [], merchantId, customerId }) {
+async function readMerchantReviewPost(postId) {
+  return q(
+    `SELECT id, user_id, post_kind, merchant_id, review_rating, verified_purchase,
+            verified_purchase_order_id, verified_purchase_verified_at, moderation_status
+       FROM social_post
+      WHERE id = $1`,
+    [postId]
+  );
+}
+
+async function readMerchantReviewOutbox(merchantId, customerId) {
+  return q(
+    `SELECT id, event_id, event_type, recipient_user_id, target_surface, target_entity_type,
+            target_entity_id, status
+       FROM notification_outbox
+      WHERE event_type = 'MERCHANT_REVIEW_CREATED'
+        AND payload_json->>'merchantId' = $1::text
+        AND payload_json->>'customerUserId' = $2::text
+      ORDER BY id DESC`,
+    [String(merchantId), String(customerId)]
+  );
+}
+
+async function cleanupMerchantReviewFixture({
+  orderIds = [],
+  merchantId,
+  customerId,
+  ownerId = null,
+}) {
   if (merchantId != null) {
     await q(`DELETE FROM merchant_verified_review WHERE merchant_id = $1`, [merchantId]);
+  }
+  if (merchantId != null) {
+    await q(
+      `DELETE FROM social_post
+       WHERE merchant_id = $1 AND post_kind = 'merchant_review'`,
+      [merchantId]
+    );
+  }
+  if (merchantId != null) {
+    await q(
+      `DELETE FROM notification_outbox
+       WHERE event_type = 'MERCHANT_REVIEW_CREATED'
+         AND payload_json->>'merchantId' = $1::text`,
+      [String(merchantId)]
+    );
   }
   if (orderIds.length > 0) {
     await q(`DELETE FROM customer_order WHERE id = ANY($1::bigint[])`, [orderIds.map(Number)]);
@@ -96,11 +144,15 @@ async function cleanupMerchantReviewFixture({ orderIds = [], merchantId, custome
   if (customerId != null) {
     await q(`DELETE FROM app_user WHERE id = $1`, [customerId]);
   }
+  if (ownerId != null) {
+    await q(`DELETE FROM app_user WHERE id = $1`, [ownerId]);
+  }
 }
 
 test("merchant review create rejects a duplicate active review without editing it", async () => {
   const customer = await createTestUser();
-  const merchantId = await createMerchant();
+  const owner = await createTestUser();
+  const merchantId = await createMerchant({ ownerUserId: owner.id });
   const firstOrderId = await createDeliveredOrder({ merchantId, customer });
   const secondOrderId = await createDeliveredOrder({ merchantId, customer });
 
@@ -112,6 +164,20 @@ test("merchant review create rejects a duplicate active review without editing i
     assert.equal(Number(firstReview.rows[0].order_id), firstOrderId);
     assert.equal(Number(firstReview.rows[0].rating), 4);
     assert.equal(firstReview.rows[0].review_state, "active");
+    assert.ok(Number(firstReview.rows[0].social_post_id) > 0);
+
+    const reviewPost = await readMerchantReviewPost(Number(firstReview.rows[0].social_post_id));
+    assert.equal(reviewPost.rowCount, 1);
+    assert.equal(reviewPost.rows[0].post_kind, "merchant_review");
+    assert.equal(Number(reviewPost.rows[0].merchant_id), merchantId);
+    assert.equal(Number(reviewPost.rows[0].review_rating), 4);
+    assert.equal(reviewPost.rows[0].verified_purchase, true);
+    assert.equal(Number(reviewPost.rows[0].verified_purchase_order_id), firstOrderId);
+
+    const outbox = await readMerchantReviewOutbox(merchantId, customer.id);
+    assert.equal(outbox.rowCount, 1);
+    assert.equal(outbox.rows[0].event_type, "MERCHANT_REVIEW_CREATED");
+    assert.equal(outbox.rows[0].target_surface, "store");
 
     await assert.rejects(
       () => rateMerchant(customer.id, secondOrderId, 5, "duplicate review"),
@@ -120,7 +186,7 @@ test("merchant review create rejects a duplicate active review without editing i
         assert.equal(error.status, 409);
         assert.equal(error.details?.merchantId, merchantId);
         assert.ok(Number(error.details?.existingReviewId) > 0);
-        assert.equal(error.details?.existingPostId, null);
+        assert.equal(error.details?.existingPostId, Number(firstReview.rows[0].social_post_id));
         return true;
       }
     );
@@ -143,13 +209,15 @@ test("merchant review create rejects a duplicate active review without editing i
       orderIds: [firstOrderId, secondOrderId],
       merchantId,
       customerId: customer.id,
+      ownerId: owner.id,
     });
   }
 });
 
 test("merchant review concurrent creates collapse to one success and one duplicate conflict", async () => {
   const customer = await createTestUser();
-  const merchantId = await createMerchant();
+  const owner = await createTestUser();
+  const merchantId = await createMerchant({ ownerUserId: owner.id });
   const orderId = await createDeliveredOrder({ merchantId, customer });
 
   try {
@@ -169,18 +237,21 @@ test("merchant review concurrent creates collapse to one success and one duplica
     assert.equal(review.rowCount, 1, "concurrent creates must still leave one review row");
     assert.equal(Number(review.rows[0].order_id), orderId);
     assert.ok([4, 5].includes(Number(review.rows[0].rating)));
+    assert.ok(Number(review.rows[0].social_post_id) > 0);
   } finally {
     await cleanupMerchantReviewFixture({
       orderIds: [orderId],
       merchantId,
       customerId: customer.id,
+      ownerId: owner.id,
     });
   }
 });
 
 test("merchant review rollback leaves no review row for an invalid order transition", async () => {
   const customer = await createTestUser();
-  const merchantId = await createMerchant();
+  const owner = await createTestUser();
+  const merchantId = await createMerchant({ ownerUserId: owner.id });
   const orderId = await q(
     `INSERT INTO customer_order
       (
@@ -218,6 +289,46 @@ test("merchant review rollback leaves no review row for an invalid order transit
       orderIds: [Number(orderId.rows[0].id)],
       merchantId,
       customerId: customer.id,
+      ownerId: owner.id,
+    });
+  }
+});
+
+test("merchant review rollback leaves no row when notification outbox insert fails", async () => {
+  const customer = await createTestUser();
+  const owner = await createTestUser();
+  const merchantId = await createMerchant({ ownerUserId: owner.id });
+  const orderId = await createDeliveredOrder({ merchantId, customer });
+
+  try {
+    setMerchantReviewNotificationOutboxWriter(async () => {
+      throw new Error("TEST_NOTIFICATION_OUTBOX_FAILURE");
+    });
+
+    await assert.rejects(
+      () => rateMerchant(customer.id, orderId, 5, "outbox failure"),
+      (error) => {
+        assert.equal(String(error?.message || ""), "TEST_NOTIFICATION_OUTBOX_FAILURE");
+        return true;
+      }
+    );
+
+    const review = await readMerchantReview(merchantId, customer.id);
+    assert.equal(review.rowCount, 0, "failed notification insert must roll back the review");
+
+    const post = await q(
+      `SELECT id FROM social_post
+       WHERE merchant_id = $1 AND user_id = $2 AND post_kind = 'merchant_review'`,
+      [merchantId, customer.id]
+    );
+    assert.equal(post.rowCount, 0, "failed notification insert must roll back the social post");
+  } finally {
+    setMerchantReviewNotificationOutboxWriter(null);
+    await cleanupMerchantReviewFixture({
+      orderIds: [orderId],
+      merchantId,
+      customerId: customer.id,
+      ownerId: owner.id,
     });
   }
 });

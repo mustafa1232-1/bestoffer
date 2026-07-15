@@ -81,6 +81,14 @@ function describeEvent(row) {
         urgentChannelId: "maslaki_store_orders_urgent_v2",
         surface: "store",
       };
+    case "MERCHANT_REVIEW_CREATED":
+      return {
+        type: "merchant_review_created",
+        title: "Ù…Ø±Ø§Ø¬Ø¹Ø© Ù…ØªØ¬Ø± Ø¬Ø¯ÙŠØ¯Ø©",
+        body: "Ù„Ø¯ÙŠÙƒ Ù…Ø±Ø§Ø¬Ø¹Ø© Ù…ÙˆØ«Ù‚Ø© Ø¬Ø¯ÙŠØ¯Ø© Ù…Ù† Ø¹Ù…ÙŠÙ„.",
+        urgentChannelId: null,
+        surface: "store",
+      };
     default:
       return {
         type: String(row.event_type || "delivery_event").toLowerCase(),

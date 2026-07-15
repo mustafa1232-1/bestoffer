@@ -209,6 +209,78 @@ const orderSelect = `
   ) latest_ca ON TRUE
 `;
 
+let merchantReviewNotificationOutboxWriter = defaultMerchantReviewNotificationOutboxWriter;
+
+export function setMerchantReviewNotificationOutboxWriter(writer) {
+  merchantReviewNotificationOutboxWriter =
+    typeof writer === "function"
+      ? writer
+      : defaultMerchantReviewNotificationOutboxWriter;
+}
+
+async function insertMerchantReviewSocialPostTx(
+  client,
+  { customerUserId, merchantId, orderId, rating, review }
+) {
+  const result = await client.query(
+    `INSERT INTO social_post
+      (
+        user_id,
+        post_kind,
+        caption,
+        merchant_id,
+        review_rating,
+        verified_purchase,
+        verified_purchase_order_id,
+        verified_purchase_verified_at,
+        audience_scope_type,
+        audience_scope_code,
+        moderation_status
+      )
+     VALUES ($1, 'merchant_review', $2, $3, $4, TRUE, $5, NOW(), 'global', NULL, 'approved')
+     RETURNING id`,
+    [
+      Number(customerUserId),
+      review || null,
+      Number(merchantId),
+      Number(rating),
+      Number(orderId),
+    ]
+  );
+  return result.rows[0] || null;
+}
+
+async function defaultMerchantReviewNotificationOutboxWriter(
+  client,
+  { orderId, merchantId, customerUserId, ownerUserId, rating, reviewPostId }
+) {
+  const owner = Number(ownerUserId);
+  if (!Number.isFinite(owner) || owner <= 0) return null;
+  const eventId = `merchant-review:${Number(merchantId)}:${Number(customerUserId)}`;
+  await client.query(
+    `INSERT INTO notification_outbox
+       (event_id, event_type, recipient_user_id, target_surface,
+        target_entity_type, target_entity_id, payload_json, priority)
+     VALUES ($1,$2,$3,'store','merchant_review',$4,$5,'high')
+     ON CONFLICT (event_id) DO NOTHING`,
+    [
+      eventId,
+      "MERCHANT_REVIEW_CREATED",
+      owner,
+      Number(reviewPostId),
+      JSON.stringify({
+        orderId: Number(orderId),
+        merchantId: Number(merchantId),
+        customerUserId: Number(customerUserId),
+        reviewPostId: Number(reviewPostId),
+        rating: Number(rating),
+        requiresAction: true,
+      }),
+    ]
+  );
+  return eventId;
+}
+
 function toNumberOrNull(value) {
   if (value == null || value === "") return null;
   const parsed = Number(value);
@@ -3480,7 +3552,7 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
     );
 
     const existingReviewResult = await client.query(
-      `SELECT id, merchant_id
+      `SELECT id, merchant_id, social_post_id
        FROM merchant_verified_review
        WHERE customer_user_id = $1
          AND merchant_id = $2
@@ -3496,7 +3568,10 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
         ok: false,
         conflict: {
           existingReviewId: Number(existingReview.id),
-          existingPostId: null,
+          existingPostId:
+            existingReview.social_post_id == null
+              ? null
+              : Number(existingReview.social_post_id),
           merchantId: Number(existingReview.merchant_id),
         },
       };
@@ -3511,12 +3586,24 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
       [rating, review || null, Number(orderRow.id)]
     );
 
+    const socialPost = await insertMerchantReviewSocialPostTx(client, {
+      customerUserId,
+      merchantId: orderRow.merchant_id,
+      orderId: orderRow.id,
+      rating,
+      review,
+    });
+    if (!socialPost?.id) {
+      throw new AppError("MERCHANT_REVIEW_POST_CREATE_FAILED", { status: 500 });
+    }
+
     await client.query(
       `INSERT INTO merchant_verified_review
         (
           order_id,
           merchant_id,
           customer_user_id,
+          social_post_id,
           rating,
           review_text,
           is_verified,
@@ -3528,40 +3615,32 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
           review_moderation_note,
           metadata_json
         )
-       VALUES ($1,$2,$3,$4,$5,TRUE,'active',NULL,NULL,NULL,NULL,NULL,$6::jsonb)`,
+       VALUES ($1,$2,$3,$4,$5,$6,TRUE,'active',NULL,NULL,NULL,NULL,NULL,$7::jsonb)`,
       [
         Number(orderRow.id),
         Number(orderRow.merchant_id),
         Number(customerUserId),
+        Number(socialPost.id),
         Number(rating),
         review || null,
         JSON.stringify({
           source: "customer_order_rate_merchant",
           orderId: Number(orderRow.id),
+          socialPostId: Number(socialPost.id),
         }),
       ]
     );
 
-    await client.query("COMMIT");
+    await merchantReviewNotificationOutboxWriter(client, {
+      orderId: orderRow.id,
+      merchantId: orderRow.merchant_id,
+      customerUserId,
+      ownerUserId: orderRow.owner_user_id,
+      rating,
+      reviewPostId: socialPost.id,
+    });
 
-    await createManyNotifications(
-      [
-        orderRow.owner_user_id
-          ? {
-              userId: orderRow.owner_user_id,
-              type: "owner_merchant_rated",
-              title: "تقييم متجر جديد",
-              body: `تم تقييم المتجر في الطلب #${orderRow.id} بـ ${rating}/5`,
-              orderId: orderRow.id,
-              merchantId: orderRow.merchant_id,
-              payload: {
-                orderId: orderRow.id,
-                rating,
-              },
-            }
-          : null,
-      ].filter(Boolean)
-    );
+    await client.query("COMMIT");
 
     return true;
   } catch (error) {
@@ -3573,7 +3652,7 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
 
     if (Number(error?.code || 0) === 23505) {
       const conflictReview = await q(
-        `SELECT id, merchant_id
+        `SELECT id, merchant_id, social_post_id
          FROM merchant_verified_review
          WHERE customer_user_id = $1
            AND merchant_id = $2
@@ -3588,7 +3667,8 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
           ok: false,
           conflict: {
             existingReviewId: Number(row.id),
-            existingPostId: null,
+            existingPostId:
+              row.social_post_id == null ? null : Number(row.social_post_id),
             merchantId: Number(row.merchant_id),
           },
         };
