@@ -232,7 +232,7 @@ export async function createCloudflareStreamUploadSession({
 
   const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
     env.cfStreamAccountId
-  )}/stream`;
+  )}/stream?direct_user=true`;
   const headers = {
     Authorization: `Bearer ${env.cfStreamApiToken}`,
     "Tus-Resumable": "1.0.0",
