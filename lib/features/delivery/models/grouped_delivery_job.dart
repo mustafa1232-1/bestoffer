@@ -257,3 +257,59 @@ class GroupedDeliveryJob {
     );
   }
 }
+
+/// Typed history row (delivery closure client §1). One per courier_assignment
+/// the courier held — including assignments that were reassigned away. Never a
+/// dynamic Map in the History UI.
+class GroupedDeliveryAssignmentHistory {
+  final int assignmentId;
+  final int deliveryJobId;
+  final int orderGroupId;
+  final String assignmentStatus;
+  final String lifecycleStatus;
+  final int storeCount;
+  final DateTime? assignedAt;
+  final DateTime? endedAt;
+  final String? endedReason;
+  final DateTime? completedAt;
+
+  const GroupedDeliveryAssignmentHistory({
+    required this.assignmentId,
+    required this.deliveryJobId,
+    required this.orderGroupId,
+    required this.assignmentStatus,
+    required this.lifecycleStatus,
+    required this.storeCount,
+    this.assignedAt,
+    this.endedAt,
+    this.endedReason,
+    this.completedAt,
+  });
+
+  GroupedJobLifecycle get lifecycle => GroupedJobLifecycle.parse(lifecycleStatus);
+
+  /// True when this row is a reassigned-away assignment (ended but the job was
+  /// not delivered by this courier).
+  bool get wasReassignedAway =>
+      endedAt != null && (endedReason ?? '').toUpperCase().contains('REASSIGN');
+
+  bool get isCompleted => lifecycle == GroupedJobLifecycle.delivered;
+
+  static DateTime? _dt(Object? v) =>
+      v == null ? null : DateTime.tryParse('$v')?.toLocal();
+
+  factory GroupedDeliveryAssignmentHistory.fromMap(Map<String, dynamic> m) {
+    return GroupedDeliveryAssignmentHistory(
+      assignmentId: _asInt(_pick(m, ['assignmentId', 'assignment_id'])),
+      deliveryJobId: _asInt(_pick(m, ['deliveryJobId', 'delivery_job_id'])),
+      orderGroupId: _asInt(_pick(m, ['orderGroupId', 'order_group_id'])),
+      assignmentStatus: _asString(_pick(m, ['assignmentStatus', 'assignment_status'])),
+      lifecycleStatus: _asString(_pick(m, ['lifecycleStatus', 'lifecycle_status'])),
+      storeCount: _asInt(_pick(m, ['storeCount', 'store_count']) ?? 0),
+      assignedAt: _dt(_pick(m, ['assignedAt', 'assigned_at'])),
+      endedAt: _dt(_pick(m, ['endedAt', 'ended_at'])),
+      endedReason: _pick(m, ['endedReason', 'ended_reason'])?.toString(),
+      completedAt: _dt(_pick(m, ['completedAt', 'completed_at'])),
+    );
+  }
+}

@@ -11,30 +11,36 @@ import 'delivery_controller.dart' show deliveryApiProvider;
 class GroupedDeliveryState {
   final bool loading;
   final bool saving;
+  final bool historyLoading;
   final GroupedDeliveryJob? job;
-  final List<Map<String, dynamic>> history;
+  final List<GroupedDeliveryAssignmentHistory> history;
   final String? error;
 
   const GroupedDeliveryState({
     this.loading = false,
     this.saving = false,
+    this.historyLoading = false,
     this.job,
     this.history = const [],
     this.error,
   });
 
+  bool get hasActiveJob => job != null && !job!.isTerminal;
+
   GroupedDeliveryState copyWith({
     bool? loading,
     bool? saving,
+    bool? historyLoading,
     GroupedDeliveryJob? job,
     bool clearJob = false,
-    List<Map<String, dynamic>>? history,
+    List<GroupedDeliveryAssignmentHistory>? history,
     String? error,
     bool clearError = false,
   }) {
     return GroupedDeliveryState(
       loading: loading ?? this.loading,
       saving: saving ?? this.saving,
+      historyLoading: historyLoading ?? this.historyLoading,
       job: clearJob ? null : (job ?? this.job),
       history: history ?? this.history,
       error: clearError ? null : (error ?? this.error),
@@ -48,6 +54,7 @@ class GroupedDeliveryState {
 /// (server `current` returns null) so it disappears from Current.
 class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
   final DeliveryApi _api;
+  Future<void>? _bootstrapInFlight;
 
   GroupedDeliveryController(this._api) : super(const GroupedDeliveryState());
 
@@ -67,8 +74,20 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
     return 'حدث خطأ غير متوقع.';
   }
 
-  /// Load the current active grouped job (bootstrap / resume / reconnect).
-  Future<void> bootstrap({bool silent = false}) async {
+  /// Load the current active grouped job (bootstrap / resume / reconnect /
+  /// notification tap). Concurrent calls share one in-flight request (§2:
+  /// "prevent duplicate simultaneous bootstrap requests").
+  Future<void> bootstrap({bool silent = false}) {
+    final existing = _bootstrapInFlight;
+    if (existing != null) return existing;
+    final future = _bootstrap(silent: silent).whenComplete(() {
+      _bootstrapInFlight = null;
+    });
+    _bootstrapInFlight = future;
+    return future;
+  }
+
+  Future<void> _bootstrap({required bool silent}) async {
     if (!silent) state = state.copyWith(loading: true, clearError: true);
     try {
       final raw = await _api.currentGroupedJob();
@@ -112,13 +131,19 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
   }
 
   Future<void> loadHistory() async {
+    state = state.copyWith(historyLoading: true, clearError: true);
     try {
       final rows = await _api.groupedJobHistory();
       state = state.copyWith(
-        history: rows.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+        historyLoading: false,
+        history: rows
+            .map((e) => GroupedDeliveryAssignmentHistory.fromMap(
+                  Map<String, dynamic>.from(e as Map),
+                ))
+            .toList(),
       );
     } catch (e) {
-      state = state.copyWith(error: _mapError(e));
+      state = state.copyWith(historyLoading: false, error: _mapError(e));
     }
   }
 

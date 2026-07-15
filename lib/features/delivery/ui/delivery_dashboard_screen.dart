@@ -19,8 +19,10 @@ import '../../settings/ui/pages/settings_account_screen.dart';
 import '../../settings/ui/pages/settings_support_screen.dart';
 import '../data/delivery_api.dart';
 import '../state/delivery_controller.dart';
+import '../state/grouped_delivery_controller.dart';
 import 'courier_pages.dart';
 import 'delivery_reports_screens.dart';
+import 'grouped_delivery_screens.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -89,6 +91,9 @@ class _DeliveryDashboardScreenState
       await _deliveryController.bootstrap();
       if (!mounted) return;
       _deliveryController.startLiveOrders();
+      // Grouped multi-store delivery bootstrap (Delivery surface only).
+      if (!mounted) return;
+      await ref.read(groupedDeliveryControllerProvider.notifier).bootstrap();
     });
   }
 
@@ -405,6 +410,7 @@ class _DeliveryDashboardScreenState
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        const GroupedDeliveryDashboardSection(),
         _buildEndDayReadinessCard(state),
         const SizedBox(height: 8),
         _DeliveryInsights(analytics: state.analytics),
@@ -536,6 +542,7 @@ class _DeliveryDashboardScreenState
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        const GroupedDeliveryDashboardSection(),
         _SectionTitle(l10n.deliveryCurrentOrders),
         if (state.currentOrders.isEmpty)
           Padding(
