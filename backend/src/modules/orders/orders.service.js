@@ -1,6 +1,7 @@
 import { getUserPublicById } from "../auth/auth.repo.js";
 import { resolveOrderAddress } from "../auth/auth.service.js";
 import * as repo from "./orders.repo.js";
+import { AppError } from "../../shared/utils/errors.js";
 import {
   getOrderActionReason,
   listOrderActionReasons as listOrderActionReasonsRepo,
@@ -465,16 +466,22 @@ export async function rateDelivery(customerUserId, orderId, rating, review) {
 }
 
 export async function rateMerchant(customerUserId, orderId, rating, review) {
-  const ok = await repo.rateMerchant(
+  const result = await repo.rateMerchant(
     customerUserId,
     Number(orderId),
     Number(rating),
     review?.trim()
   );
-  if (!ok) {
-    const err = new Error("ORDER_NOT_FOUND_OR_NOT_RATEABLE");
-    err.status = 409;
-    throw err;
+  if (result?.ok === false && result.conflict) {
+    throw new AppError("MERCHANT_REVIEW_ALREADY_EXISTS", {
+      status: 409,
+      details: result.conflict,
+    });
+  }
+  if (!result) {
+    throw new AppError("ORDER_NOT_FOUND_OR_NOT_RATEABLE", {
+      status: 409,
+    });
   }
 }
 

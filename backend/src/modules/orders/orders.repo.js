@@ -3450,61 +3450,155 @@ export async function rateDelivery(customerUserId, orderId, rating, review) {
 }
 
 export async function rateMerchant(customerUserId, orderId, rating, review) {
-  const r = await q(
-    `UPDATE customer_order
-     SET merchant_rating=$1,
-         merchant_review=$2,
-         merchant_rated_at=NOW()
-     WHERE id=$3
-       AND customer_user_id=$4
-       AND status IN ('delivered','completed')
-     RETURNING
-       id,
-       merchant_id,
-       (SELECT owner_user_id FROM merchant WHERE id = customer_order.merchant_id) AS owner_user_id`,
-    [rating, review || null, orderId, customerUserId]
-  );
-  const row = r.rows[0];
-  if (!row) return false;
+  const client = await pool.connect();
+  let orderRow = null;
+  try {
+    await client.query("BEGIN");
 
-  await q(
-    `INSERT INTO merchant_verified_review
-      (order_id, merchant_id, customer_user_id, rating, review_text, is_verified, metadata_json)
-     VALUES ($1,$2,$3,$4,$5,TRUE,'{}'::jsonb)
-     ON CONFLICT (order_id)
-     DO UPDATE SET
-       rating = EXCLUDED.rating,
-       review_text = EXCLUDED.review_text,
-       updated_at = NOW()`,
-    [
-      Number(row.id),
-      Number(row.merchant_id),
-      Number(customerUserId),
-      Number(rating),
-      review || null,
-    ]
-  );
+    const orderRowResult = await client.query(
+      `SELECT
+         o.id,
+         o.merchant_id,
+         m.owner_user_id
+       FROM customer_order o
+       JOIN merchant m ON m.id = o.merchant_id
+       WHERE o.id = $1
+         AND o.customer_user_id = $2
+         AND o.status IN ('delivered','completed')
+       FOR UPDATE`,
+      [Number(orderId), Number(customerUserId)]
+    );
+    orderRow = orderRowResult.rows[0];
+    if (!orderRow) {
+      await client.query("ROLLBACK");
+      return false;
+    }
 
-  await createManyNotifications(
-    [
-      row.owner_user_id
-        ? {
-            userId: row.owner_user_id,
-            type: "owner_merchant_rated",
-            title: "تقييم متجر جديد",
-            body: `تم تقييم المتجر في الطلب #${row.id} بـ ${rating}/5`,
-            orderId: row.id,
-            merchantId: row.merchant_id,
-            payload: {
-              orderId: row.id,
-              rating,
-            },
-          }
-        : null,
-    ].filter(Boolean)
-  );
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext($1))`,
+      [`merchant-review:${Number(customerUserId)}:${Number(orderRow.merchant_id)}`]
+    );
 
-  return true;
+    const existingReviewResult = await client.query(
+      `SELECT id, merchant_id
+       FROM merchant_verified_review
+       WHERE customer_user_id = $1
+         AND merchant_id = $2
+         AND review_state IN ('active', 'restored')
+       ORDER BY updated_at DESC, id DESC
+       LIMIT 1`,
+      [Number(customerUserId), Number(orderRow.merchant_id)]
+    );
+    const existingReview = existingReviewResult.rows[0];
+    if (existingReview) {
+      await client.query("ROLLBACK");
+      return {
+        ok: false,
+        conflict: {
+          existingReviewId: Number(existingReview.id),
+          existingPostId: null,
+          merchantId: Number(existingReview.merchant_id),
+        },
+      };
+    }
+
+    await client.query(
+      `UPDATE customer_order
+       SET merchant_rating=$1,
+           merchant_review=$2,
+           merchant_rated_at=NOW()
+       WHERE id=$3`,
+      [rating, review || null, Number(orderRow.id)]
+    );
+
+    await client.query(
+      `INSERT INTO merchant_verified_review
+        (
+          order_id,
+          merchant_id,
+          customer_user_id,
+          rating,
+          review_text,
+          is_verified,
+          review_state,
+          review_deleted_at,
+          review_deleted_by_user_id,
+          review_moderated_at,
+          review_moderated_by_user_id,
+          review_moderation_note,
+          metadata_json
+        )
+       VALUES ($1,$2,$3,$4,$5,TRUE,'active',NULL,NULL,NULL,NULL,NULL,$6::jsonb)`,
+      [
+        Number(orderRow.id),
+        Number(orderRow.merchant_id),
+        Number(customerUserId),
+        Number(rating),
+        review || null,
+        JSON.stringify({
+          source: "customer_order_rate_merchant",
+          orderId: Number(orderRow.id),
+        }),
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    await createManyNotifications(
+      [
+        orderRow.owner_user_id
+          ? {
+              userId: orderRow.owner_user_id,
+              type: "owner_merchant_rated",
+              title: "تقييم متجر جديد",
+              body: `تم تقييم المتجر في الطلب #${orderRow.id} بـ ${rating}/5`,
+              orderId: orderRow.id,
+              merchantId: orderRow.merchant_id,
+              payload: {
+                orderId: orderRow.id,
+                rating,
+              },
+            }
+          : null,
+      ].filter(Boolean)
+    );
+
+    return true;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // noop
+    }
+
+    if (Number(error?.code || 0) === 23505) {
+      const conflictReview = await q(
+        `SELECT id, merchant_id
+         FROM merchant_verified_review
+         WHERE customer_user_id = $1
+           AND merchant_id = $2
+           AND review_state IN ('active', 'restored')
+         ORDER BY updated_at DESC, id DESC
+         LIMIT 1`,
+        [Number(customerUserId), Number(orderRow?.merchant_id || 0)]
+      );
+      const row = conflictReview.rows[0];
+      if (row) {
+        return {
+          ok: false,
+          conflict: {
+            existingReviewId: Number(row.id),
+            existingPostId: null,
+            merchantId: Number(row.merchant_id),
+          },
+        };
+      }
+    }
+
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function listOwnerCurrentOrders(ownerUserId) {

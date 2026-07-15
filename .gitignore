@@ -82,6 +82,7 @@ keystores/
 
 # --- Build & QA artifacts (machine-generated, never commit) ---
 /qa_artifacts/
+/backend/qa_artifacts/**/qa-role-matrix.json
 /dist/
 /backend/.qa_pg/
 **/.cxx/
