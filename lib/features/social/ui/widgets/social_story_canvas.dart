@@ -569,8 +569,14 @@ class _AttachmentPreviewFrameState extends State<_AttachmentPreviewFrame>
   @override
   void didUpdateWidget(covariant _AttachmentPreviewFrame oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final oldUrl = (oldWidget.attachment.mediaUrl ?? '').trim();
-    final newUrl = (widget.attachment.mediaUrl ?? '').trim();
+    final oldUrl =
+        (oldWidget.attachment.playbackUrl ??
+                oldWidget.attachment.mediaUrl ??
+                '')
+            .trim();
+    final newUrl =
+        (widget.attachment.playbackUrl ?? widget.attachment.mediaUrl ?? '')
+            .trim();
     if (oldUrl != newUrl) {
       _disposeVideo();
       _initVideoIfNeeded();
@@ -584,7 +590,9 @@ class _AttachmentPreviewFrameState extends State<_AttachmentPreviewFrame>
       return;
     }
     final mediaKind = (widget.attachment.mediaKind ?? '').trim().toLowerCase();
-    final mediaUrl = (widget.attachment.mediaUrl ?? '').trim();
+    final mediaUrl =
+        (widget.attachment.playbackUrl ?? widget.attachment.mediaUrl ?? '')
+            .trim();
     if (mediaUrl.isEmpty || (mediaKind != 'video' && mediaKind != 'reel')) {
       return;
     }
@@ -653,7 +661,7 @@ class _AttachmentPreviewFrameState extends State<_AttachmentPreviewFrame>
   @override
   Widget build(BuildContext context) {
     final data = widget.attachment;
-    final imageUrl = (data.posterUrl ?? data.mediaUrl ?? '').trim();
+    final imageUrl = (data.thumbnailUrl ?? data.posterUrl ?? '').trim();
     if (_videoReady && _video != null && _video!.value.isInitialized) {
       return FittedBox(
         fit: BoxFit.cover,

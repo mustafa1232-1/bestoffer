@@ -671,9 +671,10 @@ List<_PostMediaDisplayItem> _buildPostMediaDisplayItems(SocialPost post) {
       final posterUrl =
           (media.asset?.thumbnailUrl ??
                   media.asset?.posterUrl ??
-                  media.asset?.playbackUrl ??
-                  media.asset?.normalizedUrl ??
-                  media.mediaUrl ??
+                  socialCloudflareThumbnail(media.asset) ??
+                  (!isVideo
+                      ? (media.asset?.normalizedUrl ?? media.mediaUrl)
+                      : null) ??
                   '')
               .trim();
       if (posterUrl.isEmpty) {

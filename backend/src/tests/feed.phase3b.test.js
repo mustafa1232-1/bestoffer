@@ -65,6 +65,38 @@ test("validateCreateStory persists explicit story interaction settings", () => {
   assert.equal(result.value.allowReshare, true);
 });
 
+test("validateCreateStory preserves typed story attachments for reel shares", () => {
+  const result = validateCreateStory({
+    caption: "Shared reel story",
+    storyStyle: {
+      mode: "reelShare",
+      attachment: {
+        type: "reelShare",
+        reelId: 42,
+        mediaAssetId: 77,
+        streamUid: "stream-uid-77",
+        authorId: 9,
+        posterUrl: "https://example.com/poster.jpg",
+        playbackUrl: "https://example.com/playback.m3u8",
+        thumbnailUrl: "https://example.com/thumb.jpg",
+        mediaKind: "video",
+        aspectRatio: 0.5625,
+        caption: "Nice reel",
+        label: "Watch reel",
+      },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.value.storyStyle.attachment.type, "reel_share");
+  assert.equal(result.value.storyStyle.attachment.reelId, 42);
+  assert.equal(result.value.storyStyle.attachment.mediaAssetId, 77);
+  assert.equal(result.value.storyStyle.attachment.streamUid, "stream-uid-77");
+  assert.equal(result.value.storyStyle.attachment.authorId, 9);
+  assert.equal(result.value.storyStyle.attachment.playbackUrl, "https://example.com/playback.m3u8");
+  assert.equal(result.value.storyStyle.attachment.thumbnailUrl, "https://example.com/thumb.jpg");
+});
+
 test("validateCreateStory accepts nested storyInteractionSettings", () => {
   const result = validateCreateStory({
     caption: "Story flags nested",

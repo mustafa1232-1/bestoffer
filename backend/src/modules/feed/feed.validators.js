@@ -634,7 +634,12 @@ function _parseStoryStyle(rawStyle, errors) {
     ["postshare", "postShare"],
     ["post_share", "postShare"],
   ]);
-  const attachmentTypeAllowed = new Set(["reel_share", "post_share"]);
+  const attachmentTypeAllowed = new Set([
+    "reel_share",
+    "reelshare",
+    "post_share",
+    "postshare",
+  ]);
   const layerTypeMap = new Map([
     ["text", "text"],
     ["mention", "mention"],
@@ -926,25 +931,44 @@ function _parseStoryStyle(rawStyle, errors) {
     if (!style.attachment || typeof style.attachment !== "object" || Array.isArray(style.attachment)) {
       errors.push("storyStyle.attachment");
     } else {
-      const attachmentType = asTrimmed(style.attachment.type).toLowerCase();
+      const attachmentTypeRaw = asTrimmed(style.attachment.type).toLowerCase();
+      const attachmentType = attachmentTypeRaw.replace(/[\s-]+/g, "");
       if (!attachmentTypeAllowed.has(attachmentType)) {
         errors.push("storyStyle.attachment.type");
       } else {
-        const attachment = { type: attachmentType };
+        const attachment = {
+          type: attachmentType.includes("reel") ? "reel_share" : "post_share",
+        };
         const reelId = asPositiveInt(style.attachment.reelId ?? style.attachment.reel_id);
         const postId = asPositiveInt(style.attachment.postId ?? style.attachment.post_id);
-        if (attachmentType === "reel_share") {
+        if (attachmentType === "reel_share" || attachmentType === "reelshare") {
           if (reelId == null) errors.push("storyStyle.attachment.reelId");
           else attachment.reelId = reelId;
         }
-        if (attachmentType === "post_share") {
+        if (attachmentType === "post_share" || attachmentType === "postshare") {
           if (postId == null) errors.push("storyStyle.attachment.postId");
           else attachment.postId = postId;
         }
+        const mediaAssetId = asPositiveInt(
+          style.attachment.mediaAssetId ?? style.attachment.media_asset_id
+        );
+        if (mediaAssetId != null) attachment.mediaAssetId = mediaAssetId;
+        const streamUid = asTrimmed(style.attachment.streamUid || style.attachment.stream_uid);
+        if (streamUid) attachment.streamUid = streamUid.slice(0, 120);
+        const authorId = asPositiveInt(style.attachment.authorId ?? style.attachment.author_id);
+        if (authorId != null) attachment.authorId = authorId;
         const posterUrl = asTrimmed(style.attachment.posterUrl || style.attachment.poster_url);
         if (posterUrl) attachment.posterUrl = posterUrl.slice(0, 1400);
         const mediaUrl = asTrimmed(style.attachment.mediaUrl || style.attachment.media_url);
         if (mediaUrl) attachment.mediaUrl = mediaUrl.slice(0, 1400);
+        const playbackUrl = asTrimmed(
+          style.attachment.playbackUrl || style.attachment.playback_url
+        );
+        if (playbackUrl) attachment.playbackUrl = playbackUrl.slice(0, 1400);
+        const thumbnailUrl = asTrimmed(
+          style.attachment.thumbnailUrl || style.attachment.thumbnail_url
+        );
+        if (thumbnailUrl) attachment.thumbnailUrl = thumbnailUrl.slice(0, 1400);
         const mediaKind = asTrimmed(style.attachment.mediaKind || style.attachment.media_kind)
           .toLowerCase();
         if (mediaKind) {
@@ -956,6 +980,12 @@ function _parseStoryStyle(rawStyle, errors) {
         }
         const authorName = asTrimmed(style.attachment.authorName || style.attachment.author_name);
         if (authorName) attachment.authorName = authorName.slice(0, 120);
+        const aspectRatio = readNumber(
+          style.attachment.aspectRatio ?? style.attachment.aspect_ratio,
+          "storyStyle.attachment.aspectRatio",
+          { min: 0.1, max: 20 }
+        );
+        if (aspectRatio != null) attachment.aspectRatio = aspectRatio;
         const captionText = asTrimmed(style.attachment.caption);
         if (captionText) attachment.caption = captionText.slice(0, 300);
         const label = asTrimmed(style.attachment.label);

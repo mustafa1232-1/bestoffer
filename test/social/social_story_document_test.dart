@@ -22,9 +22,17 @@ void main() {
         'attachment': {
           'type': 'reel_share',
           'reelId': 42,
+          'mediaAssetId': 77,
+          'streamUid': 'stream-uid-77',
+          'authorId': 7,
           'authorName': 'Ali',
           'posterUrl': 'https://example.com/poster.jpg',
           'caption': 'Nice reel',
+          'mediaUrl': 'https://example.com/playback.m3u8',
+          'playbackUrl': 'https://example.com/playback.m3u8',
+          'thumbnailUrl': 'https://example.com/thumb.jpg',
+          'mediaKind': 'video',
+          'aspectRatio': 0.5625,
           'label': 'Watch reel',
         },
         'layers': [
@@ -53,12 +61,23 @@ void main() {
     expect(draft.mode, SocialStoryComposerMode.reelShare);
     expect(draft.attachment?.isReelShare, isTrue);
     expect(draft.attachment?.reelId, 42);
+    expect(draft.attachment?.mediaAssetId, 77);
+    expect(draft.attachment?.streamUid, 'stream-uid-77');
+    expect(draft.attachment?.authorId, 7);
+    expect(draft.attachment?.playbackUrl, 'https://example.com/playback.m3u8');
+    expect(draft.attachment?.thumbnailUrl, 'https://example.com/thumb.jpg');
     expect(draft.background.type, SocialStoryBackgroundType.posterBlur);
     expect(draft.layers.single.type, SocialStoryLayerType.reelShare);
 
     final json = draft.toStoryStyleJson();
     expect(json['mode'], 'reelShare');
     expect((json['attachment'] as Map<String, dynamic>)['reelId'], 42);
+    expect((json['attachment'] as Map<String, dynamic>)['mediaAssetId'], 77);
+    expect(
+      (json['attachment'] as Map<String, dynamic>)['streamUid'],
+      'stream-uid-77',
+    );
+    expect((json['attachment'] as Map<String, dynamic>)['type'], 'reel_share');
     expect((json['layers'] as List).single['type'], 'reelShare');
   });
 
