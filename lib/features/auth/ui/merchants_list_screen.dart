@@ -25,6 +25,9 @@ import '../../orders/ui/customer_orders_screen.dart';
 import '../../orders/ui/delivery_addresses_screen.dart';
 import '../../coupons/ui/customer_coupons_hub_screen.dart';
 import '../../taxi/ui/taxi_customer_tools_screen.dart';
+import '../../customer/models/customer_ad_board_item.dart';
+import '../../customer/state/customer_ad_board_controller.dart';
+import '../../customer/ui/widgets/marketplace_ad_card.dart';
 import '../state/auth_controller.dart';
 import 'add_merchant_screen.dart';
 
@@ -779,6 +782,28 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     );
   }
 
+  /// Routes a tapped MARKETPLACE_CATEGORY ad to its target store. External links
+  /// are handled inside the ad card; store targets are resolved here.
+  Future<void> _handleCategoryAdTap(CustomerAdBoardItem ad) async {
+    final merchantId = ad.merchantId ?? ad.targetId;
+    if (merchantId == null || merchantId <= 0) return;
+    try {
+      final raw = await ref.read(merchantsApiProvider).getById(merchantId);
+      final merchant = MerchantModel.fromJson(raw);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MerchantProductsScreen(merchant: merchant),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذر فتح المتجر حالياً')));
+    }
+  }
+
   Future<void> _runSurprisePicker({
     required List<MerchantModel> source,
     required Set<int> favoriteMerchantIds,
@@ -1202,6 +1227,35 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                   ),
                   const SizedBox(height: 12),
                 ],
+                // MARKETPLACE_CATEGORY ad: targeted at this page's category /
+                // activity, with the general ad as fallback; sits above search
+                // and collapses fully when there is no eligible ad.
+                MarketplaceAdCard(
+                  request: MarketplaceAdRequest(
+                    placement: 'MARKETPLACE_CATEGORY',
+                    type: (filterType ?? widget.initialType)?.trim().isNotEmpty ==
+                            true
+                        ? (filterType ?? widget.initialType)!.trim()
+                        : null,
+                    categoryKey:
+                        (selectedActivityType ?? widget.initialActivityType)
+                                    ?.trim()
+                                    .isNotEmpty ==
+                                true
+                            ? (selectedActivityType ?? widget.initialActivityType)!
+                                .trim()
+                            : null,
+                    activityType:
+                        (selectedActivityType ?? widget.initialActivityType)
+                                    ?.trim()
+                                    .isNotEmpty ==
+                                true
+                            ? (selectedActivityType ?? widget.initialActivityType)!
+                                .trim()
+                            : null,
+                  ),
+                  onTapAd: _handleCategoryAdTap,
+                ),
                 TextField(
                   controller: searchCtrl,
                   textDirection: TextDirection.rtl,
@@ -2151,64 +2205,72 @@ class _MerchantDiscoveryToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Column(
-          children: [
-            Row(
+    // Compact sort/filter row (replaces the old "تخصيص عرض المتاجر" panel):
+    // a lean, scrollable strip of Sort + Favorites controls.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      reverse: true, // keep controls right-aligned (RTL start).
+      child: Row(
+        textDirection: TextDirection.rtl,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Theme.of(context).dividerColor),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               textDirection: TextDirection.rtl,
               children: [
-                const Icon(Icons.tune_rounded, size: 18),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    l10n.merchantListCustomizeView,
-                    textDirection: TextDirection.rtl,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                const Icon(Icons.sort_rounded, size: 16),
+                const SizedBox(width: 4),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<_CustomerMerchantSort>(
+                    value: sortBy,
+                    isDense: true,
+                    onChanged: (value) {
+                      if (value == null) return;
+                      onChangeSort(value);
+                    },
+                    items: [
+                      DropdownMenuItem(
+                        value: _CustomerMerchantSort.recommended,
+                        child: Text(l10n.merchantListSortRecommended),
+                      ),
+                      DropdownMenuItem(
+                        value: _CustomerMerchantSort.openFirst,
+                        child: Text(l10n.merchantListSortOpenFirst),
+                      ),
+                      DropdownMenuItem(
+                        value: _CustomerMerchantSort.offersFirst,
+                        child: Text(l10n.merchantListSortOffersFirst),
+                      ),
+                      DropdownMenuItem(
+                        value: _CustomerMerchantSort.alphabetical,
+                        child: Text(l10n.merchantListSortAlphabetical),
+                      ),
+                    ],
                   ),
                 ),
-                DropdownButton<_CustomerMerchantSort>(
-                  value: sortBy,
-                  onChanged: (value) {
-                    if (value == null) return;
-                    onChangeSort(value);
-                  },
-                  items: [
-                    DropdownMenuItem(
-                      value: _CustomerMerchantSort.recommended,
-                      child: Text(l10n.merchantListSortRecommended),
-                    ),
-                    DropdownMenuItem(
-                      value: _CustomerMerchantSort.openFirst,
-                      child: Text(l10n.merchantListSortOpenFirst),
-                    ),
-                    DropdownMenuItem(
-                      value: _CustomerMerchantSort.offersFirst,
-                      child: Text(l10n.merchantListSortOffersFirst),
-                    ),
-                    DropdownMenuItem(
-                      value: _CustomerMerchantSort.alphabetical,
-                      child: Text(l10n.merchantListSortAlphabetical),
-                    ),
-                  ],
-                ),
               ],
             ),
-            const SizedBox(height: 8),
-            Row(
-              textDirection: TextDirection.rtl,
-              children: [
-                FilterChip(
-                  selected: favoritesOnly,
-                  onSelected: onToggleFavoritesOnly,
-                  label: Text(l10n.merchantListFavoritesOnly),
-                  avatar: const Icon(Icons.favorite_rounded, size: 16),
-                ),
-              ],
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 8),
+          Row(
+            textDirection: TextDirection.rtl,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FilterChip(
+                selected: favoritesOnly,
+                onSelected: onToggleFavoritesOnly,
+                label: Text(l10n.merchantListFavoritesOnly),
+                avatar: const Icon(Icons.favorite_rounded, size: 16),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
