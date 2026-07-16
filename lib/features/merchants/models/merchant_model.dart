@@ -4,6 +4,14 @@ double? _toNullableDouble(dynamic raw) {
   return tryParseLocalizedDouble(raw);
 }
 
+DateTime? _toNullableDate(dynamic raw) {
+  if (raw == null) return null;
+  if (raw is DateTime) return raw;
+  final str = raw.toString().trim();
+  if (str.isEmpty) return null;
+  return DateTime.tryParse(str);
+}
+
 class MerchantModel {
   final int id;
   final String name;
@@ -26,11 +34,21 @@ class MerchantModel {
   final bool isOpen;
   final bool hasDiscountOffer;
   final bool hasFreeDeliveryOffer;
+  final bool hasActiveOffer;
   final bool supportsChat;
   final bool supportsAttachments;
   final bool supportsPharmacyWorkflow;
   final Map<String, dynamic> serviceFlags;
   final List<String> badges;
+  // Storefront contract (nullable = unknown; never fabricated on the client).
+  final String? logoUrl;
+  final String? coverImageUrl;
+  final bool isVerified;
+  final DateTime? nextOpenAt;
+  final int? deliveryEtaMinMinutes;
+  final int? deliveryEtaMaxMinutes;
+  final double? deliveryFee;
+  final double? minimumOrder;
 
   MerchantModel({
     required this.id,
@@ -54,12 +72,28 @@ class MerchantModel {
     required this.isOpen,
     required this.hasDiscountOffer,
     required this.hasFreeDeliveryOffer,
+    this.hasActiveOffer = false,
     this.supportsChat = false,
     this.supportsAttachments = false,
     this.supportsPharmacyWorkflow = false,
     this.serviceFlags = const <String, dynamic>{},
     this.badges = const <String>[],
+    this.logoUrl,
+    this.coverImageUrl,
+    this.isVerified = false,
+    this.nextOpenAt,
+    this.deliveryEtaMinMinutes,
+    this.deliveryEtaMaxMinutes,
+    this.deliveryFee,
+    this.minimumOrder,
   });
+
+  /// True when the store advertises any real ETA (min or max minutes present).
+  bool get hasDeliveryEta =>
+      deliveryEtaMinMinutes != null || deliveryEtaMaxMinutes != null;
+
+  /// True when a real delivery fee value is present (including 0 = free).
+  bool get hasDeliveryFee => deliveryFee != null;
 
   factory MerchantModel.fromJson(Map<String, dynamic> j) => MerchantModel(
     id: parseInt(j['id']),
@@ -105,6 +139,27 @@ class MerchantModel {
     hasDiscountOffer: j['has_discount_offer'] ?? j['hasDiscountOffer'] ?? false,
     hasFreeDeliveryOffer:
         j['has_free_delivery_offer'] ?? j['hasFreeDeliveryOffer'] ?? false,
+    hasActiveOffer:
+        j['has_active_offer'] ??
+        j['hasActiveOffer'] ??
+        ((j['has_discount_offer'] ?? j['hasDiscountOffer'] ?? false) ||
+            (j['has_free_delivery_offer'] ??
+                j['hasFreeDeliveryOffer'] ??
+                false)),
+    logoUrl: parseNullableString(j['logo_url'] ?? j['logoUrl']),
+    coverImageUrl: parseNullableString(
+      j['cover_image_url'] ?? j['coverImageUrl'],
+    ),
+    isVerified: j['is_verified'] ?? j['isVerified'] ?? false,
+    nextOpenAt: _toNullableDate(j['next_open_at'] ?? j['nextOpenAt']),
+    deliveryEtaMinMinutes: parseNullableInt(
+      j['delivery_eta_min_minutes'] ?? j['deliveryEtaMinMinutes'],
+    ),
+    deliveryEtaMaxMinutes: parseNullableInt(
+      j['delivery_eta_max_minutes'] ?? j['deliveryEtaMaxMinutes'],
+    ),
+    deliveryFee: _toNullableDouble(j['delivery_fee'] ?? j['deliveryFee']),
+    minimumOrder: _toNullableDouble(j['minimum_order'] ?? j['minimumOrder']),
     supportsChat: j['supports_chat'] ?? j['supportsChat'] ?? false,
     supportsAttachments:
         j['supports_attachments'] ?? j['supportsAttachments'] ?? false,
