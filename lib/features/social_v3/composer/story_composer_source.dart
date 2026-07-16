@@ -5,7 +5,14 @@ import '../domain/story_view_data.dart';
 import '../media/social_media_presentation.dart';
 
 /// What a story is being composed from (§6/§7).
-enum StorySourceKind { localImage, localVideo, sharedReel, sharedPost, text }
+enum StorySourceKind {
+  localImage,
+  localVideo,
+  sharedReel,
+  sharedPost,
+  text,
+  restoredDraft,
+}
 
 /// Whether the backend persists & enforces **story-level** audience scope.
 ///
@@ -106,8 +113,9 @@ class StoryComposerScope {
   /// specific building context).
   final bool locked;
 
-  static const StoryComposerScope global =
-      StoryComposerScope(scope: StoryAudienceScope.global);
+  static const StoryComposerScope global = StoryComposerScope(
+    scope: StoryAudienceScope.global,
+  );
 }
 
 /// Reference to a shared reel used as a story's **base media** (never an
@@ -154,23 +162,23 @@ class SharedReelSource {
   /// The presentation used to render the reel as the story base media. Poster
   /// slot is guarded (never the playback URL).
   SocialMediaPresentation toPresentation() => SocialMediaPresentation(
-        mediaAssetId: reelId,
-        provider: 'cloudflare_stream',
-        mediaKind: SocialMediaKind.reel,
-        playbackType: (playbackUrl ?? '').isEmpty
-            ? SocialPlaybackType.none
-            : (isStreamingManifestUrl(playbackUrl)
-                ? SocialPlaybackType.hls
-                : SocialPlaybackType.progressiveMp4),
-        videoPlaybackUrl: playbackUrl,
-        posterImageUrl: _guardedPoster(),
-        width: width,
-        height: height,
-        durationMs: null,
-        processingStatus: available
-            ? SocialProcessingStatus.ready
-            : SocialProcessingStatus.deleted,
-      );
+    mediaAssetId: reelId,
+    provider: 'cloudflare_stream',
+    mediaKind: SocialMediaKind.reel,
+    playbackType: (playbackUrl ?? '').isEmpty
+        ? SocialPlaybackType.none
+        : (isStreamingManifestUrl(playbackUrl)
+              ? SocialPlaybackType.hls
+              : SocialPlaybackType.progressiveMp4),
+    videoPlaybackUrl: playbackUrl,
+    posterImageUrl: _guardedPoster(),
+    width: width,
+    height: height,
+    durationMs: null,
+    processingStatus: available
+        ? SocialProcessingStatus.ready
+        : SocialProcessingStatus.deleted,
+  );
 
   String? _guardedPoster() {
     for (final candidate in [thumbnailUrl, posterUrl]) {
@@ -183,19 +191,19 @@ class SharedReelSource {
   }
 
   factory SharedReelSource.fromReelRef(SharedReelRef ref) => SharedReelSource(
-        reelId: ref.reelId,
-        originalOwnerId: 0,
-        playbackUrl: null,
-        thumbnailUrl: null,
-        posterUrl: null,
-        width: null,
-        height: null,
-        caption: ref.caption ?? '',
-        available: true,
-        authorName: null,
-        authorAvatarUrl: null,
-        authorHandle: null,
-      );
+    reelId: ref.reelId,
+    originalOwnerId: 0,
+    playbackUrl: null,
+    thumbnailUrl: null,
+    posterUrl: null,
+    width: null,
+    height: null,
+    caption: ref.caption ?? '',
+    available: true,
+    authorName: null,
+    authorAvatarUrl: null,
+    authorHandle: null,
+  );
 }
 
 /// A local file chosen from the gallery for a story.
@@ -226,27 +234,38 @@ class StoryComposerSource {
     this.sharedReel,
     this.localMedia,
     this.text,
+    this.restoredDraft,
   });
 
   final StorySourceKind kind;
   final SharedReelSource? sharedReel;
   final LocalStoryMedia? localMedia;
   final String? text;
+  final SocialStoryDraft? restoredDraft;
 
   factory StoryComposerSource.sharedReel(SharedReelSource reel) =>
-      StoryComposerSource._(
-        kind: StorySourceKind.sharedReel,
-        sharedReel: reel,
-      );
+      StoryComposerSource._(kind: StorySourceKind.sharedReel, sharedReel: reel);
 
   factory StoryComposerSource.localImage(LocalStoryMedia media) =>
-      StoryComposerSource._(kind: StorySourceKind.localImage, localMedia: media);
+      StoryComposerSource._(
+        kind: StorySourceKind.localImage,
+        localMedia: media,
+      );
 
   factory StoryComposerSource.localVideo(LocalStoryMedia media) =>
-      StoryComposerSource._(kind: StorySourceKind.localVideo, localMedia: media);
+      StoryComposerSource._(
+        kind: StorySourceKind.localVideo,
+        localMedia: media,
+      );
 
   factory StoryComposerSource.text(String value) =>
       StoryComposerSource._(kind: StorySourceKind.text, text: value);
+
+  factory StoryComposerSource.restoredDraft(SocialStoryDraft draft) =>
+      StoryComposerSource._(
+        kind: StorySourceKind.restoredDraft,
+        restoredDraft: draft,
+      );
 
   /// True when the source reel/media is locked (not manually resizable) —
   /// shared reels are locked by default (§6).
@@ -281,13 +300,19 @@ class StoryComposerSource {
             type: 'reel_share',
             reelId: reel.reelId,
             postId: null,
+            mediaAssetId: null,
+            streamUid: null,
+            authorId: reel.originalOwnerId,
             authorName: (reel.authorName ?? '').trim().isEmpty
                 ? null
                 : reel.authorName!.trim(),
             posterUrl: poster.isEmpty ? null : poster,
             caption: caption,
             mediaUrl: reel.playbackUrl,
+            playbackUrl: reel.playbackUrl,
+            thumbnailUrl: poster.isEmpty ? null : poster,
             mediaKind: 'video',
+            aspectRatio: reel.aspectRatio,
             label: 'Open original reel',
           ),
           layers: const <SocialStoryLayer>[],
@@ -318,6 +343,8 @@ class StoryComposerSource {
           mode: SocialStoryComposerMode.text,
           caption: text?.trim() ?? '',
         );
+      case StorySourceKind.restoredDraft:
+        return restoredDraft ?? SocialStoryDraft.initialText();
     }
   }
 }

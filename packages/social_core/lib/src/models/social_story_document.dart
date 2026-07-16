@@ -23,9 +23,18 @@ class SocialStoryBackground {
 
   factory SocialStoryBackground.fromJson(Map<String, dynamic> json) {
     final rawType = parseString(json['type'], fallback: 'solid');
+    final normalizedType = rawType.trim().toLowerCase().replaceAll(
+      RegExp(r'[\s_-]+'),
+      '',
+    );
     return SocialStoryBackground(
       type: SocialStoryBackgroundType.values.firstWhere(
-        (value) => value.name == rawType,
+        (value) =>
+            value.name.trim().toLowerCase().replaceAll(
+              RegExp(r'[\s_-]+'),
+              '',
+            ) ==
+            normalizedType,
         orElse: () => SocialStoryBackgroundType.solid,
       ),
       primaryColor: parseString(
@@ -51,22 +60,34 @@ class SocialStoryAttachment {
   final String type;
   final int? reelId;
   final int? postId;
+  final int? mediaAssetId;
+  final String? streamUid;
+  final int? authorId;
   final String? authorName;
   final String? posterUrl;
   final String? caption;
   final String? mediaUrl;
+  final String? playbackUrl;
+  final String? thumbnailUrl;
   final String? mediaKind;
+  final double? aspectRatio;
   final String? label;
 
   const SocialStoryAttachment({
     required this.type,
     required this.reelId,
     required this.postId,
+    required this.mediaAssetId,
+    required this.streamUid,
+    required this.authorId,
     required this.authorName,
     required this.posterUrl,
     required this.caption,
     required this.mediaUrl,
+    required this.playbackUrl,
+    required this.thumbnailUrl,
     required this.mediaKind,
+    required this.aspectRatio,
     required this.label,
   });
 
@@ -75,31 +96,65 @@ class SocialStoryAttachment {
       type: parseString(json['type']),
       reelId: parseNullableInt(json['reelId'] ?? json['reel_id']),
       postId: parseNullableInt(json['postId'] ?? json['post_id']),
+      mediaAssetId: parseNullableInt(
+        json['mediaAssetId'] ?? json['media_asset_id'],
+      ),
+      streamUid: parseNullableString(json['streamUid'] ?? json['stream_uid']),
+      authorId: parseNullableInt(json['authorId'] ?? json['author_id']),
       authorName: parseNullableString(
         json['authorName'] ?? json['author_name'],
       ),
       posterUrl: parseNullableString(json['posterUrl'] ?? json['poster_url']),
       caption: parseNullableString(json['caption']),
       mediaUrl: parseNullableString(json['mediaUrl'] ?? json['media_url']),
+      playbackUrl: parseNullableString(
+        json['playbackUrl'] ?? json['playback_url'],
+      ),
+      thumbnailUrl: parseNullableString(
+        json['thumbnailUrl'] ?? json['thumbnail_url'],
+      ),
       mediaKind: parseNullableString(json['mediaKind'] ?? json['media_kind']),
+      aspectRatio: (json['aspectRatio'] ?? json['aspect_ratio']) == null
+          ? null
+          : double.tryParse('${json['aspectRatio'] ?? json['aspect_ratio']}'),
       label: parseNullableString(json['label']),
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'type': type,
+    'type': serializedType,
     if (reelId != null) 'reelId': reelId,
     if (postId != null) 'postId': postId,
+    if (mediaAssetId != null) 'mediaAssetId': mediaAssetId,
+    if (streamUid != null) 'streamUid': streamUid,
+    if (authorId != null) 'authorId': authorId,
     if (authorName != null) 'authorName': authorName,
     if (posterUrl != null) 'posterUrl': posterUrl,
     if (caption != null) 'caption': caption,
     if (mediaUrl != null) 'mediaUrl': mediaUrl,
+    if (playbackUrl != null) 'playbackUrl': playbackUrl,
+    if (thumbnailUrl != null) 'thumbnailUrl': thumbnailUrl,
     if (mediaKind != null) 'mediaKind': mediaKind,
+    if (aspectRatio != null) 'aspectRatio': aspectRatio,
     if (label != null) 'label': label,
   };
 
-  bool get isReelShare => type == 'reel_share';
-  bool get isPostShare => type == 'post_share';
+  String get normalizedType =>
+      type.trim().toLowerCase().replaceAll(RegExp(r'[\s_-]+'), '');
+
+  String get serializedType {
+    switch (normalizedType) {
+      case 'reelshare':
+        return 'reel_share';
+      case 'postshare':
+        return 'post_share';
+      default:
+        return type.trim().toLowerCase();
+    }
+  }
+
+  bool get isReelShare => normalizedType == 'reelshare';
+  bool get isPostShare => normalizedType == 'postshare';
 }
 
 class SocialStoryPoint {
@@ -193,13 +248,22 @@ class SocialStoryLayer {
 
   factory SocialStoryLayer.fromJson(Map<String, dynamic> json) {
     final rawType = parseString(json['type'], fallback: 'text');
+    final normalizedType = rawType.trim().toLowerCase().replaceAll(
+      RegExp(r'[\s_-]+'),
+      '',
+    );
     return SocialStoryLayer(
       id: parseString(
         json['id'],
         fallback: DateTime.now().microsecondsSinceEpoch.toString(),
       ),
       type: SocialStoryLayerType.values.firstWhere(
-        (value) => value.name == rawType,
+        (value) =>
+            value.name.trim().toLowerCase().replaceAll(
+              RegExp(r'[\s_-]+'),
+              '',
+            ) ==
+            normalizedType,
         orElse: () => SocialStoryLayerType.text,
       ),
       x: double.tryParse('${json['x'] ?? 0.5}') ?? 0.5,
@@ -372,11 +436,20 @@ class SocialStoryDraft {
 
   factory SocialStoryDraft.fromJson(Map<String, dynamic> json) {
     final rawMode = parseString(json['mode'], fallback: 'text');
+    final normalizedMode = rawMode.trim().toLowerCase().replaceAll(
+      RegExp(r'[\s_-]+'),
+      '',
+    );
     return SocialStoryDraft(
       draftId: parseString(json['draftId'] ?? json['draft_id']),
       version: parseInt(json['version'] ?? 2),
       mode: SocialStoryComposerMode.values.firstWhere(
-        (value) => value.name == rawMode,
+        (value) =>
+            value.name.trim().toLowerCase().replaceAll(
+              RegExp(r'[\s_-]+'),
+              '',
+            ) ==
+            normalizedMode,
         orElse: () => SocialStoryComposerMode.text,
       ),
       caption: parseString(json['caption'], fallback: ''),
@@ -422,20 +495,68 @@ class SocialStoryDraft {
 
   factory SocialStoryDraft.fromStoryStyle({required SocialStory story}) {
     final raw = story.style.rawDocument;
+    final sharedPostMediaKind = (story.style.sharedPostMediaKind ?? '')
+        .trim()
+        .toLowerCase();
+    final sharedPostPoster =
+        sharedPostMediaKind == 'video' || sharedPostMediaKind == 'reel'
+        ? null
+        : story.style.sharedPostMediaUrl;
     if (raw['version'] == 2) {
-      return SocialStoryDraft.fromJson(raw);
+      final draft = SocialStoryDraft.fromJson(raw);
+      if (draft.attachment != null || story.style.sharedPostId == null) {
+        return draft;
+      }
+      final fallbackAttachment = SocialStoryAttachment(
+        type: 'post_share',
+        reelId: null,
+        postId: story.style.sharedPostId,
+        mediaAssetId: null,
+        streamUid: null,
+        authorId: null,
+        authorName: story.style.sharedPostAuthor,
+        posterUrl: sharedPostPoster,
+        caption: story.style.sharedPostCaption,
+        mediaUrl: story.style.sharedPostMediaUrl,
+        playbackUrl: story.style.sharedPostMediaUrl,
+        thumbnailUrl: sharedPostPoster,
+        mediaKind: story.style.sharedPostMediaKind,
+        aspectRatio: null,
+        label: null,
+      );
+      return draft.copyWith(
+        mode: SocialStoryComposerMode.postShare,
+        background: SocialStoryBackground(
+          type: draft.background.type,
+          primaryColor: draft.background.primaryColor,
+          secondaryColor: draft.background.secondaryColor,
+          imageUrl: sharedPostPoster,
+        ),
+        attachment: fallbackAttachment,
+      );
     }
     final hasMedia = (story.mediaUrl ?? '').trim().isNotEmpty;
-    final attachment = story.style.sharedPostId != null
+    final rawAttachment = raw['attachment'];
+    final attachment = rawAttachment is Map
+        ? SocialStoryAttachment.fromJson(
+            Map<String, dynamic>.from(rawAttachment),
+          )
+        : story.style.sharedPostId != null
         ? SocialStoryAttachment(
             type: 'post_share',
             reelId: null,
             postId: story.style.sharedPostId,
+            mediaAssetId: null,
+            streamUid: null,
+            authorId: null,
             authorName: story.style.sharedPostAuthor,
-            posterUrl: story.style.sharedPostMediaUrl,
+            posterUrl: sharedPostPoster,
             caption: story.style.sharedPostCaption,
             mediaUrl: story.style.sharedPostMediaUrl,
+            playbackUrl: story.style.sharedPostMediaUrl,
+            thumbnailUrl: sharedPostPoster,
             mediaKind: story.style.sharedPostMediaKind,
+            aspectRatio: null,
             label: null,
           )
         : null;
@@ -446,7 +567,9 @@ class SocialStoryDraft {
           ? (story.mediaUrl == null
                 ? SocialStoryComposerMode.text
                 : SocialStoryComposerMode.media)
-          : SocialStoryComposerMode.postShare,
+          : (attachment.isReelShare
+                ? SocialStoryComposerMode.reelShare
+                : SocialStoryComposerMode.postShare),
       caption: story.caption,
       mediaPath: null,
       mediaName: null,
@@ -460,7 +583,10 @@ class SocialStoryDraft {
         type: SocialStoryBackgroundType.solid,
         primaryColor: story.style.backgroundColor,
         secondaryColor: null,
-        imageUrl: story.style.sharedPostMediaUrl,
+        imageUrl:
+            attachment?.posterUrl ??
+            attachment?.thumbnailUrl ??
+            sharedPostPoster,
       ),
       attachment: attachment,
       layers: [
@@ -587,27 +713,26 @@ class SocialStoryDraft {
 }
 
 SocialStoryDraft buildReelShareDraft(SocialReelItem item) {
-  final poster =
-      item.post.asset?.thumbnailUrl ??
-      item.post.asset?.posterUrl ??
-      item.post.asset?.playbackUrl ??
-      item.post.asset?.normalizedUrl ??
-      item.post.mediaUrl;
-  final reelMediaUrl =
-      item.post.asset?.playbackUrl ??
-      item.post.asset?.normalizedUrl ??
-      item.post.mediaUrl;
+  final asset = item.post.asset;
+  final poster = resolveSocialPostPosterUrl(item.post);
+  final reelMediaUrl = resolveSocialPostVideoUrl(item.post);
   final attachment = SocialStoryAttachment(
     type: 'reel_share',
     reelId: item.post.id,
     postId: null,
+    mediaAssetId: asset?.id,
+    streamUid: asset?.streamUid,
+    authorId: item.post.author.id,
     authorName: (item.post.author.username ?? '').trim().isNotEmpty
         ? '@${item.post.author.username!.trim()}'
         : item.post.author.fullName,
     posterUrl: poster,
     caption: item.post.caption,
     mediaUrl: reelMediaUrl,
+    playbackUrl: reelMediaUrl,
+    thumbnailUrl: poster,
     mediaKind: item.post.mediaKind,
+    aspectRatio: asset?.aspectRatio,
     label: 'Watch reel',
   );
   return SocialStoryDraft.initialText().copyWith(
@@ -652,25 +777,31 @@ SocialStoryDraft buildPostShareDraft(SocialPost post) {
     type: 'post_share',
     reelId: null,
     postId: post.id,
+    mediaAssetId: post.asset?.id,
+    streamUid: post.asset?.streamUid,
+    authorId: post.author.id,
     authorName: (post.author.username ?? '').trim().isNotEmpty
         ? '@${post.author.username!.trim()}'
         : post.author.fullName,
-    posterUrl: post.mediaUrl,
+    posterUrl: resolveSocialPostPosterUrl(post),
     caption: post.caption,
-    mediaUrl: post.mediaUrl,
+    mediaUrl: resolveSocialPostVideoUrl(post) ?? post.mediaUrl,
+    playbackUrl: resolveSocialPostVideoUrl(post),
+    thumbnailUrl: resolveSocialPostPosterUrl(post),
     mediaKind: post.mediaKind,
+    aspectRatio: post.asset?.aspectRatio,
     label: 'View post',
   );
   return SocialStoryDraft.initialText().copyWith(
     mode: SocialStoryComposerMode.postShare,
     caption: post.caption.trim(),
     background: SocialStoryBackground(
-      type: (post.mediaUrl ?? '').trim().isEmpty
+      type: resolveSocialPostPosterUrl(post) == null
           ? SocialStoryBackgroundType.gradient
           : SocialStoryBackgroundType.posterBlur,
       primaryColor: '#1E3A8A',
       secondaryColor: '#0F766E',
-      imageUrl: post.mediaUrl,
+      imageUrl: resolveSocialPostPosterUrl(post),
     ),
     attachment: attachment,
     layers: [

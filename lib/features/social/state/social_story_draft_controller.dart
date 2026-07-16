@@ -49,6 +49,8 @@ final socialStoryDraftControllerProvider =
 
 class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
   final Ref ref;
+  Future<void> _persistQueue = Future<void>.value();
+  bool _persistenceEnabled = true;
 
   SocialStoryDraftController(this.ref)
     : super(
@@ -58,10 +60,12 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
         ),
       );
 
-  Future<void> restoreLastDraft() async {
+  Future<SocialStoryDraft?> restoreLastDraft() async {
     final draft = await ref.read(socialStoryDraftStorageProvider).load();
-    if (draft == null) return;
+    if (draft == null) return null;
+    _persistenceEnabled = true;
     state = state.copyWith(draft: draft, clearSelection: true);
+    return draft;
   }
 
   Future<void> saveDraft() {
@@ -69,15 +73,31 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
   }
 
   Future<void> clearPersistedDraft() {
-    return ref.read(socialStoryDraftStorageProvider).clear();
+    _persistenceEnabled = false;
+    return _persistQueue
+        .catchError((_) {})
+        .then((_) => ref.read(socialStoryDraftStorageProvider).clear())
+        .catchError((_) {});
+  }
+
+  void _persistDraft([SocialStoryDraft? draft]) {
+    if (!_persistenceEnabled) return;
+    final snapshot = draft ?? state.draft;
+    _persistQueue = _persistQueue
+        .catchError((_) {})
+        .then((_) => ref.read(socialStoryDraftStorageProvider).save(snapshot))
+        .catchError((_) {});
   }
 
   void replaceDraft(SocialStoryDraft draft) {
+    _persistenceEnabled = true;
     state = state.copyWith(draft: draft, clearSelection: true);
+    _persistDraft(draft);
   }
 
   void setMode(SocialStoryComposerMode mode) {
     state = state.copyWith(draft: state.draft.copyWith(mode: mode));
+    _persistDraft();
   }
 
   void setTool(SocialStoryComposerTool tool) {
@@ -86,10 +106,12 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
 
   void setCaption(String caption) {
     state = state.copyWith(draft: state.draft.copyWith(caption: caption));
+    _persistDraft();
   }
 
   void setBackground(SocialStoryBackground background) {
     state = state.copyWith(draft: state.draft.copyWith(background: background));
+    _persistDraft();
   }
 
   void setMedia({String? path, String? name, String? mimeType}) {
@@ -100,14 +122,17 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
         mediaMimeType: mimeType,
       ),
     );
+    _persistDraft();
   }
 
   void setAttachment(SocialStoryAttachment attachment) {
     state = state.copyWith(draft: state.draft.copyWith(attachment: attachment));
+    _persistDraft();
   }
 
   void clearAttachment() {
     state = state.copyWith(draft: state.draft.copyWith(clearAttachment: true));
+    _persistDraft();
   }
 
   void selectLayer(String? layerId) {
@@ -133,6 +158,7 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
       draft: state.draft.copyWith(layers: nextLayers),
       selectedLayerId: layerId,
     );
+    _persistDraft();
   }
 
   void addTextLayer({String text = '', String color = '#FFFFFF'}) {
@@ -162,6 +188,7 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
       selectedLayerId: layer.id,
       activeTool: SocialStoryComposerTool.text,
     );
+    _persistDraft();
   }
 
   void addMentionLayer({
@@ -197,6 +224,7 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
       selectedLayerId: layer.id,
       activeTool: SocialStoryComposerTool.mention,
     );
+    _persistDraft();
   }
 
   void addStickerLayer(String sticker) {
@@ -226,6 +254,7 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
       selectedLayerId: layer.id,
       activeTool: SocialStoryComposerTool.stickers,
     );
+    _persistDraft();
   }
 
   void updateLayer(String layerId, SocialStoryLayer nextLayer) {
@@ -233,6 +262,7 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
         .map((layer) => layer.id == layerId ? nextLayer : layer)
         .toList(growable: false);
     state = state.copyWith(draft: state.draft.copyWith(layers: layers));
+    _persistDraft();
   }
 
   void updateSelectedTextLayer({
@@ -322,6 +352,7 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
     );
     layers.add(layer);
     state = state.copyWith(draft: state.draft.copyWith(layers: layers));
+    _persistDraft();
   }
 
   void removeSelectedLayer() {
@@ -334,6 +365,7 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
       draft: state.draft.copyWith(layers: layers),
       clearSelection: true,
     );
+    _persistDraft();
   }
 }
 

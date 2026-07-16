@@ -4,6 +4,7 @@ import 'package:social_core/local_media_file.dart';
 
 import '../../auth/state/auth_controller.dart';
 import '../../social/state/social_controller.dart';
+import '../../social/models/social_story_document.dart';
 import '../capabilities/social_capabilities_controller.dart';
 import '../capabilities/story_scope_error.dart';
 import '../pickers/social_media_picker_v3.dart';
@@ -94,11 +95,8 @@ Future<void> openStoryComposerV3FromGallery(
       source,
       scope: scope,
       audienceScopeSupported: audienceScopeSupported,
-      onPublish: (caption, publishScope) => _publishStoryDraft(
-        container,
-        caption: caption,
-        scope: publishScope,
-      ),
+      onPublish: (caption, publishScope) =>
+          _publishStoryDraft(container, caption: caption, scope: publishScope),
     ),
   );
 }
@@ -176,20 +174,30 @@ Future<bool> _publishStoryDraft(
       : draft.caption.trim();
 
   if (scope.scope == StoryAudienceScope.global) {
-    await container.read(socialControllerProvider.notifier).createStory(
+    await container
+        .read(socialControllerProvider.notifier)
+        .createStory(
           caption: publishCaption,
           mediaFile: mediaFile,
           storyStyle: storyStyle,
         );
     final err = container.read(socialControllerProvider).error;
-    return err == null || err.trim().isEmpty;
+    final ok = err == null || err.trim().isEmpty;
+    if (ok) {
+      await container
+          .read(socialStoryDraftControllerProvider.notifier)
+          .clearPersistedDraft();
+    }
+    return ok;
   }
 
   // Non-global (capability-gated). Call the API directly so we can handle the
   // backend 409 STORY_AUDIENCE_SCOPE_NOT_AVAILABLE. This is the real production
   // call site for markStoryScopeUnsupported().
   try {
-    await container.read(socialApiProvider).createStory(
+    await container
+        .read(socialApiProvider)
+        .createStory(
           caption: publishCaption,
           mediaFile: mediaFile,
           storyStyle: storyStyle,
@@ -197,6 +205,9 @@ Future<bool> _publishStoryDraft(
           audienceScopeCode: scope.scopeCode,
         );
     await container.read(socialControllerProvider.notifier).loadStories();
+    await container
+        .read(socialStoryDraftControllerProvider.notifier)
+        .clearPersistedDraft();
     return true;
   } catch (error) {
     if (isStoryScopeUnavailableError(error)) {
@@ -211,11 +222,22 @@ Future<bool> _publishStoryDraft(
 }
 
 /// Live "Create text Story": V3 story composer in text mode.
-Future<void> openStoryComposerV3Text(BuildContext context) {
+Future<void> openStoryComposerV3Text(BuildContext context) async {
   final container = ProviderScope.containerOf(context, listen: false);
-  return Navigator.of(context).push(
+  final notifier = container.read(socialStoryDraftControllerProvider.notifier);
+  SocialStoryDraft? restored;
+  try {
+    restored = await notifier.restoreLastDraft();
+  } catch (_) {
+    restored = null;
+  }
+  final source = restored == null
+      ? StoryComposerSource.text('')
+      : StoryComposerSource.restoredDraft(restored);
+  if (!context.mounted) return;
+  await Navigator.of(context).push(
     StoryComposerV3.route(
-      StoryComposerSource.text(''),
+      source,
       onPublish: (caption, scope) =>
           _publishStoryDraft(container, caption: caption, scope: scope),
     ),
@@ -252,7 +274,9 @@ Future<bool?> openPostComposerV3Review(
         mode: PostComposerMode.merchantReview,
         review: review,
         onPublish: (result) async {
-          await container.read(socialControllerProvider.notifier).createPost(
+          await container
+              .read(socialControllerProvider.notifier)
+              .createPost(
                 caption: result.caption,
                 postKind: 'merchant_review',
                 merchantId: result.review?.merchantId,
@@ -284,19 +308,24 @@ Future<bool?> openPostComposerV3(
         onAddMore: p.pickMultiplePostMedia,
         onPublish: (result) async {
           final files = result.media
-              .map((m) => LocalMediaFile(
-                    name: m.name,
-                    path: m.path,
-                    bytes: null,
-                    mimeType: m.mimeType,
-                  ))
+              .map(
+                (m) => LocalMediaFile(
+                  name: m.name,
+                  path: m.path,
+                  bytes: null,
+                  mimeType: m.mimeType,
+                ),
+              )
               .toList();
-          await container.read(socialControllerProvider.notifier).createPost(
+          await container
+              .read(socialControllerProvider.notifier)
+              .createPost(
                 caption: result.caption,
                 postKind: result.postKind,
                 mediaFiles: files.isEmpty ? null : files,
-                audienceScopeType:
-                    result.audience == 'public' ? 'global' : 'followers',
+                audienceScopeType: result.audience == 'public'
+                    ? 'global'
+                    : 'followers',
               );
           final err = container.read(socialControllerProvider).error;
           return err == null || err.trim().isEmpty;

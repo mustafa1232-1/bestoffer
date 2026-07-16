@@ -22,9 +22,17 @@ void main() {
         'attachment': {
           'type': 'reel_share',
           'reelId': 42,
+          'mediaAssetId': 77,
+          'streamUid': 'stream-uid-77',
+          'authorId': 7,
           'authorName': 'Ali',
           'posterUrl': 'https://example.com/poster.jpg',
           'caption': 'Nice reel',
+          'mediaUrl': 'https://example.com/playback.m3u8',
+          'playbackUrl': 'https://example.com/playback.m3u8',
+          'thumbnailUrl': 'https://example.com/thumb.jpg',
+          'mediaKind': 'video',
+          'aspectRatio': 0.5625,
           'label': 'Watch reel',
         },
         'layers': [
@@ -53,12 +61,23 @@ void main() {
     expect(draft.mode, SocialStoryComposerMode.reelShare);
     expect(draft.attachment?.isReelShare, isTrue);
     expect(draft.attachment?.reelId, 42);
+    expect(draft.attachment?.mediaAssetId, 77);
+    expect(draft.attachment?.streamUid, 'stream-uid-77');
+    expect(draft.attachment?.authorId, 7);
+    expect(draft.attachment?.playbackUrl, 'https://example.com/playback.m3u8');
+    expect(draft.attachment?.thumbnailUrl, 'https://example.com/thumb.jpg');
     expect(draft.background.type, SocialStoryBackgroundType.posterBlur);
     expect(draft.layers.single.type, SocialStoryLayerType.reelShare);
 
     final json = draft.toStoryStyleJson();
     expect(json['mode'], 'reelShare');
     expect((json['attachment'] as Map<String, dynamic>)['reelId'], 42);
+    expect((json['attachment'] as Map<String, dynamic>)['mediaAssetId'], 77);
+    expect(
+      (json['attachment'] as Map<String, dynamic>)['streamUid'],
+      'stream-uid-77',
+    );
+    expect((json['attachment'] as Map<String, dynamic>)['type'], 'reel_share');
     expect((json['layers'] as List).single['type'], 'reelShare');
   });
 
@@ -97,6 +116,123 @@ void main() {
 
     expect(draft.attachment?.authorName, '@basmaya.creator');
     expect(draft.layers.single.type, SocialStoryLayerType.reelShare);
+  });
+
+  test('SocialStoryDraft roundtrips text mention sticker draw layers', () {
+    final draft = SocialStoryDraft.initialText().copyWith(
+      caption: 'Layered story',
+      background: const SocialStoryBackground(
+        type: SocialStoryBackgroundType.gradient,
+        primaryColor: '#111111',
+        secondaryColor: '#222222',
+        imageUrl: null,
+      ),
+      layers: const [
+        SocialStoryLayer(
+          id: 'text-1',
+          type: SocialStoryLayerType.text,
+          x: 0.2,
+          y: 0.3,
+          scale: 1.4,
+          rotation: 0.15,
+          zIndex: 3,
+          text: 'Hello',
+          color: '#FF0000',
+          backgroundColor: '#22000000',
+          fontFamily: 'system',
+          fontWeight: 'bold',
+          textAlign: 'center',
+          fontScale: 1.2,
+          sticker: null,
+          mentionedUserId: null,
+          displayLabel: null,
+        ),
+        SocialStoryLayer(
+          id: 'mention-1',
+          type: SocialStoryLayerType.mention,
+          x: 0.6,
+          y: 0.4,
+          scale: 1,
+          rotation: 0,
+          zIndex: 4,
+          text: '@Ali',
+          color: '#00FF00',
+          backgroundColor: '#11000000',
+          fontFamily: 'system',
+          fontWeight: 'bold',
+          textAlign: 'left',
+          fontScale: 1.0,
+          sticker: null,
+          mentionedUserId: 55,
+          displayLabel: 'Ali',
+        ),
+        SocialStoryLayer(
+          id: 'sticker-1',
+          type: SocialStoryLayerType.sticker,
+          x: 0.5,
+          y: 0.5,
+          scale: 1.1,
+          rotation: 0.3,
+          zIndex: 5,
+          text: null,
+          color: '#FFFFFF',
+          backgroundColor: null,
+          fontFamily: null,
+          fontWeight: null,
+          textAlign: null,
+          fontScale: null,
+          sticker: '🔥',
+          mentionedUserId: null,
+          displayLabel: null,
+        ),
+        SocialStoryLayer(
+          id: 'draw-1',
+          type: SocialStoryLayerType.draw,
+          x: 0.5,
+          y: 0.5,
+          scale: 1,
+          rotation: 0,
+          zIndex: 6,
+          text: null,
+          color: null,
+          backgroundColor: null,
+          fontFamily: null,
+          fontWeight: null,
+          textAlign: null,
+          fontScale: null,
+          sticker: null,
+          mentionedUserId: null,
+          displayLabel: null,
+          strokes: [
+            SocialStoryDrawStroke(
+              color: '#ABCDEF',
+              width: 6,
+              points: [
+                SocialStoryPoint(x: 0.1, y: 0.2),
+                SocialStoryPoint(x: 0.3, y: 0.4),
+              ],
+            ),
+          ],
+          locked: true,
+        ),
+      ],
+    );
+
+    final roundTrip = SocialStoryDraft.fromJson(draft.toStoryStyleJson());
+    expect(roundTrip.layers.length, 4);
+    expect(roundTrip.layers[0].text, 'Hello');
+    expect(roundTrip.layers[0].color, '#FF0000');
+    expect(roundTrip.layers[0].backgroundColor, '#22000000');
+    expect(roundTrip.layers[0].fontFamily, 'system');
+    expect(roundTrip.layers[0].fontWeight, 'bold');
+    expect(roundTrip.layers[0].textAlign, 'center');
+    expect(roundTrip.layers[0].fontScale, 1.2);
+    expect(roundTrip.layers[1].mentionedUserId, 55);
+    expect(roundTrip.layers[1].displayLabel, 'Ali');
+    expect(roundTrip.layers[2].sticker, '🔥');
+    expect(roundTrip.layers[3].strokes.single.points.length, 2);
+    expect(roundTrip.layers[3].strokes.single.points.first.x, 0.1);
+    expect(roundTrip.layers[3].strokes.single.points.last.y, 0.4);
   });
 
   test(

@@ -551,6 +551,21 @@ class _InlineFeedMediaGalleryPreviewState
     extends State<_InlineFeedMediaGalleryPreview> {
   final PageController _pageController = PageController();
   int _currentIndex = 0;
+  static bool _rememberedMuted = true;
+  late bool _muted;
+
+  @override
+  void initState() {
+    super.initState();
+    _muted = _rememberedMuted;
+  }
+
+  void _toggleMuted() {
+    setState(() {
+      _muted = !_muted;
+      _rememberedMuted = _muted;
+    });
+  }
 
   @override
   void dispose() {
@@ -595,9 +610,11 @@ class _InlineFeedMediaGalleryPreviewState
                 fallbackColor: widget.fallbackColor,
                 cacheIdentity: '${widget.cacheIdentity}_$index',
                 cacheVersion: widget.cacheVersion,
-                muted: true,
-                muteLabel: context.l10n.socialReelUnmute,
-                onToggleMuted: () {},
+                muted: _muted,
+                muteLabel: _muted
+                    ? context.l10n.socialReelUnmute
+                    : context.l10n.socialReelMute,
+                onToggleMuted: _toggleMuted,
               );
             },
           ),
@@ -671,9 +688,10 @@ List<_PostMediaDisplayItem> _buildPostMediaDisplayItems(SocialPost post) {
       final posterUrl =
           (media.asset?.thumbnailUrl ??
                   media.asset?.posterUrl ??
-                  media.asset?.playbackUrl ??
-                  media.asset?.normalizedUrl ??
-                  media.mediaUrl ??
+                  socialCloudflareThumbnail(media.asset) ??
+                  (!isVideo
+                      ? (media.asset?.normalizedUrl ?? media.mediaUrl)
+                      : null) ??
                   '')
               .trim();
       if (posterUrl.isEmpty) {
@@ -811,6 +829,9 @@ class _InlineFeedVideoPreview extends StatefulWidget {
 
 class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
     with WidgetsBindingObserver {
+  static final ValueNotifier<String?> _activeVideoKey = ValueNotifier<String?>(
+    null,
+  );
   final GlobalKey _containerKey = GlobalKey();
   VideoPlayerController? _controller;
   ScrollPosition? _scrollPosition;
@@ -823,6 +844,7 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _activeVideoKey.addListener(_onActiveVideoChanged);
     _initializeVideo();
   }
 
@@ -875,6 +897,9 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
           controller.value.isInitialized &&
           controller.value.isPlaying) {
         unawaited(controller.pause());
+      }
+      if (_activeVideoKey.value == widget.cacheIdentity) {
+        _activeVideoKey.value = null;
       }
     }
     _scheduleVisibilityCheck();
@@ -945,11 +970,28 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
     if (controller == null || !controller.value.isInitialized) return;
     final shouldPlay = _appActive && _scrollIdle && _visibleFraction() >= 0.72;
     if (shouldPlay) {
+      if (_activeVideoKey.value != widget.cacheIdentity) {
+        _activeVideoKey.value = widget.cacheIdentity;
+      }
       if (!controller.value.isPlaying) {
         await controller.play();
       }
     } else if (controller.value.isPlaying) {
       await controller.pause();
+    }
+    if (!shouldPlay && _activeVideoKey.value == widget.cacheIdentity) {
+      _activeVideoKey.value = null;
+    }
+  }
+
+  void _onActiveVideoChanged() {
+    final controller = _controller;
+    if (!mounted || controller == null || !controller.value.isInitialized) {
+      return;
+    }
+    if (_activeVideoKey.value != widget.cacheIdentity &&
+        controller.value.isPlaying) {
+      unawaited(controller.pause());
     }
   }
 
@@ -978,6 +1020,10 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _activeVideoKey.removeListener(_onActiveVideoChanged);
+    if (_activeVideoKey.value == widget.cacheIdentity) {
+      _activeVideoKey.value = null;
+    }
     unawaited(_disposeController());
     super.dispose();
   }
