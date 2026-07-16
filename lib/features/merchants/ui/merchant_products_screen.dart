@@ -1545,42 +1545,50 @@ class _MerchantHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // Stats row
+          // Stats row — REAL data only. No fabricated rating / ETA / fee.
           Row(
             textDirection: TextDirection.rtl,
             children: [
-              Icon(Icons.star_rounded, color: visual.accentGold, size: 16),
-              const SizedBox(width: 3),
-              Text(
-                '4.7 (1.2k)',
-                style: TextStyle(
-                  color: tokens.textSecondary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+              if (merchant.ratingCount > 0 && merchant.avgMerchantRating != null) ...[
+                Icon(Icons.star_rounded, color: visual.accentGold, size: 16),
+                const SizedBox(width: 3),
+                Text(
+                  '${merchant.avgMerchantRating!.toStringAsFixed(1)} (${merchant.ratingCount} تقييم)',
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Icon(
-                Icons.access_time_rounded,
-                color: tokens.textMuted,
-                size: 14,
-              ),
-              const SizedBox(width: 3),
-              Text(
-                '15-25 دقيقة',
-                style: TextStyle(color: tokens.textMuted, fontSize: 12),
-              ),
-              const SizedBox(width: 10),
-              Icon(
-                Icons.delivery_dining_rounded,
-                color: tokens.textMuted,
-                size: 14,
-              ),
-              const SizedBox(width: 3),
-              Text(
-                merchant.hasFreeDeliveryOffer ? 'مجاني' : '6 رس',
-                style: TextStyle(color: tokens.textMuted, fontSize: 12),
-              ),
+              ] else
+                Text(
+                  'متجر جديد',
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              // Free delivery is a REAL offer flag; only shown when true. Delivery
+              // ETA and a numeric fee have no authoritative merchant field yet, so
+              // they are omitted rather than fabricated.
+              if (merchant.hasFreeDeliveryOffer) ...[
+                const SizedBox(width: 12),
+                Icon(
+                  Icons.delivery_dining_rounded,
+                  color: tokens.success,
+                  size: 14,
+                ),
+                const SizedBox(width: 3),
+                Text(
+                  'توصيل مجاني',
+                  style: TextStyle(
+                    color: tokens.success,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 10),
