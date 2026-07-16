@@ -39,10 +39,42 @@ class OwnerApi {
   Future<Map<String, dynamic>> updateMerchant(
     Map<String, dynamic> body, {
     LocalImageFile? imageFile,
+    LocalImageFile? logoFile,
+    LocalImageFile? coverFile,
   }) async {
-    final requestData = await _withOptionalImage(body, imageFile: imageFile);
+    final requestData = await _withStorefrontImages(
+      body,
+      imageFile: imageFile,
+      logoFile: logoFile,
+      coverFile: coverFile,
+    );
     final response = await dio.put('/api/owner/merchant', data: requestData);
     return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// Builds a multipart body carrying the merchant image plus optional logo /
+  /// cover files (fields imageFile / logoFile / coverFile), or the plain JSON
+  /// body when nothing was picked.
+  Future<Object> _withStorefrontImages(
+    Map<String, dynamic> body, {
+    required LocalImageFile? imageFile,
+    required LocalImageFile? logoFile,
+    required LocalImageFile? coverFile,
+  }) async {
+    if (imageFile == null && logoFile == null && coverFile == null) {
+      return body;
+    }
+    final map = <String, dynamic>{...body};
+    if (imageFile != null) {
+      map['imageFile'] = await imageFile.toMultipartFile();
+    }
+    if (logoFile != null) {
+      map['logoFile'] = await logoFile.toMultipartFile();
+    }
+    if (coverFile != null) {
+      map['coverFile'] = await coverFile.toMultipartFile();
+    }
+    return FormData.fromMap(map);
   }
 
   Future<List<dynamic>> listCategories() async {

@@ -94,7 +94,15 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   final taglineCtrl = TextEditingController();
   final workingHoursCtrl = TextEditingController();
   final serviceAreaCtrl = TextEditingController();
+  final deliveryEtaMinCtrl = TextEditingController();
+  final deliveryEtaMaxCtrl = TextEditingController();
+  final deliveryFeeCtrl = TextEditingController();
+  final minimumOrderCtrl = TextEditingController();
   LocalImageFile? merchantImageFile;
+  LocalImageFile? logoImageFile;
+  LocalImageFile? coverImageFile;
+  String? logoImageUrl;
+  String? coverImageUrl;
   _OwnerTab activeTab = _OwnerTab.dashboard;
   OwnerProductAvailabilityFilter _productAvailabilityFilter =
       OwnerProductAvailabilityFilter.all;
@@ -136,6 +144,10 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     taglineCtrl.dispose();
     workingHoursCtrl.dispose();
     serviceAreaCtrl.dispose();
+    deliveryEtaMinCtrl.dispose();
+    deliveryEtaMaxCtrl.dispose();
+    deliveryFeeCtrl.dispose();
+    minimumOrderCtrl.dispose();
     _ownerController.stopLiveOrders();
     _stopPendingOrderAlerts();
     super.dispose();
@@ -274,7 +286,15 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     taglineCtrl.text = merchant.tagline ?? '';
     workingHoursCtrl.text = merchant.workingHours ?? '';
     serviceAreaCtrl.text = merchant.serviceAreaNote ?? '';
+    deliveryEtaMinCtrl.text = merchant.deliveryEtaMinMinutes?.toString() ?? '';
+    deliveryEtaMaxCtrl.text = merchant.deliveryEtaMaxMinutes?.toString() ?? '';
+    deliveryFeeCtrl.text = merchant.deliveryFee?.toString() ?? '';
+    minimumOrderCtrl.text = merchant.minimumOrder?.toString() ?? '';
     merchantImageFile = null;
+    logoImageFile = null;
+    coverImageFile = null;
+    logoImageUrl = merchant.logoUrl;
+    coverImageUrl = merchant.coverImageUrl;
     merchantType = merchant.type;
     isOpen = merchant.isOpen;
   }
@@ -1029,6 +1049,98 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                   imageCtrl.text = '';
                                 }),
                         ),
+                        const SizedBox(height: 10),
+                        ImagePickerField(
+                          title: 'شعار المتجر',
+                          selectedFile: logoImageFile,
+                          existingImageUrl:
+                              (logoImageUrl ?? '').trim().isEmpty
+                              ? null
+                              : logoImageUrl!.trim(),
+                          onPick: () async {
+                            final picked = await pickImageFromDevice();
+                            if (!mounted || picked == null) return;
+                            setState(() => logoImageFile = picked);
+                          },
+                          onClear:
+                              logoImageFile == null &&
+                                  (logoImageUrl ?? '').trim().isEmpty
+                              ? null
+                              : () => setState(() {
+                                  logoImageFile = null;
+                                  logoImageUrl = '';
+                                }),
+                        ),
+                        const SizedBox(height: 10),
+                        ImagePickerField(
+                          title: 'صورة الغلاف',
+                          selectedFile: coverImageFile,
+                          existingImageUrl:
+                              (coverImageUrl ?? '').trim().isEmpty
+                              ? null
+                              : coverImageUrl!.trim(),
+                          onPick: () async {
+                            final picked = await pickImageFromDevice();
+                            if (!mounted || picked == null) return;
+                            setState(() => coverImageFile = picked);
+                          },
+                          onClear:
+                              coverImageFile == null &&
+                                  (coverImageUrl ?? '').trim().isEmpty
+                              ? null
+                              : () => setState(() {
+                                  coverImageFile = null;
+                                  coverImageUrl = '';
+                                }),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: deliveryEtaMinCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'أقل وقت توصيل (دقيقة)',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: deliveryEtaMaxCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'أعلى وقت توصيل (دقيقة)',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: deliveryFeeCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'رسوم التوصيل (د.ع)',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: minimumOrderCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'الحد الأدنى للطلب (د.ع)',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 8),
                         SwitchListTile(
                           title: const Text('المتجر مفتوح الآن'),
@@ -1054,6 +1166,26 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                           workingHours: workingHoursCtrl.text,
                                           serviceAreaNote: serviceAreaCtrl.text,
                                           imageFile: merchantImageFile,
+                                          logoFile: logoImageFile,
+                                          coverFile: coverImageFile,
+                                          logoUrl: logoImageFile == null
+                                              ? logoImageUrl
+                                              : null,
+                                          coverImageUrl: coverImageFile == null
+                                              ? coverImageUrl
+                                              : null,
+                                          deliveryEtaMinMinutes: int.tryParse(
+                                            deliveryEtaMinCtrl.text.trim(),
+                                          ),
+                                          deliveryEtaMaxMinutes: int.tryParse(
+                                            deliveryEtaMaxCtrl.text.trim(),
+                                          ),
+                                          deliveryFee: num.tryParse(
+                                            deliveryFeeCtrl.text.trim(),
+                                          ),
+                                          minimumOrder: num.tryParse(
+                                            minimumOrderCtrl.text.trim(),
+                                          ),
                                           isOpen: isOpen,
                                         );
                                   },
