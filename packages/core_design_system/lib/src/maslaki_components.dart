@@ -236,12 +236,18 @@ class MaslakiTopBar extends StatelessWidget implements PreferredSizeWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (badge != null) ...[badge!, const SizedBox(width: 8)],
-              Text(
-                title,
-                textDirection: TextDirection.rtl,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  color: tokens.textPrimary,
+              // Flexible + single-line ellipsis so a long store name never
+              // overflows the app bar (it shrinks to the available width).
+              Flexible(
+                child: Text(
+                  title,
+                  textDirection: TextDirection.rtl,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: tokens.textPrimary,
+                  ),
                 ),
               ),
             ],
