@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
@@ -41,6 +42,9 @@ enum _ProductsSortMode {
   biggestDiscount,
 }
 
+/// Product display density: one large card per row, or a two-column grid.
+enum _ProductViewMode { list, grid }
+
 List<ProductModel> filterMerchantDiscountHighlights(
   List<ProductModel> products,
 ) {
@@ -61,6 +65,8 @@ class _MerchantProductsScreenState
   bool onlyOffers = false;
   bool favoritesOnly = false;
   _ProductsSortMode sortMode = _ProductsSortMode.recommended;
+  _ProductViewMode productViewMode = _ProductViewMode.list;
+  static const String _viewModePrefsKey = 'merchant_products_view_mode';
   // Legacy single-store cart replacement, kept disabled; multi-store carts
   // (up to 3 merchants) are the current behavior.
   final bool _legacySingleStoreReplacementEnabled = false;
@@ -91,6 +97,37 @@ class _MerchantProductsScreenState
             .loadFavoriteProductIds();
       }
     });
+    _restoreViewMode();
+  }
+
+  Future<void> _restoreViewMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_viewModePrefsKey);
+      if (!mounted || stored == null) return;
+      final restored = stored == 'grid'
+          ? _ProductViewMode.grid
+          : _ProductViewMode.list;
+      if (restored != productViewMode) {
+        setState(() => productViewMode = restored);
+      }
+    } catch (_) {
+      // Non-fatal: fall back to the default list view.
+    }
+  }
+
+  void _setViewMode(_ProductViewMode mode) {
+    if (mode == productViewMode) return;
+    setState(() => productViewMode = mode);
+    // Persist without blocking the instant UI switch.
+    SharedPreferences.getInstance()
+        .then(
+          (prefs) => prefs.setString(
+            _viewModePrefsKey,
+            mode == _ProductViewMode.grid ? 'grid' : 'list',
+          ),
+        )
+        .catchError((_) => false);
   }
 
   @override
@@ -257,57 +294,120 @@ class _MerchantProductsScreenState
     return counts;
   }
 
+  Widget _buildSingleProductCard(
+    ProductModel product,
+    List<ProductModel> allProducts, {
+    required ProductSummaryCardAppearance appearance,
+    required Locale locale,
+    required bool grid,
+  }) {
+    final canOrder = widget.merchant.isOpen && product.canBeOrdered;
+    final usesPharmacyConversation = _requiresPharmacyConversation(product);
+    final strictVariantSelection = _requiresStrictVariantSelection(product);
+    final cardData = ProductSummaryCardData.fromProduct(
+      product,
+      locale: locale,
+      strictVariantSelection: strictVariantSelection,
+    );
+    final selection =
+        _cardSelections[product.id] ?? cardData.resolveSelection();
+    _cardSelections[product.id] ??= selection;
+
+    return ProductSummaryCard.fromProduct(
+      product,
+      key: ValueKey(product.id),
+      appearance: appearance,
+      locale: locale,
+      onTap: () =>
+          _openProductDetails(product: product, allProducts: allProducts),
+      compact: true,
+      maxAttributeBadges: grid ? 1 : 2,
+      maxVariantBadges: grid ? 2 : 3,
+      maxStatusBadges: grid ? 2 : 3,
+      heroAspectRatio: grid ? 1.2 : 1.38,
+      selectedColorCode: selection.colorCode,
+      selectedSizeCode: selection.sizeCode,
+      strictVariantSelection: strictVariantSelection,
+      onSelectionChanged: (next) {
+        setState(() => _cardSelections[product.id] = next);
+      },
+      trailing: _buildProductSummaryTrailing(
+        product: product,
+        canOrder: canOrder,
+        usesPharmacyConversation: usesPharmacyConversation,
+        showActions: _canCustomerActions,
+        selectedVariantId: selection.variantId,
+        selectedVariantSelections: selection.selectedVariantSelections,
+        strictVariantSelection: strictVariantSelection,
+      ),
+    );
+  }
+
   List<Widget> _buildProductCards(
     List<ProductModel> products,
     List<ProductModel> allProducts,
   ) {
     final appearance = ProductSummaryCardAppearance.fromContext(context);
     final locale = Localizations.localeOf(context);
-    return products.map((product) {
-      final canOrder = widget.merchant.isOpen && product.canBeOrdered;
-      final usesPharmacyConversation = _requiresPharmacyConversation(product);
-      final strictVariantSelection = _requiresStrictVariantSelection(product);
-      final cardData = ProductSummaryCardData.fromProduct(
-        product,
-        locale: locale,
-        strictVariantSelection: strictVariantSelection,
-      );
-      final selection =
-          _cardSelections[product.id] ?? cardData.resolveSelection();
-      _cardSelections[product.id] ??= selection;
 
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: ProductSummaryCard.fromProduct(
-          product,
-          key: ValueKey(product.id),
-          appearance: appearance,
-          locale: locale,
-          onTap: () =>
-              _openProductDetails(product: product, allProducts: allProducts),
-          compact: true,
-          maxAttributeBadges: 2,
-          maxVariantBadges: 3,
-          maxStatusBadges: 3,
-          heroAspectRatio: 1.38,
-          selectedColorCode: selection.colorCode,
-          selectedSizeCode: selection.sizeCode,
-          strictVariantSelection: strictVariantSelection,
-          onSelectionChanged: (next) {
-            setState(() => _cardSelections[product.id] = next);
-          },
-          trailing: _buildProductSummaryTrailing(
-            product: product,
-            canOrder: canOrder,
-            usesPharmacyConversation: usesPharmacyConversation,
-            showActions: _canCustomerActions,
-            selectedVariantId: selection.variantId,
-            selectedVariantSelections: selection.selectedVariantSelections,
-            strictVariantSelection: strictVariantSelection,
+    if (productViewMode == _ProductViewMode.grid) {
+      // GRID_2_COLUMNS: chunk into rows of two equal-width cards.
+      final rows = <Widget>[];
+      for (var i = 0; i < products.length; i += 2) {
+        final left = products[i];
+        final right = i + 1 < products.length ? products[i + 1] : null;
+        rows.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _buildSingleProductCard(
+                      left,
+                      allProducts,
+                      appearance: appearance,
+                      locale: locale,
+                      grid: true,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: right == null
+                        ? const SizedBox.shrink()
+                        : _buildSingleProductCard(
+                            right,
+                            allProducts,
+                            appearance: appearance,
+                            locale: locale,
+                            grid: true,
+                          ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-      );
-    }).toList();
+        );
+      }
+      return rows;
+    }
+
+    // LARGE_CARD: one card per row.
+    return products
+        .map(
+          (product) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _buildSingleProductCard(
+              product,
+              allProducts,
+              appearance: appearance,
+              locale: locale,
+              grid: false,
+            ),
+          ),
+        )
+        .toList();
   }
 
   Widget _buildProductSummaryTrailing({
@@ -981,6 +1081,11 @@ class _MerchantProductsScreenState
                       setState(() => favoritesOnly = value),
                   onSortChanged: (value) => setState(() => sortMode = value),
                 ),
+                const SizedBox(height: 8),
+                _ProductViewModeToggle(
+                  mode: productViewMode,
+                  onChanged: _setViewMode,
+                ),
                 const SizedBox(height: 12),
                 if (discountHighlights.isNotEmpty) ...[
                   _CategorySectionHeader(
@@ -1603,6 +1708,65 @@ class _ProductsDiscoveryToolbar extends StatelessWidget {
                   avatar: const Icon(Icons.favorite_rounded, size: 16),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact segmented control to switch products between a one-per-row list and
+/// a two-column grid. The choice is applied instantly and persisted.
+class _ProductViewModeToggle extends StatelessWidget {
+  final _ProductViewMode mode;
+  final ValueChanged<_ProductViewMode> onChanged;
+
+  const _ProductViewModeToggle({required this.mode, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    final selectedColor = context.visualTheme.accentCyan;
+    Widget button(_ProductViewMode target, IconData icon, String tooltip) {
+      final selected = mode == target;
+      return Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => onChanged(target),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Icon(
+              icon,
+              size: 20,
+              color: selected ? selectedColor : tokens.textMuted,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: tokens.borderSubtle),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            button(
+              _ProductViewMode.list,
+              Icons.view_agenda_outlined,
+              context.lt(ar: 'عرض قائمة', en: 'List view'),
+            ),
+            Container(width: 1, height: 22, color: tokens.borderSubtle),
+            button(
+              _ProductViewMode.grid,
+              Icons.grid_view_rounded,
+              context.lt(ar: 'عرض شبكة', en: 'Grid view'),
             ),
           ],
         ),
