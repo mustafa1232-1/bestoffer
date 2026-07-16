@@ -3795,6 +3795,17 @@ export async function createPost(userId, dto, media) {
   }
   const preparedMediaItems = [];
   if (mediaAssetId != null) {
+    if (requestedIsReel) {
+      const existingId = await repo.findPostIdByOwnerAndAsset(userId, mediaAssetId);
+      if (existingId) {
+        const existing = await attachPostMediaRow(await repo.findPostById(existingId));
+        if (existing) {
+          const mappedExisting = mapPostRow(existing);
+          clearFeedMutationCaches();
+          return mappedExisting;
+        }
+      }
+    }
     preparedMediaItems.push(
       await mediaService.resolveSocialMediaAssetForPublishing({
         userId,

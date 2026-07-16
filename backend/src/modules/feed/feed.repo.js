@@ -1023,6 +1023,22 @@ export async function findStoryIdByOwnerAndAsset(userId, mediaAssetId) {
   return r.rows[0]?.id == null ? null : Number(r.rows[0].id);
 }
 
+/// Idempotency lookup for reels/posts created from a given media asset.
+export async function findPostIdByOwnerAndAsset(userId, mediaAssetId) {
+  if (mediaAssetId == null) return null;
+  const r = await q(
+    `SELECT id
+       FROM social_post
+      WHERE user_id = $1
+        AND media_asset_id = $2
+        AND post_kind = 'reel'
+      ORDER BY id DESC
+      LIMIT 1`,
+    [Number(userId), Number(mediaAssetId)]
+  );
+  return r.rows[0]?.id == null ? null : Number(r.rows[0].id);
+}
+
 export async function findStoryById({
   viewerUserId,
   storyId,
