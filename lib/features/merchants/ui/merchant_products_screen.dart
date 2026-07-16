@@ -41,28 +41,12 @@ enum _ProductsSortMode {
   biggestDiscount,
 }
 
-enum _SmartBundleStyle { balanced, budget, offers, variety }
-
 List<ProductModel> filterMerchantDiscountHighlights(
   List<ProductModel> products,
 ) {
   return products
       .where((product) => product.hasDiscount)
       .where((product) => product.canBeOrdered)
-      .toList(growable: false);
-}
-
-List<ProductModel> filterMerchantSmartBundleCandidates(
-  List<ProductModel> products, {
-  required bool supportsPharmacyWorkflow,
-}) {
-  return products
-      .where((product) => product.canBeOrdered)
-      .where((product) => !product.hasVariants)
-      .where(
-        (product) =>
-            !supportsPharmacyWorkflow || !product.requiresPharmacyConversation,
-      )
       .toList(growable: false);
 }
 
@@ -77,10 +61,8 @@ class _MerchantProductsScreenState
   bool onlyOffers = false;
   bool favoritesOnly = false;
   _ProductsSortMode sortMode = _ProductsSortMode.recommended;
-  final smartBudgetCtrl = TextEditingController();
-  int smartPartySize = 1;
-  _SmartBundleStyle smartBundleStyle = _SmartBundleStyle.balanced;
-  bool generatingSmartBundle = false;
+  // Legacy single-store cart replacement, kept disabled; multi-store carts
+  // (up to 3 merchants) are the current behavior.
   final bool _legacySingleStoreReplacementEnabled = false;
 
   bool get _canCustomerActions {
@@ -114,7 +96,6 @@ class _MerchantProductsScreenState
   @override
   void dispose() {
     productSearchCtrl.dispose();
-    smartBudgetCtrl.dispose();
     super.dispose();
   }
 
@@ -571,269 +552,6 @@ class _MerchantProductsScreenState
     return score;
   }
 
-  int? _parseSmartBudget() {
-    final digits = smartBudgetCtrl.text.replaceAll(RegExp(r'[^\d]'), '');
-    if (digits.isEmpty) return null;
-    final parsed = int.tryParse(digits);
-    if (parsed == null || parsed <= 0) return null;
-    return parsed;
-  }
-
-  int _smartBaseScore(ProductModel product, Set<int> favorites) {
-    var score = _productScore(product, favorites);
-    switch (smartBundleStyle) {
-      case _SmartBundleStyle.budget:
-        score += (100000 / (_effectivePrice(product) + 100)).round();
-        break;
-      case _SmartBundleStyle.offers:
-        if (product.hasDiscount) score += 40;
-        if (product.freeDelivery) score += 24;
-        if ((product.offerLabel?.trim().isNotEmpty ?? false)) score += 18;
-        break;
-      case _SmartBundleStyle.variety:
-        score += (product.categoryId ?? 0) > 0 ? 16 : 4;
-        break;
-      case _SmartBundleStyle.balanced:
-        score += 8;
-        break;
-    }
-    return score;
-  }
-
-  int _targetBundleCount() {
-    if (smartPartySize <= 1) return 2;
-    if (smartPartySize == 2) return 3;
-    if (smartPartySize <= 4) return 4;
-    return 6;
-  }
-
-  List<ProductModel> _generateSmartBundle({
-    required List<ProductModel> products,
-    required Set<int> favoriteProductIds,
-  }) {
-    final available = filterMerchantSmartBundleCandidates(
-      products,
-      supportsPharmacyWorkflow: widget.merchant.supportsPharmacyWorkflow,
-    );
-    if (available.isEmpty) return const <ProductModel>[];
-
-    final budget = _parseSmartBudget();
-    final targetCount = _targetBundleCount();
-    final sorted = [...available]
-      ..sort((a, b) {
-        final scoreDiff = _smartBaseScore(
-          b,
-          favoriteProductIds,
-        ).compareTo(_smartBaseScore(a, favoriteProductIds));
-        if (scoreDiff != 0) return scoreDiff;
-        return _effectivePrice(a).compareTo(_effectivePrice(b));
-      });
-
-    final byCategory = <int, List<ProductModel>>{};
-    for (final product in sorted) {
-      final key = product.categoryId ?? 0;
-      byCategory.putIfAbsent(key, () => <ProductModel>[]).add(product);
-    }
-
-    final picked = <ProductModel>[];
-    final usedIds = <int>{};
-    double total = 0;
-
-    bool tryPick(ProductModel product) {
-      if (usedIds.contains(product.id)) return false;
-      final price = _effectivePrice(product);
-      if (budget != null && budget > 0 && picked.isNotEmpty) {
-        if (total + price > budget) return false;
-      }
-      picked.add(product);
-      usedIds.add(product.id);
-      total += price;
-      return true;
-    }
-
-    for (final productsInCategory in byCategory.values) {
-      if (picked.length >= targetCount) break;
-      for (final product in productsInCategory) {
-        if (tryPick(product)) break;
-      }
-    }
-
-    for (final product in sorted) {
-      if (picked.length >= targetCount) break;
-      tryPick(product);
-    }
-
-    if (picked.isEmpty) {
-      picked.add(sorted.first);
-    }
-
-    return picked;
-  }
-
-  // ignore: unused_element
-  Future<void> _addBundleToCart(List<ProductModel> bundle) async {
-    if (bundle.isEmpty) return;
-    final cart = ref.read(cartControllerProvider);
-    if (_legacySingleStoreReplacementEnabled &&
-        cart.merchantId != null &&
-        cart.merchantId != widget.merchant.id &&
-        cart.items.isNotEmpty) {
-      final replace = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('استبدال السلة'),
-          content: const Text(
-            'السلة الحالية من متجر آخر. هل تريد استبدالها بالسلة الذكية الجديدة؟',
-            textDirection: TextDirection.rtl,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('إلغاء'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('استبدال'),
-            ),
-          ],
-        ),
-      );
-      if (!mounted || replace != true) return;
-      ref.read(cartControllerProvider.notifier).clear();
-    }
-
-    final notifier = ref.read(cartControllerProvider.notifier);
-    for (final product in bundle) {
-      notifier.addItem(
-        product: product,
-        merchantId: widget.merchant.id,
-        merchantName: widget.merchant.name,
-      );
-    }
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        content: Text('تم إنشاء سلة ذكية وإضافة ${bundle.length} منتجات'),
-      ),
-    );
-  }
-
-  Future<void> _addBundleToCartSafe(List<ProductModel> bundle) async {
-    if (bundle.isEmpty) return;
-    final notifier = ref.read(cartControllerProvider.notifier);
-    var addedCount = 0;
-    var rejectedCount = 0;
-    for (final product in bundle) {
-      final status = notifier.addItem(
-        product: product,
-        merchantId: widget.merchant.id,
-        merchantName: widget.merchant.name,
-      );
-      if (status == CartAddStatus.added) {
-        addedCount += 1;
-      } else {
-        rejectedCount += 1;
-      }
-    }
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar(reason: SnackBarClosedReason.dismiss);
-    if (addedCount == 0) {
-      messenger.showSnackBar(
-        const SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text(
-            'لا يمكن إضافة منتجات من متجر رابع. الحد الأقصى 3 متاجر.',
-          ),
-        ),
-      );
-      return;
-    }
-    messenger.showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          rejectedCount > 0
-              ? 'تمت إضافة $addedCount منتجات وتعذر إضافة $rejectedCount بسبب حد 3 متاجر.'
-              : 'تمت إضافة $addedCount منتجات إلى السلة.',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _generateAndApplySmartBundle(List<ProductModel> products) async {
-    if (generatingSmartBundle) return;
-    setState(() => generatingSmartBundle = true);
-    final favorites = ref.read(ordersControllerProvider).favoriteProductIds;
-    final bundle = _generateSmartBundle(
-      products: products,
-      favoriteProductIds: favorites,
-    );
-    if (!mounted) return;
-    setState(() => generatingSmartBundle = false);
-    if (bundle.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا توجد منتجات متاحة لإنشاء سلة ذكية')),
-      );
-      return;
-    }
-
-    final total = bundle.fold<double>(
-      0,
-      (sum, item) => sum + _effectivePrice(item),
-    );
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'السلة الذكية المقترحة',
-                  textDirection: TextDirection.rtl,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                ...bundle.map(
-                  (product) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      '• ${product.name} - ${formatIqd(_effectivePrice(product))}',
-                      textDirection: TextDirection.rtl,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'الإجمالي التقريبي: ${formatIqd(total)}',
-                  textDirection: TextDirection.rtl,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 10),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    Navigator.of(context).pop();
-                    await _addBundleToCartSafe(bundle);
-                  },
-                  icon: const Icon(Icons.auto_awesome_rounded),
-                  label: const Text('اعتماد السلة الذكية'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Future<void> _openCart() async {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     await Navigator.of(
@@ -1264,21 +982,6 @@ class _MerchantProductsScreenState
                   onSortChanged: (value) => setState(() => sortMode = value),
                 ),
                 const SizedBox(height: 12),
-                if (_canCustomerActions) ...[
-                  _SmartBundlePlannerCard(
-                    partySize: smartPartySize,
-                    style: smartBundleStyle,
-                    budgetController: smartBudgetCtrl,
-                    generating: generatingSmartBundle,
-                    onPartySizeChanged: (value) =>
-                        setState(() => smartPartySize = value),
-                    onStyleChanged: (value) =>
-                        setState(() => smartBundleStyle = value),
-                    onGenerate: () =>
-                        _generateAndApplySmartBundle(visibleProducts),
-                  ),
-                  const SizedBox(height: 12),
-                ],
                 if (discountHighlights.isNotEmpty) ...[
                   _CategorySectionHeader(
                     title: 'العروض',
@@ -1900,125 +1603,6 @@ class _ProductsDiscoveryToolbar extends StatelessWidget {
                   avatar: const Icon(Icons.favorite_rounded, size: 16),
                 ),
               ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SmartBundlePlannerCard extends StatelessWidget {
-  final int partySize;
-  final _SmartBundleStyle style;
-  final TextEditingController budgetController;
-  final bool generating;
-  final ValueChanged<int> onPartySizeChanged;
-  final ValueChanged<_SmartBundleStyle> onStyleChanged;
-  final Future<void> Function() onGenerate;
-
-  const _SmartBundlePlannerCard({
-    required this.partySize,
-    required this.style,
-    required this.budgetController,
-    required this.generating,
-    required this.onPartySizeChanged,
-    required this.onStyleChanged,
-    required this.onGenerate,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'مُولّد السلة الذكي',
-              textDirection: TextDirection.rtl,
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'اقترح سلة تلقائية حسب العدد والميزانية ونمط الطلب',
-              textDirection: TextDirection.rtl,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.75),
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: budgetController,
-                    keyboardType: TextInputType.number,
-                    textDirection: TextDirection.rtl,
-                    decoration: const InputDecoration(
-                      labelText: 'ميزانية اختيارية (IQD)',
-                      prefixIcon: Icon(Icons.account_balance_wallet_outlined),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                DropdownButton<int>(
-                  value: partySize,
-                  onChanged: (value) {
-                    if (value == null) return;
-                    onPartySizeChanged(value);
-                  },
-                  items: const [
-                    DropdownMenuItem(value: 1, child: Text('1')),
-                    DropdownMenuItem(value: 2, child: Text('2')),
-                    DropdownMenuItem(value: 3, child: Text('3')),
-                    DropdownMenuItem(value: 4, child: Text('4')),
-                    DropdownMenuItem(value: 5, child: Text('5+')),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.end,
-              children: [
-                ChoiceChip(
-                  selected: style == _SmartBundleStyle.balanced,
-                  label: const Text('متوازن'),
-                  onSelected: (_) => onStyleChanged(_SmartBundleStyle.balanced),
-                ),
-                ChoiceChip(
-                  selected: style == _SmartBundleStyle.budget,
-                  label: const Text('اقتصادي'),
-                  onSelected: (_) => onStyleChanged(_SmartBundleStyle.budget),
-                ),
-                ChoiceChip(
-                  selected: style == _SmartBundleStyle.offers,
-                  label: const Text('العروض'),
-                  onSelected: (_) => onStyleChanged(_SmartBundleStyle.offers),
-                ),
-                ChoiceChip(
-                  selected: style == _SmartBundleStyle.variety,
-                  label: const Text('تنويع'),
-                  onSelected: (_) => onStyleChanged(_SmartBundleStyle.variety),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ElevatedButton.icon(
-              onPressed: generating ? null : onGenerate,
-              icon: generating
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.auto_awesome_rounded),
-              label: const Text('ولّد سلة ذكية الآن'),
             ),
           ],
         ),
