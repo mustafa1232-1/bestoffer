@@ -355,8 +355,12 @@ export async function getSocialMediaAssetById({ userId, assetId }) {
 }
 
 export function mapStreamDetailsToStatus(details, fallbackStatus = "processing") {
+  const statusValue =
+    typeof details?.status === "object" && details?.status !== null
+      ? details.status.state || details.status.status || details.status.value || ""
+      : details?.status;
   const normalized = String(
-    details?.status || details?.state || details?.readyToStreamStatus || ""
+    statusValue || details?.state || details?.readyToStreamStatus || ""
   )
     .trim()
     .toLowerCase();
@@ -397,6 +401,25 @@ export function extractStreamPlaybacks(details) {
       details?.preview ||
       null,
   };
+}
+
+function normalizeStreamDurationMs(details) {
+  const rawDurationMs = details?.durationMs ?? details?.duration_ms;
+  const durationMs = Number(rawDurationMs);
+  if (Number.isFinite(durationMs)) {
+    return Math.max(0, Math.round(durationMs));
+  }
+
+  const rawDurationSeconds =
+    details?.duration ?? details?.durationSeconds ?? details?.duration_sec;
+  const durationSeconds = Number(rawDurationSeconds);
+  if (!Number.isFinite(durationSeconds)) {
+    return null;
+  }
+
+  // Cloudflare Stream emits duration in seconds, often as a decimal string
+  // such as "9.2". The database column stores milliseconds as bigint.
+  return Math.max(0, Math.round(durationSeconds * 1000));
 }
 
 export async function handleCloudflareStreamWebhook({
@@ -450,12 +473,7 @@ export async function handleCloudflareStreamWebhook({
     posterUrl: playbacks.thumbnailUrl || null,
     playbackUrl: playbacks.playbackUrl || null,
     thumbnailUrl: playbacks.thumbnailUrl || null,
-    durationMs:
-      details?.duration == null
-        ? details?.durationMs == null
-          ? null
-          : Number(details.durationMs)
-        : Number(details.duration),
+    durationMs: normalizeStreamDurationMs(details),
     width:
       details?.video?.width == null
         ? details?.width == null
@@ -495,12 +513,7 @@ async function reconcilePendingStreamAsset(asset) {
       posterUrl: playbacks.thumbnailUrl || null,
       playbackUrl: playbacks.playbackUrl || null,
       thumbnailUrl: playbacks.thumbnailUrl || null,
-      durationMs:
-        details?.duration == null
-          ? details?.durationMs == null
-            ? null
-            : Number(details.durationMs)
-          : Number(details.duration),
+      durationMs: normalizeStreamDurationMs(details),
       width:
         details?.video?.width == null
           ? details?.width == null
