@@ -76,7 +76,7 @@ function mapUser(u) {
 /**
  * يطبع merchant row إلى الشكل القياسي المستخدم في API owner.
  */
-function mapMerchant(m) {
+export function mapMerchant(m) {
   const discoverySubcategories = Array.isArray(m.discovery_subcategories)
     ? m.discovery_subcategories
         .map((value) => normalizeOptional(value)?.toLowerCase())
@@ -106,6 +106,21 @@ function mapMerchant(m) {
     description: m.description,
     phone: m.phone,
     imageUrl: m.image_url,
+    // Storefront contract (nullable = unknown; never coerced to 0).
+    logoUrl: m.logo_url || null,
+    coverImageUrl: m.cover_image_url || null,
+    deliveryEtaMinMinutes:
+      m.delivery_eta_min_minutes == null
+        ? null
+        : Number(m.delivery_eta_min_minutes),
+    deliveryEtaMaxMinutes:
+      m.delivery_eta_max_minutes == null
+        ? null
+        : Number(m.delivery_eta_max_minutes),
+    deliveryFee: m.delivery_fee == null ? null : Number(m.delivery_fee),
+    minimumOrder: m.minimum_order == null ? null : Number(m.minimum_order),
+    isVerified: m.is_verified === true,
+    nextOpenAt: m.next_open_at || null,
     isOpen: m.is_open,
     isApproved: m.is_approved,
     approvalStatus: m.approval_status,
