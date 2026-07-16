@@ -501,6 +501,7 @@ function mapPublicMerchantRow(row) {
   return {
     ...row,
     id: Number(row.id),
+    isOpen: row.is_open === true,
     type: normalizePublicMerchantType(row.type) || "market",
     activityType: normalizeRegistryActivityType(row.activity_type) || "market",
     discoverySubcategory: normalizeRegistryDiscoverySubcategory(

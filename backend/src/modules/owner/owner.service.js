@@ -964,7 +964,7 @@ function coerceStorefrontAmount(value, field, errors) {
   return n;
 }
 
-function applyStorefrontDeliveryPatch({ dto, currentMerchant, patch }) {
+export function applyStorefrontDeliveryPatch({ dto, currentMerchant, patch }) {
   const errors = [];
 
   let etaMin;
