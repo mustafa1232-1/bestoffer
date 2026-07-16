@@ -24,6 +24,7 @@ import '../utils/catalog_taxonomy.dart';
 import 'merchant_product_details_screen.dart';
 import '../models/merchant_model.dart';
 import '../state/merchants_controller.dart';
+import '../state/customer_merchant_prefs_controller.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -654,6 +655,27 @@ class _MerchantProductsScreenState
     return score;
   }
 
+  Future<void> _toggleFavorite() async {
+    final userId = ref.read(authControllerProvider).user?.id;
+    if (userId == null || userId <= 0) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('سجّل الدخول لإضافة المتجر إلى المفضلة')),
+      );
+      return;
+    }
+    try {
+      await ref
+          .read(customerMerchantPrefsProvider.notifier)
+          .toggleFavorite(userId: userId, merchantId: widget.merchant.id);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر تحديث المفضلة حالياً')),
+      );
+    }
+  }
+
   Future<void> _shareMerchant() async {
     final m = widget.merchant;
     final scope = merchantScopeTag(
@@ -952,6 +974,25 @@ class _MerchantProductsScreenState
                 Icons.local_hospital_outlined,
                 color: tokens.textPrimary,
               ),
+            ),
+          if (_canCustomerActions)
+            Consumer(
+              builder: (context, ref, _) {
+                final isFavorite = ref
+                    .watch(customerMerchantPrefsProvider)
+                    .favoriteMerchantIds
+                    .contains(widget.merchant.id);
+                return IconButton(
+                  tooltip: 'المفضلة',
+                  onPressed: _toggleFavorite,
+                  icon: Icon(
+                    isFavorite
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    color: isFavorite ? Colors.redAccent : tokens.textPrimary,
+                  ),
+                );
+              },
             ),
           IconButton(
             tooltip: 'مشاركة',
