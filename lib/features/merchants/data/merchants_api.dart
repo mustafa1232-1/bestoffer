@@ -81,12 +81,45 @@ class MerchantsApi {
     return const <dynamic>[];
   }
 
-  Future<List<dynamic>> adBoard({String? type}) async {
+  Future<List<dynamic>> adBoard({
+    String? type,
+    String? placement,
+    String? categoryKey,
+    String? activityType,
+  }) async {
+    final query = <String, dynamic>{};
+    if (type != null && type.isNotEmpty) query['type'] = type;
+    if (placement != null && placement.isNotEmpty) query['placement'] = placement;
+    if (categoryKey != null && categoryKey.isNotEmpty) {
+      query['categoryKey'] = categoryKey;
+    }
+    if (activityType != null && activityType.isNotEmpty) {
+      query['activityType'] = activityType;
+    }
     final response = await dio.get(
       '/api/merchants/ad-board',
-      queryParameters: type == null ? null : {'type': type},
+      queryParameters: query.isEmpty ? null : query,
     );
     return List<dynamic>.from(response.data as List);
+  }
+
+  /// Records a visible-impression for an ad (fire-and-forget; never throws to
+  /// the caller so analytics can't disrupt the UI).
+  Future<void> recordAdImpression(int adId) async {
+    try {
+      await dio.post('/api/merchants/ad-board/$adId/impression');
+    } catch (_) {
+      // Analytics best-effort only.
+    }
+  }
+
+  /// Records a click/CTA tap for an ad (fire-and-forget).
+  Future<void> recordAdClick(int adId) async {
+    try {
+      await dio.post('/api/merchants/ad-board/$adId/click');
+    } catch (_) {
+      // Analytics best-effort only.
+    }
   }
 
   Future<Map<String, dynamic>> create(

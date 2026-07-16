@@ -17,6 +17,18 @@ merchantsPublicRouter.get("/:merchantId(\\d+)/categories", c.listCategories);
 
 merchantsRouter.get("/discovery", requireAuth, requireCustomer, c.discovery);
 merchantsRouter.get("/ad-board", requireAuth, requireCustomer, c.adBoard);
+merchantsRouter.post(
+  "/ad-board/:adId(\\d+)/impression",
+  requireAuth,
+  requireCustomer,
+  c.adImpression,
+);
+merchantsRouter.post(
+  "/ad-board/:adId(\\d+)/click",
+  requireAuth,
+  requireCustomer,
+  c.adClick,
+);
 merchantsRouter.get("/nearby", requireAuth, requireCustomer, c.nearby);
 merchantsRouter.post(
   "/",

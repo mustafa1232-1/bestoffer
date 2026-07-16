@@ -709,10 +709,19 @@ export async function createAdBoardItem(item) {
         is_active,
         starts_at,
         ends_at,
+        placement,
+        activity_type,
+        mobile_image_url,
+        title_ar,
+        title_en,
+        subtitle_ar,
+        subtitle_en,
+        cta_label_ar,
+        cta_label_en,
         created_by_user_id,
         updated_by_user_id
       )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$27)
      RETURNING *`,
     [
       item.title,
@@ -732,6 +741,15 @@ export async function createAdBoardItem(item) {
       item.isActive !== false,
       item.startsAt || null,
       item.endsAt || null,
+      item.placement || "HOME_MAIN",
+      item.activityType || null,
+      item.mobileImageUrl || null,
+      item.titleAr || null,
+      item.titleEn || null,
+      item.subtitleAr || null,
+      item.subtitleEn || null,
+      item.ctaLabelAr || null,
+      item.ctaLabelEn || null,
       Number(item.actorUserId) || null,
     ]
   );
@@ -757,6 +775,15 @@ export async function updateAdBoardItem(itemId, patch, actorUserId) {
     ["isActive", "is_active"],
     ["startsAt", "starts_at"],
     ["endsAt", "ends_at"],
+    ["placement", "placement"],
+    ["activityType", "activity_type"],
+    ["mobileImageUrl", "mobile_image_url"],
+    ["titleAr", "title_ar"],
+    ["titleEn", "title_en"],
+    ["subtitleAr", "subtitle_ar"],
+    ["subtitleEn", "subtitle_en"],
+    ["ctaLabelAr", "cta_label_ar"],
+    ["ctaLabelEn", "cta_label_en"],
   ]);
 
   const keys = Object.keys(patch || {}).filter((key) => allowed.has(key));

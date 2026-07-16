@@ -11,6 +11,12 @@ class OwnerMerchantModel {
   final String? description;
   final String? phone;
   final String? imageUrl;
+  final String? logoUrl;
+  final String? coverImageUrl;
+  final int? deliveryEtaMinMinutes;
+  final int? deliveryEtaMaxMinutes;
+  final num? deliveryFee;
+  final num? minimumOrder;
   final String? tagline;
   final String? workingHours;
   final String? serviceAreaNote;
@@ -40,6 +46,12 @@ class OwnerMerchantModel {
     this.description,
     this.phone,
     this.imageUrl,
+    this.logoUrl,
+    this.coverImageUrl,
+    this.deliveryEtaMinMinutes,
+    this.deliveryEtaMaxMinutes,
+    this.deliveryFee,
+    this.minimumOrder,
     this.tagline,
     this.workingHours,
     this.serviceAreaNote,
@@ -90,6 +102,22 @@ class OwnerMerchantModel {
       description: parseNullableString(j['description']),
       phone: parseNullableString(j['phone']),
       imageUrl: parseNullableString(j['image_url'] ?? j['imageUrl']),
+      logoUrl: parseNullableString(j['logo_url'] ?? j['logoUrl']),
+      coverImageUrl: parseNullableString(
+        j['cover_image_url'] ?? j['coverImageUrl'],
+      ),
+      deliveryEtaMinMinutes: parseNullableInt(
+        j['delivery_eta_min_minutes'] ?? j['deliveryEtaMinMinutes'],
+      ),
+      deliveryEtaMaxMinutes: parseNullableInt(
+        j['delivery_eta_max_minutes'] ?? j['deliveryEtaMaxMinutes'],
+      ),
+      deliveryFee: tryParseLocalizedDouble(
+        j['delivery_fee'] ?? j['deliveryFee'],
+      ),
+      minimumOrder: tryParseLocalizedDouble(
+        j['minimum_order'] ?? j['minimumOrder'],
+      ),
       tagline: parseNullableString(j['tagline']),
       workingHours: parseNullableString(
         j['working_hours'] ?? j['workingHours'],

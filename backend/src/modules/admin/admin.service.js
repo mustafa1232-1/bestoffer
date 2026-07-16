@@ -990,12 +990,23 @@ export async function rejectTaxiCaptainProfileEditRequest({
 function mapAdBoardItem(row) {
   return {
     id: Number(row.id),
+    placement: row.placement || "HOME_MAIN",
     title: row.title,
+    titleAr: row.title_ar || null,
+    titleEn: row.title_en || null,
     subtitle: row.subtitle,
+    subtitleAr: row.subtitle_ar || null,
+    subtitleEn: row.subtitle_en || null,
     imageUrl: row.image_url,
+    mobileImageUrl: row.mobile_image_url || null,
+    activityType: row.activity_type || null,
     badgeLabel: row.badge_label,
     ctaLabel: row.cta_label,
+    ctaLabelAr: row.cta_label_ar || null,
+    ctaLabelEn: row.cta_label_en || null,
     type: row.cta_target_type,
+    impressionCount: Number(row.impression_count || 0),
+    clickCount: Number(row.click_count || 0),
     targetId: row.target_id == null
       ? row.merchant_id == null
         ? null
@@ -1041,6 +1052,33 @@ function parsePositiveIntegerOrNull(value) {
 function normalizeActionType(value, fallback = "none") {
   const normalized = String(value || "").trim().toLowerCase();
   return normalized || fallback;
+}
+
+const AD_BOARD_PLACEMENTS = new Set([
+  "HOME_MAIN",
+  "MARKETPLACE_HOME",
+  "MARKETPLACE_CATEGORY",
+]);
+
+/// Validates+normalizes the ad placement. Undefined placement defaults to the
+/// legacy HOME_MAIN so existing single-placement callers keep working.
+function normalizeAdPlacement(value, { required = false } = {}) {
+  if (value === undefined || value === null || value === "") {
+    if (required) {
+      const err = new Error("AD_BOARD_PLACEMENT_REQUIRED");
+      err.status = 400;
+      throw err;
+    }
+    return "HOME_MAIN";
+  }
+  const normalized = String(value).trim().toUpperCase();
+  if (!AD_BOARD_PLACEMENTS.has(normalized)) {
+    const err = new Error("AD_BOARD_PLACEMENT_INVALID");
+    err.status = 400;
+    err.details = { placement: normalized };
+    throw err;
+  }
+  return normalized;
 }
 
 function resolveExternalLinkFromPayload(payload = {}) {
@@ -1213,8 +1251,10 @@ export async function createAdBoardItem(dto, adminUserId) {
     merchantId: dto.merchantId,
   });
   await assertAdActionPayload(dto);
+  const placement = normalizeAdPlacement(dto.placement);
   const created = await adminRepo.createAdBoardItem({
     ...dto,
+    placement,
     actorUserId: toActorUserId(adminUserId),
   });
   await logAdminAudit({
@@ -1272,9 +1312,14 @@ export async function updateAdBoardItem(itemId, dto, adminUserId) {
   await assertProductTargetValid(nextPayload);
   await assertAdActionPayload(nextPayload);
 
+  const patch = { ...dto };
+  if (Object.prototype.hasOwnProperty.call(dto, "placement")) {
+    patch.placement = normalizeAdPlacement(dto.placement, { required: true });
+  }
+
   const updated = await adminRepo.updateAdBoardItem(
     itemId,
-    dto,
+    patch,
     toActorUserId(adminUserId)
   );
   if (!updated) {

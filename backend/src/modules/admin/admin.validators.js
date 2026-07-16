@@ -450,6 +450,17 @@ const allowedAdBoardCtaTypes = [
   "internal_route",
 ];
 
+const allowedAdBoardPlacements = [
+  "HOME_MAIN",
+  "MARKETPLACE_HOME",
+  "MARKETPLACE_CATEGORY",
+];
+
+function normalizeAdPlacementValue(value) {
+  if (value === undefined || value === null || value === "") return null;
+  return String(value).trim().toUpperCase();
+}
+
 function parseOptionalDate(value) {
   if (value === undefined || value === null || value === "") return null;
   const d = new Date(value);
@@ -476,6 +487,17 @@ export function validateAdBoardCreate(body) {
   if (!isOptionalString(body?.promoCode, 120)) errors.push("promoCode");
   if (!isOptionalString(body?.category, 120)) errors.push("category");
   if (!isOptionalString(body?.externalLink, 1200)) errors.push("externalLink");
+
+  const placement = normalizeAdPlacementValue(body?.placement) || "HOME_MAIN";
+  if (!allowedAdBoardPlacements.includes(placement)) errors.push("placement");
+  if (!isOptionalString(body?.activityType, 120)) errors.push("activityType");
+  if (!isOptionalString(body?.mobileImageUrl, 1000)) errors.push("mobileImageUrl");
+  if (!isOptionalString(body?.titleAr, 140)) errors.push("titleAr");
+  if (!isOptionalString(body?.titleEn, 140)) errors.push("titleEn");
+  if (!isOptionalString(body?.subtitleAr, 280)) errors.push("subtitleAr");
+  if (!isOptionalString(body?.subtitleEn, 280)) errors.push("subtitleEn");
+  if (!isOptionalString(body?.ctaLabelAr, 60)) errors.push("ctaLabelAr");
+  if (!isOptionalString(body?.ctaLabelEn, 60)) errors.push("ctaLabelEn");
 
   const merchantId =
     body?.merchantId === undefined || body?.merchantId === null || body?.merchantId === ""
@@ -549,6 +571,15 @@ export function validateAdBoardCreate(body) {
       isActive,
       startsAt: startsAt ? startsAt.toISOString() : null,
       endsAt: endsAt ? endsAt.toISOString() : null,
+      placement,
+      activityType: body?.activityType ? String(body.activityType).trim() : null,
+      mobileImageUrl: body?.mobileImageUrl ? String(body.mobileImageUrl).trim() : null,
+      titleAr: body?.titleAr ? String(body.titleAr).trim() : null,
+      titleEn: body?.titleEn ? String(body.titleEn).trim() : null,
+      subtitleAr: body?.subtitleAr ? String(body.subtitleAr).trim() : null,
+      subtitleEn: body?.subtitleEn ? String(body.subtitleEn).trim() : null,
+      ctaLabelAr: body?.ctaLabelAr ? String(body.ctaLabelAr).trim() : null,
+      ctaLabelEn: body?.ctaLabelEn ? String(body.ctaLabelEn).trim() : null,
     },
   };
 }
@@ -648,6 +679,31 @@ export function validateAdBoardUpdate(body) {
   if (body?.isActive !== undefined) {
     value.isActive =
       body.isActive === true || body.isActive === "true" || body.isActive === 1;
+  }
+
+  if (body?.placement !== undefined) {
+    const placement = normalizeAdPlacementValue(body.placement);
+    if (!placement || !allowedAdBoardPlacements.includes(placement)) {
+      errors.push("placement");
+    } else {
+      value.placement = placement;
+    }
+  }
+  const adBoardOptionalStringFields = [
+    ["activityType", 120],
+    ["mobileImageUrl", 1000],
+    ["titleAr", 140],
+    ["titleEn", 140],
+    ["subtitleAr", 280],
+    ["subtitleEn", 280],
+    ["ctaLabelAr", 60],
+    ["ctaLabelEn", 60],
+  ];
+  for (const [field, maxLen] of adBoardOptionalStringFields) {
+    if (body?.[field] !== undefined) {
+      if (!isOptionalString(body[field], maxLen)) errors.push(field);
+      else value[field] = body[field] ? String(body[field]).trim() : null;
+    }
   }
 
   if (body?.startsAt !== undefined) {

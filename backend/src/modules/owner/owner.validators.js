@@ -139,9 +139,38 @@ export function validateOwnerMerchantUpdate(body) {
     body.supportsChat !== undefined ||
     body.supportsAttachments !== undefined ||
     body.supportsPharmacyWorkflow !== undefined ||
-    body.badges !== undefined;
+    body.badges !== undefined ||
+    body.logoUrl !== undefined ||
+    body.coverImageUrl !== undefined ||
+    body.deliveryEtaMinMinutes !== undefined ||
+    body.deliveryEtaMaxMinutes !== undefined ||
+    body.deliveryFee !== undefined ||
+    body.minimumOrder !== undefined;
 
   if (!hasAnyField) errors.push("empty_update");
+
+  if (body.logoUrl !== undefined && !isOptionalString(body.logoUrl, 1000)) {
+    errors.push("logoUrl");
+  }
+  if (
+    body.coverImageUrl !== undefined &&
+    !isOptionalString(body.coverImageUrl, 1000)
+  ) {
+    errors.push("coverImageUrl");
+  }
+  // Numeric ETA/fee/min-order are range-validated in the service layer
+  // (applyStorefrontDeliveryPatch); here we only reject non-numeric junk.
+  for (const field of [
+    "deliveryEtaMinMinutes",
+    "deliveryEtaMaxMinutes",
+    "deliveryFee",
+    "minimumOrder",
+  ]) {
+    const v = body[field];
+    if (v !== undefined && v !== null && v !== "" && !Number.isFinite(Number(v))) {
+      errors.push(field);
+    }
+  }
 
   if (body.name !== undefined && !isNonEmptyString(body.name, 150)) errors.push("name");
   if (body.type !== undefined && !["restaurant", "market"].includes(body.type)) errors.push("type");

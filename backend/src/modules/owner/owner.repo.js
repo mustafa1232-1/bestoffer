@@ -22,7 +22,7 @@ function normalizeDiscoveryCodes(values) {
 
 export async function findMerchantByOwnerUserId(ownerUserId) {
   const r = await q(
-    `SELECT id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
+    `SELECT id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, logo_url, cover_image_url, delivery_eta_min_minutes, delivery_eta_max_minutes, delivery_fee, minimum_order, is_verified, next_open_at, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
             COALESCE(
               (
                 SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
@@ -432,7 +432,7 @@ export async function createOwnerWithMerchant(data) {
     }
 
     const merchantQuery = await client.query(
-      `SELECT id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
+      `SELECT id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, logo_url, cover_image_url, delivery_eta_min_minutes, delivery_eta_max_minutes, delivery_fee, minimum_order, is_verified, next_open_at, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
               COALESCE(
                 (
                   SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
@@ -513,6 +513,12 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
     supportsAttachments: "supports_attachments",
     supportsPharmacyWorkflow: "supports_pharmacy_workflow",
     badges: "badges_json",
+    logoUrl: "logo_url",
+    coverImageUrl: "cover_image_url",
+    deliveryEtaMinMinutes: "delivery_eta_min_minutes",
+    deliveryEtaMaxMinutes: "delivery_eta_max_minutes",
+    deliveryFee: "delivery_fee",
+    minimumOrder: "minimum_order",
   };
 
   const values = [];
@@ -536,14 +542,14 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
     `UPDATE merchant
      SET ${sets.join(", ")}
      WHERE owner_user_id=$${idx}
-     RETURNING id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note`,
+     RETURNING id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, logo_url, cover_image_url, delivery_eta_min_minutes, delivery_eta_max_minutes, delivery_fee, minimum_order, is_verified, next_open_at, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note`,
     values
   );
 
   const row = r.rows[0] || null;
   if (!row) return null;
   const hydrated = await q(
-    `SELECT id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
+    `SELECT id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, logo_url, cover_image_url, delivery_eta_min_minutes, delivery_eta_max_minutes, delivery_fee, minimum_order, is_verified, next_open_at, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
             COALESCE(
               (
                 SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)

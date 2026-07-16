@@ -18,7 +18,11 @@ class AdminAdBoardScreen extends ConsumerStatefulWidget {
   ConsumerState<AdminAdBoardScreen> createState() => _AdminAdBoardScreenState();
 }
 
+enum _AdTab { all, home, marketplace, categories, active, scheduled, expired }
+
 class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
+  _AdTab _tab = _AdTab.all;
+
   @override
   void initState() {
     super.initState();
@@ -26,6 +30,89 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
       await ref.read(adminControllerProvider.notifier).bootstrap();
       await ref.read(adminAdBoardControllerProvider.notifier).bootstrap();
     });
+  }
+
+  String _placementChipLabel(AdBoardItemModel item) {
+    switch (item.placement) {
+      case 'MARKETPLACE_HOME':
+        return 'السوق';
+      case 'MARKETPLACE_CATEGORY':
+        return 'تصنيف';
+      case 'HOME_MAIN':
+      default:
+        return 'الرئيسية';
+    }
+  }
+
+  String _tabLabel(_AdTab tab) {
+    switch (tab) {
+      case _AdTab.all:
+        return 'الكل';
+      case _AdTab.home:
+        return 'الرئيسية العامة';
+      case _AdTab.marketplace:
+        return 'السوق';
+      case _AdTab.categories:
+        return 'التصنيفات';
+      case _AdTab.active:
+        return 'النشطة';
+      case _AdTab.scheduled:
+        return 'المجدولة';
+      case _AdTab.expired:
+        return 'المنتهية';
+    }
+  }
+
+  List<AdBoardItemModel> _applyTab(List<AdBoardItemModel> items) {
+    final now = DateTime.now();
+    switch (_tab) {
+      case _AdTab.all:
+        return items;
+      case _AdTab.home:
+        return items.where((i) => i.placement == 'HOME_MAIN').toList();
+      case _AdTab.marketplace:
+        return items
+            .where((i) => i.placement == 'MARKETPLACE_HOME')
+            .toList();
+      case _AdTab.categories:
+        return items
+            .where((i) => i.placement == 'MARKETPLACE_CATEGORY')
+            .toList();
+      case _AdTab.active:
+        return items.where((i) => i.isLive(now)).toList();
+      case _AdTab.scheduled:
+        return items.where((i) => i.isScheduled(now)).toList();
+      case _AdTab.expired:
+        return items.where((i) => i.isExpired(now)).toList();
+    }
+  }
+
+  Future<void> _confirmDelete(AdBoardItemModel item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(context.l10n.commonDelete),
+        content: Text(
+          'هل تريد حذف الإعلان "${item.title}"؟ لا يمكن التراجع.',
+          textDirection: context.appTextDirection,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.l10n.commonCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(context.l10n.commonDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref
+          .read(adminAdBoardControllerProvider.notifier)
+          .deleteItem(item.id);
+    }
   }
 
   Future<void> _openSheet([AdBoardItemModel? item]) async {
@@ -184,7 +271,26 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  if (state.items.isEmpty)
+                  SizedBox(
+                    height: 40,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      reverse: true,
+                      children: _AdTab.values.map((tab) {
+                        final selected = tab == _tab;
+                        return Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: ChoiceChip(
+                            label: Text(_tabLabel(tab)),
+                            selected: selected,
+                            onSelected: (_) => setState(() => _tab = tab),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_applyTab(state.items).isEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 48),
                       child: Center(
@@ -195,7 +301,7 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
                       ),
                     )
                   else
-                    ...state.items.map(
+                    ..._applyTab(state.items).map(
                       (item) => Card(
                         margin: const EdgeInsets.only(bottom: 10),
                         child: Padding(
@@ -252,6 +358,7 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
                                 runSpacing: 8,
                                 children: [
                                   _Chip(label: _statusLabel(item)),
+                                  _Chip(label: _placementChipLabel(item)),
                                   _Chip(
                                     label:
                                         '${context.l10n.adminAdBoardCta}: ${_ctaTypeLabel(item.ctaTargetType)}',
@@ -260,6 +367,12 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
                                     label:
                                         '${context.l10n.adminAdBoardPriority}: ${item.priority}',
                                   ),
+                                  if ((item.category ?? '').trim().isNotEmpty)
+                                    _Chip(label: 'قسم: ${item.category}'),
+                                  if ((item.activityType ?? '')
+                                      .trim()
+                                      .isNotEmpty)
+                                    _Chip(label: 'نشاط: ${item.activityType}'),
                                   if ((item.merchantName ?? '')
                                       .trim()
                                       .isNotEmpty)
@@ -267,6 +380,23 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
                                       label:
                                           '${context.l10n.commonMerchant}: ${item.merchantName}',
                                     ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                alignment: WrapAlignment.end,
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _Chip(
+                                    label:
+                                        'مشاهدات: ${item.impressionCount}',
+                                  ),
+                                  _Chip(label: 'نقرات: ${item.clickCount}'),
+                                  _Chip(
+                                    label:
+                                        'CTR: ${item.ctrPercent.toStringAsFixed(1)}%',
+                                  ),
                                 ],
                               ),
                               if (_scheduleLabel(item) != null) ...[
@@ -300,14 +430,7 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
                                     tooltip: context.l10n.commonDelete,
                                     onPressed: state.saving
                                         ? null
-                                        : () {
-                                            ref
-                                                .read(
-                                                  adminAdBoardControllerProvider
-                                                      .notifier,
-                                                )
-                                                .deleteItem(item.id);
-                                          },
+                                        : () => _confirmDelete(item),
                                     icon: const Icon(
                                       Icons.delete_outline_rounded,
                                     ),
@@ -422,6 +545,168 @@ typedef _AdBoardSubmit =
       LocalImageFile? imageFile,
     );
 
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Text(
+        text,
+        textDirection: context.appTextDirection,
+        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+      ),
+    );
+  }
+}
+
+/// Live phone-sized preview of the ad as customers will see it on mobile.
+class _AdMobilePreview extends StatelessWidget {
+  final String titleAr;
+  final String subtitleAr;
+  final String ctaLabel;
+  final String badgeLabel;
+  final String imageUrl;
+  final LocalImageFile? localImage;
+
+  const _AdMobilePreview({
+    required this.titleAr,
+    required this.subtitleAr,
+    required this.ctaLabel,
+    required this.badgeLabel,
+    required this.imageUrl,
+    required this.localImage,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 300,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Colors.white24, width: 6),
+          color: Colors.black,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: AspectRatio(
+          aspectRatio: 2.6,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (imageUrl.isNotEmpty)
+                CachedAppImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.cover,
+                  errorWidget: (_, _, _) => const ColoredBox(
+                    color: Color(0xFF1A2E59),
+                  ),
+                )
+              else
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomLeft,
+                      colors: [Color(0xFF1A2E59), Color(0xFF142D51)],
+                    ),
+                  ),
+                ),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.black26, Colors.black87],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (badgeLabel.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(999),
+                          color: Colors.white24,
+                        ),
+                        child: Text(
+                          badgeLabel,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    const Spacer(),
+                    Text(
+                      titleAr.isEmpty ? 'عنوان الإعلان' : titleAr,
+                      textDirection: TextDirection.rtl,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    if (subtitleAr.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitleAr,
+                        textDirection: TextDirection.rtl,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.85),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                    if (ctaLabel.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            color: Colors.white,
+                          ),
+                          child: Text(
+                            ctaLabel,
+                            style: const TextStyle(
+                              color: Color(0xFF142D51),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ProductOption {
   final int id;
   final String name;
@@ -465,6 +750,22 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
   late final TextEditingController _categoryCtrl;
   late final TextEditingController _externalLinkCtrl;
   late final TextEditingController _priorityCtrl;
+  // Placement / bilingual / category-targeting / mobile image.
+  late final TextEditingController _titleArCtrl;
+  late final TextEditingController _titleEnCtrl;
+  late final TextEditingController _subtitleArCtrl;
+  late final TextEditingController _subtitleEnCtrl;
+  late final TextEditingController _ctaLabelArCtrl;
+  late final TextEditingController _ctaLabelEnCtrl;
+  late final TextEditingController _mobileImageUrlCtrl;
+  late final TextEditingController _activityTypeCtrl;
+
+  static const List<String> _placements = <String>[
+    'HOME_MAIN',
+    'MARKETPLACE_HOME',
+    'MARKETPLACE_CATEGORY',
+  ];
+  String _placement = 'HOME_MAIN';
 
   bool _saving = false;
   bool _isActive = true;
@@ -497,15 +798,46 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
       text: initial?.externalLink ?? '',
     );
     _priorityCtrl = TextEditingController(text: '${initial?.priority ?? 100}');
+    _titleArCtrl = TextEditingController(text: initial?.titleAr ?? '');
+    _titleEnCtrl = TextEditingController(text: initial?.titleEn ?? '');
+    _subtitleArCtrl = TextEditingController(text: initial?.subtitleAr ?? '');
+    _subtitleEnCtrl = TextEditingController(text: initial?.subtitleEn ?? '');
+    _ctaLabelArCtrl = TextEditingController(text: initial?.ctaLabelAr ?? '');
+    _ctaLabelEnCtrl = TextEditingController(text: initial?.ctaLabelEn ?? '');
+    _mobileImageUrlCtrl = TextEditingController(
+      text: initial?.mobileImageUrl ?? '',
+    );
+    _activityTypeCtrl = TextEditingController(text: initial?.activityType ?? '');
+    _placement = _placements.contains(initial?.placement)
+        ? initial!.placement
+        : 'HOME_MAIN';
     _ctaType = (initial?.type ?? initial?.ctaTargetType ?? 'none').trim();
     _merchantId = initial?.merchantId;
     _selectedProductId = int.tryParse(initial?.ctaTargetValue ?? '');
     _isActive = initial?.isActive ?? true;
     _startsAt = initial?.startsAt;
     _endsAt = initial?.endsAt;
+    // Live mobile preview: rebuild when any preview-relevant field changes.
+    for (final c in <TextEditingController>[
+      _titleCtrl,
+      _subtitleCtrl,
+      _badgeCtrl,
+      _imageUrlCtrl,
+      _titleArCtrl,
+      _subtitleArCtrl,
+      _ctaLabelCtrl,
+      _ctaLabelArCtrl,
+      _mobileImageUrlCtrl,
+    ]) {
+      c.addListener(_onPreviewFieldChanged);
+    }
     if (_merchantId != null) {
       Future.microtask(() => _loadProducts(_merchantId!));
     }
+  }
+
+  void _onPreviewFieldChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -522,6 +854,14 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
     _categoryCtrl.dispose();
     _externalLinkCtrl.dispose();
     _priorityCtrl.dispose();
+    _titleArCtrl.dispose();
+    _titleEnCtrl.dispose();
+    _subtitleArCtrl.dispose();
+    _subtitleEnCtrl.dispose();
+    _ctaLabelArCtrl.dispose();
+    _ctaLabelEnCtrl.dispose();
+    _mobileImageUrlCtrl.dispose();
+    _activityTypeCtrl.dispose();
     super.dispose();
   }
 
@@ -543,6 +883,23 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
       });
     } finally {
       if (mounted) setState(() => _loadingProducts = false);
+    }
+  }
+
+  static String? _emptyToNull(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  String _placementLabel(String placement) {
+    switch (placement) {
+      case 'MARKETPLACE_HOME':
+        return context.lt(ar: 'واجهة السوق', en: 'Marketplace home');
+      case 'MARKETPLACE_CATEGORY':
+        return context.lt(ar: 'صفحة تصنيف', en: 'Category page');
+      case 'HOME_MAIN':
+      default:
+        return context.lt(ar: 'الرئيسية العامة', en: 'Home (general)');
     }
   }
 
@@ -657,6 +1014,19 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
         'isActive': _isActive,
         'startsAt': _startsAt?.toIso8601String(),
         'endsAt': _endsAt?.toIso8601String(),
+        'placement': _placement,
+        'titleAr': _emptyToNull(_titleArCtrl.text),
+        'titleEn': _emptyToNull(_titleEnCtrl.text),
+        'subtitleAr': _emptyToNull(_subtitleArCtrl.text),
+        'subtitleEn': _emptyToNull(_subtitleEnCtrl.text),
+        'ctaLabelAr': _emptyToNull(_ctaLabelArCtrl.text),
+        'ctaLabelEn': _emptyToNull(_ctaLabelEnCtrl.text),
+        'mobileImageUrl': _emptyToNull(_mobileImageUrlCtrl.text),
+        // Category targeting only meaningful for MARKETPLACE_CATEGORY; sent as
+        // null otherwise so an ad can act as the general fallback.
+        'activityType': _placement == 'MARKETPLACE_CATEGORY'
+            ? _emptyToNull(_activityTypeCtrl.text)
+            : null,
       }..removeWhere((_, value) => value == null);
 
       await widget.onSubmit(payload, _imageFile);
@@ -725,7 +1095,149 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
                     ? context.l10n.adminAdBoardRequiredField
                     : null,
               ),
+              const SizedBox(height: 12),
+              // ---- Placement ----
+              DropdownButtonFormField<String>(
+                initialValue: _placement,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: context.lt(ar: 'مكان الإعلان', en: 'Placement'),
+                ),
+                items: _placements
+                    .map(
+                      (p) => DropdownMenuItem<String>(
+                        value: p,
+                        child: Text(_placementLabel(p)),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: (value) =>
+                    setState(() => _placement = value ?? 'HOME_MAIN'),
+              ),
+              // ---- Category targeting (MARKETPLACE_CATEGORY only) ----
+              if (_placement == 'MARKETPLACE_CATEGORY') ...[
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _categoryCtrl,
+                  decoration: InputDecoration(
+                    labelText: context.lt(
+                      ar: 'مفتاح التصنيف (categoryKey)',
+                      en: 'Category key',
+                    ),
+                    helperText: context.lt(
+                      ar: 'اتركه فارغاً ليكون الإعلان عاماً لكل الأقسام (fallback)',
+                      en: 'Leave empty to target all categories (fallback)',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _activityTypeCtrl,
+                  decoration: InputDecoration(
+                    labelText: context.lt(
+                      ar: 'نوع النشاط (activityType) — اختياري',
+                      en: 'Activity type (optional)',
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              // ---- Bilingual overrides ----
+              _SectionLabel(
+                text: context.lt(
+                  ar: 'نصوص ثنائية اللغة (اختياري)',
+                  en: 'Bilingual text (optional)',
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _titleArCtrl,
+                      decoration: const InputDecoration(labelText: 'العنوان (ع)'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _titleEnCtrl,
+                      decoration: const InputDecoration(labelText: 'Title (EN)'),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _subtitleArCtrl,
+                      decoration: const InputDecoration(labelText: 'الوصف (ع)'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _subtitleEnCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Subtitle (EN)',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _ctaLabelArCtrl,
+                      decoration: const InputDecoration(labelText: 'زر CTA (ع)'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _ctaLabelEnCtrl,
+                      decoration: const InputDecoration(labelText: 'CTA (EN)'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _mobileImageUrlCtrl,
+                decoration: InputDecoration(
+                  labelText: context.lt(
+                    ar: 'رابط صورة الموبايل (اختياري)',
+                    en: 'Mobile image URL (optional)',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // ---- Live mobile preview ----
+              _SectionLabel(
+                text: context.lt(ar: 'معاينة الموبايل', en: 'Mobile preview'),
+              ),
+              const SizedBox(height: 6),
+              _AdMobilePreview(
+                titleAr: _titleArCtrl.text.trim().isNotEmpty
+                    ? _titleArCtrl.text.trim()
+                    : _titleCtrl.text.trim(),
+                subtitleAr: _subtitleArCtrl.text.trim().isNotEmpty
+                    ? _subtitleArCtrl.text.trim()
+                    : _subtitleCtrl.text.trim(),
+                ctaLabel: _ctaLabelArCtrl.text.trim().isNotEmpty
+                    ? _ctaLabelArCtrl.text.trim()
+                    : _ctaLabelCtrl.text.trim(),
+                badgeLabel: _badgeCtrl.text.trim(),
+                imageUrl: _mobileImageUrlCtrl.text.trim().isNotEmpty
+                    ? _mobileImageUrlCtrl.text.trim()
+                    : _imageUrlCtrl.text.trim(),
+                localImage: _imageFile,
+              ),
+              const SizedBox(height: 12),
               DropdownButtonFormField<int?>(
                 initialValue: _merchantId,
                 items: merchants,

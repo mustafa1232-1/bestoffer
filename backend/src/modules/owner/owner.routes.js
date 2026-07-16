@@ -22,7 +22,15 @@ ownerRouter.use(requireAuth, requireOwner);
 ownerRouter.get("/merchant", c.getMerchant);
 ownerRouter.post("/merchant/financial-terms/accept", c.acceptFinancialTerms);
 ownerRouter.post("/merchant/financial-terms/reject", c.rejectFinancialTerms);
-ownerRouter.put("/merchant", imageUpload.single("imageFile"), c.updateMerchant);
+ownerRouter.put(
+  "/merchant",
+  imageUpload.fields([
+    { name: "imageFile", maxCount: 1 },
+    { name: "logoFile", maxCount: 1 },
+    { name: "coverFile", maxCount: 1 },
+  ]),
+  c.updateMerchant,
+);
 
 ownerRouter.get("/categories", c.listCategories);
 ownerRouter.post("/categories", c.createCategory);

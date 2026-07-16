@@ -304,9 +304,16 @@ export async function createMerchantWithOwnerLink({
           supports_chat,
           supports_attachments,
           supports_pharmacy_workflow,
-          badges_json
+          badges_json,
+          logo_url,
+          cover_image_url,
+          delivery_eta_min_minutes,
+          delivery_eta_max_minutes,
+          delivery_fee,
+          minimum_order,
+          is_verified
         )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,NOW(),$12::jsonb,$13,$14,$15,$16::jsonb)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,NOW(),$12::jsonb,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21,$22,$23)
        RETURNING id`,
       [
         merchant.name,
@@ -325,6 +332,13 @@ export async function createMerchantWithOwnerLink({
         merchant.supportsAttachments === true,
         merchant.supportsPharmacyWorkflow === true,
         JSON.stringify(Array.isArray(merchant.badges) ? merchant.badges : []),
+        merchant.logoUrl ?? null,
+        merchant.coverImageUrl ?? null,
+        merchant.deliveryEtaMinMinutes ?? null,
+        merchant.deliveryEtaMaxMinutes ?? null,
+        merchant.deliveryFee ?? null,
+        merchant.minimumOrder ?? null,
+        merchant.isVerified === true,
       ]
     );
     const merchantId = Number(merchantResult.rows[0]?.id);
@@ -855,21 +869,35 @@ export async function getNearbyPublicMerchants({
   return r.rows;
 }
 
-export async function getPublicAdBoardItems({ type }) {
+export async function getPublicAdBoardItems({
+  type,
+  placement = null,
+  categoryKey = null,
+  activityType = null,
+}) {
   const r = await q(
     `SELECT
        a.id,
+       a.placement,
        a.title,
+       a.title_ar,
+       a.title_en,
        a.subtitle,
+       a.subtitle_ar,
+       a.subtitle_en,
        a.image_url,
+       a.mobile_image_url,
        a.badge_label,
        a.cta_label,
+       a.cta_label_ar,
+       a.cta_label_en,
        a.cta_target_type,
        a.cta_target_value,
        a.target_id,
        a.target_route,
        a.promo_code,
        a.category,
+       a.activity_type,
        a.external_link,
        a.merchant_id,
        a.priority,
@@ -892,16 +920,53 @@ export async function getPublicAdBoardItems({ type }) {
            AND COALESCE(m.is_disabled, FALSE) = FALSE
          )
        )
+       AND ($2::text IS NULL OR a.placement = $2::text)
        AND (
          $1::text IS NULL
          OR a.merchant_id IS NULL
          OR m.type::text = $1::text
        )
-     ORDER BY a.priority ASC, a.created_at DESC, a.id DESC
+       -- Category targeting: a category-scoped ad matches only its category /
+       -- activity; an ad with neither is a general fallback for every category.
+       AND (
+         $2::text IS DISTINCT FROM 'MARKETPLACE_CATEGORY'
+         OR (a.category IS NULL AND a.activity_type IS NULL)
+         OR ($3::text IS NOT NULL AND a.category = $3::text)
+         OR ($4::text IS NOT NULL AND a.activity_type = $4::text)
+       )
+     ORDER BY
+       -- Category/activity-specific ads outrank the general fallback.
+       (a.category IS NOT NULL OR a.activity_type IS NOT NULL) DESC,
+       a.priority ASC, a.created_at DESC, a.id DESC
      LIMIT 60`,
-    [type || null]
+    [type || null, placement || null, categoryKey || null, activityType || null]
   );
   return r.rows;
+}
+
+/// Records one impression for an ad (called from the client only when the ad is
+/// actually visible — not on every rebuild).
+export async function incrementAdBoardImpression(itemId) {
+  const r = await q(
+    `UPDATE app_ad_board_item
+        SET impression_count = impression_count + 1, last_impression_at = NOW()
+      WHERE id = $1
+      RETURNING id, impression_count`,
+    [Number(itemId)]
+  );
+  return r.rows[0] || null;
+}
+
+/// Records one click/CTA tap for an ad.
+export async function incrementAdBoardClick(itemId) {
+  const r = await q(
+    `UPDATE app_ad_board_item
+        SET click_count = click_count + 1, last_click_at = NOW()
+      WHERE id = $1
+      RETURNING id, click_count`,
+    [Number(itemId)]
+  );
+  return r.rows[0] || null;
 }
 
 export async function getMerchantsDiscoveryBase({

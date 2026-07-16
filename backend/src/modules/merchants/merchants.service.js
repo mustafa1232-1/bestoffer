@@ -92,20 +92,55 @@ function toBrowseMerchantPayload(row) {
     description: normalizeOptional(row.description),
     phone: normalizeOptional(row.phone),
     imageUrl: normalizeOptional(row.imageUrl ?? row.image_url),
+    logoUrl: normalizeOptional(row.logoUrl ?? row.logo_url),
+    coverImageUrl: normalizeOptional(row.coverImageUrl ?? row.cover_image_url),
     tagline: normalizeOptional(row.tagline),
     workingHours: normalizeOptional(row.workingHours ?? row.working_hours),
     avgMerchantRating: Number(row.avgMerchantRating ?? row.avg_merchant_rating ?? 0),
     ratingCount: Math.max(0, Number(row.ratingCount ?? row.rating_count ?? 0)),
     isOpen: row.isOpen === true || row.is_open === true,
+    isVerified: row.isVerified === true || row.is_verified === true,
+    nextOpenAt: toIsoOrNull(row.nextOpenAt ?? row.next_open_at),
+    deliveryEtaMinMinutes: toNullableInt(
+      row.deliveryEtaMinMinutes ?? row.delivery_eta_min_minutes
+    ),
+    deliveryEtaMaxMinutes: toNullableInt(
+      row.deliveryEtaMaxMinutes ?? row.delivery_eta_max_minutes
+    ),
+    deliveryFee: toNullableAmount(row.deliveryFee ?? row.delivery_fee),
+    minimumOrder: toNullableAmount(row.minimumOrder ?? row.minimum_order),
     hasDiscountOffer:
       row.hasDiscountOffer === true || row.has_discount_offer === true,
     hasFreeDeliveryOffer:
       row.hasFreeDeliveryOffer === true || row.has_free_delivery_offer === true,
+    hasActiveOffer:
+      row.hasDiscountOffer === true ||
+      row.has_discount_offer === true ||
+      row.hasFreeDeliveryOffer === true ||
+      row.has_free_delivery_offer === true,
     supportsPharmacyWorkflow:
       row.supportsPharmacyWorkflow === true ||
       row.supports_pharmacy_workflow === true,
     smartRankScore: Number(row.smartRankScore ?? row.smart_rank_score ?? 0),
   };
+}
+
+/// Parses to a non-negative integer, or null when absent/invalid. Never
+/// fabricates a default — a missing ETA stays unknown.
+function toNullableInt(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const truncated = Math.trunc(n);
+  return truncated < 0 ? null : truncated;
+}
+
+/// Parses to a non-negative amount, or null when absent/invalid.
+function toNullableAmount(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
 }
 
 /**
@@ -186,6 +221,13 @@ export async function createMerchant(dto, approvedByUserId) {
     supportsChat: capabilities.supportsChat,
     supportsAttachments: capabilities.supportsAttachments,
     supportsPharmacyWorkflow: capabilities.supportsPharmacyWorkflow,
+    logoUrl: normalizeOptional(dto.logoUrl),
+    coverImageUrl: normalizeOptional(dto.coverImageUrl),
+    deliveryEtaMinMinutes: toNullableInt(dto.deliveryEtaMinMinutes),
+    deliveryEtaMaxMinutes: toNullableInt(dto.deliveryEtaMaxMinutes),
+    deliveryFee: toNullableAmount(dto.deliveryFee),
+    minimumOrder: toNullableAmount(dto.minimumOrder),
+    isVerified: dto.isVerified === true,
   };
 
   let ownerToCreate = null;
@@ -459,6 +501,7 @@ function mapPublicMerchantRow(row) {
   return {
     ...row,
     id: Number(row.id),
+    isOpen: row.is_open === true,
     type: normalizePublicMerchantType(row.type) || "market",
     activityType: normalizeRegistryActivityType(row.activity_type) || "market",
     discoverySubcategory: normalizeRegistryDiscoverySubcategory(
@@ -478,8 +521,18 @@ function mapPublicMerchantRow(row) {
     supportsPharmacyWorkflow: row.supports_pharmacy_workflow === true,
     hasDiscountOffer: row.has_discount_offer === true,
     hasFreeDeliveryOffer: row.has_free_delivery_offer === true,
+    hasActiveOffer:
+      row.has_discount_offer === true || row.has_free_delivery_offer === true,
     avgMerchantRating: Number(row.avg_merchant_rating || 0),
     ratingCount: Number(row.rating_count || 0),
+    logoUrl: normalizeOptional(row.logo_url),
+    coverImageUrl: normalizeOptional(row.cover_image_url),
+    isVerified: row.is_verified === true,
+    nextOpenAt: toIsoOrNull(row.next_open_at),
+    deliveryEtaMinMinutes: toNullableInt(row.delivery_eta_min_minutes),
+    deliveryEtaMaxMinutes: toNullableInt(row.delivery_eta_max_minutes),
+    deliveryFee: toNullableAmount(row.delivery_fee),
+    minimumOrder: toNullableAmount(row.minimum_order),
     latitude:
       row.latitude === null || row.latitude === undefined
         ? null
@@ -539,16 +592,45 @@ export async function listNearbyMerchants({
 /**
  * يعيد بطاقات لوحة الإعلانات العامة المعروضة في الواجهة.
  */
-export async function listPublicAdBoard(type) {
+const AD_PLACEMENTS = new Set([
+  "HOME_MAIN",
+  "MARKETPLACE_HOME",
+  "MARKETPLACE_CATEGORY",
+]);
+
+function normalizeAdPlacement(value) {
+  const v = String(value || "").trim().toUpperCase();
+  return AD_PLACEMENTS.has(v) ? v : null;
+}
+
+export async function listPublicAdBoard(
+  type,
+  { placement = null, categoryKey = null, activityType = null } = {}
+) {
   const normalizedType = normalizeType(type);
-  const rows = await repo.getPublicAdBoardItems({ type: normalizedType });
+  const normalizedPlacement = normalizeAdPlacement(placement);
+  const rows = await repo.getPublicAdBoardItems({
+    type: normalizedType,
+    placement: normalizedPlacement,
+    categoryKey: categoryKey ? String(categoryKey).trim() : null,
+    activityType: activityType ? String(activityType).trim() : null,
+  });
   return rows.map((row) => ({
     id: Number(row.id),
+    placement: row.placement || "HOME_MAIN",
+    // Bilingual with a safe fallback to the legacy single-language columns.
     title: row.title,
+    titleAr: row.title_ar || row.title || null,
+    titleEn: row.title_en || row.title || null,
     subtitle: row.subtitle,
+    subtitleAr: row.subtitle_ar || row.subtitle || null,
+    subtitleEn: row.subtitle_en || row.subtitle || null,
     imageUrl: row.image_url || row.merchant_image_url || null,
+    mobileImageUrl: row.mobile_image_url || null,
     badgeLabel: row.badge_label || null,
     ctaLabel: row.cta_label || null,
+    ctaLabelAr: row.cta_label_ar || row.cta_label || null,
+    ctaLabelEn: row.cta_label_en || row.cta_label || null,
     type: row.cta_target_type || "none",
     targetId: row.target_id
       ? Number(row.target_id)
@@ -558,6 +640,7 @@ export async function listPublicAdBoard(type) {
     targetRoute: row.target_route || null,
     promoCode: row.promo_code || null,
     category: row.category || null,
+    activityType: row.activity_type || null,
     externalLink: row.external_link || null,
     ctaTargetType: row.cta_target_type || "none",
     ctaTargetValue: row.cta_target_value || null,
@@ -569,6 +652,20 @@ export async function listPublicAdBoard(type) {
     startsAt: row.starts_at ? new Date(row.starts_at).toISOString() : null,
     endsAt: row.ends_at ? new Date(row.ends_at).toISOString() : null,
   }));
+}
+
+export async function recordAdBoardImpression(adId) {
+  const id = Number(adId);
+  if (!Number.isFinite(id) || id <= 0) return { ok: false };
+  const out = await repo.incrementAdBoardImpression(id);
+  return { ok: Boolean(out) };
+}
+
+export async function recordAdBoardClick(adId) {
+  const id = Number(adId);
+  if (!Number.isFinite(id) || id <= 0) return { ok: false };
+  const out = await repo.incrementAdBoardClick(id);
+  return { ok: Boolean(out) };
 }
 
 export async function listStoreActivities() {

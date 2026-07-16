@@ -2,11 +2,14 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/widgets/loading_skeletons.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../behavior/data/behavior_api.dart';
 import '../../orders/state/cart_controller.dart';
@@ -21,6 +24,7 @@ import '../utils/catalog_taxonomy.dart';
 import 'merchant_product_details_screen.dart';
 import '../models/merchant_model.dart';
 import '../state/merchants_controller.dart';
+import '../state/customer_merchant_prefs_controller.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -41,7 +45,8 @@ enum _ProductsSortMode {
   biggestDiscount,
 }
 
-enum _SmartBundleStyle { balanced, budget, offers, variety }
+/// Product display density: one large card per row, or a two-column grid.
+enum _ProductViewMode { list, grid }
 
 List<ProductModel> filterMerchantDiscountHighlights(
   List<ProductModel> products,
@@ -49,20 +54,6 @@ List<ProductModel> filterMerchantDiscountHighlights(
   return products
       .where((product) => product.hasDiscount)
       .where((product) => product.canBeOrdered)
-      .toList(growable: false);
-}
-
-List<ProductModel> filterMerchantSmartBundleCandidates(
-  List<ProductModel> products, {
-  required bool supportsPharmacyWorkflow,
-}) {
-  return products
-      .where((product) => product.canBeOrdered)
-      .where((product) => !product.hasVariants)
-      .where(
-        (product) =>
-            !supportsPharmacyWorkflow || !product.requiresPharmacyConversation,
-      )
       .toList(growable: false);
 }
 
@@ -77,10 +68,10 @@ class _MerchantProductsScreenState
   bool onlyOffers = false;
   bool favoritesOnly = false;
   _ProductsSortMode sortMode = _ProductsSortMode.recommended;
-  final smartBudgetCtrl = TextEditingController();
-  int smartPartySize = 1;
-  _SmartBundleStyle smartBundleStyle = _SmartBundleStyle.balanced;
-  bool generatingSmartBundle = false;
+  _ProductViewMode productViewMode = _ProductViewMode.list;
+  static const String _viewModePrefsKey = 'merchant_products_view_mode';
+  // Legacy single-store cart replacement, kept disabled; multi-store carts
+  // (up to 3 merchants) are the current behavior.
   final bool _legacySingleStoreReplacementEnabled = false;
 
   bool get _canCustomerActions {
@@ -109,12 +100,42 @@ class _MerchantProductsScreenState
             .loadFavoriteProductIds();
       }
     });
+    _restoreViewMode();
+  }
+
+  Future<void> _restoreViewMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_viewModePrefsKey);
+      if (!mounted || stored == null) return;
+      final restored = stored == 'grid'
+          ? _ProductViewMode.grid
+          : _ProductViewMode.list;
+      if (restored != productViewMode) {
+        setState(() => productViewMode = restored);
+      }
+    } catch (_) {
+      // Non-fatal: fall back to the default list view.
+    }
+  }
+
+  void _setViewMode(_ProductViewMode mode) {
+    if (mode == productViewMode) return;
+    setState(() => productViewMode = mode);
+    // Persist without blocking the instant UI switch.
+    SharedPreferences.getInstance()
+        .then(
+          (prefs) => prefs.setString(
+            _viewModePrefsKey,
+            mode == _ProductViewMode.grid ? 'grid' : 'list',
+          ),
+        )
+        .catchError((_) => false);
   }
 
   @override
   void dispose() {
     productSearchCtrl.dispose();
-    smartBudgetCtrl.dispose();
     super.dispose();
   }
 
@@ -276,57 +297,120 @@ class _MerchantProductsScreenState
     return counts;
   }
 
+  Widget _buildSingleProductCard(
+    ProductModel product,
+    List<ProductModel> allProducts, {
+    required ProductSummaryCardAppearance appearance,
+    required Locale locale,
+    required bool grid,
+  }) {
+    final canOrder = widget.merchant.isOpen && product.canBeOrdered;
+    final usesPharmacyConversation = _requiresPharmacyConversation(product);
+    final strictVariantSelection = _requiresStrictVariantSelection(product);
+    final cardData = ProductSummaryCardData.fromProduct(
+      product,
+      locale: locale,
+      strictVariantSelection: strictVariantSelection,
+    );
+    final selection =
+        _cardSelections[product.id] ?? cardData.resolveSelection();
+    _cardSelections[product.id] ??= selection;
+
+    return ProductSummaryCard.fromProduct(
+      product,
+      key: ValueKey(product.id),
+      appearance: appearance,
+      locale: locale,
+      onTap: () =>
+          _openProductDetails(product: product, allProducts: allProducts),
+      compact: true,
+      maxAttributeBadges: grid ? 1 : 2,
+      maxVariantBadges: grid ? 2 : 3,
+      maxStatusBadges: grid ? 2 : 3,
+      heroAspectRatio: grid ? 1.2 : 1.38,
+      selectedColorCode: selection.colorCode,
+      selectedSizeCode: selection.sizeCode,
+      strictVariantSelection: strictVariantSelection,
+      onSelectionChanged: (next) {
+        setState(() => _cardSelections[product.id] = next);
+      },
+      trailing: _buildProductSummaryTrailing(
+        product: product,
+        canOrder: canOrder,
+        usesPharmacyConversation: usesPharmacyConversation,
+        showActions: _canCustomerActions,
+        selectedVariantId: selection.variantId,
+        selectedVariantSelections: selection.selectedVariantSelections,
+        strictVariantSelection: strictVariantSelection,
+      ),
+    );
+  }
+
   List<Widget> _buildProductCards(
     List<ProductModel> products,
     List<ProductModel> allProducts,
   ) {
     final appearance = ProductSummaryCardAppearance.fromContext(context);
     final locale = Localizations.localeOf(context);
-    return products.map((product) {
-      final canOrder = widget.merchant.isOpen && product.canBeOrdered;
-      final usesPharmacyConversation = _requiresPharmacyConversation(product);
-      final strictVariantSelection = _requiresStrictVariantSelection(product);
-      final cardData = ProductSummaryCardData.fromProduct(
-        product,
-        locale: locale,
-        strictVariantSelection: strictVariantSelection,
-      );
-      final selection =
-          _cardSelections[product.id] ?? cardData.resolveSelection();
-      _cardSelections[product.id] ??= selection;
 
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: ProductSummaryCard.fromProduct(
-          product,
-          key: ValueKey(product.id),
-          appearance: appearance,
-          locale: locale,
-          onTap: () =>
-              _openProductDetails(product: product, allProducts: allProducts),
-          compact: true,
-          maxAttributeBadges: 2,
-          maxVariantBadges: 3,
-          maxStatusBadges: 3,
-          heroAspectRatio: 1.38,
-          selectedColorCode: selection.colorCode,
-          selectedSizeCode: selection.sizeCode,
-          strictVariantSelection: strictVariantSelection,
-          onSelectionChanged: (next) {
-            setState(() => _cardSelections[product.id] = next);
-          },
-          trailing: _buildProductSummaryTrailing(
-            product: product,
-            canOrder: canOrder,
-            usesPharmacyConversation: usesPharmacyConversation,
-            showActions: _canCustomerActions,
-            selectedVariantId: selection.variantId,
-            selectedVariantSelections: selection.selectedVariantSelections,
-            strictVariantSelection: strictVariantSelection,
+    if (productViewMode == _ProductViewMode.grid) {
+      // GRID_2_COLUMNS: chunk into rows of two equal-width cards.
+      final rows = <Widget>[];
+      for (var i = 0; i < products.length; i += 2) {
+        final left = products[i];
+        final right = i + 1 < products.length ? products[i + 1] : null;
+        rows.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _buildSingleProductCard(
+                      left,
+                      allProducts,
+                      appearance: appearance,
+                      locale: locale,
+                      grid: true,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: right == null
+                        ? const SizedBox.shrink()
+                        : _buildSingleProductCard(
+                            right,
+                            allProducts,
+                            appearance: appearance,
+                            locale: locale,
+                            grid: true,
+                          ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-      );
-    }).toList();
+        );
+      }
+      return rows;
+    }
+
+    // LARGE_CARD: one card per row.
+    return products
+        .map(
+          (product) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _buildSingleProductCard(
+              product,
+              allProducts,
+              appearance: appearance,
+              locale: locale,
+              grid: false,
+            ),
+          ),
+        )
+        .toList();
   }
 
   Widget _buildProductSummaryTrailing({
@@ -571,267 +655,46 @@ class _MerchantProductsScreenState
     return score;
   }
 
-  int? _parseSmartBudget() {
-    final digits = smartBudgetCtrl.text.replaceAll(RegExp(r'[^\d]'), '');
-    if (digits.isEmpty) return null;
-    final parsed = int.tryParse(digits);
-    if (parsed == null || parsed <= 0) return null;
-    return parsed;
-  }
-
-  int _smartBaseScore(ProductModel product, Set<int> favorites) {
-    var score = _productScore(product, favorites);
-    switch (smartBundleStyle) {
-      case _SmartBundleStyle.budget:
-        score += (100000 / (_effectivePrice(product) + 100)).round();
-        break;
-      case _SmartBundleStyle.offers:
-        if (product.hasDiscount) score += 40;
-        if (product.freeDelivery) score += 24;
-        if ((product.offerLabel?.trim().isNotEmpty ?? false)) score += 18;
-        break;
-      case _SmartBundleStyle.variety:
-        score += (product.categoryId ?? 0) > 0 ? 16 : 4;
-        break;
-      case _SmartBundleStyle.balanced:
-        score += 8;
-        break;
-    }
-    return score;
-  }
-
-  int _targetBundleCount() {
-    if (smartPartySize <= 1) return 2;
-    if (smartPartySize == 2) return 3;
-    if (smartPartySize <= 4) return 4;
-    return 6;
-  }
-
-  List<ProductModel> _generateSmartBundle({
-    required List<ProductModel> products,
-    required Set<int> favoriteProductIds,
-  }) {
-    final available = filterMerchantSmartBundleCandidates(
-      products,
-      supportsPharmacyWorkflow: widget.merchant.supportsPharmacyWorkflow,
-    );
-    if (available.isEmpty) return const <ProductModel>[];
-
-    final budget = _parseSmartBudget();
-    final targetCount = _targetBundleCount();
-    final sorted = [...available]
-      ..sort((a, b) {
-        final scoreDiff = _smartBaseScore(
-          b,
-          favoriteProductIds,
-        ).compareTo(_smartBaseScore(a, favoriteProductIds));
-        if (scoreDiff != 0) return scoreDiff;
-        return _effectivePrice(a).compareTo(_effectivePrice(b));
-      });
-
-    final byCategory = <int, List<ProductModel>>{};
-    for (final product in sorted) {
-      final key = product.categoryId ?? 0;
-      byCategory.putIfAbsent(key, () => <ProductModel>[]).add(product);
-    }
-
-    final picked = <ProductModel>[];
-    final usedIds = <int>{};
-    double total = 0;
-
-    bool tryPick(ProductModel product) {
-      if (usedIds.contains(product.id)) return false;
-      final price = _effectivePrice(product);
-      if (budget != null && budget > 0 && picked.isNotEmpty) {
-        if (total + price > budget) return false;
-      }
-      picked.add(product);
-      usedIds.add(product.id);
-      total += price;
-      return true;
-    }
-
-    for (final productsInCategory in byCategory.values) {
-      if (picked.length >= targetCount) break;
-      for (final product in productsInCategory) {
-        if (tryPick(product)) break;
-      }
-    }
-
-    for (final product in sorted) {
-      if (picked.length >= targetCount) break;
-      tryPick(product);
-    }
-
-    if (picked.isEmpty) {
-      picked.add(sorted.first);
-    }
-
-    return picked;
-  }
-
-  // ignore: unused_element
-  Future<void> _addBundleToCart(List<ProductModel> bundle) async {
-    if (bundle.isEmpty) return;
-    final cart = ref.read(cartControllerProvider);
-    if (_legacySingleStoreReplacementEnabled &&
-        cart.merchantId != null &&
-        cart.merchantId != widget.merchant.id &&
-        cart.items.isNotEmpty) {
-      final replace = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('استبدال السلة'),
-          content: const Text(
-            'السلة الحالية من متجر آخر. هل تريد استبدالها بالسلة الذكية الجديدة؟',
-            textDirection: TextDirection.rtl,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('إلغاء'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('استبدال'),
-            ),
-          ],
-        ),
-      );
-      if (!mounted || replace != true) return;
-      ref.read(cartControllerProvider.notifier).clear();
-    }
-
-    final notifier = ref.read(cartControllerProvider.notifier);
-    for (final product in bundle) {
-      notifier.addItem(
-        product: product,
-        merchantId: widget.merchant.id,
-        merchantName: widget.merchant.name,
-      );
-    }
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        content: Text('تم إنشاء سلة ذكية وإضافة ${bundle.length} منتجات'),
-      ),
-    );
-  }
-
-  Future<void> _addBundleToCartSafe(List<ProductModel> bundle) async {
-    if (bundle.isEmpty) return;
-    final notifier = ref.read(cartControllerProvider.notifier);
-    var addedCount = 0;
-    var rejectedCount = 0;
-    for (final product in bundle) {
-      final status = notifier.addItem(
-        product: product,
-        merchantId: widget.merchant.id,
-        merchantName: widget.merchant.name,
-      );
-      if (status == CartAddStatus.added) {
-        addedCount += 1;
-      } else {
-        rejectedCount += 1;
-      }
-    }
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar(reason: SnackBarClosedReason.dismiss);
-    if (addedCount == 0) {
-      messenger.showSnackBar(
-        const SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text(
-            'لا يمكن إضافة منتجات من متجر رابع. الحد الأقصى 3 متاجر.',
-          ),
-        ),
-      );
-      return;
-    }
-    messenger.showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          rejectedCount > 0
-              ? 'تمت إضافة $addedCount منتجات وتعذر إضافة $rejectedCount بسبب حد 3 متاجر.'
-              : 'تمت إضافة $addedCount منتجات إلى السلة.',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _generateAndApplySmartBundle(List<ProductModel> products) async {
-    if (generatingSmartBundle) return;
-    setState(() => generatingSmartBundle = true);
-    final favorites = ref.read(ordersControllerProvider).favoriteProductIds;
-    final bundle = _generateSmartBundle(
-      products: products,
-      favoriteProductIds: favorites,
-    );
-    if (!mounted) return;
-    setState(() => generatingSmartBundle = false);
-    if (bundle.isEmpty) {
+  Future<void> _toggleFavorite() async {
+    final userId = ref.read(authControllerProvider).user?.id;
+    if (userId == null || userId <= 0) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا توجد منتجات متاحة لإنشاء سلة ذكية')),
+        const SnackBar(content: Text('سجّل الدخول لإضافة المتجر إلى المفضلة')),
       );
       return;
     }
+    try {
+      await ref
+          .read(customerMerchantPrefsProvider.notifier)
+          .toggleFavorite(userId: userId, merchantId: widget.merchant.id);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر تحديث المفضلة حالياً')),
+      );
+    }
+  }
 
-    final total = bundle.fold<double>(
-      0,
-      (sum, item) => sum + _effectivePrice(item),
+  Future<void> _shareMerchant() async {
+    final m = widget.merchant;
+    final scope = merchantScopeTag(
+      merchantType: m.type,
+      activityType: m.activityType,
     );
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'السلة الذكية المقترحة',
-                  textDirection: TextDirection.rtl,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                ...bundle.map(
-                  (product) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      '• ${product.name} - ${formatIqd(_effectivePrice(product))}',
-                      textDirection: TextDirection.rtl,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'الإجمالي التقريبي: ${formatIqd(total)}',
-                  textDirection: TextDirection.rtl,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 10),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    Navigator.of(context).pop();
-                    await _addBundleToCartSafe(bundle);
-                  },
-                  icon: const Icon(Icons.auto_awesome_rounded),
-                  label: const Text('اعتماد السلة الذكية'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+    final lines = <String>[
+      m.name,
+      if ((m.description ?? '').trim().isNotEmpty) m.description!.trim() else scope,
+      'عبر تطبيق مسلكي',
+    ];
+    try {
+      await SharePlus.instance.share(ShareParams(text: lines.join('\n')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّرت المشاركة حالياً')),
+      );
+    }
   }
 
   Future<void> _openCart() async {
@@ -1088,13 +951,12 @@ class _MerchantProductsScreenState
       backgroundColor: tokens.backgroundPrimary,
       appBar: MaslakiTopBar(
         title: widget.merchant.name,
-        subtitle:
-            widget.merchant.tagline ??
-            widget.merchant.description ??
-            merchantScopeTag(
-              merchantType: widget.merchant.type,
-              activityType: widget.merchant.activityType,
-            ),
+        // Scope tag (not the description) so the hero header below is the only
+        // place the name+description pair is shown in full.
+        subtitle: merchantScopeTag(
+          merchantType: widget.merchant.type,
+          activityType: widget.merchant.activityType,
+        ),
         leading: IconButton(
           icon: Icon(
             Icons.arrow_forward_ios_rounded,
@@ -1113,18 +975,29 @@ class _MerchantProductsScreenState
                 color: tokens.textPrimary,
               ),
             ),
+          if (_canCustomerActions)
+            Consumer(
+              builder: (context, ref, _) {
+                final isFavorite = ref
+                    .watch(customerMerchantPrefsProvider)
+                    .favoriteMerchantIds
+                    .contains(widget.merchant.id);
+                return IconButton(
+                  tooltip: 'المفضلة',
+                  onPressed: _toggleFavorite,
+                  icon: Icon(
+                    isFavorite
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    color: isFavorite ? Colors.redAccent : tokens.textPrimary,
+                  ),
+                );
+              },
+            ),
           IconButton(
             tooltip: 'مشاركة',
-            onPressed: () {},
+            onPressed: _shareMerchant,
             icon: Icon(Icons.ios_share_rounded, color: tokens.textPrimary),
-          ),
-          IconButton(
-            tooltip: 'المفضلة',
-            onPressed: () {},
-            icon: Icon(
-              Icons.favorite_border_rounded,
-              color: tokens.textPrimary,
-            ),
           ),
         ],
       ),
@@ -1263,22 +1136,12 @@ class _MerchantProductsScreenState
                       setState(() => favoritesOnly = value),
                   onSortChanged: (value) => setState(() => sortMode = value),
                 ),
+                const SizedBox(height: 8),
+                _ProductViewModeToggle(
+                  mode: productViewMode,
+                  onChanged: _setViewMode,
+                ),
                 const SizedBox(height: 12),
-                if (_canCustomerActions) ...[
-                  _SmartBundlePlannerCard(
-                    partySize: smartPartySize,
-                    style: smartBundleStyle,
-                    budgetController: smartBudgetCtrl,
-                    generating: generatingSmartBundle,
-                    onPartySizeChanged: (value) =>
-                        setState(() => smartPartySize = value),
-                    onStyleChanged: (value) =>
-                        setState(() => smartBundleStyle = value),
-                    onGenerate: () =>
-                        _generateAndApplySmartBundle(visibleProducts),
-                  ),
-                  const SizedBox(height: 12),
-                ],
                 if (discountHighlights.isNotEmpty) ...[
                   _CategorySectionHeader(
                     title: 'العروض',
@@ -1442,8 +1305,21 @@ class _MerchantProductsScreenState
               ],
             );
           },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(child: Text(error.toString())),
+          loading: () => ListView(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 22),
+            children: const [
+              SkeletonBox(height: 150, borderRadius: BorderRadius.all(Radius.circular(16))),
+              SizedBox(height: 14),
+              ProductRowSkeleton(),
+              ProductRowSkeleton(),
+              ProductRowSkeleton(),
+              ProductRowSkeleton(),
+            ],
+          ),
+          error: (error, _) => MaslakiErrorRetry(
+            message: 'تعذّر تحميل منتجات المتجر. تحقق من اتصالك ثم أعد المحاولة.',
+            onRetry: _load,
+          ),
         ),
       ),
     );
@@ -1465,13 +1341,137 @@ class _MerchantHeader extends StatelessWidget {
 
   const _MerchantHeader({required this.merchant});
 
+  String? get _coverSource {
+    final cover = merchant.coverImageUrl?.trim();
+    if (cover != null && cover.isNotEmpty) return cover;
+    final image = merchant.imageUrl?.trim();
+    return (image != null && image.isNotEmpty) ? image : null;
+  }
+
+  String? get _logoSource {
+    final logo = merchant.logoUrl?.trim();
+    if (logo != null && logo.isNotEmpty) return logo;
+    final image = merchant.imageUrl?.trim();
+    final cover = merchant.coverImageUrl?.trim();
+    if (image != null && image.isNotEmpty && image != cover) return image;
+    return null;
+  }
+
+  String? _etaLabel(BuildContext context) {
+    if (!merchant.hasDeliveryEta) return null;
+    final min = merchant.deliveryEtaMinMinutes;
+    final max = merchant.deliveryEtaMaxMinutes;
+    if (min != null && max != null) return '$min–$max دقيقة';
+    if (max != null) return 'حتى $max دقيقة';
+    return 'من $min دقيقة';
+  }
+
+  String? _feeLabel(BuildContext context) {
+    if (merchant.hasFreeDeliveryOffer ||
+        (merchant.deliveryFee != null && merchant.deliveryFee == 0)) {
+      return 'توصيل مجاني';
+    }
+    final fee = merchant.deliveryFee;
+    if (fee != null && fee > 0) return 'توصيل ${formatIqd(fee)}';
+    return null;
+  }
+
+  void _showInfo(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    final rows = <(IconData, String, String)>[
+      if ((merchant.phone ?? '').trim().isNotEmpty)
+        (Icons.phone_rounded, 'الهاتف', merchant.phone!.trim()),
+      if ((merchant.workingHours ?? '').trim().isNotEmpty)
+        (Icons.schedule_rounded, 'أوقات العمل', merchant.workingHours!.trim()),
+      if ((merchant.serviceAreaNote ?? '').trim().isNotEmpty)
+        (Icons.map_rounded, 'منطقة الخدمة', merchant.serviceAreaNote!.trim()),
+      if (merchant.minimumOrder != null)
+        (
+          Icons.shopping_bag_rounded,
+          'الحد الأدنى للطلب',
+          formatIqd(merchant.minimumOrder!),
+        ),
+      if (_feeLabel(context) != null)
+        (Icons.local_shipping_rounded, 'التوصيل', _feeLabel(context)!),
+      if (_etaLabel(context) != null)
+        (Icons.timer_rounded, 'وقت التوصيل', _etaLabel(context)!),
+    ];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: tokens.surfacePrimary,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                merchant.name,
+                textDirection: TextDirection.rtl,
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (rows.isEmpty)
+                Text(
+                  'لا توجد معلومات إضافية متاحة لهذا المتجر.',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(color: tokens.textMuted),
+                )
+              else
+                ...rows.map(
+                  (r) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      textDirection: TextDirection.rtl,
+                      children: [
+                        Icon(r.$1, size: 18, color: tokens.textSecondary),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${r.$2}: ',
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                            color: tokens.textMuted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            r.$3,
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(color: tokens.textPrimary),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.maslakiTokens;
     final visual = context.visualTheme;
+    final cover = _coverSource;
+    final logo = _logoSource;
+    final storeIcon = merchant.type == 'restaurant'
+        ? Icons.restaurant_rounded
+        : Icons.storefront_rounded;
+    final etaLabel = _etaLabel(context);
+    final feeLabel = _feeLabel(context);
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: tokens.cardPrimary.withValues(alpha: 0.85),
@@ -1480,145 +1480,280 @@ class _MerchantHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Store logo + name row
-          Row(
-            textDirection: TextDirection.rtl,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+          // ---- Large cover ----
+          AspectRatio(
+            aspectRatio: 3.0,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (cover != null)
+                  CachedAppImage(
+                    imageUrl: cover,
+                    cacheIdentity: 'merchant_cover_${merchant.id}',
+                    fit: BoxFit.cover,
+                    errorWidget: (_, _, _) =>
+                        _HeaderCoverPlaceholder(icon: storeIcon),
+                  )
+                else
+                  _HeaderCoverPlaceholder(icon: storeIcon),
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black45],
+                    ),
+                  ),
+                ),
+                PositionedDirectional(
+                  top: 8,
+                  end: 8,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (merchant.hasActiveOffer)
+                        _HeaderCoverBadge(
+                          icon: Icons.local_offer_rounded,
+                          label: 'عرض',
+                          color: const Color(0xFFE0752D),
+                        ),
+                      if (merchant.isVerified) ...[
+                        if (merchant.hasActiveOffer) const SizedBox(width: 6),
+                        _HeaderCoverBadge(
+                          icon: Icons.verified_rounded,
+                          label: 'موثّق',
+                          color: const Color(0xFF2E7CD6),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Logo + name/desc + info button
+                Row(
+                  textDirection: TextDirection.rtl,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      merchant.name,
-                      textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                        color: tokens.textPrimary,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: tokens.surfaceSecondary,
+                        border: Border.all(color: tokens.borderSubtle),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: logo != null
+                          ? CachedAppImage(
+                              imageUrl: logo,
+                              cacheIdentity: 'merchant_logo_${merchant.id}',
+                              fit: BoxFit.cover,
+                              errorWidget: (_, _, _) => Icon(
+                                storeIcon,
+                                color: visual.accentCyan,
+                                size: 28,
+                              ),
+                            )
+                          : Icon(storeIcon, color: visual.accentCyan, size: 28),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            merchant.name,
+                            textDirection: TextDirection.rtl,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            merchant.description?.trim().isNotEmpty == true
+                                ? merchant.description!.trim()
+                                : merchantScopeTag(
+                                    merchantType: merchant.type,
+                                    activityType: merchant.activityType,
+                                  ),
+                            textDirection: TextDirection.rtl,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: tokens.textMuted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    if (merchant.description?.trim().isNotEmpty == true)
-                      Text(
-                        merchant.description!,
-                        textDirection: TextDirection.rtl,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: tokens.textMuted, fontSize: 13),
+                    IconButton(
+                      tooltip: 'معلومات المتجر',
+                      onPressed: () => _showInfo(context),
+                      icon: Icon(
+                        Icons.info_outline_rounded,
+                        color: tokens.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Real stats: rating / new store, ETA, fee, min order.
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  textDirection: TextDirection.rtl,
+                  children: [
+                    _Badge(
+                      text: merchant.isOpen ? 'مفتوح الآن' : 'مغلق الآن',
+                      color: merchant.isOpen
+                          ? tokens.success.withValues(alpha: 0.18)
+                          : tokens.danger.withValues(alpha: 0.18),
+                      textColor: merchant.isOpen
+                          ? tokens.success
+                          : tokens.danger,
+                    ),
+                    if (merchant.ratingCount > 0 &&
+                        merchant.avgMerchantRating != null)
+                      _HeaderStat(
+                        icon: Icons.star_rounded,
+                        iconColor: visual.accentGold,
+                        text:
+                            '${merchant.avgMerchantRating!.toStringAsFixed(1)} (${merchant.ratingCount} تقييم)',
+                      )
+                    else
+                      _HeaderStat(
+                        icon: Icons.fiber_new_rounded,
+                        iconColor: visual.accentCyan,
+                        text: 'متجر جديد',
+                      ),
+                    if (etaLabel != null)
+                      _HeaderStat(
+                        icon: Icons.schedule_rounded,
+                        iconColor: tokens.textSecondary,
+                        text: etaLabel,
+                      ),
+                    if (feeLabel != null)
+                      _HeaderStat(
+                        icon: Icons.local_shipping_rounded,
+                        iconColor: tokens.success,
+                        text: feeLabel,
+                      ),
+                    if (merchant.minimumOrder != null)
+                      _HeaderStat(
+                        icon: Icons.shopping_bag_rounded,
+                        iconColor: tokens.textSecondary,
+                        text: 'أدنى طلب ${formatIqd(merchant.minimumOrder!)}',
                       ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              // Logo box
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  color: tokens.surfaceSecondary,
-                  border: Border.all(color: tokens.borderSubtle),
-                ),
-                child: merchant.imageUrl == null || merchant.imageUrl!.isEmpty
-                    ? Icon(
-                        merchant.type == 'restaurant'
-                            ? Icons.restaurant_rounded
-                            : Icons.storefront_rounded,
-                        color: visual.accentCyan,
-                        size: 32,
-                      )
-                    : ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: CachedAppImage(
-                          imageUrl: merchant.imageUrl!,
-                          cacheIdentity: 'merchant_${merchant.id}',
-                          fit: BoxFit.cover,
-                          errorWidget: (_, _, _) => Icon(
-                            Icons.storefront_rounded,
-                            color: visual.accentCyan,
-                            size: 32,
-                          ),
-                        ),
-                      ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Stats row
-          Row(
-            textDirection: TextDirection.rtl,
-            children: [
-              Icon(Icons.star_rounded, color: visual.accentGold, size: 16),
-              const SizedBox(width: 3),
-              Text(
-                '4.7 (1.2k)',
-                style: TextStyle(
-                  color: tokens.textSecondary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Icon(
-                Icons.access_time_rounded,
-                color: tokens.textMuted,
-                size: 14,
-              ),
-              const SizedBox(width: 3),
-              Text(
-                '15-25 دقيقة',
-                style: TextStyle(color: tokens.textMuted, fontSize: 12),
-              ),
-              const SizedBox(width: 10),
-              Icon(
-                Icons.delivery_dining_rounded,
-                color: tokens.textMuted,
-                size: 14,
-              ),
-              const SizedBox(width: 3),
-              Text(
-                merchant.hasFreeDeliveryOffer ? 'مجاني' : '6 رس',
-                style: TextStyle(color: tokens.textMuted, fontSize: 12),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          // Badges row
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            alignment: WrapAlignment.end,
-            children: [
-              _Badge(
-                text: merchant.isOpen ? 'مفتوح الآن' : 'مغلق الآن',
-                color: merchant.isOpen
-                    ? tokens.success.withValues(alpha: 0.18)
-                    : tokens.danger.withValues(alpha: 0.18),
-                textColor: merchant.isOpen ? tokens.success : tokens.danger,
-              ),
-              if (merchant.hasDiscountOffer)
-                _Badge(
-                  text: 'طبق اليوم',
-                  color: tokens.success.withValues(alpha: 0.18),
-                  textColor: tokens.success,
-                ),
-              if (merchant.hasFreeDeliveryOffer)
-                _Badge(
-                  text: 'توصيل مجاني فوق 75',
-                  color: visual.accentCyan.withValues(alpha: 0.12),
-                  textColor: visual.accentCyan,
-                ),
-              if (merchant.workingHours?.trim().isNotEmpty == true)
-                _Badge(
-                  text: merchant.workingHours!,
-                  color: tokens.borderSubtle.withValues(alpha: 0.5),
-                  textColor: tokens.textMuted,
-                ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _HeaderCoverPlaceholder extends StatelessWidget {
+  final IconData icon;
+  const _HeaderCoverPlaceholder({required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [Color(0xFF1C355F), Color(0xFF122A4C)],
+        ),
+      ),
+      child: Center(
+        child: Icon(icon, size: 40, color: Colors.white.withValues(alpha: 0.5)),
+      ),
+    );
+  }
+}
+
+class _HeaderCoverBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  const _HeaderCoverBadge({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: color.withValues(alpha: 0.92),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: Colors.white),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String text;
+  const _HeaderStat({
+    required this.icon,
+    required this.iconColor,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: iconColor),
+        const SizedBox(width: 3),
+        Text(
+          text,
+          style: TextStyle(
+            color: tokens.textSecondary,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1900,117 +2035,57 @@ class _ProductsDiscoveryToolbar extends StatelessWidget {
   }
 }
 
-class _SmartBundlePlannerCard extends StatelessWidget {
-  final int partySize;
-  final _SmartBundleStyle style;
-  final TextEditingController budgetController;
-  final bool generating;
-  final ValueChanged<int> onPartySizeChanged;
-  final ValueChanged<_SmartBundleStyle> onStyleChanged;
-  final Future<void> Function() onGenerate;
+/// Compact segmented control to switch products between a one-per-row list and
+/// a two-column grid. The choice is applied instantly and persisted.
+class _ProductViewModeToggle extends StatelessWidget {
+  final _ProductViewMode mode;
+  final ValueChanged<_ProductViewMode> onChanged;
 
-  const _SmartBundlePlannerCard({
-    required this.partySize,
-    required this.style,
-    required this.budgetController,
-    required this.generating,
-    required this.onPartySizeChanged,
-    required this.onStyleChanged,
-    required this.onGenerate,
-  });
+  const _ProductViewModeToggle({required this.mode, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final tokens = context.maslakiTokens;
+    final selectedColor = context.visualTheme.accentCyan;
+    Widget button(_ProductViewMode target, IconData icon, String tooltip) {
+      final selected = mode == target;
+      return Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => onChanged(target),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Icon(
+              icon,
+              size: 20,
+              color: selected ? selectedColor : tokens.textMuted,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: tokens.borderSubtle),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'مُولّد السلة الذكي',
-              textDirection: TextDirection.rtl,
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+            button(
+              _ProductViewMode.list,
+              Icons.view_agenda_outlined,
+              context.lt(ar: 'عرض قائمة', en: 'List view'),
             ),
-            const SizedBox(height: 4),
-            Text(
-              'اقترح سلة تلقائية حسب العدد والميزانية ونمط الطلب',
-              textDirection: TextDirection.rtl,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.75),
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: budgetController,
-                    keyboardType: TextInputType.number,
-                    textDirection: TextDirection.rtl,
-                    decoration: const InputDecoration(
-                      labelText: 'ميزانية اختيارية (IQD)',
-                      prefixIcon: Icon(Icons.account_balance_wallet_outlined),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                DropdownButton<int>(
-                  value: partySize,
-                  onChanged: (value) {
-                    if (value == null) return;
-                    onPartySizeChanged(value);
-                  },
-                  items: const [
-                    DropdownMenuItem(value: 1, child: Text('1')),
-                    DropdownMenuItem(value: 2, child: Text('2')),
-                    DropdownMenuItem(value: 3, child: Text('3')),
-                    DropdownMenuItem(value: 4, child: Text('4')),
-                    DropdownMenuItem(value: 5, child: Text('5+')),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.end,
-              children: [
-                ChoiceChip(
-                  selected: style == _SmartBundleStyle.balanced,
-                  label: const Text('متوازن'),
-                  onSelected: (_) => onStyleChanged(_SmartBundleStyle.balanced),
-                ),
-                ChoiceChip(
-                  selected: style == _SmartBundleStyle.budget,
-                  label: const Text('اقتصادي'),
-                  onSelected: (_) => onStyleChanged(_SmartBundleStyle.budget),
-                ),
-                ChoiceChip(
-                  selected: style == _SmartBundleStyle.offers,
-                  label: const Text('العروض'),
-                  onSelected: (_) => onStyleChanged(_SmartBundleStyle.offers),
-                ),
-                ChoiceChip(
-                  selected: style == _SmartBundleStyle.variety,
-                  label: const Text('تنويع'),
-                  onSelected: (_) => onStyleChanged(_SmartBundleStyle.variety),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ElevatedButton.icon(
-              onPressed: generating ? null : onGenerate,
-              icon: generating
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.auto_awesome_rounded),
-              label: const Text('ولّد سلة ذكية الآن'),
+            Container(width: 1, height: 22, color: tokens.borderSubtle),
+            button(
+              _ProductViewMode.grid,
+              Icons.grid_view_rounded,
+              context.lt(ar: 'عرض شبكة', en: 'Grid view'),
             ),
           ],
         ),

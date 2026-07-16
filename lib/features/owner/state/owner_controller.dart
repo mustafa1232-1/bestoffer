@@ -460,6 +460,14 @@ class OwnerController extends StateNotifier<OwnerState> {
     String? workingHours,
     String? serviceAreaNote,
     LocalImageFile? imageFile,
+    LocalImageFile? logoFile,
+    LocalImageFile? coverFile,
+    String? logoUrl,
+    String? coverImageUrl,
+    int? deliveryEtaMinMinutes,
+    int? deliveryEtaMaxMinutes,
+    num? deliveryFee,
+    num? minimumOrder,
     required bool isOpen,
   }) async {
     state = state.copyWith(savingMerchant: true, error: null);
@@ -474,8 +482,14 @@ class OwnerController extends StateNotifier<OwnerState> {
         'tagline': tagline?.trim(),
         'workingHours': workingHours?.trim(),
         'serviceAreaNote': serviceAreaNote?.trim(),
+        if (logoUrl != null) 'logoUrl': logoUrl.trim(),
+        if (coverImageUrl != null) 'coverImageUrl': coverImageUrl.trim(),
+        'deliveryEtaMinMinutes': ?deliveryEtaMinMinutes,
+        'deliveryEtaMaxMinutes': ?deliveryEtaMaxMinutes,
+        'deliveryFee': ?deliveryFee,
+        'minimumOrder': ?minimumOrder,
         'isOpen': isOpen,
-      }, imageFile: imageFile);
+      }, imageFile: imageFile, logoFile: logoFile, coverFile: coverFile);
 
       final merchant = OwnerMerchantModel.fromJson(
         Map<String, dynamic>.from(response['merchant'] as Map),

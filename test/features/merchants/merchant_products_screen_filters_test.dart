@@ -99,62 +99,6 @@ void main() {
     },
   );
 
-  test(
-    'smart bundle candidates keep untracked zero-stock products and skip tracked zero-stock and unavailable products',
-    () {
-      final products = [
-        _product(
-          id: 1,
-          name: 'Untracked zero stock simple',
-          isAvailable: true,
-          stockQuantity: 0,
-          trackStock: false,
-          stockMode: 'untracked',
-        ),
-        _product(
-          id: 2,
-          name: 'Tracked zero stock simple',
-          isAvailable: true,
-          stockQuantity: 0,
-          trackStock: true,
-          stockMode: 'tracked',
-        ),
-        _product(
-          id: 3,
-          name: 'Unavailable simple',
-          isAvailable: false,
-          stockQuantity: 5,
-          trackStock: false,
-          stockMode: 'untracked',
-        ),
-        _product(
-          id: 4,
-          name: 'Tracked available simple',
-          isAvailable: true,
-          stockQuantity: 5,
-          trackStock: true,
-          stockMode: 'tracked',
-        ),
-        _product(
-          id: 5,
-          name: 'Variant product',
-          isAvailable: true,
-          stockQuantity: 5,
-          trackStock: true,
-          stockMode: 'tracked',
-          hasVariants: true,
-        ),
-      ];
-
-      final filtered = filterMerchantSmartBundleCandidates(
-        products,
-        supportsPharmacyWorkflow: false,
-      );
-
-      expect(filtered.map((product) => product.id), [1, 4]);
-    },
-  );
-
   test('discount highlights skip unavailable and zero-stock products', () {
     final products = [
       _product(
@@ -190,52 +134,4 @@ void main() {
 
     expect(filtered.map((product) => product.id), [1]);
   });
-
-  test(
-    'smart bundle candidates skip unavailable, zero-stock, and variant products',
-    () {
-      final products = [
-        _product(
-          id: 1,
-          name: 'Available simple',
-          isAvailable: true,
-          trackStock: true,
-          stockMode: 'tracked',
-          stockQuantity: 2,
-        ),
-        _product(
-          id: 2,
-          name: 'Zero stock simple',
-          isAvailable: true,
-          trackStock: true,
-          stockMode: 'tracked',
-          stockQuantity: 0,
-        ),
-        _product(
-          id: 3,
-          name: 'Variant product',
-          isAvailable: true,
-          trackStock: true,
-          stockMode: 'tracked',
-          stockQuantity: 5,
-          hasVariants: true,
-        ),
-        _product(
-          id: 4,
-          name: 'Unavailable simple',
-          isAvailable: false,
-          trackStock: true,
-          stockMode: 'tracked',
-          stockQuantity: 5,
-        ),
-      ];
-
-      final filtered = filterMerchantSmartBundleCandidates(
-        products,
-        supportsPharmacyWorkflow: false,
-      );
-
-      expect(filtered.map((product) => product.id), [1]);
-    },
-  );
 }

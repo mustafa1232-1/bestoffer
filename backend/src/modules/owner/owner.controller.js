@@ -214,7 +214,17 @@ export async function updateMerchant(req, res, next) {
       discoverySelectAll: parseBooleanInput(
         req.body?.discoverySelectAll ?? req.body?.discovery_select_all
       ),
-      imageUrl: buildUploadedFileUrl(req, req.file) || req.body?.imageUrl,
+      // Multipart images: main image + optional logo/cover. Each uploaded file
+      // becomes the corresponding URL; falling back to any URL already in body.
+      imageUrl:
+        buildUploadedFileUrl(req, req.files?.imageFile?.[0]) ||
+        req.body?.imageUrl,
+      logoUrl:
+        buildUploadedFileUrl(req, req.files?.logoFile?.[0]) ||
+        req.body?.logoUrl,
+      coverImageUrl:
+        buildUploadedFileUrl(req, req.files?.coverFile?.[0]) ||
+        req.body?.coverImageUrl,
       isOpen:
         req.body?.isOpen === undefined
           ? undefined
