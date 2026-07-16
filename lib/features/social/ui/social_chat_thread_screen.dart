@@ -2829,7 +2829,46 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                     Padding(
                                       padding: const EdgeInsets.only(top: 80),
                                       child: Center(
-                                        child: Text(l10n.socialChatThreadEmpty),
+                                        child: _error != null
+                                            ? Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 24,
+                                                    ),
+                                                child: Column(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      Icons
+                                                          .error_outline_rounded,
+                                                      color: Theme.of(
+                                                        context,
+                                                      ).colorScheme.error,
+                                                      size: 42,
+                                                    ),
+                                                    const SizedBox(height: 10),
+                                                    Text(
+                                                      _error!,
+                                                      textAlign:
+                                                          TextAlign.center,
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 14),
+                                                    OutlinedButton(
+                                                      onPressed: () =>
+                                                          _loadMessages(),
+                                                      child: Text(
+                                                        l10n.commonRetry,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              )
+                                            : Text(l10n.socialChatThreadEmpty),
                                       ),
                                     ),
                                   for (final message in _messages)

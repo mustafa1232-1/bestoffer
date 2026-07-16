@@ -4,7 +4,7 @@ import 'reel_gallery_entry_v3.dart';
 
 /// The single V3 creation selector (§4). Replaces the old floating "Create"
 /// button behavior: choosing Reel opens the native video gallery directly,
-/// Story opens the V3 story composer, Post opens the V3 post composer.
+/// Story opens the blank V3 story editor, Post opens the V3 post composer.
 ///
 /// Returns true when a create flow was completed.
 Future<bool?> showSocialCreateSelectorV3(BuildContext context) async {
@@ -19,7 +19,7 @@ Future<bool?> showSocialCreateSelectorV3(BuildContext context) async {
       await openReelComposerV3(context);
       return true;
     case 'story':
-      await openStoryComposerV3FromGallery(context);
+      await openStoryComposerV3Text(context);
       return true;
     case 'post':
       return await openPostComposerV3(context);

@@ -682,16 +682,22 @@ class _SuggestedPersonCard extends StatelessWidget {
               width: double.infinity,
               height: 40,
               child: onAction == null
-                  ? OutlinedButton(
-                      onPressed: null,
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        visualDensity: VisualDensity.compact,
+                  ? Container(
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: scheme.outlineVariant.withValues(alpha: 0.5),
+                        ),
                       ),
                       child: Text(
                         buttonLabel,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     )
                   : FilledButton(

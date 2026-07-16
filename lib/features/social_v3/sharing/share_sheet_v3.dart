@@ -87,61 +87,77 @@ class ShareSheetV3 extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final rows = <Widget>[];
+    if (onAddToStory != null) {
+      rows.add(
+        _Row(
+          icon: Icons.add_circle_outline,
+          label: 'إضافة إلى القصة',
+          onTap: onAddToStory,
+        ),
+      );
+    }
+    if (recentConversations.isNotEmpty && onOpenConversation != null) {
+      rows.add(
+        SizedBox(
+          height: 84,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            children: [
+              for (final name in recentConversations)
+                Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: ActionChip(
+                    label: Text(name),
+                    onPressed: () => onOpenConversation?.call(name),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (onSearchUsers != null) {
+      rows.add(
+        _Row(
+          icon: Icons.search,
+          label: 'بحث عن مستخدمين',
+          onTap: onSearchUsers,
+        ),
+      );
+    }
+    rows.add(
+      _Row(
+        icon: Icons.link,
+        label: 'نسخ الرابط',
+        onTap: () {
+          final safe = links.guardShareUrl(canonicalUrl);
+          Clipboard.setData(ClipboardData(text: safe));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('تم نسخ الرابط')));
+        },
+      ),
+    );
+    if (onExternalShare != null) {
+      rows.add(
+        _Row(
+          icon: Icons.ios_share,
+          label: 'مشاركة خارجية',
+          onTap: () => onExternalShare?.call(links.guardShareUrl(canonicalUrl)),
+        ),
+      );
+    }
+    if (onSendToChat != null) {
+      rows.add(
+        _Row(icon: Icons.more_horiz, label: 'المزيد', onTap: onSendToChat),
+      );
+    }
     return SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          _Row(
-            icon: Icons.add_circle_outline,
-            label: 'إضافة إلى القصة',
-            onTap: onAddToStory,
-          ),
-          if (recentConversations.isNotEmpty)
-            SizedBox(
-              height: 84,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                children: [
-                  for (final name in recentConversations)
-                    Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: ActionChip(
-                        label: Text(name),
-                        onPressed: () => onOpenConversation?.call(name),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          _Row(
-            icon: Icons.search,
-            label: 'بحث عن مستخدمين',
-            onTap: onSearchUsers,
-          ),
-          _Row(
-            icon: Icons.link,
-            label: 'نسخ الرابط',
-            onTap: () {
-              final safe = links.guardShareUrl(canonicalUrl);
-              Clipboard.setData(ClipboardData(text: safe));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('تم نسخ الرابط')),
-              );
-            },
-          ),
-          _Row(
-            icon: Icons.ios_share,
-            label: 'مشاركة خارجية',
-            onTap: () => onExternalShare?.call(links.guardShareUrl(canonicalUrl)),
-          ),
-          _Row(
-            icon: Icons.more_horiz,
-            label: 'المزيد',
-            onTap: onSendToChat,
-          ),
-          const SizedBox(height: 8),
-        ],
+        children: [...rows, const SizedBox(height: 8)],
       ),
     );
   }

@@ -442,7 +442,6 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                       label: _scopeLabel(_scope),
                       official: _scope.isOfficial,
                       locked: _scope.locked,
-                      onTap: null,
                     ),
                     const Spacer(),
                     TextButton(
@@ -726,50 +725,46 @@ class _ScopeChip extends StatelessWidget {
     required this.label,
     required this.official,
     required this.locked,
-    this.onTap,
   });
 
   final String label;
   final bool official;
   final bool locked;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0x66000000),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: official ? const Color(0xFFE7B24B) : Colors.white24,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              official
-                  ? Icons.verified_rounded
-                  : (locked ? Icons.lock_outline : Icons.public),
-              color: official ? const Color(0xFFE7B24B) : Colors.white,
-              size: 16,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+    final content = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0x66000000),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: official ? const Color(0xFFE7B24B) : Colors.white24,
         ),
       ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            official
+                ? Icons.verified_rounded
+                : (locked ? Icons.lock_outline : Icons.public),
+            color: official ? const Color(0xFFE7B24B) : Colors.white,
+            size: 16,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
+    return content;
   }
 }
 
@@ -780,6 +775,22 @@ class _PublishButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (onTap == null) {
+      return Container(
+        width: 110,
+        height: 48,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: const Color(0xFFE7B24B).withValues(alpha: 0.28),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+        ),
+      );
+    }
     return FilledButton(
       onPressed: onTap,
       style: FilledButton.styleFrom(
