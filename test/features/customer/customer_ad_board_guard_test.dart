@@ -15,7 +15,12 @@ class _SpyMerchantsApi extends MerchantsApi {
   int adBoardCalls = 0;
 
   @override
-  Future<List<dynamic>> adBoard({String? type}) async {
+  Future<List<dynamic>> adBoard({
+    String? type,
+    String? placement,
+    String? categoryKey,
+    String? activityType,
+  }) async {
     adBoardCalls += 1;
     return const <dynamic>[];
   }
