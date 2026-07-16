@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
@@ -652,6 +653,27 @@ class _MerchantProductsScreenState
     return score;
   }
 
+  Future<void> _shareMerchant() async {
+    final m = widget.merchant;
+    final scope = merchantScopeTag(
+      merchantType: m.type,
+      activityType: m.activityType,
+    );
+    final lines = <String>[
+      m.name,
+      if ((m.description ?? '').trim().isNotEmpty) m.description!.trim() else scope,
+      'عبر تطبيق مسلكي',
+    ];
+    try {
+      await SharePlus.instance.share(ShareParams(text: lines.join('\n')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّرت المشاركة حالياً')),
+      );
+    }
+  }
+
   Future<void> _openCart() async {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     await Navigator.of(
@@ -906,13 +928,12 @@ class _MerchantProductsScreenState
       backgroundColor: tokens.backgroundPrimary,
       appBar: MaslakiTopBar(
         title: widget.merchant.name,
-        subtitle:
-            widget.merchant.tagline ??
-            widget.merchant.description ??
-            merchantScopeTag(
-              merchantType: widget.merchant.type,
-              activityType: widget.merchant.activityType,
-            ),
+        // Scope tag (not the description) so the hero header below is the only
+        // place the name+description pair is shown in full.
+        subtitle: merchantScopeTag(
+          merchantType: widget.merchant.type,
+          activityType: widget.merchant.activityType,
+        ),
         leading: IconButton(
           icon: Icon(
             Icons.arrow_forward_ios_rounded,
@@ -933,16 +954,8 @@ class _MerchantProductsScreenState
             ),
           IconButton(
             tooltip: 'مشاركة',
-            onPressed: () {},
+            onPressed: _shareMerchant,
             icon: Icon(Icons.ios_share_rounded, color: tokens.textPrimary),
-          ),
-          IconButton(
-            tooltip: 'المفضلة',
-            onPressed: () {},
-            icon: Icon(
-              Icons.favorite_border_rounded,
-              color: tokens.textPrimary,
-            ),
           ),
         ],
       ),
@@ -1273,13 +1286,137 @@ class _MerchantHeader extends StatelessWidget {
 
   const _MerchantHeader({required this.merchant});
 
+  String? get _coverSource {
+    final cover = merchant.coverImageUrl?.trim();
+    if (cover != null && cover.isNotEmpty) return cover;
+    final image = merchant.imageUrl?.trim();
+    return (image != null && image.isNotEmpty) ? image : null;
+  }
+
+  String? get _logoSource {
+    final logo = merchant.logoUrl?.trim();
+    if (logo != null && logo.isNotEmpty) return logo;
+    final image = merchant.imageUrl?.trim();
+    final cover = merchant.coverImageUrl?.trim();
+    if (image != null && image.isNotEmpty && image != cover) return image;
+    return null;
+  }
+
+  String? _etaLabel(BuildContext context) {
+    if (!merchant.hasDeliveryEta) return null;
+    final min = merchant.deliveryEtaMinMinutes;
+    final max = merchant.deliveryEtaMaxMinutes;
+    if (min != null && max != null) return '$min–$max دقيقة';
+    if (max != null) return 'حتى $max دقيقة';
+    return 'من $min دقيقة';
+  }
+
+  String? _feeLabel(BuildContext context) {
+    if (merchant.hasFreeDeliveryOffer ||
+        (merchant.deliveryFee != null && merchant.deliveryFee == 0)) {
+      return 'توصيل مجاني';
+    }
+    final fee = merchant.deliveryFee;
+    if (fee != null && fee > 0) return 'توصيل ${formatIqd(fee)}';
+    return null;
+  }
+
+  void _showInfo(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    final rows = <(IconData, String, String)>[
+      if ((merchant.phone ?? '').trim().isNotEmpty)
+        (Icons.phone_rounded, 'الهاتف', merchant.phone!.trim()),
+      if ((merchant.workingHours ?? '').trim().isNotEmpty)
+        (Icons.schedule_rounded, 'أوقات العمل', merchant.workingHours!.trim()),
+      if ((merchant.serviceAreaNote ?? '').trim().isNotEmpty)
+        (Icons.map_rounded, 'منطقة الخدمة', merchant.serviceAreaNote!.trim()),
+      if (merchant.minimumOrder != null)
+        (
+          Icons.shopping_bag_rounded,
+          'الحد الأدنى للطلب',
+          formatIqd(merchant.minimumOrder!),
+        ),
+      if (_feeLabel(context) != null)
+        (Icons.local_shipping_rounded, 'التوصيل', _feeLabel(context)!),
+      if (_etaLabel(context) != null)
+        (Icons.timer_rounded, 'وقت التوصيل', _etaLabel(context)!),
+    ];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: tokens.surfacePrimary,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                merchant.name,
+                textDirection: TextDirection.rtl,
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (rows.isEmpty)
+                Text(
+                  'لا توجد معلومات إضافية متاحة لهذا المتجر.',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(color: tokens.textMuted),
+                )
+              else
+                ...rows.map(
+                  (r) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      textDirection: TextDirection.rtl,
+                      children: [
+                        Icon(r.$1, size: 18, color: tokens.textSecondary),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${r.$2}: ',
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                            color: tokens.textMuted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            r.$3,
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(color: tokens.textPrimary),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.maslakiTokens;
     final visual = context.visualTheme;
+    final cover = _coverSource;
+    final logo = _logoSource;
+    final storeIcon = merchant.type == 'restaurant'
+        ? Icons.restaurant_rounded
+        : Icons.storefront_rounded;
+    final etaLabel = _etaLabel(context);
+    final feeLabel = _feeLabel(context);
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: tokens.cardPrimary.withValues(alpha: 0.85),
@@ -1288,153 +1425,280 @@ class _MerchantHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Store logo + name row
-          Row(
-            textDirection: TextDirection.rtl,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      merchant.name,
-                      textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                        color: tokens.textPrimary,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                      ),
+          // ---- Large cover ----
+          AspectRatio(
+            aspectRatio: 3.0,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (cover != null)
+                  CachedAppImage(
+                    imageUrl: cover,
+                    cacheIdentity: 'merchant_cover_${merchant.id}',
+                    fit: BoxFit.cover,
+                    errorWidget: (_, _, _) =>
+                        _HeaderCoverPlaceholder(icon: storeIcon),
+                  )
+                else
+                  _HeaderCoverPlaceholder(icon: storeIcon),
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black45],
                     ),
-                    const SizedBox(height: 3),
-                    if (merchant.description?.trim().isNotEmpty == true)
-                      Text(
-                        merchant.description!,
-                        textDirection: TextDirection.rtl,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: tokens.textMuted, fontSize: 13),
-                      ),
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              // Logo box
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  color: tokens.surfaceSecondary,
-                  border: Border.all(color: tokens.borderSubtle),
-                ),
-                child: merchant.imageUrl == null || merchant.imageUrl!.isEmpty
-                    ? Icon(
-                        merchant.type == 'restaurant'
-                            ? Icons.restaurant_rounded
-                            : Icons.storefront_rounded,
-                        color: visual.accentCyan,
-                        size: 32,
-                      )
-                    : ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: CachedAppImage(
-                          imageUrl: merchant.imageUrl!,
-                          cacheIdentity: 'merchant_${merchant.id}',
-                          fit: BoxFit.cover,
-                          errorWidget: (_, _, _) => Icon(
-                            Icons.storefront_rounded,
-                            color: visual.accentCyan,
-                            size: 32,
-                          ),
+                PositionedDirectional(
+                  top: 8,
+                  end: 8,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (merchant.hasActiveOffer)
+                        _HeaderCoverBadge(
+                          icon: Icons.local_offer_rounded,
+                          label: 'عرض',
+                          color: const Color(0xFFE0752D),
                         ),
-                      ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Stats row — REAL data only. No fabricated rating / ETA / fee.
-          Row(
-            textDirection: TextDirection.rtl,
-            children: [
-              if (merchant.ratingCount > 0 && merchant.avgMerchantRating != null) ...[
-                Icon(Icons.star_rounded, color: visual.accentGold, size: 16),
-                const SizedBox(width: 3),
-                Text(
-                  '${merchant.avgMerchantRating!.toStringAsFixed(1)} (${merchant.ratingCount} تقييم)',
-                  style: TextStyle(
-                    color: tokens.textSecondary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ] else
-                Text(
-                  'متجر جديد',
-                  style: TextStyle(
-                    color: tokens.textSecondary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              // Free delivery is a REAL offer flag; only shown when true. Delivery
-              // ETA and a numeric fee have no authoritative merchant field yet, so
-              // they are omitted rather than fabricated.
-              if (merchant.hasFreeDeliveryOffer) ...[
-                const SizedBox(width: 12),
-                Icon(
-                  Icons.delivery_dining_rounded,
-                  color: tokens.success,
-                  size: 14,
-                ),
-                const SizedBox(width: 3),
-                Text(
-                  'توصيل مجاني',
-                  style: TextStyle(
-                    color: tokens.success,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                      if (merchant.isVerified) ...[
+                        if (merchant.hasActiveOffer) const SizedBox(width: 6),
+                        _HeaderCoverBadge(
+                          icon: Icons.verified_rounded,
+                          label: 'موثّق',
+                          color: const Color(0xFF2E7CD6),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
-            ],
+            ),
           ),
-          const SizedBox(height: 10),
-          // Badges row
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            alignment: WrapAlignment.end,
-            children: [
-              _Badge(
-                text: merchant.isOpen ? 'مفتوح الآن' : 'مغلق الآن',
-                color: merchant.isOpen
-                    ? tokens.success.withValues(alpha: 0.18)
-                    : tokens.danger.withValues(alpha: 0.18),
-                textColor: merchant.isOpen ? tokens.success : tokens.danger,
-              ),
-              if (merchant.hasDiscountOffer)
-                _Badge(
-                  text: 'طبق اليوم',
-                  color: tokens.success.withValues(alpha: 0.18),
-                  textColor: tokens.success,
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Logo + name/desc + info button
+                Row(
+                  textDirection: TextDirection.rtl,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: tokens.surfaceSecondary,
+                        border: Border.all(color: tokens.borderSubtle),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: logo != null
+                          ? CachedAppImage(
+                              imageUrl: logo,
+                              cacheIdentity: 'merchant_logo_${merchant.id}',
+                              fit: BoxFit.cover,
+                              errorWidget: (_, _, _) => Icon(
+                                storeIcon,
+                                color: visual.accentCyan,
+                                size: 28,
+                              ),
+                            )
+                          : Icon(storeIcon, color: visual.accentCyan, size: 28),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            merchant.name,
+                            textDirection: TextDirection.rtl,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            merchant.description?.trim().isNotEmpty == true
+                                ? merchant.description!.trim()
+                                : merchantScopeTag(
+                                    merchantType: merchant.type,
+                                    activityType: merchant.activityType,
+                                  ),
+                            textDirection: TextDirection.rtl,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: tokens.textMuted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'معلومات المتجر',
+                      onPressed: () => _showInfo(context),
+                      icon: Icon(
+                        Icons.info_outline_rounded,
+                        color: tokens.textSecondary,
+                      ),
+                    ),
+                  ],
                 ),
-              if (merchant.hasFreeDeliveryOffer)
-                _Badge(
-                  text: 'توصيل مجاني فوق 75',
-                  color: visual.accentCyan.withValues(alpha: 0.12),
-                  textColor: visual.accentCyan,
+                const SizedBox(height: 12),
+                // Real stats: rating / new store, ETA, fee, min order.
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  textDirection: TextDirection.rtl,
+                  children: [
+                    _Badge(
+                      text: merchant.isOpen ? 'مفتوح الآن' : 'مغلق الآن',
+                      color: merchant.isOpen
+                          ? tokens.success.withValues(alpha: 0.18)
+                          : tokens.danger.withValues(alpha: 0.18),
+                      textColor: merchant.isOpen
+                          ? tokens.success
+                          : tokens.danger,
+                    ),
+                    if (merchant.ratingCount > 0 &&
+                        merchant.avgMerchantRating != null)
+                      _HeaderStat(
+                        icon: Icons.star_rounded,
+                        iconColor: visual.accentGold,
+                        text:
+                            '${merchant.avgMerchantRating!.toStringAsFixed(1)} (${merchant.ratingCount} تقييم)',
+                      )
+                    else
+                      _HeaderStat(
+                        icon: Icons.fiber_new_rounded,
+                        iconColor: visual.accentCyan,
+                        text: 'متجر جديد',
+                      ),
+                    if (etaLabel != null)
+                      _HeaderStat(
+                        icon: Icons.schedule_rounded,
+                        iconColor: tokens.textSecondary,
+                        text: etaLabel,
+                      ),
+                    if (feeLabel != null)
+                      _HeaderStat(
+                        icon: Icons.local_shipping_rounded,
+                        iconColor: tokens.success,
+                        text: feeLabel,
+                      ),
+                    if (merchant.minimumOrder != null)
+                      _HeaderStat(
+                        icon: Icons.shopping_bag_rounded,
+                        iconColor: tokens.textSecondary,
+                        text: 'أدنى طلب ${formatIqd(merchant.minimumOrder!)}',
+                      ),
+                  ],
                 ),
-              if (merchant.workingHours?.trim().isNotEmpty == true)
-                _Badge(
-                  text: merchant.workingHours!,
-                  color: tokens.borderSubtle.withValues(alpha: 0.5),
-                  textColor: tokens.textMuted,
-                ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _HeaderCoverPlaceholder extends StatelessWidget {
+  final IconData icon;
+  const _HeaderCoverPlaceholder({required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [Color(0xFF1C355F), Color(0xFF122A4C)],
+        ),
+      ),
+      child: Center(
+        child: Icon(icon, size: 40, color: Colors.white.withValues(alpha: 0.5)),
+      ),
+    );
+  }
+}
+
+class _HeaderCoverBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  const _HeaderCoverBadge({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: color.withValues(alpha: 0.92),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: Colors.white),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String text;
+  const _HeaderStat({
+    required this.icon,
+    required this.iconColor,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: iconColor),
+        const SizedBox(width: 3),
+        Text(
+          text,
+          style: TextStyle(
+            color: tokens.textSecondary,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }
