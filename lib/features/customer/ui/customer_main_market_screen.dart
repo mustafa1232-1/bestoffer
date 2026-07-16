@@ -7,6 +7,12 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../behavior/data/behavior_api.dart';
 import '../../auth/ui/merchants_list_screen.dart';
+import '../../merchants/models/merchant_model.dart';
+import '../../merchants/state/merchants_controller.dart';
+import '../../merchants/ui/merchant_products_screen.dart';
+import '../models/customer_ad_board_item.dart';
+import '../state/customer_ad_board_controller.dart';
+import 'widgets/marketplace_ad_card.dart';
 import 'customer_cars_hub_screen.dart';
 import 'customer_electronics_hub_screen.dart';
 import 'customer_food_hub_screen.dart';
@@ -181,76 +187,75 @@ class _CustomerMainMarketScreenState
     ];
   }
 
-  List<_QuickQuery> _localizedQuickQueries(BuildContext context) {
-    final l10n = context.l10n;
-    return <_QuickQuery>[
-      _QuickQuery(
-        title: l10n.customerDiscoveryCategoryRestaurantsTitle,
-        type: 'restaurant',
-        activityType: 'restaurant',
-        icon: Icons.restaurant_rounded,
+  /// Routes a tapped MARKETPLACE_HOME ad. External links are handled inside the
+  /// ad card; here we resolve store / category / fallback targets.
+  Future<void> _handleAdTap(
+    BuildContext context,
+    CustomerAdBoardItem ad,
+  ) async {
+    final actionType =
+        (ad.type.trim().isNotEmpty ? ad.type : ad.ctaTargetType)
+            .trim()
+            .toLowerCase();
+
+    switch (actionType) {
+      case 'store_ad':
+      case 'merchant':
+      case 'product':
+        final merchantId = ad.merchantId ?? ad.targetId;
+        if (merchantId != null && merchantId > 0) {
+          await _openMerchantById(merchantId);
+          return;
+        }
+        break;
+      case 'category_ad':
+      case 'category':
+        final category = (ad.category ?? ad.ctaTargetValue ?? '').trim();
+        if (category.isNotEmpty) {
+          _openCategory(
+            context,
+            title: ad.resolvedTitle(context.appTextDirection == TextDirection.rtl),
+            type: category,
+            initialActivityType: ad.activityType,
+          );
+          return;
+        }
+        break;
+    }
+
+    // Fallback: open the full store list.
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MerchantsListScreen(
+          overrideTitle: context.l10n.customerDiscoveryMerchants,
+          compactCustomerMode: true,
+        ),
       ),
-      _QuickQuery(
-        title: l10n.customerDiscoveryCategoryDessertsTitle,
-        type: 'restaurant',
-        activityType: 'sweets_bakery',
-        icon: Icons.cake_rounded,
-      ),
-      _QuickQuery(
-        title: l10n.customerDiscoveryCategoryCoffeeDrinksTitle,
-        type: 'restaurant',
-        activityType: 'coffee_drinks',
-        icon: Icons.local_cafe_rounded,
-      ),
-      _QuickQuery(
-        title: context.lt(ar: 'الملابس والأزياء', en: 'Fashion & Clothing'),
-        type: 'market',
-        activityType: 'fashion_clothing',
-        icon: Icons.checkroom_rounded,
-      ),
-      _QuickQuery(
-        title: l10n.customerDiscoveryCategoryMarketsCleaningTitle,
-        type: 'market',
-        activityType: 'supermarket',
-        icon: Icons.storefront_rounded,
-      ),
-      _QuickQuery(
-        title: l10n.customerDiscoveryCategoryFruitVegetablesTitle,
-        type: 'market',
-        activityType: 'fruits_vegetables',
-        icon: Icons.local_grocery_store_rounded,
-      ),
-      _QuickQuery(
-        title: l10n.customerDiscoveryCategoryMeatPoultryTitle,
-        type: 'market',
-        activityType: 'meat_poultry',
-        icon: Icons.set_meal_rounded,
-      ),
-      _QuickQuery(
-        title: l10n.customerDiscoveryCategoryStationeryGiftsTitle,
-        type: 'market',
-        activityType: 'stationery_office',
-        icon: Icons.card_giftcard_rounded,
-      ),
-      _QuickQuery(
-        title: l10n.customerDiscoveryCategoryElectricalSuppliesTitle,
-        type: 'market',
-        activityType: 'electrical_lighting',
-        icon: Icons.electrical_services_rounded,
-      ),
-      _QuickQuery(
-        title: l10n.customerDiscoveryHubPharmacyTitle,
-        type: 'market',
-        activityType: 'pharmacy',
-        icon: Icons.local_hospital_rounded,
-      ),
-    ];
+    );
+  }
+
+  Future<void> _openMerchantById(int merchantId) async {
+    if (merchantId <= 0) return;
+    try {
+      final raw = await ref.read(merchantsApiProvider).getById(merchantId);
+      final merchant = MerchantModel.fromJson(raw);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MerchantProductsScreen(merchant: merchant),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذر فتح المتجر حالياً')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final mainHubs = _localizedMainHubs(context);
-    final quickQueries = _localizedQuickQueries(context);
     return Directionality(
       textDirection: context.appTextDirection,
       child: Scaffold(
@@ -261,6 +266,14 @@ class _CustomerMainMarketScreenState
         body: ListView(
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
           children: [
+            // MARKETPLACE_HOME ad: independent of the general home ad, sits
+            // directly below the AppBar and collapses fully when absent.
+            MarketplaceAdCard(
+              request: const MarketplaceAdRequest(
+                placement: 'MARKETPLACE_HOME',
+              ),
+              onTapAd: (ad) => _handleAdTap(context, ad),
+            ),
             const _HeaderCard(),
             const SizedBox(height: 10),
             FilledButton.icon(
@@ -284,27 +297,6 @@ class _CustomerMainMarketScreenState
                 return _MainHubTile(card: card, onTap: () => _openHub(context, card));
               },
               separatorBuilder: (_, _) => const SizedBox(height: 10),
-            ),
-            const SizedBox(height: 14),
-            _SectionTitle(context.l10n.customerMainMarketQuickCategoryAccess),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: quickQueries
-                  .map(
-                    (item) => ActionChip(
-                      avatar: Icon(item.icon, size: 16),
-                      label: Text(item.title),
-                      onPressed: () => _openCategory(
-                        context,
-                        title: item.title,
-                        type: item.type,
-                        initialActivityType: item.activityType,
-                      ),
-                    ),
-                  )
-                  .toList(),
             ),
           ],
         ),
@@ -463,18 +455,4 @@ class _MainHubTile extends StatelessWidget {
       ),
     );
   }
-}
-
-class _QuickQuery {
-  final String title;
-  final String? type;
-  final String? activityType;
-  final IconData icon;
-
-  const _QuickQuery({
-    required this.title,
-    required this.type,
-    this.activityType,
-    required this.icon,
-  });
 }

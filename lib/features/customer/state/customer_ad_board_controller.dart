@@ -71,3 +71,60 @@ class CustomerAdBoardController
     }
   }
 }
+
+/// A placement-scoped ad request. Used by the marketplace home & category ad
+/// widgets which each fetch an independent, non-duplicated ad from the same
+/// `ad_board` backend but with a different placement/category target.
+class MarketplaceAdRequest {
+  final String placement;
+  final String? type;
+  final String? categoryKey;
+  final String? activityType;
+
+  const MarketplaceAdRequest({
+    required this.placement,
+    this.type,
+    this.categoryKey,
+    this.activityType,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is MarketplaceAdRequest &&
+      other.placement == placement &&
+      other.type == type &&
+      other.categoryKey == categoryKey &&
+      other.activityType == activityType;
+
+  @override
+  int get hashCode => Object.hash(placement, type, categoryKey, activityType);
+}
+
+/// Fetches the highest-priority active ad for a placement. Returns null when
+/// there is no eligible ad so the surface can collapse fully. Customer-only:
+/// non-customer sessions resolve to null without hitting the network.
+final marketplaceAdProvider =
+    FutureProvider.family<CustomerAdBoardItem?, MarketplaceAdRequest>((
+      ref,
+      request,
+    ) async {
+      final role = ref.read(authControllerProvider).user?.role;
+      final isCustomer = role != null && role.trim().toLowerCase() == 'user';
+      if (!isCustomer) return null;
+
+      final raw = await ref.read(merchantsApiProvider).adBoard(
+            type: request.type,
+            placement: request.placement,
+            categoryKey: request.categoryKey,
+            activityType: request.activityType,
+          );
+      final items = raw
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .map(CustomerAdBoardItem.fromJson)
+          .where((ad) => ad.placement == request.placement)
+          .toList();
+      if (items.isEmpty) return null;
+      // Backend already orders category-specific over general, then by
+      // priority; the first row is the winning ad for this surface.
+      return items.first;
+    });
