@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +18,7 @@ import '../reels/social_reels_screen_v3.dart';
 import '../sharing/canonical_links.dart';
 import '../sharing/share_sheet_v3.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../social/ui/social_share_sheet.dart';
 
 /// Riverpod-connected wrapper that feeds live reel data into
 /// [SocialReelsScreenV3] and wires interaction callbacks to the existing API.
@@ -139,7 +142,73 @@ class _SocialReelsV3ConnectorState
           ),
         );
       },
+      onShareWithFriends: () {
+        Navigator.of(context).pop();
+        unawaited(_shareWithFriends(reel));
+      },
+      onRepost: () {
+        Navigator.of(context).pop();
+        unawaited(_repostReel(reel));
+      },
     );
+  }
+
+  Future<void> _shareWithFriends(ReelV3ViewData reel) async {
+    final post = _postFor(reel.postId);
+    if (post == null) return;
+    final links = const SocialCanonicalLinks();
+    await showSocialShareSheet(
+      context: context,
+      entityType: 'reel',
+      entityId: post.id,
+      previewTitle: reel.authorName,
+      previewSubtitle: reel.caption,
+      externalShareText: links.guardShareUrl(links.reel(post.id)),
+      sharedSnapshot: <String, dynamic>{
+        'id': post.id,
+        'postKind': post.postKind,
+        'caption': post.caption,
+        'mediaKind': post.mediaKind,
+        'playbackUrl': post.asset?.playbackUrl,
+        'posterUrl': post.asset?.posterUrl ?? post.asset?.thumbnailUrl,
+        'thumbnailUrl': post.asset?.thumbnailUrl ?? post.asset?.posterUrl,
+        'authorName': post.author.fullName,
+        'authorUsername': post.author.username,
+        'authorImageUrl': post.author.imageUrl,
+      }..removeWhere((_, value) => value == null),
+    );
+  }
+
+  Future<void> _repostReel(ReelV3ViewData reel) async {
+    final l10n = context.l10n;
+    final isRtl = Directionality.of(context) == TextDirection.rtl;
+    final messenger = ScaffoldMessenger.of(context);
+    final post = _postFor(reel.postId);
+    if (post == null) return;
+    try {
+      await ref
+          .read(socialControllerProvider.notifier)
+          .createPost(
+            caption: '',
+            postKind: 'post',
+            sharedEntityType: 'reel',
+            sharedEntityId: post.id,
+            sharedSnapshot: buildSocialSharedSnapshotFromPost(post),
+          );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(isRtl ? 'تمت إعادة النشر.' : 'Reposted.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            mapAnyError(error, fallback: l10n.socialShareSendFailed),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _openMore(ReelV3ViewData reel) async {
@@ -165,7 +234,7 @@ class _SocialReelsV3ConnectorState
             }
           })();
 
-    if (!context.mounted) return;
+    if (!mounted) return;
     _showMoreActionsSheet(
       reel: reel,
       relation: relation,

@@ -75,6 +75,14 @@ export function mapSocialPostProductRow(row) {
         ? null
         : String(row.audience_scope_code).trim().toUpperCase(),
     caption: row.caption || "",
+    sharedEntity:
+      row.shared_entity_type || row.shared_entity_id != null || row.shared_snapshot_json
+        ? {
+            type: row.shared_entity_type || "post",
+            id: row.shared_entity_id == null ? null : Number(row.shared_entity_id),
+            snapshot: row.shared_snapshot_json || null,
+          }
+        : null,
     mediaUrl: row.asset_normalized_url || row.normalized_url || row.media_url || null,
     mediaKind: row.media_kind || null,
     merchantId: row.merchant_id == null ? null : Number(row.merchant_id),

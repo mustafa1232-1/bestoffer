@@ -317,6 +317,7 @@ class SocialPost {
   final String audienceScopeType;
   final String? audienceScopeCode;
   final String caption;
+  final SocialSharedEntity? sharedEntity;
   final String? mediaUrl;
   final String? mediaKind;
   final int? merchantId;
@@ -348,6 +349,7 @@ class SocialPost {
     required this.audienceScopeType,
     required this.audienceScopeCode,
     required this.caption,
+    required this.sharedEntity,
     required this.mediaUrl,
     required this.mediaKind,
     required this.merchantId,
@@ -385,6 +387,29 @@ class SocialPost {
       j['audienceScopeCode'] ?? j['audience_scope_code'],
     ),
     caption: parseString(j['caption']),
+    sharedEntity:
+        j['sharedEntity'] is Map ||
+            j['shared_entity'] is Map ||
+            j['sharedEntityType'] != null ||
+            j['shared_entity_type'] != null
+        ? SocialSharedEntity.fromJson(
+            Map<String, dynamic>.from(
+              (j['sharedEntity'] ?? j['shared_entity']) as Map? ??
+                  <String, dynamic>{
+                    'type':
+                        j['sharedEntityType'] ??
+                        j['shared_entity_type'] ??
+                        'post',
+                    'id': j['sharedEntityId'] ?? j['shared_entity_id'],
+                    'snapshot':
+                        j['sharedSnapshot'] ??
+                        j['shared_snapshot'] ??
+                        j['sharedSnapshotJson'] ??
+                        j['shared_snapshot_json'],
+                  },
+            ),
+          )
+        : null,
     mediaUrl: parseNullableString(j['mediaUrl'] ?? j['media_url']),
     mediaKind: parseNullableString(j['mediaKind'] ?? j['media_kind']),
     merchantId: j['merchantId'] == null && j['merchant_id'] == null
@@ -444,6 +469,8 @@ class SocialPost {
     bool? isSaved,
     DateTime? createdAt,
     SocialAuthor? author,
+    SocialSharedEntity? sharedEntity,
+    bool clearSharedEntity = false,
   }) {
     return SocialPost(
       id: id,
@@ -452,6 +479,9 @@ class SocialPost {
       audienceScopeType: audienceScopeType,
       audienceScopeCode: audienceScopeCode,
       caption: caption,
+      sharedEntity: clearSharedEntity
+          ? null
+          : (sharedEntity ?? this.sharedEntity),
       mediaUrl: mediaUrl,
       mediaKind: mediaKind,
       merchantId: merchantId,
@@ -482,8 +512,10 @@ class SocialPost {
 String normalizeSocialPostMediaClass(SocialPost post) {
   final postKind = post.postKind.trim().toLowerCase();
   final mediaKind = (post.mediaKind ?? '').trim().toLowerCase();
+  final sharedKind = post.sharedEntity?.type.trim().toLowerCase() ?? '';
   final candidates = <String>[
     if (mediaKind.isNotEmpty) mediaKind,
+    if (sharedKind.isNotEmpty) sharedKind,
     if (postKind.isNotEmpty) postKind,
   ];
   for (final candidate in candidates) {
@@ -513,6 +545,9 @@ bool isSocialVideoPost(SocialPost post) {
   final kind = normalizeSocialPostMediaClass(post);
   return kind == 'reel' || kind == 'video';
 }
+
+bool isSocialSharedReelPost(SocialPost post) =>
+    (post.sharedEntity?.type.trim().toLowerCase() ?? '') == 'reel';
 
 bool isSocialImagePost(SocialPost post) =>
     normalizeSocialPostMediaClass(post) == 'image';
@@ -562,8 +597,18 @@ String? resolveSocialPostPosterUrl(
       : null;
   final galleryAsset = galleryFirst?.asset;
   final asset = post.asset;
+  final shared = post.sharedEntity;
+  final sharedSnapshot = shared?.snapshot ?? const <String, dynamic>{};
 
   final candidates = <String?>[
+    if (shared?.type.trim().toLowerCase() == 'reel') ...[
+      parseNullableString(sharedSnapshot['posterUrl']),
+      parseNullableString(sharedSnapshot['poster_url']),
+      parseNullableString(sharedSnapshot['thumbnailUrl']),
+      parseNullableString(sharedSnapshot['thumbnail_url']),
+      parseNullableString(sharedSnapshot['playbackUrl']),
+      parseNullableString(sharedSnapshot['playback_url']),
+    ],
     galleryAsset?.thumbnailUrl,
     galleryAsset?.posterUrl,
     socialCloudflareThumbnail(galleryAsset),
@@ -604,6 +649,17 @@ String? resolveSocialPostVideoUrl(SocialPost post) {
   final galleryFirst = post.mediaGallery.isNotEmpty
       ? post.mediaGallery.first
       : null;
+  final shared = post.sharedEntity;
+  final sharedSnapshot = shared?.snapshot ?? const <String, dynamic>{};
+  final sharedVideo = shared?.type.trim().toLowerCase() == 'reel'
+      ? parseNullableString(
+          sharedSnapshot['playbackUrl'] ??
+              sharedSnapshot['playback_url'] ??
+              sharedSnapshot['videoUrl'] ??
+              sharedSnapshot['video_url'],
+        )
+      : null;
+  if ((sharedVideo ?? '').trim().isNotEmpty) return sharedVideo!.trim();
   final galleryUrl =
       (galleryFirst?.asset?.playbackUrl ??
               galleryFirst?.asset?.normalizedUrl ??

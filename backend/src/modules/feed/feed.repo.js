@@ -35,6 +35,9 @@ export async function listFeedPosts({
        p.caption,
        p.media_url,
        p.media_kind,
+       p.shared_entity_type,
+       p.shared_entity_id,
+       p.shared_snapshot_json,
        p.media_asset_id,
        p.merchant_id,
        p.review_rating,
@@ -154,6 +157,9 @@ export async function listUserFeedPosts({
        p.caption,
        p.media_url,
        p.media_kind,
+       p.shared_entity_type,
+       p.shared_entity_id,
+       p.shared_snapshot_json,
        p.merchant_id,
        p.review_rating,
        p.audience_scope_type,
@@ -315,6 +321,9 @@ export async function listMyReportedPosts({
        p.caption,
        p.media_url,
        p.media_kind,
+       p.shared_entity_type,
+       p.shared_entity_id,
+       p.shared_snapshot_json,
        p.merchant_id,
        p.review_rating,
        p.audience_scope_type,
@@ -455,6 +464,9 @@ export async function findFeedPostById({
        p.caption,
        p.media_url,
        p.media_kind,
+       p.shared_entity_type,
+       p.shared_entity_id,
+       p.shared_snapshot_json,
        p.merchant_id,
        p.review_rating,
        p.audience_scope_type,
@@ -1039,6 +1051,33 @@ export async function findPostIdByOwnerAndAsset(userId, mediaAssetId) {
   return r.rows[0]?.id == null ? null : Number(r.rows[0].id);
 }
 
+export async function findPostIdByOwnerAndSharedEntity({
+  userId,
+  postKind = null,
+  sharedEntityType,
+  sharedEntityId,
+}) {
+  if (!sharedEntityType || !Number.isInteger(Number(sharedEntityId))) return null;
+  const r = await q(
+    `SELECT id
+       FROM social_post
+      WHERE user_id = $1
+        AND is_deleted = FALSE
+        AND COALESCE(shared_entity_type, '') = $2
+        AND shared_entity_id = $3
+        AND ($4::text IS NULL OR post_kind = $4::text)
+      ORDER BY id DESC
+      LIMIT 1`,
+    [
+      Number(userId),
+      String(sharedEntityType || "").trim().toLowerCase(),
+      Number(sharedEntityId),
+      postKind == null ? null : String(postKind).trim().toLowerCase(),
+    ]
+  );
+  return r.rows[0]?.id == null ? null : Number(r.rows[0].id);
+}
+
 export async function findStoryById({
   viewerUserId,
   storyId,
@@ -1414,6 +1453,7 @@ export async function insertPost({
   mediaAssetId = null,
   merchantId = null,
   reviewRating = null,
+  sharedEntity = null,
   audienceScopeType = "global",
   audienceScopeCode = null,
 }) {
@@ -1428,11 +1468,14 @@ export async function insertPost({
         media_asset_id,
         merchant_id,
         review_rating,
+        shared_entity_type,
+        shared_entity_id,
+        shared_snapshot_json,
         audience_scope_type,
         audience_scope_code,
         moderation_status
       )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'approved')
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'approved')
      RETURNING *`,
     [
       Number(userId),
@@ -1443,6 +1486,9 @@ export async function insertPost({
       mediaAssetId == null ? null : Number(mediaAssetId),
       merchantId == null ? null : Number(merchantId),
       reviewRating == null ? null : Number(reviewRating),
+      sharedEntity?.type || null,
+      sharedEntity?.id == null ? null : Number(sharedEntity.id),
+      sharedEntity?.snapshot == null ? null : JSON.stringify(sharedEntity.snapshot),
       String(audienceScopeType || "global").trim().toLowerCase(),
       audienceScopeCode == null ? null : String(audienceScopeCode).trim().toUpperCase(),
     ]
@@ -1566,6 +1612,9 @@ export async function listArchivedPostsRaw({
        p.caption,
        p.media_url,
        p.media_kind,
+       p.shared_entity_type,
+       p.shared_entity_id,
+       p.shared_snapshot_json,
        p.media_asset_id,
        p.merchant_id,
        p.review_rating,
@@ -1949,6 +1998,9 @@ export async function listPostsLikedByUser({
        p.caption,
        p.media_url,
        p.media_kind,
+       p.shared_entity_type,
+       p.shared_entity_id,
+       p.shared_snapshot_json,
        p.merchant_id,
        p.review_rating,
        p.audience_scope_type,
@@ -2076,6 +2128,9 @@ export async function listPostsCommentedByUser({
        p.caption,
        p.media_url,
        p.media_kind,
+       p.shared_entity_type,
+       p.shared_entity_id,
+       p.shared_snapshot_json,
        p.merchant_id,
        p.review_rating,
        p.audience_scope_type,
@@ -5970,6 +6025,9 @@ export async function listCommunityFeedPosts({
        p.caption,
        p.media_url,
        p.media_kind,
+       p.shared_entity_type,
+       p.shared_entity_id,
+       p.shared_snapshot_json,
        p.merchant_id,
        p.review_rating,
        p.audience_scope_type,

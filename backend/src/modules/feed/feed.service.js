@@ -3775,6 +3775,40 @@ export async function createPost(userId, dto, media) {
     : media?.url
       ? [media]
       : [];
+  const clientSharedEntity =
+    dto?.sharedEntity?.type && Number(dto.sharedEntity?.id || 0) > 0
+      ? {
+          type: String(dto.sharedEntity.type).trim().toLowerCase(),
+          id: Number(dto.sharedEntity.id),
+          snapshot:
+            dto.sharedEntity.snapshot &&
+            typeof dto.sharedEntity.snapshot === "object" &&
+            !Array.isArray(dto.sharedEntity.snapshot)
+              ? dto.sharedEntity.snapshot
+              : null,
+        }
+      : null;
+  const normalizedSharedEntity = await resolveSharedEntityForSender({
+    senderUserId: userId,
+    sharedEntity: clientSharedEntity,
+  });
+  if (normalizedSharedEntity && uploadedMediaList.length <= 0) {
+    const existingSharedPostId = await repo.findPostIdByOwnerAndSharedEntity({
+      userId,
+      postKind: dto?.postKind || null,
+      sharedEntityType: normalizedSharedEntity.type,
+      sharedEntityId: normalizedSharedEntity.id,
+    });
+    if (existingSharedPostId) {
+      const existing = await attachPostMediaRow(
+        await repo.findPostById(existingSharedPostId),
+      );
+      if (existing) {
+        clearFeedMutationCaches();
+        return mapPostRow(existing);
+      }
+    }
+  }
   const mediaAssetId =
     dto?.mediaAssetId == null || dto.mediaAssetId === ""
       ? null
@@ -3846,7 +3880,12 @@ export async function createPost(userId, dto, media) {
     throw new AppError("MEDIA_REQUIRED", { status: 400 });
   }
 
-  if (!dto.caption && preparedMediaItems.length <= 0 && postKind !== "merchant_review") {
+  if (
+    !dto.caption &&
+    preparedMediaItems.length <= 0 &&
+    postKind !== "merchant_review" &&
+    !normalizedSharedEntity
+  ) {
     throw new AppError("EMPTY_POST", {
       status: 400,
       details: { fields: ["caption", "media"] },
@@ -3875,6 +3914,7 @@ export async function createPost(userId, dto, media) {
     mediaAssetId: primaryMedia?.mediaAssetId,
     merchantId: dto.merchantId,
     reviewRating: dto.reviewRating,
+    sharedEntity: normalizedSharedEntity,
     audienceScopeType: audienceScope.scopeType,
     audienceScopeCode: audienceScope.scopeCode,
   });
@@ -4198,6 +4238,49 @@ function buildCanonicalStorySharedSnapshot(story) {
   );
 }
 
+function buildCanonicalPostSharedSnapshot(post, { type = null } = {}) {
+  const normalizedType = String(type || post?.postKind || "post")
+    .trim()
+    .toLowerCase();
+  const author = {
+    id: Number(post.userId || post.user_id || 0),
+    fullName: post.author?.fullName || post.user_full_name || "",
+    username: post.author?.username || post.user_username || null,
+    imageUrl: post.author?.imageUrl || post.user_image_url || null,
+  };
+  const posterUrl =
+    post.asset?.posterUrl ||
+    post.asset?.thumbnailUrl ||
+    post.asset?.normalizedUrl ||
+    post.mediaUrl ||
+    null;
+  const playbackUrl =
+    post.asset?.playbackUrl ||
+    post.asset?.normalizedUrl ||
+    post.mediaUrl ||
+    null;
+  const snapshot = {
+    id: Number(post.id),
+    type: normalizedType,
+    title: author.fullName || post.caption || "",
+    caption: post.caption || "",
+    mediaKind: post.mediaKind || normalizedType,
+    mediaUrl: post.mediaUrl || post.asset?.normalizedUrl || null,
+    posterUrl,
+    playbackUrl,
+    createdAt: post.createdAt || post.created_at || null,
+    author,
+    authorName: author.fullName,
+    authorUsername: author.username,
+    authorImageUrl: author.imageUrl,
+  };
+  return Object.fromEntries(
+    Object.entries(snapshot).filter(
+      ([, value]) => value !== null && value !== undefined
+    )
+  );
+}
+
 /**
  * Canonicalizes a shared entity before any chat persistence.
  *
@@ -4215,6 +4298,23 @@ export async function resolveSharedEntityForSender({
   if (!type || !Number.isInteger(id) || id <= 0) return null;
 
   if (type !== "story") {
+    if (type === "post" || type === "reel" || type === "review") {
+      const post = await getPostById(senderUserId, id);
+      if (!post?.post) {
+        throw new AppError("POST_NOT_FOUND", { status: 404 });
+      }
+      const normalizedKind = String(post.post.postKind || "")
+        .trim()
+        .toLowerCase();
+      if (type === "reel" && normalizedKind !== "reel") {
+        throw new AppError("REEL_NOT_FOUND", { status: 404 });
+      }
+      return {
+        type,
+        id: Number(post.post.id),
+        snapshot: buildCanonicalPostSharedSnapshot(post.post, { type }),
+      };
+    }
     return {
       type,
       id,

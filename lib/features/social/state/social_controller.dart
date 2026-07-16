@@ -584,6 +584,9 @@ class SocialController extends StateNotifier<SocialState> {
     LocalMediaFile? mediaFile,
     List<LocalMediaFile>? mediaFiles,
     Map<String, dynamic>? reelStyle,
+    String? sharedEntityType,
+    int? sharedEntityId,
+    Map<String, dynamic>? sharedSnapshot,
     String? audienceScopeType,
     String? audienceScopeCode,
   }) async {
@@ -617,6 +620,9 @@ class SocialController extends StateNotifier<SocialState> {
         mediaFile: resolvedAssetId != null ? null : mediaFile,
         mediaFiles: resolvedAssetId != null ? null : mediaFiles,
         reelStyle: reelStyle,
+        sharedEntityType: sharedEntityType,
+        sharedEntityId: sharedEntityId,
+        sharedSnapshot: sharedSnapshot,
         audienceScopeType: audienceScopeType,
         audienceScopeCode: audienceScopeCode,
       );

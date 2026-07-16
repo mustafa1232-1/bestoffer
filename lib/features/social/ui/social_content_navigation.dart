@@ -19,6 +19,14 @@ Future<void> openSocialReelsV3(BuildContext context, {required int reelId}) {
   );
 }
 
+int? socialCanonicalReelIdForPost(SocialPost post) {
+  final sharedType = post.sharedEntity?.type.trim().toLowerCase();
+  if (sharedType == 'reel') {
+    return post.sharedEntity?.id;
+  }
+  return isSocialVideoPost(post) ? post.id : null;
+}
+
 @immutable
 class SocialSharedEntityRouteTarget {
   final String kind;
@@ -84,7 +92,8 @@ Future<void> openSocialContent(
   required SocialPost post,
   List<SocialPost>? reelContextPosts,
 }) {
-  if (!isSocialVideoPost(post)) {
+  final sharedReelId = socialCanonicalReelIdForPost(post);
+  if (sharedReelId == null) {
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SocialPostDetailsScreen(initialPost: post),
@@ -92,7 +101,7 @@ Future<void> openSocialContent(
     );
   }
 
-  return openSocialReelsV3(context, reelId: post.id);
+  return openSocialReelsV3(context, reelId: sharedReelId);
 }
 
 Future<int?> openSocialComments(
@@ -100,7 +109,7 @@ Future<int?> openSocialComments(
   required SocialPost post,
   String? title,
 }) {
-  if (isSocialVideoPost(post)) {
+  if (socialCanonicalReelIdForPost(post) != null) {
     return showSocialReelCommentsSheet(context, reelPost: post);
   }
   return showSocialPostCommentsSheet(context, post: post, title: title);

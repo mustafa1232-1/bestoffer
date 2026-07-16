@@ -35,8 +35,10 @@ class ShareSheetV3 extends StatelessWidget {
     required this.target,
     this.links = const SocialCanonicalLinks(),
     this.onAddToStory,
+    this.onShareWithFriends,
     this.onSendToChat,
     this.onSearchUsers,
+    this.onRepost,
     this.onExternalShare,
     this.recentConversations = const [],
     this.onOpenConversation,
@@ -45,8 +47,10 @@ class ShareSheetV3 extends StatelessWidget {
   final ShareTargetV3 target;
   final SocialCanonicalLinks links;
   final VoidCallback? onAddToStory;
+  final VoidCallback? onShareWithFriends;
   final VoidCallback? onSendToChat;
   final VoidCallback? onSearchUsers;
+  final VoidCallback? onRepost;
 
   /// Receives the guarded canonical URL for OS-level share.
   final void Function(String canonicalUrl)? onExternalShare;
@@ -69,7 +73,9 @@ class ShareSheetV3 extends StatelessWidget {
     required ShareTargetV3 target,
     SocialCanonicalLinks links = const SocialCanonicalLinks(),
     VoidCallback? onAddToStory,
+    VoidCallback? onShareWithFriends,
     void Function(String canonicalUrl)? onExternalShare,
+    VoidCallback? onRepost,
   }) {
     return showModalBottomSheet<void>(
       context: context,
@@ -80,6 +86,8 @@ class ShareSheetV3 extends StatelessWidget {
         target: target,
         links: links,
         onAddToStory: onAddToStory,
+        onShareWithFriends: onShareWithFriends,
+        onRepost: onRepost,
         onExternalShare: onExternalShare,
       ),
     );
@@ -95,6 +103,20 @@ class ShareSheetV3 extends StatelessWidget {
           label: 'إضافة إلى القصة',
           onTap: onAddToStory,
         ),
+      );
+    }
+    if (onShareWithFriends != null) {
+      rows.add(
+        _Row(
+          icon: Icons.group_outlined,
+          label: 'مشاركة مع الأصدقاء',
+          onTap: onShareWithFriends,
+        ),
+      );
+    }
+    if (onRepost != null) {
+      rows.add(
+        _Row(icon: Icons.repeat_rounded, label: 'إعادة نشر', onTap: onRepost),
       );
     }
     if (recentConversations.isNotEmpty && onOpenConversation != null) {

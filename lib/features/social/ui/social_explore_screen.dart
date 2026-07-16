@@ -211,7 +211,10 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
     if (reels.isEmpty) return;
     final safeIndex = initialIndex.clamp(0, reels.length - 1);
     final target = reels[safeIndex];
-    openSocialReelsV3(context, reelId: target.id);
+    openSocialReelsV3(
+      context,
+      reelId: socialCanonicalReelIdForPost(target) ?? target.id,
+    );
   }
 
   List<Widget> _buildPostSection(

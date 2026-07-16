@@ -9,6 +9,7 @@ import '../../../../core/i18n/app_localizations_context.dart';
 import '../../../../core/media/media_cache_models.dart';
 import '../../../../core/media/media_cache_service.dart';
 import '../../models/social_models.dart';
+import '../social_content_navigation.dart';
 import '../social_share_sheet.dart';
 import 'social_mention_hashtag_text.dart';
 
@@ -65,6 +66,7 @@ class SocialPostCardV2 extends StatelessWidget {
     final mediaUrl = resolveSocialPostPosterUrl(post);
     final isVideo = isSocialVideoPost(post);
     final isReel = isSocialReelPost(post);
+    final shouldAutoPlayPreview = autoPlayVideoPreview || isReel;
     final isMerchantReview = isSocialMerchantReviewPost(post);
     final mediaItems = _buildPostMediaDisplayItems(post);
     final caption = post.caption.trim();
@@ -217,6 +219,10 @@ class SocialPostCardV2 extends StatelessWidget {
                   ),
                 ),
               ],
+              if (post.sharedEntity != null) ...[
+                const SizedBox(height: 12),
+                _SharedEntityPreviewCard(entity: post.sharedEntity!),
+              ],
               if (mediaItems.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 ConstrainedBox(
@@ -230,7 +236,7 @@ class SocialPostCardV2 extends StatelessWidget {
                       // Compact vertical preview for reels (4:5), not full-screen
                       // 9:16; normal images use 4:5 too.
                       aspectRatio: 4 / 5,
-                      autoPlay: false,
+                      autoPlay: shouldAutoPlayPreview,
                       fallbackColor: scheme.surfaceContainerHighest,
                       cacheIdentity: 'post_${post.id}',
                       cacheVersion: post.updatedAt?.toIso8601String(),
@@ -332,6 +338,101 @@ class SocialPostCardV2 extends StatelessWidget {
                     icon: const Icon(Icons.ios_share_rounded),
                   ),
                 ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SharedEntityPreviewCard extends StatelessWidget {
+  final SocialSharedEntity entity;
+
+  const _SharedEntityPreviewCard({required this.entity});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final imageUrl = (entity.imageUrl ?? '').trim();
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => openSocialSharedEntity(context, entity: entity),
+        child: Ink(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: imageUrl.isEmpty
+                    ? Container(
+                        width: 64,
+                        height: 64,
+                        color: scheme.surfaceContainerHighest,
+                        child: Icon(
+                          Icons.repeat_rounded,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      )
+                    : CachedAppImage(
+                        imageUrl: imageUrl,
+                        cacheIdentity: 'shared_entity_${entity.id}',
+                        width: 64,
+                        height: 64,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entity.previewLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      entity.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if ((entity.subtitle ?? '').trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        entity.subtitle!.trim(),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ],
           ),

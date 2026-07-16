@@ -229,7 +229,10 @@ class _SocialProfilePostsScreenState
   }
 
   void _openReel(SocialPost target) {
-    openSocialReelsV3(context, reelId: target.id);
+    openSocialReelsV3(
+      context,
+      reelId: socialCanonicalReelIdForPost(target) ?? target.id,
+    );
   }
 
   Widget _buildGrid() {

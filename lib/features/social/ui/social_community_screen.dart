@@ -2323,9 +2323,9 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
           .map((p) => p.id == post.id ? optimistic : p)
           .toList(growable: false);
     });
-    final entityType = post.postKind == 'merchant_review'
+    final entityType = isSocialMerchantReviewPost(post)
         ? 'review'
-        : post.postKind == 'reel'
+        : isSocialReelPost(post)
         ? 'reel'
         : 'post';
     try {
@@ -2898,7 +2898,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
               SocialPostCardV2(
                 key: ValueKey(p.id),
                 post: p,
-                autoPlayVideoPreview: p.postKind == 'reel',
+                autoPlayVideoPreview: isSocialReelPost(p),
                 onOpenDetails: () => openSocialContent(
                   context,
                   post: p,

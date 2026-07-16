@@ -15,6 +15,7 @@ import '../../social/ui/widgets/social_story_canvas.dart';
 import '../../social/ui/widgets/social_story_tool_panels.dart';
 import '../media/social_safe_image.dart';
 import '../pickers/social_media_picker_v3.dart';
+import 'story_media_type_picker.dart';
 import 'story_composer_source.dart';
 
 /// Full-screen Story Composer.
@@ -202,7 +203,11 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
 
   Future<void> _replaceMedia() async {
     final picker = SocialMediaPickerV3();
-    final picked = await picker.pickStoryImageOrVideo();
+    final type = await pickStoryMediaType(context);
+    if (type == null || !mounted) return;
+    final picked = type == PickedMediaType.video
+        ? await picker.pickStoryVideo()
+        : await picker.pickStoryImage();
     if (picked == null || !mounted) return;
     final notifier = ref.read(socialStoryDraftControllerProvider.notifier);
     final current = ref.read(socialStoryDraftControllerProvider).draft;

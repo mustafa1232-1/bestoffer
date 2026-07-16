@@ -302,7 +302,12 @@ class _SocialSearchScreenState extends ConsumerState<SocialSearchScreen> {
                             child: SocialPostCardV2(
                               post: post,
                               onOpenDetails: () {
-                                openSocialReelsV3(context, reelId: post.id);
+                                openSocialReelsV3(
+                                  context,
+                                  reelId:
+                                      socialCanonicalReelIdForPost(post) ??
+                                      post.id,
+                                );
                               },
                             ),
                           ),

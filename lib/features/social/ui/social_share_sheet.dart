@@ -16,6 +16,9 @@ import 'social_message_client_id.dart';
 import 'package:maslaki/core/media/cached_app_image.dart';
 
 String socialEntityTypeFromPost(SocialPost post) {
+  if ((post.sharedEntity?.type.trim().toLowerCase() ?? '') == 'reel') {
+    return 'reel';
+  }
   final kind = post.postKind.trim().toLowerCase();
   if (kind == 'reel' || kind == 'video') return 'reel';
   if (kind == 'merchant_review' || kind == 'review') return 'review';

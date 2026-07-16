@@ -454,6 +454,9 @@ class SocialApi {
     LocalMediaFile? mediaFile,
     List<LocalMediaFile>? mediaFiles,
     Map<String, dynamic>? reelStyle,
+    String? sharedEntityType,
+    int? sharedEntityId,
+    Map<String, dynamic>? sharedSnapshot,
     String? audienceScopeType,
     String? audienceScopeCode,
     String? linkTargetType,
@@ -469,6 +472,16 @@ class SocialApi {
       'reviewRating': reviewRating,
       'mediaAssetId': mediaAssetId,
       'reelStyle': reelStyle,
+      'sharedEntityType': sharedEntityType,
+      'sharedEntityId': sharedEntityId,
+      'sharedEntity': (sharedEntityType != null && sharedEntityId != null)
+          ? <String, dynamic>{
+              'type': sharedEntityType.trim(),
+              'id': sharedEntityId,
+              if (sharedSnapshot != null && sharedSnapshot.isNotEmpty)
+                'snapshot': sharedSnapshot,
+            }
+          : null,
       'audienceScopeType': audienceScopeType,
       'audienceScopeCode': audienceScopeCode,
       'linkTargetType': linkTargetType,

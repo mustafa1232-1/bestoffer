@@ -289,6 +289,26 @@ export function validateCreatePost(body = {}) {
   const taggedUserIds = asPositiveIntArray(
     body.taggedUserIds ?? body.tagged_user_ids
   );
+  const sharedEntityType = asTrimmed(
+    body.sharedEntityType ?? body.shared_entity_type ?? body.sharedEntity?.type
+  ).toLowerCase();
+  const sharedEntityId = asPositiveInt(
+    body.sharedEntityId ?? body.shared_entity_id ?? body.sharedEntity?.id
+  );
+  const sharedSnapshot =
+    body.sharedEntity?.snapshot &&
+    typeof body.sharedEntity.snapshot === "object" &&
+    !Array.isArray(body.sharedEntity.snapshot)
+      ? body.sharedEntity.snapshot
+      : body.sharedSnapshot &&
+          typeof body.sharedSnapshot === "object" &&
+          !Array.isArray(body.sharedSnapshot)
+      ? body.sharedSnapshot
+      : body.shared_snapshot &&
+          typeof body.shared_snapshot === "object" &&
+          !Array.isArray(body.shared_snapshot)
+      ? body.shared_snapshot
+      : null;
 
   if (caption.length > 1200) errors.push("caption");
   if (!["text", "image", "video", "reel", "merchant_review"].includes(postKind)) {
@@ -306,6 +326,16 @@ export function validateCreatePost(body = {}) {
   if (postKind === "merchant_review") {
     if (merchantId == null) errors.push("merchantId_required");
     if (reviewRating == null) errors.push("reviewRating_required");
+  }
+  if (sharedEntityType.length > 0) {
+    if (!sharedEntityTypeAllowlist.has(sharedEntityType)) {
+      errors.push("sharedEntityType");
+    }
+    if (sharedEntityId == null) {
+      errors.push("sharedEntityId");
+    }
+  } else if (sharedEntityId != null) {
+    errors.push("sharedEntityType");
   }
 
   let audienceScopeType = null;
@@ -341,6 +371,14 @@ export function validateCreatePost(body = {}) {
       mediaAssetId,
       reviewRating: reviewRating == null ? null : Math.trunc(reviewRating),
       taggedUserIds,
+      sharedEntity:
+        sharedEntityType.length === 0 || sharedEntityId == null
+          ? null
+          : {
+              type: sharedEntityType,
+              id: sharedEntityId,
+              snapshot: sharedSnapshot,
+            },
       audienceScopeType,
       audienceScopeCode,
     },

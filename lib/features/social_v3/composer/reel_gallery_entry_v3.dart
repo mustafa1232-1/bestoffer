@@ -8,6 +8,7 @@ import '../../social/models/social_story_document.dart';
 import '../capabilities/social_capabilities_controller.dart';
 import '../capabilities/story_scope_error.dart';
 import '../pickers/social_media_picker_v3.dart';
+import 'story_media_type_picker.dart';
 import '../upload/dio_tus_transport.dart';
 import '../upload/reel_upload_api_impl.dart';
 import '../upload/tus_upload_client.dart';
@@ -76,7 +77,11 @@ Future<void> openStoryComposerV3FromGallery(
   bool audienceScopeSupported = false,
 }) async {
   final p = picker ?? SocialMediaPickerV3();
-  final media = await p.pickStoryImageOrVideo();
+  final type = await pickStoryMediaType(context);
+  if (type == null || !context.mounted) return;
+  final media = type == PickedMediaType.video
+      ? await p.pickStoryVideo()
+      : await p.pickStoryImage();
   if (media == null || !context.mounted) return;
   final local = LocalStoryMedia(
     path: media.path,

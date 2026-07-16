@@ -49,7 +49,8 @@ class SocialPickerException implements Exception {
 /// `FilePicker` is intentionally NOT used here — it is reserved for real
 /// documents/attachments elsewhere.
 class SocialMediaPickerV3 {
-  SocialMediaPickerV3({ImagePicker? picker}) : _picker = picker ?? ImagePicker();
+  SocialMediaPickerV3({ImagePicker? picker})
+    : _picker = picker ?? ImagePicker();
 
   final ImagePicker _picker;
 
@@ -72,6 +73,28 @@ class SocialMediaPickerV3 {
       return _toResult(file, _inferType(file));
     } catch (error) {
       throw SocialPickerException('pickStoryImageOrVideo', error);
+    }
+  }
+
+  /// Story: image only.
+  Future<PickedSocialMedia?> pickStoryImage() async {
+    try {
+      final file = await _picker.pickImage(source: ImageSource.gallery);
+      if (file == null) return null;
+      return _toResult(file, PickedMediaType.image);
+    } catch (error) {
+      throw SocialPickerException('pickStoryImage', error);
+    }
+  }
+
+  /// Story: video only.
+  Future<PickedSocialMedia?> pickStoryVideo() async {
+    try {
+      final file = await _picker.pickVideo(source: ImageSource.gallery);
+      if (file == null) return null;
+      return _toResult(file, PickedMediaType.video);
+    } catch (error) {
+      throw SocialPickerException('pickStoryVideo', error);
     }
   }
 

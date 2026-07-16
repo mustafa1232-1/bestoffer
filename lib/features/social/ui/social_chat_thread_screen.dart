@@ -126,6 +126,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       <int, SocialChatMessageTranslation>{};
   int? _nextCursor;
   int? _lastEventId;
+  int? _resolvedThreadId;
+  bool _threadRecoveryAttempted = false;
   SocialChatReplyPreview? _replyingTo;
   LocalMediaFile? _attachmentDraft;
   SocialSharedEntity? _sharedEntityDraft;
@@ -149,6 +151,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   List<SocialChatMessage> _searchResults = const [];
 
   int? get _currentUserId => ref.read(authControllerProvider).user?.id;
+  int get _threadId => _resolvedThreadId ?? widget.threadId;
   SocialAuthor get _widgetPeerAuthor => SocialAuthor(
     id: widget.peerUserId ?? 0,
     username: null,
@@ -168,6 +171,46 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       phone: user.phone,
       role: user.role,
     );
+  }
+
+  bool _isRecoverableThreadLoadError(Object error) {
+    if (widget.peerUserId == null || _threadRecoveryAttempted) return false;
+    if (error is DioException) {
+      final code = error.response?.statusCode;
+      if (code == 404 || code == 403) return true;
+      final message =
+          '${error.response?.data is Map ? (error.response?.data as Map)['message'] : ''}'
+              .trim()
+              .toUpperCase();
+      if (message == 'THREAD_NOT_FOUND' ||
+          message == 'CHAT_REQUEST_UNAVAILABLE') {
+        return true;
+      }
+    }
+    final text = error.toString().toUpperCase();
+    return text.contains('THREAD_NOT_FOUND') ||
+        text.contains('CHAT_REQUEST_UNAVAILABLE');
+  }
+
+  Future<bool> _recoverMissingThread() async {
+    final peerUserId = widget.peerUserId;
+    if (peerUserId == null || peerUserId <= 0) return false;
+    if (_threadRecoveryAttempted) return false;
+    _threadRecoveryAttempted = true;
+    try {
+      final out = await _api.createThread(peerUserId);
+      final threadMap = Map<String, dynamic>.from(out['thread'] as Map? ?? out);
+      final recoveredThreadId = _parseInt(threadMap['id']);
+      if (recoveredThreadId == null || recoveredThreadId <= 0) return false;
+      if (!mounted) return false;
+      setState(() {
+        _resolvedThreadId = recoveredThreadId;
+        _error = null;
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   SocialAuthor get _resolvedPeer =>
@@ -210,7 +253,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     _voiceComposer = SocialVoiceComposerController()
       ..addListener(_handleVoiceComposerChanged);
     WidgetsBinding.instance.addObserver(this);
-    ActiveChatContextRegistry.enterSocialThread(widget.threadId);
+    ActiveChatContextRegistry.enterSocialThread(_threadId);
     _scrollController.addListener(_handleScroll);
     _searchController.addListener(_handleSearchTextChanged);
     Future.microtask(_bootstrap);
@@ -225,7 +268,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   Future<void> _bootstrap() async {
     await ref
         .read(notificationsControllerProvider.notifier)
-        .markSocialChatNotificationsRead(threadId: widget.threadId);
+        .markSocialChatNotificationsRead(threadId: _threadId);
     await _loadMessages(initial: true);
     await _loadScheduledMessages(silent: true);
     if (!mounted) return;
@@ -237,10 +280,10 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       if (!mounted || !_appInForeground) return;
       final route = ModalRoute.of(context);
       if (route?.isCurrent != true) {
-        ActiveChatContextRegistry.leaveSocialThread(widget.threadId);
+        ActiveChatContextRegistry.leaveSocialThread(_threadId);
         return;
       }
-      ActiveChatContextRegistry.enterSocialThread(widget.threadId);
+      ActiveChatContextRegistry.enterSocialThread(_threadId);
       if (_chatRealtimeStatus == _ChatRealtimeStatus.connected) {
         _connectedPollTick =
             (_connectedPollTick + 1) % _kChatConnectedSyncEveryTicks;
@@ -254,7 +297,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   Future<void> _loadScheduledMessages({bool silent = false}) async {
     if (widget.monitorMode) return;
     try {
-      final out = await _api.listScheduledThreadMessages(widget.threadId);
+      final out = await _api.listScheduledThreadMessages(_threadId);
       final raw = List<dynamic>.from(
         out['items'] ?? out['scheduledMessages'] ?? const [],
       );
@@ -308,7 +351,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     });
     try {
       final out = await _api.translateThreadMessage(
-        threadId: widget.threadId,
+        threadId: _threadId,
         messageId: message.id,
         targetLanguage: _translationTargetLanguage,
       );
@@ -377,7 +420,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     }
     try {
       final out = await _api.setThreadTheme(
-        threadId: widget.threadId,
+        threadId: _threadId,
         themeKey: selectedKey,
       );
       final threadRaw = out['thread'];
@@ -436,12 +479,12 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     try {
       final out = widget.monitorMode
           ? await _api.listAdminMonitoredThreadMessages(
-              widget.threadId,
+              _threadId,
               limit: 40,
               beforeId: loadMore ? _nextCursor : null,
             )
           : await _api.listThreadMessages(
-              widget.threadId,
+              _threadId,
               limit: 40,
               beforeId: loadMore ? _nextCursor : null,
             );
@@ -519,6 +562,12 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       }
     } catch (e) {
       if (!mounted) return;
+      if (!loadMore &&
+          _isRecoverableThreadLoadError(e) &&
+          await _recoverMissingThread()) {
+        await _loadMessages(initial: initial, silent: silent, loadMore: false);
+        return;
+      }
       setState(() {
         _loading = false;
         _loadingMore = false;
@@ -545,10 +594,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     );
     _liveSub?.cancel();
     _liveSub = _liveApi
-        .streamThreadEvents(
-          threadId: widget.threadId,
-          lastEventId: _lastEventId,
-        )
+        .streamThreadEvents(threadId: _threadId, lastEventId: _lastEventId)
         .listen(
           (event) {
             _reconnectAttempt = 0;
@@ -562,7 +608,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
             final threadId = _parseInt(
               event.data['threadId'] ?? event.data['thread_id'],
             );
-            if (threadId != widget.threadId) return;
+            if (threadId != _threadId) return;
             if (!_acceptRealtimeEventId(event.eventId)) return;
 
             if (event.event == 'social_chat_typing') {
@@ -779,7 +825,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
 
     _markReadInFlight = true;
     try {
-      final response = await _api.markThreadRead(threadId: widget.threadId);
+      final response = await _api.markThreadRead(threadId: _threadId);
       final acknowledgedId =
           _parseInt(
             response['lastReadMessageId'] ?? response['last_read_message_id'],
@@ -916,7 +962,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     _lastTypingSent = typing;
     _lastTypingEmitAt = now;
     try {
-      await _api.emitThreadTyping(threadId: widget.threadId, typing: typing);
+      await _api.emitThreadTyping(threadId: _threadId, typing: typing);
     } catch (_) {}
   }
 
@@ -1051,7 +1097,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     if (normalized.isEmpty) return;
     try {
       final out = await _api.searchThreadMessages(
-        widget.threadId,
+        _threadId,
         search: normalized,
         limit: 40,
       );
@@ -1116,12 +1162,12 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       final beforeId = messageId + 1;
       final out = widget.monitorMode
           ? await _api.listAdminMonitoredThreadMessages(
-              widget.threadId,
+              _threadId,
               limit: 40,
               beforeId: beforeId,
             )
           : await _api.listThreadMessages(
-              widget.threadId,
+              _threadId,
               limit: 40,
               beforeId: beforeId,
             );
@@ -1258,7 +1304,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     try {
       _stopTyping();
       final out = await _api.sendThreadMessage(
-        widget.threadId,
+        _threadId,
         text,
         replyToMessageId: _replyingTo?.id,
         attachmentFile: _voiceComposer.state.draft?.file ?? _attachmentDraft,
@@ -1267,7 +1313,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
         sharedEntityId: sharedDraft?.id,
         sharedSnapshot: sharedDraft?.snapshot,
         clientMessageId: buildSocialMessageClientId(
-          scopeKey: 'thread:${widget.threadId}',
+          scopeKey: 'thread:$_threadId',
           body: text,
           replyToMessageId: _replyingTo?.id,
           attachmentFile: _voiceComposer.state.draft?.file ?? _attachmentDraft,
@@ -1363,7 +1409,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     }
     final l10n = context.l10n;
     final result = await _voiceComposer.startHolding(
-      draftKey: 'thread_${widget.threadId}_voice',
+      draftKey: 'thread_${_threadId}_voice',
     );
     if (result.type == SocialVoiceComposerResultType.started) {
       setState(() => _attachmentDraft = null);
@@ -1425,13 +1471,13 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     final l10n = context.l10n;
     final result = await _voiceComposer.sendDraft((draft) async {
       final out = await _api.sendThreadMessage(
-        widget.threadId,
+        _threadId,
         '',
         replyToMessageId: _replyingTo?.id,
         attachmentFile: draft.file,
         attachmentDurationMs: draft.durationMs,
         clientMessageId: buildSocialMessageClientId(
-          scopeKey: 'thread:${widget.threadId}',
+          scopeKey: 'thread:$_threadId',
           body: '',
           replyToMessageId: _replyingTo?.id,
           attachmentFile: draft.file,
@@ -1474,7 +1520,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     });
     try {
       await _api.scheduleThreadMessage(
-        widget.threadId,
+        _threadId,
         text,
         scheduledFor: scheduledFor,
         replyToMessageId: _replyingTo?.id,
@@ -1507,7 +1553,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   Future<void> _cancelScheduledMessage(int scheduledMessageId) async {
     try {
       await _api.cancelScheduledThreadMessage(
-        threadId: widget.threadId,
+        threadId: _threadId,
         scheduledMessageId: scheduledMessageId,
       );
       if (!mounted) return;
@@ -1801,7 +1847,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
 
     try {
       final out = await _api.updateThreadMessage(
-        threadId: widget.threadId,
+        threadId: _threadId,
         messageId: message.id,
         body: nextBody,
       );
@@ -1850,7 +1896,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
 
     try {
       final out = await _api.deleteThreadMessage(
-        threadId: widget.threadId,
+        threadId: _threadId,
         messageId: message.id,
       );
       final raw = out['message'];
@@ -1875,7 +1921,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     final l10n = context.l10n;
     try {
       final out = await _api.pinThreadMessage(
-        threadId: widget.threadId,
+        threadId: _threadId,
         messageId: message.id,
       );
       final rawMessage = out['message'];
@@ -1916,7 +1962,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     final l10n = context.l10n;
     try {
       final out = await _api.unpinThreadMessage(
-        threadId: widget.threadId,
+        threadId: _threadId,
         messageId: message.id,
       );
       final rawMessage = out['message'];
@@ -2183,7 +2229,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
 
     try {
       final out = await _api.toggleThreadMessageReaction(
-        threadId: widget.threadId,
+        threadId: _threadId,
         messageId: message.id,
         reaction: normalized,
       );
@@ -2228,7 +2274,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SocialCallScreen(
-          threadId: widget.threadId,
+          threadId: _threadId,
           isCaller: true,
           remoteDisplayName: _resolvedPeerDisplayLabel,
         ),
@@ -2372,7 +2418,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    ActiveChatContextRegistry.leaveSocialThread(widget.threadId);
+    ActiveChatContextRegistry.leaveSocialThread(_threadId);
     _chatRealtimeStatus = _ChatRealtimeStatus.offline;
     _stopTyping();
     _liveSub?.cancel();
@@ -2408,7 +2454,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _appInForeground = true;
-      ActiveChatContextRegistry.enterSocialThread(widget.threadId);
+      ActiveChatContextRegistry.enterSocialThread(_threadId);
       if (!widget.monitorMode) {
         _connectRealtime();
       }
