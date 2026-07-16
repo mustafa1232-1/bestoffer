@@ -539,16 +539,45 @@ export async function listNearbyMerchants({
 /**
  * يعيد بطاقات لوحة الإعلانات العامة المعروضة في الواجهة.
  */
-export async function listPublicAdBoard(type) {
+const AD_PLACEMENTS = new Set([
+  "HOME_MAIN",
+  "MARKETPLACE_HOME",
+  "MARKETPLACE_CATEGORY",
+]);
+
+function normalizeAdPlacement(value) {
+  const v = String(value || "").trim().toUpperCase();
+  return AD_PLACEMENTS.has(v) ? v : null;
+}
+
+export async function listPublicAdBoard(
+  type,
+  { placement = null, categoryKey = null, activityType = null } = {}
+) {
   const normalizedType = normalizeType(type);
-  const rows = await repo.getPublicAdBoardItems({ type: normalizedType });
+  const normalizedPlacement = normalizeAdPlacement(placement);
+  const rows = await repo.getPublicAdBoardItems({
+    type: normalizedType,
+    placement: normalizedPlacement,
+    categoryKey: categoryKey ? String(categoryKey).trim() : null,
+    activityType: activityType ? String(activityType).trim() : null,
+  });
   return rows.map((row) => ({
     id: Number(row.id),
+    placement: row.placement || "HOME_MAIN",
+    // Bilingual with a safe fallback to the legacy single-language columns.
     title: row.title,
+    titleAr: row.title_ar || row.title || null,
+    titleEn: row.title_en || row.title || null,
     subtitle: row.subtitle,
+    subtitleAr: row.subtitle_ar || row.subtitle || null,
+    subtitleEn: row.subtitle_en || row.subtitle || null,
     imageUrl: row.image_url || row.merchant_image_url || null,
+    mobileImageUrl: row.mobile_image_url || null,
     badgeLabel: row.badge_label || null,
     ctaLabel: row.cta_label || null,
+    ctaLabelAr: row.cta_label_ar || row.cta_label || null,
+    ctaLabelEn: row.cta_label_en || row.cta_label || null,
     type: row.cta_target_type || "none",
     targetId: row.target_id
       ? Number(row.target_id)
@@ -558,6 +587,7 @@ export async function listPublicAdBoard(type) {
     targetRoute: row.target_route || null,
     promoCode: row.promo_code || null,
     category: row.category || null,
+    activityType: row.activity_type || null,
     externalLink: row.external_link || null,
     ctaTargetType: row.cta_target_type || "none",
     ctaTargetValue: row.cta_target_value || null,
@@ -569,6 +599,20 @@ export async function listPublicAdBoard(type) {
     startsAt: row.starts_at ? new Date(row.starts_at).toISOString() : null,
     endsAt: row.ends_at ? new Date(row.ends_at).toISOString() : null,
   }));
+}
+
+export async function recordAdBoardImpression(adId) {
+  const id = Number(adId);
+  if (!Number.isFinite(id) || id <= 0) return { ok: false };
+  const out = await repo.incrementAdBoardImpression(id);
+  return { ok: Boolean(out) };
+}
+
+export async function recordAdBoardClick(adId) {
+  const id = Number(adId);
+  if (!Number.isFinite(id) || id <= 0) return { ok: false };
+  const out = await repo.incrementAdBoardClick(id);
+  return { ok: Boolean(out) };
 }
 
 export async function listStoreActivities() {

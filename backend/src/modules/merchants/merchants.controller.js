@@ -257,8 +257,32 @@ export async function listActivityDiscoveryOptions(req, res, next) {
  */
 export async function adBoard(req, res, next) {
   try {
-    const data = await service.listPublicAdBoard(req.query.type);
+    const data = await service.listPublicAdBoard(req.query.type, {
+      placement: req.query.placement,
+      categoryKey: req.query.categoryKey ?? req.query.category,
+      activityType: req.query.activityType,
+    });
     res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/// Records a visible-impression for an ad (client calls once per view).
+export async function adImpression(req, res, next) {
+  try {
+    const out = await service.recordAdBoardImpression(req.params.adId);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/// Records a click/CTA tap for an ad.
+export async function adClick(req, res, next) {
+  try {
+    const out = await service.recordAdBoardClick(req.params.adId);
+    res.json(out);
   } catch (e) {
     next(e);
   }
