@@ -118,6 +118,123 @@ void main() {
     expect(draft.layers.single.type, SocialStoryLayerType.reelShare);
   });
 
+  test('SocialStoryDraft roundtrips text mention sticker draw layers', () {
+    final draft = SocialStoryDraft.initialText().copyWith(
+      caption: 'Layered story',
+      background: const SocialStoryBackground(
+        type: SocialStoryBackgroundType.gradient,
+        primaryColor: '#111111',
+        secondaryColor: '#222222',
+        imageUrl: null,
+      ),
+      layers: const [
+        SocialStoryLayer(
+          id: 'text-1',
+          type: SocialStoryLayerType.text,
+          x: 0.2,
+          y: 0.3,
+          scale: 1.4,
+          rotation: 0.15,
+          zIndex: 3,
+          text: 'Hello',
+          color: '#FF0000',
+          backgroundColor: '#22000000',
+          fontFamily: 'system',
+          fontWeight: 'bold',
+          textAlign: 'center',
+          fontScale: 1.2,
+          sticker: null,
+          mentionedUserId: null,
+          displayLabel: null,
+        ),
+        SocialStoryLayer(
+          id: 'mention-1',
+          type: SocialStoryLayerType.mention,
+          x: 0.6,
+          y: 0.4,
+          scale: 1,
+          rotation: 0,
+          zIndex: 4,
+          text: '@Ali',
+          color: '#00FF00',
+          backgroundColor: '#11000000',
+          fontFamily: 'system',
+          fontWeight: 'bold',
+          textAlign: 'left',
+          fontScale: 1.0,
+          sticker: null,
+          mentionedUserId: 55,
+          displayLabel: 'Ali',
+        ),
+        SocialStoryLayer(
+          id: 'sticker-1',
+          type: SocialStoryLayerType.sticker,
+          x: 0.5,
+          y: 0.5,
+          scale: 1.1,
+          rotation: 0.3,
+          zIndex: 5,
+          text: null,
+          color: '#FFFFFF',
+          backgroundColor: null,
+          fontFamily: null,
+          fontWeight: null,
+          textAlign: null,
+          fontScale: null,
+          sticker: '🔥',
+          mentionedUserId: null,
+          displayLabel: null,
+        ),
+        SocialStoryLayer(
+          id: 'draw-1',
+          type: SocialStoryLayerType.draw,
+          x: 0.5,
+          y: 0.5,
+          scale: 1,
+          rotation: 0,
+          zIndex: 6,
+          text: null,
+          color: null,
+          backgroundColor: null,
+          fontFamily: null,
+          fontWeight: null,
+          textAlign: null,
+          fontScale: null,
+          sticker: null,
+          mentionedUserId: null,
+          displayLabel: null,
+          strokes: [
+            SocialStoryDrawStroke(
+              color: '#ABCDEF',
+              width: 6,
+              points: [
+                SocialStoryPoint(x: 0.1, y: 0.2),
+                SocialStoryPoint(x: 0.3, y: 0.4),
+              ],
+            ),
+          ],
+          locked: true,
+        ),
+      ],
+    );
+
+    final roundTrip = SocialStoryDraft.fromJson(draft.toStoryStyleJson());
+    expect(roundTrip.layers.length, 4);
+    expect(roundTrip.layers[0].text, 'Hello');
+    expect(roundTrip.layers[0].color, '#FF0000');
+    expect(roundTrip.layers[0].backgroundColor, '#22000000');
+    expect(roundTrip.layers[0].fontFamily, 'system');
+    expect(roundTrip.layers[0].fontWeight, 'bold');
+    expect(roundTrip.layers[0].textAlign, 'center');
+    expect(roundTrip.layers[0].fontScale, 1.2);
+    expect(roundTrip.layers[1].mentionedUserId, 55);
+    expect(roundTrip.layers[1].displayLabel, 'Ali');
+    expect(roundTrip.layers[2].sticker, '🔥');
+    expect(roundTrip.layers[3].strokes.single.points.length, 2);
+    expect(roundTrip.layers[3].strokes.single.points.first.x, 0.1);
+    expect(roundTrip.layers[3].strokes.single.points.last.y, 0.4);
+  });
+
   test(
     'SocialStory parses authoritative interaction settings with safe defaults',
     () {

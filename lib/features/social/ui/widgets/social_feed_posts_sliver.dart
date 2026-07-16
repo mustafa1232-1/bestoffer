@@ -49,7 +49,7 @@ class SocialFeedPostsSliver extends StatelessWidget {
             child: SocialPostCardV2(
               key: ValueKey(post.id),
               post: post,
-              autoPlayVideoPreview: post.postKind == 'reel',
+              autoPlayVideoPreview: isSocialReelPost(post),
               onOpenDetails: () => openSocialContent(
                 context,
                 post: post,

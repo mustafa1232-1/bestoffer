@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../../../../core/media/media_cache_models.dart';
 import '../../../../core/media/media_cache_service.dart';
 import '../../../../core/platform/app_platform_capabilities.dart';
+import '../../models/social_models.dart';
 import '../../models/social_story_document.dart';
 import 'social_story_layer_widget.dart';
 
@@ -661,7 +662,12 @@ class _AttachmentPreviewFrameState extends State<_AttachmentPreviewFrame>
   @override
   Widget build(BuildContext context) {
     final data = widget.attachment;
-    final imageUrl = (data.thumbnailUrl ?? data.posterUrl ?? '').trim();
+    final imageUrl =
+        (data.thumbnailUrl ?? data.posterUrl ?? '').trim().isNotEmpty
+        ? (data.thumbnailUrl ?? data.posterUrl ?? '').trim()
+        : (!socialUrlIsVideoOrManifest(data.mediaUrl)
+              ? (data.mediaUrl ?? '').trim()
+              : '');
     if (_videoReady && _video != null && _video!.value.isInitialized) {
       return FittedBox(
         fit: BoxFit.cover,
