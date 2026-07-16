@@ -937,6 +937,95 @@ export async function rejectOwnerFinancialTerms(ownerUserId, note = null) {
 /**
  * يحدّث بيانات المتجر الأساسية بعد تطبيع الحقول الاختيارية والهواتف.
  */
+// Guard rails for storefront delivery economics. Minutes are integers; fees
+// are non-negative amounts with a sane cap; max ETA must be >= min ETA. A field
+// left undefined is not touched; passing null explicitly clears it (delivery
+// disabled). Missing values stay unknown — never fabricated.
+const STOREFRONT_MAX_ETA_MINUTES = 600; // 10 hours upper bound
+const STOREFRONT_MAX_FEE = 1_000_000; // IQD sane cap
+
+function coerceStorefrontMinutes(value, field, errors) {
+  if (value === null) return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > STOREFRONT_MAX_ETA_MINUTES) {
+    errors.push(field);
+    return undefined;
+  }
+  return n;
+}
+
+function coerceStorefrontAmount(value, field, errors) {
+  if (value === null) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > STOREFRONT_MAX_FEE) {
+    errors.push(field);
+    return undefined;
+  }
+  return n;
+}
+
+function applyStorefrontDeliveryPatch({ dto, currentMerchant, patch }) {
+  const errors = [];
+
+  let etaMin;
+  let etaMax;
+  if (dto.deliveryEtaMinMinutes !== undefined) {
+    etaMin = coerceStorefrontMinutes(
+      dto.deliveryEtaMinMinutes,
+      "deliveryEtaMinMinutes",
+      errors
+    );
+  }
+  if (dto.deliveryEtaMaxMinutes !== undefined) {
+    etaMax = coerceStorefrontMinutes(
+      dto.deliveryEtaMaxMinutes,
+      "deliveryEtaMaxMinutes",
+      errors
+    );
+  }
+
+  // Cross-field: resolve the effective min/max (falling back to stored values)
+  // and require max >= min when both are known.
+  const effectiveMin =
+    etaMin !== undefined
+      ? etaMin
+      : currentMerchant?.delivery_eta_min_minutes ?? null;
+  const effectiveMax =
+    etaMax !== undefined
+      ? etaMax
+      : currentMerchant?.delivery_eta_max_minutes ?? null;
+  if (
+    effectiveMin !== null &&
+    effectiveMax !== null &&
+    Number(effectiveMax) < Number(effectiveMin)
+  ) {
+    errors.push("deliveryEtaRange");
+  }
+
+  if (dto.deliveryFee !== undefined) {
+    const fee = coerceStorefrontAmount(dto.deliveryFee, "deliveryFee", errors);
+    if (fee !== undefined) patch.deliveryFee = fee;
+  }
+  if (dto.minimumOrder !== undefined) {
+    const min = coerceStorefrontAmount(
+      dto.minimumOrder,
+      "minimumOrder",
+      errors
+    );
+    if (min !== undefined) patch.minimumOrder = min;
+  }
+
+  if (errors.length) {
+    const err = new Error("VALIDATION_ERROR");
+    err.status = 400;
+    err.fields = errors;
+    throw err;
+  }
+
+  if (etaMin !== undefined) patch.deliveryEtaMinMinutes = etaMin;
+  if (etaMax !== undefined) patch.deliveryEtaMaxMinutes = etaMax;
+}
+
 export async function updateOwnerMerchant(ownerUserId, dto) {
   const currentMerchant = await getOwnerMerchant(ownerUserId);
   await ensureMerchantPermission(
@@ -1074,6 +1163,13 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
   if (dto.badges !== undefined) {
     patch.badges = Array.isArray(dto.badges) ? dto.badges : [];
   }
+
+  // Storefront contract fields (logo, cover, delivery ETA/fee, min order).
+  if (dto.logoUrl !== undefined) patch.logoUrl = normalizeOptional(dto.logoUrl);
+  if (dto.coverImageUrl !== undefined) {
+    patch.coverImageUrl = normalizeOptional(dto.coverImageUrl);
+  }
+  applyStorefrontDeliveryPatch({ dto, currentMerchant, patch });
 
   const merchant = await repo.updateOwnerMerchant(ownerUserId, patch);
   if (!merchant) {

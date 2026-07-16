@@ -304,9 +304,16 @@ export async function createMerchantWithOwnerLink({
           supports_chat,
           supports_attachments,
           supports_pharmacy_workflow,
-          badges_json
+          badges_json,
+          logo_url,
+          cover_image_url,
+          delivery_eta_min_minutes,
+          delivery_eta_max_minutes,
+          delivery_fee,
+          minimum_order,
+          is_verified
         )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,NOW(),$12::jsonb,$13,$14,$15,$16::jsonb)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,NOW(),$12::jsonb,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21,$22,$23)
        RETURNING id`,
       [
         merchant.name,
@@ -325,6 +332,13 @@ export async function createMerchantWithOwnerLink({
         merchant.supportsAttachments === true,
         merchant.supportsPharmacyWorkflow === true,
         JSON.stringify(Array.isArray(merchant.badges) ? merchant.badges : []),
+        merchant.logoUrl ?? null,
+        merchant.coverImageUrl ?? null,
+        merchant.deliveryEtaMinMinutes ?? null,
+        merchant.deliveryEtaMaxMinutes ?? null,
+        merchant.deliveryFee ?? null,
+        merchant.minimumOrder ?? null,
+        merchant.isVerified === true,
       ]
     );
     const merchantId = Number(merchantResult.rows[0]?.id);

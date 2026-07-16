@@ -92,20 +92,55 @@ function toBrowseMerchantPayload(row) {
     description: normalizeOptional(row.description),
     phone: normalizeOptional(row.phone),
     imageUrl: normalizeOptional(row.imageUrl ?? row.image_url),
+    logoUrl: normalizeOptional(row.logoUrl ?? row.logo_url),
+    coverImageUrl: normalizeOptional(row.coverImageUrl ?? row.cover_image_url),
     tagline: normalizeOptional(row.tagline),
     workingHours: normalizeOptional(row.workingHours ?? row.working_hours),
     avgMerchantRating: Number(row.avgMerchantRating ?? row.avg_merchant_rating ?? 0),
     ratingCount: Math.max(0, Number(row.ratingCount ?? row.rating_count ?? 0)),
     isOpen: row.isOpen === true || row.is_open === true,
+    isVerified: row.isVerified === true || row.is_verified === true,
+    nextOpenAt: toIsoOrNull(row.nextOpenAt ?? row.next_open_at),
+    deliveryEtaMinMinutes: toNullableInt(
+      row.deliveryEtaMinMinutes ?? row.delivery_eta_min_minutes
+    ),
+    deliveryEtaMaxMinutes: toNullableInt(
+      row.deliveryEtaMaxMinutes ?? row.delivery_eta_max_minutes
+    ),
+    deliveryFee: toNullableAmount(row.deliveryFee ?? row.delivery_fee),
+    minimumOrder: toNullableAmount(row.minimumOrder ?? row.minimum_order),
     hasDiscountOffer:
       row.hasDiscountOffer === true || row.has_discount_offer === true,
     hasFreeDeliveryOffer:
       row.hasFreeDeliveryOffer === true || row.has_free_delivery_offer === true,
+    hasActiveOffer:
+      row.hasDiscountOffer === true ||
+      row.has_discount_offer === true ||
+      row.hasFreeDeliveryOffer === true ||
+      row.has_free_delivery_offer === true,
     supportsPharmacyWorkflow:
       row.supportsPharmacyWorkflow === true ||
       row.supports_pharmacy_workflow === true,
     smartRankScore: Number(row.smartRankScore ?? row.smart_rank_score ?? 0),
   };
+}
+
+/// Parses to a non-negative integer, or null when absent/invalid. Never
+/// fabricates a default — a missing ETA stays unknown.
+function toNullableInt(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const truncated = Math.trunc(n);
+  return truncated < 0 ? null : truncated;
+}
+
+/// Parses to a non-negative amount, or null when absent/invalid.
+function toNullableAmount(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
 }
 
 /**
@@ -186,6 +221,13 @@ export async function createMerchant(dto, approvedByUserId) {
     supportsChat: capabilities.supportsChat,
     supportsAttachments: capabilities.supportsAttachments,
     supportsPharmacyWorkflow: capabilities.supportsPharmacyWorkflow,
+    logoUrl: normalizeOptional(dto.logoUrl),
+    coverImageUrl: normalizeOptional(dto.coverImageUrl),
+    deliveryEtaMinMinutes: toNullableInt(dto.deliveryEtaMinMinutes),
+    deliveryEtaMaxMinutes: toNullableInt(dto.deliveryEtaMaxMinutes),
+    deliveryFee: toNullableAmount(dto.deliveryFee),
+    minimumOrder: toNullableAmount(dto.minimumOrder),
+    isVerified: dto.isVerified === true,
   };
 
   let ownerToCreate = null;
@@ -478,8 +520,18 @@ function mapPublicMerchantRow(row) {
     supportsPharmacyWorkflow: row.supports_pharmacy_workflow === true,
     hasDiscountOffer: row.has_discount_offer === true,
     hasFreeDeliveryOffer: row.has_free_delivery_offer === true,
+    hasActiveOffer:
+      row.has_discount_offer === true || row.has_free_delivery_offer === true,
     avgMerchantRating: Number(row.avg_merchant_rating || 0),
     ratingCount: Number(row.rating_count || 0),
+    logoUrl: normalizeOptional(row.logo_url),
+    coverImageUrl: normalizeOptional(row.cover_image_url),
+    isVerified: row.is_verified === true,
+    nextOpenAt: toIsoOrNull(row.next_open_at),
+    deliveryEtaMinMinutes: toNullableInt(row.delivery_eta_min_minutes),
+    deliveryEtaMaxMinutes: toNullableInt(row.delivery_eta_max_minutes),
+    deliveryFee: toNullableAmount(row.delivery_fee),
+    minimumOrder: toNullableAmount(row.minimum_order),
     latitude:
       row.latitude === null || row.latitude === undefined
         ? null
