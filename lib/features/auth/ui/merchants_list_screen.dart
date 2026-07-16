@@ -4,8 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/constants/pricing.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/parsers.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
@@ -3237,23 +3237,79 @@ class _MerchantTalabatCard extends StatelessWidget {
     required this.onTap,
   });
 
+  // --- Real-data resolvers (no fabricated ratings / ETA / fees / distance) ---
+
+  String? get _coverSource {
+    final cover = merchant.coverImageUrl?.trim();
+    if (cover != null && cover.isNotEmpty) return cover;
+    final image = merchant.imageUrl?.trim();
+    return (image != null && image.isNotEmpty) ? image : null;
+  }
+
+  /// Distinct logo only. Never reuses the exact image already shown as cover
+  /// (avoids an ugly duplicate); falls back to a Maslaki placeholder instead.
+  String? get _logoSource {
+    final logo = merchant.logoUrl?.trim();
+    if (logo != null && logo.isNotEmpty) return logo;
+    final image = merchant.imageUrl?.trim();
+    final cover = merchant.coverImageUrl?.trim();
+    if (image != null && image.isNotEmpty && image != cover) return image;
+    return null;
+  }
+
+  String _statusLabel(BuildContext context) {
+    final l10n = context.l10n;
+    if (merchant.isOpen) return l10n.merchantListStatusOpenNow;
+    final next = merchant.nextOpenAt;
+    if (next != null) {
+      final local = next.toLocal();
+      final hh = local.hour.toString().padLeft(2, '0');
+      final mm = local.minute.toString().padLeft(2, '0');
+      return context.lt(
+        ar: 'يفتح $hh:$mm',
+        en: 'Opens $hh:$mm',
+      );
+    }
+    return l10n.merchantListStatusClosedNow;
+  }
+
+  String? _etaLabel(BuildContext context) {
+    if (!merchant.hasDeliveryEta) return null;
+    final min = merchant.deliveryEtaMinMinutes;
+    final max = merchant.deliveryEtaMaxMinutes;
+    if (min != null && max != null) {
+      return context.lt(ar: '$min–$max دقيقة', en: '$min–$max min');
+    }
+    if (max != null) {
+      return context.lt(ar: 'حتى $max دقيقة', en: 'up to $max min');
+    }
+    return context.lt(ar: 'من $min دقيقة', en: 'from $min min');
+  }
+
+  String? _feeLabel(BuildContext context) {
+    if (merchant.hasFreeDeliveryOffer ||
+        (merchant.deliveryFee != null && merchant.deliveryFee == 0)) {
+      return context.lt(ar: 'توصيل مجاني', en: 'Free delivery');
+    }
+    final fee = merchant.deliveryFee;
+    if (fee != null && fee > 0) {
+      return context.lt(
+        ar: 'توصيل ${formatIqd(fee)}',
+        en: 'Delivery ${formatIqd(fee)}',
+      );
+    }
+    return null; // Unknown fee → show nothing, never a fake value.
+  }
+
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    final typeLabel = merchant.type == 'restaurant'
-        ? l10n.merchantListTypeRestaurant
-        : l10n.merchantListTypeMarket;
-    final hasOffers =
-        merchant.hasDiscountOffer || merchant.hasFreeDeliveryOffer;
-    final deliveryLabel = merchant.hasFreeDeliveryOffer
-        ? l10n.merchantListBadgeFreeDelivery
-        : formatIqd(deliveryFeeIqd);
-    final etaLabel = merchant.isOpen
-        ? l10n.merchantListEtaMinutesRange(25, 40)
-        : l10n.merchantListEtaClosed;
-    final statusLabel = merchant.isOpen
-        ? l10n.merchantListStatusOpenNow
-        : l10n.merchantListStatusClosedNow;
+    final cover = _coverSource;
+    final logo = _logoSource;
+    final storeIcon = merchant.type == 'restaurant'
+        ? Icons.restaurant_rounded
+        : Icons.storefront_rounded;
+    final etaLabel = _etaLabel(context);
+    final feeLabel = _feeLabel(context);
 
     return AnimatedScale(
       duration: const Duration(milliseconds: 260),
@@ -3304,193 +3360,330 @@ class _MerchantTalabatCard extends StatelessWidget {
                     ]
                   : const [],
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 66,
-                        height: 66,
-                        child: Stack(
-                          children: [
-                            Positioned.fill(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(14),
-                                child: SizedBox(
-                                  width: 66,
-                                  height: 66,
-                                  child: merchant.imageUrl?.isNotEmpty == true
-                                      ? CachedAppImage(
-                                          imageUrl: merchant.imageUrl!,
-                                          fit: BoxFit.cover,
-                                          errorWidget:
-                                              (
-                                                context,
-                                                error,
-                                                stackTrace,
-                                              ) => Container(
-                                                color: Colors.white.withValues(
-                                                  alpha: 0.10,
-                                                ),
-                                                alignment: Alignment.center,
-                                                child: Icon(
-                                                  merchant.type == 'restaurant'
-                                                      ? Icons.restaurant_rounded
-                                                      : Icons
-                                                            .storefront_rounded,
-                                                ),
-                                              ),
-                                        )
-                                      : Container(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.10,
-                                          ),
-                                          alignment: Alignment.center,
-                                          child: Icon(
-                                            merchant.type == 'restaurant'
-                                                ? Icons.restaurant_rounded
-                                                : Icons.storefront_rounded,
-                                          ),
-                                        ),
-                                ),
-                              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // ---- Large cover ----
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
+                  child: AspectRatio(
+                    aspectRatio: 2.7,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (cover != null)
+                          CachedAppImage(
+                            imageUrl: cover,
+                            cacheIdentity: 'store_cover_${merchant.id}',
+                            fit: BoxFit.cover,
+                            errorWidget: (context, error, stackTrace) =>
+                                _CoverPlaceholder(icon: storeIcon),
+                          )
+                        else
+                          _CoverPlaceholder(icon: storeIcon),
+                        // Legibility scrim.
+                        const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.transparent, Colors.black38],
                             ),
-                            if (onToggleFavorite != null)
-                              Positioned(
-                                left: 2,
-                                top: 2,
-                                child: Material(
-                                  color: Colors.black.withValues(alpha: 0.28),
-                                  shape: const CircleBorder(),
-                                  child: InkWell(
-                                    customBorder: const CircleBorder(),
-                                    onTap: onToggleFavorite,
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(5),
-                                      child: Icon(
-                                        isFavorite
-                                            ? Icons.favorite_rounded
-                                            : Icons.favorite_border_rounded,
-                                        size: 16,
-                                        color: isFavorite
-                                            ? Colors.redAccent
-                                            : Colors.white,
-                                      ),
-                                    ),
+                          ),
+                        ),
+                        // Favorite (top-start).
+                        if (onToggleFavorite != null)
+                          PositionedDirectional(
+                            top: 8,
+                            start: 8,
+                            child: Material(
+                              color: Colors.black.withValues(alpha: 0.34),
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: onToggleFavorite,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(6),
+                                  child: Icon(
+                                    isFavorite
+                                        ? Icons.favorite_rounded
+                                        : Icons.favorite_border_rounded,
+                                    size: 18,
+                                    color: isFavorite
+                                        ? Colors.redAccent
+                                        : Colors.white,
                                   ),
                                 ),
                               ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              merchant.name,
-                              textDirection: TextDirection.rtl,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 16,
-                              ),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              merchant.description?.trim().isNotEmpty == true
-                                  ? merchant.description!
-                                  : l10n.merchantListCardFallbackDescription,
-                              textDirection: TextDirection.rtl,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.82),
-                              ),
-                            ),
-                            if (hasOffers) ...[
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                alignment: WrapAlignment.end,
-                                children: [
-                                  if (merchant.hasDiscountOffer)
-                                    _MetaChip(
-                                      icon: Icons.local_offer_rounded,
-                                      text: l10n.merchantListBadgeDiscounts,
-                                    ),
-                                  if (merchant.hasFreeDeliveryOffer)
-                                    _MetaChip(
-                                      icon: Icons.local_shipping_rounded,
-                                      text: l10n.merchantListBadgeFreeDelivery,
-                                    ),
-                                ],
-                              ),
+                          ),
+                        // Verified + offer badges (top-end).
+                        PositionedDirectional(
+                          top: 8,
+                          end: 8,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (merchant.hasActiveOffer)
+                                _CoverBadge(
+                                  icon: Icons.local_offer_rounded,
+                                  label: context.lt(ar: 'عرض', en: 'Offer'),
+                                  color: const Color(0xFFE0752D),
+                                ),
+                              if (merchant.isVerified) ...[
+                                if (merchant.hasActiveOffer)
+                                  const SizedBox(width: 6),
+                                _CoverBadge(
+                                  icon: Icons.verified_rounded,
+                                  label: context.lt(
+                                    ar: 'موثّق',
+                                    en: 'Verified',
+                                  ),
+                                  color: const Color(0xFF2E7CD6),
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      alignment: WrapAlignment.end,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      textDirection: TextDirection.rtl,
-                      children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 220),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
                           ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(999),
-                            color: merchant.isOpen
-                                ? Colors.green.withValues(alpha: 0.20)
-                                : Colors.red.withValues(alpha: 0.20),
-                            border: Border.all(
-                              color: merchant.isOpen
-                                  ? Colors.green.withValues(alpha: 0.45)
-                                  : Colors.red.withValues(alpha: 0.45),
-                            ),
-                          ),
-                          child: Text(
-                            statusLabel,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        _MetaChip(
-                          icon: Icons.category_rounded,
-                          text: typeLabel,
-                        ),
-                        _MetaChip(
-                          icon: Icons.local_shipping_rounded,
-                          text: deliveryLabel,
-                        ),
-                        _MetaChip(
-                          icon: Icons.schedule_rounded,
-                          text: etaLabel,
-                          maxTextWidth: 118,
                         ),
                       ],
                     ),
                   ),
-                ],
-              ),
+                ),
+                // ---- Body: logo + name + desc + meta ----
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        textDirection: TextDirection.rtl,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _StoreLogo(
+                            imageUrl: logo,
+                            fallbackIcon: storeIcon,
+                            merchantId: merchant.id,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  merchant.name,
+                                  textDirection: TextDirection.rtl,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                if (merchant.description?.trim().isNotEmpty ==
+                                    true) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    merchant.description!.trim(),
+                                    textDirection: TextDirection.rtl,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.82,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        textDirection: TextDirection.rtl,
+                        children: [
+                          _StatusPill(
+                            label: _statusLabel(context),
+                            isOpen: merchant.isOpen,
+                          ),
+                          _RatingChip(
+                            avgRating: merchant.avgMerchantRating,
+                            ratingCount: merchant.ratingCount,
+                          ),
+                          if (etaLabel != null)
+                            _MetaChip(
+                              icon: Icons.schedule_rounded,
+                              text: etaLabel,
+                              maxTextWidth: 118,
+                            ),
+                          if (feeLabel != null)
+                            _MetaChip(
+                              icon: Icons.local_shipping_rounded,
+                              text: feeLabel,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Maslaki-branded placeholder for a missing store cover.
+class _CoverPlaceholder extends StatelessWidget {
+  final IconData icon;
+  const _CoverPlaceholder({required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [Color(0xFF1C355F), Color(0xFF122A4C)],
+        ),
+      ),
+      child: Center(
+        child: Icon(icon, size: 40, color: Colors.white.withValues(alpha: 0.5)),
+      ),
+    );
+  }
+}
+
+/// Circular store logo with a Maslaki placeholder when no distinct logo exists.
+class _StoreLogo extends StatelessWidget {
+  final String? imageUrl;
+  final IconData fallbackIcon;
+  final int merchantId;
+
+  const _StoreLogo({
+    required this.imageUrl,
+    required this.fallbackIcon,
+    required this.merchantId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+        color: Colors.white.withValues(alpha: 0.06),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: imageUrl != null
+          ? CachedAppImage(
+              imageUrl: imageUrl!,
+              cacheIdentity: 'store_logo_$merchantId',
+              fit: BoxFit.cover,
+              errorWidget: (context, error, stackTrace) =>
+                  Icon(fallbackIcon, color: Colors.white70),
+            )
+          : Icon(fallbackIcon, color: Colors.white70),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  final String label;
+  final bool isOpen;
+  const _StatusPill({required this.label, required this.isOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: isOpen
+            ? Colors.green.withValues(alpha: 0.20)
+            : Colors.red.withValues(alpha: 0.20),
+        border: Border.all(
+          color: isOpen
+              ? Colors.green.withValues(alpha: 0.45)
+              : Colors.red.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
+/// Real rating with count, or "متجر جديد" when there are no reviews yet.
+class _RatingChip extends StatelessWidget {
+  final double? avgRating;
+  final int ratingCount;
+  const _RatingChip({required this.avgRating, required this.ratingCount});
+
+  @override
+  Widget build(BuildContext context) {
+    if (ratingCount <= 0 || avgRating == null) {
+      return _MetaChip(
+        icon: Icons.fiber_new_rounded,
+        text: context.lt(ar: 'متجر جديد', en: 'New store'),
+      );
+    }
+    final label = context.lt(
+      ar: '${avgRating!.toStringAsFixed(1)} ($ratingCount تقييم)',
+      en: '${avgRating!.toStringAsFixed(1)} ($ratingCount reviews)',
+    );
+    return _MetaChip(icon: Icons.star_rounded, text: label, maxTextWidth: 130);
+  }
+}
+
+/// Small pill used for verified/offer badges on the cover.
+class _CoverBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  const _CoverBadge({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: color.withValues(alpha: 0.92),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: Colors.white),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+        ],
       ),
     );
   }
