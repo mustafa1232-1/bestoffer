@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
+import '../../../core/widgets/loading_skeletons.dart';
 import '../../../core/utils/parsers.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
@@ -1536,8 +1537,11 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
             ),
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(child: Text(error.toString())),
+        loading: () => const StoreListSkeleton(),
+        error: (error, _) => MaslakiErrorRetry(
+          message: 'تعذّر تحميل المتاجر. تحقق من اتصالك ثم أعد المحاولة.',
+          onRetry: _refresh,
+        ),
       ),
     );
   }

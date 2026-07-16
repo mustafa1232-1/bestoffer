@@ -9,6 +9,7 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/widgets/loading_skeletons.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../behavior/data/behavior_api.dart';
 import '../../orders/state/cart_controller.dart';
@@ -1263,8 +1264,21 @@ class _MerchantProductsScreenState
               ],
             );
           },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(child: Text(error.toString())),
+          loading: () => ListView(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 22),
+            children: const [
+              SkeletonBox(height: 150, borderRadius: BorderRadius.all(Radius.circular(16))),
+              SizedBox(height: 14),
+              ProductRowSkeleton(),
+              ProductRowSkeleton(),
+              ProductRowSkeleton(),
+              ProductRowSkeleton(),
+            ],
+          ),
+          error: (error, _) => MaslakiErrorRetry(
+            message: 'تعذّر تحميل منتجات المتجر. تحقق من اتصالك ثم أعد المحاولة.',
+            onRetry: _load,
+          ),
         ),
       ),
     );
