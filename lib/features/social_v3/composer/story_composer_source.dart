@@ -192,17 +192,25 @@ class SharedReelSource {
 
   factory SharedReelSource.fromReelRef(SharedReelRef ref) => SharedReelSource(
     reelId: ref.reelId,
-    originalOwnerId: 0,
-    playbackUrl: null,
-    thumbnailUrl: null,
-    posterUrl: null,
-    width: null,
-    height: null,
-    caption: ref.caption ?? '',
-    available: true,
-    authorName: null,
-    authorAvatarUrl: null,
-    authorHandle: null,
+    originalOwnerId: ref.originalOwnerId,
+    playbackUrl: ref.playbackUrl,
+    thumbnailUrl: ref.thumbnailUrl,
+    posterUrl: ref.posterUrl,
+    width: ref.width ?? (ref.aspectRatio == null ? null : 1080),
+    height:
+        ref.height ??
+        (ref.aspectRatio == null
+            ? null
+            : (1080 / ref.aspectRatio!.clamp(0.0001, 9999)).round()),
+    caption: (ref.caption ?? '').trim(),
+    available: ref.available,
+    authorName: (ref.authorName ?? ref.author ?? '').trim().isEmpty
+        ? null
+        : (ref.authorName ?? ref.author)?.trim(),
+    authorAvatarUrl: ref.authorAvatarUrl,
+    authorHandle: (ref.authorHandle ?? '').trim().isEmpty
+        ? null
+        : ref.authorHandle!.trim(),
   );
 }
 

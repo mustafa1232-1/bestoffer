@@ -1,5 +1,6 @@
 import 'package:flutter/painting.dart';
 import 'package:social_core/social_models.dart';
+import 'package:social_core/social_story_document.dart';
 
 import '../media/social_media_presentation.dart';
 
@@ -67,6 +68,8 @@ class StoryV3Item {
 
   factory StoryV3Item.fromStory(SocialStory story) {
     final style = story.style;
+    final draft = SocialStoryDraft.fromStoryStyle(story: story);
+    final attachment = draft.attachment;
     final kind = (story.mediaKind ?? '').trim().toLowerCase();
     final mediaKind = switch (kind) {
       'reel' => SocialMediaKind.reel,
@@ -103,12 +106,41 @@ class StoryV3Item {
       allowComments: story.allowComments,
       allowSharing: story.allowSharing,
       allowReshare: story.allowReshare,
-      sharedReel: style.sharedPostId == null
+      sharedReel: attachment?.isReelShare != true
           ? null
           : SharedReelRef(
-              reelId: style.sharedPostId!,
-              author: style.sharedPostAuthor,
-              caption: style.sharedPostCaption,
+              reelId: attachment?.reelId ?? style.sharedPostId ?? story.id,
+              originalOwnerId: story.userId,
+              playbackUrl:
+                  attachment?.playbackUrl ??
+                  attachment?.mediaUrl ??
+                  style.sharedPostMediaUrl ??
+                  story.mediaUrl ??
+                  story.asset?.playbackUrl,
+              thumbnailUrl:
+                  attachment?.thumbnailUrl ??
+                  attachment?.posterUrl ??
+                  story.asset?.thumbnailUrl ??
+                  story.asset?.posterUrl,
+              posterUrl:
+                  attachment?.posterUrl ??
+                  attachment?.thumbnailUrl ??
+                  story.asset?.posterUrl ??
+                  story.asset?.thumbnailUrl,
+              aspectRatio:
+                  attachment?.aspectRatio ?? story.asset?.aspectRatio ?? 9 / 16,
+              available: story.asset?.isReady != false,
+              author:
+                  attachment?.authorName ??
+                  style.sharedPostAuthor ??
+                  'user_${story.userId}',
+              authorName: attachment?.authorName ?? style.sharedPostAuthor,
+              authorAvatarUrl: null,
+              authorHandle: null,
+              caption:
+                  attachment?.caption ??
+                  style.sharedPostCaption ??
+                  story.caption,
             ),
     );
   }
@@ -167,11 +199,33 @@ class StoryV3Group {
 class SharedReelRef {
   const SharedReelRef({
     required this.reelId,
+    required this.originalOwnerId,
+    required this.playbackUrl,
+    required this.thumbnailUrl,
+    required this.posterUrl,
+    required this.aspectRatio,
+    required this.available,
     required this.author,
     required this.caption,
+    this.authorName,
+    this.authorAvatarUrl,
+    this.authorHandle,
+    this.width,
+    this.height,
   });
 
   final int reelId;
+  final int originalOwnerId;
+  final String? playbackUrl;
+  final String? thumbnailUrl;
+  final String? posterUrl;
+  final double? aspectRatio;
+  final bool available;
   final String? author;
+  final String? authorName;
+  final String? authorAvatarUrl;
+  final String? authorHandle;
   final String? caption;
+  final int? width;
+  final int? height;
 }
