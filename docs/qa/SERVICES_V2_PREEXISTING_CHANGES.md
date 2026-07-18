@@ -7,14 +7,14 @@ This file inventories the dirty worktree before Services V2 Phase 1 starts. It i
 - Backup branch: backup/pre-services-v2-production-closure
 - Classification hash: 65c4055b106af5c0dc82a2735b5bf8b6a143967229b139e7b75b405ece48a2b1
 - Service-related preexisting files: 25
-- Unrelated preexisting files: 122
-- Baseline documents: 1
+- Unrelated preexisting files: 120
+- Baseline documents: 3
 
 ## Classification Rules
 
 - `SERVICE_PREEXISTING`: files already modified before Services V2 that touch the service booking surface or its immediate tests/docs.
 - `UNRELATED_PREEXISTING`: all other preexisting modifications, including taxi, social, coupons, build artifacts, and other workstreams.
-- `BASELINE_NEW`: the new Services V2 baseline document only.
+- `BASELINE_NEW`: the three new Services V2 baseline documents only.
 
 ## SERVICE_PREEXISTING
 
@@ -81,8 +81,6 @@ This file inventories the dirty worktree before Services V2 Phase 1 starts. It i
 | backend/src/tests/notifications.end-to-end.test.js | M | No | 73 | 1 | No | PRESERVE_UNTOUCHED | - |
 | backend/src/tests/taxi.hardening.test.js | M | No | 14 | 1 | No | PRESERVE_UNTOUCHED | - |
 | backend/src/tests/taxi.negotiation.test.js | M | No | 5 | 5 | No | PRESERVE_UNTOUCHED | - |
-| docs/qa/SERVICES_V2_PREEXISTING_CHANGES.md | ?? | No | 322 | 0 | No | PRESERVE_UNTOUCHED | - |
-| docs/qa/SERVICES_V2_PREEXISTING_DIFF_SUMMARY.txt | ?? | No | 0 | 0 | No | PRESERVE_UNTOUCHED | - |
 | docs/qa/STORE_PRODUCTION_CLOSURE_BASELINE.md | ?? | No | 68 | 0 | No | PRESERVE_UNTOUCHED | - |
 | lib/app_delivery_bootstrap.dart | M | No | 8 | 0 | No | PRESERVE_UNTOUCHED | - |
 | lib/app_user_bootstrap.dart | M | No | 6 | 6 | No | PRESERVE_UNTOUCHED | - |
@@ -177,7 +175,9 @@ This file inventories the dirty worktree before Services V2 Phase 1 starts. It i
 
 | path | status | service-related | +lines | -lines | secrets | decision | note |
 |---|---|---|---:|---:|---|---|---|
-| docs/qa/SERVICES_V2_BASELINE.md | ?? | No | 305 | 0 | No | BASELINE_DOCUMENT | - |
+| docs/qa/SERVICES_V2_BASELINE.md | ?? | No | 366 | 0 | No | BASELINE_DOCUMENT | - |
+| docs/qa/SERVICES_V2_PREEXISTING_CHANGES.md | ?? | No | 340 | 0 | No | BASELINE_DOCUMENT | - |
+| docs/qa/SERVICES_V2_PREEXISTING_DIFF_SUMMARY.txt | ?? | No | 388 | 0 | No | BASELINE_DOCUMENT | - |
 
 ## Service Baseline Themes
 
@@ -188,7 +188,9 @@ This file inventories the dirty worktree before Services V2 Phase 1 starts. It i
 
 ## Full Inventory Snapshot
 
-BASELINE_NEW	docs/qa/SERVICES_V2_BASELINE.md	??	305	0	No	No	BASELINE_DOCUMENT
+BASELINE_NEW	docs/qa/SERVICES_V2_BASELINE.md	??	366	0	No	No	BASELINE_DOCUMENT
+BASELINE_NEW	docs/qa/SERVICES_V2_PREEXISTING_CHANGES.md	??	340	0	No	No	BASELINE_DOCUMENT
+BASELINE_NEW	docs/qa/SERVICES_V2_PREEXISTING_DIFF_SUMMARY.txt	??	388	0	No	No	BASELINE_DOCUMENT
 SERVICE_PREEXISTING	backend/sql/148_service_categories_seed_expansion.sql	??	15	0	Yes	No	REVIEW_BEFORE_V2
 SERVICE_PREEXISTING	backend/sql/149_service_categories_seed_coverage.sql	??	25	0	Yes	No	REVIEW_BEFORE_V2
 SERVICE_PREEXISTING	backend/sql/150_service_categories_seed_subcategories.sql	??	141	0	Yes	No	REVIEW_BEFORE_V2
@@ -245,8 +247,6 @@ UNRELATED_PREEXISTING	backend/src/tests/feed.story-interactions.test.js	M	87	0	N
 UNRELATED_PREEXISTING	backend/src/tests/notifications.end-to-end.test.js	M	73	1	No	No	PRESERVE_UNTOUCHED
 UNRELATED_PREEXISTING	backend/src/tests/taxi.hardening.test.js	M	14	1	No	No	PRESERVE_UNTOUCHED
 UNRELATED_PREEXISTING	backend/src/tests/taxi.negotiation.test.js	M	5	5	No	No	PRESERVE_UNTOUCHED
-UNRELATED_PREEXISTING	docs/qa/SERVICES_V2_PREEXISTING_CHANGES.md	??	322	0	No	No	PRESERVE_UNTOUCHED
-UNRELATED_PREEXISTING	docs/qa/SERVICES_V2_PREEXISTING_DIFF_SUMMARY.txt	??	0	0	No	No	PRESERVE_UNTOUCHED
 UNRELATED_PREEXISTING	docs/qa/STORE_PRODUCTION_CLOSURE_BASELINE.md	??	68	0	No	No	PRESERVE_UNTOUCHED
 UNRELATED_PREEXISTING	lib/app_delivery_bootstrap.dart	M	8	0	No	No	PRESERVE_UNTOUCHED
 UNRELATED_PREEXISTING	lib/app_user_bootstrap.dart	M	6	6	No	No	PRESERVE_UNTOUCHED

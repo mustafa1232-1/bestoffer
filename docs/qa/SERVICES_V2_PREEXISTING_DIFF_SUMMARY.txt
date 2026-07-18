@@ -4,6 +4,7 @@
 - Current branch: feat/services-booking-v2-production-closure
 - Backup branch: backup/pre-services-v2-production-closure
 - Diff fingerprint hash: 65c4055b106af5c0dc82a2735b5bf8b6a143967229b139e7b75b405ece48a2b1
+- Baseline documentation files are tracked separately in SERVICES_V2_PREEXISTING_CHANGES.md (BASELINE_NEW) and excluded from this preexisting diff summary.
 
 ## Raw git diff --stat
 

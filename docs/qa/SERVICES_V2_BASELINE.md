@@ -11,21 +11,24 @@ This document records the current service-system baseline before any Services V2
 - Baseline SHA: 7eb2da1dbfdc33ddd4616e7289f6e11586023056
 - Backup branch: backup/pre-services-v2-production-closure
 - Worktree status: dirty, with existing unrelated and related service changes already present
-- Last migration number: 154
+- Highest migration in the working tree: 154
+- Migration file: backend/sql/154_taxi_price_raise_round.sql
+- Migration 154 tracked state: untracked
+- Do not reserve 155 for Services V2 until Phase 2 rechecks the branch and local tree.
 - Existing uncommitted service-related files in the tree include:
-  - ackend/sql/147_social_post_story_style.sql
-  - ackend/sql/148_service_categories_seed_expansion.sql
-  - ackend/sql/149_service_categories_seed_coverage.sql
-  - ackend/sql/150_service_categories_seed_subcategories.sql
-  - ackend/sql/151_service_offering_moderation_changes_requested.sql
-  - ackend/src/tests/services.categories.test.js
-  - 	est/services/service_provider_onboarding_categories_test.dart
-  - 	est/services/services_ui_smoke_test.dart
+  - backend/sql/147_social_post_story_style.sql
+  - backend/sql/148_service_categories_seed_expansion.sql
+  - backend/sql/149_service_categories_seed_coverage.sql
+  - backend/sql/150_service_categories_seed_subcategories.sql
+  - backend/sql/151_service_offering_moderation_changes_requested.sql
+  - backend/src/tests/services.categories.test.js
+  - test/services/service_provider_onboarding_categories_test.dart
+  - test/services/services_ui_smoke_test.dart
 
 ## Verified Baseline Tests
 
-- lutter analyze: PASS
-- lutter test: PASS, 565 tests
+- flutter analyze: PASS
+- flutter test: PASS, 565 tests
 - cd backend && npm test: PASS, 386 backend tests
 - These are local baseline results only, not production E2E evidence.
 
@@ -116,7 +119,7 @@ This document records the current service-system baseline before any Services V2
 - per_room
 - per_meter
 - per_item
-- ixed_package
+- fixed_package
 - starting_from
 - inspection_required
 - custom_quote
@@ -124,10 +127,10 @@ This document records the current service-system baseline before any Services V2
 ### Pricing Units
 
 - hour
-- isit
+- visit
 - day
 - device
-- oom
+- room
 - meter
 - item
 - package
@@ -138,52 +141,52 @@ This document records the current service-system baseline before any Services V2
 
 - home
 - provider_location
-- oth
-- emote
+- both
+- remote
 
 ### Booking Policies
 
 - instant
-- pproval_required
+- approval_required
 
 ### Service Request Statuses
 
 - pending
-- waiting_provider
-- ccepted
+- awaiting_provider
+- accepted
 - scheduled
 - in_progress
 - completed
 - cancelled
-- ejected
+- rejected
 
 ### Provider Approval Statuses
 
 - pending
-- pproved
-- ejected
+- approved
+- rejected
 - suspended
 
 ### Offering Moderation Statuses
 
 - pending
-- pproved
-- ejected
+- approved
+- rejected
 - changes_requested
 - hidden
 
 ### Category Suggestion Statuses
 
 - pending
-- pproved
-- ejected
+- approved
+- rejected
 - merged
 
 ### Quote Statuses
 
 - pending_customer
-- ccepted
-- ejected
+- accepted
+- rejected
 - expired
 - cancelled
 
@@ -195,15 +198,15 @@ This document records the current service-system baseline before any Services V2
 - offer_rejected
 - payment_pending_confirmation
 - payment_confirmed
-- ccount_created
+- account_created
 - cancelled
-- ejected
+- rejected
 
 ### Provider Subscription Offer Statuses
 
 - pending_provider
-- ccepted
-- ejected
+- accepted
+- rejected
 - superseded
 - cancelled
 - expired
@@ -322,7 +325,7 @@ The current services module is backed by these tables:
 
 - The current services flow still relies on provider/workspace quoting and request negotiation.
 - There is no documented V2 direct-booking contract yet.
-- There is no documented ooking_version = 2 migration yet.
+- There is no documented booking_version = 2 migration yet.
 - The provider admin moderation experience is spread across provider requests, offerings, categories, reports, and settings.
 - The services UI still needs a production closure pass for:
   - direct booking semantics
