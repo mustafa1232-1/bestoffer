@@ -982,7 +982,8 @@ export const markGroupedDelivered = withTx(async (client, { courierUserId, deliv
   }
   await client.query(
     `UPDATE delivery_job
-        SET lifecycle_status='DELIVERED',
+        SET assignment_status='COMPLETED',
+            lifecycle_status='DELIVERED',
             completed_at=NOW(),
             version=version+1,
             updated_at=NOW()

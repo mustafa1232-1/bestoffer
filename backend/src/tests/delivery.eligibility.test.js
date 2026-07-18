@@ -12,7 +12,17 @@ import {
   createMultiStoreFixture,
   cleanupMultiStoreFixture,
 } from "./fixtures/multistore-delivery.fixture.js";
-import { ensureDeliveryJobForGroup, recomputeGroupReadiness, assignDeliveryJobTx } from "../modules/delivery/delivery-job.service.js";
+import {
+  ensureDeliveryJobForGroup,
+  recomputeGroupReadiness,
+  assignDeliveryJobTx,
+  acknowledgeGroupedJob,
+  headingToPickups,
+  markStopArrived,
+  markStopCollected,
+  headingToCustomer,
+  markGroupedDelivered,
+} from "../modules/delivery/delivery-job.service.js";
 
 const MARK = "fixt_el_";
 function newClient() {
@@ -191,7 +201,7 @@ test("eligibility: each rule excludes with a precise reason", async (t) => {
   await c.query(`DELETE FROM app_user WHERE id=$1`, [custId]);
 });
 
-test("eligibility: courier becomes selectable again after grouped delivery completes", async (t) => {
+test("delivery: completed courier receives a second grouped job without relogin", async (t) => {
   const c = newClient();
   await c.connect();
   t.after(async () => {
@@ -200,47 +210,106 @@ test("eligibility: courier becomes selectable again after grouped delivery compl
   });
   await cleanup(c);
 
-  const fx = await createMultiStoreFixture(c, { mark: MARK });
+  const fxA = await createMultiStoreFixture(c, { mark: MARK + "a_" });
   await c.query("BEGIN");
-  await ensureDeliveryJobForGroup(c, fx.orderGroupId);
-  await recomputeGroupReadiness(c, fx.orderGroupId);
-  await assignDeliveryJobTx(c, { orderGroupId: fx.orderGroupId, courierUserId: fx.courierId });
+  await ensureDeliveryJobForGroup(c, fxA.orderGroupId);
+  await recomputeGroupReadiness(c, fxA.orderGroupId);
+  await assignDeliveryJobTx(c, { orderGroupId: fxA.orderGroupId, courierUserId: fxA.courierId });
   await c.query("COMMIT");
 
-  const jobId = Number(
-    (await c.query("SELECT id FROM delivery_job WHERE order_group_id=$1", [fx.orderGroupId])).rows[0].id
+  const jobAId = Number(
+    (await c.query("SELECT id FROM delivery_job WHERE order_group_id=$1", [fxA.orderGroupId])).rows[0].id
   );
-  await c.query(
-    `UPDATE delivery_job
-        SET assignment_status='ASSIGNED',
-            lifecycle_status='DELIVERED',
-            completed_at=NOW(),
-            updated_at=NOW()
-      WHERE id=$1`,
-    [jobId]
+  const [stopA, stopB] = (
+    await c.query(
+      `SELECT id
+         FROM delivery_pickup_stop
+        WHERE delivery_job_id=$1
+        ORDER BY sequence_number`,
+      [jobAId]
+    )
+  ).rows.map((r) => Number(r.id));
+
+  await acknowledgeGroupedJob({ courierUserId: fxA.courierId, deliveryJobId: jobAId });
+  await headingToPickups({ courierUserId: fxA.courierId, deliveryJobId: jobAId });
+  await markStopArrived({ courierUserId: fxA.courierId, deliveryJobId: jobAId, stopId: stopA });
+  await markStopCollected({ courierUserId: fxA.courierId, deliveryJobId: jobAId, stopId: stopA });
+  await markStopArrived({ courierUserId: fxA.courierId, deliveryJobId: jobAId, stopId: stopB });
+  await markStopCollected({ courierUserId: fxA.courierId, deliveryJobId: jobAId, stopId: stopB });
+  await headingToCustomer({ courierUserId: fxA.courierId, deliveryJobId: jobAId });
+  const delivered = await markGroupedDelivered({ courierUserId: fxA.courierId, deliveryJobId: jobAId });
+  assert.equal(delivered.lifecycleStatus, "DELIVERED");
+
+  const jobA = (await c.query("SELECT * FROM delivery_job WHERE id=$1", [jobAId])).rows[0];
+  assert.equal(jobA.assignment_status, "COMPLETED", "Job A releases the courier after delivery");
+  assert.equal(jobA.lifecycle_status, "DELIVERED", "Job A reached terminal lifecycle");
+  assert.ok(jobA.completed_at, "Job A completed_at is set");
+  const activeA = Number(
+    (
+      await c.query(
+        `SELECT COUNT(*)::int AS n
+           FROM courier_assignment
+          WHERE delivery_job_id=$1 AND ended_at IS NULL`,
+        [jobAId]
+      )
+    ).rows[0].n
   );
-  await c.query(
-    `UPDATE courier_assignment
-        SET status='completed',
-            completed_at=NOW(),
-            ended_at=COALESCE(ended_at, NOW()),
-            ended_reason=COALESCE(ended_reason, 'COMPLETED')
-      WHERE delivery_job_id=$1 AND ended_at IS NULL`,
-    [jobId]
+  assert.equal(activeA, 0, "Job A courier_assignment is closed");
+  const deliveredChildren = (
+    await c.query(
+      `SELECT status FROM customer_order WHERE order_group_id=$1 ORDER BY id`,
+      [fxA.orderGroupId]
+    )
+  ).rows;
+  assert.ok(
+    deliveredChildren.length > 0 && deliveredChildren.every((r) => r.status === "delivered"),
+    "all Job A child orders delivered"
   );
 
-  const { courierUserId, excluded } = await selectEligibleCourier(c, {
-    restrictToCourierUserIds: [fx.courierId],
+  const fxB = await createMultiStoreFixture(c, { mark: MARK + "b_" });
+  await c.query("BEGIN");
+  await ensureDeliveryJobForGroup(c, fxB.orderGroupId);
+  await recomputeGroupReadiness(c, fxB.orderGroupId);
+  await c.query("COMMIT");
+
+  const selection = await selectEligibleCourier(c, {
+    restrictToCourierUserIds: [fxA.courierId],
   });
   assert.equal(
-    courierUserId,
-    fx.courierId,
-    `delivered courier is selectable again; excluded=${JSON.stringify(excluded)}`
+    selection.courierUserId,
+    fxA.courierId,
+    `completed courier is selectable again; excluded=${JSON.stringify(selection.excluded)}`
   );
   assert.ok(
-    !excluded.some((e) => e.reason === "busy_grouped_job"),
+    !selection.excluded.some((e) => e.reason === "busy_grouped_job"),
     "terminal grouped job is not treated as busy"
   );
 
-  await cleanupMultiStoreFixture(c, MARK);
+  await c.query("BEGIN");
+  const assignedB = await assignDeliveryJobTx(c, {
+    orderGroupId: fxB.orderGroupId,
+    courierUserId: fxA.courierId,
+  });
+  await c.query("COMMIT");
+
+  assert.equal(assignedB.job.assignment_status, "ASSIGNED", "Job B assigned");
+  assert.equal(Number(assignedB.job.delivery_user_id), Number(fxA.courierId), "Job B assigned to the same courier");
+
+  const jobB = (await c.query("SELECT * FROM delivery_job WHERE id=$1", [assignedB.job.id])).rows[0];
+  assert.equal(jobB.assignment_status, "ASSIGNED", "Job B active");
+  assert.equal(Number(jobB.delivery_user_id), Number(fxA.courierId), "Job B points to the same courier");
+  const activeB = Number(
+    (
+      await c.query(
+        `SELECT COUNT(*)::int AS n
+           FROM courier_assignment
+          WHERE delivery_job_id=$1 AND ended_at IS NULL`,
+        [assignedB.job.id]
+      )
+    ).rows[0].n
+  );
+  assert.equal(activeB, 1, "Job B has one active courier_assignment");
+
+  await cleanupMultiStoreFixture(c, MARK + "b_");
+  await cleanupMultiStoreFixture(c, MARK + "a_");
 });
