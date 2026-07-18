@@ -680,7 +680,8 @@ export async function listCourierGroupedJobs(
     await client.query(
       `SELECT j.id AS delivery_job_id, j.order_group_id, j.assignment_status,
               j.lifecycle_status, j.delivery_user_id, j.assigned_at,
-              g.public_id, g.is_multi_store, g.stores_count, g.payment_method
+              g.public_id, g.is_multi_store, g.stores_count, g.payment_method,
+              g.delivery_fee_total, g.raw_delivery_fee_total
          FROM delivery_job j
          JOIN order_group g ON g.id=j.order_group_id
         WHERE j.delivery_user_id=$1 AND j.assignment_status='ASSIGNED'
@@ -1163,7 +1164,7 @@ export async function getCourierGroupedJobDetails(courierUserId, deliveryJobId) 
                 co.customer_full_name, co.customer_phone AS order_phone,
                 co.customer_block, co.customer_building_number, co.customer_apartment,
                 co.customer_city, co.note,
-                g.total_amount, g.delivery_fee_total, g.notes AS group_notes
+                g.total_amount, g.delivery_fee_total, g.raw_delivery_fee_total, g.notes AS group_notes
            FROM order_group g
            JOIN app_user u ON u.id=g.customer_user_id
            LEFT JOIN LATERAL (
@@ -1199,6 +1200,8 @@ export async function getCourierGroupedJobDetails(courierUserId, deliveryJobId) 
       totalAmount,
       amountToCollect: isCash ? totalAmount : 0,
       deliveryFee: Number(dest.delivery_fee_total || 0),
+      allocatedDeliveryFee: Number(dest.delivery_fee_total || 0),
+      rawDeliveryFee: Number(dest.raw_delivery_fee_total || dest.delivery_fee_total || 0),
       courierEarning: Number(job.courier_earning || 0),
       assignedAt: job.assigned_at || null,
       acceptedAt: job.accepted_at || null,

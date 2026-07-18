@@ -9,7 +9,7 @@ import {
 import { insertOpsAuditLog } from "../../ops/auditLog.js";
 import {
   calcDiscount,
-  findValidCouponByIdOrCode,
+  validateCouponByIdOrCode,
 } from "../coupons/coupons.repo.js";
 import {
   applyMerchantOfferPricing,
@@ -285,6 +285,129 @@ function toNumberOrNull(value) {
   if (value == null || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function roundMoney(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.round((parsed + Number.EPSILON) * 100) / 100;
+}
+
+function normalizePositiveInteger(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function resolveGroupedCheckoutSequence(storeOrder = {}, fallbackIndex = 0) {
+  return (
+    normalizePositiveInteger(storeOrder.store_sequence ?? storeOrder.storeSequence) ??
+    fallbackIndex + 1
+  );
+}
+
+function resolveGroupedFeeSequence(storeOrder = {}, checkoutSequence = null, fallbackIndex = 0) {
+  return (
+    normalizePositiveInteger(storeOrder.pickup_sequence ?? storeOrder.pickupSequence) ??
+    normalizePositiveInteger(storeOrder.store_sequence ?? storeOrder.storeSequence) ??
+    checkoutSequence ??
+    fallbackIndex + 1
+  );
+}
+
+function buildGroupedDeliveryFeePlan(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return {
+      entries: [],
+      orderedEntries: [],
+      rawDeliveryFeeTotal: 0,
+      allocatedDeliveryFeeTotal: 0,
+    };
+  }
+
+  const normalized = entries.map((entry, originalIndex) => {
+    const checkoutSequence = resolveGroupedCheckoutSequence(
+      entry.storeOrder || {},
+      originalIndex
+    );
+    const feeSequence = resolveGroupedFeeSequence(
+      entry.storeOrder || {},
+      checkoutSequence,
+      originalIndex
+    );
+    const feeSequenceSource = normalizePositiveInteger(
+      entry.storeOrder?.pickup_sequence ?? entry.storeOrder?.pickupSequence
+    ) != null
+      ? "pickup_sequence"
+      : normalizePositiveInteger(
+          entry.storeOrder?.store_sequence ?? entry.storeOrder?.storeSequence
+        ) != null
+        ? "store_sequence"
+        : "creation_order";
+    return {
+      ...entry,
+      originalIndex,
+      checkoutSequence,
+      feeSequence,
+      feeSequenceSource,
+    };
+  });
+
+  const orderedEntries = [...normalized].sort((a, b) => {
+    const sourceRank = {
+      pickup_sequence: 0,
+      store_sequence: 1,
+      creation_order: 2,
+    };
+    const rankDiff = (sourceRank[a.feeSequenceSource] ?? 2) - (sourceRank[b.feeSequenceSource] ?? 2);
+    if (rankDiff !== 0) return rankDiff;
+    const feeDiff = Number(a.feeSequence || 0) - Number(b.feeSequence || 0);
+    if (feeDiff !== 0) return feeDiff;
+    return Number(a.originalIndex || 0) - Number(b.originalIndex || 0);
+  });
+
+  const plansByOriginalIndex = new Array(normalized.length);
+  let rawDeliveryFeeTotal = 0;
+  let allocatedDeliveryFeeTotal = 0;
+
+  for (let sortedIndex = 0; sortedIndex < orderedEntries.length; sortedIndex += 1) {
+    const entry = orderedEntries[sortedIndex];
+    const multiplier = sortedIndex === 0 ? 1 : sortedIndex === 1 ? 0.5 : 0.25;
+    const rawDeliveryFee = roundMoney(entry.rawDeliveryFee || 0);
+    const allocatedDeliveryFee = roundMoney(rawDeliveryFee * multiplier);
+    const totalAmount = roundMoney(
+      Number(entry.subtotalAfterAllDiscounts || 0) +
+        Number(entry.serviceFee || 0) +
+        allocatedDeliveryFee
+    );
+    const planned = {
+      ...entry,
+      deliveryFeeMultiplier: multiplier,
+      rawDeliveryFee,
+      allocatedDeliveryFee,
+      deliveryFee: allocatedDeliveryFee,
+      totalAmount,
+      checkoutSequence: Number(entry.checkoutSequence || entry.originalIndex + 1),
+      feeSequence: Number(entry.feeSequence || entry.originalIndex + 1),
+    };
+    rawDeliveryFeeTotal = roundMoney(rawDeliveryFeeTotal + rawDeliveryFee);
+    allocatedDeliveryFeeTotal = roundMoney(
+      allocatedDeliveryFeeTotal + allocatedDeliveryFee
+    );
+    plansByOriginalIndex[entry.originalIndex] = planned;
+  }
+
+  return {
+    entries: plansByOriginalIndex,
+    orderedEntries: orderedEntries.map((entry, sortedIndex) => {
+      const planned = plansByOriginalIndex[entry.originalIndex];
+      return {
+        ...planned,
+        allocationOrder: sortedIndex + 1,
+      };
+    }),
+    rawDeliveryFeeTotal,
+    allocatedDeliveryFeeTotal,
+  };
 }
 
 function mapCourierPresence(row) {
@@ -1217,6 +1340,7 @@ async function insertCustomerOrderTx(
     subtotal,
     serviceFee,
     deliveryFee,
+    deliveryFeeRaw = null,
     totalAmount,
     pricingBreakdown,
     financialSnapshot,
@@ -1264,6 +1388,7 @@ async function insertCustomerOrderTx(
     ["subtotal", subtotal],
     ["service_fee", serviceFee],
     ["delivery_fee", deliveryFee],
+    ["delivery_fee_raw", deliveryFeeRaw == null ? deliveryFee : deliveryFeeRaw],
     ["total_amount", totalAmount],
     ["store_net_received_amount", financialSnapshot.storeNetReceivedAmount],
     ["app_due_from_delivery", financialSnapshot.appDueFromDelivery],
@@ -1448,6 +1573,9 @@ export const __ordersRepoTestables = Object.freeze({
   buildOrderTrackingEnvelope,
   hydrateOrderItemDisplaySnapshot,
   buildOrderItemDisplaySnapshot,
+  buildGroupedDeliveryFeePlan,
+  resolveGroupedCheckoutSequence,
+  resolveGroupedFeeSequence,
   normalizeReportPeriod,
   periodStartExpression,
   buildReportTimeFilter,
@@ -1664,7 +1792,7 @@ function summarizeOrderGroupStatus(statuses) {
 async function syncOrderGroupStatusTx(client, orderGroupId) {
   if (!orderGroupId) return null;
   const statusRows = await client.query(
-    `SELECT id, status, merchant_id, subtotal, delivery_fee, total_amount
+    `SELECT id, status, merchant_id, subtotal, delivery_fee, delivery_fee_raw, total_amount
      FROM customer_order
      WHERE order_group_id = $1
      ORDER BY store_sequence ASC, id ASC`,
@@ -1687,7 +1815,8 @@ async function syncOrderGroupStatusTx(client, orderGroupId) {
        SET status = $3,
            subtotal = $4,
            delivery_fee = $5,
-           total_amount = $6,
+           raw_delivery_fee = $6,
+           total_amount = $7,
            updated_at = NOW()
        WHERE order_group_id = $1
          AND child_order_id = $2`,
@@ -1697,6 +1826,7 @@ async function syncOrderGroupStatusTx(client, orderGroupId) {
         String(row.status || ""),
         Number(row.subtotal || 0),
         Number(row.delivery_fee || 0),
+        Number(row.delivery_fee_raw || row.delivery_fee || 0),
         Number(row.total_amount || 0),
       ]
     );
@@ -1943,7 +2073,7 @@ async function calculateStoreOrderDraft({
     });
   }
 
-  const coupon = await findValidCouponByIdOrCode(
+  const couponResult = await validateCouponByIdOrCode(
     { couponId, code: couponCode },
     {
       customerId: Number(customer.id),
@@ -1951,11 +2081,12 @@ async function calculateStoreOrderDraft({
       orderTotal: subtotal,
     }
   );
-  if ((couponId || couponCode) && !coupon) {
-    const err = new Error("COUPON_INVALID_OR_EXPIRED");
+  if ((couponId || couponCode) && !couponResult?.coupon) {
+    const err = new Error(couponResult?.reasonCode || "COUPON_INVALID_OR_EXPIRED");
     err.status = 400;
     throw err;
   }
+  const coupon = couponResult?.coupon || null;
 
   const couponDiscountTotal = coupon ? calcDiscount(coupon, subtotal) : 0;
   const billingProfile = await getMerchantBillingProfile(Number(merchantId));
@@ -2030,6 +2161,8 @@ export async function createOrderWithItems({
   subOrderId = null,
   orderScope = "single",
   storeSequence = 1,
+  deliveryFeeOverride = null,
+  deliveryFeeRaw = null,
   txClient = null,
   suppressNotifications = false,
 }) {
@@ -2298,7 +2431,7 @@ export async function createOrderWithItems({
       }
     }
 
-    const coupon = await findValidCouponByIdOrCode(
+    const couponResult = await validateCouponByIdOrCode(
       { couponId, code: couponCode },
       {
         customerId: Number(customer.id),
@@ -2306,21 +2439,35 @@ export async function createOrderWithItems({
         orderTotal: subtotal,
       }
     );
-    if ((couponId || couponCode) && !coupon) {
-      const err = new Error("COUPON_INVALID_OR_EXPIRED");
+    if ((couponId || couponCode) && !couponResult?.coupon) {
+      const err = new Error(couponResult?.reasonCode || "COUPON_INVALID_OR_EXPIRED");
       err.status = 400;
       throw err;
     }
+    const coupon = couponResult?.coupon || null;
     const couponDiscountTotal = coupon
       ? calcDiscount(coupon, subtotal)
       : 0;
 
     const billingProfile = await getMerchantBillingProfile(Number(merchantId));
+    const effectiveDeliveryFee =
+      deliveryFeeOverride == null ? null : roundMoney(deliveryFeeOverride);
+    const effectiveRawDeliveryFee =
+      deliveryFeeRaw == null
+        ? effectiveDeliveryFee == null
+          ? null
+          : effectiveDeliveryFee
+        : roundMoney(deliveryFeeRaw);
     const financialSnapshot = computeOrderFinancialSnapshot(
       {
         subtotal,
         service_fee: 0,
-        delivery_fee: hasFreeDeliveryOffer ? 0 : null,
+        delivery_fee:
+          hasFreeDeliveryOffer
+            ? 0
+            : effectiveDeliveryFee == null
+              ? null
+              : effectiveDeliveryFee,
         delivery_type: "delivery",
         courier_source: "app",
         has_free_delivery: hasFreeDeliveryOffer,
@@ -2333,6 +2480,8 @@ export async function createOrderWithItems({
     const subtotalAfterAllDiscounts = Math.max(0, subtotal - couponDiscountTotal);
     const totalAmount =
       subtotalAfterAllDiscounts + serviceFee + deliveryFee;
+    const rawDeliveryFee =
+      effectiveRawDeliveryFee == null ? deliveryFee : effectiveRawDeliveryFee;
     const pricingBreakdown = {
       grossSubtotal,
       productDiscountTotal,
@@ -2341,6 +2490,8 @@ export async function createOrderWithItems({
       subtotalAfterAllDiscounts,
       serviceFee,
       deliveryFee,
+      rawDeliveryFee,
+      allocatedDeliveryFee: deliveryFee,
       totalAmount,
       coupon: coupon
         ? {
@@ -2392,6 +2543,7 @@ export async function createOrderWithItems({
       subtotal,
       serviceFee,
       deliveryFee,
+      deliveryFeeRaw: rawDeliveryFee,
       totalAmount,
       pricingBreakdown,
       financialSnapshot,
@@ -2605,16 +2757,7 @@ export async function previewOrderGroup({
 
   const client = await pool.connect();
   try {
-    const stores = [];
-    const totals = {
-      grossSubtotal: 0,
-      productDiscountTotal: 0,
-      couponDiscountTotal: 0,
-      serviceFeeTotal: 0,
-      deliveryFeeTotal: 0,
-      totalAmount: 0,
-    };
-
+    const draftedStores = [];
     for (let index = 0; index < storeOrders.length; index += 1) {
       const storeOrder = storeOrders[index];
       const draft = await calculateStoreOrderDraft({
@@ -2625,20 +2768,59 @@ export async function previewOrderGroup({
         couponId: storeOrder.couponId ?? null,
         couponCode: storeOrder.couponCode ?? null,
       });
-      totals.grossSubtotal += Number(draft.pricing.grossSubtotal || 0);
-      totals.productDiscountTotal += Number(draft.pricing.productDiscountTotal || 0);
-      totals.couponDiscountTotal += Number(draft.pricing.couponDiscountTotal || 0);
-      totals.serviceFeeTotal += Number(draft.pricing.serviceFee || 0);
-      totals.deliveryFeeTotal += Number(draft.pricing.deliveryFee || 0);
-      totals.totalAmount += Number(draft.pricing.totalAmount || 0);
-      stores.push({
-        merchantId: Number(draft.merchant.id),
-        merchantName: draft.merchant.name,
-        note: storeOrder.note || null,
-        items: draft.calculatedItems,
-        pricing: draft.pricing,
-        sequence: index + 1,
+      draftedStores.push({
+        storeOrder,
+        draft,
+        originalIndex: index,
+        checkoutSequence: resolveGroupedCheckoutSequence(storeOrder, index),
+        rawDeliveryFee: Number(draft.pricing.deliveryFee || 0),
+        subtotalAfterAllDiscounts: Number(
+          draft.pricing.subtotalAfterAllDiscounts || 0
+        ),
+        serviceFee: Number(draft.pricing.serviceFee || 0),
+        grossSubtotal: Number(draft.pricing.grossSubtotal || 0),
+        productDiscountTotal: Number(
+          draft.pricing.productDiscountTotal || 0
+        ),
+        couponDiscountTotal: Number(draft.pricing.couponDiscountTotal || 0),
       });
+    }
+    const deliveryPlan = buildGroupedDeliveryFeePlan(draftedStores);
+    const stores = draftedStores.map((entry, index) => {
+      const feePlan = deliveryPlan.entries[index];
+      return {
+        merchantId: Number(entry.draft.merchant.id),
+        merchantName: entry.draft.merchant.name,
+        note: entry.storeOrder.note || null,
+        items: entry.draft.calculatedItems,
+        pricing: {
+          ...entry.draft.pricing,
+          rawDeliveryFee: feePlan.rawDeliveryFee,
+          allocatedDeliveryFee: feePlan.allocatedDeliveryFee,
+          deliveryFee: feePlan.allocatedDeliveryFee,
+          totalAmount: feePlan.totalAmount,
+        },
+        sequence: feePlan.checkoutSequence,
+        deliveryFeeMultiplier: feePlan.deliveryFeeMultiplier,
+      };
+    });
+    const totals = {
+      grossSubtotal: 0,
+      productDiscountTotal: 0,
+      couponDiscountTotal: 0,
+      serviceFeeTotal: 0,
+      deliveryFeeTotal: 0,
+      rawDeliveryFeeTotal: deliveryPlan.rawDeliveryFeeTotal,
+      allocatedDeliveryFeeTotal: deliveryPlan.allocatedDeliveryFeeTotal,
+      totalAmount: 0,
+    };
+    for (const entry of deliveryPlan.entries) {
+      totals.grossSubtotal += Number(entry.grossSubtotal || 0);
+      totals.productDiscountTotal += Number(entry.productDiscountTotal || 0);
+      totals.couponDiscountTotal += Number(entry.couponDiscountTotal || 0);
+      totals.serviceFeeTotal += Number(entry.serviceFee || 0);
+      totals.deliveryFeeTotal += Number(entry.allocatedDeliveryFee || 0);
+      totals.totalAmount += Number(entry.totalAmount || 0);
     }
 
     return {
@@ -2685,16 +2867,9 @@ export async function createOrderGroupWithItems({
     deliveryAddress?.block?.trim() || customer.block || null;
   try {
     await client.query("BEGIN");
-
-    const groupTotals = {
-      grossSubtotal: 0,
-      productDiscountTotal: 0,
-      couponDiscountTotal: 0,
-      serviceFeeTotal: 0,
-      deliveryFeeTotal: 0,
-      totalAmount: 0,
-    };
-    for (const storeOrder of storeOrders) {
+    const draftedStores = [];
+    for (let index = 0; index < storeOrders.length; index += 1) {
+      const storeOrder = storeOrders[index];
       const draft = await calculateStoreOrderDraft({
         client,
         customer,
@@ -2703,16 +2878,45 @@ export async function createOrderGroupWithItems({
         couponId: storeOrder.couponId ?? null,
         couponCode: storeOrder.couponCode ?? null,
       });
-      groupTotals.grossSubtotal += Number(draft.pricing.grossSubtotal || 0);
+      draftedStores.push({
+        storeOrder,
+        draft,
+        originalIndex: index,
+        checkoutSequence: resolveGroupedCheckoutSequence(storeOrder, index),
+        rawDeliveryFee: Number(draft.pricing.deliveryFee || 0),
+        subtotalAfterAllDiscounts: Number(
+          draft.pricing.subtotalAfterAllDiscounts || 0
+        ),
+        serviceFee: Number(draft.pricing.serviceFee || 0),
+        grossSubtotal: Number(draft.pricing.grossSubtotal || 0),
+        productDiscountTotal: Number(
+          draft.pricing.productDiscountTotal || 0
+        ),
+        couponDiscountTotal: Number(draft.pricing.couponDiscountTotal || 0),
+      });
+    }
+    const deliveryPlan = buildGroupedDeliveryFeePlan(draftedStores);
+    const groupTotals = {
+      grossSubtotal: 0,
+      productDiscountTotal: 0,
+      couponDiscountTotal: 0,
+      serviceFeeTotal: 0,
+      deliveryFeeTotal: 0,
+      rawDeliveryFeeTotal: deliveryPlan.rawDeliveryFeeTotal,
+      allocatedDeliveryFeeTotal: deliveryPlan.allocatedDeliveryFeeTotal,
+      totalAmount: 0,
+    };
+    for (const entry of deliveryPlan.entries) {
+      groupTotals.grossSubtotal += Number(entry.grossSubtotal || 0);
       groupTotals.productDiscountTotal += Number(
-        draft.pricing.productDiscountTotal || 0
+        entry.productDiscountTotal || 0
       );
       groupTotals.couponDiscountTotal += Number(
-        draft.pricing.couponDiscountTotal || 0
+        entry.couponDiscountTotal || 0
       );
-      groupTotals.serviceFeeTotal += Number(draft.pricing.serviceFee || 0);
-      groupTotals.deliveryFeeTotal += Number(draft.pricing.deliveryFee || 0);
-      groupTotals.totalAmount += Number(draft.pricing.totalAmount || 0);
+      groupTotals.serviceFeeTotal += Number(entry.serviceFee || 0);
+      groupTotals.deliveryFeeTotal += Number(entry.allocatedDeliveryFee || 0);
+      groupTotals.totalAmount += Number(entry.totalAmount || 0);
     }
     const storesCount = storeOrders.length;
     const preview = {
@@ -2737,13 +2941,14 @@ export async function createOrderGroupWithItems({
           coupon_discount_total,
           service_fee_total,
           delivery_fee_total,
+          raw_delivery_fee_total,
           total_amount,
           payment_method,
           payment_status,
           notes
         )
        VALUES
-        ($1,$2,'pending',$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending_acceptance',$12)
+        ($1,$2,'pending',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending_acceptance',$13)
        RETURNING *`,
       [
         buildOrderGroupPublicId(),
@@ -2755,6 +2960,7 @@ export async function createOrderGroupWithItems({
         Number(preview.totals.couponDiscountTotal || 0),
         Number(preview.totals.serviceFeeTotal || 0),
         Number(preview.totals.deliveryFeeTotal || 0),
+        Number(preview.totals.rawDeliveryFeeTotal || 0),
         Number(preview.totals.totalAmount || 0),
         paymentMethod || "cash_on_delivery",
         note || null,
@@ -2763,21 +2969,24 @@ export async function createOrderGroupWithItems({
     const orderGroup = groupInsert.rows[0];
 
     const childOrders = [];
-    for (let index = 0; index < storeOrders.length; index += 1) {
-      const storeOrder = storeOrders[index];
+    for (let index = 0; index < draftedStores.length; index += 1) {
+      const entry = draftedStores[index];
+      const feePlan = deliveryPlan.entries[index];
       const child = await createOrderWithItems({
         customer,
         deliveryAddress,
-        merchantId: Number(storeOrder.merchantId),
-        note: storeOrder.note || note || null,
-        imageUrl: storeOrder.imageUrl || null,
-        couponId: storeOrder.couponId ?? null,
-        couponCode: storeOrder.couponCode ?? null,
-        normalizedItems: storeOrder.normalizedItems,
+        merchantId: Number(entry.storeOrder.merchantId),
+        note: entry.storeOrder.note || note || null,
+        imageUrl: entry.storeOrder.imageUrl || null,
+        couponId: entry.storeOrder.couponId ?? null,
+        couponCode: entry.storeOrder.couponCode ?? null,
+        normalizedItems: entry.storeOrder.normalizedItems,
         orderGroupId: Number(orderGroup.id),
-        subOrderId: `${orderGroup.public_id}-${index + 1}`,
+        subOrderId: `${orderGroup.public_id}-${Number(feePlan.checkoutSequence || index + 1)}`,
         orderScope: "group_child",
-        storeSequence: index + 1,
+        storeSequence: Number(feePlan.checkoutSequence || index + 1),
+        deliveryFeeOverride: Number(feePlan.allocatedDeliveryFee || 0),
+        deliveryFeeRaw: Number(feePlan.rawDeliveryFee || 0),
         txClient: client,
         suppressNotifications: true,
       });
@@ -2793,14 +3002,16 @@ export async function createOrderGroupWithItems({
             status,
             subtotal,
             delivery_fee,
+            raw_delivery_fee,
             total_amount
           )
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (order_group_id, child_order_id)
          DO UPDATE SET
            status = EXCLUDED.status,
            subtotal = EXCLUDED.subtotal,
            delivery_fee = EXCLUDED.delivery_fee,
+           raw_delivery_fee = EXCLUDED.raw_delivery_fee,
            total_amount = EXCLUDED.total_amount,
            updated_at = NOW()`,
         [
@@ -2811,6 +3022,7 @@ export async function createOrderGroupWithItems({
           String(child.status || "pending"),
           Number(child.subtotal || 0),
           Number(child.delivery_fee || child.deliveryFee || 0),
+          Number(child.delivery_fee_raw || child.deliveryFeeRaw || child.deliveryFee || 0),
           Number(child.total_amount || child.totalAmount || 0),
         ]
       );
@@ -2894,6 +3106,12 @@ export async function createOrderGroupWithItems({
       orderGroup: {
         ...orderGroup,
         status,
+        rawDeliveryFeeTotal: Number(
+          orderGroup.raw_delivery_fee_total || preview.totals.rawDeliveryFeeTotal || 0
+        ),
+        allocatedDeliveryFeeTotal: Number(
+          orderGroup.delivery_fee_total || preview.totals.deliveryFeeTotal || 0
+        ),
       },
       storesCount: preview.storesCount,
       multiStoreDelayNotice: preview.multiStoreDelayNotice,
@@ -2953,6 +3171,10 @@ export async function getCustomerOrderGroupDetails(customerUserId, groupId) {
       couponDiscountTotal: Number(group.coupon_discount_total || 0),
       serviceFeeTotal: Number(group.service_fee_total || 0),
       deliveryFeeTotal: Number(group.delivery_fee_total || 0),
+      rawDeliveryFeeTotal: Number(
+        group.raw_delivery_fee_total || group.delivery_fee_total || 0
+      ),
+      allocatedDeliveryFeeTotal: Number(group.delivery_fee_total || 0),
       totalAmount: Number(group.total_amount || 0),
     },
   };
@@ -4672,6 +4894,7 @@ function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, 
     merchantActivityType: order.merchant_activity_type || null,
     totalAmount: Number(order.total_amount || 0),
     deliveryFee: Number(order.delivery_fee || 0),
+    deliveryFeeRaw: Number(order.delivery_fee_raw || order.delivery_fee || 0),
     customerCity: order.customer_city || null,
     customerBlock: order.customer_block || null,
     customerBuildingNumber: order.customer_building_number || null,
@@ -4759,6 +4982,7 @@ function toDeliveryDetailResponse(order, context) {
     subtotal: Number(order.subtotal || 0),
     serviceFee: Number(order.service_fee || 0),
     deliveryFee: Number(order.delivery_fee || 0),
+    rawDeliveryFee: Number(order.delivery_fee_raw || order.delivery_fee || 0),
     couponDiscountTotal: Number(order.coupon_discount_total || 0),
     totalAmount: Number(order.total_amount || 0),
     paymentMethod: order.payment_method || null,
