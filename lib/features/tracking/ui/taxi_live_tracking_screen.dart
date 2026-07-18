@@ -19,6 +19,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../pages/map_page.dart';
 import '../tracking_map_utils.dart';
 import 'live_tracking_shell.dart';
 
@@ -53,6 +54,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   int _reconnectAttempt = 0;
   bool _lifecycleResumed = true;
   bool _submitting = false;
+  bool _returnedToTaxiHome = false;
   late final VoidCallback _sessionInvalidationListener;
 
   TaxiApi get _taxiApi => ref.read(taxiApiProvider);
@@ -70,6 +72,9 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     _loading = widget.initialEnvelope == null;
     unawaited(_load(silent: widget.initialEnvelope != null));
     _startLiveUpdates();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeReturnToTaxiHomeIfTerminal();
+    });
   }
 
   @override
@@ -106,12 +111,18 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   }
 
   void _startLiveUpdates() {
-    if (!_lifecycleResumed || !taxiTrackingIsActive(_envelope)) return;
+    if (_returnedToTaxiHome ||
+        !_lifecycleResumed ||
+        !taxiTrackingIsActive(_envelope)) {
+      return;
+    }
     _reconnectTimer?.cancel();
     _connectStream();
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(Duration(seconds: _isPublic ? 12 : 6), (_) {
-      if (_lifecycleResumed && taxiTrackingIsActive(_envelope)) {
+      if (!_returnedToTaxiHome &&
+          _lifecycleResumed &&
+          taxiTrackingIsActive(_envelope)) {
         unawaited(_load(silent: true));
       }
     });
@@ -127,14 +138,56 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   }
 
   void _scheduleReconnect() {
-    if (!_lifecycleResumed || !taxiTrackingIsActive(_envelope)) return;
+    if (_returnedToTaxiHome ||
+        !_lifecycleResumed ||
+        !taxiTrackingIsActive(_envelope)) {
+      return;
+    }
     if (_reconnectTimer?.isActive == true) return;
     _reconnectAttempt = (_reconnectAttempt + 1).clamp(1, 6);
     final seconds = <int>[2, 4, 8, 12, 20, 30][_reconnectAttempt - 1];
     _reconnectTimer = Timer(Duration(seconds: seconds), _startLiveUpdates);
   }
 
+  bool _isTerminalRide(Map<String, dynamic>? ride) {
+    final status = _string(ride?['status'])?.toLowerCase();
+    return status == 'completed' ||
+        status == 'expired' ||
+        status == 'cancelled' ||
+        status == 'cancelled_by_customer' ||
+        status == 'cancelled_by_captain' ||
+        status == 'cancelled_by_admin';
+  }
+
+  bool _isCancelledRideStatus(String? status) {
+    final normalized = status?.toLowerCase();
+    return normalized == 'cancelled' ||
+        normalized == 'cancelled_by_customer' ||
+        normalized == 'cancelled_by_captain' ||
+        normalized == 'cancelled_by_admin';
+  }
+
+  void _maybeReturnToTaxiHomeIfTerminal() {
+    if (!mounted || _isReadonly || _returnedToTaxiHome) return;
+    if (!_isTerminalRide(_ride)) return;
+    _returnedToTaxiHome = true;
+    Navigator.of(context).pushAndRemoveUntil<void>(
+      PageRouteBuilder<void>(
+        pageBuilder: (context, animation, secondaryAnimation) => const MapPage(
+          skipInitialBootstrap: true,
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+      (route) => false,
+    );
+  }
+
   Future<void> _load({bool silent = false}) async {
+    final previousEnvelope = _envelope;
+    final previousRide = taxiRideViewFromEnvelope(previousEnvelope);
+    final preserveTerminalSnapshot =
+        previousRide != null && _isTerminalRide(previousRide);
     if (!silent) {
       setState(() {
         _loading = true;
@@ -151,11 +204,19 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                   : _taxiApi.getRideDetails(widget.rideId))
               .timeout(const Duration(seconds: 15));
       if (!mounted) return;
+      final nextEnvelope = trackingMap(data);
+      final hasNextEnvelope = nextEnvelope != null && nextEnvelope.isNotEmpty;
       setState(() {
-        _envelope = trackingMap(data) ?? const <String, dynamic>{};
+        _envelope = hasNextEnvelope
+            ? nextEnvelope
+            : (preserveTerminalSnapshot
+                  ? previousEnvelope
+                  : const <String, dynamic>{});
         _loading = false;
         _error = null;
       });
+      if (_returnedToTaxiHome) return;
+      _maybeReturnToTaxiHomeIfTerminal();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -179,6 +240,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     _streamSub = stream.listen(
       (event) {
         if (!mounted) return;
+        if (_returnedToTaxiHome) return;
         _reconnectAttempt = 0;
         if (event.eventId != null) {
           _lastEventId = event.eventId;
@@ -191,6 +253,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
               _error = null;
             });
             if (!taxiTrackingIsActive(_envelope)) _stopLiveUpdates();
+            _maybeReturnToTaxiHomeIfTerminal();
           } else if (event.event == 'resync_required' ||
               event.event == 'closed') {
             unawaited(_load(silent: true));
@@ -220,6 +283,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
             _error = null;
           });
           if (!taxiTrackingIsActive(_envelope)) _stopLiveUpdates();
+          _maybeReturnToTaxiHomeIfTerminal();
         }
       },
       onError: (error, stack) {
@@ -631,13 +695,6 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     );
   }
 
-  bool _isTerminalRide(Map<String, dynamic> ride) {
-    final status = _string(ride['status'])?.toLowerCase();
-    return status == 'completed' ||
-        status == 'cancelled' ||
-        status == 'expired';
-  }
-
   bool _isActiveRide(Map<String, dynamic> ride) {
     final status = _string(ride['status'])?.toLowerCase();
     return status == 'captain_assigned' ||
@@ -678,7 +735,12 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
           en: 'Ride completed successfully',
         );
       case 'cancelled':
+      case 'cancelled_by_customer':
+      case 'cancelled_by_captain':
+      case 'cancelled_by_admin':
         return context.lt(ar: 'تم إلغاء الرحلة', en: 'Ride was cancelled');
+      case 'expired':
+        return context.lt(ar: 'انتهت صلاحية الرحلة', en: 'Ride expired');
       default:
         return context.lt(ar: 'تم تعيين الرحلة', en: 'Ride assigned');
     }
@@ -742,11 +804,14 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   ) {
     final tokens = context.maslakiTokens;
     final displayState = taxiRideDisplayState(ride);
-    final isWaitingState =
-        displayState == 'searching' || displayState == 'negotiating';
+    final isWaitingState = displayState == 'searching' ||
+        displayState == 'negotiating' ||
+        displayState == 'price_raise_required';
     final isTerminalState = _isTerminalRide(ride);
     final isActiveState = displayState == 'active';
     final rideStatus = _string(ride['status']) ?? '';
+    final isCompletedRide = rideStatus == 'completed';
+    final isExpiredRide = rideStatus == 'expired';
     final nonAvailable = context.lt(ar: 'غير متوفر', en: 'Not available');
 
     final captain = _captain;
@@ -924,11 +989,16 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
         controller: scrollController,
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
-          Text(
-            displayState == 'negotiating'
-                ? context.lt(
-                    ar: 'جاري التفاوض مع الكابتن',
-                    en: 'Negotiation in progress',
+              Text(
+                displayState == 'price_raise_required'
+                    ? context.lt(
+                        ar: 'يجب رفع الأجرة لإعادة فتح البحث',
+                        en: 'Raise the fare to reopen search',
+                      )
+                    : displayState == 'negotiating'
+                    ? context.lt(
+                        ar: 'جاري التفاوض مع الكابتن',
+                        en: 'Negotiation in progress',
                   )
                 : context.lt(
                     ar: 'جاري البحث عن كابتن',
@@ -964,11 +1034,16 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                   value: _formatRideFareLabel(context, finalFare, nonAvailable),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  displayState == 'negotiating'
-                      ? context.lt(
-                          ar: 'بانتظار قبول العرض أو إرسال عرض مضاد.',
-                          en: 'Waiting for the captain to respond.',
+              Text(
+                displayState == 'price_raise_required'
+                    ? context.lt(
+                        ar: 'يمكنك رفع الأجرة ثم ستُعرض الرحلة مجدداً.',
+                        en: 'Raise the fare and the ride will be shown again.',
+                      )
+                    : displayState == 'negotiating'
+                    ? context.lt(
+                        ar: 'بانتظار قبول العرض أو إرسال عرض مضاد.',
+                        en: 'Waiting for the captain to respond.',
                         )
                       : context.lt(
                           ar: 'سيبدأ التتبع الحي بعد تعيين الكابتن.',
@@ -1355,11 +1430,15 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 sectionHeader(
-                  icon: rideStatus == 'completed'
+                  icon: isCompletedRide
                       ? Icons.check_circle_rounded
+                      : isExpiredRide
+                      ? Icons.hourglass_bottom_rounded
                       : Icons.block_rounded,
-                  title: rideStatus == 'completed'
+                  title: isCompletedRide
                       ? context.lt(ar: 'الرحلة منتهية', en: 'Ride completed')
+                      : isExpiredRide
+                      ? context.lt(ar: 'انتهت صلاحية الرحلة', en: 'Ride expired')
                       : context.lt(ar: 'الرحلة ملغاة', en: 'Ride cancelled'),
                   subtitle: _phaseMessage(ride),
                 ),
@@ -1771,6 +1850,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
         _string(ride['status']) == 'ride_started' ||
         _string(ride['status']) == 'completed';
     final hasCompleted = _string(ride['status']) == 'completed';
+    final isCancelledRide = _isCancelledRideStatus(_string(ride['status']));
     final eventTexts = eventsRaw is List
         ? eventsRaw
               .whereType<Map>()
@@ -1830,14 +1910,19 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
           ar: 'Ã˜Â§Ã™Æ’Ã˜ÂªÃ™â€¦Ã™â€žÃ˜Âª Ã˜Â§Ã™â€žÃ˜Â±Ã˜Â­Ã™â€žÃ˜Â©',
           en: 'Ride completed',
         ),
-        done: hasCompleted,
-        time: findEvent('ride_completed'),
+        done: hasCompleted || isCancelledRide,
+        time: findEvent(isCancelledRide ? 'ride_canceled' : 'ride_completed'),
       ),
     ];
   }
 
   String _statusLabel(String status) {
     switch (status) {
+      case 'price_raise_required':
+        return context.lt(
+          ar: 'رفع الأجرة مطلوب',
+          en: 'Price raise required',
+        );
       case 'searching':
         return context.lt(
           ar: 'Ã˜Â¬Ã˜Â§Ã˜Â±Ã™Â Ã˜Â§Ã™â€žÃ˜Â¨Ã˜Â­Ã˜Â«',
@@ -1864,9 +1949,17 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
           en: 'Completed',
         );
       case 'cancelled':
+      case 'cancelled_by_customer':
+      case 'cancelled_by_captain':
+      case 'cancelled_by_admin':
         return context.lt(
           ar: 'Ã˜ÂªÃ™â€¦ Ã˜Â§Ã™â€žÃ˜Â¥Ã™â€žÃ˜ÂºÃ˜Â§Ã˜Â¡',
           en: 'Cancelled',
+        );
+      case 'expired':
+        return context.lt(
+          ar: 'انتهت صلاحية الرحلة',
+          en: 'Ride expired',
         );
       default:
         return context.lt(

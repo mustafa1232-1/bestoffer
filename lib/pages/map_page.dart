@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:async';
 
 import 'package:maslaki/features/auth/state/auth_controller.dart';
@@ -56,6 +57,7 @@ class MapPage extends ConsumerStatefulWidget {
   final String? initialCouponCode;
   final int? initialFareIqd;
   final DateTime? initialScheduledFor;
+  final bool skipInitialBootstrap;
 
   const MapPage({
     super.key,
@@ -64,6 +66,7 @@ class MapPage extends ConsumerStatefulWidget {
     this.initialCouponCode,
     this.initialFareIqd,
     this.initialScheduledFor,
+    this.skipInitialBootstrap = false,
   });
 
   @override
@@ -160,6 +163,9 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _taxiApi = ref.read(taxiApiProvider);
     _routeService = ref.read(taxiRouteServiceProvider);
+    if (widget.skipInitialBootstrap) {
+      _loading = false;
+    }
     _fareController.addListener(_handleFareChanged);
     _uiTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
@@ -169,7 +175,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _bootstrap();
+      _bootstrap(backgroundOnly: widget.skipInitialBootstrap);
     });
   }
 
@@ -253,7 +259,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     setState(() {});
   }
 
-  Future<void> _bootstrap() async {
+  Future<void> _bootstrap({bool backgroundOnly = false}) async {
     if (!mounted) return;
     final auth = ref.read(authControllerProvider);
     if (!auth.isAuthed) {
@@ -279,7 +285,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
 
     await Future.wait([
       _goToMyLocation(setAsPickupIfEmpty: true),
-      _loadCurrentRide(),
+      _loadCurrentRide(silent: backgroundOnly),
     ]);
     if (!mounted) return;
     _applyInitialIntentIfNeeded();
@@ -290,6 +296,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   }
 
   Future<void> _loadCurrentRide({bool silent = false}) async {
+    final hadRideBeforeRefresh = taxiRideViewFromEnvelope(_activeRideEnvelope);
     if (!silent) {
       setState(() {
         _loading = true;
@@ -301,14 +308,26 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       final envelope = await _taxiApi.getCurrentRideForCustomer();
       if (!mounted) return;
 
-      _activeRideEnvelope = envelope;
+      final ride = taxiRideViewFromEnvelope(envelope);
+      final rideStatus = _string(ride?['status'])?.toLowerCase();
+      final isTerminalRide = _isTerminalTaxiRideStatus(rideStatus);
+      final shouldResetComposer =
+          isTerminalRide || (envelope == null && hadRideBeforeRefresh != null);
+
+      if (shouldResetComposer) {
+        _resetRideComposerState();
+      }
+
+      _activeRideEnvelope = shouldResetComposer ? null : envelope;
       _syncMapFromRideEnvelope();
 
       setState(() {
         _loading = false;
         _error = null;
       });
-      _maybeOpenLiveTrackingFromEnvelope(envelope);
+      if (!shouldResetComposer) {
+        _maybeOpenLiveTrackingFromEnvelope(envelope);
+      }
     } on DioException catch (e) {
       if (!mounted) return;
       final unauthorized = _isUnauthorizedStatus(e.response?.statusCode);
@@ -329,6 +348,42 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
         _error = context.l10n.mapPageCurrentRideLoadFailed;
       });
     }
+  }
+
+  void _resetRideComposerState() {
+    _pickupPoint = null;
+    _dropoffPoint = null;
+    _pickupConfirmed = false;
+    _selectionMode = _PointSelectionMode.pickup;
+    _requestStep = TaxiRequestStep.pickupSearch;
+    _captainPoint = null;
+    _captainHeadingDeg = null;
+    _routePoints = const [];
+    _lastRouteFrom = null;
+    _lastRouteTo = null;
+    _lastRouteAt = null;
+    _openedLiveTrackingRideId = null;
+    _nearbyCaptainMarkers.clear();
+    _rideFieldErrors.clear();
+    _rideFormError = null;
+    _timingMode = _RideRequestTimingMode.now;
+    _scheduledFor = null;
+    _fareController.clear();
+    _noteController.clear();
+    _couponCodeController.clear();
+    _pickupSearchController.clear();
+    _dropoffSearchController.clear();
+    _pickupLabelController.clear();
+    _dropoffLabelController.clear();
+    _lastAppliedPickupDefaultLabel = null;
+    _sheetStage = TaxiSheetStage.half;
+    _sheetStageBeforeKeyboard = null;
+    _keyboardVisible = false;
+    _sheetProgrammaticMotion = false;
+    _sheetDragInProgress = false;
+    _routeLoading = false;
+    _isSearchingPickup = false;
+    _isSearchingDropoff = false;
   }
 
   void _syncMapFromRideEnvelope() {
@@ -499,7 +554,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       final items = await _taxiApi.listNearbyCaptains(
         latitude: center.latitude,
         longitude: center.longitude,
-        radiusM: 4500,
+        radiusM: 15000,
         limit: 100,
       );
       if (!mounted) return;
@@ -2184,6 +2239,57 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _raiseRideFare(int proposedFareIqd) async {
+    final rideId = _readInt(_ride?['id']);
+    if (rideId == null || _submitting) return;
+
+    final currentFare =
+        _readInt(_ride?['proposedFareIqd']) ??
+        _readInt(_ride?['customerFare']) ??
+        TaxiFarePolicy.minimumFareIqd;
+    if (proposedFareIqd <= currentFare) {
+      _showMessage(
+        _t(
+          'يجب أن تكون الأجرة الجديدة أعلى من الأجرة الحالية.',
+          'The new fare must be higher than the current fare.',
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    try {
+      await _taxiApi.raiseRideFare(
+        rideId: rideId,
+        proposedFareIqd: proposedFareIqd,
+      );
+      await _loadCurrentRide(silent: true);
+      _showMessage(
+        _t(
+          'تم رفع الأجرة وإعادة فتح البحث.',
+          'Fare raised and search reopened.',
+        ),
+      );
+    } on DioException catch (e) {
+      setState(() {
+        _error = _extractApiError(e);
+      });
+    } catch (_) {
+      setState(() {
+        _error = _t(
+          'تعذر رفع الأجرة حالياً.',
+          'Unable to raise the fare right now.',
+        );
+      });
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   // ignore: unused_element
   Future<void> _acceptBid(int bidId) async {
     final rideId = _readInt(_ride?['id']);
@@ -2876,9 +2982,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
         _string(offer['acceptedOriginalFare']) == 'true' ||
         offer['acceptedOriginalFare'] == true;
     final differentFare =
-        customerFareIqd != null &&
-        fare > 0 &&
-        fare != customerFareIqd;
+        customerFareIqd != null && fare > 0 && fare != customerFareIqd;
     final etaMinutes = _readInt(offer['etaMinutes']);
     final distanceM =
         _readDouble(offer['distanceM']) ??
@@ -2893,15 +2997,9 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     final remainingSeconds = _offerNegotiationCountdown(offer);
     final negotiationLabel = _offerNegotiationLabel(offer);
     final statusHint = acceptedOriginalFare
-        ? _t(
-            'الكابتن قبل الأجرة الأصلية',
-            'Captain accepted the original fare',
-          )
+        ? _t('الكابتن قبل الأجرة الأصلية', 'Captain accepted the original fare')
         : differentFare
-        ? _t(
-            'الكابتن اقترح سعراً مختلفاً',
-            'Captain proposed a different fare',
-          )
+        ? _t('الكابتن اقترح سعراً مختلفاً', 'Captain proposed a different fare')
         : null;
     final badges = <Widget>[
       if (offer['isBestPrice'] == true)
@@ -2917,10 +3015,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
           Colors.purple,
         ),
       if (differentFare && !acceptedOriginalFare)
-        _offerBadge(
-          _t('سعر مختلف', 'Different fare'),
-          Colors.orange,
-        ),
+        _offerBadge(_t('سعر مختلف', 'Different fare'), Colors.orange),
     ];
 
     return Container(
@@ -3309,9 +3404,25 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   }
 
   bool _priceRaiseRecommended(Map<String, dynamic>? ride) {
-    return ride != null &&
-        _string(ride['status']) == 'searching' &&
+    if (ride == null) return false;
+    final status = _string(ride['status']);
+    return status == 'price_raise_required' ||
         ride['priceRaiseRecommended'] == true;
+  }
+
+  bool _isCancelledTaxiRideStatus(String? status) {
+    final normalized = status?.toLowerCase();
+    return normalized == 'cancelled' ||
+        normalized == 'cancelled_by_customer' ||
+        normalized == 'cancelled_by_captain' ||
+        normalized == 'cancelled_by_admin';
+  }
+
+  bool _isTerminalTaxiRideStatus(String? status) {
+    final normalized = status?.toLowerCase();
+    return normalized == 'completed' ||
+        normalized == 'expired' ||
+        _isCancelledTaxiRideStatus(normalized);
   }
 
   DateTime? _parseIsoDate(dynamic value) {
@@ -3330,6 +3441,8 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   String _localizedRideStatusLabel(String? status) {
     final l10n = context.l10n;
     switch (status) {
+      case 'price_raise_required':
+        return _t('رفع الأجرة مطلوب', 'Price raise required');
       case 'searching':
         return l10n.mapPageStatusSearching;
       case 'captain_assigned':
@@ -3341,6 +3454,9 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       case 'completed':
         return l10n.mapPageStatusCompleted;
       case 'cancelled':
+      case 'cancelled_by_customer':
+      case 'cancelled_by_captain':
+      case 'cancelled_by_admin':
         return l10n.mapPageStatusCancelled;
       case 'expired':
         return l10n.mapPageStatusExpired;
@@ -3386,6 +3502,8 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   String _rideHeaderTitle(BuildContext context, String? rideStatus) {
     final l10n = context.l10n;
     switch (rideStatus) {
+      case 'price_raise_required':
+        return _t('رفع الأجرة مطلوب', 'Price raise required');
       case 'searching':
         return l10n.mapPageRideSearchingTitle;
       case 'captain_assigned':
@@ -3396,6 +3514,9 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       case 'completed':
         return l10n.mapPageRideCompletedTitle;
       case 'cancelled':
+      case 'cancelled_by_customer':
+      case 'cancelled_by_captain':
+      case 'cancelled_by_admin':
         return l10n.mapPageRideCancelledTitle;
       case 'expired':
         return l10n.mapPageRideExpiredTitle;
@@ -3417,6 +3538,11 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   }) {
     final l10n = context.l10n;
     switch (rideStatus) {
+      case 'price_raise_required':
+        return _t(
+          'فشلت عدة محاولات تعيين. ارفع الأجرة لإعادة فتح البحث.',
+          'Several matches failed. Raise the fare to reopen search.',
+        );
       case 'searching':
         if (priceRaiseRecommended) {
           return l10n.mapPageSearchingRaiseFareHint;
@@ -3435,6 +3561,9 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       case 'completed':
         return l10n.mapPageRideCompletedSubtitle;
       case 'cancelled':
+      case 'cancelled_by_customer':
+      case 'cancelled_by_captain':
+      case 'cancelled_by_admin':
         return l10n.mapPageRideCancelledSubtitle;
       case 'expired':
         return l10n.mapPageRideExpiredSubtitle;
@@ -3449,6 +3578,8 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
 
   Color _rideStatusColor(String? status, BuildContext context) {
     switch (status) {
+      case 'price_raise_required':
+        return Colors.deepOrange;
       case 'searching':
         return Colors.orange;
       case 'captain_assigned':
@@ -3459,6 +3590,9 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       case 'completed':
         return Colors.teal;
       case 'cancelled':
+      case 'cancelled_by_customer':
+      case 'cancelled_by_captain':
+      case 'cancelled_by_admin':
       case 'expired':
         return Colors.redAccent;
       default:
@@ -3522,6 +3656,21 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
             return l10n.mapPageApiActiveRideExists;
           case 'TAXI_RIDE_NOT_ACCEPTING_BIDS':
             return l10n.mapPageApiRideNotAcceptingBids;
+          case 'TAXI_RIDE_NOT_PRICE_RAISE_REQUIRED':
+            return _t(
+              'لا يمكن رفع الأجرة الآن إلا عندما تطلبها الرحلة.',
+              'Fare raise is only allowed when the ride requests it.',
+            );
+          case 'TAXI_FARE_NOT_INCREASED':
+            return _t(
+              'يجب أن تكون الأجرة الجديدة أعلى من الأجرة الحالية.',
+              'The new fare must be higher than the current fare.',
+            );
+          case 'TAXI_RIDE_FARE_RAISE_FAILED':
+            return _t(
+              'تعذر رفع الأجرة حالياً.',
+              'Unable to raise the fare right now.',
+            );
           case 'TAXI_OFFER_NOT_FOUND':
           case 'TAXI_OFFER_EXPIRED':
             return _t(
@@ -3824,6 +3973,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   Widget _buildTopStatusBar(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final rideStatus = _string(_ride?['status']);
+    final priceRaiseRecommended = _priceRaiseRecommended(_ride);
     final statusLabel = _ride == null
         ? context.l10n.mapPageReadyForRequest
         : _localizedRideStatusLabel(rideStatus);
@@ -3887,7 +4037,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                       _rideHeaderSubtitle(
                         context,
                         rideStatus: rideStatus,
-                        priceRaiseRecommended: false,
+                        priceRaiseRecommended: priceRaiseRecommended,
                         finalAcceptanceRemaining: null,
                       ),
                       style: TextStyle(
@@ -4321,10 +4471,12 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                                 children: [
                                   Text(
                                     [
-                                      _string(vehicle['vehicleMake']),
-                                      _string(vehicle['vehicleModel']),
-                                      _readInt(vehicle['vehicleYear'])?.toString(),
-                                    ]
+                                          _string(vehicle['vehicleMake']),
+                                          _string(vehicle['vehicleModel']),
+                                          _readInt(
+                                            vehicle['vehicleYear'],
+                                          )?.toString(),
+                                        ]
                                         .whereType<String>()
                                         .where((value) => value.isNotEmpty)
                                         .join(' • '),
@@ -4336,10 +4488,10 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                                   const SizedBox(height: 2),
                                   Text(
                                     [
-                                      _string(vehicle['vehicleColor']),
-                                      _string(vehicle['vehicleType']),
-                                      _string(vehicle['vehiclePlate']),
-                                    ]
+                                          _string(vehicle['vehicleColor']),
+                                          _string(vehicle['vehicleType']),
+                                          _string(vehicle['vehiclePlate']),
+                                        ]
                                         .whereType<String>()
                                         .where((value) => value.isNotEmpty)
                                         .join(' • '),
@@ -4383,6 +4535,94 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                             label: Text(l10n.mapPageSaveAsFavoriteAction),
                           ),
                         ],
+                      ),
+                    ],
+                    if (rideStatus == 'price_raise_required') ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.deepOrange.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.deepOrange.withValues(alpha: 0.22),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.priority_high_rounded,
+                                  color: Colors.deepOrange.shade400,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _t(
+                                      'تحتاج الرحلة إلى رفع أجرة حتى نواصل البحث.',
+                                      'The ride needs a fare raise before search continues.',
+                                    ),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _t(
+                                'بعد عدة رفضات من كباتن مختلفين، أصبح من الأفضل رفع الأجرة لإعادة فتح البحث.',
+                                'After several distinct captain declines, raising the fare is recommended to reopen search.',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (final extra in const [1000, 2000, 3000])
+                                  FilledButton.tonalIcon(
+                                    onPressed: rideFare == null
+                                        ? null
+                                        : _submitting
+                                        ? null
+                                        : () => _raiseRideFare(
+                                            math.max(
+                                              rideFare + extra,
+                                              TaxiFarePolicy.minimumFareIqd,
+                                            ),
+                                          ),
+                                    icon: const Icon(Icons.trending_up_rounded),
+                                    label: Text(
+                                      '${formatIqd((rideFare ?? TaxiFarePolicy.minimumFareIqd) + extra)} +',
+                                    ),
+                                  ),
+                                OutlinedButton.icon(
+                                  onPressed: _submitting
+                                      ? null
+                                      : () => _raiseRideFare(
+                                          math.max(
+                                            (rideFare ??
+                                                    TaxiFarePolicy
+                                                        .minimumFareIqd) +
+                                                1000,
+                                            TaxiFarePolicy.minimumFareIqd,
+                                          ),
+                                        ),
+                                  icon: const Icon(Icons.edit_rounded),
+                                  label: Text(
+                                    _t('رفع الأجرة الآن', 'Raise fare now'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                     if (rideStatus == 'searching') ...[
@@ -4520,10 +4760,11 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                         ...offers.map(
                           (offer) => Padding(
                             padding: const EdgeInsets.only(bottom: 8),
-                          child: _buildTaxiOfferCard(
+                            child: _buildTaxiOfferCard(
                               offer,
                               nonAvailable: nonAvailable,
-                              customerFareIqd: _readInt(ride['proposedFareIqd']) ??
+                              customerFareIqd:
+                                  _readInt(ride['proposedFareIqd']) ??
                                   _readInt(ride['customerFare']),
                             ),
                           ),

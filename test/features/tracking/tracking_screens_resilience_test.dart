@@ -6,13 +6,18 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:maslaki/core/theme/app_theme.dart';
+import 'package:maslaki/features/auth/models/user_model.dart';
+import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/orders/data/orders_api.dart';
 import 'package:maslaki/features/orders/state/orders_controller.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
+import 'package:maslaki/features/taxi/data/taxi_route_service.dart';
 import 'package:maslaki/features/tracking/ui/delivery_live_tracking_screen.dart';
 import 'package:maslaki/features/tracking/ui/taxi_live_tracking_screen.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
+import 'package:maslaki/pages/map_page.dart';
 
 class _TestHttpOverrides extends HttpOverrides {
   @override
@@ -232,16 +237,34 @@ class _ForbiddenOrdersApi extends OrdersApi {
 }
 
 class _FakeTaxiApi extends TaxiApi {
-  _FakeTaxiApi(this.envelope, {this.streamController}) : super(Dio());
+  _FakeTaxiApi(
+    this.envelope, {
+    this.streamController,
+    this.currentRideEnvelope,
+  }) : super(Dio());
 
   final Map<String, dynamic> envelope;
   final StreamController<TaxiLiveEvent>? streamController;
+  final Map<String, dynamic>? currentRideEnvelope;
+  int rideDetailsCalls = 0;
+  int currentRideCalls = 0;
+  int sharedRideTrackCalls = 0;
 
   @override
-  Future<Map<String, dynamic>> getRideDetails(int rideId) async => envelope;
+  Future<Map<String, dynamic>?> getCurrentRideForCustomer() async {
+    currentRideCalls += 1;
+    return currentRideEnvelope;
+  }
+
+  @override
+  Future<Map<String, dynamic>> getRideDetails(int rideId) async {
+    rideDetailsCalls += 1;
+    return envelope;
+  }
 
   @override
   Future<Map<String, dynamic>> getSharedRideTrack({required int rideId}) async {
+    sharedRideTrackCalls += 1;
     return envelope;
   }
 
@@ -258,6 +281,60 @@ class _FakeTaxiApi extends TaxiApi {
 
   @override
   Stream<TaxiLiveEvent> streamPublicTrackByToken(String token) async* {}
+
+  @override
+  Future<List<Map<String, dynamic>>> listSavedPlaces() async => const [];
+
+  @override
+  Future<List<Map<String, dynamic>>> listFavoriteTrips() async => const [];
+
+  @override
+  Future<List<Map<String, dynamic>>> listNearbyCaptains({
+    required double latitude,
+    required double longitude,
+    int radiusM = 3500,
+    int limit = 60,
+  }) async =>
+      const [];
+}
+
+class _FakeAuthController extends AuthController {
+  _FakeAuthController(super.ref, AuthState initialState) {
+    state = initialState;
+  }
+}
+
+class _FakeTaxiRouteService extends TaxiRouteService {
+  _FakeTaxiRouteService() : super(dio: Dio());
+
+  @override
+  Future<TaxiRoutePreview> fetchDrivingRoutePreview({
+    required LatLng from,
+    required LatLng to,
+  }) async {
+    return TaxiRoutePreview(
+      points: [from, to],
+      distanceMeters: 1820,
+      durationSeconds: 480,
+    );
+  }
+}
+
+UserModel _customerUser() {
+  return UserModel(
+    id: 7,
+    fullName: 'Customer User',
+    phone: '07700000000',
+    role: 'customer',
+    block: 'A1',
+    buildingNumber: '10',
+    apartment: '2',
+    imageUrl: null,
+    workTitle: null,
+    workCompany: null,
+    preferredLocale: 'en',
+    isSuperAdmin: false,
+  );
 }
 
 Map<String, dynamic> _assignedTaxiEnvelope({
@@ -405,6 +482,58 @@ Future<void> _scrollTaxiActionsIntoView(WidgetTester tester) async {
       return;
     }
   }
+}
+
+Future<void> _expectTerminalTaxiRideReturnsHomeOnce(
+  WidgetTester tester, {
+  required String status,
+}) async {
+  await _setTallSurface(tester);
+  final api = _FakeTaxiApi(
+    _assignedTaxiEnvelope(status: status),
+    currentRideEnvelope: null,
+  );
+
+  await tester.pumpWidget(
+    _wrapForTest(
+      TaxiLiveTrackingScreen(
+        rideId: 77,
+        initialEnvelope: _assignedTaxiEnvelope(status: status),
+      ),
+      overrides: [
+        authControllerProvider.overrideWith(
+          (ref) => _FakeAuthController(
+            ref,
+            AuthState(token: 'token', user: _customerUser()),
+          ),
+        ),
+        taxiApiProvider.overrideWithValue(api),
+        taxiRouteServiceProvider.overrideWithValue(_FakeTaxiRouteService()),
+      ],
+    ),
+  );
+
+  await tester.pump();
+  for (var i = 0; i < 20 && find.byType(MapPage).evaluate().isEmpty; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+
+  expect(tester.takeException(), isNull);
+  expect(find.byType(MapPage), findsOneWidget);
+  expect(find.byType(TaxiLiveTrackingScreen), findsNothing);
+  expect(api.rideDetailsCalls, 1);
+  expect(api.currentRideCalls, 1);
+  expect(api.sharedRideTrackCalls, 0);
+
+  await tester.binding.handlePopRoute();
+  await tester.pump();
+  expect(find.byType(TaxiLiveTrackingScreen), findsNothing);
+
+  await tester.pump(const Duration(seconds: 60));
+  expect(tester.takeException(), isNull);
+  expect(api.rideDetailsCalls, 1);
+  expect(api.currentRideCalls, 1);
+  expect(api.sharedRideTrackCalls, 0);
 }
 
 void main() {
@@ -589,6 +718,56 @@ void main() {
   });
 
   testWidgets(
+    'taxi tracking returns to home once after a completed ride',
+    (tester) async {
+      await _expectTerminalTaxiRideReturnsHomeOnce(
+        tester,
+        status: 'completed',
+      );
+    },
+  );
+
+  testWidgets(
+    'taxi tracking returns to home once after a customer-cancelled ride',
+    (tester) async {
+      await _expectTerminalTaxiRideReturnsHomeOnce(
+        tester,
+        status: 'cancelled_by_customer',
+      );
+    },
+  );
+
+  testWidgets(
+    'taxi tracking returns to home once after a captain-cancelled ride',
+    (tester) async {
+      await _expectTerminalTaxiRideReturnsHomeOnce(
+        tester,
+        status: 'cancelled_by_captain',
+      );
+    },
+  );
+
+  testWidgets(
+    'taxi tracking returns to home once after an admin-cancelled ride',
+    (tester) async {
+      await _expectTerminalTaxiRideReturnsHomeOnce(
+        tester,
+        status: 'cancelled_by_admin',
+      );
+    },
+  );
+
+  testWidgets(
+    'taxi tracking returns to home once after an expired ride',
+    (tester) async {
+      await _expectTerminalTaxiRideReturnsHomeOnce(
+        tester,
+        status: 'expired',
+      );
+    },
+  );
+
+  testWidgets(
     'taxi tracking preserves captain and vehicle snapshot after location updates',
     (tester) async {
       await _setTallSurface(tester);
@@ -702,6 +881,7 @@ void main() {
         _wrapForTest(
           TaxiLiveTrackingScreen(
             rideId: 77,
+            sharedReadonly: true,
             initialEnvelope: _assignedTaxiEnvelope(status: 'completed'),
           ),
           overrides: [
@@ -719,6 +899,42 @@ void main() {
       expect(find.text('Message captain'), findsNothing);
       expect(find.text('Call'), findsNothing);
       expect(find.text('Share ride'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'map page skipInitialBootstrap still performs auth and current ride resync',
+    (tester) async {
+      await _setTallSurface(tester);
+      final api = _FakeTaxiApi(
+        _assignedTaxiEnvelope(status: 'completed'),
+        currentRideEnvelope: null,
+      );
+
+      await tester.pumpWidget(
+        _wrapForTest(
+          const MapPage(skipInitialBootstrap: true),
+          overrides: [
+            authControllerProvider.overrideWith(
+              (ref) => _FakeAuthController(
+                ref,
+                AuthState(token: 'token', user: _customerUser()),
+              ),
+            ),
+            taxiApiProvider.overrideWithValue(api),
+            taxiRouteServiceProvider.overrideWithValue(_FakeTaxiRouteService()),
+          ],
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(tester.takeException(), isNull);
+      expect(api.currentRideCalls, 1);
+      final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
+      expect(find.text(l10n.mapPageTitle), findsOneWidget);
+      expect(find.text(l10n.mapPageCurrentLocation), findsWidgets);
     },
   );
 
