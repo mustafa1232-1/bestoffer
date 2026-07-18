@@ -8,6 +8,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { selectEligibleCourier } from "../modules/delivery/delivery-job.service.js";
+import {
+  createMultiStoreFixture,
+  cleanupMultiStoreFixture,
+} from "./fixtures/multistore-delivery.fixture.js";
+import { ensureDeliveryJobForGroup, recomputeGroupReadiness, assignDeliveryJobTx } from "../modules/delivery/delivery-job.service.js";
 
 const MARK = "fixt_el_";
 function newClient() {
@@ -15,6 +20,56 @@ function newClient() {
 }
 
 async function cleanup(c) {
+  await c.query(
+    `WITH marker_users AS (
+       SELECT id FROM app_user WHERE username LIKE '${MARK}%'
+     ),
+     marker_jobs AS (
+       SELECT id
+         FROM delivery_job
+        WHERE customer_user_id IN (SELECT id FROM marker_users)
+           OR delivery_user_id IN (SELECT id FROM marker_users)
+     )
+     DELETE FROM courier_assignment
+      WHERE courier_user_id IN (SELECT id FROM marker_users)
+         OR delivery_job_id IN (SELECT id FROM marker_jobs)`
+  ).catch(() => {});
+  await c.query(
+    `WITH marker_users AS (
+       SELECT id FROM app_user WHERE username LIKE '${MARK}%'
+     ),
+     marker_jobs AS (
+       SELECT id
+         FROM delivery_job
+        WHERE customer_user_id IN (SELECT id FROM marker_users)
+           OR delivery_user_id IN (SELECT id FROM marker_users)
+     )
+     DELETE FROM delivery_pickup_stop
+      WHERE delivery_job_id IN (SELECT id FROM marker_jobs)`
+  ).catch(() => {});
+  await c.query(
+    `WITH marker_users AS (
+       SELECT id FROM app_user WHERE username LIKE '${MARK}%'
+     )
+     DELETE FROM delivery_job
+      WHERE customer_user_id IN (SELECT id FROM marker_users)
+         OR delivery_user_id IN (SELECT id FROM marker_users)`
+  ).catch(() => {});
+  await c.query(
+    `WITH marker_users AS (
+       SELECT id FROM app_user WHERE username LIKE '${MARK}%'
+     )
+     DELETE FROM customer_order
+      WHERE customer_user_id IN (SELECT id FROM marker_users)
+         OR delivery_user_id IN (SELECT id FROM marker_users)`
+  ).catch(() => {});
+  await c.query(
+    `WITH marker_users AS (
+       SELECT id FROM app_user WHERE username LIKE '${MARK}%'
+     )
+     DELETE FROM order_group
+      WHERE customer_user_id IN (SELECT id FROM marker_users)`
+  ).catch(() => {});
   await c.query(
     `DELETE FROM courier_assignment WHERE courier_user_id IN (SELECT id FROM app_user WHERE username LIKE '${MARK}%')`
   ).catch(() => {});
@@ -134,4 +189,58 @@ test("eligibility: each rule excludes with a precise reason", async (t) => {
   await c.query(`DELETE FROM customer_order WHERE id=$1`, [orderId]);
   await c.query(`DELETE FROM merchant WHERE id=$1`, [merchantId]);
   await c.query(`DELETE FROM app_user WHERE id=$1`, [custId]);
+});
+
+test("eligibility: courier becomes selectable again after grouped delivery completes", async (t) => {
+  const c = newClient();
+  await c.connect();
+  t.after(async () => {
+    await cleanup(c).catch(() => {});
+    await c.end();
+  });
+  await cleanup(c);
+
+  const fx = await createMultiStoreFixture(c, { mark: MARK });
+  await c.query("BEGIN");
+  await ensureDeliveryJobForGroup(c, fx.orderGroupId);
+  await recomputeGroupReadiness(c, fx.orderGroupId);
+  await assignDeliveryJobTx(c, { orderGroupId: fx.orderGroupId, courierUserId: fx.courierId });
+  await c.query("COMMIT");
+
+  const jobId = Number(
+    (await c.query("SELECT id FROM delivery_job WHERE order_group_id=$1", [fx.orderGroupId])).rows[0].id
+  );
+  await c.query(
+    `UPDATE delivery_job
+        SET assignment_status='ASSIGNED',
+            lifecycle_status='DELIVERED',
+            completed_at=NOW(),
+            updated_at=NOW()
+      WHERE id=$1`,
+    [jobId]
+  );
+  await c.query(
+    `UPDATE courier_assignment
+        SET status='completed',
+            completed_at=NOW(),
+            ended_at=COALESCE(ended_at, NOW()),
+            ended_reason=COALESCE(ended_reason, 'COMPLETED')
+      WHERE delivery_job_id=$1 AND ended_at IS NULL`,
+    [jobId]
+  );
+
+  const { courierUserId, excluded } = await selectEligibleCourier(c, {
+    restrictToCourierUserIds: [fx.courierId],
+  });
+  assert.equal(
+    courierUserId,
+    fx.courierId,
+    `delivered courier is selectable again; excluded=${JSON.stringify(excluded)}`
+  );
+  assert.ok(
+    !excluded.some((e) => e.reason === "busy_grouped_job"),
+    "terminal grouped job is not treated as busy"
+  );
+
+  await cleanupMultiStoreFixture(c, MARK);
 });

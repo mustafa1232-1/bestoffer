@@ -328,9 +328,13 @@ export async function selectEligibleCourier(
     const groupedBusy =
       (
         await client.query(
-          `SELECT 1 FROM delivery_job
-            WHERE delivery_user_id=$1 AND assignment_status='ASSIGNED' LIMIT 1`,
-          [uid]
+          `SELECT 1
+             FROM delivery_job
+            WHERE delivery_user_id=$1
+              AND assignment_status='ASSIGNED'
+              AND lifecycle_status <> ALL($2::text[])
+            LIMIT 1`,
+          [uid, TERMINAL_LIFECYCLE]
         )
       ).rows.length > 0;
     if (groupedBusy) {
@@ -977,7 +981,12 @@ export const markGroupedDelivered = withTx(async (client, { courierUserId, deliv
     throw new AppError("MUST_HEAD_TO_CUSTOMER_FIRST", { status: 409, details: { from: job.lifecycle_status } });
   }
   await client.query(
-    `UPDATE delivery_job SET lifecycle_status='DELIVERED', completed_at=NOW(), version=version+1, updated_at=NOW() WHERE id=$1`,
+    `UPDATE delivery_job
+        SET lifecycle_status='DELIVERED',
+            completed_at=NOW(),
+            version=version+1,
+            updated_at=NOW()
+      WHERE id=$1`,
     [job.id]
   );
   await client.query(
