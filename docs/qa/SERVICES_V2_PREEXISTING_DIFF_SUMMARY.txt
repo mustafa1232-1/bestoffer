@@ -1,0 +1,387 @@
+﻿# Services V2 Preexisting Diff Summary
+
+- Base SHA: 7eb2da1dbfdc33ddd4616e7289f6e11586023056
+- Current branch: feat/services-booking-v2-production-closure
+- Backup branch: backup/pre-services-v2-production-closure
+- Diff fingerprint hash: 65c4055b106af5c0dc82a2735b5bf8b6a143967229b139e7b75b405ece48a2b1
+
+## Raw git diff --stat
+
+ backend/src/config/db.js                           |  156 ++-
+ backend/src/modules/auth/auth.service.js           |    6 +-
+ backend/src/modules/commerce/commerce.repo.js      |   64 +-
+ backend/src/modules/company/company.repo.js        |    7 +-
+ backend/src/modules/coupons/coupons.repo.js        |  323 +++--
+ backend/src/modules/coupons/coupons.service.js     |   39 +-
+ backend/src/modules/feed/feed.product.mappers.js   |    4 +
+ backend/src/modules/feed/feed.repo.js              |   11 +-
+ backend/src/modules/feed/feed.service.js           |   29 +-
+ backend/src/modules/feed/feed.validators.js        |    5 +
+ backend/src/modules/services/services.constants.js |    1 +
+ .../src/modules/services/services.controller.js    |   19 +-
+ backend/src/modules/services/services.repo.js      |  261 +++-
+ backend/src/modules/services/services.routes.js    |    1 +
+ backend/src/modules/services/services.service.js   |  127 +-
+ .../src/modules/services/services.validators.js    |   15 +
+ backend/src/modules/taxi/taxi.controller.js        |   21 +
+ backend/src/modules/taxi/taxi.mappers.js           |   17 +-
+ backend/src/modules/taxi/taxi.repo.js              |  173 ++-
+ backend/src/modules/taxi/taxi.routes.js            |    1 +
+ backend/src/modules/taxi/taxi.service.js           |  103 +-
+ backend/src/modules/taxi/taxi.validators.js        |   40 +-
+ backend/src/scripts/taxiE2ECheck.js                |   31 +-
+ backend/src/scripts/taxiSmokeApiCheck.js           |    6 +-
+ backend/src/shared/middleware/access-auth.js       |   15 +-
+ backend/src/shared/realtime/realtime-sanitizer.js  |   12 +
+ backend/src/shared/utils/app-surface.js            |    7 +
+ backend/src/tests/app-surface.test.js              |   37 +-
+ backend/src/tests/coupons.scope.test.js            |  120 +-
+ backend/src/tests/feed.phase3b.test.js             |   25 +
+ backend/src/tests/feed.story-interactions.test.js  |   87 ++
+ backend/src/tests/notifications.end-to-end.test.js |   74 +-
+ backend/src/tests/taxi.hardening.test.js           |   15 +-
+ backend/src/tests/taxi.negotiation.test.js         |   10 +-
+ lib/app_delivery_bootstrap.dart                    |    8 +
+ lib/app_user_bootstrap.dart                        |   12 +-
+ .../notifications/notification_navigation.dart     |   67 +-
+ .../notifications/notification_type_registry.dart  |   26 +
+ lib/core/widgets/image_picker_field.dart           |   15 +-
+ lib/features/admin/data/admin_api.dart             |   46 +-
+ lib/features/admin/state/admin_controller.dart     |   95 +-
+ .../admin/ui/admin_approvals_hub_screen.dart       |   93 ++
+ lib/features/admin/ui/admin_dashboard_screen.dart  |  124 +-
+ .../admin/ui/admin_delivery_approvals_screen.dart  |   81 ++
+ .../admin/ui/admin_merchant_approvals_screen.dart  |   83 ++
+ .../admin/ui/admin_receivables_screen.dart         |  133 +-
+ ...vice_provider_subscription_requests_screen.dart |   82 ++
+ .../admin/ui/admin_services_hub_screen.dart        |  211 +++-
+ .../ui/admin_taxi_captain_requests_screen.dart     |  106 +-
+ .../admin/ui/admin_taxi_cash_payments_screen.dart  |   96 +-
+ lib/features/auth/presentation/login_screen.dart   |    6 +-
+ lib/features/auth/state/auth_controller.dart       |    6 +-
+ lib/features/company/models/company_models.dart    |   22 +
+ .../company/ui/company_promotions_screen.dart      |   98 +-
+ .../coupons/ui/coupon_management_screen.dart       |  116 +-
+ .../ui/customer_global_product_search_screen.dart  |   26 +
+ .../delivery/state/delivery_controller.dart        |   38 +-
+ .../ui/merchant_product_details_screen.dart        |  108 +-
+ .../merchants/ui/merchant_products_screen.dart     |   66 +-
+ .../state/notifications_controller.dart            |   67 +-
+ lib/features/orders/data/orders_api.dart           |    6 +-
+ lib/features/orders/ui/cart_screen.dart            |    5 +-
+ lib/features/orders/ui/product_reviews_sheet.dart  |   16 +-
+ .../owner/ui/owner_product_form_sheet.dart         |   15 +-
+ lib/features/products/ui/product_summary_card.dart |  188 ++-
+ .../products/ui/product_variant_picker_sheet.dart  |   54 +-
+ lib/features/services/data/services_api.dart       |   27 +-
+ lib/features/services/models/service_models.dart   |   60 +-
+ .../service_provider_workspace_controller.dart     |   40 +-
+ .../ui/service_offering_details_screen.dart        |   83 +-
+ .../ui/service_provider_onboarding_screen.dart     |  174 ++-
+ .../ui/service_provider_profile_screen.dart        |   84 +-
+ .../ui/service_provider_workspace_screen.dart      | 1282 ++++++++++++++------
+ .../services/ui/services_marketplace_screen.dart   |  177 ++-
+ .../social/ui/social_chat_thread_screen.dart       |  105 +-
+ .../social/ui/social_chat_threads_screen.dart      |    3 +
+ lib/features/social/ui/social_profile_screen.dart  |    3 +
+ lib/features/social/ui/social_share_sheet.dart     |   27 +-
+ .../social/ui/social_user_search_screen.dart       |    3 +
+ .../social_v3/composer/reel_composer_state.dart    |    3 +
+ .../social_v3/composer/reel_composer_v3.dart       |  649 ++++++++--
+ .../social_v3/composer/story_composer_v3.dart      |  246 +++-
+ .../social_v3/pickers/social_media_picker_v3.dart  |   46 +-
+ .../social_v3/state/social_reels_v3_connector.dart |   13 +-
+ .../social_v3/upload/reel_upload_api_impl.dart     |    4 +
+ lib/features/taxi/data/taxi_api.dart               |   19 +-
+ .../taxi/ui/taxi_captain_dashboard_screen.dart     |   68 +-
+ .../taxi/ui/taxi_captain_loyalty_screen.dart       |   39 +-
+ lib/features/taxi/ui/taxi_pages.dart               |   23 +-
+ lib/features/tracking/tracking_map_utils.dart      |    1 +
+ .../social_core/lib/src/models/social_models.dart  |  840 ++++++-------
+ .../lib/src/models/social_story_document.dart      |   77 +-
+ pubspec.yaml                                       |    2 +-
+ test/admin/super_admin_drawer_navigation_test.dart |   79 ++
+ test/core/app_user_bootstrap_entry_test.dart       |  139 ++-
+ test/core/customer_main_market_screen_test.dart    |    2 +-
+ test/core/map_page_test.dart                       |   29 +-
+ .../notifications/notification_routing_test.dart   |   77 +-
+ test/core/taxi_pages_wrappers_test.dart            |    6 +
+ test/coupons/coupon_management_screen_test.dart    |   83 +-
+ .../delivery/courier_orders_filter_test.dart       |    5 +-
+ .../delivery/delivery_presence_sync_test.dart      |   51 +
+ .../owner/ui/store_owner_orders_screen_test.dart   |   51 +
+ ...ovider_workspace_employee_permissions_test.dart |  513 +++++++-
+ .../social_v3/live_create_routes_test.dart         |   13 +
+ .../social_v3/reel_composer_controller_test.dart   |   22 +
+ .../social_v3/reel_publish_integration_test.dart   |   11 +
+ test/features/social_v3/share_sheet_v3_test.dart   |    1 +
+ .../taxi/taxi_captain_dashboard_screen_test.dart   |  116 +-
+ test/products/product_summary_card_test.dart       |   95 ++
+ test/services/services_ui_smoke_test.dart          |    2 +-
+ test/social/social_story_document_test.dart        |   65 +
+ .../h1y6g501/arm64-v8a/configure_fingerprint.bin   |   24 +-
+ .../h1y6g501/armeabi-v7a/configure_fingerprint.bin |   24 +-
+ .../Debug/h1y6g501/x86/configure_fingerprint.bin   |   24 +-
+ .../h1y6g501/x86_64/configure_fingerprint.bin      |   24 +-
+ .../2q3k6f4v/arm64-v8a/configure_fingerprint.bin   |   24 +-
+ .../2q3k6f4v/armeabi-v7a/configure_fingerprint.bin |   24 +-
+ .../2q3k6f4v/x86/configure_fingerprint.bin         |   24 +-
+ .../2q3k6f4v/x86_64/configure_fingerprint.bin      |   24 +-
+ 120 files changed, 7764 insertions(+), 1863 deletions(-)
+
+## Raw git diff --name-status
+
+M	backend/src/config/db.js
+M	backend/src/modules/auth/auth.service.js
+M	backend/src/modules/commerce/commerce.repo.js
+M	backend/src/modules/company/company.repo.js
+M	backend/src/modules/coupons/coupons.repo.js
+M	backend/src/modules/coupons/coupons.service.js
+M	backend/src/modules/feed/feed.product.mappers.js
+M	backend/src/modules/feed/feed.repo.js
+M	backend/src/modules/feed/feed.service.js
+M	backend/src/modules/feed/feed.validators.js
+M	backend/src/modules/services/services.constants.js
+M	backend/src/modules/services/services.controller.js
+M	backend/src/modules/services/services.repo.js
+M	backend/src/modules/services/services.routes.js
+M	backend/src/modules/services/services.service.js
+M	backend/src/modules/services/services.validators.js
+M	backend/src/modules/taxi/taxi.controller.js
+M	backend/src/modules/taxi/taxi.mappers.js
+M	backend/src/modules/taxi/taxi.repo.js
+M	backend/src/modules/taxi/taxi.routes.js
+M	backend/src/modules/taxi/taxi.service.js
+M	backend/src/modules/taxi/taxi.validators.js
+M	backend/src/scripts/taxiE2ECheck.js
+M	backend/src/scripts/taxiSmokeApiCheck.js
+M	backend/src/shared/middleware/access-auth.js
+M	backend/src/shared/realtime/realtime-sanitizer.js
+M	backend/src/shared/utils/app-surface.js
+M	backend/src/tests/app-surface.test.js
+M	backend/src/tests/coupons.scope.test.js
+M	backend/src/tests/feed.phase3b.test.js
+M	backend/src/tests/feed.story-interactions.test.js
+M	backend/src/tests/notifications.end-to-end.test.js
+M	backend/src/tests/taxi.hardening.test.js
+M	backend/src/tests/taxi.negotiation.test.js
+M	lib/app_delivery_bootstrap.dart
+M	lib/app_user_bootstrap.dart
+M	lib/core/notifications/notification_navigation.dart
+M	lib/core/notifications/notification_type_registry.dart
+M	lib/core/widgets/image_picker_field.dart
+M	lib/features/admin/data/admin_api.dart
+M	lib/features/admin/state/admin_controller.dart
+M	lib/features/admin/ui/admin_approvals_hub_screen.dart
+M	lib/features/admin/ui/admin_dashboard_screen.dart
+M	lib/features/admin/ui/admin_delivery_approvals_screen.dart
+M	lib/features/admin/ui/admin_merchant_approvals_screen.dart
+M	lib/features/admin/ui/admin_receivables_screen.dart
+M	lib/features/admin/ui/admin_service_provider_subscription_requests_screen.dart
+M	lib/features/admin/ui/admin_services_hub_screen.dart
+M	lib/features/admin/ui/admin_taxi_captain_requests_screen.dart
+M	lib/features/admin/ui/admin_taxi_cash_payments_screen.dart
+M	lib/features/auth/presentation/login_screen.dart
+M	lib/features/auth/state/auth_controller.dart
+M	lib/features/company/models/company_models.dart
+M	lib/features/company/ui/company_promotions_screen.dart
+M	lib/features/coupons/ui/coupon_management_screen.dart
+M	lib/features/customer/ui/customer_global_product_search_screen.dart
+M	lib/features/delivery/state/delivery_controller.dart
+M	lib/features/merchants/ui/merchant_product_details_screen.dart
+M	lib/features/merchants/ui/merchant_products_screen.dart
+M	lib/features/notifications/state/notifications_controller.dart
+M	lib/features/orders/data/orders_api.dart
+M	lib/features/orders/ui/cart_screen.dart
+M	lib/features/orders/ui/product_reviews_sheet.dart
+M	lib/features/owner/ui/owner_product_form_sheet.dart
+M	lib/features/products/ui/product_summary_card.dart
+M	lib/features/products/ui/product_variant_picker_sheet.dart
+M	lib/features/services/data/services_api.dart
+M	lib/features/services/models/service_models.dart
+M	lib/features/services/state/service_provider_workspace_controller.dart
+M	lib/features/services/ui/service_offering_details_screen.dart
+M	lib/features/services/ui/service_provider_onboarding_screen.dart
+M	lib/features/services/ui/service_provider_profile_screen.dart
+M	lib/features/services/ui/service_provider_workspace_screen.dart
+M	lib/features/services/ui/services_marketplace_screen.dart
+M	lib/features/social/ui/social_chat_thread_screen.dart
+M	lib/features/social/ui/social_chat_threads_screen.dart
+M	lib/features/social/ui/social_profile_screen.dart
+M	lib/features/social/ui/social_share_sheet.dart
+M	lib/features/social/ui/social_user_search_screen.dart
+M	lib/features/social_v3/composer/reel_composer_state.dart
+M	lib/features/social_v3/composer/reel_composer_v3.dart
+M	lib/features/social_v3/composer/story_composer_v3.dart
+M	lib/features/social_v3/pickers/social_media_picker_v3.dart
+M	lib/features/social_v3/state/social_reels_v3_connector.dart
+M	lib/features/social_v3/upload/reel_upload_api_impl.dart
+M	lib/features/taxi/data/taxi_api.dart
+M	lib/features/taxi/ui/taxi_captain_dashboard_screen.dart
+M	lib/features/taxi/ui/taxi_captain_loyalty_screen.dart
+M	lib/features/taxi/ui/taxi_pages.dart
+M	lib/features/tracking/tracking_map_utils.dart
+M	packages/social_core/lib/src/models/social_models.dart
+M	packages/social_core/lib/src/models/social_story_document.dart
+M	pubspec.yaml
+M	test/admin/super_admin_drawer_navigation_test.dart
+M	test/core/app_user_bootstrap_entry_test.dart
+M	test/core/customer_main_market_screen_test.dart
+M	test/core/map_page_test.dart
+M	test/core/notifications/notification_routing_test.dart
+M	test/core/taxi_pages_wrappers_test.dart
+M	test/coupons/coupon_management_screen_test.dart
+M	test/features/delivery/courier_orders_filter_test.dart
+M	test/features/delivery/delivery_presence_sync_test.dart
+M	test/features/owner/ui/store_owner_orders_screen_test.dart
+M	test/features/services/service_provider_workspace_employee_permissions_test.dart
+M	test/features/social_v3/live_create_routes_test.dart
+M	test/features/social_v3/reel_composer_controller_test.dart
+M	test/features/social_v3/reel_publish_integration_test.dart
+M	test/features/social_v3/share_sheet_v3_test.dart
+M	test/features/taxi/taxi_captain_dashboard_screen_test.dart
+M	test/products/product_summary_card_test.dart
+M	test/services/services_ui_smoke_test.dart
+M	test/social/social_story_document_test.dart
+M	third_party/jni/android/.cxx/Debug/h1y6g501/arm64-v8a/configure_fingerprint.bin
+M	third_party/jni/android/.cxx/Debug/h1y6g501/armeabi-v7a/configure_fingerprint.bin
+M	third_party/jni/android/.cxx/Debug/h1y6g501/x86/configure_fingerprint.bin
+M	third_party/jni/android/.cxx/Debug/h1y6g501/x86_64/configure_fingerprint.bin
+M	third_party/jni/android/.cxx/RelWithDebInfo/2q3k6f4v/arm64-v8a/configure_fingerprint.bin
+M	third_party/jni/android/.cxx/RelWithDebInfo/2q3k6f4v/armeabi-v7a/configure_fingerprint.bin
+M	third_party/jni/android/.cxx/RelWithDebInfo/2q3k6f4v/x86/configure_fingerprint.bin
+M	third_party/jni/android/.cxx/RelWithDebInfo/2q3k6f4v/x86_64/configure_fingerprint.bin
+
+## Raw git diff --numstat
+
+154	2	backend/src/config/db.js
+5	1	backend/src/modules/auth/auth.service.js
+41	23	backend/src/modules/commerce/commerce.repo.js
+6	1	backend/src/modules/company/company.repo.js
+236	87	backend/src/modules/coupons/coupons.repo.js
+32	7	backend/src/modules/coupons/coupons.service.js
+4	0	backend/src/modules/feed/feed.product.mappers.js
+10	1	backend/src/modules/feed/feed.repo.js
+17	12	backend/src/modules/feed/feed.service.js
+5	0	backend/src/modules/feed/feed.validators.js
+1	0	backend/src/modules/services/services.constants.js
+18	1	backend/src/modules/services/services.controller.js
+224	37	backend/src/modules/services/services.repo.js
+1	0	backend/src/modules/services/services.routes.js
+123	4	backend/src/modules/services/services.service.js
+15	0	backend/src/modules/services/services.validators.js
+21	0	backend/src/modules/taxi/taxi.controller.js
+16	1	backend/src/modules/taxi/taxi.mappers.js
+153	20	backend/src/modules/taxi/taxi.repo.js
+1	0	backend/src/modules/taxi/taxi.routes.js
+94	9	backend/src/modules/taxi/taxi.service.js
+32	8	backend/src/modules/taxi/taxi.validators.js
+17	14	backend/src/scripts/taxiE2ECheck.js
+3	3	backend/src/scripts/taxiSmokeApiCheck.js
+12	3	backend/src/shared/middleware/access-auth.js
+12	0	backend/src/shared/realtime/realtime-sanitizer.js
+7	0	backend/src/shared/utils/app-surface.js
+22	15	backend/src/tests/app-surface.test.js
+119	1	backend/src/tests/coupons.scope.test.js
+25	0	backend/src/tests/feed.phase3b.test.js
+87	0	backend/src/tests/feed.story-interactions.test.js
+73	1	backend/src/tests/notifications.end-to-end.test.js
+14	1	backend/src/tests/taxi.hardening.test.js
+5	5	backend/src/tests/taxi.negotiation.test.js
+8	0	lib/app_delivery_bootstrap.dart
+6	6	lib/app_user_bootstrap.dart
+52	15	lib/core/notifications/notification_navigation.dart
+26	0	lib/core/notifications/notification_type_registry.dart
+12	3	lib/core/widgets/image_picker_field.dart
+44	2	lib/features/admin/data/admin_api.dart
+76	19	lib/features/admin/state/admin_controller.dart
+93	0	lib/features/admin/ui/admin_approvals_hub_screen.dart
+102	22	lib/features/admin/ui/admin_dashboard_screen.dart
+81	0	lib/features/admin/ui/admin_delivery_approvals_screen.dart
+83	0	lib/features/admin/ui/admin_merchant_approvals_screen.dart
+109	24	lib/features/admin/ui/admin_receivables_screen.dart
+82	0	lib/features/admin/ui/admin_service_provider_subscription_requests_screen.dart
+175	36	lib/features/admin/ui/admin_services_hub_screen.dart
+90	16	lib/features/admin/ui/admin_taxi_captain_requests_screen.dart
+87	9	lib/features/admin/ui/admin_taxi_cash_payments_screen.dart
+5	1	lib/features/auth/presentation/login_screen.dart
+4	2	lib/features/auth/state/auth_controller.dart
+22	0	lib/features/company/models/company_models.dart
+86	12	lib/features/company/ui/company_promotions_screen.dart
+90	26	lib/features/coupons/ui/coupon_management_screen.dart
+26	0	lib/features/customer/ui/customer_global_product_search_screen.dart
+35	3	lib/features/delivery/state/delivery_controller.dart
+49	59	lib/features/merchants/ui/merchant_product_details_screen.dart
+56	10	lib/features/merchants/ui/merchant_products_screen.dart
+56	11	lib/features/notifications/state/notifications_controller.dart
+5	1	lib/features/orders/data/orders_api.dart
+4	1	lib/features/orders/ui/cart_screen.dart
+10	6	lib/features/orders/ui/product_reviews_sheet.dart
+11	4	lib/features/owner/ui/owner_product_form_sheet.dart
+168	20	lib/features/products/ui/product_summary_card.dart
+49	5	lib/features/products/ui/product_variant_picker_sheet.dart
+21	6	lib/features/services/data/services_api.dart
+35	25	lib/features/services/models/service_models.dart
+39	1	lib/features/services/state/service_provider_workspace_controller.dart
+67	16	lib/features/services/ui/service_offering_details_screen.dart
+170	4	lib/features/services/ui/service_provider_onboarding_screen.dart
+73	11	lib/features/services/ui/service_provider_profile_screen.dart
+942	340	lib/features/services/ui/service_provider_workspace_screen.dart
+140	37	lib/features/services/ui/services_marketplace_screen.dart
+81	24	lib/features/social/ui/social_chat_thread_screen.dart
+3	0	lib/features/social/ui/social_chat_threads_screen.dart
+3	0	lib/features/social/ui/social_profile_screen.dart
+24	3	lib/features/social/ui/social_share_sheet.dart
+3	0	lib/features/social/ui/social_user_search_screen.dart
+3	0	lib/features/social_v3/composer/reel_composer_state.dart
+549	100	lib/features/social_v3/composer/reel_composer_v3.dart
+218	28	lib/features/social_v3/composer/story_composer_v3.dart
+42	4	lib/features/social_v3/pickers/social_media_picker_v3.dart
+1	12	lib/features/social_v3/state/social_reels_v3_connector.dart
+4	0	lib/features/social_v3/upload/reel_upload_api_impl.dart
+15	4	lib/features/taxi/data/taxi_api.dart
+60	8	lib/features/taxi/ui/taxi_captain_dashboard_screen.dart
+25	14	lib/features/taxi/ui/taxi_captain_loyalty_screen.dart
+21	2	lib/features/taxi/ui/taxi_pages.dart
+1	0	lib/features/tracking/tracking_map_utils.dart
+404	436	packages/social_core/lib/src/models/social_models.dart
+50	27	packages/social_core/lib/src/models/social_story_document.dart
+1	1	pubspec.yaml
+79	0	test/admin/super_admin_drawer_navigation_test.dart
+136	3	test/core/app_user_bootstrap_entry_test.dart
+1	1	test/core/customer_main_market_screen_test.dart
+17	12	test/core/map_page_test.dart
+62	15	test/core/notifications/notification_routing_test.dart
+6	0	test/core/taxi_pages_wrappers_test.dart
+80	3	test/coupons/coupon_management_screen_test.dart
+4	1	test/features/delivery/courier_orders_filter_test.dart
+51	0	test/features/delivery/delivery_presence_sync_test.dart
+51	0	test/features/owner/ui/store_owner_orders_screen_test.dart
+457	56	test/features/services/service_provider_workspace_employee_permissions_test.dart
+13	0	test/features/social_v3/live_create_routes_test.dart
+22	0	test/features/social_v3/reel_composer_controller_test.dart
+11	0	test/features/social_v3/reel_publish_integration_test.dart
+1	0	test/features/social_v3/share_sheet_v3_test.dart
+114	2	test/features/taxi/taxi_captain_dashboard_screen_test.dart
+95	0	test/products/product_summary_card_test.dart
+1	1	test/services/services_ui_smoke_test.dart
+65	0	test/social/social_story_document_test.dart
+12	12	third_party/jni/android/.cxx/Debug/h1y6g501/arm64-v8a/configure_fingerprint.bin
+12	12	third_party/jni/android/.cxx/Debug/h1y6g501/armeabi-v7a/configure_fingerprint.bin
+12	12	third_party/jni/android/.cxx/Debug/h1y6g501/x86/configure_fingerprint.bin
+12	12	third_party/jni/android/.cxx/Debug/h1y6g501/x86_64/configure_fingerprint.bin
+12	12	third_party/jni/android/.cxx/RelWithDebInfo/2q3k6f4v/arm64-v8a/configure_fingerprint.bin
+12	12	third_party/jni/android/.cxx/RelWithDebInfo/2q3k6f4v/armeabi-v7a/configure_fingerprint.bin
+12	12	third_party/jni/android/.cxx/RelWithDebInfo/2q3k6f4v/x86/configure_fingerprint.bin
+12	12	third_party/jni/android/.cxx/RelWithDebInfo/2q3k6f4v/x86_64/configure_fingerprint.bin
+
+## Service-Specific Notes
+
+- Service module files already changed: routes, controller, service, repo, constants, validators.
+- Service backend tests already changed: surface, provider onboarding categories, and service workspace permissions.
+- Service Flutter surfaces already changed: marketplace, onboarding, provider profile, provider workspace, request create/details, and workspace state/API layers.
+- The current service surface still reflects quote-based request negotiation and provider moderation; Services V2 feature work has not started.
+
+## Diff Hash Method
+
+The hash above was computed from the concatenation of the raw `--stat`, `--name-status`, and `--numstat` outputs captured from the current dirty worktree.
