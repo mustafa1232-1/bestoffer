@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import pg from "pg";
 
 import {
@@ -151,6 +152,10 @@ test("real multi-store checkout persists raw and allocated delivery fees", async
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   t.after(async () => {
+    // createOrderGroupWithItems queues post-commit notification fanout with
+    // setImmediate. Let it finish before removing child orders so teardown does
+    // not create a false notification FK error in clean DB test runs.
+    await delay(200);
     await cleanupCheckoutFixture(client).catch(() => {});
     await client.end();
   });

@@ -25,23 +25,42 @@ import {
 import { assertSafeE2EDatabaseTarget } from "../scripts/e2eDbSafety.js";
 
 async function pickTwoUsers(client) {
+  const runId = randomUUID().replace(/-/g, "").slice(0, 10);
   const result = await client.query(
-    `SELECT
+    `INSERT INTO app_user (
+       full_name,
+       phone,
+       pin_hash,
+       block,
+       building_number,
+       apartment,
+       role,
+       username,
+       social_stories_public,
+       is_account_disabled,
+       is_super_admin
+     )
+     VALUES
+       ($1, $2, 'test-pin-hash', 'A', 'A203', $3, 'user', $4, TRUE, FALSE, FALSE),
+       ($5, $6, 'test-pin-hash', 'A', 'A203', $7, 'user', $8, TRUE, FALSE, FALSE)
+     RETURNING
        id,
        role,
        block,
        building_number,
        apartment,
-       social_stories_public
-     FROM app_user
-     WHERE COALESCE(is_account_disabled, FALSE) = FALSE
-       AND COALESCE(is_super_admin, FALSE) = FALSE
-       AND role = 'user'
-       AND building_number ~ '^[AB][1-9][0-9]{2}$'
-     ORDER BY id ASC
-     LIMIT 2`
+       social_stories_public`,
+    [
+      `Story Owner ${runId}`,
+      `077story${runId}1`,
+      `S${runId}1`,
+      `story_${runId}_1`,
+      `Story Peer ${runId}`,
+      `077story${runId}2`,
+      `S${runId}2`,
+      `story_${runId}_2`,
+    ]
   );
-  assert.ok(result.rowCount >= 2, "expected two active resident users in the test DB");
   return result.rows;
 }
 
@@ -81,8 +100,10 @@ test("story interactions, exact reads, and native sharing enforce the persisted 
   let threadId = null;
   let communityMessageId = null;
   let owner = null;
+  let createdUserIds = [];
   try {
     const users = await pickTwoUsers(client);
+    createdUserIds = users.map((user) => Number(user.id));
     [owner] = users;
     const peer = users[1];
 
@@ -429,6 +450,11 @@ test("story interactions, exact reads, and native sharing enforce the persisted 
         `UPDATE app_user SET social_stories_public = $2 WHERE id = $1`,
         [owner.id, owner.social_stories_public === true]
       );
+    }
+    if (createdUserIds.length > 0) {
+      await client.query(`DELETE FROM app_user WHERE id = ANY($1::bigint[])`, [
+        createdUserIds,
+      ]);
     }
     await client.end();
   }
