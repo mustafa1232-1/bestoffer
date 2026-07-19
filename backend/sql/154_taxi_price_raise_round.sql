@@ -18,6 +18,12 @@ ALTER TABLE taxi_ride_request
 ALTER TABLE taxi_ride_request
   DROP CONSTRAINT IF EXISTS taxi_ride_request_status_check;
 
+ALTER TABLE taxi_ride_request
+  DROP CONSTRAINT IF EXISTS chk_taxi_ride_request_status;
+
+ALTER TABLE taxi_ride_request
+  DROP CONSTRAINT IF EXISTS chk_taxi_ride_request_search_radius_m;
+
 UPDATE taxi_ride_request
 SET pricing_round = COALESCE(pricing_round, 1),
     fare_version = COALESCE(fare_version, 1),
