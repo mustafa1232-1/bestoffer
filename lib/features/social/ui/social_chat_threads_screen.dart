@@ -270,6 +270,9 @@ class _SocialChatThreadsScreenState
           peerPhone: thread.peerPhone,
           peerUserId: thread.isGroup ? null : thread.peer.id,
           peerImageUrl: thread.displayImageUrl,
+          readOnly:
+              thread.state.requestStatus.trim().toLowerCase() == 'pending' ||
+              thread.state.inboxBucket.trim().toLowerCase() == 'requests',
         ),
       ),
     );

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../core/parsers.dart';
 
 List<String> _parseBadgeKeys(dynamic raw) {
@@ -41,6 +43,37 @@ String? _parseLocalContextLabel(dynamic raw) {
     }
   }
   return parseNullableString(raw);
+}
+
+Map<String, dynamic> _parseJsonMap(dynamic raw) {
+  if (raw is Map) {
+    return Map<String, dynamic>.from(raw);
+  }
+  if (raw is String && raw.trim().isNotEmpty) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+  return <String, dynamic>{};
+}
+
+List<dynamic> _parseJsonList(dynamic raw) {
+  if (raw is List) return List<dynamic>.from(raw);
+  if (raw is Iterable) return List<dynamic>.from(raw);
+  if (raw is String && raw.trim().isNotEmpty) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) return List<dynamic>.from(decoded);
+    } catch (_) {
+      return const <dynamic>[];
+    }
+  }
+  return const <dynamic>[];
 }
 
 class SocialAuthor {
@@ -226,11 +259,10 @@ class SocialMediaUploadSession {
   });
 
   factory SocialMediaUploadSession.fromJson(Map<String, dynamic> j) {
-    final nestedAsset = j['asset'] is Map
-        ? SocialMediaAsset.fromJson(
-            Map<String, dynamic>.from(j['asset'] as Map),
-          )
-        : null;
+    final nestedAssetMap = _parseJsonMap(j['asset']);
+    final nestedAsset = nestedAssetMap.isEmpty
+        ? null
+        : SocialMediaAsset.fromJson(nestedAssetMap);
     return SocialMediaUploadSession(
       assetId: parseInt(j['assetId'] ?? j['asset_id']),
       streamUid: parseString(j['streamUid'] ?? j['stream_uid']),
@@ -274,11 +306,9 @@ class SocialPostMediaItem {
         sortOrder: parseInt(j['sortOrder'] ?? j['sort_order'] ?? 0),
         mediaUrl: parseNullableString(j['mediaUrl'] ?? j['media_url']),
         mediaKind: parseNullableString(j['mediaKind'] ?? j['media_kind']),
-        asset: j['asset'] is Map
-            ? SocialMediaAsset.fromJson(
-                Map<String, dynamic>.from(j['asset'] as Map),
-              )
-            : null,
+        asset: _parseJsonMap(j['asset']).isEmpty
+            ? null
+            : SocialMediaAsset.fromJson(_parseJsonMap(j['asset'])),
       );
 }
 
@@ -325,6 +355,7 @@ class SocialPost {
   final String? merchantType;
   final String? merchantImageUrl;
   final int? reviewRating;
+  final Map<String, dynamic> storyStyle;
   final int likesCount;
   final int commentsCount;
   final int savesCount;
@@ -357,6 +388,7 @@ class SocialPost {
     required this.merchantType,
     required this.merchantImageUrl,
     required this.reviewRating,
+    required this.storyStyle,
     required this.likesCount,
     required this.commentsCount,
     required this.savesCount,
@@ -388,14 +420,16 @@ class SocialPost {
     ),
     caption: parseString(j['caption']),
     sharedEntity:
-        j['sharedEntity'] is Map ||
-            j['shared_entity'] is Map ||
+        _parseJsonMap(j['sharedEntity']).isNotEmpty ||
+            _parseJsonMap(j['shared_entity']).isNotEmpty ||
             j['sharedEntityType'] != null ||
             j['shared_entity_type'] != null
         ? SocialSharedEntity.fromJson(
-            Map<String, dynamic>.from(
-              (j['sharedEntity'] ?? j['shared_entity']) as Map? ??
-                  <String, dynamic>{
+            _parseJsonMap(j['sharedEntity']).isNotEmpty
+                ? _parseJsonMap(j['sharedEntity'])
+                : _parseJsonMap(j['shared_entity']).isNotEmpty
+                ? _parseJsonMap(j['shared_entity'])
+                : <String, dynamic>{
                     'type':
                         j['sharedEntityType'] ??
                         j['shared_entity_type'] ??
@@ -407,7 +441,6 @@ class SocialPost {
                         j['sharedSnapshotJson'] ??
                         j['shared_snapshot_json'],
                   },
-            ),
           )
         : null,
     mediaUrl: parseNullableString(j['mediaUrl'] ?? j['media_url']),
@@ -423,6 +456,9 @@ class SocialPost {
     reviewRating: j['reviewRating'] == null && j['review_rating'] == null
         ? null
         : parseInt(j['reviewRating'] ?? j['review_rating']),
+    storyStyle: _parseJsonMap(
+      j['storyStyle'] ?? j['story_style'] ?? j['reelStyle'] ?? j['reel_style'],
+    ),
     likesCount: parseInt(j['likesCount'] ?? j['likes_count']),
     commentsCount: parseInt(j['commentsCount'] ?? j['comments_count']),
     savesCount: parseInt(j['savesCount'] ?? j['saves_count']),
@@ -437,28 +473,23 @@ class SocialPost {
     archivedAt: parseNullableDateTime(j['archivedAt'] ?? j['archived_at']),
     createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
     updatedAt: parseNullableDateTime(j['updatedAt'] ?? j['updated_at']),
-    asset: j['asset'] is Map
-        ? SocialMediaAsset.fromJson(
-            Map<String, dynamic>.from(j['asset'] as Map),
-          )
-        : null,
-    mediaGallery:
-        List<dynamic>.from(j['mediaGallery'] ?? j['media_gallery'] ?? const [])
-            .whereType<Map>()
-            .map(
-              (e) => SocialPostMediaItem.fromJson(Map<String, dynamic>.from(e)),
-            )
-            .toList(growable: false),
-    contentLink: j['contentLink'] is Map || j['content_link'] is Map
+    asset: _parseJsonMap(j['asset']).isEmpty
+        ? null
+        : SocialMediaAsset.fromJson(_parseJsonMap(j['asset'])),
+    mediaGallery: _parseJsonList(j['mediaGallery'] ?? j['media_gallery'])
+        .whereType<Map>()
+        .map((e) => SocialPostMediaItem.fromJson(Map<String, dynamic>.from(e)))
+        .toList(growable: false),
+    contentLink:
+        _parseJsonMap(j['contentLink']).isNotEmpty ||
+            _parseJsonMap(j['content_link']).isNotEmpty
         ? SocialContentLink.fromJson(
-            Map<String, dynamic>.from(
-              (j['contentLink'] ?? j['content_link']) as Map,
-            ),
+            _parseJsonMap(j['contentLink']).isNotEmpty
+                ? _parseJsonMap(j['contentLink'])
+                : _parseJsonMap(j['content_link']),
           )
         : null,
-    author: SocialAuthor.fromJson(
-      Map<String, dynamic>.from(j['author'] as Map? ?? const {}),
-    ),
+    author: SocialAuthor.fromJson(_parseJsonMap(j['author'])),
   );
 
   SocialPost copyWith({
@@ -471,6 +502,8 @@ class SocialPost {
     SocialAuthor? author,
     SocialSharedEntity? sharedEntity,
     bool clearSharedEntity = false,
+    Map<String, dynamic>? storyStyle,
+    bool clearStoryStyle = false,
   }) {
     return SocialPost(
       id: id,
@@ -489,6 +522,9 @@ class SocialPost {
       merchantType: merchantType,
       merchantImageUrl: merchantImageUrl,
       reviewRating: reviewRating,
+      storyStyle: clearStoryStyle
+          ? const <String, dynamic>{}
+          : (storyStyle ?? this.storyStyle),
       likesCount: likesCount ?? this.likesCount,
       commentsCount: commentsCount ?? this.commentsCount,
       savesCount: savesCount ?? this.savesCount,
@@ -716,9 +752,7 @@ class SocialComment {
     isDeleted: parseBool(j['isDeleted'] ?? j['is_deleted']),
     createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
     editedAt: parseNullableDateTime(j['editedAt'] ?? j['edited_at']),
-    author: SocialAuthor.fromJson(
-      Map<String, dynamic>.from(j['author'] as Map? ?? const {}),
-    ),
+    author: SocialAuthor.fromJson(_parseJsonMap(j['author'])),
   );
 }
 
@@ -816,99 +850,75 @@ class SocialStory {
     required this.expiresAt,
   });
 
-  factory SocialStory.fromJson(Map<String, dynamic> j) => SocialStory(
-    id: parseInt(j['id']),
-    userId: parseInt(j['userId'] ?? j['user_id']),
-    caption: parseString(j['caption']),
-    mediaUrl: parseNullableString(j['mediaUrl'] ?? j['media_url']),
-    mediaKind: parseNullableString(j['mediaKind'] ?? j['media_kind']),
-    allowLikes: parseBool(
-      j['allowLikes'] ??
-          j['allow_likes'] ??
-          (j['storyInteractionSettings'] is Map
-              ? (j['storyInteractionSettings'] as Map)['allowLikes'] ??
-                    (j['storyInteractionSettings'] as Map)['allow_likes']
-              : null) ??
-          (j['story_interaction_settings'] is Map
-              ? (j['story_interaction_settings'] as Map)['allowLikes'] ??
-                    (j['story_interaction_settings'] as Map)['allow_likes']
-              : null),
-      fallback: true,
-    ),
-    allowPrivateReplies: parseBool(
-      j['allowPrivateReplies'] ??
-          j['allow_private_replies'] ??
-          (j['storyInteractionSettings'] is Map
-              ? (j['storyInteractionSettings'] as Map)['allowPrivateReplies'] ??
-                    (j['storyInteractionSettings']
-                        as Map)['allow_private_replies']
-              : null) ??
-          (j['story_interaction_settings'] is Map
-              ? (j['story_interaction_settings']
-                        as Map)['allowPrivateReplies'] ??
-                    (j['story_interaction_settings']
-                        as Map)['allow_private_replies']
-              : null),
-      fallback: true,
-    ),
-    allowComments: parseBool(
-      j['allowComments'] ??
-          j['allow_comments'] ??
-          (j['storyInteractionSettings'] is Map
-              ? (j['storyInteractionSettings'] as Map)['allowComments'] ??
-                    (j['storyInteractionSettings'] as Map)['allow_comments']
-              : null) ??
-          (j['story_interaction_settings'] is Map
-              ? (j['story_interaction_settings'] as Map)['allowComments'] ??
-                    (j['story_interaction_settings'] as Map)['allow_comments']
-              : null),
-      fallback: true,
-    ),
-    allowSharing: parseBool(
-      j['allowSharing'] ??
-          j['allow_sharing'] ??
-          (j['storyInteractionSettings'] is Map
-              ? (j['storyInteractionSettings'] as Map)['allowSharing'] ??
-                    (j['storyInteractionSettings'] as Map)['allow_sharing']
-              : null) ??
-          (j['story_interaction_settings'] is Map
-              ? (j['story_interaction_settings'] as Map)['allowSharing'] ??
-                    (j['story_interaction_settings'] as Map)['allow_sharing']
-              : null),
-      fallback: true,
-    ),
-    allowReshare: parseBool(
-      j['allowReshare'] ??
-          j['allow_reshare'] ??
-          (j['storyInteractionSettings'] is Map
-              ? (j['storyInteractionSettings'] as Map)['allowReshare'] ??
-                    (j['storyInteractionSettings'] as Map)['allow_reshare']
-              : null) ??
-          (j['story_interaction_settings'] is Map
-              ? (j['story_interaction_settings'] as Map)['allowReshare'] ??
-                    (j['story_interaction_settings'] as Map)['allow_reshare']
-              : null),
-      fallback: true,
-    ),
-    asset: j['asset'] is Map
-        ? SocialMediaAsset.fromJson(
-            Map<String, dynamic>.from(j['asset'] as Map),
-          )
-        : null,
-    style: SocialStoryStyle.fromJson(
-      Map<String, dynamic>.from(
-        j['storyStyle'] ?? j['story_style'] ?? const <String, dynamic>{},
+  factory SocialStory.fromJson(Map<String, dynamic> j) {
+    final settings = _parseJsonMap(j['storyInteractionSettings']);
+    final settingsSnake = _parseJsonMap(j['story_interaction_settings']);
+    final asset = _parseJsonMap(j['asset']);
+    final style = _parseJsonMap(j['storyStyle']);
+    final styleSnake = _parseJsonMap(j['story_style']);
+    return SocialStory(
+      id: parseInt(j['id']),
+      userId: parseInt(j['userId'] ?? j['user_id']),
+      caption: parseString(j['caption']),
+      mediaUrl: parseNullableString(j['mediaUrl'] ?? j['media_url']),
+      mediaKind: parseNullableString(j['mediaKind'] ?? j['media_kind']),
+      allowLikes: parseBool(
+        j['allowLikes'] ??
+            j['allow_likes'] ??
+            settings['allowLikes'] ??
+            settings['allow_likes'] ??
+            settingsSnake['allowLikes'] ??
+            settingsSnake['allow_likes'],
+        fallback: true,
       ),
-    ),
-    isViewed: parseBool(j['isViewed'] ?? j['is_viewed']),
-    isMine: parseBool(j['isMine'] ?? j['is_mine']),
-    likesCount: parseInt(j['likesCount'] ?? j['likes_count']),
-    commentsCount: parseInt(j['commentsCount'] ?? j['comments_count']),
-    isLiked: parseBool(j['isLiked'] ?? j['is_liked']),
-    archivedAt: parseNullableDateTime(j['archivedAt'] ?? j['archived_at']),
-    createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
-    expiresAt: parseNullableDateTime(j['expiresAt'] ?? j['expires_at']),
-  );
+      allowPrivateReplies: parseBool(
+        j['allowPrivateReplies'] ??
+            j['allow_private_replies'] ??
+            settings['allowPrivateReplies'] ??
+            settings['allow_private_replies'] ??
+            settingsSnake['allowPrivateReplies'] ??
+            settingsSnake['allow_private_replies'],
+        fallback: true,
+      ),
+      allowComments: parseBool(
+        j['allowComments'] ??
+            j['allow_comments'] ??
+            settings['allowComments'] ??
+            settings['allow_comments'] ??
+            settingsSnake['allowComments'] ??
+            settingsSnake['allow_comments'],
+        fallback: true,
+      ),
+      allowSharing: parseBool(
+        j['allowSharing'] ??
+            j['allow_sharing'] ??
+            settings['allowSharing'] ??
+            settings['allow_sharing'] ??
+            settingsSnake['allowSharing'] ??
+            settingsSnake['allow_sharing'],
+        fallback: true,
+      ),
+      allowReshare: parseBool(
+        j['allowReshare'] ??
+            j['allow_reshare'] ??
+            settings['allowReshare'] ??
+            settings['allow_reshare'] ??
+            settingsSnake['allowReshare'] ??
+            settingsSnake['allow_reshare'],
+        fallback: true,
+      ),
+      asset: asset.isEmpty ? null : SocialMediaAsset.fromJson(asset),
+      style: SocialStoryStyle.fromJson(style.isNotEmpty ? style : styleSnake),
+      isViewed: parseBool(j['isViewed'] ?? j['is_viewed']),
+      isMine: parseBool(j['isMine'] ?? j['is_mine']),
+      likesCount: parseInt(j['likesCount'] ?? j['likes_count']),
+      commentsCount: parseInt(j['commentsCount'] ?? j['comments_count']),
+      isLiked: parseBool(j['isLiked'] ?? j['is_liked']),
+      archivedAt: parseNullableDateTime(j['archivedAt'] ?? j['archived_at']),
+      createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
+      expiresAt: parseNullableDateTime(j['expiresAt'] ?? j['expires_at']),
+    );
+  }
 }
 
 class SocialStoryStyle {
@@ -1023,13 +1033,11 @@ class SocialStoryGroup {
 
   factory SocialStoryGroup.fromJson(Map<String, dynamic> j) => SocialStoryGroup(
     userId: parseInt(j['userId'] ?? j['user_id']),
-    author: SocialAuthor.fromJson(
-      Map<String, dynamic>.from(j['author'] as Map? ?? const {}),
-    ),
+    author: SocialAuthor.fromJson(_parseJsonMap(j['author'])),
     latestAt: parseNullableDateTime(j['latestAt'] ?? j['latest_at']),
     hasUnviewed: parseBool(j['hasUnviewed'] ?? j['has_unviewed']),
-    stories: List<dynamic>.from(j['stories'] as List? ?? const [])
-        .map((e) => SocialStory.fromJson(Map<String, dynamic>.from(e as Map)))
+    stories: _parseJsonList(j['stories'])
+        .map((e) => SocialStory.fromJson(_parseJsonMap(e)))
         .toList(growable: false),
   );
 }
@@ -1313,12 +1321,8 @@ class SocialUserProfile {
   });
 
   factory SocialUserProfile.fromJson(Map<String, dynamic> j) {
-    final privacy = Map<String, dynamic>.from(
-      j['privacy'] as Map? ?? const <String, dynamic>{},
-    );
-    final tabs = Map<String, dynamic>.from(
-      j['tabs'] as Map? ?? const <String, dynamic>{},
-    );
+    final privacy = _parseJsonMap(j['privacy']);
+    final tabs = _parseJsonMap(j['tabs']);
     final localContextMetaRaw = j['localContext'] ?? j['local_context'];
     final notificationRaw =
         j['notificationPreference'] ?? j['notification_preference'];
@@ -1401,8 +1405,8 @@ class SocialUserProfile {
         j['coreProfileLockedUntil'] ?? j['core_profile_locked_until'],
       ),
       localContext: _parseLocalContextLabel(localContextMetaRaw),
-      localContextMeta: localContextMetaRaw is Map
-          ? Map<String, dynamic>.from(localContextMetaRaw)
+      localContextMeta: _parseJsonMap(localContextMetaRaw).isNotEmpty
+          ? _parseJsonMap(localContextMetaRaw)
           : null,
       accountLabelKey: parseNullableString(
         j['accountLabelKey'] ?? j['account_label_key'],
@@ -1437,12 +1441,8 @@ class SocialUserProfile {
               Map<String, dynamic>.from(controlsRaw),
             )
           : null,
-      relation: SocialRelation.fromJson(
-        Map<String, dynamic>.from(j['relation'] as Map? ?? const {}),
-      ),
-      stats: SocialUserPostStats.fromJson(
-        Map<String, dynamic>.from(j['stats'] as Map? ?? const {}),
-      ),
+      relation: SocialRelation.fromJson(_parseJsonMap(j['relation'])),
+      stats: SocialUserPostStats.fromJson(_parseJsonMap(j['stats'])),
     );
   }
 }
@@ -1468,9 +1468,7 @@ class SocialStoryHighlight {
         ownerUserId: parseInt(j['ownerUserId'] ?? j['owner_user_id']),
         title: parseString(j['title'], fallback: ''),
         createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
-        story: SocialStory.fromJson(
-          Map<String, dynamic>.from(j['story'] as Map? ?? const {}),
-        ),
+        story: SocialStory.fromJson(_parseJsonMap(j['story'])),
       );
 }
 
@@ -1597,20 +1595,19 @@ class SocialSharedEntity {
       SocialSharedEntity(
         type: parseString(j['type'], fallback: 'post'),
         id: parseInt(j['id']),
-        snapshot: j['snapshot'] is Map
-            ? Map<String, dynamic>.from(j['snapshot'] as Map)
-            : j['sharedSnapshot'] is Map
-            ? Map<String, dynamic>.from(j['sharedSnapshot'] as Map)
-            : j['shared_snapshot_json'] is Map
-            ? Map<String, dynamic>.from(j['shared_snapshot_json'] as Map)
-            : null,
+        snapshot: (() {
+          final snapshot = _parseJsonMap(j['snapshot']);
+          if (snapshot.isNotEmpty) return snapshot;
+          final sharedSnapshot = _parseJsonMap(j['sharedSnapshot']);
+          if (sharedSnapshot.isNotEmpty) return sharedSnapshot;
+          final sharedSnapshotJson = _parseJsonMap(j['shared_snapshot_json']);
+          return sharedSnapshotJson.isEmpty ? null : sharedSnapshotJson;
+        })(),
       );
 
   Map<String, dynamic> get _snapshot => snapshot ?? const <String, dynamic>{};
 
-  Map<String, dynamic> get _authorSnapshot => _snapshot['author'] is Map
-      ? Map<String, dynamic>.from(_snapshot['author'] as Map)
-      : const <String, dynamic>{};
+  Map<String, dynamic> get _authorSnapshot => _parseJsonMap(_snapshot['author']);
 
   String get previewLabel {
     switch (type.trim().toLowerCase()) {
@@ -1827,15 +1824,16 @@ class SocialScheduledChatMessage {
     threadId: parseInt(j['threadId'] ?? j['thread_id']),
     senderUserId: parseInt(j['senderUserId'] ?? j['sender_user_id']),
     body: parseString(j['body']),
-    replyToMessage:
-        j['replyToMessage'] is Map ||
-            j['reply_to_message'] is Map ||
+    replyToMessage: _parseJsonMap(j['replyToMessage']).isNotEmpty ||
+            _parseJsonMap(j['reply_to_message']).isNotEmpty ||
             j['replyMessageId'] != null ||
             j['reply_message_id'] != null
         ? SocialChatReplyPreview.fromJson(
-            Map<String, dynamic>.from(
-              (j['replyToMessage'] ?? j['reply_to_message']) as Map? ??
-                  <String, dynamic>{
+            _parseJsonMap(j['replyToMessage']).isNotEmpty
+                ? _parseJsonMap(j['replyToMessage'])
+                : _parseJsonMap(j['reply_to_message']).isNotEmpty
+                ? _parseJsonMap(j['reply_to_message'])
+                : <String, dynamic>{
                     'id': j['replyMessageId'] ?? j['reply_message_id'],
                     'senderUserId':
                         j['replySenderUserId'] ?? j['reply_sender_user_id'],
@@ -1849,17 +1847,15 @@ class SocialScheduledChatMessage {
                     'attachmentName':
                         j['replyAttachmentName'] ?? j['reply_attachment_name'],
                   },
-            ),
           )
         : null,
-    attachment:
-        j['attachment'] is Map ||
+    attachment: _parseJsonMap(j['attachment']).isNotEmpty ||
             j['attachmentUrl'] != null ||
             j['attachment_url'] != null
         ? SocialChatAttachment.fromJson(
-            Map<String, dynamic>.from(
-              j['attachment'] as Map? ??
-                  <String, dynamic>{
+            _parseJsonMap(j['attachment']).isNotEmpty
+                ? _parseJsonMap(j['attachment'])
+                : <String, dynamic>{
                     'attachmentUrl': j['attachmentUrl'] ?? j['attachment_url'],
                     'attachmentKind':
                         j['attachmentKind'] ?? j['attachment_kind'],
@@ -1872,18 +1868,18 @@ class SocialScheduledChatMessage {
                         j['attachmentDurationMs'] ??
                         j['attachment_duration_ms'],
                   },
-            ),
           )
         : null,
-    sharedEntity:
-        j['sharedEntity'] is Map ||
-            j['shared_entity'] is Map ||
+    sharedEntity: _parseJsonMap(j['sharedEntity']).isNotEmpty ||
+            _parseJsonMap(j['shared_entity']).isNotEmpty ||
             j['sharedEntityType'] != null ||
             j['shared_entity_type'] != null
         ? SocialSharedEntity.fromJson(
-            Map<String, dynamic>.from(
-              (j['sharedEntity'] ?? j['shared_entity']) as Map? ??
-                  <String, dynamic>{
+            _parseJsonMap(j['sharedEntity']).isNotEmpty
+                ? _parseJsonMap(j['sharedEntity'])
+                : _parseJsonMap(j['shared_entity']).isNotEmpty
+                ? _parseJsonMap(j['shared_entity'])
+                : <String, dynamic>{
                     'type':
                         j['sharedEntityType'] ??
                         j['shared_entity_type'] ??
@@ -1895,7 +1891,6 @@ class SocialScheduledChatMessage {
                         j['sharedSnapshotJson'] ??
                         j['shared_snapshot_json'],
                   },
-            ),
           )
         : null,
     scheduledFor: parseNullableDateTime(
@@ -2145,83 +2140,91 @@ class SocialChatMessage {
 
   factory SocialChatMessage.fromJson(
     Map<String, dynamic> j,
-  ) => SocialChatMessage(
-    id: parseInt(j['id']),
-    threadId: parseInt(j['threadId'] ?? j['thread_id']),
-    senderUserId: parseInt(j['senderUserId'] ?? j['sender_user_id']),
-    body: parseString(j['body']),
-    clientMessageId: parseNullableString(
-      j['clientMessageId'] ?? j['client_message_id'],
-    ),
-    replyToMessage: j['replyToMessage'] is Map || j['reply_to_message'] is Map
-        ? SocialChatReplyPreview.fromJson(
-            Map<String, dynamic>.from(
-              (j['replyToMessage'] ?? j['reply_to_message']) as Map,
-            ),
-          )
-        : null,
-    attachment:
-        j['attachment'] is Map ||
-            j['attachmentUrl'] != null ||
-            j['attachment_url'] != null
-        ? SocialChatAttachment.fromJson(
-            Map<String, dynamic>.from(
-              j['attachment'] as Map? ??
-                  <String, dynamic>{
-                    'attachmentUrl': j['attachmentUrl'] ?? j['attachment_url'],
-                    'attachmentKind':
-                        j['attachmentKind'] ?? j['attachment_kind'],
-                    'attachmentName':
-                        j['attachmentName'] ?? j['attachment_name'],
-                    'attachmentMimeType':
-                        j['attachmentMimeType'] ?? j['attachment_mime_type'],
-                    'sizeBytes': j['sizeBytes'] ?? j['attachment_size_bytes'],
-                  },
-            ),
-          )
-        : null,
-    sharedEntity:
-        j['sharedEntity'] is Map ||
-            j['shared_entity'] is Map ||
-            j['sharedEntityType'] != null ||
-            j['shared_entity_type'] != null
-        ? SocialSharedEntity.fromJson(
-            Map<String, dynamic>.from(
-              (j['sharedEntity'] ?? j['shared_entity']) as Map? ??
-                  <String, dynamic>{
-                    'type':
-                        j['sharedEntityType'] ??
-                        j['shared_entity_type'] ??
-                        'post',
-                    'id': j['sharedEntityId'] ?? j['shared_entity_id'],
-                    'snapshot':
-                        j['sharedSnapshot'] ??
-                        j['shared_snapshot'] ??
-                        j['sharedSnapshotJson'] ??
-                        j['shared_snapshot_json'],
-                  },
-            ),
-          )
-        : null,
-    createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
-    updatedAt: parseNullableDateTime(j['updatedAt'] ?? j['updated_at']),
-    editedAt: parseNullableDateTime(j['editedAt'] ?? j['edited_at']),
-    deletedAt: parseNullableDateTime(j['deletedAt'] ?? j['deleted_at']),
-    pinnedAt: parseNullableDateTime(j['pinnedAt'] ?? j['pinned_at']),
-    pinnedByUserId: parseNullableInt(
-      j['pinnedByUserId'] ?? j['pinned_by_user_id'],
-    ),
-    isDeleted: parseBool(j['isDeleted'] ?? j['is_deleted']),
-    isMine: parseBool(j['isMine'] ?? j['is_mine']),
-    reactionCounts: _parseReactionCounts(j['reactions']),
-    reactionTotalCount: _parseReactionTotalCount(j['reactions']),
-    myReaction: _parseMyReaction(j['reactions']),
-    deliveredToPeer: parseBool(j['deliveredToPeer'] ?? j['delivered_to_peer']),
-    readByPeer: parseBool(j['readByPeer'] ?? j['read_by_peer']),
-    sender: SocialAuthor.fromJson(
-      Map<String, dynamic>.from(j['sender'] as Map? ?? const {}),
-    ),
-  );
+  ) {
+    final replyMap = _parseJsonMap(j['replyToMessage']);
+    final replySnake = _parseJsonMap(j['reply_to_message']);
+    final attachmentMap = _parseJsonMap(j['attachment']);
+    final sharedEntityMap = _parseJsonMap(j['sharedEntity']);
+    final sharedEntitySnake = _parseJsonMap(j['shared_entity']);
+    final senderMap = _parseJsonMap(j['sender']);
+    return SocialChatMessage(
+      id: parseInt(j['id']),
+      threadId: parseInt(j['threadId'] ?? j['thread_id']),
+      senderUserId: parseInt(j['senderUserId'] ?? j['sender_user_id']),
+      body: parseString(j['body']),
+      clientMessageId: parseNullableString(
+        j['clientMessageId'] ?? j['client_message_id'],
+      ),
+      replyToMessage: replyMap.isNotEmpty || replySnake.isNotEmpty
+          ? SocialChatReplyPreview.fromJson(
+              replyMap.isNotEmpty ? replyMap : replySnake,
+            )
+          : null,
+      attachment:
+          attachmentMap.isNotEmpty ||
+              j['attachmentUrl'] != null ||
+              j['attachment_url'] != null
+          ? SocialChatAttachment.fromJson(
+              attachmentMap.isNotEmpty
+                  ? attachmentMap
+                  : <String, dynamic>{
+                      'attachmentUrl':
+                          j['attachmentUrl'] ?? j['attachment_url'],
+                      'attachmentKind':
+                          j['attachmentKind'] ?? j['attachment_kind'],
+                      'attachmentName':
+                          j['attachmentName'] ?? j['attachment_name'],
+                      'attachmentMimeType':
+                          j['attachmentMimeType'] ??
+                          j['attachment_mime_type'],
+                      'sizeBytes': j['sizeBytes'] ?? j['attachment_size_bytes'],
+                    },
+            )
+          : null,
+      sharedEntity:
+          sharedEntityMap.isNotEmpty ||
+              sharedEntitySnake.isNotEmpty ||
+              j['sharedEntityType'] != null ||
+              j['shared_entity_type'] != null
+          ? SocialSharedEntity.fromJson(
+              sharedEntityMap.isNotEmpty
+                  ? sharedEntityMap
+                  : sharedEntitySnake.isNotEmpty
+                  ? sharedEntitySnake
+                  : <String, dynamic>{
+                      'type':
+                          j['sharedEntityType'] ??
+                          j['shared_entity_type'] ??
+                          'post',
+                      'id': j['sharedEntityId'] ?? j['shared_entity_id'],
+                      'snapshot':
+                          j['sharedSnapshot'] ??
+                          j['shared_snapshot'] ??
+                          j['sharedSnapshotJson'] ??
+                          j['shared_snapshot_json'],
+                    },
+            )
+          : null,
+      createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
+      updatedAt: parseNullableDateTime(j['updatedAt'] ?? j['updated_at']),
+      editedAt: parseNullableDateTime(j['editedAt'] ?? j['edited_at']),
+      deletedAt: parseNullableDateTime(j['deletedAt'] ?? j['deleted_at']),
+      pinnedAt: parseNullableDateTime(j['pinnedAt'] ?? j['pinned_at']),
+      pinnedByUserId: parseNullableInt(
+        j['pinnedByUserId'] ?? j['pinned_by_user_id'],
+      ),
+      isDeleted: parseBool(j['isDeleted'] ?? j['is_deleted']),
+      isMine: parseBool(j['isMine'] ?? j['is_mine']),
+      reactionCounts: _parseReactionCounts(j['reactions']),
+      reactionTotalCount: _parseReactionTotalCount(j['reactions']),
+      myReaction: _parseMyReaction(j['reactions']),
+      deliveredToPeer: parseBool(
+        j['deliveredToPeer'] ?? j['delivered_to_peer'],
+      ),
+      readByPeer: parseBool(j['readByPeer'] ?? j['read_by_peer']),
+      sender: SocialAuthor.fromJson(senderMap),
+    );
+  }
 
   SocialChatMessage copyWith({
     String? body,
@@ -2357,12 +2360,8 @@ class SocialThreadMember {
           j['addedByUserId'] ?? j['added_by_user_id'],
         ),
         addedAt: parseNullableDateTime(j['addedAt'] ?? j['added_at']),
-        presence: SocialThreadPresence.fromJson(
-          Map<String, dynamic>.from(j['presence'] as Map? ?? const {}),
-        ),
-        user: SocialAuthor.fromJson(
-          Map<String, dynamic>.from(j['user'] as Map? ?? const {}),
-        ),
+        presence: SocialThreadPresence.fromJson(_parseJsonMap(j['presence'])),
+        user: SocialAuthor.fromJson(_parseJsonMap(j['user'])),
       );
 
   bool get canManage => memberRole == 'owner' || memberRole == 'admin';
@@ -2402,83 +2401,88 @@ class SocialChatThread {
     required this.state,
   });
 
-  factory SocialChatThread.fromJson(Map<String, dynamic> j) => SocialChatThread(
-    id: parseInt(j['id']),
-    threadKind: parseString(
-      j['threadKind'] ?? j['thread_kind'],
-      fallback: 'private',
-    ),
-    contextType: parseString(
-      j['contextType'] ?? j['context_type'],
-      fallback: 'none',
-    ),
-    contextId: parseInt(j['contextId'] ?? j['context_id'] ?? 0),
-    contextStatus: parseString(
-      j['contextStatus'] ?? j['context_status'],
-      fallback: 'active',
-    ),
-    contextSnapshot: j['contextSnapshot'] is Map
-        ? Map<String, dynamic>.from(j['contextSnapshot'] as Map)
-        : j['context_snapshot'] is Map
-        ? Map<String, dynamic>.from(j['context_snapshot'] as Map)
-        : j['contextSnapshotJson'] is Map
-        ? Map<String, dynamic>.from(j['contextSnapshotJson'] as Map)
-        : j['context_snapshot_json'] is Map
-        ? Map<String, dynamic>.from(j['context_snapshot_json'] as Map)
-        : null,
-    context: j['context'] is Map || j['businessContext'] is Map
-        ? SocialBusinessContext.fromJson(
-            Map<String, dynamic>.from(
-              (j['context'] ?? j['businessContext']) as Map,
-            ),
-          )
-        : null,
-    group:
-        j['group'] is Map ||
-            j['groupInfo'] is Map ||
-            j['groupTitle'] != null ||
-            j['group_title'] != null
-        ? SocialThreadGroupInfo.fromJson(
-            Map<String, dynamic>.from(
-              (j['group'] ?? j['groupInfo']) as Map? ??
-                  <String, dynamic>{
-                    'ownerUserId':
-                        j['groupOwnerUserId'] ?? j['group_owner_user_id'],
-                    'title': j['groupTitle'] ?? j['group_title'],
-                    'imageUrl': j['groupImageUrl'] ?? j['group_image_url'],
-                    'memberCount':
-                        j['groupMemberCount'] ?? j['group_member_count'],
-                    'adminCount':
-                        j['groupAdminCount'] ?? j['group_admin_count'],
-                    'memberRole':
-                        j['groupMemberRole'] ?? j['group_member_role'],
-                  },
-            ),
-          )
-        : null,
-    peer: SocialAuthor.fromJson(
-      Map<String, dynamic>.from(j['peer'] as Map? ?? const {}),
-    ),
-    peerPhone: parseString(
-      j['peerPhone'] ??
-          j['peer_phone'] ??
-          (j['peer'] is Map ? (j['peer'] as Map)['phone'] : null),
-    ),
-    presence: SocialThreadPresence.fromJson(
-      Map<String, dynamic>.from(j['presence'] as Map? ?? const {}),
-    ),
-    lastMessageAt: parseNullableDateTime(
-      j['lastMessageAt'] ?? j['last_message_at'],
-    ),
-    lastMessage: j['lastMessage'] is Map
-        ? SocialChatMessage.fromJson(
-            Map<String, dynamic>.from(j['lastMessage'] as Map),
-          )
-        : null,
-    state: SocialThreadState.fromJson(
-      Map<String, dynamic>.from(j['state'] as Map? ?? const {}),
-    ),
-  );
+  factory SocialChatThread.fromJson(Map<String, dynamic> j) {
+    final contextSnapshot = _parseJsonMap(j['contextSnapshot']);
+    final contextSnapshotSnake = _parseJsonMap(j['context_snapshot']);
+    final contextSnapshotJson = _parseJsonMap(j['contextSnapshotJson']);
+    final contextSnapshotSnakeJson = _parseJsonMap(j['context_snapshot_json']);
+    final contextMap = _parseJsonMap(j['context']);
+    final businessContextMap = _parseJsonMap(j['businessContext']);
+    final groupMap = _parseJsonMap(j['group']);
+    final groupInfoMap = _parseJsonMap(j['groupInfo']);
+    final peerMap = _parseJsonMap(j['peer']);
+    final presenceMap = _parseJsonMap(j['presence']);
+    final lastMessageMap = _parseJsonMap(j['lastMessage']);
+    final stateMap = _parseJsonMap(j['state']);
+    return SocialChatThread(
+      id: parseInt(j['id']),
+      threadKind: parseString(
+        j['threadKind'] ?? j['thread_kind'],
+        fallback: 'private',
+      ),
+      contextType: parseString(
+        j['contextType'] ?? j['context_type'],
+        fallback: 'none',
+      ),
+      contextId: parseInt(j['contextId'] ?? j['context_id'] ?? 0),
+      contextStatus: parseString(
+        j['contextStatus'] ?? j['context_status'],
+        fallback: 'active',
+      ),
+      contextSnapshot: contextSnapshot.isNotEmpty
+          ? contextSnapshot
+          : contextSnapshotSnake.isNotEmpty
+          ? contextSnapshotSnake
+          : contextSnapshotJson.isNotEmpty
+          ? contextSnapshotJson
+          : contextSnapshotSnakeJson.isNotEmpty
+          ? contextSnapshotSnakeJson
+          : null,
+      context: contextMap.isNotEmpty
+          ? SocialBusinessContext.fromJson(contextMap)
+          : businessContextMap.isNotEmpty
+          ? SocialBusinessContext.fromJson(businessContextMap)
+          : null,
+      group:
+          groupMap.isNotEmpty ||
+              groupInfoMap.isNotEmpty ||
+              j['groupTitle'] != null ||
+              j['group_title'] != null
+          ? SocialThreadGroupInfo.fromJson(
+              groupMap.isNotEmpty
+                  ? groupMap
+                  : groupInfoMap.isNotEmpty
+                  ? groupInfoMap
+                  : <String, dynamic>{
+                      'ownerUserId':
+                          j['groupOwnerUserId'] ?? j['group_owner_user_id'],
+                      'title': j['groupTitle'] ?? j['group_title'],
+                      'imageUrl': j['groupImageUrl'] ?? j['group_image_url'],
+                      'memberCount':
+                          j['groupMemberCount'] ?? j['group_member_count'],
+                      'adminCount':
+                          j['groupAdminCount'] ?? j['group_admin_count'],
+                      'memberRole':
+                          j['groupMemberRole'] ?? j['group_member_role'],
+                    },
+            )
+          : null,
+      peer: SocialAuthor.fromJson(peerMap),
+      peerPhone: parseString(
+        j['peerPhone'] ??
+            j['peer_phone'] ??
+            peerMap['phone'],
+      ),
+      presence: SocialThreadPresence.fromJson(presenceMap),
+      lastMessageAt: parseNullableDateTime(
+        j['lastMessageAt'] ?? j['last_message_at'],
+      ),
+      lastMessage: lastMessageMap.isNotEmpty
+          ? SocialChatMessage.fromJson(lastMessageMap)
+          : null,
+      state: SocialThreadState.fromJson(stateMap),
+    );
+  }
 
   bool get isGroup => threadKind.trim().toLowerCase() == 'group';
 
@@ -2544,12 +2548,8 @@ class SocialRelationRequest {
 
   factory SocialRelationRequest.fromJson(Map<String, dynamic> j) =>
       SocialRelationRequest(
-        relation: SocialRelation.fromJson(
-          Map<String, dynamic>.from(j['relation'] as Map? ?? const {}),
-        ),
-        user: SocialAuthor.fromJson(
-          Map<String, dynamic>.from(j['user'] as Map? ?? const {}),
-        ),
+        relation: SocialRelation.fromJson(_parseJsonMap(j['relation'])),
+        user: SocialAuthor.fromJson(_parseJsonMap(j['user'])),
         requestedAt: parseNullableDateTime(
           j['requestedAt'] ?? j['requested_at'],
         ),
@@ -2661,35 +2661,29 @@ class SocialExplorePayload {
     Map<String, dynamic> j,
   ) => SocialExplorePayload(
     forYou: List<dynamic>.from(j['forYou'] ?? j['for_you'] ?? const [])
-        .map((e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)))
+        .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
         .toList(growable: false),
     reels: List<dynamic>.from(j['reels'] as List? ?? const [])
-        .map((e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)))
+        .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
         .toList(growable: false),
     trendingBasmaya:
         List<dynamic>.from(
               j['trendingBasmaya'] ?? j['trending_basmaya'] ?? const [],
             )
-            .map(
-              (e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)),
-            )
+            .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
             .toList(growable: false),
     sameArea: List<dynamic>.from(j['sameArea'] ?? j['same_area'] ?? const [])
-        .map((e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)))
+        .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
         .toList(growable: false),
     restaurantReviews:
         List<dynamic>.from(
               j['restaurantReviews'] ?? j['restaurant_reviews'] ?? const [],
             )
-            .map(
-              (e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)),
-            )
+            .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
             .toList(growable: false),
     popularPosts:
         List<dynamic>.from(j['popularPosts'] ?? j['popular_posts'] ?? const [])
-            .map(
-              (e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)),
-            )
+            .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
             .toList(growable: false),
     localTopics:
         List<dynamic>.from(j['localTopics'] ?? j['local_topics'] ?? const [])
@@ -2700,11 +2694,7 @@ class SocialExplorePayload {
         List<dynamic>.from(
               j['suggestedPeople'] ?? j['suggested_people'] ?? const [],
             )
-            .map(
-              (e) => SocialUserSearchResult.fromJson(
-                Map<String, dynamic>.from(e as Map),
-              ),
-            )
+            .map((e) => SocialUserSearchResult.fromJson(_parseJsonMap(e)))
             .toList(growable: false),
     generatedAt: parseNullableDateTime(j['generatedAt'] ?? j['generated_at']),
   );
@@ -2753,18 +2743,16 @@ class SocialProfileInsights {
   factory SocialProfileInsights.fromJson(
     Map<String, dynamic> j,
   ) => SocialProfileInsights(
-    summary: Map<String, dynamic>.from(j['summary'] as Map? ?? const {}),
+    summary: _parseJsonMap(j['summary']),
     bestPostingTimes: List<dynamic>.from(
       j['bestPostingTimes'] ?? j['best_posting_times'] ?? const [],
-    ).map((e) => Map<String, dynamic>.from(e as Map)).toList(growable: false),
+    ).map((e) => _parseJsonMap(e)).toList(growable: false),
     audienceLocality: List<dynamic>.from(
       j['audienceLocality'] ?? j['audience_locality'] ?? const [],
-    ).map((e) => Map<String, dynamic>.from(e as Map)).toList(growable: false),
+    ).map((e) => _parseJsonMap(e)).toList(growable: false),
     topContent:
         List<dynamic>.from(j['topContent'] ?? j['top_content'] ?? const [])
-            .map(
-              (e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)),
-            )
+            .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
             .toList(growable: false),
   );
 }
@@ -2809,10 +2797,10 @@ class SocialReelItem {
 
   factory SocialReelItem.fromJson(Map<String, dynamic> j) => SocialReelItem(
     post: SocialPost.fromJson(
-      Map<String, dynamic>.from(j['post'] as Map? ?? j),
+      _parseJsonMap(j['post']).isNotEmpty ? _parseJsonMap(j['post']) : j,
     ),
     metrics: SocialReelMetrics.fromJson(
-      Map<String, dynamic>.from(j['metrics'] as Map? ?? const {}),
+      _parseJsonMap(j['metrics']),
     ),
   );
 }
@@ -2876,9 +2864,7 @@ class SocialSavedItem {
     ),
     entityId: parseInt(j['entityId'] ?? j['entity_id']),
     collectionId: parseNullableInt(j['collectionId'] ?? j['collection_id']),
-    content: SocialPost.fromJson(
-      Map<String, dynamic>.from(j['content'] as Map? ?? const {}),
-    ),
+    content: SocialPost.fromJson(_parseJsonMap(j['content'])),
     createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
   );
 }
@@ -2892,9 +2878,9 @@ class SocialUserSearchResult {
   factory SocialUserSearchResult.fromJson(Map<String, dynamic> j) =>
       SocialUserSearchResult(
         user: SocialAuthor.fromJson(
-          Map<String, dynamic>.from(
-            j['user'] as Map? ??
-                <String, dynamic>{
+          _parseJsonMap(j['user']).isNotEmpty
+              ? _parseJsonMap(j['user'])
+              : <String, dynamic>{
                   'id': j['id'],
                   'username': j['username'],
                   'fullName': j['fullName'] ?? j['full_name'],
@@ -2909,11 +2895,8 @@ class SocialUserSearchResult {
                   'isMerchantVerified':
                       j['isMerchantVerified'] ?? j['is_merchant_verified'],
                 },
-          ),
         ),
-        relation: SocialRelation.fromJson(
-          Map<String, dynamic>.from(j['relation'] as Map? ?? const {}),
-        ),
+        relation: SocialRelation.fromJson(_parseJsonMap(j['relation'])),
       );
 }
 
@@ -2939,9 +2922,7 @@ class SocialSearchResults {
   });
 
   factory SocialSearchResults.fromJson(Map<String, dynamic> j) {
-    final results = Map<String, dynamic>.from(
-      j['results'] as Map? ?? const <String, dynamic>{},
-    );
+    final results = _parseJsonMap(j['results']);
     List<dynamic> readList(String camelKey, String snakeKey) {
       final nested = results[camelKey] ?? results[snakeKey];
       if (nested is List) return List<dynamic>.from(nested);
@@ -2952,39 +2933,39 @@ class SocialSearchResults {
     return SocialSearchResults(
       recentSearches: List<dynamic>.from(
         j['recentSearches'] ?? j['recent_searches'] ?? const [],
-      ).map((e) => Map<String, dynamic>.from(e as Map)).toList(growable: false),
+      ).map((e) => _parseJsonMap(e)).toList(growable: false),
       suggestedPeople: readList('suggestedPeople', 'suggested_people')
           .map(
             (e) => SocialUserSearchResult.fromJson(
-              Map<String, dynamic>.from(e as Map),
+              _parseJsonMap(e),
             ),
           )
           .toList(growable: false),
       users: readList('users', 'users')
           .map(
             (e) => SocialUserSearchResult.fromJson(
-              Map<String, dynamic>.from(e as Map),
+              _parseJsonMap(e),
             ),
           )
           .toList(growable: false),
       hashtags: readList('hashtags', 'hashtags')
           .map(
-            (e) => SocialHashtag.fromJson(Map<String, dynamic>.from(e as Map)),
+            (e) => SocialHashtag.fromJson(_parseJsonMap(e)),
           )
           .toList(growable: false),
       posts: readList('posts', 'posts')
-          .map((e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)))
+          .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
           .toList(growable: false),
       reels: readList('reels', 'reels')
-          .map((e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)))
+          .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
           .toList(growable: false),
       reviews: readList('reviews', 'reviews')
-          .map((e) => SocialPost.fromJson(Map<String, dynamic>.from(e as Map)))
+          .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
           .toList(growable: false),
       merchants: readList('merchants', 'merchants')
           .map(
             (e) => SocialMerchantOption.fromJson(
-              Map<String, dynamic>.from(e as Map),
+              _parseJsonMap(e),
             ),
           )
           .toList(growable: false),
@@ -3063,9 +3044,7 @@ class SocialChatMonitorThread {
   bool get isDirect => kind == 'direct';
 
   factory SocialChatMonitorThread.fromJson(Map<String, dynamic> j) {
-    final participantRows = List<dynamic>.from(
-      j['participants'] as List? ?? const [],
-    );
+    final participantRows = _parseJsonList(j['participants']);
     return SocialChatMonitorThread(
       id: parseInt(j['id'] ?? j['threadId'] ?? j['thread_id'], fallback: 0),
       kind: parseString(j['kind'], fallback: 'direct'),
@@ -3084,9 +3063,7 @@ class SocialChatMonitorThread {
         j['participantLabel'] ?? j['participant_label'],
       ),
       participants: participantRows
-          .map(
-            (e) => SocialAuthor.fromJson(Map<String, dynamic>.from(e as Map)),
-          )
+          .map((e) => SocialAuthor.fromJson(_parseJsonMap(e)))
           .toList(growable: false),
       participantCount: parseInt(
         j['participantCount'] ?? j['participant_count'],
@@ -3094,10 +3071,8 @@ class SocialChatMonitorThread {
       lastMessageAt: parseNullableDateTime(
         j['lastMessageAt'] ?? j['last_message_at'],
       ),
-      lastMessage: j['lastMessage'] is Map
-          ? SocialChatMessage.fromJson(
-              Map<String, dynamic>.from(j['lastMessage'] as Map),
-            )
+      lastMessage: _parseJsonMap(j['lastMessage']).isNotEmpty
+          ? SocialChatMessage.fromJson(_parseJsonMap(j['lastMessage']))
           : null,
     );
   }
@@ -3171,21 +3146,21 @@ class SocialCommunityChatMessage {
       j['reactionTotalCount'] ?? j['reaction_total_count'],
     ),
     myReaction: parseNullableString(j['myReaction'] ?? j['my_reaction']),
-    replyToMessage: j['replyToMessage'] is Map || j['reply_to_message'] is Map
+    replyToMessage: _parseJsonMap(j['replyToMessage']).isNotEmpty ||
+            _parseJsonMap(j['reply_to_message']).isNotEmpty
         ? SocialChatReplyPreview.fromJson(
-            Map<String, dynamic>.from(
-              (j['replyToMessage'] ?? j['reply_to_message']) as Map,
-            ),
+            _parseJsonMap(j['replyToMessage']).isNotEmpty
+                ? _parseJsonMap(j['replyToMessage'])
+                : _parseJsonMap(j['reply_to_message']),
           )
         : null,
-    attachment:
-        j['attachment'] is Map ||
+    attachment: _parseJsonMap(j['attachment']).isNotEmpty ||
             j['attachmentUrl'] != null ||
             j['attachment_url'] != null
         ? SocialChatAttachment.fromJson(
-            Map<String, dynamic>.from(
-              j['attachment'] as Map? ??
-                  <String, dynamic>{
+            _parseJsonMap(j['attachment']).isNotEmpty
+                ? _parseJsonMap(j['attachment'])
+                : <String, dynamic>{
                     'attachmentUrl': j['attachmentUrl'] ?? j['attachment_url'],
                     'attachmentKind':
                         j['attachmentKind'] ?? j['attachment_kind'],
@@ -3198,18 +3173,18 @@ class SocialCommunityChatMessage {
                         j['attachmentDurationMs'] ??
                         j['attachment_duration_ms'],
                   },
-            ),
           )
         : null,
-    sharedEntity:
-        j['sharedEntity'] is Map ||
-            j['shared_entity'] is Map ||
+    sharedEntity: _parseJsonMap(j['sharedEntity']).isNotEmpty ||
+            _parseJsonMap(j['shared_entity']).isNotEmpty ||
             j['sharedEntityType'] != null ||
             j['shared_entity_type'] != null
         ? SocialSharedEntity.fromJson(
-            Map<String, dynamic>.from(
-              (j['sharedEntity'] ?? j['shared_entity']) as Map? ??
-                  <String, dynamic>{
+            _parseJsonMap(j['sharedEntity']).isNotEmpty
+                ? _parseJsonMap(j['sharedEntity'])
+                : _parseJsonMap(j['shared_entity']).isNotEmpty
+                ? _parseJsonMap(j['shared_entity'])
+                : <String, dynamic>{
                     'type':
                         j['sharedEntityType'] ??
                         j['shared_entity_type'] ??
@@ -3220,12 +3195,9 @@ class SocialCommunityChatMessage {
                         j['shared_snapshot_json'] ??
                         j['shared_snapshot'],
                   },
-            ),
           )
         : null,
-    sender: SocialAuthor.fromJson(
-      Map<String, dynamic>.from(j['sender'] as Map? ?? const {}),
-    ),
+    sender: SocialAuthor.fromJson(_parseJsonMap(j['sender'])),
   );
 }
 
@@ -3286,14 +3258,13 @@ class SocialCommunityBill {
         dueDate: parseNullableString(j['dueDate'] ?? j['due_date']),
         description: parseNullableString(j['description']),
         details: parseNullableString(j['details']),
-        attachment:
-            (j['attachment'] is Map ||
+        attachment: _parseJsonMap(j['attachment']).isNotEmpty ||
                 j['attachmentUrl'] != null ||
-                j['attachment_url'] != null)
+                j['attachment_url'] != null
             ? SocialChatAttachment.fromJson(
-                Map<String, dynamic>.from(
-                  j['attachment'] as Map? ??
-                      <String, dynamic>{
+                _parseJsonMap(j['attachment']).isNotEmpty
+                    ? _parseJsonMap(j['attachment'])
+                    : <String, dynamic>{
                         'attachmentUrl':
                             j['attachmentUrl'] ?? j['attachment_url'],
                         'attachmentKind':
@@ -3301,7 +3272,6 @@ class SocialCommunityBill {
                         'attachmentName':
                             j['attachmentName'] ?? j['attachment_name'],
                       },
-                ),
               )
             : null,
       );
@@ -3319,9 +3289,7 @@ class SocialCommunityManager {
   factory SocialCommunityManager.fromJson(Map<String, dynamic> j) =>
       SocialCommunityManager(
         managerUserId: parseInt(j['managerUserId'] ?? j['manager_user_id']),
-        manager: SocialAuthor.fromJson(
-          Map<String, dynamic>.from(j['manager'] as Map? ?? const {}),
-        ),
+        manager: SocialAuthor.fromJson(_parseJsonMap(j['manager'])),
       );
 }
 
@@ -3337,7 +3305,7 @@ class SocialCommunityManagerCandidate {
   factory SocialCommunityManagerCandidate.fromJson(Map<String, dynamic> j) =>
       SocialCommunityManagerCandidate(
         user: SocialAuthor.fromJson(
-          Map<String, dynamic>.from(j['user'] as Map? ?? j),
+          _parseJsonMap(j['user']).isNotEmpty ? _parseJsonMap(j['user']) : j,
         ),
         isManager: parseBool(j['isManager'] ?? j['is_manager']),
       );
@@ -3359,7 +3327,7 @@ class SocialCommunityChatMemberCandidate {
   factory SocialCommunityChatMemberCandidate.fromJson(Map<String, dynamic> j) =>
       SocialCommunityChatMemberCandidate(
         user: SocialAuthor.fromJson(
-          Map<String, dynamic>.from(j['user'] as Map? ?? j),
+          _parseJsonMap(j['user']).isNotEmpty ? _parseJsonMap(j['user']) : j,
         ),
         isChatRestricted: parseBool(
           j['isChatRestricted'] ?? j['is_chat_restricted'],

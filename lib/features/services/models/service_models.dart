@@ -308,6 +308,7 @@ class ServiceOfferingModel {
   final String? excludesText;
   final String? materialsText;
   final String? notes;
+  final String? moderationNote;
   final bool isActive;
   final bool isTemporarilyPaused;
   final String moderationStatus;
@@ -343,6 +344,7 @@ class ServiceOfferingModel {
     required this.excludesText,
     required this.materialsText,
     required this.notes,
+    required this.moderationNote,
     required this.isActive,
     required this.isTemporarilyPaused,
     required this.moderationStatus,
@@ -438,6 +440,9 @@ class ServiceOfferingModel {
       excludesText: parseNullableString(json['excludesText']),
       materialsText: parseNullableString(json['materialsText']),
       notes: parseNullableString(json['notes']),
+      moderationNote: parseNullableString(
+        json['moderationNote'] ?? json['moderation_note'],
+      ),
       isActive: parseBool(json['isActive'], fallback: true),
       isTemporarilyPaused: parseBool(json['isTemporarilyPaused']),
       moderationStatus: parseString(
@@ -460,6 +465,8 @@ class ServiceOfferingModel {
       bookingCta: parseString(json['bookingCta'], fallback: 'اطلب الخدمة'),
     );
   }
+
+  String? get primaryMediaUrl => media.isNotEmpty ? media.first.mediaUrl : null;
 
   static ServicePricingOptionModel _emptyPricing(Map<String, dynamic> json) {
     return ServicePricingOptionModel(
@@ -668,6 +675,117 @@ class ServiceQuoteModel {
   }
 }
 
+class ServiceBookingPreviewSnapshotModel {
+  final String pricingType;
+  final String priceVersion;
+  final double unitPriceIqd;
+  final double quantity;
+  final int durationMinutes;
+  final double subtotalIqd;
+  final double discountIqd;
+  final double serviceFeeIqd;
+  final double totalIqd;
+  final Map<String, dynamic>? promotionSnapshot;
+  final String expiresAt;
+  final String? promotionType;
+
+  const ServiceBookingPreviewSnapshotModel({
+    required this.pricingType,
+    required this.priceVersion,
+    required this.unitPriceIqd,
+    required this.quantity,
+    required this.durationMinutes,
+    required this.subtotalIqd,
+    required this.discountIqd,
+    required this.serviceFeeIqd,
+    required this.totalIqd,
+    required this.promotionSnapshot,
+    required this.expiresAt,
+    required this.promotionType,
+  });
+
+  factory ServiceBookingPreviewSnapshotModel.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    final promotionSnapshot =
+        json['promotionSnapshot'] is Map
+            ? Map<String, dynamic>.from(json['promotionSnapshot'] as Map)
+            : null;
+    return ServiceBookingPreviewSnapshotModel(
+      pricingType: parseString(json['pricingType']),
+      priceVersion: parseString(json['priceVersion']),
+      unitPriceIqd: parseDouble(json['unitPriceIqd']),
+      quantity: parseDouble(json['quantity']),
+      durationMinutes: parseInt(json['durationMinutes']),
+      subtotalIqd: parseDouble(json['subtotalIqd']),
+      discountIqd: parseDouble(json['discountIqd']),
+      serviceFeeIqd: parseDouble(json['serviceFeeIqd']),
+      totalIqd: parseDouble(json['totalIqd']),
+      promotionSnapshot: promotionSnapshot,
+      expiresAt: parseString(json['expiresAt']),
+      promotionType: parseNullableString(json['promotionType']),
+    );
+  }
+}
+
+class ServiceBookingPreviewModel {
+  final int offeringId;
+  final int providerId;
+  final int customerUserId;
+  final String? providerBusinessName;
+  final String? providerCity;
+  final String? providerArea;
+  final int? pricingOptionId;
+  final ServiceBookingPreviewSnapshotModel preview;
+  final Map<String, dynamic>? provider;
+  final Map<String, dynamic>? pricingOption;
+  final ServicePromotionModel? promotion;
+
+  const ServiceBookingPreviewModel({
+    required this.offeringId,
+    required this.providerId,
+    required this.customerUserId,
+    required this.providerBusinessName,
+    required this.providerCity,
+    required this.providerArea,
+    required this.pricingOptionId,
+    required this.preview,
+    required this.provider,
+    required this.pricingOption,
+    required this.promotion,
+  });
+
+  factory ServiceBookingPreviewModel.fromJson(Map<String, dynamic> json) {
+    final providerJson =
+        json['provider'] is Map
+            ? Map<String, dynamic>.from(json['provider'] as Map)
+            : null;
+    final pricingOptionJson =
+        json['pricingOption'] is Map
+            ? Map<String, dynamic>.from(json['pricingOption'] as Map)
+            : null;
+    return ServiceBookingPreviewModel(
+      offeringId: parseInt(json['offeringId']),
+      providerId: parseInt(json['providerId']),
+      customerUserId: parseInt(json['customerUserId']),
+      providerBusinessName: parseNullableString(json['providerBusinessName']),
+      providerCity: parseNullableString(json['providerCity']),
+      providerArea: parseNullableString(json['providerArea']),
+      pricingOptionId: parseNullableInt(json['pricingOptionId']),
+      preview: ServiceBookingPreviewSnapshotModel.fromJson(
+        Map<String, dynamic>.from(json['preview'] as Map),
+      ),
+      provider: providerJson,
+      pricingOption: pricingOptionJson,
+      promotion: json['promotion'] is Map
+          ? ServicePromotionModel.fromJson(
+              Map<String, dynamic>.from(json['promotion'] as Map),
+            )
+          : null,
+    );
+  }
+}
+
 class ServiceRequestModel {
   final int id;
   final String requestCode;
@@ -675,6 +793,24 @@ class ServiceRequestModel {
   final int providerId;
   final int offeringId;
   final String status;
+  final String? bookingStatus;
+  final int? bookingVersion;
+  final String? bookingIdempotencyKey;
+  final String? bookingPricingType;
+  final String? bookingPriceVersion;
+  final double? bookingUnitPriceIqd;
+  final double? bookingQuantity;
+  final int? bookingDurationMinutes;
+  final double? bookingSubtotalIqd;
+  final double? bookingDiscountIqd;
+  final double? bookingServiceFeeIqd;
+  final double? bookingTotalIqd;
+  final Map<String, dynamic>? bookingPromotionSnapshot;
+  final String? bookingExpiresAt;
+  final String? bookingProviderCompletedAt;
+  final String? bookingFinalizationDueAt;
+  final String? bookingFinalizedAt;
+  final String? bookingTransitionNote;
   final String? notes;
   final String? city;
   final String? area;
@@ -696,6 +832,24 @@ class ServiceRequestModel {
     required this.providerId,
     required this.offeringId,
     required this.status,
+    required this.bookingStatus,
+    required this.bookingVersion,
+    required this.bookingIdempotencyKey,
+    required this.bookingPricingType,
+    required this.bookingPriceVersion,
+    required this.bookingUnitPriceIqd,
+    required this.bookingQuantity,
+    required this.bookingDurationMinutes,
+    required this.bookingSubtotalIqd,
+    required this.bookingDiscountIqd,
+    required this.bookingServiceFeeIqd,
+    required this.bookingTotalIqd,
+    required this.bookingPromotionSnapshot,
+    required this.bookingExpiresAt,
+    required this.bookingProviderCompletedAt,
+    required this.bookingFinalizationDueAt,
+    required this.bookingFinalizedAt,
+    required this.bookingTransitionNote,
     required this.notes,
     required this.city,
     required this.area,
@@ -719,6 +873,29 @@ class ServiceRequestModel {
       providerId: parseInt(json['providerId']),
       offeringId: parseInt(json['offeringId']),
       status: parseString(json['status']),
+      bookingStatus: parseNullableString(json['bookingStatus']),
+      bookingVersion: parseNullableInt(json['bookingVersion']),
+      bookingIdempotencyKey: parseNullableString(json['bookingIdempotencyKey']),
+      bookingPricingType: parseNullableString(json['bookingPricingType']),
+      bookingPriceVersion: parseNullableString(json['bookingPriceVersion']),
+      bookingUnitPriceIqd: parseNullableDouble(json['bookingUnitPriceIqd']),
+      bookingQuantity: parseNullableDouble(json['bookingQuantity']),
+      bookingDurationMinutes: parseNullableInt(json['bookingDurationMinutes']),
+      bookingSubtotalIqd: parseNullableDouble(json['bookingSubtotalIqd']),
+      bookingDiscountIqd: parseNullableDouble(json['bookingDiscountIqd']),
+      bookingServiceFeeIqd: parseNullableDouble(json['bookingServiceFeeIqd']),
+      bookingTotalIqd: parseNullableDouble(json['bookingTotalIqd']),
+      bookingPromotionSnapshot: json['bookingPromotionSnapshot'] is Map
+          ? Map<String, dynamic>.from(
+              json['bookingPromotionSnapshot'] as Map,
+            )
+          : null,
+      bookingExpiresAt: parseNullableString(json['bookingExpiresAt']),
+      bookingProviderCompletedAt:
+          parseNullableString(json['bookingProviderCompletedAt']),
+      bookingFinalizationDueAt: parseNullableString(json['bookingFinalizationDueAt']),
+      bookingFinalizedAt: parseNullableString(json['bookingFinalizedAt']),
+      bookingTransitionNote: parseNullableString(json['bookingTransitionNote']),
       notes: parseNullableString(json['notes']),
       city: parseNullableString(json['city']),
       area: parseNullableString(json['area']),
@@ -784,9 +961,9 @@ class ServiceProviderEmployeeProfileModel {
   ) {
     final permissions = (json['permissions'] is List)
         ? List<dynamic>.from(json['permissions'] as List)
-            .map((value) => '$value')
-            .where((value) => value.trim().isNotEmpty)
-            .toList(growable: false)
+              .map((value) => '$value')
+              .where((value) => value.trim().isNotEmpty)
+              .toList(growable: false)
         : const <String>[];
     final permissionMap = json['permissionMap'] is Map
         ? Map<String, bool>.from(
@@ -897,7 +1074,10 @@ class ServiceProviderEmployeeActivityLogModel {
   ) {
     return ServiceProviderEmployeeActivityLogModel(
       id: parseInt(json['id']),
-      workspaceKind: parseString(json['workspaceKind'], fallback: 'service_provider'),
+      workspaceKind: parseString(
+        json['workspaceKind'],
+        fallback: 'service_provider',
+      ),
       workspaceId: parseInt(json['workspaceId']),
       employeeProfileId: parseNullableInt(json['employeeProfileId']),
       employeeUserId: parseInt(json['employeeUserId']),
@@ -938,9 +1118,9 @@ class ServiceProviderWorkspaceAccessModel {
   ) {
     final permissions = (json['permissions'] is List)
         ? List<dynamic>.from(json['permissions'] as List)
-            .map((value) => '$value')
-            .where((value) => value.trim().isNotEmpty)
-            .toList(growable: false)
+              .map((value) => '$value')
+              .where((value) => value.trim().isNotEmpty)
+              .toList(growable: false)
         : const <String>[];
     final permissionMap = json['permissionMap'] is Map
         ? Map<String, bool>.from(
@@ -1001,24 +1181,24 @@ class ServiceProviderWorkspaceModel {
 
     final employees = (json['employees'] is List)
         ? List<dynamic>.from(json['employees'] as List)
-            .whereType<Map>()
-            .map(
-              (e) => ServiceProviderEmployeeModel.fromJson(
-                Map<String, dynamic>.from(e),
-              ),
-            )
-            .toList(growable: false)
+              .whereType<Map>()
+              .map(
+                (e) => ServiceProviderEmployeeModel.fromJson(
+                  Map<String, dynamic>.from(e),
+                ),
+              )
+              .toList(growable: false)
         : const <ServiceProviderEmployeeModel>[];
 
     final activityLogs = (json['activityLogs'] is List)
         ? List<dynamic>.from(json['activityLogs'] as List)
-            .whereType<Map>()
-            .map(
-              (e) => ServiceProviderEmployeeActivityLogModel.fromJson(
-                Map<String, dynamic>.from(e),
-              ),
-            )
-            .toList(growable: false)
+              .whereType<Map>()
+              .map(
+                (e) => ServiceProviderEmployeeActivityLogModel.fromJson(
+                  Map<String, dynamic>.from(e),
+                ),
+              )
+              .toList(growable: false)
         : const <ServiceProviderEmployeeActivityLogModel>[];
 
     return ServiceProviderWorkspaceModel(
@@ -1033,7 +1213,7 @@ class ServiceProviderWorkspaceModel {
       promotions: (json['promotions'] is List)
           ? List<dynamic>.from(json['promotions'] as List)
                 .whereType<Map>()
-              .map(
+                .map(
                   (e) => ServicePromotionModel.fromJson(
                     Map<String, dynamic>.from(e),
                   ),
@@ -1049,9 +1229,9 @@ class ServiceProviderWorkspaceModel {
       activityLogs: activityLogs,
       availablePermissions: (json['availablePermissions'] is List)
           ? List<dynamic>.from(json['availablePermissions'] as List)
-              .map((value) => '$value')
-              .where((value) => value.trim().isNotEmpty)
-              .toList(growable: false)
+                .map((value) => '$value')
+                .where((value) => value.trim().isNotEmpty)
+                .toList(growable: false)
           : const <String>[],
     );
   }

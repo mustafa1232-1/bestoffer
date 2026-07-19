@@ -149,6 +149,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
     with WidgetsBindingObserver {
   final Ref ref;
   Timer? _liveOrdersTimer;
+  Timer? _presenceHeartbeatTimer;
   DateTime? _lastPresenceSyncAt;
   bool _liveFetchInFlight = false;
   bool _presenceSyncInFlight = false;
@@ -174,6 +175,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
     // tick: refresh the assigned/current orders immediately so an order that
     // was assigned while the app was backgrounded shows up right away.
     if (!wasResumed && _lifecycleResumed && _canRunDeliveryPolling()) {
+      startPresenceHeartbeat();
       unawaited(refreshCurrentOrders(silent: true, forcePresenceSync: true));
     }
   }
@@ -186,6 +188,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
   void _handleSessionInvalidation() {
     if (_disposed) return;
     stopLiveOrders(force: true);
+    stopPresenceHeartbeat();
     _liveFetchInFlight = false;
     _presenceSyncInFlight = false;
     _lastPresenceSyncAt = null;
@@ -381,6 +384,28 @@ class DeliveryController extends StateNotifier<DeliveryState>
     }
   }
 
+  void startPresenceHeartbeat({
+    Duration interval = const Duration(seconds: 30),
+  }) {
+    if (_disposed) return;
+    if (!_canRunDeliveryPolling()) {
+      stopPresenceHeartbeat();
+      return;
+    }
+    if (_presenceHeartbeatTimer != null) return;
+    _presenceHeartbeatTimer = Timer.periodic(interval, (_) {
+      if (_disposed || !_canRunDeliveryPolling() || _presenceSyncInFlight) {
+        return;
+      }
+      unawaited(_syncCourierPresence(force: true));
+    });
+  }
+
+  void stopPresenceHeartbeat() {
+    _presenceHeartbeatTimer?.cancel();
+    _presenceHeartbeatTimer = null;
+  }
+
   Future<void> syncCourierPresenceForTesting({
     bool force = false,
     bool skipPreconditions = false,
@@ -426,7 +451,10 @@ class DeliveryController extends StateNotifier<DeliveryState>
   }
 
   /// يحمل snapshot أولية تشمل الطلبات، analytics، dashboard، والتقارير.
-  Future<void> bootstrap({String? historyDate}) async {
+  Future<void> bootstrap({
+    String? historyDate,
+    bool forcePresenceSync = false,
+  }) async {
     _setStateSafely(state.copyWith(loading: true, error: null));
     try {
       final api = ref.read(deliveryApiProvider);
@@ -584,7 +612,8 @@ class DeliveryController extends StateNotifier<DeliveryState>
           endDayReadiness: Map<String, dynamic>.from(endDayReadiness),
         ),
       );
-      unawaited(_syncCourierPresence());
+      startPresenceHeartbeat();
+      unawaited(_syncCourierPresence(force: forcePresenceSync));
     } on DioException catch (e) {
       _setStateSafely(state.copyWith(loading: false, error: _mapError(e)));
     } catch (_) {
@@ -692,6 +721,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
           error: null,
         ),
       );
+      startPresenceHeartbeat();
       unawaited(_syncCourierPresence(force: forcePresenceSync));
     } on DioException catch (e) {
       if (_isDeliveryForbiddenError(e)) {
@@ -707,6 +737,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
       stopLiveOrders(force: true);
       return;
     }
+    startPresenceHeartbeat();
     _livePollingSubscribers += 1;
     if (_liveOrdersTimer != null) return;
     _liveOrdersTimer = Timer.periodic(interval, (_) async {
@@ -825,7 +856,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
     _setStateSafely(state.copyWith(saving: true, error: null));
     try {
       await ref.read(deliveryApiProvider).deliveredV2(orderId, note: note);
-      await bootstrap();
+      await bootstrap(forcePresenceSync: true);
       _setStateSafely(state.copyWith(saving: false));
     } on DioException catch (e) {
       _setStateSafely(state.copyWith(saving: false, error: _mapError(e)));
@@ -972,6 +1003,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
       _sessionInvalidationListener,
     );
     stopLiveOrders(force: true);
+    stopPresenceHeartbeat();
     super.dispose();
   }
 }

@@ -1,6 +1,43 @@
+import 'dart:convert';
+
 import '../core/local_media_file.dart';
 import '../core/parsers.dart';
 import 'social_models.dart';
+
+Map<String, dynamic> _jsonMap(dynamic raw) {
+  if (raw is Map) {
+    return Map<String, dynamic>.fromEntries(
+      raw.entries.map(
+        (entry) => MapEntry('${entry.key}', entry.value),
+      ),
+    );
+  }
+  if (raw is String && raw.trim().isNotEmpty) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return Map<String, dynamic>.fromEntries(
+          decoded.entries.map(
+            (entry) => MapEntry('${entry.key}', entry.value),
+          ),
+        );
+      }
+    } catch (_) {}
+  }
+  return <String, dynamic>{};
+}
+
+List<dynamic> _jsonList(dynamic raw) {
+  if (raw is List) return List<dynamic>.from(raw);
+  if (raw is Iterable) return List<dynamic>.from(raw);
+  if (raw is String && raw.trim().isNotEmpty) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) return List<dynamic>.from(decoded);
+    } catch (_) {}
+  }
+  return const <dynamic>[];
+}
 
 enum SocialStoryComposerMode { text, media, reelShare, postShare }
 
@@ -188,10 +225,9 @@ class SocialStoryDrawStroke {
   ) => SocialStoryDrawStroke(
     color: parseString(json['color'], fallback: '#FFFFFF'),
     width: double.tryParse('${json['width'] ?? 4}') ?? 4,
-    points: List<dynamic>.from(json['points'] as List? ?? const [])
+    points: _jsonList(json['points'])
         .map(
-          (item) =>
-              SocialStoryPoint.fromJson(Map<String, dynamic>.from(item as Map)),
+          (item) => SocialStoryPoint.fromJson(_jsonMap(item)),
         )
         .toList(growable: false),
   );
@@ -293,12 +329,8 @@ class SocialStoryLayer {
       displayLabel: parseNullableString(
         json['displayLabel'] ?? json['display_label'],
       ),
-      strokes: List<dynamic>.from(json['strokes'] as List? ?? const [])
-          .map(
-            (item) => SocialStoryDrawStroke.fromJson(
-              Map<String, dynamic>.from(item as Map),
-            ),
-          )
+      strokes: _jsonList(json['strokes'])
+          .map((item) => SocialStoryDrawStroke.fromJson(_jsonMap(item)))
           .toList(growable: false),
       locked: parseBool(json['locked']),
     );
@@ -475,20 +507,12 @@ class SocialStoryDraft {
       maslakiMoodKey: parseNullableString(
         json['maslakiMoodKey'] ?? json['maslaki_mood_key'],
       ),
-      background: SocialStoryBackground.fromJson(
-        Map<String, dynamic>.from(json['background'] as Map? ?? const {}),
-      ),
-      attachment: json['attachment'] is Map
-          ? SocialStoryAttachment.fromJson(
-              Map<String, dynamic>.from(json['attachment'] as Map),
-            )
-          : null,
-      layers: List<dynamic>.from(json['layers'] as List? ?? const [])
-          .map(
-            (item) => SocialStoryLayer.fromJson(
-              Map<String, dynamic>.from(item as Map),
-            ),
-          )
+      background: SocialStoryBackground.fromJson(_jsonMap(json['background'])),
+      attachment: _jsonMap(json['attachment']).isEmpty
+          ? null
+          : SocialStoryAttachment.fromJson(_jsonMap(json['attachment'])),
+      layers: _jsonList(json['layers'])
+          .map((item) => SocialStoryLayer.fromJson(_jsonMap(item)))
           .toList(growable: false),
     );
   }
@@ -537,10 +561,9 @@ class SocialStoryDraft {
     }
     final hasMedia = (story.mediaUrl ?? '').trim().isNotEmpty;
     final rawAttachment = raw['attachment'];
-    final attachment = rawAttachment is Map
-        ? SocialStoryAttachment.fromJson(
-            Map<String, dynamic>.from(rawAttachment),
-          )
+    final attachmentMap = _jsonMap(rawAttachment);
+    final attachment = attachmentMap.isNotEmpty
+        ? SocialStoryAttachment.fromJson(attachmentMap)
         : story.style.sharedPostId != null
         ? SocialStoryAttachment(
             type: 'post_share',

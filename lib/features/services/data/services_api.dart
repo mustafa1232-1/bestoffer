@@ -17,9 +17,27 @@ class ServicesApi {
 
   ServicesApi(this._dio);
 
-  Future<List<Map<String, dynamic>>> listPublicCategories() async {
-    final response = await _dio.get('/api/services/public/categories');
+  Future<List<Map<String, dynamic>>> listPublicCategories({String? q}) async {
+    final response = await _dio.get(
+      '/api/services/public/categories',
+      queryParameters: {if (q != null && q.trim().isNotEmpty) 'q': q.trim()},
+    );
     return _asMapList(response.data);
+  }
+
+  Future<Map<String, dynamic>> createPublicCategory({
+    required String name,
+    int? parentCategoryId,
+  }) async {
+    final response = await _dio.post(
+      '/api/services/public/categories',
+      data: {
+        'name': name,
+        if (parentCategoryId != null && parentCategoryId > 0)
+          'parentCategoryId': parentCategoryId,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
   }
 
   Future<List<Map<String, dynamic>>> searchPublicOfferings({
@@ -99,6 +117,16 @@ class ServicesApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> previewServiceBooking(
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _dio.post(
+      '/api/services/requests/preview',
+      data: body,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<List<Map<String, dynamic>>> listMyRequests({
     String? status,
     int limit = 20,
@@ -124,12 +152,17 @@ class ServicesApi {
     required int requestId,
     required String status,
     String? note,
+    int? expectedVersion,
+    String? idempotencyKey,
   }) async {
     final response = await _dio.post(
       '/api/services/requests/$requestId/status',
       data: {
         'status': status,
         if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+        if (expectedVersion != null) 'expectedVersion': expectedVersion,
+        if (idempotencyKey != null && idempotencyKey.trim().isNotEmpty)
+          'idempotencyKey': idempotencyKey.trim(),
       },
     );
     return Map<String, dynamic>.from(response.data as Map);
@@ -269,10 +302,7 @@ class ServicesApi {
   }) async {
     final requestData = await _withOptionalNamedFiles(
       body,
-      files: {
-        'logoFile': logoFile,
-        'coverFile': coverFile,
-      },
+      files: {'logoFile': logoFile, 'coverFile': coverFile},
     );
     final response = await _dio.patch(
       '/api/services/provider/profile',
@@ -400,6 +430,8 @@ class ServicesApi {
     String? note,
     DateTime? scheduledStartAt,
     DateTime? scheduledEndAt,
+    int? expectedVersion,
+    String? idempotencyKey,
   }) async {
     final response = await _dio.post(
       '/api/services/provider/requests/$requestId/status',
@@ -410,6 +442,9 @@ class ServicesApi {
           'scheduledStartAt': scheduledStartAt.toUtc().toIso8601String(),
         if (scheduledEndAt != null)
           'scheduledEndAt': scheduledEndAt.toUtc().toIso8601String(),
+        if (expectedVersion != null) 'expectedVersion': expectedVersion,
+        if (idempotencyKey != null && idempotencyKey.trim().isNotEmpty)
+          'idempotencyKey': idempotencyKey.trim(),
       },
     );
     return Map<String, dynamic>.from(response.data as Map);

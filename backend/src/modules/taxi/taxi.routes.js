@@ -29,6 +29,7 @@ taxiRouter.get("/rides/current", requireCustomer, c.getCurrentRideForCustomer);
 taxiRouter.get("/rides/history/me", requireCustomer, c.listMyRideHistory);
 taxiRouter.post("/rides", requireCustomer, c.createRide);
 taxiRouter.post("/rides/:rideId/rebook", requireCustomer, c.rebookRide);
+taxiRouter.post("/rides/:rideId/raise-fare", requireCustomer, c.raiseRideFare);
 taxiRouter.get("/captains/nearby", requireCustomer, c.listNearbyCaptains);
 taxiRouter.get("/rides/:rideId", c.getRideDetails);
 taxiRouter.post("/rides/:rideId/cancel", requireCustomer, c.cancelRide);

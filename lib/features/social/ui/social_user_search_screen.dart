@@ -240,6 +240,9 @@ class _SocialUserSearchScreenState
           peerImageUrl: (thread.peer.imageUrl ?? '').trim().isNotEmpty
               ? thread.peer.imageUrl
               : user.imageUrl,
+          readOnly:
+              thread.state.requestStatus.trim().toLowerCase() == 'pending' ||
+              thread.state.inboxBucket.trim().toLowerCase() == 'requests',
         ),
       ),
     );

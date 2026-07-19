@@ -22,6 +22,7 @@ servicesPublicRouter.get('/offerings/:offeringId/reviews', c.listOfferingReviews
 
 // Auth user helpers
 servicesPublicRouter.use(requireAuth);
+servicesPublicRouter.post('/categories', c.createPublicCategory);
 servicesPublicRouter.post('/providers/:providerId/save', c.saveProvider);
 servicesPublicRouter.delete('/providers/:providerId/save', c.unsaveProvider);
 servicesPublicRouter.post('/offerings/:offeringId/save', c.saveOffering);
@@ -84,6 +85,7 @@ servicesProviderRouter.post('/requests/:requestId/status', c.updateProviderReque
 // Customer requests lifecycle
 servicesRequestsRouter.use(requireAuth);
 servicesRequestsRouter.post('/', imageUpload.array('attachmentFiles', 8), c.createServiceRequest);
+servicesRequestsRouter.post('/preview', c.previewServiceBooking);
 servicesRequestsRouter.get('/mine', c.listMyRequests);
 servicesRequestsRouter.get('/:requestId', c.getMyRequest);
 servicesRequestsRouter.post('/:requestId/status', c.updateMyRequestStatus);

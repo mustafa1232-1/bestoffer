@@ -39,6 +39,7 @@ abstract class ReelUploadApi {
     required String audience,
     required bool commentsEnabled,
     required bool sharingEnabled,
+    Map<String, dynamic>? reelStyle,
     required String idempotencyKey,
   });
 }
@@ -91,6 +92,7 @@ class ReelComposerController extends ChangeNotifier {
     required String audience,
     bool commentsEnabled = true,
     bool sharingEnabled = true,
+    Map<String, dynamic>? reelStyle,
   }) async {
     try {
       _set(ReelComposerStage.creatingSession);
@@ -136,6 +138,7 @@ class ReelComposerController extends ChangeNotifier {
         audience: audience,
         commentsEnabled: commentsEnabled,
         sharingEnabled: sharingEnabled,
+        reelStyle: reelStyle,
         idempotencyKey: idempotencyKey,
       );
       _publishedReelId = reelId;

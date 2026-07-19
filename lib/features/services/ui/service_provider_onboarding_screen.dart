@@ -37,10 +37,13 @@ class _ServiceProviderOnboardingScreenState
   final _responseMinutesCtrl = TextEditingController();
   final _yearsExpCtrl = TextEditingController();
   final _teamSizeCtrl = TextEditingController();
+  final _categorySearchCtrl = TextEditingController();
+  final _newCategoryCtrl = TextEditingController();
 
   List<ServiceCategoryModel> _categories = const <ServiceCategoryModel>[];
   int? _mainCategoryId;
   bool _loadingCategories = true;
+  bool _addingCategory = false;
   bool _submitting = false;
   bool _checkingStatus = false;
   bool _respondingOffer = false;
@@ -80,6 +83,8 @@ class _ServiceProviderOnboardingScreenState
     _responseMinutesCtrl.dispose();
     _yearsExpCtrl.dispose();
     _teamSizeCtrl.dispose();
+    _categorySearchCtrl.dispose();
+    _newCategoryCtrl.dispose();
     super.dispose();
   }
 
@@ -112,6 +117,102 @@ class _ServiceProviderOnboardingScreenState
         _error = mapAnyError(e, fallback: 'تعذر تحميل فئات الخدمات.');
         _loadingCategories = false;
       });
+    }
+  }
+
+  String _normalizedCategoryName(String value) {
+    return value.replaceAll(RegExp(r'\s+'), '').toLowerCase().trim();
+  }
+
+  ServiceCategoryModel? _matchingRootCategory(String value) {
+    final needle = _normalizedCategoryName(value);
+    if (needle.isEmpty) return null;
+    for (final root in _categories.where((item) => item.level == 1)) {
+      if (_normalizedCategoryName(root.name) == needle) {
+        return root;
+      }
+      for (final child in root.children) {
+        if (_normalizedCategoryName(child.name) == needle) {
+          return root;
+        }
+      }
+    }
+    return null;
+  }
+
+  List<ServiceCategoryModel> _visibleRootCategories() {
+    final roots = _categories.where((item) => item.level == 1).toList();
+    final query = _categorySearchCtrl.text.trim().toLowerCase();
+    if (query.isEmpty) return roots;
+    return roots.where((root) {
+      if (root.name.toLowerCase().contains(query)) return true;
+      return root.children.any(
+        (child) => child.name.toLowerCase().contains(query),
+      );
+    }).toList();
+  }
+
+  Future<void> _addNewCategory() async {
+    if (_addingCategory) return;
+    final rawName = _newCategoryCtrl.text.trim();
+    if (rawName.isEmpty) {
+      setState(() => _error = 'يرجى إدخال اسم نوع الخدمة.');
+      return;
+    }
+
+    final existing = _matchingRootCategory(rawName);
+    if (existing != null) {
+      setState(() {
+        _mainCategoryId = existing.id;
+        _newCategoryCtrl.clear();
+        _categorySearchCtrl.clear();
+        _error = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تم اختيار نوع الخدمة الحالي: ${existing.name}'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _addingCategory = true;
+      _error = null;
+    });
+    try {
+      final raw = await ref
+          .read(servicesApiProvider)
+          .createPublicCategory(name: rawName);
+      final payload = raw['category'] is Map
+          ? Map<String, dynamic>.from(raw['category'] as Map)
+          : raw;
+      final created = ServiceCategoryModel.fromJson(
+        Map<String, dynamic>.from(payload),
+      );
+      if (!mounted) return;
+      await _loadCategories();
+      if (!mounted) return;
+      setState(() {
+        _mainCategoryId = created.id;
+        _newCategoryCtrl.clear();
+        _categorySearchCtrl.clear();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'تمت إضافة نوع الخدمة "${created.name}" وتحديثه للجميع.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(
+        () =>
+            _error = mapAnyError(e, fallback: 'تعذر إضافة نوع الخدمة الجديد.'),
+      );
+    } finally {
+      if (mounted) setState(() => _addingCategory = false);
     }
   }
 
@@ -325,6 +426,7 @@ class _ServiceProviderOnboardingScreenState
       return SectionUnavailableScreen(entry: servicesSection);
     }
     final roots = _categories.where((item) => item.level == 1).toList();
+    final visibleRoots = _visibleRootCategories();
     final progress = _progress;
     return Scaffold(
       appBar: AppBar(title: const Text('اشتراك صاحب خدمة')),
@@ -426,9 +528,69 @@ class _ServiceProviderOnboardingScreenState
                             const SizedBox(height: 10),
                             if (_loadingCategories)
                               const LinearProgressIndicator(minHeight: 2),
+                            const SizedBox(height: 10),
+                            TextField(
+                              key: const Key('service_category_search_field'),
+                              controller: _categorySearchCtrl,
+                              onChanged: (_) => setState(() {}),
+                              decoration: const InputDecoration(
+                                labelText: 'ابحث عن اسم الخدمة',
+                                prefixIcon: Icon(Icons.search_rounded),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              key: const Key('service_category_new_field'),
+                              controller: _newCategoryCtrl,
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) => _addNewCategory(),
+                              decoration: const InputDecoration(
+                                labelText: 'إضافة نوع خدمة جديد',
+                                hintText: 'مثال: تنظيف شقق',
+                                prefixIcon: Icon(Icons.add_circle_outline),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                key: const Key('service_category_add_button'),
+                                onPressed: _addingCategory
+                                    ? null
+                                    : _addNewCategory,
+                                icon: _addingCategory
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.add_rounded),
+                                label: const Text('إضافة نوع الخدمة'),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            if (roots.isEmpty && !_loadingCategories)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8),
+                                child: Text('لا توجد فئات خدمات متاحة حالياً.'),
+                              ),
+                            if (roots.isNotEmpty && visibleRoots.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8),
+                                child: Text('لا توجد نتائج مطابقة لهذا الاسم.'),
+                              ),
                             DropdownButtonFormField<int>(
-                              value: _mainCategoryId,
-                              items: roots
+                              key: const Key('service_category_dropdown'),
+                              isExpanded: true,
+                              value:
+                                  visibleRoots.any(
+                                    (item) => item.id == _mainCategoryId,
+                                  )
+                                  ? _mainCategoryId
+                                  : null,
+                              items: visibleRoots
                                   .map(
                                     (item) => DropdownMenuItem<int>(
                                       value: item.id,
@@ -436,8 +598,12 @@ class _ServiceProviderOnboardingScreenState
                                     ),
                                   )
                                   .toList(),
-                              onChanged: (value) =>
-                                  setState(() => _mainCategoryId = value),
+                              onChanged: (value) => setState(() {
+                                _mainCategoryId = value;
+                                if (value != null) {
+                                  _categorySearchCtrl.clear();
+                                }
+                              }),
                               decoration: const InputDecoration(
                                 labelText: 'الفئة الرئيسية للخدمة',
                               ),

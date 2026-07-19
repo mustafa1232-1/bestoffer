@@ -1,5 +1,8 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,6 +26,7 @@ class ServiceRequestCreateScreen extends ConsumerStatefulWidget {
 
 class _ServiceRequestCreateScreenState
     extends ConsumerState<ServiceRequestCreateScreen> {
+  final _random = Random();
   DateTime? _date;
   TimeOfDay? _time;
   final _quantityCtrl = TextEditingController();
@@ -35,11 +39,19 @@ class _ServiceRequestCreateScreenState
   int? _pricingOptionId;
   bool _requiresHomeService = false;
   bool _loading = false;
+  bool _previewLoading = false;
+  String? _previewError;
+  ServiceBookingPreviewModel? _preview;
+  Timer? _previewDebounce;
+  late final String _idempotencyKey;
+  int _previewGeneration = 0;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    _idempotencyKey =
+        'svc-booking-${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
     ServicePricingOptionModel? defaultPricing;
     for (final item in widget.offering.pricingOptions) {
       if (item.isDefault) {
@@ -54,10 +66,28 @@ class _ServiceRequestCreateScreenState
     _requiresHomeService =
         widget.offering.executionMode == 'home' ||
         widget.offering.executionMode == 'both';
+    _quantityCtrl.addListener(_schedulePreview);
+    _durationCtrl.addListener(_schedulePreview);
+    _notesCtrl.addListener(_schedulePreview);
+    _cityCtrl.addListener(_schedulePreview);
+    _areaCtrl.addListener(_schedulePreview);
+    _addressCtrl.addListener(_schedulePreview);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _schedulePreview(force: true);
+      }
+    });
   }
 
   @override
   void dispose() {
+    _previewDebounce?.cancel();
+    _quantityCtrl.removeListener(_schedulePreview);
+    _durationCtrl.removeListener(_schedulePreview);
+    _notesCtrl.removeListener(_schedulePreview);
+    _cityCtrl.removeListener(_schedulePreview);
+    _areaCtrl.removeListener(_schedulePreview);
+    _addressCtrl.removeListener(_schedulePreview);
     _quantityCtrl.dispose();
     _durationCtrl.dispose();
     _notesCtrl.dispose();
@@ -65,6 +95,88 @@ class _ServiceRequestCreateScreenState
     _areaCtrl.dispose();
     _addressCtrl.dispose();
     super.dispose();
+  }
+
+  ServicePricingOptionModel? get _selectedPricingOption {
+    for (final item in widget.offering.pricingOptions) {
+      if (item.id == _pricingOptionId) {
+        return item;
+      }
+    }
+    return widget.offering.pricingOptions.isNotEmpty
+        ? widget.offering.pricingOptions.first
+        : null;
+  }
+
+  double? _parseDouble(TextEditingController controller) {
+    final text = controller.text.trim();
+    if (text.isEmpty) return null;
+    return double.tryParse(text.replaceAll(',', '.'));
+  }
+
+  int? _parseDurationMinutes() {
+    final hours = _parseDouble(_durationCtrl);
+    if (hours == null) return null;
+    return (hours * 60).round();
+  }
+
+  void _schedulePreview({bool force = false}) {
+    _previewDebounce?.cancel();
+    _previewDebounce = Timer(Duration(milliseconds: force ? 0 : 300), () {
+      if (mounted) {
+        _loadPreview();
+      }
+    });
+  }
+
+  Future<void> _loadPreview() async {
+    final pricingOption = _selectedPricingOption;
+    if (pricingOption == null) {
+      if (!mounted) return;
+      setState(() {
+        _preview = null;
+        _previewError = null;
+        _previewLoading = false;
+      });
+      return;
+    }
+
+    final generation = ++_previewGeneration;
+    if (mounted) {
+      setState(() {
+        _previewLoading = true;
+        _previewError = null;
+      });
+    }
+
+    try {
+      final body = <String, dynamic>{
+        'offeringId': widget.offering.id,
+        'providerId': widget.offering.providerId,
+        'pricingType': pricingOption.pricingModel,
+      };
+      final quantity = _parseDouble(_quantityCtrl);
+      if (quantity != null) body['quantity'] = quantity;
+      final durationMinutes = _parseDurationMinutes();
+      if (durationMinutes != null) body['durationMinutes'] = durationMinutes;
+
+      final response = await ref
+          .read(servicesApiProvider)
+          .previewServiceBooking(body);
+      final preview = ServiceBookingPreviewModel.fromJson(response);
+      if (!mounted || generation != _previewGeneration) return;
+      setState(() {
+        _preview = preview;
+        _previewError = null;
+        _previewLoading = false;
+      });
+    } catch (e) {
+      if (!mounted || generation != _previewGeneration) return;
+      setState(() {
+        _previewLoading = false;
+        _previewError = '$e';
+      });
+    }
   }
 
   Future<void> _pickDate() async {
@@ -118,30 +230,42 @@ class _ServiceRequestCreateScreenState
           '${_date!.year.toString().padLeft(4, '0')}-${_date!.month.toString().padLeft(2, '0')}-${_date!.day.toString().padLeft(2, '0')}';
       final timeText =
           '${_time!.hour.toString().padLeft(2, '0')}:${_time!.minute.toString().padLeft(2, '0')}';
+      final pricingOption = _selectedPricingOption;
+      final quantity = _parseDouble(_quantityCtrl);
+      final durationMinutes = _parseDurationMinutes();
 
-      await ref.read(servicesApiProvider).createServiceRequest({
+      final payload = <String, dynamic>{
         'offeringId': widget.offering.id,
         'providerId': widget.offering.providerId,
-        if ((_pricingOptionId ?? 0) > 0) 'pricingOptionId': _pricingOptionId,
-        'requestedExecutionMode': _requiresHomeService
-            ? 'home'
-            : 'provider_location',
+        'pricingOptionId': (_pricingOptionId ?? 0) > 0 ? _pricingOptionId : null,
+        'pricingType': pricingOption?.pricingModel,
+        'requestedExecutionMode':
+            _requiresHomeService ? 'home' : 'provider_location',
         'requestedDate': dateText,
         'requestedTime': timeText,
-        if (_quantityCtrl.text.trim().isNotEmpty)
-          'quantity': double.tryParse(_quantityCtrl.text.trim()),
-        if (_durationCtrl.text.trim().isNotEmpty)
-          'durationHours': double.tryParse(_durationCtrl.text.trim()),
-        if (_notesCtrl.text.trim().isNotEmpty) 'notes': _notesCtrl.text.trim(),
-        if (_cityCtrl.text.trim().isNotEmpty) 'city': _cityCtrl.text.trim(),
-        if (_areaCtrl.text.trim().isNotEmpty) 'area': _areaCtrl.text.trim(),
-        if (_addressCtrl.text.trim().isNotEmpty)
-          'addressLine': _addressCtrl.text.trim(),
+        'quantity': quantity,
+        'durationHours': _durationCtrl.text.trim().isNotEmpty
+            ? double.tryParse(_durationCtrl.text.trim())
+            : null,
+        'durationMinutes': durationMinutes,
+        'notes':
+            _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+        'city': _cityCtrl.text.trim().isEmpty ? null : _cityCtrl.text.trim(),
+        'area': _areaCtrl.text.trim().isEmpty ? null : _areaCtrl.text.trim(),
+        'addressLine':
+            _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
         'requiresHomeService': _requiresHomeService,
         'requiresQuote':
             widget.offering.inspectionRequired ||
             widget.offering.customQuoteOnly,
-      }, attachmentFiles: _attachments);
+        'expectedPriceVersion': _preview?.preview.priceVersion,
+        'idempotencyKey': _idempotencyKey,
+      }..removeWhere((key, value) => value == null);
+
+      await ref.read(servicesApiProvider).createServiceRequest(
+            payload,
+            attachmentFiles: _attachments,
+          );
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -187,6 +311,58 @@ class _ServiceRequestCreateScreenState
                 child: Text(_error!, style: const TextStyle(color: Colors.red)),
               ),
             ),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'معاينة التسعير',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _previewLoading
+                            ? null
+                            : () => _schedulePreview(force: true),
+                        child: _previewLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('تحديث'),
+                      ),
+                    ],
+                  ),
+                  if (_previewError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        _previewError!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    )
+                  else if (_selectedPricingOption == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text('لا توجد خيارات تسعير لهذه الخدمة.'),
+                    )
+                  else if (_preview == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text('اضبط الكمية أو المدة لعرض معاينة السعر.'),
+                    )
+                  else
+                    _ServiceBookingPreviewCard(preview: _preview!.preview),
+                ],
+              ),
+            ),
+          ),
           Row(
             children: [
               Expanded(
@@ -227,7 +403,10 @@ class _ServiceRequestCreateScreenState
                     ),
                   )
                   .toList(),
-              onChanged: (value) => setState(() => _pricingOptionId = value),
+              onChanged: (value) {
+                setState(() => _pricingOptionId = value);
+                _schedulePreview(force: true);
+              },
             ),
           const SizedBox(height: 10),
           Row(
@@ -365,6 +544,79 @@ class _ServiceRequestCreateScreenState
                 : const Icon(Icons.send_rounded),
             label: Text(widget.offering.bookingCta),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ServiceBookingPreviewCard extends StatelessWidget {
+  final ServiceBookingPreviewSnapshotModel preview;
+
+  const _ServiceBookingPreviewCard({required this.preview});
+
+  String _money(double value) {
+    final text = value.toStringAsFixed(
+      value.truncateToDouble() == value ? 0 : 2,
+    );
+    return '$text IQD';
+  }
+
+  String _trimmedNumber(double value) {
+    return value.toStringAsFixed(value.truncateToDouble() == value ? 0 : 2);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final promotion = preview.promotionSnapshot;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _chip('نوع التسعير', preview.pricingType),
+            _chip('سعر الوحدة', _money(preview.unitPriceIqd)),
+            _chip('الكمية', _trimmedNumber(preview.quantity)),
+            _chip('المدة', '${preview.durationMinutes} دقيقة'),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text('الإجمالي قبل الخصم: ${_money(preview.subtotalIqd)}'),
+        Text('الخصم: ${_money(preview.discountIqd)}'),
+        Text('رسوم الخدمة: ${_money(preview.serviceFeeIqd)}'),
+        Text(
+          'المجموع النهائي: ${_money(preview.totalIqd)}',
+          style: const TextStyle(fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 8),
+        Text('Version: ${preview.priceVersion}'),
+        Text('تنتهي: ${preview.expiresAt}'),
+        if (promotion != null && promotion['title'] != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Promotion: ${promotion['title']}',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _chip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade400),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12)),
+          const SizedBox(height: 2),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
         ],
       ),
     );

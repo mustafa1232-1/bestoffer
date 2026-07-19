@@ -20,12 +20,14 @@ import {
   validatePromotionBody,
   validateProviderSubscriptionOfferResponseBody,
   validateProviderSubscriptionStatusBody,
+  validatePublicCategoryBody,
   validateProviderProfileUpdateBody,
   validateProviderRegisterBody,
   validateQuoteBody,
   validateQuoteResponseBody,
   validateRequestStatusBody,
   validateReviewBody,
+  validateServiceBookingPreviewBody,
   validateServiceRequestBody,
   validateServiceSearchQuery,
 } from './services.validators.js';
@@ -135,8 +137,24 @@ export async function respondProviderSubscriptionOffer(req, res, next) {
 
 export async function listPublicCategories(req, res, next) {
   try {
-    const out = await service.listPublicCategories();
+    const out = await service.listPublicCategories({
+      q: req.query?.q || '',
+    });
     res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createPublicCategory(req, res, next) {
+  try {
+    const v = validatePublicCategoryBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.createPublicCategory({
+      userId: req.userId,
+      dto: v.value,
+    });
+    res.status(201).json({ category: out });
   } catch (error) {
     next(error);
   }
@@ -482,6 +500,20 @@ export async function createServiceRequest(req, res, next) {
       attachments,
     });
     res.status(201).json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function previewServiceBooking(req, res, next) {
+  try {
+    const v = validateServiceBookingPreviewBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.previewServiceBooking({
+      userId: req.userId,
+      dto: v.value,
+    });
+    res.json(out);
   } catch (error) {
     next(error);
   }

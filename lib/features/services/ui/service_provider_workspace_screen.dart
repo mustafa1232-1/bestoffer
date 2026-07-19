@@ -5,11 +5,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
+import '../../../core/files/image_picker_service.dart';
+import '../../../core/files/local_image_file.dart';
+import '../../../core/media/cached_app_image.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
+import '../../../core/widgets/image_picker_field.dart';
 import '../../../core/workspaces/workspace_permissions.dart';
 import '../data/services_api.dart';
 import '../models/service_models.dart';
 import '../state/service_provider_workspace_controller.dart';
+import 'service_provider_onboarding_screen.dart';
+import 'service_offering_details_screen.dart';
 import 'service_request_details_screen.dart';
 
 class ServiceProviderWorkspaceScreen extends ConsumerWidget {
@@ -27,6 +33,9 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
     final canCreateServices =
         access?.isOwner == true ||
         access?.permissionMap['create_services'] == true;
+    final canEditServices =
+        access?.isOwner == true ||
+        access?.permissionMap['edit_services'] == true;
     final canViewRequests =
         access?.isOwner == true ||
         access?.permissionMap['view_service_requests'] == true;
@@ -39,15 +48,25 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
     final visibleRequests = canViewRequests
         ? (servicesSection.isBlocked
               ? state.requests
-                  .where(
-                    (request) =>
-                        !<String>{'completed', 'cancelled', 'rejected'}
-                            .contains(request.status.trim().toLowerCase()),
-                  )
-                  .toList(growable: false)
+                    .where(
+                      (request) => !<String>{
+                        'completed',
+                        'cancelled',
+                        'rejected',
+                        'COMPLETED',
+                        'CANCELLED_BY_CUSTOMER',
+                        'CANCELLED_BY_PROVIDER',
+                        'CANCELLED_BY_ADMIN',
+                        'REJECTED_BY_PROVIDER',
+                        'EXPIRED',
+                        'DISPUTED',
+                      }.contains(request.status.trim()),
+                    )
+                    .toList(growable: false)
               : state.requests)
         : const <ServiceRequestModel>[];
-    if (servicesSection.isBlocked && !servicesSection.allowExistingActiveAccess) {
+    if (servicesSection.isBlocked &&
+        !servicesSection.allowExistingActiveAccess) {
       return SectionUnavailableScreen(entry: servicesSection);
     }
 
@@ -116,12 +135,73 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+            if (state.workspaceMissingProfile)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Icon(Icons.info_outline_rounded),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'لا يوجد ملف مقدم خدمة لهذا الحساب بعد.',
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'افتح شاشة الاشتراك لمراجعة عرض الأدمن أو متابعة إنشاء ملف مقدم الخدمة.',
+                        textAlign: TextAlign.end,
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        alignment: WrapAlignment.end,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      const ServiceProviderOnboardingScreen(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.verified_user_outlined),
+                            label: const Text('فتح شاشة الاشتراك'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              ctrl.loadWorkspace();
+                              ctrl.loadRequests();
+                            },
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('إعادة المحاولة'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             if (state.loadingWorkspace && workspace == null)
               const Padding(
                 padding: EdgeInsets.only(top: 90),
                 child: Center(child: CircularProgressIndicator()),
               ),
-            if (!state.loadingWorkspace && workspace == null)
+            if (!state.loadingWorkspace &&
+                workspace == null &&
+                !state.workspaceMissingProfile)
               const Card(
                 child: Padding(
                   padding: EdgeInsets.all(16),
@@ -136,7 +216,12 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
               const SizedBox(height: 12),
               _requestCounts(workspace),
               const SizedBox(height: 12),
-              _offeringsSection(workspace.provider.offerings),
+              _offeringsSection(
+                context,
+                ref,
+                workspace.provider.offerings,
+                canEditServices: canEditServices,
+              ),
               const SizedBox(height: 12),
               _promotionsSection(workspace.promotions),
               const SizedBox(height: 12),
@@ -282,7 +367,12 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
     );
   }
 
-  Widget _offeringsSection(List<ServiceOfferingModel> offerings) {
+  Widget _offeringsSection(
+    BuildContext context,
+    WidgetRef ref,
+    List<ServiceOfferingModel> offerings, {
+    required bool canEditServices,
+  }) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -298,12 +388,27 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
             ...offerings
                 .take(8)
                 .map(
-                  (offering) => ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(offering.name),
-                    subtitle: Text(
-                      '${offering.displayPriceText} - ${_offeringModerationStatusLabel(offering.moderationStatus)}',
+                  (offering) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _ServiceOfferingWorkspaceCard(
+                      offering: offering,
+                      canEdit: canEditServices,
+                      onOpen: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ServiceOfferingDetailsScreen(
+                              offeringId: offering.id,
+                            ),
+                          ),
+                        );
+                      },
+                      onEdit: canEditServices
+                          ? () => _showCreateOfferingDialog(
+                              context,
+                              ref,
+                              existingOffering: offering,
+                            )
+                          : null,
                     ),
                   ),
                 ),
@@ -361,14 +466,17 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                   child: Text(
                     'الموظفون / Employees',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
                 if (canManageEmployees)
                   FilledButton.tonalIcon(
-                    onPressed: () =>
-                        _openServiceProviderEmployeeDialog(context, ref, workspace),
+                    onPressed: () => _openServiceProviderEmployeeDialog(
+                      context,
+                      ref,
+                      workspace,
+                    ),
                     icon: const Icon(Icons.person_add_alt_1_outlined),
                     label: const Text('دعوة'),
                   ),
@@ -401,9 +509,9 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
               const SizedBox(height: 12),
               Text(
                 'سجل النشاط / Activity log',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 8),
               if (activityLogs.isEmpty)
@@ -412,28 +520,30 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                   child: Text('لا يوجد سجل نشاط بعد.'),
                 )
               else
-                ...activityLogs.take(12).map(
-                  (row) => Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      leading: const Icon(Icons.history_rounded),
-                      title: Text(
-                        '${row.employeeFullName} • ${row.actionKey}',
+                ...activityLogs
+                    .take(12)
+                    .map(
+                      (row) => Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          leading: const Icon(Icons.history_rounded),
+                          title: Text(
+                            '${row.employeeFullName} • ${row.actionKey}',
+                          ),
+                          subtitle: Text(
+                            [
+                              if ((row.actorFullName ?? '').trim().isNotEmpty)
+                                'By: ${row.actorFullName}',
+                              if ((row.reason ?? '').trim().isNotEmpty)
+                                'Reason: ${row.reason}',
+                              if ((row.createdAt ?? '').trim().isNotEmpty)
+                                '${row.createdAt}',
+                            ].join('\n'),
+                          ),
+                          isThreeLine: true,
+                        ),
                       ),
-                      subtitle: Text(
-                        [
-                          if ((row.actorFullName ?? '').trim().isNotEmpty)
-                            'By: ${row.actorFullName}',
-                          if ((row.reason ?? '').trim().isNotEmpty)
-                            'Reason: ${row.reason}',
-                          if ((row.createdAt ?? '').trim().isNotEmpty)
-                            '${row.createdAt}',
-                        ].join('\n'),
-                      ),
-                      isThreeLine: true,
                     ),
-                  ),
-                ),
             ],
           ],
         ),
@@ -456,11 +566,11 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
       child: InkWell(
         onTap: canManageEmployees
             ? () => _openServiceProviderEmployeeDialog(
-                  context,
-                  ref,
-                  workspace,
-                  employee: employee,
-                )
+                context,
+                ref,
+                workspace,
+                employee: employee,
+              )
             : null,
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -486,9 +596,7 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                           ? Colors.green.withValues(alpha: 0.12)
                           : Colors.orange.withValues(alpha: 0.12),
                     ),
-                    child: Text(
-                      isActive ? 'نشط / Active' : 'موقوف / Inactive',
-                    ),
+                    child: Text(isActive ? 'نشط / Active' : 'موقوف / Inactive'),
                   ),
                 ],
               ),
@@ -564,8 +672,9 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
     required Set<String> selected,
     required ValueChanged<String> onToggle,
   }) {
-    final catalog =
-        workspacePermissionCatalog(WorkspacePermissionKind.serviceProvider);
+    final catalog = workspacePermissionCatalog(
+      WorkspacePermissionKind.serviceProvider,
+    );
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -720,9 +829,8 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                         alignment: Alignment.centerLeft,
                         child: Text(
                           'الصلاحيات / Permissions',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w900,
-                              ),
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w900),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -744,7 +852,8 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Active / نشط'),
                         value: isActive,
-                        onChanged: (value) => setDialogState(() => isActive = value),
+                        onChanged: (value) =>
+                            setDialogState(() => isActive = value),
                       ),
                     ],
                   ),
@@ -762,11 +871,15 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                         : roleCtrl.text.trim();
                     if (isInvite) {
                       if (fullNameCtrl.text.trim().isEmpty) {
-                        setDialogState(() => dialogError = 'Full name is required.');
+                        setDialogState(
+                          () => dialogError = 'Full name is required.',
+                        );
                         return;
                       }
                       if (phoneCtrl.text.trim().isEmpty) {
-                        setDialogState(() => dialogError = 'Phone is required.');
+                        setDialogState(
+                          () => dialogError = 'Phone is required.',
+                        );
                         return;
                       }
                       if (pinCtrl.text.trim().isEmpty) {
@@ -774,7 +887,9 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                         return;
                       }
                       await ref
-                          .read(serviceProviderWorkspaceControllerProvider.notifier)
+                          .read(
+                            serviceProviderWorkspaceControllerProvider.notifier,
+                          )
                           .inviteEmployee({
                             'fullName': fullNameCtrl.text.trim(),
                             'phone': phoneCtrl.text.trim(),
@@ -790,17 +905,22 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                               'reason': reasonCtrl.text.trim(),
                             'isActive': isActive,
                             if (selectedPermissions.isNotEmpty)
-                              'permissions':
-                                  selectedPermissions.toList(growable: false),
+                              'permissions': selectedPermissions.toList(
+                                growable: false,
+                              ),
                           });
                     } else {
                       final employeeUserId = employee.userId;
                       if (employeeUserId <= 0) {
-                        setDialogState(() => dialogError = 'Employee is required.');
+                        setDialogState(
+                          () => dialogError = 'Employee is required.',
+                        );
                         return;
                       }
                       await ref
-                          .read(serviceProviderWorkspaceControllerProvider.notifier)
+                          .read(
+                            serviceProviderWorkspaceControllerProvider.notifier,
+                          )
                           .upsertEmployee({
                             'employeeUserId': employeeUserId,
                             'roleTag': roleTag,
@@ -814,12 +934,14 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                               'reason': reasonCtrl.text.trim(),
                             'isActive': isActive,
                             if (selectedPermissions.isNotEmpty)
-                              'permissions':
-                                  selectedPermissions.toList(growable: false),
+                              'permissions': selectedPermissions.toList(
+                                growable: false,
+                              ),
                           });
                     }
-                    final latest =
-                        ref.read(serviceProviderWorkspaceControllerProvider);
+                    final latest = ref.read(
+                      serviceProviderWorkspaceControllerProvider,
+                    );
                     if (latest.error != null) {
                       setDialogState(() => dialogError = latest.error);
                       return;
@@ -896,14 +1018,18 @@ class _RequestCard extends StatelessWidget {
                   onPressed: onQuoteTap,
                   child: const Text('إرسال عرض سعر'),
                 ),
-                if (<String>{'pending', 'awaiting_provider'}
-                    .contains(request.status.trim().toLowerCase()))
+                if (<String>{
+                  'pending',
+                  'awaiting_provider',
+                }.contains(request.status.trim().toLowerCase()))
                   OutlinedButton(
                     onPressed: () => onStatusTap('accepted'),
                     child: const Text('قبول'),
                   ),
-                if (<String>{'accepted', 'scheduled'}
-                    .contains(request.status.trim().toLowerCase()))
+                if (<String>{
+                  'accepted',
+                  'scheduled',
+                }.contains(request.status.trim().toLowerCase()))
                   OutlinedButton(
                     onPressed: () => onStatusTap('in_progress'),
                     child: const Text('بدء التنفيذ'),
@@ -913,8 +1039,10 @@ class _RequestCard extends StatelessWidget {
                     onPressed: () => onStatusTap('completed'),
                     child: const Text('إكمال'),
                   ),
-                if (<String>{'pending', 'awaiting_provider'}
-                    .contains(request.status.trim().toLowerCase()))
+                if (<String>{
+                  'pending',
+                  'awaiting_provider',
+                }.contains(request.status.trim().toLowerCase()))
                   OutlinedButton(
                     onPressed: () => onStatusTap('rejected'),
                     child: const Text('رفض'),
@@ -923,6 +1051,235 @@ class _RequestCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ServiceOfferingWorkspaceCard extends StatelessWidget {
+  final ServiceOfferingModel offering;
+  final bool canEdit;
+  final VoidCallback onOpen;
+  final VoidCallback? onEdit;
+
+  const _ServiceOfferingWorkspaceCard({
+    required this.offering,
+    required this.canEdit,
+    required this.onOpen,
+    required this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final coverUrl = offering.primaryMediaUrl ?? offering.provider.logoUrl;
+    final statusLabel = _offeringModerationStatusLabel(
+      offering.moderationStatus,
+    );
+    final moderationNote = (offering.moderationNote ?? '').trim();
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if ((coverUrl ?? '').trim().isNotEmpty)
+                    CachedAppImage(
+                      imageUrl: coverUrl!,
+                      fit: BoxFit.cover,
+                      placeholder: (placeholderContext, placeholderChild) =>
+                          _offeringPlaceholder(),
+                      errorWidget: (errorContext, errorChild, errorProgress) =>
+                          _offeringPlaceholder(),
+                    )
+                  else
+                    _offeringPlaceholder(),
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.08),
+                            Colors.black.withValues(alpha: 0.58),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  PositionedDirectional(
+                    top: 10,
+                    start: 10,
+                    child: _statusBadge(context, statusLabel),
+                  ),
+                  if (offering.hasActivePromotion)
+                    PositionedDirectional(
+                      top: 10,
+                      end: 10,
+                      child: _statusBadge(
+                        context,
+                        'عرض',
+                        color: Colors.orangeAccent,
+                        icon: Icons.local_offer_outlined,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    textDirection: TextDirection.rtl,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          offering.name,
+                          textDirection: TextDirection.rtl,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                      Text(
+                        offering.displayPriceText,
+                        textDirection: TextDirection.rtl,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    offering.provider.businessName ?? '',
+                    textDirection: TextDirection.rtl,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (moderationNote.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.amber.withValues(alpha: 0.22),
+                        ),
+                      ),
+                      child: Text(
+                        moderationNote,
+                        textDirection: TextDirection.rtl,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if ((offering.mainCategoryName ?? '').trim().isNotEmpty)
+                        _smallChip(
+                          context,
+                          offering.mainCategoryName!,
+                          Icons.category_outlined,
+                        ),
+                      if ((offering.subcategoryName ?? '').trim().isNotEmpty)
+                        _smallChip(
+                          context,
+                          offering.subcategoryName!,
+                          Icons.subdirectory_arrow_left_rounded,
+                        ),
+                      _smallChip(context, statusLabel, Icons.verified_outlined),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: onOpen,
+                        icon: const Icon(Icons.open_in_new_rounded),
+                        label: const Text('عرض'),
+                      ),
+                      const Spacer(),
+                      if (canEdit && onEdit != null)
+                        FilledButton.tonalIcon(
+                          onPressed: onEdit,
+                          icon: const Icon(Icons.edit_outlined),
+                          label: const Text('تعديل'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _offeringPlaceholder() {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.06),
+      alignment: Alignment.center,
+      child: const Icon(Icons.design_services_outlined, size: 38),
+    );
+  }
+
+  Widget _statusBadge(
+    BuildContext context,
+    String label, {
+    Color? color,
+    IconData? icon,
+  }) {
+    final badgeColor = color ?? Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: badgeColor.withValues(alpha: 0.42)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: badgeColor),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            label,
+            style: TextStyle(color: badgeColor, fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _smallChip(BuildContext context, String label, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [Icon(icon, size: 14), const SizedBox(width: 4), Text(label)],
       ),
     );
   }
@@ -971,6 +1328,8 @@ String _offeringModerationStatusLabel(String? value) {
       return 'بانتظار المراجعة';
     case 'rejected':
       return 'مرفوضة';
+    case 'changes_requested':
+      return 'تحتاج تعديلات';
     case 'paused':
       return 'موقوفة';
     default:
@@ -1158,10 +1517,28 @@ Future<void> _showQuoteDialog(
 
 Future<void> _showCreateOfferingDialog(
   BuildContext context,
-  WidgetRef ref,
-) async {
+  WidgetRef ref, {
+  ServiceOfferingModel? existingOffering,
+}) async {
   final messenger = ScaffoldMessenger.of(context);
   final roots = <ServiceCategoryModel>[];
+
+  List<ServiceCategoryModel> sortRoots(List<ServiceCategoryModel> items) {
+    items.sort(
+      (a, b) => a.sortOrder == b.sortOrder
+          ? a.name.compareTo(b.name)
+          : a.sortOrder.compareTo(b.sortOrder),
+    );
+    for (final root in items) {
+      root.children.sort(
+        (a, b) => a.sortOrder == b.sortOrder
+            ? a.name.compareTo(b.name)
+            : a.sortOrder.compareTo(b.sortOrder),
+      );
+    }
+    return items;
+  }
+
   try {
     final rows = await ref.read(servicesApiProvider).listPublicCategories();
     roots.addAll(
@@ -1169,11 +1546,7 @@ Future<void> _showCreateOfferingDialog(
           .map(ServiceCategoryModel.fromJson)
           .where((item) => item.level == 1 && item.isActive && item.isPublic),
     );
-    roots.sort(
-      (a, b) => a.sortOrder == b.sortOrder
-          ? a.name.compareTo(b.name)
-          : a.sortOrder.compareTo(b.sortOrder),
-    );
+    sortRoots(roots);
   } catch (e) {
     if (!context.mounted) return;
     messenger.showSnackBar(SnackBar(content: Text('تعذر تحميل الفئات: $e')));
@@ -1187,282 +1560,518 @@ Future<void> _showCreateOfferingDialog(
     return;
   }
 
-  final nameCtrl = TextEditingController();
-  final descriptionCtrl = TextEditingController();
-  final startsFromCtrl = TextEditingController();
-  int? selectedMainCategoryId = roots.first.id;
-  final initialSubcategories = roots.first.children
-      .where((item) => item.level == 2 && item.isActive && item.isPublic)
-      .toList();
-  int? selectedSubcategoryId = initialSubcategories.isNotEmpty
-      ? initialSubcategories.first.id
-      : null;
-  String executionMode = 'both';
-  String pricingModel = 'custom_quote';
-  String? dialogError;
-
   await showDialog<void>(
     context: context,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setDialogState) {
-        ServiceCategoryModel selectedRoot = roots.first;
-        for (final root in roots) {
-          if (root.id == selectedMainCategoryId) {
-            selectedRoot = root;
-            break;
-          }
-        }
-        final subcategories = selectedRoot.children
-            .where((item) => item.level == 2 && item.isActive && item.isPublic)
-            .toList();
-        final subcategoryIsValid =
-            selectedSubcategoryId != null &&
-            subcategories.any((item) => item.id == selectedSubcategoryId);
-        if (!subcategoryIsValid) {
-          selectedSubcategoryId = subcategories.isEmpty
-              ? null
-              : subcategories.first.id;
-        }
-
-        return AlertDialog(
-          title: const Text('إنشاء خدمة جديدة'),
-          content: SizedBox(
-            width: 460,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (dialogError != null) ...[
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: Colors.red.withValues(alpha: 0.35),
-                        ),
-                      ),
-                      child: Text(
-                        dialogError!,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: 'اسم الخدمة'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: descriptionCtrl,
-                    maxLines: 3,
-                    decoration: const InputDecoration(labelText: 'الوصف'),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<int>(
-                    value: selectedMainCategoryId,
-                    decoration: const InputDecoration(
-                      labelText: 'الفئة الرئيسية',
-                    ),
-                    items: roots
-                        .map(
-                          (item) => DropdownMenuItem<int>(
-                            value: item.id,
-                            child: Text(item.name),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setDialogState(() {
-                        selectedMainCategoryId = value;
-                        final nextRoot = roots.firstWhere(
-                          (item) => item.id == value,
-                          orElse: () => roots.first,
-                        );
-                        final nextSubcategories = nextRoot.children
-                            .where(
-                              (item) =>
-                                  item.level == 2 &&
-                                  item.isActive &&
-                                  item.isPublic,
-                            )
-                            .toList();
-                        selectedSubcategoryId = nextSubcategories.isEmpty
-                            ? null
-                            : nextSubcategories.first.id;
-                        dialogError = null;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<int>(
-                    value: selectedSubcategoryId,
-                    decoration: const InputDecoration(
-                      labelText: 'الفئة الفرعية',
-                    ),
-                    items: subcategories
-                        .map(
-                          (item) => DropdownMenuItem<int>(
-                            value: item.id,
-                            child: Text(item.name),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: subcategories.isEmpty
-                        ? null
-                        : (value) => setDialogState(() {
-                            selectedSubcategoryId = value;
-                            dialogError = null;
-                          }),
-                  ),
-                  if (subcategories.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 6),
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          'لا توجد فئات فرعية متاحة لهذه الفئة.',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: executionMode,
-                    items: const [
-                      DropdownMenuItem(value: 'home', child: Text('منزلية')),
-                      DropdownMenuItem(
-                        value: 'provider_location',
-                        child: Text('داخل المحل'),
-                      ),
-                      DropdownMenuItem(value: 'both', child: Text('كلاهما')),
-                      DropdownMenuItem(value: 'remote', child: Text('عن بُعد')),
-                    ],
-                    onChanged: (value) => setDialogState(() {
-                      executionMode = value ?? 'both';
-                    }),
-                    decoration: const InputDecoration(labelText: 'نمط التنفيذ'),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: pricingModel,
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'custom_quote',
-                        child: Text('تسعير مخصص'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'inspection_required',
-                        child: Text('حسب المعاينة'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'starting_from',
-                        child: Text('يبدأ من'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'fixed_package',
-                        child: Text('باقة ثابتة'),
-                      ),
-                    ],
-                    onChanged: (value) => setDialogState(() {
-                      pricingModel = value ?? 'custom_quote';
-                    }),
-                    decoration: const InputDecoration(labelText: 'نمط السعر'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: startsFromCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'السعر (اختياري حسب نمط التسعير)',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('إلغاء'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final startsFromPrice = double.tryParse(
-                  startsFromCtrl.text.trim(),
-                );
-                if (nameCtrl.text.trim().isEmpty) {
-                  setDialogState(() => dialogError = 'يرجى إدخال اسم الخدمة.');
-                  return;
-                }
-                if (selectedMainCategoryId == null) {
-                  setDialogState(
-                    () => dialogError = 'يرجى اختيار الفئة الرئيسية.',
-                  );
-                  return;
-                }
-                if (selectedSubcategoryId == null) {
-                  setDialogState(
-                    () => dialogError = 'يرجى اختيار الفئة الفرعية.',
-                  );
-                  return;
-                }
-                if ((pricingModel == 'starting_from' ||
-                        pricingModel == 'fixed_package') &&
-                    startsFromPrice == null) {
-                  setDialogState(
-                    () => dialogError = 'يرجى إدخال السعر لهذا النمط.',
-                  );
-                  return;
-                }
-
-                try {
-                  await ref.read(servicesApiProvider).createOffering({
-                    'name': nameCtrl.text.trim(),
-                    'description': descriptionCtrl.text.trim(),
-                    'mainCategoryId': selectedMainCategoryId,
-                    'subcategoryId': selectedSubcategoryId,
-                    'executionMode': executionMode,
-                    'startsFromPrice': startsFromPrice,
-                    'pricingOptions': [
-                      {
-                        'pricingModel': pricingModel,
-                        'pricingUnit': pricingModel == 'fixed_package'
-                            ? 'package'
-                            : 'job',
-                        if (pricingModel == 'starting_from')
-                          'amount': startsFromPrice,
-                        if (pricingModel == 'fixed_package')
-                          'amount': startsFromPrice,
-                        'isDefault': true,
-                      },
-                    ],
-                  });
-                } catch (e) {
-                  if (!context.mounted) return;
-                  setDialogState(() => dialogError = 'تعذر إنشاء الخدمة: $e');
-                  return;
-                }
-                if (!context.mounted) return;
-                Navigator.of(context).pop();
-              },
-              child: const Text('إنشاء'),
-            ),
-          ],
-        );
-      },
+    builder: (_) => _CreateServiceOfferingDialog(
+      roots: sortRoots(roots),
+      sortRoots: sortRoots,
+      existingOffering: existingOffering,
     ),
   );
 
-  nameCtrl.dispose();
-  descriptionCtrl.dispose();
-  startsFromCtrl.dispose();
-
   if (!context.mounted) return;
-  ref.read(serviceProviderWorkspaceControllerProvider.notifier).loadWorkspace();
+  await ref
+      .read(serviceProviderWorkspaceControllerProvider.notifier)
+      .loadWorkspace();
+}
+
+class _CreateServiceOfferingDialog extends ConsumerStatefulWidget {
+  final List<ServiceCategoryModel> roots;
+  final List<ServiceCategoryModel> Function(List<ServiceCategoryModel>)
+  sortRoots;
+  final ServiceOfferingModel? existingOffering;
+
+  const _CreateServiceOfferingDialog({
+    required this.roots,
+    required this.sortRoots,
+    this.existingOffering,
+  });
+
+  @override
+  ConsumerState<_CreateServiceOfferingDialog> createState() =>
+      _CreateServiceOfferingDialogState();
+}
+
+class _CreateServiceOfferingDialogState
+    extends ConsumerState<_CreateServiceOfferingDialog> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _descriptionCtrl;
+  late final TextEditingController _startsFromCtrl;
+  late List<ServiceCategoryModel> _roots;
+  LocalImageFile? _selectedMedia;
+  int? _selectedMainCategoryId;
+  int? _selectedSubcategoryId;
+  String _executionMode = 'both';
+  String _pricingModel = 'custom_quote';
+  String? _dialogError;
+
+  @override
+  void initState() {
+    super.initState();
+    final offering = widget.existingOffering;
+    _nameCtrl = TextEditingController(text: offering?.name ?? '');
+    _descriptionCtrl = TextEditingController(text: offering?.description ?? '');
+    _startsFromCtrl = TextEditingController(
+      text: offering?.startsFromPrice == null
+          ? ''
+          : offering!.startsFromPrice!.toString(),
+    );
+    _roots = widget.sortRoots(
+      widget.roots.map((item) => item).toList(growable: true),
+    );
+    final initialMainCategoryId =
+        offering?.mainCategoryId ??
+        (_roots.isNotEmpty ? _roots.first.id : null);
+    _selectedMainCategoryId = initialMainCategoryId;
+    final selectedRoot = _roots.firstWhere(
+      (item) => item.id == _selectedMainCategoryId,
+      orElse: () => _roots.first,
+    );
+    final initialSubcategories = selectedRoot.children
+        .where((item) => item.level == 2 && item.isActive && item.isPublic)
+        .toList();
+    _selectedSubcategoryId =
+        offering?.subcategoryId ??
+        (initialSubcategories.isNotEmpty
+            ? initialSubcategories.first.id
+            : null);
+    _executionMode = offering?.executionMode ?? 'both';
+    final pricingOptions =
+        offering?.pricingOptions ?? const <ServicePricingOptionModel>[];
+    final leadPricing = pricingOptions.isEmpty
+        ? null
+        : pricingOptions.firstWhere(
+            (item) => item.isDefault,
+            orElse: () => pricingOptions.first,
+          );
+    if (leadPricing != null) {
+      _pricingModel = leadPricing.pricingModel;
+      if (leadPricing.amount != null) {
+        _startsFromCtrl.text = leadPricing.amount.toString();
+      }
+    } else {
+      _pricingModel = 'custom_quote';
+    }
+    _selectedMedia = null;
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _descriptionCtrl.dispose();
+    _startsFromCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<String?> _promptCategoryName({
+    required String title,
+    required String hintText,
+  }) async {
+    return showDialog<String>(
+      context: context,
+      builder: (_) => _CategoryNameDialog(title: title, hintText: hintText),
+    ).then((value) {
+      final normalized = value?.trim();
+      if (normalized == null || normalized.isEmpty) return null;
+      return normalized;
+    });
+  }
+
+  ServiceCategoryModel _selectedRoot() {
+    for (final root in _roots) {
+      if (root.id == _selectedMainCategoryId) return root;
+    }
+    return _roots.first;
+  }
+
+  Future<void> _createSubcategory() async {
+    final parentId = _selectedMainCategoryId;
+    if (parentId == null) {
+      setState(() => _dialogError = 'يرجى اختيار الفئة الرئيسية أولاً.');
+      return;
+    }
+    final parent = _roots.firstWhere(
+      (item) => item.id == parentId,
+      orElse: () => _roots.first,
+    );
+    final name = await _promptCategoryName(
+      title: 'إضافة فئة فرعية',
+      hintText: 'مثال: تنظيف حمامات',
+    );
+    if (name == null) return;
+
+    try {
+      final raw = await ref
+          .read(servicesApiProvider)
+          .createPublicCategory(name: name, parentCategoryId: parentId);
+      final payload = raw['category'] is Map
+          ? Map<String, dynamic>.from(raw['category'] as Map)
+          : raw;
+      final created = ServiceCategoryModel.fromJson(
+        Map<String, dynamic>.from(payload),
+      );
+      final refreshedRows = await ref
+          .read(servicesApiProvider)
+          .listPublicCategories();
+      final refreshedRoots = refreshedRows
+          .map(ServiceCategoryModel.fromJson)
+          .where((item) => item.level == 1 && item.isActive && item.isPublic)
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _roots = widget.sortRoots(refreshedRoots);
+        _selectedMainCategoryId = parent.id;
+        _selectedSubcategoryId = created.id;
+        _dialogError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _dialogError = 'تعذر إضافة الفئة الفرعية: $e');
+    }
+  }
+
+  Future<void> _submit() async {
+    final startsFromPrice = double.tryParse(_startsFromCtrl.text.trim());
+    final selectedRoot = _selectedRoot();
+    final subcategories = selectedRoot.children
+        .where((item) => item.level == 2 && item.isActive && item.isPublic)
+        .toList();
+    final selectedSubcategoryId =
+        _selectedSubcategoryId != null &&
+            subcategories.any((item) => item.id == _selectedSubcategoryId)
+        ? _selectedSubcategoryId
+        : (subcategories.isEmpty ? null : subcategories.first.id);
+
+    if (_nameCtrl.text.trim().isEmpty) {
+      setState(() => _dialogError = 'يرجى إدخال اسم الخدمة.');
+      return;
+    }
+    if (_selectedMainCategoryId == null) {
+      setState(() => _dialogError = 'يرجى اختيار الفئة الرئيسية.');
+      return;
+    }
+    if (selectedSubcategoryId == null) {
+      setState(() => _dialogError = 'يرجى اختيار الفئة الفرعية.');
+      return;
+    }
+    if ((_pricingModel == 'starting_from' ||
+            _pricingModel == 'fixed_package') &&
+        startsFromPrice == null) {
+      setState(() => _dialogError = 'يرجى إدخال السعر لهذا النمط.');
+      return;
+    }
+
+    try {
+      final payload = <String, dynamic>{
+        'name': _nameCtrl.text.trim(),
+        'description': _descriptionCtrl.text.trim(),
+        'mainCategoryId': _selectedMainCategoryId,
+        'subcategoryId': selectedSubcategoryId,
+        'executionMode': _executionMode,
+        'startsFromPrice': startsFromPrice,
+        'pricingOptions': [
+          {
+            'pricingModel': _pricingModel,
+            'pricingUnit': _pricingModel == 'fixed_package' ? 'package' : 'job',
+            if (_pricingModel == 'starting_from') 'amount': startsFromPrice,
+            if (_pricingModel == 'fixed_package') 'amount': startsFromPrice,
+            'isDefault': true,
+          },
+        ],
+      };
+      final mediaFiles = _selectedMedia == null
+          ? const <LocalImageFile>[]
+          : <LocalImageFile>[_selectedMedia!];
+      if (widget.existingOffering == null) {
+        await ref
+            .read(servicesApiProvider)
+            .createOffering(payload, mediaFiles: mediaFiles);
+      } else {
+        await ref
+            .read(servicesApiProvider)
+            .updateOffering(
+              widget.existingOffering!.id,
+              payload,
+              mediaFiles: mediaFiles,
+            );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _dialogError = 'تعذر إنشاء الخدمة: $e');
+      return;
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedRoot = _selectedRoot();
+    final subcategories = selectedRoot.children
+        .where((item) => item.level == 2 && item.isActive && item.isPublic)
+        .toList();
+    final subcategoryIsValid =
+        _selectedSubcategoryId != null &&
+        subcategories.any((item) => item.id == _selectedSubcategoryId);
+    final effectiveSubcategoryId = subcategoryIsValid
+        ? _selectedSubcategoryId
+        : (subcategories.isEmpty ? null : subcategories.first.id);
+    final isEditing = widget.existingOffering != null;
+    final existingMediaUrl =
+        widget.existingOffering?.primaryMediaUrl ??
+        widget.existingOffering?.provider.logoUrl;
+
+    return AlertDialog(
+      title: Text(isEditing ? 'تعديل الخدمة' : 'إنشاء خدمة جديدة'),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_dialogError != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Colors.red.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Text(
+                    _dialogError!,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              TextField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(labelText: 'اسم الخدمة'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _descriptionCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: 'الوصف'),
+              ),
+              const SizedBox(height: 8),
+              ImagePickerField(
+                title: 'صورة الخدمة',
+                selectedFile: _selectedMedia,
+                existingImageUrl: existingMediaUrl,
+                onPick: () async {
+                  final picked = await pickImageFromDevice();
+                  if (!mounted || picked == null) return;
+                  setState(() {
+                    _selectedMedia = picked;
+                    _dialogError = null;
+                  });
+                },
+                onClear: _selectedMedia != null
+                    ? () => setState(() => _selectedMedia = null)
+                    : null,
+                helperText:
+                    'يمكنك رفع صورة مميزة للخدمة لتظهر بشكل أوضح للمستخدمين.',
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<int>(
+                value: _selectedMainCategoryId,
+                decoration: const InputDecoration(labelText: 'الفئة الرئيسية'),
+                items: _roots
+                    .map(
+                      (item) => DropdownMenuItem<int>(
+                        value: item.id,
+                        child: Text(item.name),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() {
+                    _selectedMainCategoryId = value;
+                    final nextRoot = _roots.firstWhere(
+                      (item) => item.id == value,
+                      orElse: () => _roots.first,
+                    );
+                    final nextSubcategories = nextRoot.children
+                        .where(
+                          (item) =>
+                              item.level == 2 && item.isActive && item.isPublic,
+                        )
+                        .toList();
+                    _selectedSubcategoryId = nextSubcategories.isEmpty
+                        ? null
+                        : nextSubcategories.first.id;
+                    _dialogError = null;
+                  });
+                },
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<int>(
+                key: const Key('service_subcategory_dropdown'),
+                value: effectiveSubcategoryId,
+                decoration: const InputDecoration(labelText: 'الفئة الفرعية'),
+                items: subcategories
+                    .map(
+                      (item) => DropdownMenuItem<int>(
+                        value: item.id,
+                        child: Text(item.name),
+                      ),
+                    )
+                    .toList(),
+                onChanged: subcategories.isEmpty
+                    ? null
+                    : (value) => setState(() {
+                        _selectedSubcategoryId = value;
+                        _dialogError = null;
+                      }),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.tonalIcon(
+                  key: const Key('service_add_subcategory_button'),
+                  onPressed: _selectedMainCategoryId == null
+                      ? null
+                      : _createSubcategory,
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('إضافة فئة فرعية'),
+                ),
+              ),
+              if (subcategories.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      'لا توجد فئات فرعية متاحة لهذه الفئة، يمكنك إضافتها الآن.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: _executionMode,
+                items: const [
+                  DropdownMenuItem(value: 'home', child: Text('منزلية')),
+                  DropdownMenuItem(
+                    value: 'provider_location',
+                    child: Text('داخل المحل'),
+                  ),
+                  DropdownMenuItem(value: 'both', child: Text('كلاهما')),
+                  DropdownMenuItem(value: 'remote', child: Text('عن بُعد')),
+                ],
+                onChanged: (value) => setState(() {
+                  _executionMode = value ?? 'both';
+                }),
+                decoration: const InputDecoration(labelText: 'نمط التنفيذ'),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: _pricingModel,
+                items: const [
+                  DropdownMenuItem(
+                    value: 'custom_quote',
+                    child: Text('تسعير مخصص'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'inspection_required',
+                    child: Text('حسب المعاينة'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'starting_from',
+                    child: Text('يبدأ من'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'fixed_package',
+                    child: Text('باقة ثابتة'),
+                  ),
+                ],
+                onChanged: (value) => setState(() {
+                  _pricingModel = value ?? 'custom_quote';
+                }),
+                decoration: const InputDecoration(labelText: 'نمط السعر'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _startsFromCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'السعر (اختياري حسب نمط التسعير)',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(isEditing ? 'حفظ التعديلات' : 'إنشاء'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CategoryNameDialog extends StatefulWidget {
+  final String title;
+  final String hintText;
+
+  const _CategoryNameDialog({required this.title, required this.hintText});
+
+  @override
+  State<_CategoryNameDialog> createState() => _CategoryNameDialogState();
+}
+
+class _CategoryNameDialogState extends State<_CategoryNameDialog> {
+  late final TextEditingController _nameCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _nameCtrl,
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: 'اسم الفئة',
+          hintText: widget.hintText,
+        ),
+        onSubmitted: (_) => Navigator.of(context).pop(_nameCtrl.text.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_nameCtrl.text.trim()),
+          child: const Text('حفظ'),
+        ),
+      ],
+    );
+  }
 }

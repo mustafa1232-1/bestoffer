@@ -43,6 +43,6 @@ void main() {
     tester,
   ) async {
     await _pumpMarket(tester);
-    expect(find.text('Fashion & Clothing'), findsWidgets);
+    expect(find.text('Fashion market'), findsWidgets);
   });
 }

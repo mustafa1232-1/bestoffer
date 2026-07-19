@@ -247,6 +247,86 @@ async function notifyBackoffice(payloadFactory) {
   ).catch(() => {});
 }
 
+async function notifyOfferingModerationToProvider({
+  offering,
+  status,
+  note = null,
+}) {
+  if (!offering?.providerId || !offering?.id) return;
+
+  const provider = await repo.getProviderByIdForAdmin(offering.providerId).catch(() => null);
+  if (!provider?.userId) return;
+
+  const recipients = new Map();
+  recipients.set(Number(provider.userId), {
+    userId: Number(provider.userId),
+    type: `services.offering.status.${String(status || 'pending').trim().toLowerCase()}`,
+    title: 'تحديث على الخدمة',
+    body: `${offering.name} تم تحديثها.`,
+    payload: {
+      target: 'services_provider_workspace',
+      targetModule: 'customer',
+      providerId: offering.providerId,
+      offeringId: offering.id,
+      requiresAction: false,
+    },
+  });
+
+  const employees = await repo
+    .listActiveProviderNotificationRecipients({
+      providerId: offering.providerId,
+      requiredPermissions: ['edit_services'],
+    })
+    .catch(() => []);
+  for (const employee of employees) {
+    if (!employee?.userId) continue;
+    recipients.set(Number(employee.userId), {
+      userId: Number(employee.userId),
+      type: `services.offering.status.${String(status || 'pending').trim().toLowerCase()}`,
+      title: 'تحديث على الخدمة',
+      body: `${offering.name} تم تحديثها.`,
+      payload: {
+        target: 'services_provider_workspace',
+        targetModule: 'customer',
+        providerId: offering.providerId,
+        offeringId: offering.id,
+        requiresAction: false,
+      },
+    });
+  }
+
+  const normalizedStatus = String(status || 'pending').trim().toLowerCase();
+  const titleMap = {
+    approved: 'تمت الموافقة على الخدمة',
+    rejected: 'تم رفض الخدمة',
+    changes_requested: 'تحتاج الخدمة إلى تعديلات',
+    hidden: 'تم إخفاء الخدمة',
+    pending: 'تحديث على الخدمة',
+  };
+  const bodyMap = {
+    approved: `${offering.name} أصبحت جاهزة للنشر.`,
+    rejected: `${offering.name} تم رفضها. يمكنك تعديلها ثم إعادة إرسالها للمراجعة.`,
+    changes_requested: `${offering.name} تحتاج إلى تعديلات. عدّل الخدمة ثم أعد إرسالها للمراجعة.`,
+    hidden: `${offering.name} تم إخفاؤها من الإدارة.`,
+    pending: `${offering.name} تم تحديثها وتنتظر مراجعة جديدة.`,
+  };
+  const details = note ? `\n${note}` : '';
+
+  await createManyNotifications(
+    [...recipients.values()].map((item) => ({
+      ...item,
+      title: titleMap[normalizedStatus] || 'تحديث على الخدمة',
+      body: `${bodyMap[normalizedStatus] || `${offering.name} تم تحديثها.`}${details}`,
+      payload: {
+        ...item.payload,
+        moderationStatus: normalizedStatus,
+        moderationNote: note || offering.moderationNote || null,
+        requiresAction: normalizedStatus !== 'approved',
+      },
+    }))
+  ).catch(() => {});
+}
+
 async function ensureProviderExists(userId) {
   const provider = await repo.getProviderProfileByUserId(userId);
   if (!provider) {
@@ -651,8 +731,27 @@ export async function adminConfirmProviderSubscriptionCashPayment({
   };
 }
 
-export async function listPublicCategories() {
-  return repo.listPublicCategories();
+export async function listPublicCategories({ q = '' } = {}) {
+  return repo.listPublicCategories({ q });
+}
+
+export async function createPublicCategory({ userId, dto }) {
+  const actorUserId = Number(userId);
+  if (!Number.isInteger(actorUserId) || actorUserId <= 0) {
+    throw new AppError('UNAUTHORIZED', { status: 401 });
+  }
+  const parentCategoryId = dto.parentCategoryId == null ? null : Number(dto.parentCategoryId);
+  if (parentCategoryId != null) {
+    const parent = await repo.getPublicCategoryById(parentCategoryId);
+    if (!parent || parent.level !== 1) {
+      throw new AppError('SERVICE_CATEGORY_PARENT_NOT_FOUND', { status: 404 });
+    }
+  }
+  return repo.createPublicCategory({
+    userId: actorUserId,
+    name: dto.name,
+    parentCategoryId,
+  });
 }
 
 export async function searchPublicOfferings(query, viewerUserId = null) {
@@ -797,10 +896,25 @@ export async function updateOffering({
     dto,
     mediaUrls,
   });
-  if (!offering) {
+  const updatedOffering = offering?.offering ?? offering;
+  if (!updatedOffering) {
     throw new AppError('SERVICE_OFFERING_NOT_FOUND', { status: 404 });
   }
-  return offering;
+  if (offering?.moderationReset === true) {
+    await notifyBackoffice((adminUserId) => ({
+      userId: adminUserId,
+      type: 'services.offering.pending_review',
+      title: 'خدمة معدلة بانتظار المراجعة',
+      body: `${updatedOffering.name} تم تعديلها وتنتظر مراجعة جديدة.`,
+      payload: {
+        target: 'admin_services_offerings_pending',
+        targetModule: 'admin',
+        offeringId: updatedOffering.id,
+        requiresAction: true,
+      },
+    }));
+  }
+  return updatedOffering;
 }
 
 export async function replaceOfferingPricing({
@@ -945,6 +1059,8 @@ export async function updateRequestStatusByProvider({
     note: dto.note || null,
     scheduledStartAt: dto.scheduledStartAt || null,
     scheduledEndAt: dto.scheduledEndAt || null,
+    expectedVersion: dto.expectedVersion ?? null,
+    idempotencyKey: dto.idempotencyKey ?? null,
   });
   if (!updated) {
     throw new AppError('SERVICE_REQUEST_NOT_FOUND', { status: 404 });
@@ -1240,6 +1356,17 @@ export async function createServiceRequest({
   return created;
 }
 
+export async function previewServiceBooking({ userId, dto }) {
+  const out = await repo.previewServiceBookingByCustomer({
+    customerUserId: userId,
+    dto,
+  });
+  if (!out) {
+    throw new AppError('SERVICE_OFFERING_NOT_FOUND', { status: 404 });
+  }
+  return out;
+}
+
 export async function listMyRequests({ userId, query }) {
   return repo.listCustomerRequests({ userId, query });
 }
@@ -1262,6 +1389,8 @@ export async function updateRequestStatusByCustomer({
     requestId,
     status: dto.status,
     note: dto.note || null,
+    expectedVersion: dto.expectedVersion ?? null,
+    idempotencyKey: dto.idempotencyKey ?? null,
   });
   if (!updated) {
     throw new AppError('SERVICE_REQUEST_NOT_FOUND', { status: 404 });
@@ -1401,6 +1530,11 @@ export async function adminUpdateOfferingStatus({
   if (!offering) {
     throw new AppError('SERVICE_OFFERING_NOT_FOUND', { status: 404 });
   }
+  await notifyOfferingModerationToProvider({
+    offering,
+    status: dto.status,
+    note: dto.note || null,
+  });
   return offering;
 }
 

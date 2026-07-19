@@ -16,6 +16,7 @@ import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/customer/ui/customer_home_selector_screen.dart';
 import 'package:maslaki/features/customer/ui/maslaki_user_shell.dart';
+import 'package:maslaki/features/startup/ui/app_first_launch_screen.dart';
 import 'package:maslaki/features/notifications/data/notifications_api.dart';
 import 'package:maslaki/features/startup/state/app_startup_controller.dart';
 
@@ -161,6 +162,40 @@ UserModel _superAdminUser() {
   );
 }
 
+UserModel _backofficeUserWithoutExplicitSuperFlag() {
+  return UserModel(
+    id: 79,
+    fullName: 'Backoffice Admin',
+    phone: '07746515247',
+    role: 'admin',
+    block: 'A1',
+    buildingNumber: '1',
+    apartment: '1',
+    imageUrl: null,
+    workTitle: null,
+    workCompany: null,
+    preferredLocale: 'ar',
+    isSuperAdmin: false,
+  );
+}
+
+UserModel _serviceProviderUser() {
+  return UserModel(
+    id: 80,
+    fullName: 'Service Provider',
+    phone: '07770000000',
+    role: 'service_provider',
+    block: 'A1',
+    buildingNumber: '2',
+    apartment: '8',
+    imageUrl: null,
+    workTitle: null,
+    workCompany: null,
+    preferredLocale: 'ar',
+    isSuperAdmin: false,
+  );
+}
+
 void main() {
   testWidgets(
     'authenticated regular user lands on CustomerHomeSelectorScreen',
@@ -252,7 +287,7 @@ void main() {
     },
   );
 
-  testWidgets('token without verified user lands on guest shell', (
+  testWidgets('token without verified user stays on the loading gate', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -288,7 +323,105 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
-    expect(find.byType(MaslakiUserShell), findsOneWidget);
-    expect(find.byType(CustomerHomeSelectorScreen), findsOneWidget);
+    expect(find.byType(AppFirstLaunchScreen), findsOneWidget);
+    expect(find.byType(MaslakiUserShell), findsNothing);
+    expect(find.byType(CustomerHomeSelectorScreen), findsNothing);
   });
+
+  testWidgets(
+    'authenticated backoffice user with missing explicit super flag opens the admin dashboard',
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith(
+              (ref) => _FakeAuthController(
+                ref,
+                AuthState(
+                  user: _backofficeUserWithoutExplicitSuperFlag(),
+                  token: 'backoffice-token',
+                ),
+              ),
+            ),
+            appStartupControllerProvider.overrideWith(
+              (ref) => _FakeStartupController(),
+            ),
+            appSettingsControllerProvider.overrideWith(
+              (ref) => _FakeSettingsController(),
+            ),
+            sectionAvailabilityControllerProvider.overrideWith(
+              (ref) => _FakeSectionAvailabilityController(ref),
+            ),
+            maslakiRealtimeServiceProvider.overrideWithValue(
+              _FakeMaslakiRealtimeService(),
+            ),
+            localNotificationsProvider.overrideWithValue(
+              _FakeLocalNotificationService(),
+            ),
+            pushNotificationsProvider.overrideWithValue(
+              _FakePushNotificationService(),
+            ),
+          ],
+          child: const MaslakiApp(),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(find.byType(AdminDashboardScreen), findsOneWidget);
+      expect(find.byType(MaslakiUserShell), findsNothing);
+      expect(find.byType(CustomerHomeSelectorScreen), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'authenticated service provider stays signed in and reaches the user shell',
+    (tester) async {
+      late _FakeAuthController authController;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith((ref) {
+              authController = _FakeAuthController(
+                ref,
+                AuthState(
+                  user: _serviceProviderUser(),
+                  token: 'service-provider-token',
+                ),
+              );
+              return authController;
+            }),
+            appStartupControllerProvider.overrideWith(
+              (ref) => _FakeStartupController(),
+            ),
+            appSettingsControllerProvider.overrideWith(
+              (ref) => _FakeSettingsController(),
+            ),
+            sectionAvailabilityControllerProvider.overrideWith(
+              (ref) => _FakeSectionAvailabilityController(ref),
+            ),
+            maslakiRealtimeServiceProvider.overrideWithValue(
+              _FakeMaslakiRealtimeService(),
+            ),
+            localNotificationsProvider.overrideWithValue(
+              _FakeLocalNotificationService(),
+            ),
+            pushNotificationsProvider.overrideWithValue(
+              _FakePushNotificationService(),
+            ),
+          ],
+          child: const MaslakiApp(),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(find.byType(CustomerHomeSelectorScreen), findsOneWidget);
+      expect(find.byType(MaslakiUserShell), findsOneWidget);
+      expect(authController.logoutCalls, 0);
+    },
+  );
 }

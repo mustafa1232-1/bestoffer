@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
+import '../../auth/state/auth_controller.dart';
 import '../../behavior/data/behavior_api.dart';
 import '../data/services_api.dart';
 import '../models/service_models.dart';
@@ -23,6 +25,7 @@ class ServiceOfferingDetailsScreen extends ConsumerStatefulWidget {
 class _ServiceOfferingDetailsScreenState
     extends ConsumerState<ServiceOfferingDetailsScreen> {
   bool _loading = true;
+  bool _privatePreview = false;
   String? _error;
   ServiceOfferingModel? _offering;
 
@@ -36,6 +39,7 @@ class _ServiceOfferingDetailsScreenState
     setState(() {
       _loading = true;
       _error = null;
+      _privatePreview = false;
     });
     try {
       final raw = await ref
@@ -63,8 +67,41 @@ class _ServiceOfferingDetailsScreenState
       setState(() {
         _offering = offering;
         _loading = false;
+        _privatePreview = false;
       });
     } catch (e) {
+      final auth = ref.read(authControllerProvider);
+      if (e is DioException &&
+          e.response?.statusCode == 404 &&
+          (auth.isServiceProvider || auth.isBackoffice || auth.isSuperAdmin)) {
+        try {
+          final workspaceRaw = await ref
+              .read(servicesApiProvider)
+              .getProviderWorkspace();
+          final workspace = ServiceProviderWorkspaceModel.fromJson(
+            workspaceRaw,
+          );
+          ServiceOfferingModel? privateOffering;
+          for (final offering in workspace.provider.offerings) {
+            if (offering.id == widget.offeringId) {
+              privateOffering = offering;
+              break;
+            }
+          }
+          if (privateOffering != null) {
+            if (!mounted) return;
+            setState(() {
+              _offering = privateOffering;
+              _loading = false;
+              _privatePreview = true;
+              _error = null;
+            });
+            return;
+          }
+        } catch (_) {
+          // Fall through to the regular error state below.
+        }
+      }
       if (!mounted) return;
       setState(() {
         _error = '$e';
@@ -121,28 +158,42 @@ class _ServiceOfferingDetailsScreenState
 
     return Scaffold(
       appBar: AppBar(title: const Text('تفاصيل الخدمة')),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: FilledButton.icon(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      ServiceRequestCreateScreen(offering: offering),
+      bottomNavigationBar: _privatePreview
+          ? null
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ServiceRequestCreateScreen(offering: offering),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.calendar_today_outlined),
+                  label: Text(offering.bookingCta),
                 ),
-              );
-            },
-            icon: const Icon(Icons.calendar_today_outlined),
-            label: Text(offering.bookingCta),
-          ),
-        ),
-      ),
+              ),
+            ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 120),
           children: [
+            if (_privatePreview)
+              Card(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: const Padding(
+                  padding: EdgeInsets.all(14),
+                  child: Text(
+                    'هذه الخدمة غير منشورة للجمهور بعد، لكن تم تحميلها لك من مساحة مقدم الخدمة.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            if (_privatePreview) const SizedBox(height: 10),
             Text(
               offering.name,
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),

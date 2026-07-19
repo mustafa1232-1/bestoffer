@@ -96,7 +96,7 @@ class TaxiApi {
   Future<List<Map<String, dynamic>>> listNearbyCaptains({
     required double latitude,
     required double longitude,
-    int radiusM = 3500,
+    int radiusM = 15000,
     int limit = 60,
   }) async {
     final response = await dio.get(
@@ -165,7 +165,7 @@ class TaxiApi {
     required String pickupLabel,
     required String dropoffLabel,
     required int proposedFareIqd,
-    int searchRadiusM = 2000,
+    int searchRadiusM = 15000,
     String? couponCode,
     String scheduleMode = 'now',
     int? scheduledRideId,
@@ -207,7 +207,7 @@ class TaxiApi {
     double? headingDeg,
     double? speedKmh,
     double? accuracyM,
-    int radiusM = 4000,
+    int radiusM = 15000,
   }) async {
     final response = await dio.post(
       '/api/taxi/captain/presence',
@@ -225,7 +225,7 @@ class TaxiApi {
   }
 
   Future<List<Map<String, dynamic>>> listNearbyRequests({
-    int radiusM = 4000,
+    int radiusM = 15000,
     int limit = 30,
   }) async {
     final response = await dio.get(
@@ -280,6 +280,17 @@ class TaxiApi {
 
   Future<Map<String, dynamic>> declineRideRequest({required int rideId}) async {
     final response = await dio.post('/api/taxi/rides/$rideId/decline');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> raiseRideFare({
+    required int rideId,
+    required int proposedFareIqd,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/raise-fare',
+      data: {'proposedFareIqd': proposedFareIqd},
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 

@@ -247,4 +247,55 @@ void main() {
       expect(find.textContaining('Handle carefully'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'store owner orders screen opens store coupon management from drawer',
+    (tester) async {
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.binding.setSurfaceSize(const Size(1280, 1800));
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ownerApiProvider.overrideWithValue(_FakeOwnerApi()),
+            ownerControllerProvider.overrideWith((ref) {
+              return _FakeOwnerController(ref);
+            }),
+          ],
+          child: const MaterialApp(
+            locale: Locale('en'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: StoreOwnerOrdersScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Open navigation menu'));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('en'));
+      final couponsEntry = find.text(l10n.ownerMenuCouponsTitle);
+      await tester.ensureVisible(couponsEntry);
+      await tester.tap(couponsEntry, warnIfMissed: false);
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      expect(find.text(l10n.couponManagementTitleOwner), findsOneWidget);
+      expect(find.text(l10n.couponManagementCreateAction), findsOneWidget);
+
+      await tester.tap(find.text(l10n.couponManagementCreateAction));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      expect(
+        find.text(
+          l10n.validationRequiredField(l10n.couponManagementCodeLabel),
+        ),
+        findsOneWidget,
+      );
+    },
+  );
 }

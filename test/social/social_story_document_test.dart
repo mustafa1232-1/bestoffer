@@ -283,4 +283,69 @@ void main() {
       expect(lockedStory.allowReshare, isFalse);
     },
   );
+
+  test('SocialStoryDraft.fromJson tolerates dynamic nested maps and lists', () {
+    final draft = SocialStoryDraft.fromJson({
+      'draftId': 'draft-dynamic',
+      'version': 2,
+      'mode': 'reelShare',
+      'caption': 'Dynamic payload',
+      'background': <dynamic, dynamic>{
+        'type': 'posterBlur',
+        'primaryColor': '#101828',
+        'secondaryColor': '#1D4ED8',
+        'imageUrl': 'https://example.com/bg.jpg',
+      },
+      'attachment': <dynamic, dynamic>{
+        'type': 'reel_share',
+        'reelId': 99,
+        'postId': null,
+        'mediaAssetId': 77,
+        'streamUid': 'stream-uid-77',
+        'authorId': 7,
+        'authorName': 'Ali',
+        'posterUrl': 'https://example.com/poster.jpg',
+        'caption': 'Dynamic reel',
+        'mediaUrl': 'https://example.com/playback.m3u8',
+        'playbackUrl': 'https://example.com/playback.m3u8',
+        'thumbnailUrl': 'https://example.com/thumb.jpg',
+        'mediaKind': 'video',
+        'aspectRatio': 0.5625,
+        'label': 'Watch reel',
+      },
+      'layers': [
+        <dynamic, dynamic>{
+          'id': 'layer-1',
+          'type': 'text',
+          'x': 0.2,
+          'y': 0.3,
+          'scale': 1.1,
+          'rotation': 0.0,
+          'zIndex': 1,
+          'text': 'Hello',
+          'color': '#FFFFFF',
+          'backgroundColor': '#33000000',
+          'fontFamily': 'system',
+          'fontWeight': 'bold',
+          'textAlign': 'center',
+          'fontScale': 1.0,
+          'locked': false,
+          'strokes': [
+            <dynamic, dynamic>{
+              'color': '#FF00FF',
+              'width': 4,
+              'points': [
+                <dynamic, dynamic>{'x': 0.1, 'y': 0.2},
+                <dynamic, dynamic>{'x': 0.3, 'y': 0.4},
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(draft.background.type, SocialStoryBackgroundType.posterBlur);
+    expect(draft.attachment?.reelId, 99);
+    expect(draft.layers.single.strokes.single.points.length, 2);
+  });
 }

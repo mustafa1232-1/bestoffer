@@ -1,5 +1,6 @@
 // ignore_for_file: use_null_aware_elements
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/services_api.dart';
@@ -11,6 +12,7 @@ class ServiceProviderWorkspaceState {
   final ServiceProviderWorkspaceModel? workspace;
   final List<ServiceRequestModel> requests;
   final String? error;
+  final bool workspaceMissingProfile;
 
   const ServiceProviderWorkspaceState({
     this.loadingWorkspace = false,
@@ -18,6 +20,7 @@ class ServiceProviderWorkspaceState {
     this.workspace,
     this.requests = const <ServiceRequestModel>[],
     this.error,
+    this.workspaceMissingProfile = false,
   });
 
   ServiceProviderWorkspaceState copyWith({
@@ -28,6 +31,7 @@ class ServiceProviderWorkspaceState {
     List<ServiceRequestModel>? requests,
     String? error,
     bool clearError = false,
+    bool? workspaceMissingProfile,
   }) {
     return ServiceProviderWorkspaceState(
       loadingWorkspace: loadingWorkspace ?? this.loadingWorkspace,
@@ -35,6 +39,8 @@ class ServiceProviderWorkspaceState {
       workspace: clearWorkspace ? null : (workspace ?? this.workspace),
       requests: requests ?? this.requests,
       error: clearError ? null : error,
+      workspaceMissingProfile:
+          workspaceMissingProfile ?? this.workspaceMissingProfile,
     );
   }
 }
@@ -63,6 +69,7 @@ class ServiceProviderWorkspaceController
         loadingWorkspace: false,
         workspace: workspace,
         clearError: true,
+        workspaceMissingProfile: false,
       );
       final canViewRequests =
           workspace.access?.isOwner == true ||
@@ -72,8 +79,20 @@ class ServiceProviderWorkspaceController
       } else {
         state = state.copyWith(requests: const <ServiceRequestModel>[]);
       }
+    } on DioException catch (e) {
+      final missingProfile = _isMissingWorkspaceProfileError(e);
+      state = state.copyWith(
+        loadingWorkspace: false,
+        clearWorkspace: missingProfile,
+        workspaceMissingProfile: missingProfile,
+        error: missingProfile ? null : '$e',
+      );
     } catch (e) {
-      state = state.copyWith(loadingWorkspace: false, error: '$e');
+      state = state.copyWith(
+        loadingWorkspace: false,
+        workspaceMissingProfile: false,
+        error: '$e',
+      );
     }
   }
 
@@ -99,6 +118,25 @@ class ServiceProviderWorkspaceController
     } catch (e) {
       state = state.copyWith(loadingRequests: false, error: '$e');
     }
+  }
+
+  bool _isMissingWorkspaceProfileError(Object error) {
+    if (error is DioException) {
+      final statusCode = error.response?.statusCode;
+      if (statusCode == 404) return true;
+      final data = error.response?.data;
+      if (data is Map) {
+        final message = '${data['message'] ?? data['error'] ?? ''}'
+            .trim()
+            .toUpperCase();
+        return message.contains('SERVICE_PROVIDER_PROFILE_NOT_FOUND') ||
+            message.contains('PROFILE_NOT_FOUND');
+      }
+      return false;
+    }
+    final message = '$error'.trim().toUpperCase();
+    return message.contains('SERVICE_PROVIDER_PROFILE_NOT_FOUND') ||
+        message.contains('PROFILE_NOT_FOUND');
   }
 
   Future<void> inviteEmployee(Map<String, dynamic> payload) async {

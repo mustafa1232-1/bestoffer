@@ -64,6 +64,7 @@ void main() {
                 ownerId: 7,
                 title: 'jacki',
               ),
+              onAddToStory: () {},
               onExternalShare: (url) => externallyShared = url,
             ),
           ),

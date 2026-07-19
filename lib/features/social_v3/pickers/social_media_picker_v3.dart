@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
 
 /// Media type of a picked social asset.
 enum PickedMediaType { image, video }
@@ -127,20 +130,55 @@ class SocialMediaPickerV3 {
       inferMediaTypeFromNameOrMime(name: file.name, mimeType: file.mimeType);
 
   Future<PickedSocialMedia> _toResult(XFile file, PickedMediaType type) async {
+    final normalized = await _materializePickedFile(file);
     // NOTE: never read the whole file into memory (no `readAsBytes` for video).
     int? size;
     try {
-      size = await file.length();
+      size = await normalized.length();
     } catch (_) {
       size = null;
     }
     return PickedSocialMedia(
-      path: file.path,
-      name: file.name,
-      mimeType: file.mimeType ?? _mimeFromName(file.name, type),
+      path: normalized.path,
+      name: normalized.name.isNotEmpty ? normalized.name : file.name,
+      mimeType: normalized.mimeType ?? file.mimeType ?? _mimeFromName(file.name, type),
       sizeBytes: size,
       type: type,
     );
+  }
+
+  Future<XFile> _materializePickedFile(XFile file) async {
+    final sourcePath = file.path.trim();
+    if (sourcePath.isEmpty) return file;
+
+    try {
+      final safeName = file.name.trim().isNotEmpty
+          ? file.name.trim()
+          : p.basename(sourcePath).trim();
+      final tempRoot = Directory(
+        p.join(Directory.systemTemp.path, 'bestoffer_social_picker'),
+      );
+      await tempRoot.create(recursive: true);
+      final destination = File(
+        p.join(
+          tempRoot.path,
+          '${DateTime.now().microsecondsSinceEpoch}_$safeName',
+        ),
+      );
+      final sink = destination.openWrite();
+      try {
+        await sink.addStream(file.openRead());
+      } finally {
+        await sink.close();
+      }
+      return XFile(
+        destination.path,
+        name: safeName.isNotEmpty ? safeName : destination.path,
+        mimeType: file.mimeType,
+      );
+    } catch (_) {
+      return file;
+    }
   }
 }
 

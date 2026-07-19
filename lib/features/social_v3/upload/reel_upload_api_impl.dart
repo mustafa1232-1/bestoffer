@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../composer/reel_composer_state.dart';
@@ -70,6 +72,7 @@ class ReelUploadApiImpl implements ReelUploadApi {
     required String audience,
     required bool commentsEnabled,
     required bool sharingEnabled,
+    Map<String, dynamic>? reelStyle,
     required String idempotencyKey,
   }) async {
     // Multipart form WITHOUT a file — the backend publishes from mediaAssetId
@@ -82,6 +85,7 @@ class ReelUploadApiImpl implements ReelUploadApi {
       'audienceScopeType': audience == 'public' ? 'global' : 'followers',
       'commentsEnabled': commentsEnabled.toString(),
       'sharingEnabled': sharingEnabled.toString(),
+      if (reelStyle != null) 'reelStyle': jsonEncode(reelStyle),
     });
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/feed/reels',

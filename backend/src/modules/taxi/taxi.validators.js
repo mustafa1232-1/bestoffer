@@ -48,6 +48,7 @@ function resolveNestedCoordinate(body, nestedKey, keys = []) {
 }
 
 const MIN_RIDE_FARE_IQD = 1500;
+const MAX_TAXI_RADIUS_M = 15000;
 
 export function validateRideId(paramValue) {
   const rideId = toInt(paramValue);
@@ -97,7 +98,7 @@ export function validateCreateRide(body) {
       : "";
 
   const proposedFareIqd = toInt(body?.proposedFareIqd);
-  const searchRadiusM = toInt(body?.searchRadiusM ?? 2000);
+  const searchRadiusM = toInt(body?.searchRadiusM ?? MAX_TAXI_RADIUS_M);
   const couponCodeRaw =
     body?.couponCode == null ? "" : String(body.couponCode).trim().toUpperCase();
   const scheduleModeRaw = String(body?.scheduleMode || "now")
@@ -133,7 +134,7 @@ export function validateCreateRide(body) {
     errors.proposedFareIqd = "INVALID_NUMBER";
   }
 
-  if (searchRadiusM == null || searchRadiusM < 500 || searchRadiusM > 10000) {
+  if (searchRadiusM == null || searchRadiusM < 500 || searchRadiusM > MAX_TAXI_RADIUS_M) {
     errors.searchRadiusM = "INVALID_NUMBER";
   }
 
@@ -183,7 +184,7 @@ export function validateCaptainPresence(body) {
   const headingDeg = resolveCoordinate(body, ["headingDeg", "heading"]);
   const speedKmh = resolveCoordinate(body, ["speedKmh", "speed"]);
   const accuracyM = resolveCoordinate(body, ["accuracyM", "accuracy"]);
-  const radiusM = toInt(body?.radiusM ?? 3000);
+  const radiusM = toInt(body?.radiusM ?? MAX_TAXI_RADIUS_M);
 
   if (isOnline == null) errors.push("isOnline");
 
@@ -196,7 +197,7 @@ export function validateCaptainPresence(body) {
   if (speedKmh != null && (speedKmh < 0 || speedKmh > 300)) errors.push("speedKmh");
   if (accuracyM != null && (accuracyM < 0 || accuracyM > 5000)) errors.push("accuracyM");
 
-  if (radiusM == null || radiusM < 500 || radiusM > 10000) errors.push("radiusM");
+  if (radiusM == null || radiusM < 500 || radiusM > MAX_TAXI_RADIUS_M) errors.push("radiusM");
 
   return {
     ok: errors.length === 0,
@@ -216,10 +217,10 @@ export function validateCaptainPresence(body) {
 export function validateNearbyQuery(query) {
   const errors = [];
 
-  const radiusM = toInt(query?.radiusM ?? 3000);
+  const radiusM = toInt(query?.radiusM ?? MAX_TAXI_RADIUS_M);
   const limit = toInt(query?.limit ?? 40);
 
-  if (radiusM == null || radiusM < 500 || radiusM > 10000) errors.push("radiusM");
+  if (radiusM == null || radiusM < 500 || radiusM > MAX_TAXI_RADIUS_M) errors.push("radiusM");
   if (limit == null || limit < 1 || limit > 200) errors.push("limit");
 
   return {
@@ -236,7 +237,7 @@ export function validateNearbyCaptainsQuery(query) {
   const errors = {};
   const latitude = toNumber(query?.latitude ?? query?.lat);
   const longitude = toNumber(query?.longitude ?? query?.lng ?? query?.lon);
-  const radiusM = toInt(query?.radiusM ?? 3500);
+  const radiusM = toInt(query?.radiusM ?? MAX_TAXI_RADIUS_M);
   const limit = toInt(query?.limit ?? 60);
 
   if (latitude == null || latitude < -90 || latitude > 90) {
@@ -245,7 +246,7 @@ export function validateNearbyCaptainsQuery(query) {
   if (longitude == null || longitude < -180 || longitude > 180) {
     errors.longitude = "SELECT_LOCATION";
   }
-  if (radiusM == null || radiusM < 500 || radiusM > 10000) {
+  if (radiusM == null || radiusM < 500 || radiusM > MAX_TAXI_RADIUS_M) {
     errors.radiusM = "INVALID_NUMBER";
   }
   if (limit == null || limit < 1 || limit > 200) {
@@ -286,6 +287,29 @@ export function validateCreateBid(body) {
       offeredFareIqd,
       etaMinutes,
       note: body?.note == null ? null : String(body.note).trim(),
+    },
+  };
+}
+
+export function validateRaiseRideFare(body) {
+  const errors = {};
+  const proposedFareIqd = toInt(
+    body?.proposedFareIqd ?? body?.fareIqd ?? body?.raisedFareIqd
+  );
+
+  if (
+    proposedFareIqd == null ||
+    proposedFareIqd < MIN_RIDE_FARE_IQD ||
+    proposedFareIqd > 5000000
+  ) {
+    errors.proposedFareIqd = "INVALID_NUMBER";
+  }
+
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: {
+      proposedFareIqd,
     },
   };
 }

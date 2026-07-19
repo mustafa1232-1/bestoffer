@@ -1,4 +1,5 @@
 import { pool, q } from "../../config/db.js";
+import { couponLifecycleStatusSql } from "../coupons/coupons.repo.js";
 
 function toPositiveInt(value) {
   const n = Number(value);
@@ -917,6 +918,7 @@ export async function replaceCompanyCouponTargets({ couponId, companyId, merchan
 export async function listCompanyCoupons(companyId) {
   const r = await q(
     `SELECT c.*,
+            ${couponLifecycleStatusSql("c")} AS coupon_status,
             COALESCE(
               json_agg(
                 json_build_object('merchantId', t.merchant_id, 'merchantName', m.name)
@@ -933,7 +935,10 @@ export async function listCompanyCoupons(companyId) {
      ORDER BY c.created_at DESC, c.id DESC`,
     [Number(companyId)]
   );
-  return r.rows;
+  return r.rows.map((row) => ({
+    ...row,
+    coupon_status: row.coupon_status || "unknown",
+  }));
 }
 
 export async function createCompanyCampaign({

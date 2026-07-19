@@ -4,8 +4,9 @@ import { AppError } from "../../shared/utils/errors.js";
 import * as repo from "./taxi.repo.js";
 import * as loyaltyRepo from "./taxi.loyalty.repo.js";
 
-const FIRST_SEARCH_RADIUS_M = 2000;
-const EXPANDED_SEARCH_RADIUS_M = 4000;
+const FIRST_SEARCH_RADIUS_M = 15000;
+const EXPANDED_SEARCH_RADIUS_M = 15000;
+const PRICE_RAISE_REJECTION_THRESHOLD = 5;
 const SEARCH_STAGE_MINUTES = 5;
 const NEGOTIATION_TIMEOUT_SECONDS = 90;
 const CALL_RING_TIMEOUT_SECONDS = 35;
@@ -256,6 +257,11 @@ function buildCompactRidePayload(ride) {
     searchPhase: ride.searchPhase,
     searchRadiusM: ride.searchRadiusM,
     rejectedCaptainsCount: ride.rejectedCaptainsCount ?? 0,
+    pricingRound: ride.pricingRound ?? 1,
+    previousProposedFareIqd: ride.previousProposedFareIqd ?? null,
+    priceRaiseRequiredAt: ride.priceRaiseRequiredAt ?? null,
+    fareVersion: ride.fareVersion ?? 1,
+    priceRaiseRequired: ride.priceRaiseRequired === true,
     priceRaiseRecommended: ride.priceRaiseRecommended === true,
     priceRaisePromptedAt: ride.priceRaisePromptedAt ?? null,
     finalAcceptanceDeadlineAt: ride.finalAcceptanceDeadlineAt ?? null,
@@ -264,6 +270,7 @@ function buildCompactRidePayload(ride) {
     captainRatedAt: ride.captainRatedAt ?? null,
     createdAt: ride.createdAt,
     updatedAt: ride.updatedAt,
+    isPriceRaiseRequiredRide: ride.isPriceRaiseRequiredRide === true,
   };
 }
 
@@ -562,13 +569,17 @@ export const __taxiServiceTestApi = {
 };
 
 function shouldRecommendRidePriceRaise(ride) {
-  if (!ride || ride.status !== "searching") return false;
+  if (!ride) return false;
   const rejectedCaptainsCount = Number(ride.rejectedCaptainsCount || 0);
   const deadlineMs = ride.finalAcceptanceDeadlineAt
     ? new Date(ride.finalAcceptanceDeadlineAt).getTime()
     : null;
   const deadlineExpired = deadlineMs != null && deadlineMs <= Date.now();
-  return rejectedCaptainsCount >= 3 || deadlineExpired;
+  return (
+    String(ride.status || "").trim().toLowerCase() === "price_raise_required" ||
+    rejectedCaptainsCount >= PRICE_RAISE_REJECTION_THRESHOLD ||
+    deadlineExpired
+  );
 }
 
 async function maybePromptRidePriceRaise(ride) {
@@ -1118,7 +1129,7 @@ async function processSearchingLifecycleAndEmit({ force = false } = {}) {
           rideRequestId: updated.id,
           actorUserId: updated.customerUserId,
           eventType: "search_expanded",
-          message: "تم توسيع نطاق البحث عن كابتن إلى 4 كم.",
+          message: "تم توسيع نطاق البحث عن كابتن إلى 15 كم.",
           payload: {
             searchRadiusM: updated.searchRadiusM,
             searchPhase: updated.searchPhase,
@@ -1137,7 +1148,7 @@ async function processSearchingLifecycleAndEmit({ force = false } = {}) {
           userId: updated.customerUserId,
           type: "taxi.ride.search_expanded",
           title: "وسعنا البحث عن كابتن",
-          body: "تم توسيع نطاق البحث إلى 4 كم لمدة 5 دقائق إضافية.",
+          body: "تم توسيع نطاق البحث إلى 15 كم لمدة 5 دقائق إضافية.",
           payload: {
             rideId: updated.id,
             searchRadiusM: updated.searchRadiusM,
@@ -1240,7 +1251,10 @@ export async function createRideRequest(customerUserId, dto) {
     pickupLabel: dto.pickupLabel,
     dropoffLabel: dto.dropoffLabel,
     proposedFareIqd: dto.proposedFareIqd,
-    searchRadiusM: FIRST_SEARCH_RADIUS_M,
+    searchRadiusM: Math.max(
+      FIRST_SEARCH_RADIUS_M,
+      Number(dto.searchRadiusM) || FIRST_SEARCH_RADIUS_M
+    ),
     note: dto.note,
     scheduleMode: dto.scheduleMode,
     scheduledRideId: dto.scheduledRideId,
@@ -2028,7 +2042,7 @@ export async function updateCaptainPresence(captainUserId, dto) {
   let nearbyRequests = [];
   if (presence.isOnline && presence.latitude != null && presence.longitude != null) {
     nearbyRequests = await repo.listNearbyOpenRidesForCaptain(captainUserId, {
-      radiusM: dto.radiusM || 3000,
+      radiusM: dto.radiusM || FIRST_SEARCH_RADIUS_M,
       limit: 30,
     });
   }
@@ -2109,7 +2123,7 @@ export async function submitBid({ captainUserId, rideId, dto }) {
   }
 
   const nearbyItems = await repo.listNearbyOpenRidesForCaptain(captainUserId, {
-    radiusM: Math.max(ride.searchRadiusM, 2000),
+    radiusM: Math.max(ride.searchRadiusM, FIRST_SEARCH_RADIUS_M),
     limit: 200,
   });
 
@@ -2292,6 +2306,77 @@ export async function declineRideRequestByCaptain({ captainUserId, rideId }) {
     rideId: ride.id,
     rejectedCaptainsCount: Number(ride.rejectedCaptainsCount || 0),
     priceRaiseRecommended: priceRaise.recommended === true,
+  };
+}
+
+export async function raiseRideFare({ customerUserId, rideId, dto }) {
+  await processSearchingLifecycleAndEmit();
+
+  const result = await repo.raiseRideFare({
+    rideId,
+    customerUserId,
+    proposedFareIqd: dto.proposedFareIqd,
+  });
+
+  if (result.code !== "OK") {
+    if (result.code === "RIDE_NOT_FOUND") {
+      throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+    }
+    if (result.code === "RIDE_NOT_PRICE_RAISE_REQUIRED") {
+      throw new AppError("TAXI_RIDE_NOT_PRICE_RAISE_REQUIRED", {
+        status: 409,
+        details: { currentStatus: result.currentStatus },
+      });
+    }
+    if (result.code === "FARE_NOT_INCREASED") {
+      throw new AppError("TAXI_FARE_NOT_INCREASED", {
+        status: 409,
+        details: { currentFare: result.currentFare },
+      });
+    }
+    throw new AppError("TAXI_RIDE_FARE_RAISE_FAILED", { status: 500 });
+  }
+
+  const ride = result.ride;
+  await repo.createRideEvent({
+    rideRequestId: ride.id,
+    actorUserId: customerUserId,
+    eventType: "fare_raised",
+    message: "تم رفع الأجرة لإعادة البحث عن كابتن.",
+    payload: {
+      previousFareIqd: result.previousFareIqd,
+      nextFareIqd: result.nextFareIqd,
+      pricingRound: Number(ride.pricingRound || 1),
+      fareVersion: Number(ride.fareVersion || 1),
+    },
+  });
+
+  const nearbyCaptainsCount = await notifyCaptainsNearRide(ride);
+  await emitRideUpdate(ride, "fare_raised", {
+    previousFareIqd: result.previousFareIqd,
+    nextFareIqd: result.nextFareIqd,
+    nearbyCaptainsCount,
+  });
+
+  queueNotification({
+    userId: customerUserId,
+    type: "taxi.ride.fare_raised",
+    title: "تم رفع الأجرة",
+    body: "أعدنا فتح البحث عن كابتن بالقيمة الجديدة.",
+    payload: {
+      rideId: ride.id,
+      previousFareIqd: result.previousFareIqd,
+      nextFareIqd: result.nextFareIqd,
+      pricingRound: Number(ride.pricingRound || 1),
+    },
+  });
+
+  return {
+    ride: buildTaxiRideCompatView(ride),
+    assignment: buildTaxiAssignmentPayload(ride),
+    nearbyCaptainsCount,
+    previousFareIqd: result.previousFareIqd,
+    nextFareIqd: result.nextFareIqd,
   };
 }
 

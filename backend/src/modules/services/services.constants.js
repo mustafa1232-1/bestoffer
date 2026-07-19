@@ -56,6 +56,7 @@ export const OFFERING_MODERATION_STATUSES = [
   'pending',
   'approved',
   'rejected',
+  'changes_requested',
   'hidden',
 ];
 

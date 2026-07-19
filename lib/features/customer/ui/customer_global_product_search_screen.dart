@@ -9,6 +9,7 @@ import '../../orders/ui/cart_screen.dart';
 import '../../products/models/product_model.dart';
 import '../../products/ui/product_summary_card.dart';
 import '../../products/ui/product_variant_picker_sheet.dart';
+import '../../products/utils/product_variant_label_set.dart';
 import '../../merchants/utils/catalog_taxonomy.dart';
 
 class CustomerGlobalProductSearchScreen extends ConsumerStatefulWidget {
@@ -174,11 +175,19 @@ class _CustomerGlobalProductSearchScreenState
     final merchant = Map<String, dynamic>.from(
       item['merchant'] as Map? ?? const {},
     );
+    final merchantModel = _toMerchant(item);
+    final variantLabels = productVariantLabelsForCatalogType(
+      merchantModel.type,
+    );
     final selected =
         _cardSelections[product.id] ??
         ProductSummaryCardData.fromProduct(
           product,
           locale: Localizations.localeOf(context),
+          colorGroupLabelAr: variantLabels.colorLabelAr,
+          colorGroupLabelEn: variantLabels.colorLabelEn,
+          sizeGroupLabelAr: variantLabels.sizeLabelAr,
+          sizeGroupLabelEn: variantLabels.sizeLabelEn,
         ).resolveSelection();
     var variantSelections = selected.selectedVariantSelections;
     final hasCompleteVariantSelection = variantSelections.isNotEmpty;
@@ -189,6 +198,12 @@ class _CustomerGlobalProductSearchScreenState
         context,
         product: product,
         initialSelections: variantSelections,
+        colorGroupLabelAr: variantLabels.colorLabelAr,
+        colorGroupLabelEn: variantLabels.colorLabelEn,
+        sizeGroupLabelAr: variantLabels.sizeLabelAr,
+        sizeGroupLabelEn: variantLabels.sizeLabelEn,
+        unavailablePromptAr: variantLabels.unavailablePromptAr,
+        unavailablePromptEn: variantLabels.unavailablePromptEn,
       );
       if (!mounted || picked == null) return;
       variantSelections = picked;
@@ -354,9 +369,16 @@ class _CustomerGlobalProductSearchScreenState
             );
             final product = _toProduct(item);
             final merchantModel = _toMerchant(item);
+            final variantLabels = productVariantLabelsForCatalogType(
+              merchantModel.type,
+            );
             final cardData = ProductSummaryCardData.fromProduct(
               product,
               locale: Localizations.localeOf(context),
+              colorGroupLabelAr: variantLabels.colorLabelAr,
+              colorGroupLabelEn: variantLabels.colorLabelEn,
+              sizeGroupLabelAr: variantLabels.sizeLabelAr,
+              sizeGroupLabelEn: variantLabels.sizeLabelEn,
             );
             final selection =
                 _cardSelections[product.id] ?? cardData.resolveSelection();
@@ -374,6 +396,10 @@ class _CustomerGlobalProductSearchScreenState
                 key: ValueKey(product.id),
                 appearance: ProductSummaryCardAppearance.fromContext(context),
                 locale: Localizations.localeOf(context),
+                colorGroupLabelAr: variantLabels.colorLabelAr,
+                colorGroupLabelEn: variantLabels.colorLabelEn,
+                sizeGroupLabelAr: variantLabels.sizeLabelAr,
+                sizeGroupLabelEn: variantLabels.sizeLabelEn,
                 compact: true,
                 heroAspectRatio: 1.36,
                 maxAttributeBadges: 3,

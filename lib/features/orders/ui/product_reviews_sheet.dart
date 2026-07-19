@@ -67,7 +67,7 @@ class _ProductReviewsSheetState extends ConsumerState<ProductReviewsSheet> {
       final api = ref.read(ordersApiProvider);
       final data = await api.listProductReviews(widget.productId);
       final rawReviews = (data['reviews'] as List?) ?? [];
-      final rawSummary = data['summary'] as Map<String, dynamic>?;
+      final rawSummary = data['summary'];
       setState(() {
         _reviews = rawReviews
             .map(
@@ -75,8 +75,10 @@ class _ProductReviewsSheetState extends ConsumerState<ProductReviewsSheet> {
                   ProductReview.fromJson(Map<String, dynamic>.from(e as Map)),
             )
             .toList();
-        _summary = rawSummary != null
-            ? ProductRatingSummary.fromJson(rawSummary)
+        _summary = rawSummary is Map
+            ? ProductRatingSummary.fromJson(
+                Map<String, dynamic>.from(rawSummary),
+              )
             : null;
         _loading = false;
       });
@@ -128,7 +130,7 @@ class _ProductReviewsSheetState extends ConsumerState<ProductReviewsSheet> {
       final api = ref.read(ordersApiProvider);
       final data = await api.listProductReviews(widget.productId);
       final rawReviews = (data['reviews'] as List?) ?? [];
-      final rawSummary = data['summary'] as Map<String, dynamic>?;
+      final rawSummary = data['summary'];
       setState(() {
         _reviews = rawReviews
             .map(
@@ -136,8 +138,10 @@ class _ProductReviewsSheetState extends ConsumerState<ProductReviewsSheet> {
                   ProductReview.fromJson(Map<String, dynamic>.from(e as Map)),
             )
             .toList();
-        _summary = rawSummary != null
-            ? ProductRatingSummary.fromJson(rawSummary)
+        _summary = rawSummary is Map
+            ? ProductRatingSummary.fromJson(
+                Map<String, dynamic>.from(rawSummary),
+              )
             : null;
         _loading = false;
       });

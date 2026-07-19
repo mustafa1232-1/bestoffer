@@ -359,6 +359,57 @@ void main() {
   );
 
   test(
+    'delivery presence heartbeat continues after live-order polling stops',
+    () async {
+      final api = _FakeDeliveryApi();
+      final authState = AuthState(
+        user: UserModel(
+          id: 86,
+          fullName: 'Delivery Driver',
+          phone: '07711234567',
+          role: 'delivery',
+          block: 'A1',
+          buildingNumber: '12',
+          apartment: '3',
+          imageUrl: null,
+          workTitle: null,
+          workCompany: null,
+          preferredLocale: null,
+          isSuperAdmin: false,
+        ),
+        token: 'delivery-token',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) => _FakeAuthController(ref, authState),
+          ),
+          deliveryApiProvider.overrideWithValue(api),
+          locationPermissionServiceProvider.overrideWithValue(
+            const _FakeLocationPermissionService(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(deliveryControllerProvider.notifier);
+      controller.startPresenceHeartbeat(
+        interval: const Duration(milliseconds: 20),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 75));
+      final beforeStop = api.presencePayloads.length;
+      expect(beforeStop, greaterThan(0));
+
+      controller.stopLiveOrders(force: true);
+      await Future<void>.delayed(const Duration(milliseconds: 75));
+
+      expect(api.presencePayloads.length, greaterThan(beforeStop));
+      controller.stopPresenceHeartbeat();
+    },
+  );
+
+  test(
     'delivery resume forces another idle heartbeat without coordinates',
     () async {
       final api = _FakeDeliveryApi();

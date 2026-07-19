@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/media/cached_app_image.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
@@ -335,17 +336,8 @@ class _ServiceProviderProfileScreenState
                     ),
                   ...profile.offerings.map(
                     (offering) => Card(
-                      child: ListTile(
-                        title: Text(offering.name),
-                        subtitle: Text(
-                          offering.displayPriceText,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: const Icon(
-                          Icons.arrow_forward_ios_rounded,
-                          size: 14,
-                        ),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
@@ -355,6 +347,76 @@ class _ServiceProviderProfileScreenState
                             ),
                           );
                         },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            AspectRatio(
+                              aspectRatio: 16 / 9,
+                              child:
+                                  ((offering.primaryMediaUrl ??
+                                          offering.provider.logoUrl ??
+                                          '')
+                                      .trim()
+                                      .isNotEmpty)
+                                  ? CachedAppImage(
+                                      imageUrl:
+                                          offering.primaryMediaUrl ??
+                                          offering.provider.logoUrl!,
+                                      fit: BoxFit.cover,
+                                      placeholder:
+                                          (
+                                            placeholderContext,
+                                            placeholderChild,
+                                          ) => Container(
+                                            color: Colors.black12,
+                                            alignment: Alignment.center,
+                                            child: const Icon(
+                                              Icons.design_services_rounded,
+                                            ),
+                                          ),
+                                      errorWidget:
+                                          (
+                                            errorContext,
+                                            errorChild,
+                                            errorProgress,
+                                          ) => Container(
+                                            color: Colors.black12,
+                                            alignment: Alignment.center,
+                                            child: const Icon(
+                                              Icons.broken_image_outlined,
+                                            ),
+                                          ),
+                                    )
+                                  : Container(
+                                      color: Colors.black12,
+                                      alignment: Alignment.center,
+                                      child: const Icon(
+                                        Icons.design_services_rounded,
+                                      ),
+                                    ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    offering.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    offering.displayPriceText,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

@@ -4,9 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/parsers.dart';
+import '../../../core/widgets/app_user_drawer.dart';
+import '../../auth/state/auth_controller.dart';
 import '../models/admin_financial_request_model.dart';
 import '../state/admin_controller.dart';
 import 'widgets/admin_financial_request_actions_sheet.dart';
+import 'admin_approvals_hub_screen.dart';
+import 'admin_dashboard_screen.dart';
+import 'admin_services_hub_screen.dart';
+import 'admin_service_provider_subscription_requests_screen.dart';
 
 class AdminReceivablesScreen extends ConsumerStatefulWidget {
   const AdminReceivablesScreen({super.key});
@@ -52,6 +58,82 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
     return ref
         .read(adminControllerProvider.notifier)
         .refreshMerchantsReceivablesV2();
+  }
+
+  Widget _buildAdminDrawer(BuildContext context) {
+    final auth = ref.watch(authControllerProvider);
+    return AppUserDrawer(
+      title: 'لوحة الإدارة',
+      subtitle: auth.user?.fullName,
+      showCommunitySection: false,
+      showSettings: false,
+      enableItemSearch: false,
+      items: [
+        AppUserDrawerItem(
+          icon: Icons.space_dashboard_rounded,
+          label: 'لوحة التحكم',
+          subtitle: 'الصفحة الرئيسية للأدمن',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminDashboardScreen(),
+              ),
+              (route) => false,
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.verified_user_outlined,
+          label: 'حوض الموافقات',
+          subtitle: 'مراجعة الطلبات المعلقة',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminApprovalsHubScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.home_repair_service_outlined,
+          label: 'إدارة الخدمات',
+          subtitle: 'ملخص الخدمات والطلبات',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminServicesHubScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.description_outlined,
+          label: 'طلبات الاشتراك',
+          subtitle: 'عرض طلبات أصحاب الخدمة',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    const AdminServiceProviderSubscriptionRequestsScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.refresh_rounded,
+          label: 'تحديث الصفحة',
+          subtitle: 'إعادة تحميل المستحقات',
+          group: 'الإجراءات',
+          onTap: (_) async {
+            await _reload();
+          },
+        ),
+      ],
+    );
   }
 
   Future<void> _runAction(
@@ -129,10 +211,10 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
             children: [
               TextField(
                 controller: amountCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                  labelText: l10n.commonAmount,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
                 ),
+                decoration: InputDecoration(labelText: l10n.commonAmount),
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
@@ -147,7 +229,8 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
                     child: Text(l10n.adminReceivablesCredit),
                   ),
                 ],
-                onChanged: (value) => setState(() => direction = value ?? 'debit'),
+                onChanged: (value) =>
+                    setState(() => direction = value ?? 'debit'),
               ),
             ],
           ),
@@ -205,9 +288,13 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
 
     switch (tabIndex) {
       case 0:
-        return all.where((item) => item.requestType == 'store_pays_app').toList();
+        return all
+            .where((item) => item.requestType == 'store_pays_app')
+            .toList();
       case 1:
-        return all.where((item) => item.requestType == 'app_pays_store').toList();
+        return all
+            .where((item) => item.requestType == 'app_pays_store')
+            .toList();
       case 2:
         return all.where(pending).toList();
       case 3:
@@ -285,9 +372,7 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
                   const SizedBox(height: 8),
                   Flexible(
                     child: filtered.isEmpty
-                        ? Center(
-                            child: Text(l10n.adminReceivablesNoRequests),
-                          )
+                        ? Center(child: Text(l10n.adminReceivablesNoRequests))
                         : ListView.builder(
                             itemCount: filtered.length,
                             itemBuilder: (context, index) {
@@ -305,14 +390,16 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
                                     icon: const Icon(Icons.more_horiz_rounded),
                                     onPressed: () async {
                                       final result =
-                                          await showModalBottomSheet<AdminFinancialActionResult>(
-                                        context: context,
-                                        isScrollControlled: true,
-                                        builder: (_) =>
-                                            AdminFinancialRequestActionsSheet(
-                                          request: request,
-                                        ),
-                                      );
+                                          await showModalBottomSheet<
+                                            AdminFinancialActionResult
+                                          >(
+                                            context: context,
+                                            isScrollControlled: true,
+                                            builder: (_) =>
+                                                AdminFinancialRequestActionsSheet(
+                                                  request: request,
+                                                ),
+                                          );
                                       if (result == null) return;
                                       await _runAction(request, result);
                                       if (!mounted) return;
@@ -344,12 +431,12 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
     final l10n = context.l10n;
     final state = ref.watch(adminControllerProvider);
     final raw = state.merchantsReceivablesV2;
-    final merchants = _asListSafe(raw['merchants'])
-        .whereType<Map>()
-        .map(_asMapSafe)
-        .toList(growable: false);
+    final merchants = _asListSafe(
+      raw['merchants'],
+    ).whereType<Map>().map(_asMapSafe).toList(growable: false);
 
     return Scaffold(
+      drawer: Drawer(child: _buildAdminDrawer(context)),
       appBar: AppBar(
         title: Text(l10n.adminReceivablesTitle),
         actions: [
@@ -381,9 +468,7 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
             if (merchants.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 40),
-                child: Center(
-                  child: Text(l10n.adminReceivablesNoData),
-                ),
+                child: Center(child: Text(l10n.adminReceivablesNoData)),
               )
             else
               ...merchants.map((row) {

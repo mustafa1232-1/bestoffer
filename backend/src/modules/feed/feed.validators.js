@@ -262,6 +262,10 @@ export function validateCreatePost(body = {}) {
   const errors = [];
   const caption = asTrimmed(body.caption);
   const postKind = asTrimmed(body.postKind || body.post_kind).toLowerCase() || "text";
+  const storyStyle = _parseStoryStyle(
+    body.storyStyle ?? body.story_style ?? body.reelStyle ?? body.reel_style,
+    errors
+  );
   const requestedAudienceType = asTrimmed(
     body.audienceScopeType ??
       body.audience_scope_type ??
@@ -367,6 +371,7 @@ export function validateCreatePost(body = {}) {
     value: {
       caption,
       postKind,
+      storyStyle,
       merchantId,
       mediaAssetId,
       reviewRating: reviewRating == null ? null : Math.trunc(reviewRating),

@@ -8,6 +8,7 @@ import { extractDeviceContext } from "../utils/device-fingerprint.js";
 import { verifyAccessToken } from "../utils/jwt.js";
 import { AppError } from "../utils/errors.js";
 import {
+  isCompanyBackofficeRole,
   normalizeAppSurface,
   resolveRouteAppSurface,
   resolveRoleAppSurface,
@@ -296,13 +297,19 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
     headerSurface,
     isSuperAdmin,
   });
+  const allowCompanyUserShellSurface =
+    isCompanyBackofficeRole(role) && headerSurface === "user";
 
   if (claimSurface && roleSurface && claimSurface !== roleSurface) {
     if (strict) throw asInvalidToken();
     return null;
   }
   if (routeSurface) {
-    if (roleSurface !== routeSurface && !allowSuperAdminUserSurface) {
+    if (
+      roleSurface !== routeSurface &&
+      !allowSuperAdminUserSurface &&
+      !allowCompanyUserShellSurface
+    ) {
       if (strict) {
         throw asForbiddenAppSurface({
           appSurface: routeSurface,
@@ -315,7 +322,8 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
     if (
       headerSurface &&
       headerSurface !== routeSurface &&
-      !allowSuperAdminUserSurface
+      !allowSuperAdminUserSurface &&
+      !allowCompanyUserShellSurface
     ) {
       if (strict) {
         throw asForbiddenAppSurface({
@@ -330,7 +338,8 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
     headerSurface &&
     roleSurface &&
     headerSurface !== roleSurface &&
-    !allowSuperAdminUserSurface
+    !allowSuperAdminUserSurface &&
+    !allowCompanyUserShellSurface
   ) {
     if (strict) {
       throw asForbiddenAppSurface({

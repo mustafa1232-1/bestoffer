@@ -2473,16 +2473,6 @@ async function ensureUsersCanConnect({ userId, otherUserId }) {
       details: { relation: mapped },
     });
   }
-  const hasOrderAccess = await repo.hasActiveOrderChatAccess({
-    userId,
-    otherUserId,
-  });
-  if (mapped.state !== "accepted" && !hasOrderAccess) {
-    throw new AppError("RELATION_REQUIRED", {
-      status: 403,
-      details: { relation: mapped },
-    });
-  }
   return mapped;
 }
 
@@ -3909,6 +3899,7 @@ export async function createPost(userId, dto, media) {
     userId,
     postKind,
     caption: dto.caption,
+    storyStyle: dto.storyStyle,
     mediaUrl,
     mediaKind,
     mediaAssetId: primaryMedia?.mediaAssetId,
@@ -5891,10 +5882,17 @@ export async function listMessages({ userId, threadId, query }) {
   if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
   const threadKind = normalizeThreadKind(thread.thread_kind);
   if (threadKind === "private") {
-    await ensureUsersCanConnect({
+    const relation = await repo.getUserRelation({
       userId,
       otherUserId: Number(thread.peer_user_id),
     });
+    const mapped = mapRelationRow(relation, userId, Number(thread.peer_user_id));
+    if (mapped.blockedByMe || mapped.blockedByOther) {
+      throw new AppError("RELATION_BLOCKED", {
+        status: 403,
+        details: { relation: mapped },
+      });
+    }
   } else if (threadKind === "business") {
     const relation = await repo.getUserRelation({
       userId,
@@ -6006,10 +6004,17 @@ export async function searchThreadMessages({ userId, threadId, query }) {
   if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
   const threadKind = normalizeThreadKind(thread.thread_kind);
   if (threadKind === "private") {
-    await ensureUsersCanConnect({
+    const relation = await repo.getUserRelation({
       userId,
       otherUserId: Number(thread.peer_user_id),
     });
+    const mapped = mapRelationRow(relation, userId, Number(thread.peer_user_id));
+    if (mapped.blockedByMe || mapped.blockedByOther) {
+      throw new AppError("RELATION_BLOCKED", {
+        status: 403,
+        details: { relation: mapped },
+      });
+    }
   } else if (threadKind === "business") {
     const relation = await repo.getUserRelation({
       userId,

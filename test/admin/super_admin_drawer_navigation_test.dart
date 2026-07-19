@@ -104,6 +104,49 @@ class _FakeAdminApi extends AdminApi {
   }
 }
 
+class _FlakyAdminApi extends _FakeAdminApi {
+  bool _ordersFailedOnce = false;
+
+  @override
+  Future<Map<String, dynamic>> ordersOverview({
+    String status = 'all',
+    String period = 'all',
+    String? from,
+    String? to,
+    String? search,
+    int limit = 60,
+    int offset = 0,
+  }) async {
+    if (!_ordersFailedOnce) {
+      _ordersFailedOnce = true;
+      throw DioException(
+        requestOptions: RequestOptions(
+          path: '/api/admin/orders/overview',
+          method: 'GET',
+        ),
+        response: Response<Map<String, dynamic>>(
+          requestOptions: RequestOptions(
+            path: '/api/admin/orders/overview',
+            method: 'GET',
+          ),
+          statusCode: 401,
+          data: const <String, dynamic>{'message': 'INVALID_TOKEN'},
+        ),
+        type: DioExceptionType.badResponse,
+      );
+    }
+    return super.ordersOverview(
+      status: status,
+      period: period,
+      from: from,
+      to: to,
+      search: search,
+      limit: limit,
+      offset: offset,
+    );
+  }
+}
+
 class _FakeSocialApi extends SocialApi {
   _FakeSocialApi() : super(Dio());
 
@@ -159,4 +202,40 @@ void main() {
 
     expect(find.text('All orders'), findsWidgets);
   });
+
+  testWidgets('admin dashboard retries transient summary failures', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) => _FakeAuthController(ref),
+          ),
+          adminControllerProvider.overrideWith(
+            (ref) => _FakeAdminController(ref),
+          ),
+          adminApiProvider.overrideWithValue(_FlakyAdminApi()),
+          socialApiProvider.overrideWithValue(_FakeSocialApi()),
+        ],
+        child: MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: const AdminDashboardScreen(),
+        ),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Could not load the orders summary right now.'),
+      findsNothing,
+    );
+    expect(find.text('4'), findsWidgets);
+  });
+
 }

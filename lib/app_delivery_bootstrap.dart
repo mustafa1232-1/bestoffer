@@ -106,6 +106,7 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
     if (state != AppLifecycleState.resumed) return;
     final auth = ref.read(authControllerProvider);
     if (!auth.isAuthed || !auth.isDelivery || auth.user == null) return;
+    ref.read(deliveryControllerProvider.notifier).startPresenceHeartbeat();
     unawaited(_ensurePushReadyAndSync(auth));
   }
 
@@ -123,11 +124,17 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
     final isAuthed = _hasVerifiedSession(next);
     final previousUserId = previous?.user?.id;
     final nextUserId = next.user?.id;
+    final deliveryController = ref.read(deliveryControllerProvider.notifier);
 
     if (wasAuthed && !isAuthed) {
       _pushSyncedUserId = null;
+      deliveryController.stopPresenceHeartbeat();
       unawaited(ref.read(pushNotificationsProvider).unregisterCurrentToken());
       return;
+    }
+
+    if (previous?.isDelivery == true && !next.isDelivery) {
+      deliveryController.stopPresenceHeartbeat();
     }
 
     if (isAuthed &&
@@ -160,6 +167,7 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
     try {
       await push.syncToken(userId: userId);
       _pushSyncedUserId = userId;
+      ref.read(deliveryControllerProvider.notifier).startPresenceHeartbeat();
     } finally {
       _pushSyncInFlight = false;
     }

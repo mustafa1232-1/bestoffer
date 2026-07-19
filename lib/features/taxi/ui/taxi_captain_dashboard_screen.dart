@@ -23,12 +23,12 @@ import '../../../core/utils/parsers.dart';
 import '../../../core/widgets/app_user_drawer.dart';
 import '../../../core/widgets/desktop_dashboard_frame.dart';
 import '../../auth/state/auth_controller.dart';
-import '../../notifications/ui/notifications_screen.dart';
 import '../../settings/ui/pages/settings_account_screen.dart';
 import '../../settings/ui/pages/settings_support_screen.dart';
 import '../../tracking/tracking_map_utils.dart';
 import '../data/taxi_api.dart';
-import 'taxi_captain_loyalty_screen.dart';
+import 'taxi_captain_competitions_screen.dart';
+import 'taxi_captain_notifications_screen.dart';
 
 final taxiCaptainApiProvider = Provider<TaxiApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
@@ -813,7 +813,7 @@ class _TaxiCaptainDashboardScreenState
           headingDeg: _sanitizeHeading(pos.heading),
           speedKmh: _sanitizeSpeed(pos.speed),
           accuracyM: pos.accuracy,
-          radiusM: 4000,
+          radiusM: 15000,
         );
         _nearby = _toMapList(p['nearbyRequests']);
       }
@@ -1036,6 +1036,13 @@ class _TaxiCaptainDashboardScreenState
               return;
             }
 
+            if (event.event == 'taxi_ride_requested' ||
+                event.event == 'taxi_new_request') {
+              _snack(_t('وصل طلب تكسي جديد', 'New taxi request arrived'));
+              _refreshFromRealtime(force: true);
+              return;
+            }
+
             if (event.event.startsWith('taxi_') &&
                 event.event != 'taxi_location_update') {
               _refreshFromRealtime();
@@ -1152,7 +1159,7 @@ class _TaxiCaptainDashboardScreenState
         isOnline: false,
         latitude: p.latitude,
         longitude: p.longitude,
-        radiusM: 4000,
+        radiusM: 15000,
       );
     } else {
       await _tick(full: true);
@@ -2273,12 +2280,12 @@ class _TaxiCaptainDashboardScreenState
               _replaceCaptainView(TaxiCaptainDashboardIntent.reports),
         ),
         AppUserDrawerItem(
-          icon: Icons.account_balance_wallet_outlined,
-          label: context.l10n.taxiCaptainLoyaltyTitle,
+          icon: Icons.emoji_events_outlined,
+          label: context.l10n.taxiCaptainContestsTitle,
           onTap: (_) async {
             await Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => const TaxiCaptainLoyaltyScreen(),
+                builder: (_) => const TaxiCaptainCompetitionsScreen(),
               ),
             );
           },
@@ -2289,7 +2296,7 @@ class _TaxiCaptainDashboardScreenState
           onTap: (_) async {
             await Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => const NotificationsScreen(),
+                builder: (_) => const TaxiCaptainNotificationsScreen(),
               ),
             );
           },
@@ -2354,6 +2361,28 @@ class _TaxiCaptainDashboardScreenState
               icon: const Icon(Icons.person),
             ),
           IconButton(
+            tooltip: _t('المسابقات', 'Competitions'),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const TaxiCaptainCompetitionsScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.emoji_events_outlined),
+          ),
+          IconButton(
+            tooltip: _t('الإشعارات', 'Notifications'),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const TaxiCaptainNotificationsScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.notifications_active_outlined),
+          ),
+          IconButton(
             onPressed: _sending
                 ? null
                 : () async {
@@ -2412,6 +2441,29 @@ class _TaxiCaptainDashboardScreenState
                     label: _t('الملف الشخصي', 'Profile'),
                     selected: _tab == 2,
                     onPressed: () => _setTab(2),
+                  ),
+                  DesktopQuickActionButton(
+                    icon: Icons.emoji_events_outlined,
+                    label: _t('المسابقات', 'Competitions'),
+                    onPressed: () async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const TaxiCaptainCompetitionsScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  DesktopQuickActionButton(
+                    icon: Icons.notifications_active_outlined,
+                    label: _t('الإشعارات', 'Notifications'),
+                    onPressed: () async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              const TaxiCaptainNotificationsScreen(),
+                        ),
+                      );
+                    },
                   ),
                   DesktopQuickActionButton(
                     icon: _followMe ? Icons.gps_fixed : Icons.gps_not_fixed,

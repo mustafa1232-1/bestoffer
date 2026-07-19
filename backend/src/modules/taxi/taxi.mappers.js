@@ -32,6 +32,9 @@ export function resolveTaxiRideDisplayState({
   const normalizedStatus = String(status || "").trim().toLowerCase();
   if (!normalizedStatus) return null;
   if (TERMINAL_TAXI_RIDE_STATUSES.has(normalizedStatus)) return "terminal";
+  if (normalizedStatus === "price_raise_required") {
+    return "price_raise_required";
+  }
   if (ACTIVE_TAXI_RIDE_STATUSES.has(normalizedStatus)) return "active";
   if (normalizedStatus === "searching") {
     return toIntOrNull(currentBidId) != null ? "negotiating" : "searching";
@@ -43,6 +46,7 @@ function normalizeRide(row) {
   if (!row) return null;
   const finalAcceptanceDeadlineAt = row.final_acceptance_deadline_at || null;
   const rejectedCaptainsCount = toIntOrNull(row.rejected_captains_count) || 0;
+  const pricingRound = toIntOrNull(row.pricing_round) || 1;
   const deadlineExpired = finalAcceptanceDeadlineAt
     ? new Date(finalAcceptanceDeadlineAt).getTime() <= Date.now()
     : false;
@@ -89,9 +93,19 @@ function normalizeRide(row) {
     nextEscalationAt: row.next_escalation_at || null,
     noCaptainNotifiedAt: row.no_captain_notified_at || null,
     rejectedCaptainsCount,
+    pricingRound,
+    previousProposedFareIqd: toIntOrNull(row.previous_proposed_fare_iqd),
+    priceRaiseRequiredAt: row.price_raise_required_at || null,
+    fareVersion: toIntOrNull(row.fare_version) || 1,
+    priceRaiseRequired: String(row.status || "").trim().toLowerCase() ===
+      "price_raise_required",
     priceRaisePromptedAt: row.price_raise_prompted_at || null,
     finalAcceptanceDeadlineAt,
-    priceRaiseRecommended: rejectedCaptainsCount >= 3 || deadlineExpired,
+    priceRaiseRecommended:
+      String(row.status || "").trim().toLowerCase() ===
+        "price_raise_required" ||
+      rejectedCaptainsCount >= 5 ||
+      deadlineExpired,
     acceptedAt: row.accepted_at,
     captainArrivingAt: row.captain_arriving_at,
     startedAt: row.started_at,
@@ -104,6 +118,7 @@ function normalizeRide(row) {
     isActiveRide: displayState === "active",
     isSearchingRide: displayState === "searching",
     isNegotiatingRide: displayState === "negotiating",
+    isPriceRaiseRequiredRide: displayState === "price_raise_required",
     isTerminalRide: displayState === "terminal",
     createdAt: row.created_at,
     updatedAt: row.updated_at,

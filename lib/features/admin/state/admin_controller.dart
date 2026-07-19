@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -42,6 +44,7 @@ class AdminState {
   final List<PendingSettlementModel> pendingSettlements;
   final List<PendingTaxiCashPaymentModel> pendingTaxiCashPayments;
   final List<Map<String, dynamic>> pendingServiceProviderSubscriptionRequests;
+  final List<Map<String, dynamic>> pendingServiceOfferings;
   final List<PendingTaxiProfileEditRequestModel> pendingTaxiProfileEditRequests;
   final List<ManagedMerchantModel> managedMerchants;
   final List<AdminApprovalInboxItemModel> approvalInbox;
@@ -100,6 +103,7 @@ class AdminState {
     this.pendingSettlements = const [],
     this.pendingTaxiCashPayments = const [],
     this.pendingServiceProviderSubscriptionRequests = const [],
+    this.pendingServiceOfferings = const [],
     this.pendingTaxiProfileEditRequests = const [],
     this.managedMerchants = const [],
     this.approvalInbox = const [],
@@ -132,6 +136,7 @@ class AdminState {
     List<PendingSettlementModel>? pendingSettlements,
     List<PendingTaxiCashPaymentModel>? pendingTaxiCashPayments,
     List<Map<String, dynamic>>? pendingServiceProviderSubscriptionRequests,
+    List<Map<String, dynamic>>? pendingServiceOfferings,
     List<PendingTaxiProfileEditRequestModel>? pendingTaxiProfileEditRequests,
     List<ManagedMerchantModel>? managedMerchants,
     List<AdminApprovalInboxItemModel>? approvalInbox,
@@ -168,6 +173,8 @@ class AdminState {
       pendingServiceProviderSubscriptionRequests:
           pendingServiceProviderSubscriptionRequests ??
           this.pendingServiceProviderSubscriptionRequests,
+      pendingServiceOfferings:
+          pendingServiceOfferings ?? this.pendingServiceOfferings,
       pendingTaxiProfileEditRequests:
           pendingTaxiProfileEditRequests ?? this.pendingTaxiProfileEditRequests,
       managedMerchants: managedMerchants ?? this.managedMerchants,
@@ -242,6 +249,13 @@ class AdminController extends StateNotifier<AdminState> {
           _safeList(() => api.serviceProviderSubscriptionRequests(limit: 120))
         else
           Future.value(const <dynamic>[]),
+        _safeMap(
+          () => api.listPendingServiceOfferings(limit: 120, offset: 0),
+          fallback: const <String, dynamic>{
+            'items': <dynamic>[],
+            'total': 0,
+          },
+        ),
         if (isAdmin)
           _safeList(() => api.pendingTaxiCaptainProfileEditRequests())
         else
@@ -306,18 +320,26 @@ class AdminController extends StateNotifier<AdminState> {
                 status != 'cancelled';
           })
           .toList(growable: false);
-      final pendingTaxiProfileEditRaw = _asList(results[7]);
-      final merchantsRaw = _asList(results[8]);
-      final approvalInboxRaw = _asMap(results[9]);
-      final auditFeedRaw = _asMap(results[10]);
-      final insightsRaw = (isSuperAdmin && results.length > 10)
-          ? _asMap(results[11])
+      final pendingServiceOfferingsRaw = _toMapList(_asMap(results[7])['items'])
+          .where((row) {
+            final status = '${row['moderationStatus'] ?? row['moderation_status'] ?? ''}'
+                .trim()
+                .toLowerCase();
+            return status == 'pending' || status == 'changes_requested';
+          })
+          .toList(growable: false);
+      final pendingTaxiProfileEditRaw = _asList(results[8]);
+      final merchantsRaw = _asList(results[9]);
+      final approvalInboxRaw = _asMap(results[10]);
+      final auditFeedRaw = _asMap(results[11]);
+      final insightsRaw = (isSuperAdmin && results.length > 11)
+          ? _asMap(results[12])
           : null;
-      final merchantsReceivablesRaw = _asMap(results[12]);
-      final competitionsRaw = _asMap(results[13]);
-      final platformKpisRaw = _asMap(results[14]);
-      final adminFinancialKpisRaw = _asMap(results[15]);
-      final receivablesReportAllTimeRaw = _asMap(results[16]);
+      final merchantsReceivablesRaw = _asMap(results[13]);
+      final competitionsRaw = _asMap(results[14]);
+      final platformKpisRaw = _asMap(results[15]);
+      final adminFinancialKpisRaw = _asMap(results[16]);
+      final receivablesReportAllTimeRaw = _asMap(results[17]);
       final platformFinancialRaw = _asMap(platformKpisRaw['financial']);
       final receivablesAllTimeSummaryRaw = _asMap(
         receivablesReportAllTimeRaw['summary'],
@@ -372,6 +394,7 @@ class AdminController extends StateNotifier<AdminState> {
             .toList(growable: false),
         pendingServiceProviderSubscriptionRequests:
             pendingServiceSubscriptionsRaw,
+        pendingServiceOfferings: pendingServiceOfferingsRaw,
         pendingTaxiProfileEditRequests: pendingTaxiProfileEditRaw
             .map((e) => PendingTaxiProfileEditRequestModel.fromJson(_asMap(e)))
             .toList(growable: false),
@@ -1382,22 +1405,56 @@ class AdminController extends StateNotifier<AdminState> {
     Future<List<dynamic>> Function() run, {
     List<dynamic> fallback = const <dynamic>[],
   }) async {
-    try {
-      return await run();
-    } catch (_) {
-      return fallback;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await run();
+      } catch (error) {
+        if (attempt == 0 && _isTransientFetchError(error)) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          continue;
+        }
+        return fallback;
+      }
     }
+    return fallback;
   }
 
   Future<Map<String, dynamic>> _safeMap(
     Future<Map<String, dynamic>> Function() run, {
     Map<String, dynamic> fallback = const <String, dynamic>{},
   }) async {
-    try {
-      return await run();
-    } catch (_) {
-      return fallback;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await run();
+      } catch (error) {
+        if (attempt == 0 && _isTransientFetchError(error)) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          continue;
+        }
+        return fallback;
+      }
     }
+    return fallback;
+  }
+
+  bool _isTransientFetchError(Object error) {
+    if (error is DioException) {
+      final statusCode = error.response?.statusCode;
+      if (statusCode == 401 || statusCode == 403 || statusCode == 408) {
+        return true;
+      }
+      final data = error.response?.data;
+      if (data is Map) {
+        final message = '${data['message'] ?? data['error'] ?? ''}'
+            .trim()
+            .toUpperCase();
+        return message.contains('INVALID_TOKEN') ||
+            message.contains('TOKEN_EXPIRED') ||
+            message.contains('UNAUTHORIZED') ||
+            message.contains('SESSION');
+      }
+    }
+    return false;
   }
 
   List<dynamic> _asList(dynamic raw) {

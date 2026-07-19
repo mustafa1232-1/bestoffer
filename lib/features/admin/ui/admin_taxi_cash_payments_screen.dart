@@ -8,8 +8,14 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/parsers.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/widgets/app_user_drawer.dart';
+import '../../auth/state/auth_controller.dart';
 import '../models/pending_taxi_cash_payment_model.dart';
 import '../state/admin_controller.dart';
+import 'admin_approvals_hub_screen.dart';
+import 'admin_dashboard_screen.dart';
+import 'admin_services_hub_screen.dart';
+import 'admin_service_provider_subscription_requests_screen.dart';
 import 'admin_taxi_captain_details_screen.dart';
 
 class AdminTaxiCashPaymentsScreen extends ConsumerStatefulWidget {
@@ -22,12 +28,87 @@ class AdminTaxiCashPaymentsScreen extends ConsumerStatefulWidget {
 
 class _AdminTaxiCashPaymentsScreenState
     extends ConsumerState<AdminTaxiCashPaymentsScreen> {
+  Widget _buildAdminDrawer() {
+    final auth = ref.watch(authControllerProvider);
+    return AppUserDrawer(
+      title: 'لوحة الإدارة',
+      subtitle: auth.user?.fullName,
+      showCommunitySection: false,
+      showSettings: false,
+      enableItemSearch: false,
+      items: [
+        AppUserDrawerItem(
+          icon: Icons.space_dashboard_rounded,
+          label: 'لوحة التحكم',
+          subtitle: 'الصفحة الرئيسية للأدمن',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminDashboardScreen(),
+              ),
+              (route) => false,
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.verified_user_outlined,
+          label: 'حوض الموافقات',
+          subtitle: 'مراجعة الطلبات المعلقة',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminApprovalsHubScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.home_repair_service_outlined,
+          label: 'إدارة الخدمات',
+          subtitle: 'ملخص الخدمات والطلبات',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminServicesHubScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.description_outlined,
+          label: 'طلبات الاشتراك',
+          subtitle: 'عرض طلبات أصحاب الخدمة',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    const AdminServiceProviderSubscriptionRequestsScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.refresh_rounded,
+          label: 'تحديث الصفحة',
+          subtitle: 'إعادة تحميل المدفوعات',
+          group: 'الإجراءات',
+          onTap: (_) async {
+            await ref.read(adminControllerProvider.notifier).bootstrap();
+          },
+        ),
+      ],
+    );
+  }
+
   Future<void> _openCaptainDetails(int captainUserId) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AdminTaxiCaptainDetailsScreen(
-          captainUserId: captainUserId,
-        ),
+        builder: (_) =>
+            AdminTaxiCaptainDetailsScreen(captainUserId: captainUserId),
       ),
     );
   }
@@ -164,9 +245,7 @@ class _AdminTaxiCashPaymentsScreenState
                       controller: discountCtrl,
                       textInputAction: TextInputAction.next,
                       keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                      ],
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       onChanged: (_) => clearFieldError('discountPercent'),
                       decoration: InputDecoration(
                         labelText: l10n.adminTaxiCashPaymentsDiscount,
@@ -181,9 +260,7 @@ class _AdminTaxiCashPaymentsScreenState
                     TextField(
                       controller: cycleDaysCtrl,
                       keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                      ],
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       onChanged: (_) => clearFieldError('cycleDays'),
                       decoration: InputDecoration(
                         labelText: l10n.adminTaxiCashPaymentsCycleDaysLabel,
@@ -240,6 +317,7 @@ class _AdminTaxiCashPaymentsScreenState
     final state = ref.watch(adminControllerProvider);
 
     return Scaffold(
+      drawer: Drawer(child: _buildAdminDrawer()),
       appBar: AppBar(
         title: Text(l10n.adminTaxiCashPaymentsTitle),
         actions: [

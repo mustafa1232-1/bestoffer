@@ -21,17 +21,25 @@ export async function validateCoupon(
       : orderSubtotal
   );
 
-  const coupon = await repo.findValidCoupon(code.trim(), {
-    customerId: Number(customerId),
-    merchantId: merchantId ? Number(merchantId) : null,
+  const normalizedCustomerId = Number(customerId);
+  const normalizedMerchantId = Number(merchantId);
+  const result = await repo.validateCouponByCode(code.trim(), {
+    customerId: Number.isFinite(normalizedCustomerId) && normalizedCustomerId > 0
+      ? normalizedCustomerId
+      : null,
+    merchantId:
+      Number.isFinite(normalizedMerchantId) && normalizedMerchantId > 0
+        ? normalizedMerchantId
+        : null,
     orderTotal: eligibleAmount,
   });
 
-  if (!coupon) {
-    const err = new Error("COUPON_INVALID_OR_EXPIRED");
+  if (!result?.coupon) {
+    const err = new Error(result?.reasonCode || "COUPON_INVALID_OR_EXPIRED");
     err.status = 404;
     throw err;
   }
+  const coupon = result.coupon;
 
   const discountAmount = repo.calcDiscount(coupon, eligibleAmount);
 
@@ -95,6 +103,9 @@ export async function listCustomerCoupons(query = {}, actor = {}) {
       targetMerchants: Array.isArray(row.target_merchants)
         ? row.target_merchants
         : [],
+      status: row.coupon_status || "unknown",
+      couponStatus: row.coupon_status || "unknown",
+      isEffectivelyActive: row.coupon_status === "active",
       createdAt: row.created_at || null,
     })),
   };
@@ -203,7 +214,14 @@ export async function listCoupons(query = {}, actor) {
       limit,
       offset,
     });
-    return { coupons };
+    return {
+      coupons: coupons.map((row) => ({
+        ...row,
+        status: row.coupon_status || "unknown",
+        couponStatus: row.coupon_status || "unknown",
+        isEffectivelyActive: row.coupon_status === "active",
+      })),
+    };
   }
 
   const coupons = await repo.listCoupons({
@@ -213,7 +231,14 @@ export async function listCoupons(query = {}, actor) {
     limit,
     offset,
   });
-  return { coupons };
+  return {
+    coupons: coupons.map((row) => ({
+      ...row,
+      status: row.coupon_status || "unknown",
+      couponStatus: row.coupon_status || "unknown",
+      isEffectivelyActive: row.coupon_status === "active",
+    })),
+  };
 }
 
 export async function getCouponStats(query = {}, actor) {

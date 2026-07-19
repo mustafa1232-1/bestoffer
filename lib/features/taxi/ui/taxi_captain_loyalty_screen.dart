@@ -53,27 +53,27 @@ class _TaxiCaptainLoyaltyScreenState
         );
         _ledger = List<Map<String, dynamic>>.from(
           (ledgerRes['ledger'] as List? ?? const []).whereType<Map>().map(
-                (item) => Map<String, dynamic>.from(item),
-              ),
+            (item) => Map<String, dynamic>.from(item),
+          ),
         );
         final contestsRes = responses[1];
         _contests = List<Map<String, dynamic>>.from(
           (contestsRes['contests'] as List? ?? const []).whereType<Map>().map(
-                (item) => Map<String, dynamic>.from(item),
-              ),
+            (item) => Map<String, dynamic>.from(item),
+          ),
         );
         _rewards = List<Map<String, dynamic>>.from(
           (responses[2]['rewards'] as List? ?? const []).whereType<Map>().map(
-                (item) => Map<String, dynamic>.from(item),
-              ),
+            (item) => Map<String, dynamic>.from(item),
+          ),
         );
         _governance = Map<String, dynamic>.from(
           (responses[3]['governance'] as Map?) ?? const {},
         );
         _warnings = List<Map<String, dynamic>>.from(
           (responses[3]['warnings'] as List? ?? const []).whereType<Map>().map(
-                (item) => Map<String, dynamic>.from(item),
-              ),
+            (item) => Map<String, dynamic>.from(item),
+          ),
         );
         _loading = false;
       });
@@ -97,12 +97,12 @@ class _TaxiCaptainLoyaltyScreenState
     }
     if (_error != null) {
       return Scaffold(
-        appBar: AppBar(title: Text(l10n.taxiCaptainLoyaltyTitle)),
+        appBar: AppBar(title: Text(l10n.taxiCaptainContestsTitle)),
         body: Center(child: Text(_error!)),
       );
     }
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.taxiCaptainLoyaltyTitle)),
+      appBar: AppBar(title: Text(l10n.taxiCaptainContestsTitle)),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
@@ -131,7 +131,10 @@ class _TaxiCaptainLoyaltyScreenState
               ),
             ),
             const SizedBox(height: 8),
-            Text(l10n.taxiCaptainLedgerTitle, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              l10n.taxiCaptainLedgerTitle,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             ..._ledger.map(
               (item) => Card(
                 child: ListTile(
@@ -142,17 +145,25 @@ class _TaxiCaptainLoyaltyScreenState
               ),
             ),
             const SizedBox(height: 8),
-            Text(l10n.taxiCaptainContestsTitle, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              l10n.taxiCaptainContestsTitle,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             ..._contests.map(
               (item) => Card(
                 child: ListTile(
                   title: Text(item['title']?.toString() ?? '-'),
-                  subtitle: Text('${item['progressValue'] ?? 0} / ${item['targetValue'] ?? 0}'),
+                  subtitle: Text(
+                    '${item['progressValue'] ?? 0} / ${item['targetValue'] ?? 0}',
+                  ),
                 ),
               ),
             ),
             const SizedBox(height: 8),
-            Text(l10n.taxiCaptainRewardsTitle, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              l10n.taxiCaptainRewardsTitle,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             ..._rewards.map(
               (item) => Card(
                 child: ListTile(

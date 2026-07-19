@@ -191,15 +191,24 @@ class NotificationsController extends StateNotifier<NotificationsState> {
 
     final future = () async {
       _lastUnreadRefreshAt = DateTime.now();
-      try {
-        final count = await ref.read(notificationsApiProvider).unreadCount();
-        state = state.copyWith(unreadCount: count);
-      } on DioException catch (e) {
-        if (_isUnauthorized(e)) {
-          _handleUnauthorized();
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          final count = await ref.read(notificationsApiProvider).unreadCount();
+          state = state.copyWith(unreadCount: count);
+          return;
+        } on DioException catch (e) {
+          if (attempt == 0 && _isTransientFetchError(e)) {
+            await Future<void>.delayed(const Duration(milliseconds: 250));
+            continue;
+          }
+          if (_isUnauthorized(e)) {
+            _handleUnauthorized();
+          }
+          return;
+        } catch (_) {
+          // Keep silent for background refresh.
+          return;
         }
-      } catch (_) {
-        // Keep silent for background refresh.
       }
     }();
     _unreadRefreshInFlight = future;
@@ -241,9 +250,25 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     }
 
     try {
-      final raw = await ref
-          .read(notificationsApiProvider)
-          .list(unreadOnly: unreadOnly, limit: 100);
+      List<dynamic> raw = const <dynamic>[];
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          raw = await ref
+              .read(notificationsApiProvider)
+              .list(unreadOnly: unreadOnly, limit: 100);
+          break;
+        } on DioException catch (e) {
+          if (attempt == 0 && _isTransientFetchError(e)) {
+            await Future<void>.delayed(const Duration(milliseconds: 250));
+            continue;
+          }
+          if (_isUnauthorized(e)) {
+            _handleUnauthorized();
+            return;
+          }
+          rethrow;
+        }
+      }
       final list = raw
           .map(
             (e) => AppNotificationModel.fromJson(
@@ -828,6 +853,26 @@ class NotificationsController extends StateNotifier<NotificationsState> {
   bool _isUnauthorized(Object error) {
     if (error is DioException) {
       return error.response?.statusCode == 401;
+    }
+    return false;
+  }
+
+  bool _isTransientFetchError(Object error) {
+    if (error is DioException) {
+      final statusCode = error.response?.statusCode;
+      if (statusCode == 401 || statusCode == 403 || statusCode == 408) {
+        return true;
+      }
+      final data = error.response?.data;
+      if (data is Map) {
+        final message = '${data['message'] ?? data['error'] ?? ''}'
+            .trim()
+            .toUpperCase();
+        return message.contains('INVALID_TOKEN') ||
+            message.contains('TOKEN_EXPIRED') ||
+            message.contains('UNAUTHORIZED') ||
+            message.contains('SESSION');
+      }
     }
     return false;
   }

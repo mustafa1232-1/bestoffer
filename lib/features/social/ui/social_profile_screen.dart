@@ -551,6 +551,9 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
           peerImageUrl: (thread.peer.imageUrl ?? '').trim().isNotEmpty
               ? thread.peer.imageUrl
               : profile.imageUrl,
+          readOnly:
+              thread.state.requestStatus.trim().toLowerCase() == 'pending' ||
+              thread.state.inboxBucket.trim().toLowerCase() == 'requests',
         ),
       ),
     );

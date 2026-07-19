@@ -91,7 +91,7 @@ async function seedCaptainReady(captainUserId, index) {
     headingDeg: 90,
     speedKmh: 0,
     accuracyM: 6,
-    radiusM: 4000,
+    radiusM: 15000,
   });
 }
 
@@ -178,7 +178,7 @@ async function seedRequestRide(customerUserId, rideLabel) {
     pickupLabel: `${rideLabel} pickup`,
     dropoffLabel: `${rideLabel} dropoff`,
     proposedFareIqd: 15000,
-    searchRadiusM: 4000,
+    searchRadiusM: 15000,
     note: `${rideLabel}-note`,
   });
   const ride = result?.ride || result;
@@ -202,7 +202,7 @@ test("taxi negotiation direct captain acceptance assigns one captain and blocks 
     state.userIds.push(Number(customer.id));
 
     const captains = await Promise.all(
-      [1, 2, 3].map(async (index) => {
+      [1, 2, 3, 4, 5].map(async (index) => {
         const captain = await createTaxiUser({
           fullName: `Taxi Captain ${index} ${makeSuffix("cap-")}`,
           phone: makePhone(20 + index),
@@ -289,7 +289,7 @@ test("taxi negotiation direct captain acceptance assigns one captain and blocks 
     const busyNearbyRequests = await taxiService.listNearbyRequestsForCaptain(
       winningCaptainId,
       {
-        radiusM: 4000,
+        radiusM: 15000,
         limit: 10,
       }
     );
@@ -351,7 +351,7 @@ test("taxi negotiation keeps multi-offer rides separate from captain availabilit
     assert.equal(accepted.ride.status, "captain_assigned");
 
     const nearby = await taxiService.listNearbyRequestsForCaptain(captain.id, {
-      radiusM: 4000,
+      radiusM: 15000,
       limit: 10,
     });
     assert.equal(nearby.total, 0);

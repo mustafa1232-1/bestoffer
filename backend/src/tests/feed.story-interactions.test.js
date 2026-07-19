@@ -14,12 +14,14 @@ import {
   listMyReportedStories,
   listMyStoryArchive,
   listStories,
+  listMessages,
   listUserHighlights,
   resolveSharedEntityForSender,
   scheduleMessage,
   sendCommunityChatMessage,
   sendMessage,
   setStoryArchivedState,
+  searchThreadMessages,
   toggleStoryLike,
 } from "../modules/feed/feed.service.js";
 import { assertSafeE2EDatabaseTarget } from "../scripts/e2eDbSafety.js";
@@ -403,5 +405,90 @@ test("story interactions, exact reads, and native sharing enforce the persisted 
       );
     }
     await client.end();
+  }
+});
+
+test("private thread messages remain readable after relation row is removed", async () => {
+  const databaseUrl = process.env.DATABASE_URL || "";
+  assertSafeE2EDatabaseTarget({
+    scriptName: "feed.story-interactions.test",
+    databaseUrl,
+    allowProductionOverride: false,
+    isProduction: false,
+  });
+
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+
+  try {
+    const users = await pickTwoUsers(client);
+    const owner = users[0];
+    const peer = users[1];
+    const userA = Math.min(Number(owner.id), Number(peer.id));
+    const userB = Math.max(Number(owner.id), Number(peer.id));
+
+    await client.query(
+      `INSERT INTO social_user_relation (
+         user_a_id,
+         user_b_id,
+         initiator_user_id,
+         status,
+         requested_at,
+         responded_at,
+         created_at,
+         updated_at
+       )
+       VALUES ($1, $2, $3, 'accepted', NOW(), NOW(), NOW(), NOW())
+       ON CONFLICT (user_a_id, user_b_id)
+       DO UPDATE SET
+         initiator_user_id = EXCLUDED.initiator_user_id,
+         status = 'accepted',
+         responded_at = NOW(),
+         updated_at = NOW()`,
+      [userA, userB, userA]
+    );
+
+    const thread = await createThread({
+      userId: Number(owner.id),
+      otherUserId: Number(peer.id),
+      kind: "private",
+    });
+    const threadId = Number(thread.id);
+    const body = `private-thread-${randomUUID()}`;
+    const sent = await sendMessage({
+      userId: Number(owner.id),
+      threadId,
+      body,
+    });
+    assert.equal(sent.message?.body, body);
+
+    await client.query(
+      `DELETE FROM social_user_relation
+       WHERE user_a_id = $1
+         AND user_b_id = $2`,
+      [userA, userB]
+    );
+
+    const listed = await listMessages({
+      userId: Number(owner.id),
+      threadId,
+      query: { limit: 40, beforeId: null },
+    });
+    assert.ok(
+      listed.messages.some((message) => message.body === body),
+      "private thread messages should remain readable after relation row removal"
+    );
+
+    const searched = await searchThreadMessages({
+      userId: Number(owner.id),
+      threadId,
+      query: { search: body, limit: 40, beforeId: null },
+    });
+    assert.ok(
+      searched.messages.some((message) => message.body === body),
+      "search should remain readable after relation row removal"
+    );
+  } finally {
+    await client.end().catch(() => {});
   }
 });

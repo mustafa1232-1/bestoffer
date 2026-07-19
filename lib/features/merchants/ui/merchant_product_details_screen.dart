@@ -6,6 +6,7 @@ import '../../merchants/models/merchant_model.dart';
 import '../../products/models/product_model.dart';
 import '../../products/ui/product_summary_card.dart';
 import '../../products/ui/product_variant_picker_sheet.dart';
+import '../../products/utils/product_variant_label_set.dart';
 
 class MerchantProductDetailsScreen extends StatefulWidget {
   final MerchantModel merchant;
@@ -44,6 +45,7 @@ class _MerchantProductDetailsScreenState
   bool _submitting = false;
   final Map<String, ProductVariantOptionModel> _selectedByGroup = {};
   final Map<String, Set<ProductVariantOptionModel>> _multiSelectedByGroup = {};
+  ProductSummaryCardSelection? _summarySelection;
 
   bool get _requiresStrictVariantSelection {
     final hasColor = widget.product.variantGroups.any(
@@ -111,6 +113,10 @@ class _MerchantProductDetailsScreenState
     }
   }
 
+  ProductVariantLabelSet _variantLabels() {
+    return productVariantLabelsForCatalogType(widget.merchant.type);
+  }
+
   double get _effectivePrice =>
       _selectedVariant?.discountedPriceOverride ??
       _selectedVariant?.priceOverride ??
@@ -118,10 +124,24 @@ class _MerchantProductDetailsScreenState
           _variantDeltaTotal);
 
   ProductVariantModel? get _selectedVariant =>
+      _variantFromSelectionId(_summarySelection?.variantId) ??
+      (_summarySelection == null
+          ? null
+          : widget.product.variantForSelectionEntries(
+              _summarySelection!.selectedVariantSelections,
+            )) ??
       widget.product.variantForSelections({
         for (final entry in _selectedByGroup.entries)
           entry.key: entry.value.code,
       });
+
+  ProductVariantModel? _variantFromSelectionId(int? variantId) {
+    if (variantId == null) return null;
+    for (final variant in widget.product.variants) {
+      if (variant.id == variantId) return variant;
+    }
+    return null;
+  }
 
   bool _optionCanLeadToStock(
     String groupCode,
@@ -143,8 +163,9 @@ class _MerchantProductDetailsScreenState
       if (!widget.product.canOrderVariant(variant)) return false;
       final values = {
         for (final item in variant.selections)
-          item['groupCode']!.trim().toLowerCase():
-              item['optionCode']!.trim().toLowerCase(),
+          item['groupCode']!.trim().toLowerCase(): item['optionCode']!
+              .trim()
+              .toLowerCase(),
       };
       return proposed.entries.every(
         (entry) => values[entry.key] == entry.value,
@@ -223,6 +244,7 @@ class _MerchantProductDetailsScreenState
 
   void _applyCardSelection(ProductSummaryCardSelection selection) {
     setState(() {
+      _summarySelection = selection;
       for (final entry in selection.selectedVariantSelections) {
         final groupCode = '${entry['groupCode'] ?? entry['group_code'] ?? ''}'
             .trim();
@@ -312,8 +334,18 @@ class _MerchantProductDetailsScreenState
 
   Future<void> _addSimilar(ProductModel product) async {
     if (widget.onAddToCart == null) return;
+    final variantLabels = _variantLabels();
     final selections = product.hasVariants
-        ? await showProductVariantPickerSheet(context, product: product)
+        ? await showProductVariantPickerSheet(
+            context,
+            product: product,
+            colorGroupLabelAr: variantLabels.colorLabelAr,
+            colorGroupLabelEn: variantLabels.colorLabelEn,
+            sizeGroupLabelAr: variantLabels.sizeLabelAr,
+            sizeGroupLabelEn: variantLabels.sizeLabelEn,
+            unavailablePromptAr: variantLabels.unavailablePromptAr,
+            unavailablePromptEn: variantLabels.unavailablePromptEn,
+          )
         : const <Map<String, dynamic>>[];
     if (!mounted || selections == null) return;
     final selectedVariant = product.variantForSelectionEntries(selections);
@@ -341,9 +373,10 @@ class _MerchantProductDetailsScreenState
   }
 
   bool get _canSubmitCurrentSelection {
-    return !widget.product.hasVariants ||
-        (_selectedVariant != null &&
-            widget.product.canOrderVariant(_selectedVariant!));
+    if (!widget.product.hasVariants) return true;
+    final selectedVariant = _selectedVariant;
+    if (selectedVariant == null) return false;
+    return widget.product.canOrderVariant(selectedVariant);
   }
 
   String _submitLabel(BuildContext context) {
@@ -355,12 +388,13 @@ class _MerchantProductDetailsScreenState
           ? context.lt(ar: 'إرسال للمراجعة', en: 'Send for review')
           : context.lt(ar: 'إضافة إلى السلة', en: 'Add to cart');
     }
+    final variantLabels = _variantLabels();
     return context.lt(
       ar: _requiresStrictVariantSelection
-          ? 'اختر اللون والمقاس أولاً'
+          ? variantLabels.selectionPromptAr
           : 'اختر تركيبة متاحة أولاً',
       en: _requiresStrictVariantSelection
-          ? 'Choose color and size first'
+          ? variantLabels.selectionPromptEn
           : 'Select an available variant first',
     );
   }
@@ -609,6 +643,7 @@ class _MerchantProductDetailsScreenState
         !widget.product.hasVariants ||
         (_selectedVariant != null &&
             widget.product.canOrderVariant(_selectedVariant!));
+    final variantLabels = _variantLabels();
     final summaryData = ProductSummaryCardData.fromProduct(
       widget.product,
       locale: locale,
@@ -616,6 +651,11 @@ class _MerchantProductDetailsScreenState
       selectedColorCode: _selectedColorCode,
       selectedSizeCode: _selectedSizeCode,
       strictVariantSelection: _requiresStrictVariantSelection,
+      colorGroupLabelAr: variantLabels.colorLabelAr,
+      colorGroupLabelEn: variantLabels.colorLabelEn,
+      sizeGroupLabelAr: variantLabels.sizeLabelAr,
+      sizeGroupLabelEn: variantLabels.sizeLabelEn,
+      detailedSpecificationLines: specs,
     );
     final submitLabel = !widget.canOrder
         ? widget.unavailableLabel
@@ -666,6 +706,7 @@ class _MerchantProductDetailsScreenState
               heroAspectRatio: 1.08,
               interactiveGallery: true,
               showVariantControls: true,
+              showDetailedSpecifications: true,
               maxAttributeBadges: 5,
               maxVariantBadges: 4,
               maxStatusBadges: 4,
@@ -673,57 +714,6 @@ class _MerchantProductDetailsScreenState
             ),
             const SizedBox(height: 12),
             _buildVariantSection(context),
-            const SizedBox(height: 12),
-            Text(
-              context.lt(
-                ar: 'المواصفات / المكونات',
-                en: 'Specifications / ingredients',
-              ),
-              textDirection: textDirection,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Colors.white.withValues(alpha: 0.90),
-              ),
-            ),
-            const SizedBox(height: 6),
-            if (specs.isEmpty)
-              Text(
-                context.lt(
-                  ar: 'لا توجد تفاصيل إضافية حالياً.',
-                  en: 'No extra details available right now.',
-                ),
-                textDirection: textDirection,
-                textAlign: TextAlign.right,
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.74)),
-              )
-            else
-              ...specs.map(
-                (line) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    textDirection: textDirection,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.only(top: 2),
-                        child: Icon(Icons.circle, size: 7),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          line,
-                          textDirection: textDirection,
-                          textAlign: TextAlign.right,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.82),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
             const SizedBox(height: 12),
             if (widget.product.hasVariants && !canSubmitCurrentSelection) ...[
               Text(

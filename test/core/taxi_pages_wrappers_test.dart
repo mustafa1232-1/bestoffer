@@ -1,4 +1,6 @@
 import 'package:maslaki/features/taxi/ui/taxi_captain_dashboard_screen.dart';
+import 'package:maslaki/features/taxi/ui/taxi_captain_competitions_screen.dart';
+import 'package:maslaki/features/taxi/ui/taxi_captain_notifications_screen.dart';
 import 'package:maslaki/features/taxi/ui/taxi_pages.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -40,6 +42,8 @@ void main() {
       final earnings = const TaxiEarningsPage().build(context);
       final reports = const TaxiReportsPage().build(context);
       final profile = const TaxiCaptainProfilePage().build(context);
+      final competitions = const TaxiCaptainCompetitionsPage().build(context);
+      final notifications = const TaxiCaptainNotificationsPage().build(context);
 
       expect(
         (newTrips as TaxiCaptainDashboardScreen).initialIntent,
@@ -69,6 +73,8 @@ void main() {
         (profile as TaxiCaptainDashboardScreen).initialIntent,
         TaxiCaptainDashboardIntent.profile,
       );
+      expect(competitions, isA<TaxiCaptainCompetitionsScreen>());
+      expect(notifications, isA<TaxiCaptainNotificationsScreen>());
     });
 
     testWidgets('TaxiTripDetailsPage forwards rideId and tripDetails intent', (

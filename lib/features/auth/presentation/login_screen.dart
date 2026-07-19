@@ -103,7 +103,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       });
       return;
     }
-    if (authAfter.isCustomer || authAfter.isSuperAdmin) return;
+    if (authAfter.isCustomer ||
+        authAfter.isBackoffice ||
+        authAfter.isServiceProvider) {
+      return;
+    }
 
     if (authAfter.isAuthed) {
       await ref.read(authControllerProvider.notifier).logout();

@@ -82,7 +82,7 @@ async function run() {
       headingDeg: 90,
       speedKmh: 0,
       accuracyM: 6,
-      radiusM: 4000,
+      radiusM: 15000,
     },
   });
   if (presence.status !== 200) {
@@ -101,7 +101,7 @@ async function run() {
       pickupLabel: `Taxi smoke pickup ${now}`,
       dropoffLabel: `Taxi smoke dropoff ${now}`,
       proposedFareIqd: 12000,
-      searchRadiusM: 3000,
+      searchRadiusM: 15000,
       note: `taxi-smoke-${now}`,
     },
   });
@@ -113,7 +113,7 @@ async function run() {
   const rideId = Number(create.payload?.ride?.id || create.payload?.id || 0);
   if (!rideId) throw new Error("create ride missing ride id");
 
-  const nearby = await request("/api/taxi/captain/nearby-requests?radiusM=4000&limit=20", {
+  const nearby = await request("/api/taxi/captain/nearby-requests?radiusM=15000&limit=20", {
     token: captainToken,
   });
   if (nearby.status !== 200) {

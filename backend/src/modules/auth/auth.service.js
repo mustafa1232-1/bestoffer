@@ -35,6 +35,7 @@ import {
 } from "../notifications/notifications.repo.js";
 import {
   isRoleAllowedForSurface,
+  isCompanyBackofficeRole,
   resolveRoleAppSurface,
 } from "../../shared/utils/app-surface.js";
 import {
@@ -184,7 +185,10 @@ function resolveSuperAdmin(user) {
 
 function isRequestedSurfaceAllowedForUser(user, requestedSurface) {
   if (!requestedSurface) return true;
-  if (requestedSurface === "user" && resolveSuperAdmin(user)) {
+  if (
+    requestedSurface === "user" &&
+    (resolveSuperAdmin(user) || isCompanyBackofficeRole(user?.role))
+  ) {
     return true;
   }
   return isRoleAllowedForSurface(user?.role, requestedSurface);

@@ -325,15 +325,8 @@ class _CouponManagementScreenState
           .read(couponsApiProvider)
           .toggleCouponActive(couponId: couponId, isActive: isActive);
       if (!mounted) return;
-      setState(() {
-        _busyCouponIds.remove(couponId);
-        _coupons = _coupons
-            .map((item) {
-              if (_readInt(item['id']) != couponId) return item;
-              return {...item, 'is_active': isActive, 'isActive': isActive};
-            })
-            .toList(growable: false);
-      });
+      setState(() => _busyCouponIds.remove(couponId));
+      await _loadCoupons();
       await _loadStats();
     } catch (e) {
       if (!mounted) return;
@@ -442,8 +435,62 @@ class _CouponManagementScreenState
     return l10n.couponManagementScopeMerchantById(merchantId);
   }
 
+  String _couponStatusKey(Map<String, dynamic> coupon) {
+    final raw =
+        '${coupon['coupon_status'] ?? coupon['couponStatus'] ?? coupon['status'] ?? ''}'
+            .trim()
+            .toLowerCase();
+    if (raw.isNotEmpty) return raw;
+    return _readBool(coupon['is_active'] ?? coupon['isActive'])
+        ? 'active'
+        : 'inactive';
+  }
+
+  String _couponStatusLabel(Map<String, dynamic> coupon) {
+    final key = _couponStatusKey(coupon);
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+    switch (key) {
+      case 'active':
+        return isArabic ? 'ساري' : 'Active';
+      case 'scheduled':
+        return isArabic ? 'مجدول' : 'Scheduled';
+      case 'expired':
+        return isArabic ? 'منتهي' : 'Expired';
+      case 'inactive':
+        return isArabic ? 'غير مفعل' : 'Inactive';
+      case 'exhausted':
+        return isArabic ? 'مستنفد' : 'Exhausted';
+      default:
+        return key.isEmpty ? (isArabic ? 'غير معروف' : 'Unknown') : key;
+    }
+  }
+
+  String _couponStatusText(Map<String, dynamic> coupon) {
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+    final label = _couponStatusLabel(coupon);
+    return isArabic ? 'الحالة: $label' : 'Status: $label';
+  }
+
+  String? _couponValidUntilText(Map<String, dynamic> coupon) {
+    final raw =
+        '${coupon['valid_until'] ?? coupon['validUntil'] ?? ''}'.trim();
+    if (raw.isEmpty) return null;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final local = parsed.toLocal();
+    final yyyy = local.year.toString().padLeft(4, '0');
+    final mm = local.month.toString().padLeft(2, '0');
+    final dd = local.day.toString().padLeft(2, '0');
+    final hh = local.hour.toString().padLeft(2, '0');
+    final min = local.minute.toString().padLeft(2, '0');
+    return '$yyyy-$mm-$dd $hh:$min';
+  }
+
   Future<void> _showCouponDetails(Map<String, dynamic> coupon) async {
     final code = '${coupon['code'] ?? ''}'.trim();
+    final statusLabel = _couponStatusLabel(coupon);
+    final validUntilText = _couponValidUntilText(coupon);
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
     final completedOrders = _readInt(
       coupon['completed_orders_count'] ?? coupon['completedOrdersCount'],
     );
@@ -471,6 +518,13 @@ class _CouponManagementScreenState
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                _DetailRow(isArabic ? 'الحالة' : 'Status', statusLabel),
+                if (validUntilText != null)
+                  _DetailRow(
+                    isArabic ? 'ينتهي في' : 'Valid until',
+                    validUntilText,
+                  ),
+                const SizedBox(height: 12),
                 Text(
                   code.isEmpty ? 'تفاصيل الكوبون' : 'تفاصيل الكوبون $code',
                   style: const TextStyle(
@@ -783,26 +837,36 @@ class _CouponManagementScreenState
                                 ? '$usesCount'
                                 : '$usesCount/$maxUses',
                           ),
+                          _couponStatusText(coupon),
+                          if (_couponValidUntilText(coupon) != null)
+                            (Localizations.localeOf(context).languageCode ==
+                                    'ar'
+                                ? 'ينتهي في: ${_couponValidUntilText(coupon)}'
+                                : 'Valid until: ${_couponValidUntilText(coupon)}'),
                           l10n.couponManagementScopeLine(_scopeText(coupon)),
                         ].join('\n'),
                       ),
-                      trailing: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Switch(
-                            value: isActive,
-                            onChanged: busy
-                                ? null
-                                : (value) => _toggleCoupon(couponId, value),
-                          ),
-                          IconButton(
-                            tooltip: l10n.commonDelete,
-                            onPressed: busy
-                                ? null
-                                : () => _deleteCoupon(couponId),
-                            icon: const Icon(Icons.delete_outline),
-                          ),
-                        ],
+                      trailing: SizedBox(
+                        width: 132,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Switch(
+                              value: isActive,
+                              onChanged: busy
+                                  ? null
+                                  : (value) => _toggleCoupon(couponId, value),
+                            ),
+                            IconButton(
+                              tooltip: l10n.commonDelete,
+                              onPressed: busy
+                                  ? null
+                                  : () => _deleteCoupon(couponId),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   );

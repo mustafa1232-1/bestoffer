@@ -5,6 +5,7 @@ import '../../../core/media/cached_app_image.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
 import '../models/product_model.dart';
+import '../utils/product_variant_label_set.dart';
 
 enum ProductSummaryBadgeKind {
   attribute,
@@ -123,6 +124,8 @@ class ProductSummaryCardData {
   final ProductSummaryBadgeData? discountBadge;
   final ProductSummaryBadgeData? availabilityBadge;
   final List<ProductSummaryBadgeData> attributeBadges;
+  final List<ProductSummaryBadgeData> specificationBadges;
+  final List<String> detailedSpecificationLines;
   final List<ProductSummaryBadgeData> variantBadges;
   final List<ProductSummaryBadgeData> statusBadges;
   final List<ProductSummaryColorData> colors;
@@ -132,6 +135,10 @@ class ProductSummaryCardData {
   final String? selectedColorCode;
   final String? selectedSizeCode;
   final bool strictVariantSelection;
+  final String colorGroupLabelAr;
+  final String colorGroupLabelEn;
+  final String sizeGroupLabelAr;
+  final String sizeGroupLabelEn;
 
   const ProductSummaryCardData({
     required this.title,
@@ -144,6 +151,8 @@ class ProductSummaryCardData {
     this.discountBadge,
     this.availabilityBadge,
     this.attributeBadges = const [],
+    this.specificationBadges = const [],
+    this.detailedSpecificationLines = const [],
     this.variantBadges = const [],
     this.statusBadges = const [],
     this.colors = const [],
@@ -153,6 +162,10 @@ class ProductSummaryCardData {
     this.selectedColorCode,
     this.selectedSizeCode,
     this.strictVariantSelection = false,
+    this.colorGroupLabelAr = 'اللون',
+    this.colorGroupLabelEn = 'Color',
+    this.sizeGroupLabelAr = 'المقاس',
+    this.sizeGroupLabelEn = 'Size',
   });
 
   factory ProductSummaryCardData.fromProduct(
@@ -163,6 +176,11 @@ class ProductSummaryCardData {
     String? selectedColorCode,
     String? selectedSizeCode,
     bool strictVariantSelection = false,
+    String? colorGroupLabelAr,
+    String? colorGroupLabelEn,
+    String? sizeGroupLabelAr,
+    String? sizeGroupLabelEn,
+    List<String> detailedSpecificationLines = const [],
   }) {
     final categoryLabel = _displayCategoryLabel(product.categoryName);
     final availableLabel = _localizedText(
@@ -188,10 +206,39 @@ class ProductSummaryCardData {
           ),
         )
         .toList(growable: false);
+    final specificationSource = product.attributes.isNotEmpty
+        ? product.attributes
+              .where((attr) => attr.showInDetails || attr.showInCard)
+              .toList(growable: false)
+        : product.summaryAttributes;
+    final specificationBadges = specificationSource
+        .map(
+          (attr) => ProductSummaryBadgeData(
+            text: '${attr.title}: ${attr.valueText}',
+            kind: ProductSummaryBadgeKind.attribute,
+          ),
+        )
+        .toList(growable: false);
 
     final availability = _buildVariantAvailability(product);
     final colorGroup = _findVariantGroup(product, _isColorGroup);
     final sizeGroup = _findVariantGroup(product, _isSizeGroup);
+    final resolvedColorGroupLabelAr = _normalizedText(
+      colorGroupLabelAr ?? colorGroup?.labelAr,
+      fallback: productVariantDefaultLabels.colorLabelAr,
+    );
+    final resolvedColorGroupLabelEn = _normalizedText(
+      colorGroupLabelEn ?? colorGroup?.labelEn,
+      fallback: productVariantDefaultLabels.colorLabelEn,
+    );
+    final resolvedSizeGroupLabelAr = _normalizedText(
+      sizeGroupLabelAr ?? sizeGroup?.labelAr,
+      fallback: productVariantDefaultLabels.sizeLabelAr,
+    );
+    final resolvedSizeGroupLabelEn = _normalizedText(
+      sizeGroupLabelEn ?? sizeGroup?.labelEn,
+      fallback: productVariantDefaultLabels.sizeLabelEn,
+    );
     final colors = _buildColorOptions(
       product,
       colorGroup: colorGroup,
@@ -302,6 +349,10 @@ class ProductSummaryCardData {
         kind: availabilityKind,
       ),
       attributeBadges: attributeBadges,
+      specificationBadges: specificationBadges,
+      detailedSpecificationLines: _normalizeDetailLines(
+        detailedSpecificationLines,
+      ),
       variantBadges: variantBadges,
       statusBadges: statusBadges,
       colors: colors,
@@ -311,6 +362,10 @@ class ProductSummaryCardData {
       selectedColorCode: resolvedColorCode,
       selectedSizeCode: resolvedSizeCode,
       strictVariantSelection: strictVariantSelection,
+      colorGroupLabelAr: resolvedColorGroupLabelAr,
+      colorGroupLabelEn: resolvedColorGroupLabelEn,
+      sizeGroupLabelAr: resolvedSizeGroupLabelAr,
+      sizeGroupLabelEn: resolvedSizeGroupLabelEn,
     );
   }
 
@@ -337,7 +392,7 @@ class ProductSummaryCardData {
     if (color != null) {
       selections.add({
         'groupCode': 'color',
-        'groupLabel': 'Color',
+        'groupLabel': colorGroupLabelAr,
         'optionCode': color.code,
         'optionLabel': color.label,
         'optionId': color.optionId,
@@ -348,7 +403,7 @@ class ProductSummaryCardData {
     if (size != null) {
       selections.add({
         'groupCode': 'size',
-        'groupLabel': 'Size',
+        'groupLabel': sizeGroupLabelAr,
         'optionCode': size.code,
         'optionLabel': size.label,
         'optionId': size.optionId,
@@ -493,6 +548,12 @@ String _localizedText(
   final languageCode = locale?.languageCode.toLowerCase();
   if (languageCode == 'en') return en;
   return ar;
+}
+
+String _normalizedText(String? value, {required String fallback}) {
+  final normalized = value?.trim();
+  if (normalized == null || normalized.isEmpty) return fallback;
+  return normalized;
 }
 
 String? _displayCategoryLabel(String? categoryName) {
@@ -815,6 +876,13 @@ List<ProductSummarySizeData> _filterSizesForColor(
       : sizes.where((size) => size.available).toList(growable: false);
 }
 
+List<String> _normalizeDetailLines(List<String> lines) {
+  return lines
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
+}
+
 class ProductSummaryCardAppearance {
   final Color backgroundColor;
   final Color borderColor;
@@ -874,12 +942,14 @@ class ProductSummaryCard extends StatefulWidget {
   final int maxAttributeBadges;
   final int maxVariantBadges;
   final int maxStatusBadges;
+  final bool showDetailedSpecifications;
   final double? imageSize;
   final double? heroAspectRatio;
   final bool interactiveGallery;
   final bool showVariantControls;
   final String? selectedColorCode;
   final String? selectedSizeCode;
+  final List<String> detailedSpecificationLines;
   final ValueChanged<ProductSummaryCardSelection>? onSelectionChanged;
 
   const ProductSummaryCard({
@@ -894,12 +964,14 @@ class ProductSummaryCard extends StatefulWidget {
     this.maxAttributeBadges = 3,
     this.maxVariantBadges = 4,
     this.maxStatusBadges = 3,
+    this.showDetailedSpecifications = false,
     this.imageSize,
     this.heroAspectRatio,
     this.interactiveGallery = false,
     this.showVariantControls = true,
     this.selectedColorCode,
     this.selectedSizeCode,
+    this.detailedSpecificationLines = const [],
     this.onSelectionChanged,
   });
 
@@ -915,6 +987,7 @@ class ProductSummaryCard extends StatefulWidget {
     int maxAttributeBadges = 3,
     int maxVariantBadges = 4,
     int maxStatusBadges = 3,
+    bool showDetailedSpecifications = false,
     double? imageSize,
     double? heroAspectRatio,
     bool interactiveGallery = false,
@@ -922,6 +995,11 @@ class ProductSummaryCard extends StatefulWidget {
     String? selectedColorCode,
     String? selectedSizeCode,
     bool strictVariantSelection = false,
+    String? colorGroupLabelAr,
+    String? colorGroupLabelEn,
+    String? sizeGroupLabelAr,
+    String? sizeGroupLabelEn,
+    List<String> detailedSpecificationLines = const [],
     ValueChanged<ProductSummaryCardSelection>? onSelectionChanged,
     Locale? locale,
   }) {
@@ -933,6 +1011,11 @@ class ProductSummaryCard extends StatefulWidget {
         selectedColorCode: selectedColorCode,
         selectedSizeCode: selectedSizeCode,
         strictVariantSelection: strictVariantSelection,
+        colorGroupLabelAr: colorGroupLabelAr,
+        colorGroupLabelEn: colorGroupLabelEn,
+        sizeGroupLabelAr: sizeGroupLabelAr,
+        sizeGroupLabelEn: sizeGroupLabelEn,
+        detailedSpecificationLines: detailedSpecificationLines,
       ),
       appearance: appearance,
       onTap: onTap,
@@ -943,12 +1026,14 @@ class ProductSummaryCard extends StatefulWidget {
       maxAttributeBadges: maxAttributeBadges,
       maxVariantBadges: maxVariantBadges,
       maxStatusBadges: maxStatusBadges,
+      showDetailedSpecifications: showDetailedSpecifications,
       imageSize: imageSize,
       heroAspectRatio: heroAspectRatio,
       interactiveGallery: interactiveGallery,
       showVariantControls: showVariantControls,
       selectedColorCode: selectedColorCode,
       selectedSizeCode: selectedSizeCode,
+      detailedSpecificationLines: detailedSpecificationLines,
       onSelectionChanged: onSelectionChanged,
     );
   }
@@ -1128,6 +1213,17 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
     final resolvedAppearance =
         widget.appearance ?? ProductSummaryCardAppearance.fromContext(context);
     final currentSelection = _currentSelection();
+    final variantLocale = Localizations.localeOf(context);
+    final colorGroupLabel = _localizedText(
+      variantLocale,
+      ar: widget.data.colorGroupLabelAr,
+      en: widget.data.colorGroupLabelEn,
+    );
+    final sizeGroupLabel = _localizedText(
+      variantLocale,
+      ar: widget.data.sizeGroupLabelAr,
+      en: widget.data.sizeGroupLabelEn,
+    );
     final heroAspectRatio =
         widget.heroAspectRatio ?? (widget.compact ? 1.45 : 1.12);
     final showGallery = widget.showImage;
@@ -1353,11 +1449,71 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                           .toList(growable: false),
                 ),
               ],
+              if (widget.showDetailedSpecifications &&
+                  (widget.data.specificationBadges.isNotEmpty ||
+                      widget.data.detailedSpecificationLines.isNotEmpty)) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _localizedText(
+                    variantLocale,
+                    ar: 'المواصفات الكاملة',
+                    en: 'Full specifications',
+                  ),
+                  textDirection: TextDirection.rtl,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    color: resolvedAppearance.bodyColor,
+                    fontWeight: FontWeight.w700,
+                    fontSize: widget.compact ? 12 : 13,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                if (widget.data.detailedSpecificationLines.isNotEmpty) ...[
+                  ...widget.data.detailedSpecificationLines.map(
+                    (line) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        textDirection: TextDirection.rtl,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(Icons.circle, size: 7),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              line,
+                              textDirection: TextDirection.rtl,
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                color: resolvedAppearance.bodyColor,
+                                fontSize: widget.compact ? 11.5 : 12.5,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                ],
+                if (widget.data.specificationBadges.isNotEmpty)
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    alignment: WrapAlignment.end,
+                    children: widget.data.specificationBadges
+                        .map((badge) => _buildBadge(resolvedAppearance, badge))
+                        .toList(growable: false),
+                  ),
+              ],
               if (widget.showVariantControls &&
                   widget.data.colors.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(
-                  'اللون',
+                  colorGroupLabel,
                   textDirection: TextDirection.rtl,
                   textAlign: TextAlign.right,
                   style: TextStyle(
@@ -1390,9 +1546,9 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                   const SizedBox(height: 4),
                   Text(
                     _localizedText(
-                      Localizations.localeOf(context),
-                      ar: 'اختر اللون',
-                      en: 'Choose color',
+                      variantLocale,
+                      ar: 'اختر $colorGroupLabel',
+                      en: 'Choose $colorGroupLabel',
                     ),
                     textDirection: TextDirection.rtl,
                     textAlign: TextAlign.right,
@@ -1407,7 +1563,7 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
               if (widget.showVariantControls && visibleSizes.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(
-                  'المقاس',
+                  sizeGroupLabel,
                   textDirection: TextDirection.rtl,
                   textAlign: TextAlign.right,
                   style: TextStyle(
@@ -1440,9 +1596,9 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                   const SizedBox(height: 4),
                   Text(
                     _localizedText(
-                      Localizations.localeOf(context),
-                      ar: 'اختر المقاس',
-                      en: 'Choose size',
+                      variantLocale,
+                      ar: 'اختر $sizeGroupLabel',
+                      en: 'Choose $sizeGroupLabel',
                     ),
                     textDirection: TextDirection.rtl,
                     textAlign: TextAlign.right,
@@ -1591,11 +1747,7 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
               child: Text(
                 color.available
                     ? color.label
-                    : '${color.label} · ${_localizedText(
-                        Localizations.localeOf(context),
-                        ar: 'غير متوفر',
-                        en: 'Unavailable',
-                      )}',
+                    : '${color.label} · ${_localizedText(Localizations.localeOf(context), ar: 'غير متوفر', en: 'Unavailable')}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -1639,11 +1791,7 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
         child: Text(
           size.available
               ? size.label
-              : '${size.label} · ${_localizedText(
-                  Localizations.localeOf(context),
-                  ar: 'غير متوفر',
-                  en: 'Unavailable',
-                )}',
+              : '${size.label} · ${_localizedText(Localizations.localeOf(context), ar: 'غير متوفر', en: 'Unavailable')}',
           textDirection: TextDirection.rtl,
           style: TextStyle(
             color: selected ? appearance.titleColor : appearance.chipTextColor,

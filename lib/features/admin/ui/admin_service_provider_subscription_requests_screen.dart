@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/widgets/app_user_drawer.dart';
+import '../../auth/state/auth_controller.dart';
+import 'admin_approvals_hub_screen.dart';
+import 'admin_dashboard_screen.dart';
+import 'admin_services_hub_screen.dart';
 import '../state/admin_controller.dart';
 
 class AdminServiceProviderSubscriptionRequestsScreen
@@ -63,6 +68,82 @@ class _AdminServiceProviderSubscriptionRequestsScreenState
   }
 
   String _asText(dynamic value) => '${value ?? ''}'.trim();
+
+  Widget _buildAdminDrawer() {
+    final auth = ref.watch(authControllerProvider);
+    return AppUserDrawer(
+      title: 'لوحة الإدارة',
+      subtitle: auth.user?.fullName,
+      showCommunitySection: false,
+      showSettings: false,
+      enableItemSearch: false,
+      items: [
+        AppUserDrawerItem(
+          icon: Icons.space_dashboard_rounded,
+          label: 'لوحة التحكم',
+          subtitle: 'الصفحة الرئيسية للأدمن',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminDashboardScreen(),
+              ),
+              (route) => false,
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.verified_user_outlined,
+          label: 'حوض الموافقات',
+          subtitle: 'مراجعة كل الطلبات المعلقة',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminApprovalsHubScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.home_repair_service_outlined,
+          label: 'إدارة الخدمات',
+          subtitle: 'ملخص الخدمات والطلبات',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminServicesHubScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.description_outlined,
+          label: 'طلبات الاشتراك',
+          subtitle: 'عرض طلبات أصحاب الخدمة',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    const AdminServiceProviderSubscriptionRequestsScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.refresh_rounded,
+          label: 'تحديث الصفحة',
+          subtitle: 'إعادة تحميل الطلبات',
+          group: 'الإجراءات',
+          onTap: (_) async {
+            await _load();
+          },
+        ),
+      ],
+    );
+  }
 
   Future<void> _sendOffer(Map<String, dynamic> row) async {
     final amountCtrl = TextEditingController();
@@ -281,6 +362,7 @@ class _AdminServiceProviderSubscriptionRequestsScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      drawer: Drawer(child: _buildAdminDrawer()),
       appBar: AppBar(
         title: const Text('طلبات اشتراك أصحاب الخدمة'),
         actions: [

@@ -25,6 +25,7 @@ import {
   validateNearbyCaptainsQuery,
   validateNearbyQuery,
   validateRideId,
+  validateRaiseRideFare,
 } from "./taxi.validators.js";
 
 /**
@@ -184,6 +185,26 @@ export async function rateRide(req, res, next) {
     if (!v.ok) return badRequest(res, v.errors);
 
     const out = await service.rateRideByCustomer({
+      customerUserId: req.userId,
+      rideId,
+      dto: v.value,
+    });
+
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function raiseRideFare(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateRaiseRideFare(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.raiseRideFare({
       customerUserId: req.userId,
       rideId,
       dto: v.value,

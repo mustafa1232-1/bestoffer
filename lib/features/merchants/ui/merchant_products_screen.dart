@@ -20,6 +20,7 @@ import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
 import '../../products/ui/product_summary_card.dart';
 import '../../products/ui/product_variant_picker_sheet.dart';
+import '../../products/utils/product_variant_label_set.dart';
 import '../utils/catalog_taxonomy.dart';
 import 'merchant_product_details_screen.dart';
 import '../models/merchant_model.dart';
@@ -307,10 +308,17 @@ class _MerchantProductsScreenState
     final canOrder = widget.merchant.isOpen && product.canBeOrdered;
     final usesPharmacyConversation = _requiresPharmacyConversation(product);
     final strictVariantSelection = _requiresStrictVariantSelection(product);
+    final variantLabels = _variantLabels();
+    final detailLines = _productDetailLines(product);
     final cardData = ProductSummaryCardData.fromProduct(
       product,
       locale: locale,
       strictVariantSelection: strictVariantSelection,
+      colorGroupLabelAr: variantLabels.colorLabelAr,
+      colorGroupLabelEn: variantLabels.colorLabelEn,
+      sizeGroupLabelAr: variantLabels.sizeLabelAr,
+      sizeGroupLabelEn: variantLabels.sizeLabelEn,
+      detailedSpecificationLines: detailLines,
     );
     final selection =
         _cardSelections[product.id] ?? cardData.resolveSelection();
@@ -324,6 +332,7 @@ class _MerchantProductsScreenState
       onTap: () =>
           _openProductDetails(product: product, allProducts: allProducts),
       compact: true,
+      showDetailedSpecifications: !grid,
       maxAttributeBadges: grid ? 1 : 2,
       maxVariantBadges: grid ? 2 : 3,
       maxStatusBadges: grid ? 2 : 3,
@@ -331,10 +340,15 @@ class _MerchantProductsScreenState
       selectedColorCode: selection.colorCode,
       selectedSizeCode: selection.sizeCode,
       strictVariantSelection: strictVariantSelection,
+      colorGroupLabelAr: variantLabels.colorLabelAr,
+      colorGroupLabelEn: variantLabels.colorLabelEn,
+      sizeGroupLabelAr: variantLabels.sizeLabelAr,
+      sizeGroupLabelEn: variantLabels.sizeLabelEn,
       onSelectionChanged: (next) {
         setState(() => _cardSelections[product.id] = next);
       },
       trailing: _buildProductSummaryTrailing(
+        cardData: cardData,
         product: product,
         canOrder: canOrder,
         usesPharmacyConversation: usesPharmacyConversation,
@@ -344,6 +358,18 @@ class _MerchantProductsScreenState
         strictVariantSelection: strictVariantSelection,
       ),
     );
+  }
+
+  List<String> _productDetailLines(ProductModel product) {
+    final raw = product.description?.trim();
+    if (raw == null || raw.isEmpty) return const [];
+    final lines = raw
+        .split('\n')
+        .expand((line) => line.split(RegExp(r'[,،]')))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList(growable: false);
+    return lines;
   }
 
   List<Widget> _buildProductCards(
@@ -414,6 +440,7 @@ class _MerchantProductsScreenState
   }
 
   Widget _buildProductSummaryTrailing({
+    required ProductSummaryCardData cardData,
     required ProductModel product,
     required bool canOrder,
     required bool usesPharmacyConversation,
@@ -442,13 +469,14 @@ class _MerchantProductsScreenState
         strictVariantSelection &&
         product.hasVariants &&
         selectedVariantId == null;
+    final selectionPrompt = context.lt(
+      ar: 'اختر ${cardData.colorGroupLabelAr} و${cardData.sizeGroupLabelAr} أولاً',
+      en: 'Choose ${cardData.colorGroupLabelEn} and ${cardData.sizeGroupLabelEn} first',
+    );
     final label = !canOrder
         ? (widget.merchant.isOpen ? 'غير متوفر حالياً' : 'المتجر مغلق الآن')
         : requiresSelection
-        ? context.lt(
-            ar: 'اختر اللون والمقاس أولاً',
-            en: 'Choose color and size first',
-          )
+        ? selectionPrompt
         : usesPharmacyConversation
         ? context.lt(ar: 'إرسال للمراجعة', en: 'Send for review')
         : context.lt(ar: 'إضافة إلى السلة', en: 'Add to cart');
@@ -587,6 +615,10 @@ class _MerchantProductsScreenState
     return product.discountedPrice ?? product.price;
   }
 
+  ProductVariantLabelSet _variantLabels() {
+    return productVariantLabelsForCatalogType(widget.merchant.type);
+  }
+
   bool _requiresPharmacyConversation(ProductModel product) {
     return widget.merchant.supportsPharmacyWorkflow &&
         product.requiresPharmacyConversation;
@@ -684,16 +716,19 @@ class _MerchantProductsScreenState
     );
     final lines = <String>[
       m.name,
-      if ((m.description ?? '').trim().isNotEmpty) m.description!.trim() else scope,
+      if ((m.description ?? '').trim().isNotEmpty)
+        m.description!.trim()
+      else
+        scope,
       'عبر تطبيق مسلكي',
     ];
     try {
       await SharePlus.instance.share(ShareParams(text: lines.join('\n')));
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّرت المشاركة حالياً')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذّرت المشاركة حالياً')));
     }
   }
 
@@ -823,6 +858,7 @@ class _MerchantProductsScreenState
   }) async {
     final safeQuantity = quantity < 1 ? 1 : quantity;
     var variantSelections = initialVariantSelections;
+    final variantLabels = _variantLabels();
     final selectedVariant = product.variantForSelectionEntries(
       variantSelections,
     );
@@ -846,6 +882,12 @@ class _MerchantProductsScreenState
           context,
           product: product,
           initialSelections: initialVariantSelections,
+          colorGroupLabelAr: variantLabels.colorLabelAr,
+          colorGroupLabelEn: variantLabels.colorLabelEn,
+          sizeGroupLabelAr: variantLabels.sizeLabelAr,
+          sizeGroupLabelEn: variantLabels.sizeLabelEn,
+          unavailablePromptAr: variantLabels.unavailablePromptAr,
+          unavailablePromptEn: variantLabels.unavailablePromptEn,
         );
         if (!mounted || picked == null) return;
         variantSelections = picked;
@@ -1308,7 +1350,10 @@ class _MerchantProductsScreenState
           loading: () => ListView(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 22),
             children: const [
-              SkeletonBox(height: 150, borderRadius: BorderRadius.all(Radius.circular(16))),
+              SkeletonBox(
+                height: 150,
+                borderRadius: BorderRadius.all(Radius.circular(16)),
+              ),
               SizedBox(height: 14),
               ProductRowSkeleton(),
               ProductRowSkeleton(),
@@ -1317,7 +1362,8 @@ class _MerchantProductsScreenState
             ],
           ),
           error: (error, _) => MaslakiErrorRetry(
-            message: 'تعذّر تحميل منتجات المتجر. تحقق من اتصالك ثم أعد المحاولة.',
+            message:
+                'تعذّر تحميل منتجات المتجر. تحقق من اتصالك ثم أعد المحاولة.',
             onRetry: _load,
           ),
         ),

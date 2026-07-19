@@ -31,6 +31,7 @@ class _FakeApi implements ReelUploadApi {
   int createCalls = 0;
   int publishCalls = 0;
   final List<String> publishKeys = [];
+  Map<String, dynamic>? lastReelStyle;
 
   @override
   Future<({String uploadUrl, int assetId})> createUploadSession({
@@ -57,10 +58,12 @@ class _FakeApi implements ReelUploadApi {
     required String audience,
     required bool commentsEnabled,
     required bool sharingEnabled,
+    Map<String, dynamic>? reelStyle,
     required String idempotencyKey,
   }) async {
     publishCalls++;
     publishKeys.add(idempotencyKey);
+    lastReelStyle = reelStyle;
     return 9001;
   }
 }
@@ -115,6 +118,25 @@ void main() {
     final c = _controller(api);
     await c.publish(video: _video, caption: 'x', audience: 'public');
     expect(api.publishKeys, ['idem-1']);
+    c.dispose();
+  });
+
+  test('publish forwards reel style payload to backend', () async {
+    final api = _FakeApi();
+    final c = _controller(api);
+    await c.publish(
+      video: _video,
+      caption: 'x',
+      audience: 'public',
+      reelStyle: const {
+        'version': 2,
+        'mode': 'media',
+        'layers': <Map<String, dynamic>>[],
+      },
+    );
+    expect(api.lastReelStyle, isNotNull);
+    expect(api.lastReelStyle?['mode'], 'media');
+    expect(api.lastReelStyle?['version'], 2);
     c.dispose();
   });
 

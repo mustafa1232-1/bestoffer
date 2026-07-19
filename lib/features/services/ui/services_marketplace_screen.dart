@@ -4,6 +4,7 @@ import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/media/cached_app_image.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
@@ -14,6 +15,7 @@ import '../state/services_discovery_controller.dart';
 import 'service_my_requests_screen.dart';
 import 'service_offering_details_screen.dart';
 import 'service_provider_onboarding_screen.dart';
+import 'service_provider_shell.dart';
 import 'service_provider_workspace_screen.dart';
 
 class ServicesMarketplaceScreen extends ConsumerStatefulWidget {
@@ -75,6 +77,23 @@ class _ServicesMarketplaceScreenState
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const ServiceMyRequestsScreen()));
+  }
+
+  Future<void> _openProviderWorkspace() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            const ServiceProviderShell(child: ServiceProviderWorkspaceScreen()),
+      ),
+    );
+  }
+
+  Future<void> _openProviderOnboarding() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const ServiceProviderOnboardingScreen(),
+      ),
+    );
   }
 
   @override
@@ -176,14 +195,14 @@ class _ServicesMarketplaceScreenState
           if (auth.isServiceProvider)
             IconButton(
               tooltip: 'لوحة مقدم الخدمة',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const ServiceProviderWorkspaceScreen(),
-                  ),
-                );
-              },
+              onPressed: _openProviderWorkspace,
               icon: const Icon(Icons.workspaces_rounded),
+            ),
+          if (auth.isServiceProvider)
+            IconButton(
+              tooltip: 'متابعة الاشتراك',
+              onPressed: _openProviderOnboarding,
+              icon: const Icon(Icons.verified_user_outlined),
             ),
           if (!auth.isServiceProvider && servicesSection.isOpen)
             IconButton(
@@ -223,14 +242,32 @@ class _ServicesMarketplaceScreenState
                         textDirection: TextDirection.rtl,
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
-                      if (!auth.isServiceProvider) ...[
-                        const SizedBox(height: 16),
-                        MaslakiPrimaryButton(
-                          onPressed: _openMyRequests,
-                          icon: Icons.receipt_long_rounded,
-                          label: 'عرض طلباتي النشطة',
-                        ),
-                      ],
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        alignment: WrapAlignment.end,
+                        children: [
+                          if (!auth.isServiceProvider)
+                            MaslakiPrimaryButton(
+                              onPressed: _openMyRequests,
+                              icon: Icons.receipt_long_rounded,
+                              label: 'عرض طلباتي النشطة',
+                            ),
+                          if (auth.isServiceProvider)
+                            MaslakiOutlineButton(
+                              onPressed: _openProviderWorkspace,
+                              icon: Icons.workspaces_rounded,
+                              label: 'لوحة مقدم الخدمة',
+                            ),
+                          if (auth.isServiceProvider)
+                            MaslakiPrimaryButton(
+                              onPressed: _openProviderOnboarding,
+                              icon: Icons.verified_user_outlined,
+                              label: 'متابعة الاشتراك',
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -258,16 +295,26 @@ class _ServicesMarketplaceScreenState
                             const SizedBox(width: 10),
                             Expanded(
                               child: MaslakiPrimaryButton(
-                                onPressed: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          const ServiceProviderOnboardingScreen(),
-                                    ),
-                                  );
-                                },
+                                onPressed: _openProviderOnboarding,
                                 icon: Icons.person_add_alt_1_rounded,
                                 label: 'صاحب خدمة',
+                              ),
+                            ),
+                          ],
+                          if (auth.isServiceProvider) ...[
+                            Expanded(
+                              child: MaslakiOutlineButton(
+                                onPressed: _openProviderWorkspace,
+                                icon: Icons.workspaces_rounded,
+                                label: 'لوحة مقدم الخدمة',
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: MaslakiPrimaryButton(
+                                onPressed: _openProviderOnboarding,
+                                icon: Icons.verified_user_outlined,
+                                label: 'متابعة الاشتراك',
                               ),
                             ),
                           ],
@@ -428,6 +475,7 @@ class _ServiceOfferingCard extends StatelessWidget {
       offering.provider.city,
       offering.provider.area,
     ].whereType<String>().where((part) => part.trim().isNotEmpty).join(' - ');
+    final coverUrl = offering.primaryMediaUrl ?? offering.provider.logoUrl;
 
     return MaslakiCard(
       child: InkWell(
@@ -438,6 +486,69 @@ class _ServiceOfferingCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if ((coverUrl ?? '').trim().isNotEmpty)
+                        CachedAppImage(
+                          imageUrl: coverUrl!,
+                          fit: BoxFit.cover,
+                          placeholder: (placeholderContext, placeholderChild) =>
+                              Container(
+                                color: const Color(0xFF102748),
+                                alignment: Alignment.center,
+                                child: const Icon(
+                                  Icons.design_services_outlined,
+                                ),
+                              ),
+                          errorWidget:
+                              (errorContext, errorChild, errorProgress) =>
+                                  Container(
+                                    color: const Color(0xFF102748),
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.image_not_supported_outlined,
+                                    ),
+                                  ),
+                        )
+                      else
+                        Container(
+                          color: const Color(0xFF102748),
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.design_services_outlined),
+                        ),
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withValues(alpha: 0.6),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (offering.hasActivePromotion)
+                        const PositionedDirectional(
+                          top: 10,
+                          start: 10,
+                          child: MaslakiStatusPill(
+                            label: 'عرض',
+                            icon: Icons.local_offer_outlined,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
               Row(
                 textDirection: TextDirection.rtl,
                 children: [
@@ -450,29 +561,23 @@ class _ServiceOfferingCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (offering.hasActivePromotion)
-                    const MaslakiStatusPill(
-                      label: 'عرض',
-                      icon: Icons.local_offer_outlined,
+                  Text(
+                    offering.displayPriceText,
+                    textDirection: TextDirection.rtl,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: tokens.primaryAccent,
+                      fontWeight: FontWeight.w900,
                     ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
               Text(
                 offering.provider.businessName ?? '',
                 textDirection: TextDirection.rtl,
                 style: Theme.of(
                   context,
                 ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                offering.displayPriceText,
-                textDirection: TextDirection.rtl,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: tokens.primaryAccent,
-                  fontWeight: FontWeight.w900,
-                ),
               ),
               const SizedBox(height: 8),
               Wrap(

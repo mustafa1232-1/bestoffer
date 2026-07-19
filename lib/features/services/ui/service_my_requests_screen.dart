@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/sections/section_availability_controller.dart';
@@ -255,9 +255,19 @@ class _ServiceMyRequestsScreenState
 }
 
 bool _isTerminalServiceRequestStatus(String? value) {
-  return <String>{'completed', 'cancelled', 'rejected'}.contains(
-    (value ?? '').trim().toLowerCase(),
-  );
+  final normalized = (value ?? '').trim();
+  return <String>{
+    'completed',
+    'cancelled',
+    'rejected',
+    'COMPLETED',
+    'REJECTED_BY_PROVIDER',
+    'CANCELLED_BY_CUSTOMER',
+    'CANCELLED_BY_PROVIDER',
+    'CANCELLED_BY_ADMIN',
+    'EXPIRED',
+    'DISPUTED',
+  }.contains(normalized);
 }
 
 class _StatusChip extends StatelessWidget {
@@ -285,23 +295,36 @@ class _StatusChip extends StatelessWidget {
 }
 
 String serviceRequestStatusLabel(String? value) {
-  switch ((value ?? '').trim().toLowerCase()) {
+  switch ((value ?? '').trim()) {
     case 'pending':
+    case 'PENDING_PROVIDER_CONFIRMATION':
       return 'معلق';
     case 'awaiting_provider':
+    case 'CONFIRMED':
       return 'بانتظار مقدم الخدمة';
     case 'accepted':
+    case 'IN_PROGRESS':
       return 'مقبول';
     case 'scheduled':
+    case 'PROVIDER_COMPLETED':
       return 'مجدول';
     case 'in_progress':
       return 'قيد التنفيذ';
     case 'completed':
+    case 'COMPLETED':
       return 'مكتمل';
     case 'cancelled':
+    case 'CANCELLED_BY_CUSTOMER':
+    case 'CANCELLED_BY_PROVIDER':
+    case 'CANCELLED_BY_ADMIN':
       return 'ملغي';
     case 'rejected':
+    case 'REJECTED_BY_PROVIDER':
       return 'مرفوض';
+    case 'EXPIRED':
+      return 'منتهي الصلاحية';
+    case 'DISPUTED':
+      return 'قيد النزاع';
     default:
       return value == null || value.trim().isEmpty ? 'غير محدد' : value;
   }

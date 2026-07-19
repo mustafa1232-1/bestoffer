@@ -497,24 +497,29 @@ void main() {
       final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
 
       expect(tester.takeException(), isNull);
-      expect(find.text(l10n.mapPageRideSearchingTitle), findsAtLeastNWidgets(1));
+      expect(
+        find.text(l10n.mapPageRideSearchingTitle),
+        findsAtLeastNWidgets(1),
+      );
       expect(find.text('Available offers'), findsOneWidget);
       expect(find.text('Captain Noor'), findsAtLeastNWidgets(1));
       expect(find.text('#-'), findsNothing);
     },
   );
 
-  testWidgets('completed ride shows the localized rating call to action', (
-    tester,
-  ) async {
-    await _pumpMapPage(
-      tester,
-      currentRideEnvelope: _rideEnvelope(status: 'completed'),
-    );
+  testWidgets(
+    'completed ride clears current ride and returns to request composer',
+    (tester) async {
+      await _pumpMapPage(
+        tester,
+        currentRideEnvelope: _rideEnvelope(status: 'completed'),
+      );
 
-    final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
+      final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
 
-    expect(find.text(l10n.mapPageRideCompletedTitle), findsAtLeastNWidgets(1));
-    expect(find.text(l10n.mapPageRateTaxiRide), findsOneWidget);
-  });
+      expect(find.text(l10n.mapPageRideCompletedTitle), findsNothing);
+      expect(find.text(l10n.mapPagePickupSearchLabel), findsAtLeastNWidgets(1));
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

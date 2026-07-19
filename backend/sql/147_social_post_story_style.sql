@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE social_post
+ADD COLUMN IF NOT EXISTS story_style JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+COMMIT;

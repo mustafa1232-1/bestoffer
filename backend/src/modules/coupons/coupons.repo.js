@@ -12,28 +12,98 @@ export function resolveCouponScopeKind({ merchantId, companyId } = {}) {
   return "global";
 }
 
-/**
- * Look up a coupon by its code and validate it's usable:
- * - active, within valid dates, not exceeded max_uses
- * - optionally scoped to a merchant
- * - customer hasn't already used it
- * Returns the coupon row or null.
- */
-export async function findValidCoupon(code, { customerId, merchantId, orderTotal }) {
+export function couponLifecycleStatusSql(alias = "c") {
+  return `CASE
+    WHEN ${alias}.is_active = FALSE THEN 'inactive'
+    WHEN ${alias}.valid_from IS NOT NULL AND ${alias}.valid_from > NOW() THEN 'scheduled'
+    WHEN ${alias}.valid_until IS NOT NULL AND ${alias}.valid_until < NOW() THEN 'expired'
+    WHEN ${alias}.max_uses IS NOT NULL AND ${alias}.max_uses > 0 AND ${alias}.uses_count >= ${alias}.max_uses THEN 'exhausted'
+    ELSE 'active'
+  END`;
+}
+
+export function resolveCouponLifecycleStatus(coupon, now = new Date()) {
+  if (!coupon) return "missing";
+
+  const nowTs = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  const validFrom = coupon.valid_from ? new Date(coupon.valid_from) : null;
+  const validUntil = coupon.valid_until ? new Date(coupon.valid_until) : null;
+  const usesCount = Number(coupon.uses_count || 0);
+  const maxUses = Number(coupon.max_uses || 0);
+
+  if (coupon.is_active !== true) return "inactive";
+  if (Number.isFinite(validFrom?.getTime()) && validFrom.getTime() > nowTs) {
+    return "scheduled";
+  }
+  if (Number.isFinite(validUntil?.getTime()) && validUntil.getTime() < nowTs) {
+    return "expired";
+  }
+  if (maxUses > 0 && usesCount >= maxUses) {
+    return "exhausted";
+  }
+  return "active";
+}
+
+export function resolveCouponValidationReason(
+  coupon,
+  { customerId, merchantId, orderTotal } = {},
+  now = new Date()
+) {
+  if (!coupon) return "COUPON_NOT_FOUND";
+
+  const lifecycleStatus = resolveCouponLifecycleStatus(coupon, now);
+  switch (lifecycleStatus) {
+    case "inactive":
+      return "COUPON_INACTIVE";
+    case "scheduled":
+      return "COUPON_NOT_STARTED";
+    case "expired":
+      return "COUPON_EXPIRED";
+    case "exhausted":
+      return "COUPON_TOTAL_LIMIT_REACHED";
+    default:
+      break;
+  }
+
+  const normalizedMerchantId = Number(merchantId || 0);
+  if (coupon.scope_kind === "merchant") {
+    if (normalizedMerchantId <= 0 || Number(coupon.merchant_id || 0) !== normalizedMerchantId) {
+      return "COUPON_NOT_TARGETED";
+    }
+  } else if (coupon.scope_kind === "company") {
+    if (normalizedMerchantId <= 0) return "COUPON_NOT_TARGETED";
+
+    const couponCompanyId = Number(coupon.company_id || 0);
+    const targetCompanyId = Number(coupon.target_merchant_company_id || 0);
+    if (couponCompanyId <= 0 || targetCompanyId <= 0 || couponCompanyId !== targetCompanyId) {
+      return "COUPON_NOT_TARGETED";
+    }
+
+    if (coupon.company_applies_to_all_branches !== true && coupon.matches_company_target !== true) {
+      return "COUPON_NOT_TARGETED";
+    }
+  }
+
+  if (Number(orderTotal || 0) < Number(coupon.min_order_total || 0)) {
+    return "COUPON_INVALID_OR_EXPIRED";
+  }
+
+  if (coupon.customer_redeemed === true) {
+    return "COUPON_USER_LIMIT_REACHED";
+  }
+
+  return null;
+}
+
+async function loadCouponValidationCandidateByCode(code, { customerId, merchantId }) {
   const r = await q(
-    `SELECT c.*
-     FROM coupon c
-     LEFT JOIN merchant target_merchant ON target_merchant.id = $2
-     WHERE UPPER(c.code) = UPPER($1)
-       AND c.is_active = TRUE
-       AND (c.valid_from  IS NULL OR c.valid_from  <= NOW())
-       AND (c.valid_until IS NULL OR c.valid_until >= NOW())
-       AND (c.max_uses    IS NULL OR c.uses_count < c.max_uses)
-       AND (
-         (c.scope_kind = 'global' AND c.merchant_id IS NULL AND c.company_id IS NULL)
-         OR (c.scope_kind = 'merchant' AND c.merchant_id = $2)
-         OR (
-           c.scope_kind = 'company'
+    `SELECT
+       c.*,
+       target_merchant.company_id AS target_merchant_company_id,
+       CASE
+         WHEN c.scope_kind = 'global' AND c.merchant_id IS NULL AND c.company_id IS NULL THEN TRUE
+         WHEN c.scope_kind = 'merchant' AND c.merchant_id = $2 THEN TRUE
+         WHEN c.scope_kind = 'company'
            AND target_merchant.company_id IS NOT NULL
            AND c.company_id = target_merchant.company_id
            AND (
@@ -45,19 +115,134 @@ export async function findValidCoupon(code, { customerId, merchantId, orderTotal
                  AND cct.merchant_id = $2
              )
            )
-         )
-       )
-       AND (c.min_order_total = 0  OR $3 >= c.min_order_total)
-       AND NOT EXISTS (
-         SELECT 1 FROM coupon_redemption cr
+         THEN TRUE
+         ELSE FALSE
+       END AS matches_company_target,
+       EXISTS (
+         SELECT 1
+         FROM coupon_redemption cr
          WHERE cr.coupon_id = c.id
-           AND cr.customer_id = $4
+           AND cr.customer_id = $3
            AND COALESCE(cr.is_void, FALSE) = FALSE
-       )
+       ) AS customer_redeemed
+     FROM coupon c
+      LEFT JOIN merchant target_merchant ON target_merchant.id = $2::INT
+      WHERE UPPER(c.code) = UPPER($1)
      LIMIT 1`,
-    [code, merchantId || null, Number(orderTotal || 0), customerId]
+    [code, merchantId || null, customerId]
   );
   return r.rows[0] || null;
+}
+
+async function loadCouponValidationCandidateById(couponId, { customerId, merchantId }) {
+  const r = await q(
+    `SELECT
+       c.*,
+       target_merchant.company_id AS target_merchant_company_id,
+       CASE
+         WHEN c.scope_kind = 'global' AND c.merchant_id IS NULL AND c.company_id IS NULL THEN TRUE
+         WHEN c.scope_kind = 'merchant' AND c.merchant_id = $2 THEN TRUE
+         WHEN c.scope_kind = 'company'
+           AND target_merchant.company_id IS NOT NULL
+           AND c.company_id = target_merchant.company_id
+           AND (
+             c.company_applies_to_all_branches = TRUE
+             OR EXISTS (
+               SELECT 1
+               FROM company_coupon_target cct
+               WHERE cct.coupon_id = c.id
+                 AND cct.merchant_id = $2
+             )
+           )
+         THEN TRUE
+         ELSE FALSE
+       END AS matches_company_target,
+       EXISTS (
+         SELECT 1
+         FROM coupon_redemption cr
+         WHERE cr.coupon_id = c.id
+           AND cr.customer_id = $3
+           AND COALESCE(cr.is_void, FALSE) = FALSE
+       ) AS customer_redeemed
+     FROM coupon c
+      LEFT JOIN merchant target_merchant ON target_merchant.id = $2::INT
+      WHERE c.id = $1
+      LIMIT 1`,
+    [Number(couponId), merchantId || null, customerId]
+  );
+  return r.rows[0] || null;
+}
+
+export async function validateCouponByCode(
+  code,
+  { customerId, merchantId, orderTotal }
+) {
+  const coupon = await loadCouponValidationCandidateByCode(code, {
+    customerId,
+    merchantId,
+    orderTotal,
+  });
+  const reasonCode = resolveCouponValidationReason(coupon, {
+    customerId,
+    merchantId,
+    orderTotal,
+  });
+  return {
+    coupon: reasonCode == null ? coupon : null,
+    reasonCode,
+  };
+}
+
+export async function validateCouponByIdOrCode(
+  { couponId = null, code = null },
+  { customerId, merchantId, orderTotal }
+) {
+  const normalizedCouponId = Number(couponId || 0);
+  const normalizedCode =
+    typeof code === "string" && code.trim().length > 0 ? code.trim() : null;
+
+  if (normalizedCouponId > 0) {
+    const coupon = await loadCouponValidationCandidateById(normalizedCouponId, {
+      customerId,
+      merchantId,
+      orderTotal,
+    });
+    const reasonCode = resolveCouponValidationReason(coupon, {
+      customerId,
+      merchantId,
+      orderTotal,
+    });
+    return {
+      coupon: reasonCode == null ? coupon : null,
+      reasonCode,
+    };
+  }
+
+  if (!normalizedCode) {
+    return { coupon: null, reasonCode: "COUPON_NOT_FOUND" };
+  }
+
+  return validateCouponByCode(normalizedCode, {
+    customerId,
+    merchantId,
+    orderTotal,
+  });
+}
+
+/**
+ * Look up a coupon by its code and validate it's usable:
+ * - active, within valid dates, not exceeded max_uses
+ * - optionally scoped to a merchant
+ * - customer hasn't already used it
+ * Returns the coupon row or null.
+ */
+export async function findValidCoupon(code, { customerId, merchantId, orderTotal }) {
+  const result = await validateCouponByCode(code, {
+    customerId,
+    merchantId,
+    orderTotal,
+  });
+  return result.coupon;
 }
 
 /**
@@ -131,6 +316,7 @@ export async function listCustomerCoupons({
        c.company_id,
        c.company_applies_to_all_branches,
        c.created_at,
+       ${couponLifecycleStatusSql("c")} AS coupon_status,
        m.name AS merchant_name,
        comp.name AS company_name,
        CASE
@@ -265,7 +451,10 @@ export async function listCustomerCoupons({
      LIMIT $3`,
     [safeCustomerId, safeMerchantId, safeLimit]
   );
-  return r.rows;
+  return r.rows.map((row) => ({
+    ...row,
+    coupon_status: row.coupon_status || "unknown",
+  }));
 }
 
 // ── Admin CRUD ────────────────────────────────────────────────────────────────
@@ -315,7 +504,7 @@ export async function listCoupons({
   let idx = scope.nextParamIndex;
 
   if (activeOnly) {
-    conditions.push(`c.is_active = TRUE`);
+    conditions.push(`${couponLifecycleStatusSql("c")} = 'active'`);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -324,6 +513,7 @@ export async function listCoupons({
   const r = await q(
     `SELECT
        c.*,
+       ${couponLifecycleStatusSql("c")} AS coupon_status,
        m.name AS merchant_name,
        COALESCE(metrics.completed_orders_count, 0)::INT AS completed_orders_count,
        COALESCE(metrics.gross_sales_total, 0)::NUMERIC(12,2) AS gross_sales_total,
@@ -383,7 +573,10 @@ export async function listCoupons({
      LIMIT $${idx} OFFSET $${idx + 1}`,
     params
   );
-  return r.rows;
+  return r.rows.map((row) => ({
+    ...row,
+    coupon_status: row.coupon_status || "unknown",
+  }));
 }
 
 export async function getCouponStats({
@@ -406,14 +599,11 @@ export async function getCouponStats({
   const summaryQuery = `
     SELECT
       COUNT(*)::INT AS total_coupons,
-      COUNT(*) FILTER (WHERE c.is_active = TRUE)::INT AS active_coupons,
-      COUNT(*) FILTER (WHERE c.is_active = FALSE)::INT AS inactive_coupons,
-      COUNT(*) FILTER (
-        WHERE c.valid_until IS NOT NULL AND c.valid_until < NOW()
-      )::INT AS expired_coupons,
-      COUNT(*) FILTER (
-        WHERE c.valid_from IS NOT NULL AND c.valid_from > NOW()
-      )::INT AS scheduled_coupons,
+      COUNT(*) FILTER (WHERE ${couponLifecycleStatusSql("c")} = 'active')::INT AS active_coupons,
+      COUNT(*) FILTER (WHERE ${couponLifecycleStatusSql("c")} = 'inactive')::INT AS inactive_coupons,
+      COUNT(*) FILTER (WHERE ${couponLifecycleStatusSql("c")} = 'expired')::INT AS expired_coupons,
+      COUNT(*) FILTER (WHERE ${couponLifecycleStatusSql("c")} = 'scheduled')::INT AS scheduled_coupons,
+      COUNT(*) FILTER (WHERE ${couponLifecycleStatusSql("c")} = 'exhausted')::INT AS exhausted_coupons,
       COALESCE(SUM(c.uses_count), 0)::INT AS total_uses,
       COALESCE(
         SUM(
@@ -554,6 +744,7 @@ export async function getCouponStats({
       inactiveCoupons: Number(summary.inactive_coupons || 0),
       expiredCoupons: Number(summary.expired_coupons || 0),
       scheduledCoupons: Number(summary.scheduled_coupons || 0),
+      exhaustedCoupons: Number(summary.exhausted_coupons || 0),
       totalUses,
       totalDiscountGiven,
       grossSalesTotal: Number(summary.gross_sales_total || 0),
@@ -587,53 +778,11 @@ export async function findValidCouponByIdOrCode(
   { couponId = null, code = null },
   { customerId, merchantId, orderTotal }
 ) {
-  const normalizedCouponId = Number(couponId || 0);
-  const normalizedCode =
-    typeof code === "string" && code.trim().length > 0 ? code.trim() : null;
-
-  if (normalizedCouponId > 0) {
-    const r = await q(
-      `SELECT c.*
-       FROM coupon c
-       LEFT JOIN merchant target_merchant ON target_merchant.id = $2
-       WHERE c.id = $1
-         AND c.is_active = TRUE
-         AND (c.valid_from  IS NULL OR c.valid_from  <= NOW())
-         AND (c.valid_until IS NULL OR c.valid_until >= NOW())
-         AND (c.max_uses    IS NULL OR c.uses_count < c.max_uses)
-         AND (
-           (c.scope_kind = 'global' AND c.merchant_id IS NULL AND c.company_id IS NULL)
-           OR (c.scope_kind = 'merchant' AND c.merchant_id = $2)
-           OR (
-             c.scope_kind = 'company'
-             AND target_merchant.company_id IS NOT NULL
-             AND c.company_id = target_merchant.company_id
-             AND (
-               c.company_applies_to_all_branches = TRUE
-               OR EXISTS (
-                 SELECT 1
-                 FROM company_coupon_target cct
-                 WHERE cct.coupon_id = c.id
-                   AND cct.merchant_id = $2
-               )
-             )
-           )
-         )
-         AND (c.min_order_total = 0  OR $3 >= c.min_order_total)
-         AND NOT EXISTS (
-           SELECT 1 FROM coupon_redemption cr
-           WHERE cr.coupon_id = c.id
-             AND cr.customer_id = $4
-             AND COALESCE(cr.is_void, FALSE) = FALSE
-         )
-       LIMIT 1`,
-      [normalizedCouponId, merchantId || null, Number(orderTotal || 0), customerId]
-    );
-    return r.rows[0] || null;
-  }
-
-  if (!normalizedCode) return null;
-  return findValidCoupon(normalizedCode, { customerId, merchantId, orderTotal });
+  const result = await validateCouponByIdOrCode(
+    { couponId, code },
+    { customerId, merchantId, orderTotal }
+  );
+  return result.coupon;
 }
 
 export async function toggleCouponActive(couponId, isActive) {

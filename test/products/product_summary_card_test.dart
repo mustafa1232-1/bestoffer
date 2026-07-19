@@ -362,6 +362,101 @@ void main() {
     expect(cachedImage(tester, '/main.jpg').imageUrl, '/main.jpg');
   });
 
+  testWidgets(
+    'detailed specifications render inside the card with item detail lines',
+    (tester) async {
+      final product = buildProduct(
+        name: 'منتج مفصل',
+        categoryName: 'cloths',
+        attributes: const [
+          {
+            'code': 'material',
+            'labelAr': 'الخامة',
+            'labelEn': 'Material',
+            'valueText': 'Cotton',
+            'showInCard': true,
+            'showInDetails': true,
+          },
+        ],
+        variantGroups: const [
+          {
+            'code': 'color',
+            'labelAr': 'اللون',
+            'labelEn': 'Color',
+            'displayMode': 'swatches',
+            'selectionMode': 'single',
+            'required': true,
+            'options': [
+              {
+                'code': 'red',
+                'labelAr': 'أحمر',
+                'labelEn': 'Red',
+                'swatchHex': '#FF0000',
+                'isAvailable': true,
+              },
+            ],
+          },
+          {
+            'code': 'size',
+            'labelAr': 'المقاس',
+            'labelEn': 'Size',
+            'displayMode': 'chips',
+            'selectionMode': 'single',
+            'required': true,
+            'options': [
+              {
+                'code': 'm',
+                'labelAr': 'M',
+                'labelEn': 'M',
+                'isAvailable': true,
+              },
+            ],
+          },
+        ],
+        variants: const [
+          {
+            'id': 51,
+            'signature': 'color:red|size:m',
+            'selections': [
+              {'groupCode': 'color', 'optionCode': 'red'},
+              {'groupCode': 'size', 'optionCode': 'm'},
+            ],
+            'stockQuantity': 7,
+            'isAvailable': true,
+          },
+        ],
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          ProductSummaryCard.fromProduct(
+            product,
+            compact: false,
+            showDetailedSpecifications: true,
+            detailedSpecificationLines: const [
+              'المقاس: صغير / وسط / كبير',
+              'الخامة: قطن 100%',
+            ],
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final card = tester.widget<ProductSummaryCard>(
+        find.byType(ProductSummaryCard),
+      );
+      expect(card.showDetailedSpecifications, isTrue);
+      expect(card.data.detailedSpecificationLines, hasLength(2));
+      expect(card.data.specificationBadges, isNotEmpty);
+      expect(find.text('Full specifications'), findsOneWidget);
+      expect(find.text('المقاس: صغير / وسط / كبير'), findsOneWidget);
+      expect(find.text('الخامة: قطن 100%'), findsOneWidget);
+      expect(find.textContaining('Cotton'), findsWidgets);
+      expect(find.text('Color'), findsOneWidget);
+      expect(find.text('Size'), findsOneWidget);
+    },
+  );
+
   test('tracked zero-stock variants do not preselect in quick order flows', () {
     final product = buildProduct(
       name: 'Ù…Ù†ØªØ¬ ØºÙŠØ± Ù…ØªØ§Ø­',

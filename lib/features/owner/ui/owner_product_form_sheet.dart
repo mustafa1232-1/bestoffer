@@ -8,6 +8,7 @@ import '../../merchants/utils/catalog_taxonomy.dart';
 import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
 import '../../products/ui/product_summary_card.dart';
+import '../../products/utils/product_variant_label_set.dart';
 
 class ProductFormData {
   final String name;
@@ -321,6 +322,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
   List<Map<String, dynamic>> _buildVariantGroups(
     List<LocalImageFile> variantFiles,
   ) {
+    final variantLabels = productVariantLabelsForCatalogType(_catalogType);
     final groups = <Map<String, dynamic>>[];
     final colors = _colors
         .where((item) => item.name.text.trim().isNotEmpty)
@@ -329,8 +331,8 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     if (colors.isNotEmpty) {
       groups.add({
         'code': 'color',
-        'labelAr': 'اللون',
-        'labelEn': 'Color',
+        'labelAr': variantLabels.colorLabelAr,
+        'labelEn': variantLabels.colorLabelEn,
         'displayMode': 'swatches',
         'selectionMode': 'single',
         'required': true,
@@ -359,8 +361,8 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     if (sizes.isNotEmpty) {
       groups.add({
         'code': 'size',
-        'labelAr': 'المقاس',
-        'labelEn': 'Size',
+        'labelAr': variantLabels.sizeLabelAr,
+        'labelEn': variantLabels.sizeLabelEn,
         'displayMode': 'chips',
         'selectionMode': 'single',
         'required': true,
@@ -1346,6 +1348,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
   }
 
   ProductSummaryCardData _previewData() {
+    final variantLabels = productVariantLabelsForCatalogType(_catalogType);
     final title = nameCtrl.text.trim().isEmpty
         ? 'اسم المنتج'
         : nameCtrl.text.trim();
@@ -1523,6 +1526,10 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
       selectedSizeCode: previewSizes.isNotEmpty
           ? previewSizes.first.code
           : null,
+      colorGroupLabelAr: variantLabels.colorLabelAr,
+      colorGroupLabelEn: variantLabels.colorLabelEn,
+      sizeGroupLabelAr: variantLabels.sizeLabelAr,
+      sizeGroupLabelEn: variantLabels.sizeLabelEn,
     );
   }
 

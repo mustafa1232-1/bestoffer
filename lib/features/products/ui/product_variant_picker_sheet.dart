@@ -9,6 +9,12 @@ Future<List<Map<String, dynamic>>?> showProductVariantPickerSheet(
   BuildContext context, {
   required ProductModel product,
   List<Map<String, dynamic>> initialSelections = const [],
+  String? colorGroupLabelAr,
+  String? colorGroupLabelEn,
+  String? sizeGroupLabelAr,
+  String? sizeGroupLabelEn,
+  String? unavailablePromptAr,
+  String? unavailablePromptEn,
 }) {
   if (!product.hasVariants || product.variantGroups.isEmpty) {
     return Future.value(const <Map<String, dynamic>>[]);
@@ -22,6 +28,12 @@ Future<List<Map<String, dynamic>>?> showProductVariantPickerSheet(
       return _ProductVariantPickerSheet(
         product: product,
         initialSelections: initialSelections,
+        colorGroupLabelAr: colorGroupLabelAr,
+        colorGroupLabelEn: colorGroupLabelEn,
+        sizeGroupLabelAr: sizeGroupLabelAr,
+        sizeGroupLabelEn: sizeGroupLabelEn,
+        unavailablePromptAr: unavailablePromptAr,
+        unavailablePromptEn: unavailablePromptEn,
       );
     },
   );
@@ -30,10 +42,22 @@ Future<List<Map<String, dynamic>>?> showProductVariantPickerSheet(
 class _ProductVariantPickerSheet extends StatefulWidget {
   final ProductModel product;
   final List<Map<String, dynamic>> initialSelections;
+  final String? colorGroupLabelAr;
+  final String? colorGroupLabelEn;
+  final String? sizeGroupLabelAr;
+  final String? sizeGroupLabelEn;
+  final String? unavailablePromptAr;
+  final String? unavailablePromptEn;
 
   const _ProductVariantPickerSheet({
     required this.product,
     required this.initialSelections,
+    required this.colorGroupLabelAr,
+    required this.colorGroupLabelEn,
+    required this.sizeGroupLabelAr,
+    required this.sizeGroupLabelEn,
+    required this.unavailablePromptAr,
+    required this.unavailablePromptEn,
   });
 
   @override
@@ -237,6 +261,19 @@ class _ProductVariantPickerSheetState
   Widget build(BuildContext context) {
     final basePrice = widget.product.discountedPrice ?? widget.product.price;
     final locale = Localizations.localeOf(context);
+    final colorGroupLabel = context.lt(
+      ar: widget.colorGroupLabelAr ?? 'اللون',
+      en: widget.colorGroupLabelEn ?? 'Color',
+    );
+    final sizeGroupLabel = context.lt(
+      ar: widget.sizeGroupLabelAr ?? 'المقاس',
+      en: widget.sizeGroupLabelEn ?? 'Size',
+    );
+    final unavailablePrompt = context.lt(
+      ar: widget.unavailablePromptAr ?? 'هذا اللون/المقاس غير متوفر حالياً',
+      en: widget.unavailablePromptEn ??
+          'This color/size is currently unavailable',
+    );
     final totalPrice =
         _selectedVariant?.discountedPriceOverride ??
         _selectedVariant?.priceOverride ??
@@ -291,6 +328,10 @@ class _ProductVariantPickerSheetState
                   priceTextOverride: formatIqd(totalPrice),
                   selectedColorCode: _selectedColorCode,
                   selectedSizeCode: _selectedSizeCode,
+                  colorGroupLabelAr: colorGroupLabel,
+                  colorGroupLabelEn: colorGroupLabel,
+                  sizeGroupLabelAr: sizeGroupLabel,
+                  sizeGroupLabelEn: sizeGroupLabel,
                 ),
                 appearance: ProductSummaryCardAppearance.fromContext(context),
                 compact: false,
@@ -317,13 +358,19 @@ class _ProductVariantPickerSheetState
               const SizedBox(height: 16),
               ...widget.product.variantGroups.map((group) {
                 final selected = _selectedOptionFor(group.code);
+                final normalizedCode = group.code.trim().toLowerCase();
+                final groupTitle = normalizedCode == 'color'
+                    ? colorGroupLabel
+                    : normalizedCode == 'size'
+                    ? sizeGroupLabel
+                    : group.title;
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        group.title,
+                        groupTitle,
                         textDirection: TextDirection.rtl,
                         style: const TextStyle(
                           fontSize: 14,
@@ -413,10 +460,7 @@ class _ProductVariantPickerSheetState
                 Padding(
                   padding: const EdgeInsets.only(top: 2, bottom: 6),
                   child: Text(
-                    context.lt(
-                      ar: 'هذا اللون/المقاس غير متوفر حالياً',
-                      en: 'This color/size is currently unavailable',
-                    ),
+                    unavailablePrompt,
                     textDirection: TextDirection.rtl,
                     textAlign: TextAlign.center,
                     style: const TextStyle(

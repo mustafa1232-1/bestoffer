@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../files/local_image_file.dart';
 import '../forms/inline_field_error_text.dart';
 import '../i18n/app_localizations_context.dart';
+import 'package:maslaki/l10n/app_localizations.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -30,7 +31,7 @@ class ImagePickerField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
+    final l10n = _safeLocalizations(context);
     final theme = Theme.of(context);
     final hasError = errorText != null && errorText!.trim().isNotEmpty;
     final borderColor = hasError
@@ -83,18 +84,26 @@ class ImagePickerField extends StatelessWidget {
               TextButton.icon(
                 onPressed: onClear,
                 icon: const Icon(Icons.delete_outline),
-                label: Text(l10n.commonRemoveImage),
+                label: Text(l10n?.commonRemoveImage ?? 'إزالة الصورة'),
               ),
             const Spacer(),
             OutlinedButton.icon(
               onPressed: onPick,
               icon: const Icon(Icons.photo_library_outlined),
-              label: Text(l10n.commonChooseFromDevice),
+              label: Text(l10n?.commonChooseFromDevice ?? 'اختيار من الجهاز'),
             ),
           ],
         ),
       ],
     );
+  }
+
+  AppLocalizations? _safeLocalizations(BuildContext context) {
+    try {
+      return context.l10n;
+    } catch (_) {
+      return null;
+    }
   }
 
   Widget _buildPreview(BuildContext context) {

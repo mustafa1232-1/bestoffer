@@ -110,10 +110,17 @@ export function resolveRoleAppSurface(role) {
   return null;
 }
 
+export function isCompanyBackofficeRole(role) {
+  return resolveRoleAppSurface(role) === "company";
+}
+
 export function isRoleAllowedForSurface(role, surface) {
   const normalizedSurface = normalizeAppSurface(surface);
   if (!normalizedSurface) return false;
   const normalizedRole = String(role || "").trim().toLowerCase();
+  if (normalizedSurface === "user" && isCompanyBackofficeRole(normalizedRole)) {
+    return true;
+  }
   if (normalizedRole === "super_admin" && normalizedSurface === "user") {
     return true;
   }

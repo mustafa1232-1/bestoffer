@@ -5,9 +5,15 @@ import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_field_error_resolver.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/widgets/app_user_drawer.dart';
+import '../../auth/state/auth_controller.dart';
 import '../models/pending_delivery_account_model.dart';
 import '../models/pending_taxi_profile_edit_request_model.dart';
 import '../state/admin_controller.dart';
+import 'admin_approvals_hub_screen.dart';
+import 'admin_dashboard_screen.dart';
+import 'admin_services_hub_screen.dart';
+import 'admin_service_provider_subscription_requests_screen.dart';
 import 'admin_taxi_captain_details_screen.dart';
 
 class AdminTaxiCaptainRequestsScreen extends ConsumerStatefulWidget {
@@ -33,6 +39,82 @@ class _AdminTaxiCaptainRequestsScreenState
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Widget _buildAdminDrawer() {
+    final auth = ref.watch(authControllerProvider);
+    return AppUserDrawer(
+      title: 'لوحة الإدارة',
+      subtitle: auth.user?.fullName,
+      showCommunitySection: false,
+      showSettings: false,
+      enableItemSearch: false,
+      items: [
+        AppUserDrawerItem(
+          icon: Icons.space_dashboard_rounded,
+          label: 'لوحة التحكم',
+          subtitle: 'الصفحة الرئيسية للأدمن',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminDashboardScreen(),
+              ),
+              (route) => false,
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.verified_user_outlined,
+          label: 'حوض الموافقات',
+          subtitle: 'مراجعة الطلبات المعلقة',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminApprovalsHubScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.home_repair_service_outlined,
+          label: 'إدارة الخدمات',
+          subtitle: 'ملخص الخدمات والطلبات',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminServicesHubScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.description_outlined,
+          label: 'طلبات الاشتراك',
+          subtitle: 'عرض طلبات أصحاب الخدمة',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    const AdminServiceProviderSubscriptionRequestsScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.refresh_rounded,
+          label: 'تحديث الصفحة',
+          subtitle: 'إعادة تحميل الموافقات',
+          group: 'الإجراءات',
+          onTap: (_) async {
+            await ref.read(adminControllerProvider.notifier).bootstrap();
+          },
+        ),
+      ],
+    );
   }
 
   Future<void> _openEditReview(
@@ -202,9 +284,8 @@ class _AdminTaxiCaptainRequestsScreenState
   Future<void> _openCaptainDetails(int captainUserId) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AdminTaxiCaptainDetailsScreen(
-          captainUserId: captainUserId,
-        ),
+        builder: (_) =>
+            AdminTaxiCaptainDetailsScreen(captainUserId: captainUserId),
       ),
     );
   }
@@ -215,6 +296,7 @@ class _AdminTaxiCaptainRequestsScreenState
     final state = ref.watch(adminControllerProvider);
 
     return Scaffold(
+      drawer: Drawer(child: _buildAdminDrawer()),
       appBar: AppBar(
         title: Text(l10n.adminTaxiCaptainRequestsTitle),
         bottom: TabBar(
@@ -340,7 +422,8 @@ class _AdminTaxiCaptainRequestsScreenState
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: FilledButton.tonalIcon(
-                                          onPressed: () => _openEditReview(item),
+                                          onPressed: () =>
+                                              _openEditReview(item),
                                           icon: const Icon(Icons.open_in_new),
                                           label: Text(l10n.commonOpen),
                                         ),
@@ -417,19 +500,10 @@ class _CaptainApprovalCard extends StatelessWidget {
                   label: l10n.commonModel,
                   value: '${item.carMake} ${item.carModel}',
                 ),
-                _CaptainChip(
-                  label: l10n.commonYear,
-                  value: '${item.carYear}',
-                ),
-                _CaptainChip(
-                  label: l10n.commonPlate,
-                  value: item.plateNumber,
-                ),
+                _CaptainChip(label: l10n.commonYear, value: '${item.carYear}'),
+                _CaptainChip(label: l10n.commonPlate, value: item.plateNumber),
                 if ((item.block).trim().isNotEmpty)
-                  _CaptainChip(
-                    label: l10n.commonBlock,
-                    value: item.block,
-                ),
+                  _CaptainChip(label: l10n.commonBlock, value: item.block),
               ],
             ),
             const SizedBox(height: 12),

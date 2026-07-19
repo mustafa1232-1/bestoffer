@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../features/notifications/ui/notifications_screen.dart';
 import '../../../features/settings/ui/settings_screen.dart';
+import 'taxi_captain_competitions_screen.dart';
+import 'taxi_captain_notifications_screen.dart';
 import 'taxi_captain_dashboard_screen.dart';
 
 class TaxiCaptainDashboardPage extends StatelessWidget {
@@ -106,12 +107,30 @@ class TaxiCaptainProfilePage extends StatelessWidget {
   }
 }
 
+class TaxiCaptainCompetitionsPage extends StatelessWidget {
+  const TaxiCaptainCompetitionsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const TaxiCaptainCompetitionsScreen();
+  }
+}
+
+class TaxiCaptainNotificationsPage extends StatelessWidget {
+  const TaxiCaptainNotificationsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const TaxiCaptainNotificationsScreen();
+  }
+}
+
 class TaxiNotificationsPage extends StatelessWidget {
   const TaxiNotificationsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const NotificationsScreen();
+    return const TaxiCaptainNotificationsScreen();
   }
 }
 

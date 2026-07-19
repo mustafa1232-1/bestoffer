@@ -47,7 +47,9 @@ export async function ensureSchema() {
   if (ensureSchemaPromise) return ensureSchemaPromise;
 
   ensureSchemaPromise = (async () => {
-    await q(`
+    await q(`SELECT pg_advisory_lock($1)`, [719_244_381]);
+    try {
+      await q(`
       DO $$
       BEGIN
         IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
@@ -1142,7 +1144,11 @@ export async function ensureSchema() {
         dropoff_label            VARCHAR(240) NOT NULL,
         proposed_fare_iqd        INTEGER NOT NULL CHECK (proposed_fare_iqd >= 0),
         agreed_fare_iqd          INTEGER CHECK (agreed_fare_iqd >= 0),
-        search_radius_m          INTEGER NOT NULL DEFAULT 2000 CHECK (search_radius_m BETWEEN 500 AND 10000),
+        search_radius_m          INTEGER NOT NULL DEFAULT 15000 CHECK (search_radius_m BETWEEN 500 AND 15000),
+        pricing_round            SMALLINT NOT NULL DEFAULT 1,
+        previous_proposed_fare_iqd INTEGER,
+        price_raise_required_at  TIMESTAMPTZ,
+        fare_version             INTEGER NOT NULL DEFAULT 1,
         note                     TEXT,
         status                   VARCHAR(32) NOT NULL DEFAULT 'searching',
         share_token              VARCHAR(80) UNIQUE,
@@ -1162,6 +1168,7 @@ export async function ensureSchema() {
         CHECK (
           status IN (
             'searching',
+            'price_raise_required',
             'captain_assigned',
             'captain_arriving',
             'ride_started',
@@ -1195,6 +1202,26 @@ export async function ensureSchema() {
 
     await q(`
       ALTER TABLE taxi_ride_request
+      ADD COLUMN IF NOT EXISTS pricing_round SMALLINT NOT NULL DEFAULT 1;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_request
+      ADD COLUMN IF NOT EXISTS previous_proposed_fare_iqd INTEGER;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_request
+      ADD COLUMN IF NOT EXISTS price_raise_required_at TIMESTAMPTZ;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_request
+      ADD COLUMN IF NOT EXISTS fare_version INTEGER NOT NULL DEFAULT 1;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_request
       ADD COLUMN IF NOT EXISTS next_escalation_at TIMESTAMPTZ;
     `);
 
@@ -1209,6 +1236,15 @@ export async function ensureSchema() {
     `);
 
     await q(`
+      ALTER TABLE taxi_ride_request
+      DROP CONSTRAINT IF EXISTS taxi_ride_request_search_radius_m_check;
+    `);
+    await q(`
+      ALTER TABLE taxi_ride_request
+      DROP CONSTRAINT IF EXISTS taxi_ride_request_status_check;
+    `);
+
+    await q(`
       UPDATE taxi_ride_request
       SET next_escalation_at = COALESCE(
         next_escalation_at,
@@ -1219,6 +1255,115 @@ export async function ensureSchema() {
         END
       )
       WHERE next_escalation_at IS NULL;
+    `);
+
+    await q(`
+      DO $$
+      DECLARE
+        constraint_name text;
+      BEGIN
+        SELECT conname
+          INTO constraint_name
+        FROM pg_constraint
+        WHERE conrelid = 'taxi_ride_request'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) ILIKE '%status IN (%';
+
+        IF constraint_name IS NOT NULL THEN
+          EXECUTE format(
+            'ALTER TABLE taxi_ride_request DROP CONSTRAINT %I',
+            constraint_name
+          );
+        END IF;
+
+        SELECT conname
+          INTO constraint_name
+        FROM pg_constraint
+        WHERE conrelid = 'taxi_ride_request'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) ILIKE '%search_radius_m BETWEEN%';
+
+        IF constraint_name IS NOT NULL THEN
+          EXECUTE format(
+            'ALTER TABLE taxi_ride_request DROP CONSTRAINT %I',
+            constraint_name
+          );
+        END IF;
+      END
+      $$;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_request
+      DROP CONSTRAINT IF EXISTS chk_taxi_ride_request_status;
+    `);
+    await q(`
+      ALTER TABLE taxi_ride_request
+      ADD CONSTRAINT chk_taxi_ride_request_status
+      CHECK (
+        status IN (
+          'searching',
+          'price_raise_required',
+          'captain_assigned',
+          'captain_arriving',
+          'ride_started',
+          'completed',
+          'cancelled',
+          'expired'
+        )
+      );
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_request
+      DROP CONSTRAINT IF EXISTS chk_taxi_ride_request_search_radius_m;
+    `);
+    await q(`
+      ALTER TABLE taxi_ride_request
+      ADD CONSTRAINT chk_taxi_ride_request_search_radius_m
+      CHECK (search_radius_m BETWEEN 500 AND 15000);
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_decline
+      ADD COLUMN IF NOT EXISTS pricing_round SMALLINT NOT NULL DEFAULT 1;
+    `);
+
+    await q(`
+      UPDATE taxi_ride_decline
+      SET pricing_round = COALESCE(pricing_round, 1);
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_decline
+      DROP CONSTRAINT IF EXISTS taxi_ride_decline_ride_request_captain_round_key;
+    `);
+
+    await q(`
+      DO $$
+      DECLARE
+        constraint_name text;
+      BEGIN
+        SELECT conname
+          INTO constraint_name
+        FROM pg_constraint
+        WHERE conrelid = 'taxi_ride_decline'::regclass
+          AND contype = 'u';
+
+        IF constraint_name IS NOT NULL THEN
+          EXECUTE format(
+            'ALTER TABLE taxi_ride_decline DROP CONSTRAINT %I',
+            constraint_name
+          );
+        END IF;
+      END
+      $$;
+    `);
+
+    await q(`
+      ALTER TABLE taxi_ride_decline
+      ADD CONSTRAINT taxi_ride_decline_ride_request_captain_round_key
+      UNIQUE (ride_request_id, captain_user_id, pricing_round);
     `);
 
     await q(`
@@ -1641,6 +1786,13 @@ export async function ensureSchema() {
       ALTER COLUMN difference_amount SET DEFAULT 0,
       ALTER COLUMN difference_amount SET NOT NULL;
     `);
+    } finally {
+      try {
+        await q(`SELECT pg_advisory_unlock($1)`, [719_244_381]);
+      } catch (unlockError) {
+        console.error("[db] ensureSchema advisory unlock failed:", unlockError?.message || unlockError);
+      }
+    }
   })();
 
   return ensureSchemaPromise;

@@ -84,7 +84,8 @@ async function expectRidePriceRaiseRecommended(
     const ride = extractRide(response.data);
     if (
       Number(ride?.id || 0) === Number(expectedRideId) &&
-      ride?.priceRaiseRecommended === true
+      (ride?.priceRaiseRecommended === true ||
+        ride?.status === "price_raise_required")
     ) {
       return ride;
     }
@@ -289,6 +290,8 @@ async function main() {
       buildPhone("078", timestampSeed + 11),
       buildPhone("078", timestampSeed + 12),
       buildPhone("078", timestampSeed + 13),
+      buildPhone("078", timestampSeed + 14),
+      buildPhone("078", timestampSeed + 15),
     ],
     superAdminId: await ensureSuperAdminAccount(),
     customerUserId: null,
@@ -554,7 +557,7 @@ async function main() {
       baseUrl,
       captains[0].actor,
       "GET",
-      "/api/taxi/captain/nearby-requests?radiusM=4000&limit=10"
+      "/api/taxi/captain/nearby-requests?radiusM=15000&limit=10"
     );
     assertStatus(nearbyBeforeRide, 200, "nearby requests before ride");
     assert.equal(nearbyBeforeRide.data?.items?.length || 0, 0);
@@ -572,7 +575,7 @@ async function main() {
           headingDeg: 90,
           speedKmh: 0,
           accuracyM: 6,
-          radiusM: 4000,
+          radiusM: 15000,
         }
       );
       assertStatus(captainPresence, 200, `captain ${index + 1} presence`);
@@ -586,7 +589,7 @@ async function main() {
       pickupLabel: `Rejected taxi pickup ${runTag}`,
       dropoffLabel: `Rejected taxi dropoff ${runTag}`,
       proposedFareIqd: 12000,
-      searchRadiusM: 3000,
+      searchRadiusM: 15000,
       note: `ride-rejects-${runTag}`,
     });
     assertStatus(rejectedRideCreate, 201, "create ride for rejection threshold");
@@ -608,7 +611,7 @@ async function main() {
         baseUrl,
         captainCtx.actor,
         "GET",
-        "/api/taxi/captain/nearby-requests?radiusM=4000&limit=10"
+        "/api/taxi/captain/nearby-requests?radiusM=15000&limit=10"
       );
       assertStatus(nearbyRequests, 200, `nearby requests before decline ${index + 1}`);
       assert.ok(
@@ -637,12 +640,12 @@ async function main() {
       baseUrl,
       customer,
       rejectedRideId,
-      "price raise after three distinct rejects"
+      "price raise after five distinct rejects"
     );
     assert.equal(
       Number(rideAfterRejects?.rejectedCaptainsCount || 0),
-      3,
-      "ride should expose three captain rejects"
+      5,
+      "ride should expose five captain rejects"
     );
     await expectNotification(
       {
@@ -650,7 +653,7 @@ async function main() {
         type: "taxi.ride.price_raise_recommended",
         payloadChecks: { rideId: rejectedRideId },
       },
-      "price raise notification after three rejects"
+      "price raise notification after five rejects"
     );
 
     const cancelRejectedRide = await request(
@@ -675,7 +678,7 @@ async function main() {
       pickupLabel: `Timeout taxi pickup ${runTag}`,
       dropoffLabel: `Timeout taxi dropoff ${runTag}`,
       proposedFareIqd: 9000,
-      searchRadiusM: 3000,
+      searchRadiusM: 15000,
       note: `ride-timeout-${runTag}`,
     });
     assertStatus(timeoutRideCreate, 201, "create ride for timeout threshold");
@@ -729,7 +732,7 @@ async function main() {
         pickupLabel: `Direct accept pickup ${runTag}`,
         dropoffLabel: `Direct accept dropoff ${runTag}`,
         proposedFareIqd: 16000,
-        searchRadiusM: 3000,
+        searchRadiusM: 15000,
         note: `direct-accept-${runTag}`,
       }
     );
@@ -821,7 +824,7 @@ async function main() {
         pickupLabel: `Race pickup ${runTag}`,
         dropoffLabel: `Race dropoff ${runTag}`,
         proposedFareIqd: 17000,
-        searchRadiusM: 3000,
+        searchRadiusM: 15000,
         note: `race-accept-${runTag}`,
       }
     );
@@ -925,7 +928,7 @@ async function main() {
       pickupLabel: `Taxi pickup ${runTag}`,
       dropoffLabel: `Taxi dropoff ${runTag}`,
       proposedFareIqd: 12000,
-      searchRadiusM: 3000,
+      searchRadiusM: 15000,
       note: `ride-note-${runTag}`,
     });
     assertStatus(createRide, 201, "create ride");
@@ -937,7 +940,7 @@ async function main() {
       baseUrl,
       captains[0].actor,
       "GET",
-      "/api/taxi/captain/nearby-requests?radiusM=4000&limit=10"
+      "/api/taxi/captain/nearby-requests?radiusM=15000&limit=10"
     );
     assertStatus(happyNearbyRequests, 200, "nearby requests for active ride");
     assert.ok(

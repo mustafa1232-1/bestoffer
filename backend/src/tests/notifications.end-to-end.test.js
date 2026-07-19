@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { q } from "../config/db.js";
+import { runSqlMigrations } from "../config/sqlMigrations.js";
 import { createCustomerAddress, createUser } from "../modules/auth/auth.repo.js";
 import { hashPin } from "../shared/utils/hash.js";
 import * as hrRepo from "../modules/hr/hr.repo.js";
@@ -56,6 +57,14 @@ async function createTestUser({
     analyticsConsentGrantedAt: new Date().toISOString(),
     chatQualityReviewConsent: true,
   });
+}
+
+let serviceOfferingModerationMigrationApplied = false;
+
+async function ensureServiceOfferingModerationMigration() {
+  if (serviceOfferingModerationMigrationApplied) return;
+  await runSqlMigrations({ force: true });
+  serviceOfferingModerationMigrationApplied = true;
 }
 
 async function cleanupWorkspace({
@@ -1259,12 +1268,17 @@ test("service request notifications target the provider owner and permitted empl
   };
 
   try {
+    const admin = await createTestUser({
+      fullName: `Services Admin ${makeSuffix("svc-admin-")}`,
+      phone: makePhone(30),
+      role: "admin",
+    });
     const providerOwner = await createTestUser({
       fullName: `Provider Owner ${makeSuffix("provider-owner-")}`,
       phone: makePhone(31),
       role: "service_provider",
     });
-    trackedIds.userIds.push(Number(providerOwner.id));
+    trackedIds.userIds.push(Number(admin.id), Number(providerOwner.id));
 
     const provider = await createApprovedProvider(
       providerOwner.id,
@@ -1347,6 +1361,64 @@ test("service request notifications target the provider owner and permitted empl
       mediaUrls: [],
     });
     assert.ok(offering);
+
+    const pendingOfferingsBeforeReview = await servicesService.listOfferingsForAdmin({
+      query: {
+        offeringStatus: "pending",
+        limit: 20,
+        offset: 0,
+      },
+    });
+    assert.ok(
+      Array.isArray(pendingOfferingsBeforeReview) &&
+        pendingOfferingsBeforeReview.some(
+          (item) => Number(item?.id || 0) === Number(offering.id)
+        ),
+      "admin should see newly published service offering in the review queue"
+    );
+
+    await ensureServiceOfferingModerationMigration();
+    await servicesService.adminUpdateOfferingStatus({
+      offeringId: offering.id,
+      dto: {
+        status: "changes_requested",
+        note: "Please add service images and clarify the description.",
+      },
+      adminUserId: admin.id,
+    });
+
+    const pendingOfferingsAfterReview = await servicesService.listOfferingsForAdmin({
+      query: {
+        offeringStatus: "pending",
+        limit: 20,
+        offset: 0,
+      },
+    });
+    assert.ok(
+      Array.isArray(pendingOfferingsAfterReview) &&
+        pendingOfferingsAfterReview.some(
+          (item) => Number(item?.id || 0) === Number(offering.id)
+        ),
+      "changes-requested service offering should remain visible in the review queue"
+    );
+
+    const offeringModerationNotifications = await q(
+      `SELECT user_id, payload
+       FROM app_notification
+       WHERE type = 'services.offering.status.changes_requested'
+         AND payload->>'offeringId' = $1
+       ORDER BY user_id ASC`,
+      [String(offering.id)]
+    );
+    assert.equal(offeringModerationNotifications.rowCount, 1);
+    assert.equal(
+      Number(offeringModerationNotifications.rows[0].user_id),
+      Number(providerOwner.id)
+    );
+    assert.equal(
+      offeringModerationNotifications.rows[0].payload?.target,
+      "services_provider_workspace"
+    );
 
     const customer = await createTestUser({
       fullName: `Service Customer ${makeSuffix("service-customer-")}`,

@@ -3,6 +3,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/widgets/app_user_drawer.dart';
+import '../../auth/state/auth_controller.dart';
+import 'admin_approvals_hub_screen.dart';
+import 'admin_dashboard_screen.dart';
 import '../state/admin_controller.dart';
 import 'admin_service_provider_subscription_requests_screen.dart';
 
@@ -111,7 +115,9 @@ class _AdminServicesHubScreenState
       title: 'مراجعة مقدم الخدمة',
       statusOptions: const ['approved', 'rejected', 'suspended', 'pending'],
       initialStatus: _text(row['providerApprovalStatus'], 'pending'),
-      onSubmit: (status, note) => ref.read(adminApiProvider).updateServiceProviderModeration(
+      onSubmit: (status, note) => ref
+          .read(adminApiProvider)
+          .updateServiceProviderModeration(
             providerId: _int(row['id']),
             status: status,
             note: note,
@@ -122,9 +128,18 @@ class _AdminServicesHubScreenState
   Future<void> _reviewOffering(Map<String, dynamic> row) async {
     await _showStatusActionDialog(
       title: 'مراجعة الخدمة',
-      statusOptions: const ['approved', 'rejected', 'paused', 'pending'],
+      statusOptions: const [
+        'approved',
+        'rejected',
+        'changes_requested',
+        'hidden',
+        'pending',
+      ],
       initialStatus: _text(row['moderationStatus'], 'pending'),
-      onSubmit: (status, note) => ref.read(adminApiProvider).updateServiceOfferingModeration(
+      optionLabelBuilder: _offeringStatusLabel,
+      onSubmit: (status, note) => ref
+          .read(adminApiProvider)
+          .updateServiceOfferingModeration(
             offeringId: _int(row['id']),
             status: status,
             note: note,
@@ -138,7 +153,9 @@ class _AdminServicesHubScreenState
       statusOptions: const ['approved', 'rejected', 'merged'],
       initialStatus: 'approved',
       statusLabel: 'الإجراء',
-      onSubmit: (status, note) => ref.read(adminApiProvider).reviewServiceCategorySuggestion(
+      onSubmit: (status, note) => ref
+          .read(adminApiProvider)
+          .reviewServiceCategorySuggestion(
             suggestionId: _int(row['id']),
             action: status,
             reviewNote: note,
@@ -151,7 +168,9 @@ class _AdminServicesHubScreenState
       title: 'مراجعة البلاغ',
       statusOptions: const ['resolved', 'rejected', 'pending'],
       initialStatus: _text(row['status'], 'pending'),
-      onSubmit: (status, note) => ref.read(adminApiProvider).reviewServiceReport(
+      onSubmit: (status, note) => ref
+          .read(adminApiProvider)
+          .reviewServiceReport(
             reportId: _int(row['id']),
             status: status,
             reviewNote: note,
@@ -173,9 +192,7 @@ class _AdminServicesHubScreenState
             child: TextField(
               controller: controller,
               maxLines: 12,
-              decoration: const InputDecoration(
-                labelText: 'قيمة JSON',
-              ),
+              decoration: const InputDecoration(labelText: 'قيمة JSON'),
             ),
           ),
           actions: [
@@ -198,20 +215,19 @@ class _AdminServicesHubScreenState
         value = controller.text;
       }
       setState(() => _saving = true);
-      await ref.read(adminApiProvider).upsertServiceModuleSetting(
-            key: _text(row['key']),
-            value: value,
-          );
+      await ref
+          .read(adminApiProvider)
+          .upsertServiceModuleSetting(key: _text(row['key']), value: value);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تحديث الإعداد.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم تحديث الإعداد.')));
       await _load();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
     } finally {
       controller.dispose();
       if (mounted) setState(() => _saving = false);
@@ -223,6 +239,7 @@ class _AdminServicesHubScreenState
     required List<String> statusOptions,
     required String initialStatus,
     String statusLabel = 'الحالة',
+    String Function(String status)? optionLabelBuilder,
     required Future<void> Function(String status, String? note) onSubmit,
   }) async {
     final noteCtrl = TextEditingController();
@@ -246,7 +263,9 @@ class _AdminServicesHubScreenState
                           .map(
                             (value) => DropdownMenuItem<String>(
                               value: value,
-                              child: Text(value),
+                              child: Text(
+                                optionLabelBuilder?.call(value) ?? value,
+                              ),
                             ),
                           )
                           .toList(),
@@ -288,24 +307,118 @@ class _AdminServicesHubScreenState
         noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ التحديث.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم حفظ التحديث.')));
       await _load();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
     } finally {
       noteCtrl.dispose();
       if (mounted) setState(() => _saving = false);
     }
   }
 
+  String _offeringStatusLabel(String value) {
+    switch (value.trim().toLowerCase()) {
+      case 'approved':
+        return 'منشورة';
+      case 'rejected':
+        return 'مرفوضة';
+      case 'changes_requested':
+        return 'تحتاج تعديلات';
+      case 'hidden':
+        return 'مخفية';
+      case 'pending':
+        return 'بانتظار المراجعة';
+      default:
+        return value;
+    }
+  }
+
+  Widget _buildAdminDrawer() {
+    final auth = ref.watch(authControllerProvider);
+    return AppUserDrawer(
+      title: 'لوحة الإدارة',
+      subtitle: auth.user?.fullName,
+      showCommunitySection: false,
+      showSettings: false,
+      enableItemSearch: false,
+      items: [
+        AppUserDrawerItem(
+          icon: Icons.space_dashboard_rounded,
+          label: 'لوحة التحكم',
+          subtitle: 'الصفحة الرئيسية للأدمن',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminDashboardScreen(),
+              ),
+              (route) => false,
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.verified_user_outlined,
+          label: 'حوض الموافقات',
+          subtitle: 'مراجعة كل الطلبات المعلقة',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminApprovalsHubScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.home_repair_service_outlined,
+          label: 'إدارة الخدمات',
+          subtitle: 'ملخص الطلبات والعروض',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminServicesHubScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.description_outlined,
+          label: 'طلبات الاشتراك',
+          subtitle: 'عرض طلبات أصحاب الخدمة',
+          group: 'التنقل',
+          onTap: (_) async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    const AdminServiceProviderSubscriptionRequestsScreen(),
+              ),
+            );
+          },
+        ),
+        AppUserDrawerItem(
+          icon: Icons.refresh_rounded,
+          label: 'تحديث الصفحة',
+          subtitle: 'إعادة تحميل إحصائيات الخدمات',
+          group: 'الإجراءات',
+          onTap: (_) async {
+            await _load();
+          },
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      drawer: Drawer(child: _buildAdminDrawer()),
       appBar: AppBar(
         title: const Text('إدارة الخدمات'),
         actions: [
@@ -370,7 +483,9 @@ class _AdminServicesHubScreenState
                         ),
                         trailing: IconButton(
                           icon: const Icon(Icons.rule_folder_outlined),
-                          onPressed: _saving ? null : () => _reviewProvider(row),
+                          onPressed: _saving
+                              ? null
+                              : () => _reviewProvider(row),
                         ),
                       ),
                     )
@@ -393,7 +508,9 @@ class _AdminServicesHubScreenState
                         ),
                         trailing: IconButton(
                           icon: const Icon(Icons.rule_folder_outlined),
-                          onPressed: _saving ? null : () => _reviewOffering(row),
+                          onPressed: _saving
+                              ? null
+                              : () => _reviewOffering(row),
                         ),
                       ),
                     )
@@ -416,7 +533,9 @@ class _AdminServicesHubScreenState
                         ),
                         trailing: IconButton(
                           icon: const Icon(Icons.rule_folder_outlined),
-                          onPressed: _saving ? null : () => _reviewSuggestion(row),
+                          onPressed: _saving
+                              ? null
+                              : () => _reviewSuggestion(row),
                         ),
                       ),
                     )
@@ -475,9 +594,9 @@ class _AdminServicesHubScreenState
                       (row) => ListTile(
                         title: Text(_text(row['key'])),
                         subtitle: Text(
-                          const JsonEncoder.withIndent('  ').convert(
-                            row['value'] ?? const <String, dynamic>{},
-                          ),
+                          const JsonEncoder.withIndent(
+                            '  ',
+                          ).convert(row['value'] ?? const <String, dynamic>{}),
                           maxLines: 4,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -502,6 +621,28 @@ class _StatsSection extends StatelessWidget {
 
   const _StatsSection({required this.stats});
 
+  String _text(dynamic value, [String fallback = '']) {
+    final text = '${value ?? ''}'.trim();
+    return text.isEmpty ? fallback : text;
+  }
+
+  String _formatListValue(List<dynamic> values) {
+    if (values.isEmpty) return '—';
+    final mapRows = values.whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList(growable: false);
+    if (mapRows.isNotEmpty) {
+      return mapRows
+          .take(4)
+          .map((row) {
+            final name = _text(row['name'], _text(row['title'], 'عنصر'));
+            final count = row['offeringsCount'] ?? row['count'] ?? row['itemsCount'];
+            if (count == null) return name;
+            return '$name · ${_text(count)}';
+          })
+          .join(' • ');
+    }
+    return values.take(4).map((value) => _text(value, '—')).join(' • ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final cards = <Widget>[];
@@ -510,6 +651,8 @@ class _StatsSection extends StatelessWidget {
         value.forEach((childKey, childValue) {
           cards.add(_StatChip(label: '$key.$childKey', value: '$childValue'));
         });
+      } else if (value is List) {
+        cards.add(_StatChip(label: key, value: _formatListValue(value)));
       } else {
         cards.add(_StatChip(label: key, value: '$value'));
       }
@@ -527,11 +670,7 @@ class _StatsSection extends StatelessWidget {
             const SizedBox(height: 10),
             if (cards.isEmpty) const Text('لا توجد بيانات إحصائية حاليًا.'),
             if (cards.isNotEmpty)
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: cards,
-              ),
+              Wrap(spacing: 8, runSpacing: 8, children: cards),
           ],
         ),
       ),

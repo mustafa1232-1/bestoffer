@@ -667,6 +667,10 @@ class CompanyCoupon {
   final double discountValue;
   final bool appliesToAllBranches;
   final bool isActive;
+  final String status;
+  final String couponStatus;
+  final String? validFrom;
+  final String? validUntil;
   final List<Map<String, dynamic>> targets;
 
   const CompanyCoupon({
@@ -676,10 +680,24 @@ class CompanyCoupon {
     required this.discountValue,
     required this.appliesToAllBranches,
     required this.isActive,
+    required this.status,
+    required this.couponStatus,
+    required this.validFrom,
+    required this.validUntil,
     required this.targets,
   });
 
   factory CompanyCoupon.fromJson(Map<String, dynamic> json) {
+    final couponStatus =
+        '${json['couponStatus'] ?? json['coupon_status'] ?? ''}'.trim();
+    final status = couponStatus.isNotEmpty
+        ? couponStatus
+        : '${json['status'] ?? ''}'.trim();
+    final effectiveStatus = status.isNotEmpty
+        ? status
+        : (_toBool(json['isActive'] ?? json['is_active'], true)
+            ? 'active'
+            : 'inactive');
     return CompanyCoupon(
       id: _toInt(json['id']),
       code: '${json['code'] ?? ''}'.trim(),
@@ -692,6 +710,10 @@ class CompanyCoupon {
             json['company_applies_to_all_branches'],
       ),
       isActive: _toBool(json['isActive'] ?? json['is_active'], true),
+      status: effectiveStatus,
+      couponStatus: effectiveStatus,
+      validFrom: _toNullableString(json['validFrom'] ?? json['valid_from']),
+      validUntil: _toNullableString(json['validUntil'] ?? json['valid_until']),
       targets: _toMapList(json['targets']),
     );
   }

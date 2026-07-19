@@ -111,7 +111,10 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       );
       if (!mounted) return;
       setState(() {
-        _appliedCoupon = result['coupon'] as Map<String, dynamic>?;
+        final rawCoupon = result['coupon'];
+        _appliedCoupon = rawCoupon is Map
+            ? Map<String, dynamic>.from(rawCoupon)
+            : null;
         _couponDiscount = (result['discountAmount'] as num?)?.toInt() ?? 0;
         _checkingCoupon = false;
       });

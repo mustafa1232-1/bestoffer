@@ -104,6 +104,7 @@ String? taxiRideDisplayState(Map<String, dynamic>? ride) {
   final status = trackingString(ride?['status'])?.toLowerCase();
   if (status == null) return null;
   if (_terminalTaxiStatuses.contains(status)) return 'terminal';
+  if (status == 'price_raise_required') return 'price_raise_required';
   if (_activeTaxiStatuses.contains(status)) return 'active';
   if (status == 'searching') {
     return ride?['currentBidId'] != null ? 'negotiating' : 'searching';

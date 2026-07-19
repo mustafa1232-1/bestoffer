@@ -597,35 +597,20 @@ class _SharedReelPreview extends StatelessWidget {
         : (reel.authorHandle?.trim().isNotEmpty == true
               ? reel.authorHandle!.trim()
               : 'Original reel');
+    final posterUrl = (presentation.posterImageUrl ?? '').trim();
+    final playbackUrl = (presentation.videoPlaybackUrl ?? '').trim();
 
-    final media = presentation.isVertical
-        ? SocialSafeImage(
-            imageUrl: presentation.posterImageUrl,
-            fit: BoxFit.cover,
-            showVideoGlyph: true,
+    final media = playbackUrl.isNotEmpty
+        ? _SharedReelPlaybackPreview(
+            playbackUrl: playbackUrl,
+            posterUrl: posterUrl,
+            isVertical: presentation.isVertical,
+            aspectRatio: presentation.aspectRatio ?? reel.aspectRatio,
           )
-        : Stack(
-            fit: StackFit.expand,
-            children: [
-              ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
-                child: SocialSafeImage(
-                  imageUrl: presentation.posterImageUrl,
-                  fit: BoxFit.cover,
-                  showVideoGlyph: true,
-                ),
-              ),
-              Center(
-                child: AspectRatio(
-                  aspectRatio: presentation.aspectRatio ?? (16 / 9),
-                  child: SocialSafeImage(
-                    imageUrl: presentation.posterImageUrl,
-                    fit: BoxFit.contain,
-                    showVideoGlyph: true,
-                  ),
-                ),
-              ),
-            ],
+        : _SharedReelPosterPreview(
+            posterUrl: posterUrl,
+            isVertical: presentation.isVertical,
+            aspectRatio: presentation.aspectRatio ?? reel.aspectRatio,
           );
 
     return Stack(
@@ -696,6 +681,211 @@ class _SharedReelPreview extends StatelessWidget {
               ),
             ),
           ),
+      ],
+    );
+  }
+}
+
+class _SharedReelPosterPreview extends StatelessWidget {
+  const _SharedReelPosterPreview({
+    required this.posterUrl,
+    required this.isVertical,
+    required this.aspectRatio,
+  });
+
+  final String posterUrl;
+  final bool isVertical;
+  final double aspectRatio;
+
+  @override
+  Widget build(BuildContext context) {
+    final poster = posterUrl.trim();
+    if (poster.isEmpty) {
+      return const DecoratedBox(
+        decoration: BoxDecoration(color: Color(0xFF0D1B2A)),
+        child: Center(
+          child: Icon(
+            Icons.play_circle_outline_rounded,
+            color: Colors.white54,
+            size: 72,
+          ),
+        ),
+      );
+    }
+    return isVertical
+        ? SocialSafeImage(
+            imageUrl: poster,
+            fit: BoxFit.cover,
+            showVideoGlyph: true,
+          )
+        : Stack(
+            fit: StackFit.expand,
+            children: [
+              ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+                child: SocialSafeImage(
+                  imageUrl: poster,
+                  fit: BoxFit.cover,
+                  showVideoGlyph: true,
+                ),
+              ),
+              Center(
+                child: AspectRatio(
+                  aspectRatio: aspectRatio,
+                  child: SocialSafeImage(
+                    imageUrl: poster,
+                    fit: BoxFit.contain,
+                    showVideoGlyph: true,
+                  ),
+                ),
+              ),
+            ],
+          );
+  }
+}
+
+class _SharedReelPlaybackPreview extends StatefulWidget {
+  const _SharedReelPlaybackPreview({
+    required this.playbackUrl,
+    required this.posterUrl,
+    required this.isVertical,
+    required this.aspectRatio,
+  });
+
+  final String playbackUrl;
+  final String posterUrl;
+  final bool isVertical;
+  final double aspectRatio;
+
+  @override
+  State<_SharedReelPlaybackPreview> createState() =>
+      _SharedReelPlaybackPreviewState();
+}
+
+class _SharedReelPlaybackPreviewState extends State<_SharedReelPlaybackPreview> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    try {
+      final uri = Uri.parse(widget.playbackUrl);
+      final controller = VideoPlayerController.networkUrl(uri);
+      await controller.initialize();
+      await controller.setLooping(true);
+      await controller.setVolume(0);
+      await controller.play();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _controller = controller;
+        _ready = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _ready = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  Widget _fallbackPoster() {
+    final poster = widget.posterUrl.trim();
+    if (poster.isEmpty) {
+      return const DecoratedBox(
+        decoration: BoxDecoration(color: Color(0xFF0D1B2A)),
+        child: Center(
+          child: Icon(
+            Icons.play_circle_outline_rounded,
+            color: Colors.white54,
+            size: 72,
+          ),
+        ),
+      );
+    }
+    return widget.isVertical
+        ? SocialSafeImage(
+            imageUrl: poster,
+            fit: BoxFit.cover,
+            showVideoGlyph: true,
+          )
+        : Stack(
+            fit: StackFit.expand,
+            children: [
+              ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+                child: SocialSafeImage(
+                  imageUrl: poster,
+                  fit: BoxFit.cover,
+                  showVideoGlyph: true,
+                ),
+              ),
+              Center(
+                child: AspectRatio(
+                  aspectRatio: widget.aspectRatio,
+                  child: SocialSafeImage(
+                    imageUrl: poster,
+                    fit: BoxFit.contain,
+                    showVideoGlyph: true,
+                  ),
+                ),
+              ),
+            ],
+          );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready || _controller == null) {
+      return _fallbackPoster();
+    }
+
+    final controller = _controller!;
+    final aspect = controller.value.aspectRatio <= 0
+        ? widget.aspectRatio
+        : controller.value.aspectRatio;
+    final player = FittedBox(
+      fit: widget.isVertical ? BoxFit.cover : BoxFit.contain,
+      child: SizedBox(
+        width: controller.value.size.width,
+        height: controller.value.size.height,
+        child: VideoPlayer(controller),
+      ),
+    );
+
+    if (widget.isVertical) {
+      return player;
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ImageFiltered(
+          imageFilter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: VideoPlayer(controller),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.4)),
+        ),
+        Center(
+          child: AspectRatio(
+            aspectRatio: aspect,
+            child: player,
+          ),
+        ),
       ],
     );
   }

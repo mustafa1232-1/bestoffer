@@ -1,7 +1,7 @@
 ﻿import crypto from "crypto";
 
 import { env } from "../../config/env.js";
-import { pool, q } from "../../config/db.js";
+import { ensureSchema, pool, q } from "../../config/db.js";
 import {
   normalizeBid,
   normalizeCallSession,
@@ -17,14 +17,17 @@ import {
 } from "./taxi.mappers.js";
 
 const ACTIVE_RIDE_STATUSES = [
+  "price_raise_required",
   "searching",
   "captain_assigned",
   "captain_arriving",
   "ride_started",
 ];
-const ACTIVE_ASSIGNED_RIDE_STATUSES = ACTIVE_RIDE_STATUSES.filter(
-  (status) => status !== "searching"
-);
+const ACTIVE_ASSIGNED_RIDE_STATUSES = [
+  "captain_assigned",
+  "captain_arriving",
+  "ride_started",
+];
 const TAXI_STATUS_TRANSITION_QUERY_OPTIONS = {
   query_timeout: Math.max(Number(env.dbQueryTimeoutMs || 25_000), 60_000),
   statement_timeout: Math.max(Number(env.dbStatementTimeoutMs || 20_000), 60_000),
@@ -118,6 +121,8 @@ export async function upsertCaptainPresence({
   speedKmh,
   accuracyM,
 }) {
+  await ensureSchema();
+
   const hasCoordinates = latitude != null && longitude != null;
 
   const r = await q(
@@ -271,6 +276,8 @@ export async function createRideRequest({
   fareAfterDiscountIqd = null,
   couponSettlementState = "none",
 }) {
+  await ensureSchema();
+
   const r = await q(
     `INSERT INTO taxi_ride_request
       (
@@ -288,6 +295,10 @@ export async function createRideRequest({
         final_acceptance_deadline_at,
         note,
         status,
+        pricing_round,
+        previous_proposed_fare_iqd,
+        price_raise_required_at,
+        fare_version,
         schedule_mode,
         scheduled_ride_id,
         scheduled_for,
@@ -299,7 +310,7 @@ export async function createRideRequest({
         fare_after_discount_iqd,
         coupon_settlement_state
       )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,NOW() + INTERVAL '5 minutes',NOW() + INTERVAL '5 minutes',$10,'searching',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,NOW() + INTERVAL '5 minutes',NOW() + INTERVAL '5 minutes',$10,'searching',1,NULL,NULL,1,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
      RETURNING *`,
     [
       Number(customerUserId),
@@ -379,7 +390,7 @@ export async function getCaptainCurrentRide(captainUserId) {
        AND r.status = ANY($2::text[])
      ORDER BY r.created_at DESC
      LIMIT 1`,
-    [Number(captainUserId), ACTIVE_RIDE_STATUSES.filter((s) => s !== "searching")]
+    [Number(captainUserId), ACTIVE_ASSIGNED_RIDE_STATUSES]
   );
   return normalizeRide(r.rows[0]);
 }
@@ -1838,7 +1849,7 @@ export async function getRideCallState(rideId, { signalLimit = 160 } = {}) {
   return { session, signals };
 }
 
-export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 3000, limit = 40 } = {}) {
+export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 15000, limit = 40 } = {}) {
   const presence = await getCaptainPresence(captainUserId);
   if (!presence || !presence.isOnline || presence.latitude == null || presence.longitude == null) {
     return [];
@@ -1888,6 +1899,7 @@ export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 3
      LEFT JOIN taxi_ride_decline td
        ON td.ride_request_id = r.id
       AND td.captain_user_id = $3
+      AND COALESCE(td.pricing_round, 1) = COALESCE(r.pricing_round, 1)
      WHERE r.status = 'searching'
        AND td.id IS NULL
        AND ${distanceExpr} <= r.search_radius_m
@@ -1913,12 +1925,14 @@ export function isTaxiTrackableRideStatus(status) {
 }
 
 export async function declineRideByCaptain({ rideId, captainUserId }) {
+  await ensureSchema();
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
     const rideLock = await client.query(
-      `SELECT id, status
+      `SELECT id, status, pricing_round
        FROM taxi_ride_request
        WHERE id = $1
        FOR UPDATE`,
@@ -1934,25 +1948,56 @@ export async function declineRideByCaptain({ rideId, captainUserId }) {
       return { code: "RIDE_NOT_SEARCHING", currentStatus: ride.status };
     }
 
+    const pricingRound = Math.max(1, Number(ride.pricing_round) || 1);
     const insertDecline = await client.query(
-      `INSERT INTO taxi_ride_decline (ride_request_id, captain_user_id)
-       VALUES ($1, $2)
-       ON CONFLICT (ride_request_id, captain_user_id) DO NOTHING
+      `INSERT INTO taxi_ride_decline (ride_request_id, captain_user_id, pricing_round)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (ride_request_id, captain_user_id, pricing_round) DO NOTHING
        RETURNING id`,
-      [Number(rideId), Number(captainUserId)]
+      [Number(rideId), Number(captainUserId), pricingRound]
     );
 
-    if (insertDecline.rows[0]) {
+    const rejectedCountResult = await client.query(
+      `SELECT COUNT(*)::int AS rejected_captains_count
+       FROM taxi_ride_decline
+       WHERE ride_request_id = $1
+         AND COALESCE(pricing_round, 1) = $2`,
+      [Number(rideId), pricingRound]
+    );
+    const rejectedCaptainsCount = Number(
+      rejectedCountResult.rows[0]?.rejected_captains_count || 0
+    );
+
+    if (rejectedCaptainsCount >= 5) {
+      await client.query(
+        `UPDATE taxi_ride_bid
+         SET status = 'rejected',
+             updated_at = NOW()
+         WHERE ride_request_id = $1
+           AND status = 'active'`,
+        [Number(rideId)]
+      );
       await client.query(
         `UPDATE taxi_ride_request
-         SET rejected_captains_count = (
-           SELECT COUNT(*)::int
-           FROM taxi_ride_decline
-           WHERE ride_request_id = $1
-         ),
+         SET status = 'price_raise_required',
+             price_raise_required_at = COALESCE(price_raise_required_at, NOW()),
+             current_bid_id = NULL,
+             rejected_captains_count = $2,
+             search_phase = 1,
+             next_escalation_at = NULL,
+             final_acceptance_deadline_at = NULL,
+             search_radius_m = GREATEST(search_radius_m, 15000),
              updated_at = NOW()
          WHERE id = $1`,
-        [Number(rideId)]
+        [Number(rideId), rejectedCaptainsCount]
+      );
+    } else if (insertDecline.rows[0]) {
+      await client.query(
+        `UPDATE taxi_ride_request
+         SET rejected_captains_count = $2,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [Number(rideId), rejectedCaptainsCount]
       );
     }
 
@@ -1962,6 +2007,94 @@ export async function declineRideByCaptain({ rideId, captainUserId }) {
       code: "OK",
       ride: fullRide,
       inserted: !!insertDecline.rows[0],
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function raiseRideFare({
+  rideId,
+  customerUserId,
+  proposedFareIqd,
+}) {
+  await ensureSchema();
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const rideLock = await client.query(
+      `SELECT *
+       FROM taxi_ride_request
+       WHERE id = $1
+         AND customer_user_id = $2
+       FOR UPDATE`,
+      [Number(rideId), Number(customerUserId)]
+    );
+    const ride = rideLock.rows[0];
+    if (!ride) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_FOUND" };
+    }
+
+    if (String(ride.status || "").trim().toLowerCase() !== "price_raise_required") {
+      await client.query("ROLLBACK");
+      return {
+        code: "RIDE_NOT_PRICE_RAISE_REQUIRED",
+        currentStatus: ride.status,
+      };
+    }
+
+    const currentFare = Number(ride.proposed_fare_iqd);
+    const nextFare = Number(proposedFareIqd);
+    if (!Number.isFinite(nextFare) || nextFare <= currentFare) {
+      await client.query("ROLLBACK");
+      return {
+        code: "FARE_NOT_INCREASED",
+        currentFare,
+      };
+    }
+
+    await client.query(
+      `UPDATE taxi_ride_bid
+       SET status = 'rejected',
+           updated_at = NOW()
+       WHERE ride_request_id = $1
+         AND status = 'active'`,
+      [Number(rideId)]
+    );
+
+    await client.query(
+      `UPDATE taxi_ride_request
+       SET previous_proposed_fare_iqd = proposed_fare_iqd,
+           proposed_fare_iqd = $2,
+           pricing_round = COALESCE(pricing_round, 1) + 1,
+           fare_version = COALESCE(fare_version, 1) + 1,
+           rejected_captains_count = 0,
+           current_bid_id = NULL,
+           price_raise_required_at = NULL,
+           price_raise_prompted_at = NULL,
+           search_phase = 1,
+           next_escalation_at = NOW() + INTERVAL '5 minutes',
+           final_acceptance_deadline_at = NOW() + INTERVAL '5 minutes',
+           search_radius_m = GREATEST(search_radius_m, 15000),
+           status = 'searching',
+           updated_at = NOW()
+       WHERE id = $1`,
+      [Number(rideId), nextFare]
+    );
+
+    const fullRide = await queryRideById(client, rideId);
+    await client.query("COMMIT");
+    return {
+      code: "OK",
+      ride: fullRide,
+      previousFareIqd: currentFare,
+      nextFareIqd: nextFare,
     };
   } catch (error) {
     await client.query("ROLLBACK");
@@ -2015,7 +2148,7 @@ export async function hasActiveBids(rideId) {
   return Boolean(r.rows[0]);
 }
 
-export async function advanceRideToExpandedSearch({ rideId, expandedRadiusM = 4000 }) {
+export async function advanceRideToExpandedSearch({ rideId, expandedRadiusM = 15000 }) {
   const r = await q(
     `UPDATE taxi_ride_request
      SET search_phase = 2,

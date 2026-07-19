@@ -780,19 +780,30 @@ async function listEligibleCouriersTx(
              WHERE ca.status = 'pending'
                AND ca.requested_at >= NOW() - INTERVAL '20 minute'
            )::int AS recent_pending_count
-         FROM courier_assignment ca
-         WHERE ca.courier_user_id = u.id
-       ) fatigue ON TRUE
-       WHERE u.id = $1
-         AND ${DELIVERY_APPROVED_FILTER}
-         AND (
-           COALESCE(cp.driver_type, CASE WHEN mda.delivery_user_id IS NULL THEN '${DRIVER_TYPE_APP}' ELSE '${DRIVER_TYPE_STORE}' END) = '${DRIVER_TYPE_APP}'
-           OR (
-             COALESCE(cp.driver_type, CASE WHEN mda.delivery_user_id IS NULL THEN '${DRIVER_TYPE_APP}' ELSE '${DRIVER_TYPE_STORE}' END) = '${DRIVER_TYPE_STORE}'
-             AND mda.delivery_user_id IS NOT NULL
-           )
-         )`,
-      [Number(explicitCourierUserId), Number(merchantId)]
+       FROM courier_assignment ca
+       WHERE ca.courier_user_id = u.id
+     ) fatigue ON TRUE
+     WHERE u.id = $1
+       AND ${DELIVERY_APPROVED_FILTER}
+       AND EXISTS (
+         SELECT 1
+         FROM courier_presence presence
+         WHERE presence.courier_user_id = u.id
+           AND presence.is_online = TRUE
+           AND presence.updated_at >= NOW() - ($3::int * INTERVAL '1 second')
+       )
+       AND (
+         COALESCE(cp.driver_type, CASE WHEN mda.delivery_user_id IS NULL THEN '${DRIVER_TYPE_APP}' ELSE '${DRIVER_TYPE_STORE}' END) = '${DRIVER_TYPE_APP}'
+         OR (
+           COALESCE(cp.driver_type, CASE WHEN mda.delivery_user_id IS NULL THEN '${DRIVER_TYPE_APP}' ELSE '${DRIVER_TYPE_STORE}' END) = '${DRIVER_TYPE_STORE}'
+           AND mda.delivery_user_id IS NOT NULL
+         )
+        )`,
+      [
+        Number(explicitCourierUserId),
+        Number(merchantId),
+        courierPresenceMaxAgeSeconds(),
+      ]
     );
     const normalizedBlock = String(customerBlock || "").trim();
     return explicit.rows.map((row) => {
@@ -855,15 +866,22 @@ async function listEligibleCouriersTx(
            WHERE ca.status = 'pending'
              AND ca.requested_at >= NOW() - INTERVAL '20 minute'
          )::int AS recent_pending_count
-       FROM courier_assignment ca
-       WHERE ca.courier_user_id = u.id
-     ) fatigue ON TRUE
-     WHERE ${DELIVERY_APPROVED_FILTER}
-       AND (
-         (
-           COALESCE(cp.driver_type, '${DRIVER_TYPE_APP}') = '${DRIVER_TYPE_STORE}'
-           AND mda.delivery_user_id IS NOT NULL
-         )
+     FROM courier_assignment ca
+     WHERE ca.courier_user_id = u.id
+   ) fatigue ON TRUE
+    WHERE ${DELIVERY_APPROVED_FILTER}
+      AND EXISTS (
+        SELECT 1
+        FROM courier_presence presence
+        WHERE presence.courier_user_id = u.id
+          AND presence.is_online = TRUE
+          AND presence.updated_at >= NOW() - ($2::int * INTERVAL '1 second')
+      )
+      AND (
+        (
+          COALESCE(cp.driver_type, '${DRIVER_TYPE_APP}') = '${DRIVER_TYPE_STORE}'
+          AND mda.delivery_user_id IS NOT NULL
+        )
          OR
          -- App drivers form a city-wide pool: an available app courier is a
          -- candidate for ANY order (Basmaya is a single compound city). Block
@@ -876,7 +894,7 @@ async function listEligibleCouriersTx(
          COALESCE(cp.driver_type, '${DRIVER_TYPE_APP}') = '${DRIVER_TYPE_APP}'
        )
      ORDER BY u.id DESC`,
-    [Number(merchantId)]
+    [Number(merchantId), courierPresenceMaxAgeSeconds()]
   );
 
   const ranked = r.rows

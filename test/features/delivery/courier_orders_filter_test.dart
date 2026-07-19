@@ -15,7 +15,10 @@ class _SeededDeliveryController extends DeliveryController {
   }
 
   @override
-  Future<void> bootstrap({String? historyDate}) async {}
+  Future<void> bootstrap({
+    String? historyDate,
+    bool forcePresenceSync = false,
+  }) async {}
 
   @override
   void startLiveOrders({Duration interval = const Duration(seconds: 6)}) {}

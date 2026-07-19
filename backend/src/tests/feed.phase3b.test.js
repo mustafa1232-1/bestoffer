@@ -204,6 +204,31 @@ test("validateCreateStory accepts nested storyInteractionSettings", () => {
   assert.equal(result.value.allowReshare, false);
 });
 
+test("validateCreatePost accepts reelStyle alias for reel publishing", () => {
+  const result = validateCreatePost({
+    caption: "Reel overlay",
+    postKind: "reel",
+    reelStyle: {
+      version: 2,
+      mode: "media",
+      layers: [
+        {
+          id: "layer-1",
+          type: "text",
+          text: "Hello reel",
+          color: "#FFFFFF",
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.value.storyStyle.version, 2);
+  assert.equal(result.value.storyStyle.mode, "media");
+  assert.equal(result.value.storyStyle.layers.length, 1);
+  assert.equal(result.value.storyStyle.layers[0].text, "Hello reel");
+});
+
 test("validateCreateStory rejects malformed story interaction booleans", () => {
   const result = validateCreateStory({
     caption: "Story flags",

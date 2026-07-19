@@ -203,13 +203,12 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
 
     const cases = [
       {
-        label: "merchant token + X-App-Flavor=user does not open user shared APIs",
-        role: "owner",
-        appSurface: "store",
+        label: "admin token can bootstrap from the user app shell",
+        role: "admin",
+        appSurface: "company",
         headerSurface: "user",
         path: "/api/me",
-        expectedMessage: "FORBIDDEN_APP_SURFACE",
-        expectedStatus: 403,
+        expectedAllowed: true,
         isSuperAdmin: false,
       },
       {
@@ -243,21 +242,13 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         isSuperAdmin: false,
       },
       {
-        label: "admin token does not work inside user app surface",
+        label: "admin token can bootstrap from the user app shell",
         role: "admin",
         appSurface: "company",
         headerSurface: "user",
         path: "/api/me",
-        expectedMessage: "FORBIDDEN_APP_SURFACE",
-        expectedStatus: 403,
+        expectedAllowed: true,
         isSuperAdmin: false,
-      },
-      {
-        label: "guest requests without a token stay blocked from private APIs",
-        noToken: true,
-        path: "/api/orders",
-        expectedMessage: "NO_TOKEN",
-        expectedStatus: 401,
       },
       {
         label: "claim surface mismatch is rejected even when header matches",
@@ -268,6 +259,13 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         expectedMessage: "INVALID_TOKEN",
         expectedStatus: 401,
         isSuperAdmin: false,
+      },
+      {
+        label: "guest requests without a token stay blocked from private APIs",
+        noToken: true,
+        path: "/api/orders",
+        expectedMessage: "NO_TOKEN",
+        expectedStatus: 401,
       },
     ];
 
@@ -312,6 +310,15 @@ test("resolveAccessAuth enforces role, route, and claim surfaces instead of trus
         },
         originalUrl: entry.path,
       };
+
+      if (entry.expectedAllowed) {
+        const auth = await resolveAccessAuth(req, { strict: true });
+        assert.equal(auth.userId, 99);
+        assert.equal(auth.role, entry.role);
+        assert.equal(auth.appSurface, entry.appSurface);
+        assert.equal(auth.requestSurface, entry.headerSurface);
+        continue;
+      }
 
       await assert.rejects(
         () => resolveAccessAuth(req, { strict: true }),

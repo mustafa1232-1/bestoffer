@@ -73,6 +73,10 @@ test("taxi create-ride validation rejects missing pickup coordinates and zero fa
 test("taxi ride display state keeps searching, active, and terminal states distinct", () => {
   assert.equal(resolveTaxiRideDisplayState({ status: "searching" }), "searching");
   assert.equal(
+    resolveTaxiRideDisplayState({ status: "price_raise_required" }),
+    "price_raise_required"
+  );
+  assert.equal(
     resolveTaxiRideDisplayState({ status: "searching", currentBidId: null }),
     "searching"
   );
@@ -102,7 +106,6 @@ test("taxi compact payload preserves display state flags for public consumers", 
     customerUserId: 7,
     assignedCaptainUserId: null,
     searchPhase: "captains_searching",
-    searchRadiusM: 2000,
     rejectedCaptainsCount: 0,
     priceRaiseRecommended: false,
     priceRaisePromptedAt: null,
@@ -110,6 +113,13 @@ test("taxi compact payload preserves display state flags for public consumers", 
     captainRating: null,
     captainReview: null,
     captainRatedAt: null,
+    pricingRound: 1,
+    previousProposedFareIqd: 11000,
+    priceRaiseRequiredAt: "2026-07-10T00:01:00.000Z",
+    fareVersion: 2,
+    priceRaiseRequired: true,
+    isPriceRaiseRequiredRide: true,
+    searchRadiusM: 15000,
     createdAt: "2026-07-10T00:00:00.000Z",
     updatedAt: "2026-07-10T00:00:00.000Z",
   });
@@ -120,6 +130,9 @@ test("taxi compact payload preserves display state flags for public consumers", 
   assert.equal(payload.isNegotiatingRide, true);
   assert.equal(payload.isTerminalRide, false);
   assert.equal(payload.currentBidId, 44);
+  assert.equal(payload.pricingRound, 1);
+  assert.equal(payload.priceRaiseRequired, true);
+  assert.equal(payload.isPriceRaiseRequiredRide, true);
 });
 
 test("taxi offer helpers preserve multi-captain offer presentation and queue metadata", () => {

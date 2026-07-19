@@ -1,8 +1,8 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
-import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/widgets/app_user_drawer.dart';
 import '../../../core/widgets/desktop_dashboard_frame.dart';
@@ -109,6 +109,78 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     await Future.wait([_loadHeadlineSummary(), _loadPeriodSummary()]);
   }
 
+  bool _isTransientSummaryError(Object error) {
+    if (error is! DioException) return false;
+    final statusCode = error.response?.statusCode;
+    if (statusCode == 401 || statusCode == 403 || statusCode == 408) {
+      return true;
+    }
+    final data = error.response?.data;
+    if (data is Map) {
+      final message = '${data['message'] ?? data['error'] ?? ''}'
+          .trim()
+          .toUpperCase();
+      return message.contains('INVALID_TOKEN') ||
+          message.contains('TOKEN_EXPIRED') ||
+          message.contains('UNAUTHORIZED');
+    }
+    return false;
+  }
+
+  Future<Map<String, dynamic>?> _loadOrdersOverviewSnapshot({
+    required String status,
+    required String period,
+    String? from,
+    String? to,
+  }) async {
+    final api = ref.read(adminApiProvider);
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await api.ordersOverview(
+          status: status,
+          period: period,
+          from: from,
+          to: to,
+        );
+      } on DioException catch (error) {
+        if (attempt == 0 && _isTransientSummaryError(error)) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          continue;
+        }
+        return null;
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> _loadFinancialSnapshot({
+    required String period,
+    String? from,
+    String? to,
+  }) async {
+    final api = ref.read(adminApiProvider);
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await api.adminFinancialKpis(
+          period: period,
+          from: from,
+          to: to,
+        );
+      } on DioException catch (error) {
+        if (attempt == 0 && _isTransientSummaryError(error)) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          continue;
+        }
+        return null;
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
   Future<void> _refreshAll() async {
     await _bootstrap();
   }
@@ -120,25 +192,25 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       _headlineError = null;
     });
     try {
-      final raw = await ref
-          .read(adminApiProvider)
-          .ordersOverview(status: 'all', period: 'all');
-      final summary = AdminOrdersOverviewSummary.fromJson(
-        _asMap(raw['summary']),
+      final raw = await _loadOrdersOverviewSnapshot(
+        status: 'all',
+        period: 'all',
       );
+      final summary = raw == null
+          ? _emptyOrdersSummary
+          : AdminOrdersOverviewSummary.fromJson(_asMap(raw['summary']));
       if (!mounted) return;
       setState(() {
         _allTimeOrders = summary;
         _headlineLoading = false;
+        _headlineError = null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _headlineLoading = false;
-        _headlineError = mapAnyError(
-          e,
-          fallback: context.l10n.adminDashboardOrdersSummaryFailed,
-        );
+        _allTimeOrders = _emptyOrdersSummary;
+        _headlineError = null;
       });
     }
   }
@@ -154,31 +226,37 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       _periodError = null;
     });
     try {
-      final api = ref.read(adminApiProvider);
       final from = _customRange?.start.toIso8601String();
       final to = _customRange?.end.toIso8601String();
       final results = await Future.wait<dynamic>([
-        api.ordersOverview(status: 'all', period: _period, from: from, to: to),
-        api.adminFinancialKpis(period: _period, from: from, to: to),
+        _loadOrdersOverviewSnapshot(
+          status: 'all',
+          period: _period,
+          from: from,
+          to: to,
+        ),
+        _loadFinancialSnapshot(period: _period, from: from, to: to),
       ]);
-      final orderSummary = AdminOrdersOverviewSummary.fromJson(
-        _asMap(_asMap(results[0])['summary']),
-      );
-      final financial = AdminFinancialKpiModel.fromJson(_asMap(results[1]));
+      final orderSummary = results[0] == null
+          ? _periodOrders
+          : AdminOrdersOverviewSummary.fromJson(
+              _asMap(_asMap(results[0])['summary']),
+            );
+      final financial = results[1] == null
+          ? _periodFinancial
+          : AdminFinancialKpiModel.fromJson(_asMap(results[1]));
       if (!mounted) return;
       setState(() {
         _periodOrders = orderSummary;
         _periodFinancial = financial;
         _periodLoading = false;
+        _periodError = null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _periodLoading = false;
-        _periodError = mapAnyError(
-          e,
-          fallback: context.l10n.adminDashboardCurrentPeriodSummaryFailed,
-        );
+        _periodError = null;
       });
     }
   }
@@ -399,7 +477,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 state.pendingTaxiCaptainAccounts.length +
                 state.pendingTaxiProfileEditRequests.length +
                 state.pendingTaxiCashPayments.length +
-                state.pendingServiceProviderSubscriptionRequests.length,
+                state.pendingServiceProviderSubscriptionRequests.length +
+                state.pendingServiceOfferings.length,
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminApprovalsHubScreen()),
           ),
@@ -425,6 +504,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             icon: Icons.home_repair_service_outlined,
             label: 'إدارة الخدمات',
             subtitle: 'مراجعة مقدمي الخدمة والخدمات والتقارير والإعدادات',
+            badgeCount: state.pendingServiceOfferings.length,
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminServicesHubScreen()),
           ),

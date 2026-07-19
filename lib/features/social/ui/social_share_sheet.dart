@@ -27,6 +27,8 @@ String socialEntityTypeFromPost(SocialPost post) {
 
 Map<String, dynamic> buildSocialSharedSnapshotFromPost(SocialPost post) {
   final isMerchantReview = isSocialMerchantReviewPost(post);
+  final posterUrl = resolveSocialPostPosterUrl(post);
+  final playbackUrl = resolveSocialPostVideoUrl(post);
   return <String, dynamic>{
     'id': post.id,
     'postKind': post.postKind,
@@ -34,8 +36,10 @@ Map<String, dynamic> buildSocialSharedSnapshotFromPost(SocialPost post) {
     'caption': post.caption,
     'mediaKind': post.mediaKind,
     'mediaUrl': post.mediaUrl,
-    'posterUrl': post.asset?.thumbnailUrl ?? post.asset?.posterUrl,
-    'playbackUrl': post.asset?.playbackUrl,
+    'posterUrl': posterUrl,
+    'thumbnailUrl': posterUrl,
+    'playbackUrl': playbackUrl ?? post.asset?.playbackUrl,
+    'storyStyle': post.storyStyle,
     'createdAt': post.createdAt?.toIso8601String(),
     'authorName': post.author.fullName,
     'authorUsername': post.author.username,
@@ -58,6 +62,7 @@ Map<String, dynamic> buildSocialSharedSnapshotFromStory({
   required SocialStoryGroup group,
   required SocialStory story,
 }) {
+  final posterUrl = _safePosterUrl(story.asset);
   return <String, dynamic>{
     'id': story.id,
     'type': 'story',
@@ -65,7 +70,8 @@ Map<String, dynamic> buildSocialSharedSnapshotFromStory({
     'caption': story.caption,
     'mediaKind': story.mediaKind,
     'mediaUrl': story.mediaUrl,
-    'posterUrl': story.asset?.thumbnailUrl ?? story.asset?.posterUrl,
+    'posterUrl': posterUrl,
+    'thumbnailUrl': posterUrl,
     'playbackUrl': story.asset?.playbackUrl,
     'createdAt': story.createdAt?.toIso8601String(),
     'author': <String, dynamic>{
@@ -78,6 +84,21 @@ Map<String, dynamic> buildSocialSharedSnapshotFromStory({
     'authorUsername': group.author.username,
     'authorImageUrl': group.author.imageUrl,
   }..removeWhere((_, value) => value == null);
+}
+
+String? _safePosterUrl(SocialMediaAsset? asset) {
+  final candidates = <String?>[
+    asset?.thumbnailUrl,
+    asset?.posterUrl,
+    socialCloudflareThumbnail(asset),
+  ];
+  for (final candidate in candidates) {
+    final value = (candidate ?? '').trim();
+    if (value.isEmpty) continue;
+    if (socialUrlIsVideoOrManifest(value)) continue;
+    return value;
+  }
+  return null;
 }
 
 Future<bool?> showSocialShareSheet({

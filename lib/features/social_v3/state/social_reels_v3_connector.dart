@@ -164,18 +164,7 @@ class _SocialReelsV3ConnectorState
       previewTitle: reel.authorName,
       previewSubtitle: reel.caption,
       externalShareText: links.guardShareUrl(links.reel(post.id)),
-      sharedSnapshot: <String, dynamic>{
-        'id': post.id,
-        'postKind': post.postKind,
-        'caption': post.caption,
-        'mediaKind': post.mediaKind,
-        'playbackUrl': post.asset?.playbackUrl,
-        'posterUrl': post.asset?.posterUrl ?? post.asset?.thumbnailUrl,
-        'thumbnailUrl': post.asset?.thumbnailUrl ?? post.asset?.posterUrl,
-        'authorName': post.author.fullName,
-        'authorUsername': post.author.username,
-        'authorImageUrl': post.author.imageUrl,
-      }..removeWhere((_, value) => value == null),
+      sharedSnapshot: buildSocialSharedSnapshotFromPost(post),
     );
   }
 

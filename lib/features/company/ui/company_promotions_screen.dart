@@ -109,6 +109,55 @@ class _CompanyPromotionsScreenState extends State<CompanyPromotionsScreen>
     }
   }
 
+  String _couponStatusLabel(BuildContext context, String status) {
+    final normalized = status.trim().toLowerCase();
+    final ar = Localizations.localeOf(context).languageCode == 'ar';
+    switch (normalized) {
+      case 'active':
+        return ar ? 'ساري' : 'Active';
+      case 'scheduled':
+        return ar ? 'مجدول' : 'Scheduled';
+      case 'expired':
+        return ar ? 'منتهي' : 'Expired';
+      case 'inactive':
+        return ar ? 'غير مفعل' : 'Inactive';
+      case 'exhausted':
+        return ar ? 'مستنفد' : 'Exhausted';
+      default:
+        return status.isEmpty ? (ar ? 'غير معروف' : 'Unknown') : status;
+    }
+  }
+
+  Color _couponStatusColor(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'active':
+        return Colors.greenAccent;
+      case 'scheduled':
+        return Colors.orangeAccent;
+      case 'expired':
+        return Colors.redAccent;
+      case 'inactive':
+        return Colors.blueGrey;
+      case 'exhausted':
+        return Colors.deepOrangeAccent;
+      default:
+        return Colors.white70;
+    }
+  }
+
+  String? _couponValidUntilText(CompanyCoupon coupon) {
+    final raw = coupon.validUntil?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final local = parsed.toLocal();
+    return '${local.year.toString().padLeft(4, '0')}-'
+        '${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')} '
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+  }
+
   String _campaignTypeLabel(BuildContext context, String type) {
     final l10n = context.l10n;
     switch (type) {
@@ -225,18 +274,27 @@ class _CompanyPromotionsScreenState extends State<CompanyPromotionsScreen>
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          Row(
+                                          Text(
+                                            coupon.code,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleLarge
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
                                             children: [
-                                              Expanded(
-                                                child: Text(
-                                                  coupon.code,
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .titleLarge
-                                                      ?.copyWith(
-                                                        fontWeight:
-                                                            FontWeight.w900,
-                                                      ),
+                                              CompanyStatusChip(
+                                                label: _couponStatusLabel(
+                                                  context,
+                                                  coupon.status,
+                                                ),
+                                                color: _couponStatusColor(
+                                                  coupon.status,
                                                 ),
                                               ),
                                               CompanyStatusChip(
@@ -246,7 +304,6 @@ class _CompanyPromotionsScreenState extends State<CompanyPromotionsScreen>
                                                 ),
                                                 color: Colors.lightBlueAccent,
                                               ),
-                                              const SizedBox(width: 8),
                                               CompanyStatusChip(
                                                 label:
                                                     coupon.appliesToAllBranches
@@ -265,6 +322,23 @@ class _CompanyPromotionsScreenState extends State<CompanyPromotionsScreen>
                                               '${coupon.discountValue}',
                                             ),
                                           ),
+                                          if (_couponValidUntilText(coupon) != null)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 6,
+                                              ),
+                                              child: Text(
+                                                Localizations.localeOf(context)
+                                                            .languageCode ==
+                                                        'ar'
+                                                    ? 'ينتهي في: ${_couponValidUntilText(coupon)}'
+                                                    : 'Valid until: ${_couponValidUntilText(coupon)}',
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.72),
+                                                ),
+                                              ),
+                                            ),
                                         ],
                                       ),
                                     );

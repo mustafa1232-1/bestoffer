@@ -11,6 +11,18 @@ import {
   SERVICE_PRICING_UNITS,
   SERVICE_REQUEST_STATUSES,
 } from './services.constants.js';
+import {
+  bookingPricingTypeVariants,
+  bookingStatusVariants,
+  promotionTypeVariants,
+  normalizeServiceBookingPricingType,
+  normalizeServiceBookingStatus,
+  normalizeServicePromotionType,
+} from './services.booking.constants.js';
+
+const SERVICE_BOOKING_PRICING_TYPES = bookingPricingTypeVariants();
+const SERVICE_BOOKING_STATUSES = bookingStatusVariants();
+const SERVICE_PROMOTION_TYPES = promotionTypeVariants();
 
 function asString(value, max = 2000) {
   if (value === undefined || value === null) return null;
@@ -585,7 +597,9 @@ export function validatePromotionBody(body = {}) {
   const errors = [];
   const title = asString(body.title, 160);
   const description = asString(body.description, 1200);
-  const discountType = normalizeStatus(body.discountType, PROMOTION_TYPES);
+  const discountType =
+    normalizeServicePromotionType(body.discountType) ||
+    normalizeServicePromotionType(body.promotionType);
   const discountValue = asNum(body.discountValue, { min: 0 });
   const specialPrice = asNum(body.specialPrice, { min: 0 });
   const startsAt = asString(body.startsAt, 64);
@@ -669,16 +683,35 @@ export function validateCategorySuggestionBody(body = {}) {
   };
 }
 
+export function validatePublicCategoryBody(body = {}) {
+  const errors = [];
+  const name = asString(body.name, 120);
+  const parentCategoryId = asInt(body.parentCategoryId, { min: 1 });
+  if (!name) errors.push('name');
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      name,
+      parentCategoryId,
+    },
+  };
+}
+
 export function validateServiceRequestBody(body = {}) {
   const errors = [];
   const offeringId = asInt(body.offeringId, { min: 1 });
   const providerId = asInt(body.providerId, { min: 1 });
   const pricingOptionId = asInt(body.pricingOptionId, { min: 1 });
+  const pricingType = normalizeServiceBookingPricingType(
+    body.pricingType ?? body.bookingPricingType ?? body.pricingModel
+  );
   const requestedExecutionMode = normalizeStatus(body.requestedExecutionMode, SERVICE_EXECUTION_MODES);
   const requestedDate = asString(body.requestedDate, 20);
   const requestedTime = asString(body.requestedTime, 20);
   const quantity = asNum(body.quantity, { min: 0 });
   const durationHours = asNum(body.durationHours, { min: 0 });
+  const durationMinutes = asInt(body.durationMinutes, { min: 1, max: 10080 });
   const notes = asString(body.notes, 2000);
   const addressLine = asString(body.addressLine, 300);
   const city = asString(body.city, 120);
@@ -687,9 +720,17 @@ export function validateServiceRequestBody(body = {}) {
   const longitude = asNum(body.longitude, { min: -180, max: 180 });
   const requiresHomeService = asBool(body.requiresHomeService, false);
   const requiresQuote = asBool(body.requiresQuote, false);
+  const expectedPriceVersion = asString(body.expectedPriceVersion, 120);
+  const idempotencyKey = asString(body.idempotencyKey, 160);
+  const hasClientBookingFlowKind =
+    body.bookingFlowKind != null || body.booking_flow_kind != null;
 
   if (!offeringId) errors.push('offeringId');
   if (!providerId) errors.push('providerId');
+  if (body.pricingType != null && !pricingType) errors.push('pricingType');
+  if (body.bookingPricingType != null && !pricingType) errors.push('bookingPricingType');
+  if (body.durationMinutes != null && durationMinutes == null) errors.push('durationMinutes');
+  if (hasClientBookingFlowKind) errors.push('booking_flow_kind');
 
   return {
     ok: errors.length === 0,
@@ -698,11 +739,13 @@ export function validateServiceRequestBody(body = {}) {
       offeringId,
       providerId,
       pricingOptionId,
+      pricingType,
       requestedExecutionMode,
       requestedDate,
       requestedTime,
       quantity,
       durationHours,
+      durationMinutes,
       notes,
       addressLine,
       city,
@@ -711,6 +754,69 @@ export function validateServiceRequestBody(body = {}) {
       longitude,
       requiresHomeService,
       requiresQuote,
+      expectedPriceVersion,
+      idempotencyKey,
+    },
+  };
+}
+
+export function validateServiceBookingPreviewBody(body = {}) {
+  const errors = [];
+  const offeringId = asInt(body.offeringId, { min: 1 });
+  const providerId = asInt(body.providerId, { min: 1 });
+  const pricingType = normalizeServiceBookingPricingType(
+    body.pricingType ?? body.bookingPricingType ?? body.pricingModel
+  );
+  const quantity = asNum(body.quantity, { min: 0 });
+  const durationMinutes = asInt(body.durationMinutes, { min: 1, max: 10080 });
+  const priceVersion = asString(body.priceVersion, 120);
+  const promotionId = asInt(body.promotionId, { min: 1 });
+  const expectedPriceVersion = asString(body.expectedPriceVersion, 120);
+
+  if (!offeringId) errors.push('offeringId');
+  if (!providerId) errors.push('providerId');
+  if (body.pricingType != null && !pricingType) errors.push('pricingType');
+  if (body.durationMinutes != null && durationMinutes == null) errors.push('durationMinutes');
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      offeringId,
+      providerId,
+      pricingType,
+      quantity,
+      durationMinutes,
+      priceVersion,
+      promotionId,
+      expectedPriceVersion,
+    },
+  };
+}
+
+export function validateServiceBookingTransitionBody(body = {}) {
+  const errors = [];
+  const status = normalizeServiceBookingStatus(body.status ?? body.nextStatus);
+  const note = asString(body.note, 1000);
+  const scheduledStartAt = asString(body.scheduledStartAt, 64);
+  const scheduledEndAt = asString(body.scheduledEndAt, 64);
+  const expectedVersion = asInt(body.expectedVersion, { min: 0 });
+  const idempotencyKey = asString(body.idempotencyKey, 160);
+
+  if (!status) errors.push('status');
+  if (body.expectedVersion != null && expectedVersion == null) errors.push('expectedVersion');
+  if (body.idempotencyKey != null && !idempotencyKey) errors.push('idempotencyKey');
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      status,
+      note,
+      scheduledStartAt,
+      scheduledEndAt,
+      expectedVersion,
+      idempotencyKey,
     },
   };
 }
@@ -763,13 +869,28 @@ export function validateQuoteBody(body = {}) {
 
 export function validateRequestStatusBody(body = {}, { providerFlow = false } = {}) {
   const allowed = providerFlow
-    ? ['accepted', 'scheduled', 'in_progress', 'completed', 'rejected', 'cancelled', 'awaiting_provider']
-    : ['cancelled', 'completed'];
+    ? [
+        ...SERVICE_BOOKING_STATUSES,
+        'accepted',
+        'scheduled',
+        'in_progress',
+        'completed',
+        'rejected',
+        'cancelled',
+        'awaiting_provider',
+        'pending_offer',
+        'offer_sent',
+      ]
+    : ['cancelled', 'completed', ...SERVICE_BOOKING_STATUSES];
   const errors = [];
-  const status = normalizeStatus(body.status ?? body.nextStatus, allowed);
+  const status =
+    normalizeServiceBookingStatus(body.status ?? body.nextStatus) ||
+    normalizeStatus(body.status ?? body.nextStatus, allowed);
   const note = asString(body.note, 1000);
   const scheduledStartAt = asString(body.scheduledStartAt, 64);
   const scheduledEndAt = asString(body.scheduledEndAt, 64);
+  const expectedVersion = asInt(body.expectedVersion, { min: 0 });
+  const idempotencyKey = asString(body.idempotencyKey, 160);
 
   if (!status) errors.push('status');
 
@@ -781,6 +902,8 @@ export function validateRequestStatusBody(body = {}, { providerFlow = false } = 
       note,
       scheduledStartAt,
       scheduledEndAt,
+      expectedVersion,
+      idempotencyKey,
     },
   };
 }

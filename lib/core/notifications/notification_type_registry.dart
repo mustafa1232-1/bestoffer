@@ -75,6 +75,32 @@ class NotificationTypeRegistry {
       );
     }
 
+    if (normalizedType == 'taxi.ride.requested' ||
+        normalizedType == 'taxi_ride.requested' ||
+        normalizedType == 'taxi_new_request' ||
+        normalizedType.startsWith('taxi.ride.requested')) {
+      return const NotificationRouteSpec(
+        targetModule: 'taxi',
+        targetScreen: 'taxi_trips_new',
+        fallbackScreen: 'taxi_notifications',
+        allowedRoleScopes: {'taxi_captain', 'taxi'},
+        expectedPayloadKeys: {'rideId'},
+      );
+    }
+
+    if ((normalizedType.startsWith('taxi.') ||
+            normalizedType.startsWith('taxi_')) &&
+        (normalizedType.contains('competition') ||
+            normalizedType.contains('contest') ||
+            normalizedType.contains('loyalty'))) {
+      return const NotificationRouteSpec(
+        targetModule: 'taxi',
+        targetScreen: 'taxi_competitions',
+        fallbackScreen: 'taxi_notifications',
+        allowedRoleScopes: {'taxi_captain', 'taxi'},
+      );
+    }
+
     if (normalizedType == 'taxi_offer_received' ||
         normalizedType == 'taxi_counter_offer_received' ||
         normalizedType == 'taxi_offer_accepted' ||

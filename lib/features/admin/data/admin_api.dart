@@ -439,7 +439,7 @@ class AdminApi {
         'offset': offset,
       },
     );
-    return _safeMapResponse(response.data);
+    return _itemsEnvelopeResponse(response.data);
   }
 
   Future<Map<String, dynamic>> updateServiceProviderModeration({
@@ -470,7 +470,7 @@ class AdminApi {
         'offset': offset,
       },
     );
-    return _safeMapResponse(response.data);
+    return _itemsEnvelopeResponse(response.data);
   }
 
   Future<Map<String, dynamic>> updateServiceOfferingModeration({
@@ -1230,6 +1230,48 @@ class AdminApi {
       );
     }
     return const <String, dynamic>{};
+  }
+
+  Map<String, dynamic> _itemsEnvelopeResponse(dynamic raw) {
+    if (raw is Map<String, dynamic>) {
+      final normalized = raw;
+      final items = normalized['items'];
+      if (items is List) {
+        return normalized;
+      }
+      if (normalized['data'] is List) {
+        return <String, dynamic>{
+          ...normalized,
+          'items': List<dynamic>.from(normalized['data'] as List),
+          'total': _toInt(normalized['total'] ?? normalized['count'] ?? normalized['itemsCount']),
+        };
+      }
+      return normalized;
+    }
+    if (raw is Map) {
+      final normalized = raw.map(
+        (key, value) => MapEntry<String, dynamic>(key.toString(), value),
+      );
+      final items = normalized['items'];
+      if (items is List) {
+        return normalized;
+      }
+      if (normalized['data'] is List) {
+        return <String, dynamic>{
+          ...normalized,
+          'items': List<dynamic>.from(normalized['data'] as List),
+          'total': _toInt(normalized['total'] ?? normalized['count'] ?? normalized['itemsCount']),
+        };
+      }
+      return normalized;
+    }
+    if (raw is List) {
+      return <String, dynamic>{
+        'items': List<dynamic>.from(raw),
+        'total': raw.length,
+      };
+    }
+    return const <String, dynamic>{'items': <dynamic>[], 'total': 0};
   }
 
   Future<Map<String, dynamic>> adminFinancialKpis({

@@ -13,6 +13,7 @@ import 'package:maslaki/features/social_v3/upload/tus_upload_client.dart';
 class _FakeHttpAdapter implements HttpClientAdapter {
   int pollCount = 0;
   final List<String> paths = [];
+  bool sawReelStyle = false;
 
   @override
   void close({bool force = false}) {}
@@ -43,6 +44,10 @@ class _FakeHttpAdapter implements HttpClientAdapter {
         'asset': {'processingStatus': pollCount >= 2 ? 'ready' : 'processing'},
       };
     } else if (path.contains('/feed/reels')) {
+      final data = options.data;
+      if (data is FormData) {
+        sawReelStyle = data.fields.any((field) => field.key == 'reelStyle');
+      }
       body = {
         'reel': {'id': 4242},
       };
@@ -123,11 +128,17 @@ void main() {
         video: picked,
         caption: 'integration',
         audience: 'public',
+        reelStyle: const {
+          'version': 2,
+          'mode': 'media',
+          'layers': <Map<String, dynamic>>[],
+        },
       );
 
       expect(controller.stage, ReelComposerStage.published);
       expect(controller.publishedReelId, 4242);
       expect(controller.assetId, 777);
+      expect(adapter.sawReelStyle, isTrue);
 
       // The real API impl hit exactly the expected endpoints in order.
       expect(

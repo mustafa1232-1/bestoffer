@@ -37,7 +37,7 @@ class _FakeServicesApi extends ServicesApi {
   _FakeServicesApi() : super(Dio());
 
   @override
-  Future<List<Map<String, dynamic>>> listPublicCategories() async {
+  Future<List<Map<String, dynamic>>> listPublicCategories({String? q}) async {
     return <Map<String, dynamic>>[
       <String, dynamic>{
         'id': 1,

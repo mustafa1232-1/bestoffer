@@ -9,6 +9,7 @@ import '../../features/admin/ui/admin_approvals_hub_screen.dart';
 import '../../features/admin/ui/admin_navigation_pages.dart';
 import '../../features/admin/ui/admin_merchant_approvals_screen.dart';
 import '../../features/admin/ui/admin_receivables_screen.dart';
+import '../../features/admin/ui/admin_services_hub_screen.dart';
 import '../../features/admin/ui/admin_social_reports_screen.dart';
 import '../../features/admin/ui/admin_taxi_captain_requests_screen.dart';
 import '../../features/admin/ui/admin_taxi_cash_payments_screen.dart';
@@ -39,6 +40,7 @@ import '../../features/services/ui/service_offering_details_screen.dart';
 import '../../features/services/ui/service_my_requests_screen.dart';
 import '../../features/services/ui/service_provider_profile_screen.dart';
 import '../../features/services/ui/service_request_details_screen.dart';
+import '../../features/services/ui/service_provider_shell.dart';
 import '../../features/services/ui/service_provider_workspace_screen.dart';
 import '../../features/services/ui/services_marketplace_screen.dart';
 import '../../features/social/ui/social_call_screen.dart';
@@ -228,6 +230,20 @@ class NotificationNavigation {
         normalizedType.contains('taxi_trip_details')) {
       return 'taxi_trip_details';
     }
+    if (normalizedType == 'taxi.ride.requested' ||
+        normalizedType == 'taxi_ride.requested' ||
+        normalizedType == 'taxi_ride_requested' ||
+        normalizedType == 'taxi_new_request' ||
+        normalizedType.startsWith('taxi.ride.requested')) {
+      return 'taxi_trips_new';
+    }
+    if ((normalizedType.startsWith('taxi.') ||
+            normalizedType.startsWith('taxi_')) &&
+        (normalizedType.contains('competition') ||
+            normalizedType.contains('contest') ||
+            normalizedType.contains('loyalty'))) {
+      return 'taxi_competitions';
+    }
     if (normalizedType.contains('taxi_trip_cancelled') ||
         normalizedType.contains('taxi.cancel')) {
       return 'taxi_trips_cancelled';
@@ -311,16 +327,16 @@ class NotificationNavigation {
       }
       return 'pharmacy_conversation';
     }
-    if (normalizedType.startsWith('services.')) {
-      if (normalizedType.contains('provider.status')) {
-        return 'services_provider_workspace';
-      }
-      if (normalizedType.contains('provider.pending_approval')) {
-        return 'admin_services_providers_pending';
-      }
-      if (normalizedType.contains('offering.pending_review')) {
-        return 'admin_services_offerings_pending';
-      }
+      if (normalizedType.startsWith('services.')) {
+        if (normalizedType.contains('provider.status')) {
+          return 'services_provider_workspace';
+        }
+        if (normalizedType.contains('provider.pending_approval')) {
+          return 'admin_services_providers_pending';
+        }
+        if (normalizedType.contains('offering.pending_review')) {
+          return 'admin_services_offerings_pending';
+        }
       if (normalizedType.contains('request')) {
         return 'service_request_details';
       }
@@ -684,7 +700,10 @@ class NotificationNavigation {
     final taxiTerminalNotification =
         target == 'taxi_ride_completed' || target == 'taxi_ride_canceled';
     final taxiChatNotification = target == 'taxi_chat_message';
-    final taxiRequestNotification = target == 'taxi_ride_requested';
+    final taxiRequestNotification =
+        target == 'taxi_ride_requested' ||
+        target == 'taxi_new_request' ||
+        target == 'taxi_trips_new';
 
     if (isCustomer) {
       final unavailableSectionRoute = _resolveUnavailableSectionRoute(
@@ -906,7 +925,8 @@ class NotificationNavigation {
       if (target == 'car_listing') {
         if (entityId != null && entityId > 0) {
           return MaterialPageRoute(
-            builder: (_) => CustomerCarListingDetailsScreen(listingId: entityId),
+            builder: (_) =>
+                CustomerCarListingDetailsScreen(listingId: entityId),
           );
         }
         return MaterialPageRoute(
@@ -920,7 +940,8 @@ class NotificationNavigation {
       }
       if (target == 'services_provider_workspace') {
         return MaterialPageRoute(
-          builder: (_) => const ServiceProviderWorkspaceScreen(),
+          builder: (_) =>
+              const ServiceProviderShell(child: ServiceProviderWorkspaceScreen()),
         );
       }
       if (target == 'services_provider_requests' ||
@@ -933,7 +954,9 @@ class NotificationNavigation {
         }
         return MaterialPageRoute(
           builder: (_) => auth.isServiceProvider
-              ? const ServiceProviderWorkspaceScreen()
+              ? const ServiceProviderShell(
+                  child: ServiceProviderWorkspaceScreen(),
+                )
               : const ServiceMyRequestsScreen(),
         );
       }
@@ -1000,6 +1023,16 @@ class NotificationNavigation {
           );
         }
         return MaterialPageRoute(builder: (_) => const TaxiTripsNewPage());
+      }
+      if (target == 'taxi_competitions') {
+        return MaterialPageRoute(
+          builder: (_) => const TaxiCaptainCompetitionsPage(),
+        );
+      }
+      if (target == 'taxi_notifications') {
+        return MaterialPageRoute(
+          builder: (_) => const TaxiCaptainNotificationsPage(),
+        );
       }
       if (taxiOfferNotification || taxiChatNotification) {
         if (rideId != null && rideId > 0) {
@@ -1187,11 +1220,15 @@ class NotificationNavigation {
         );
       }
       if (target == 'admin_services_providers_pending' ||
-          target == 'admin_services_offerings_pending' ||
           target == 'admin_services_requests' ||
           target == 'admin_services_reports') {
         return MaterialPageRoute(
           builder: (_) => const AdminApprovalsHubScreen(),
+        );
+      }
+      if (target == 'admin_services_offerings_pending') {
+        return MaterialPageRoute(
+          builder: (_) => const AdminServicesHubScreen(),
         );
       }
       if (target == 'admin_settlements') {
@@ -1567,7 +1604,9 @@ class NotificationNavigation {
       );
     }
     if (module == 'taxi' && auth.isTaxiCaptain) {
-      return MaterialPageRoute(builder: (_) => const TaxiNotificationsPage());
+      return MaterialPageRoute(
+        builder: (_) => const TaxiCaptainNotificationsPage(),
+      );
     }
     if (module == 'merchant' && auth.isOwner) {
       return MaterialPageRoute(
@@ -1591,7 +1630,9 @@ class NotificationNavigation {
       );
     }
     if (auth.isTaxiCaptain) {
-      return MaterialPageRoute(builder: (_) => const TaxiNotificationsPage());
+      return MaterialPageRoute(
+        builder: (_) => const TaxiCaptainNotificationsPage(),
+      );
     }
     return MaterialPageRoute(builder: (_) => const NotificationsScreen());
   }

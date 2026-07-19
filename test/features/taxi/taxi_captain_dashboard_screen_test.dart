@@ -92,12 +92,16 @@ class _FakeTaxiApi extends TaxiApi {
     required this.dashboard,
     required this.profile,
     required this.subscription,
-  }) : super(Dio());
+    StreamController<TaxiLiveEvent>? streamController,
+  }) : streamController =
+           streamController ?? StreamController<TaxiLiveEvent>.broadcast(),
+       super(Dio());
 
   final List<Map<String, dynamic>> nearbyRequests;
   final Map<String, dynamic> dashboard;
   final Map<String, dynamic> profile;
   final Map<String, dynamic> subscription;
+  final StreamController<TaxiLiveEvent> streamController;
 
   Map<String, dynamic>? currentRideEnvelope;
   final List<int> acceptedCustomerFareRideIds = [];
@@ -180,7 +184,13 @@ class _FakeTaxiApi extends TaxiApi {
   }
 
   @override
-  Stream<TaxiLiveEvent> streamEvents({int? lastEventId}) async* {}
+  Stream<TaxiLiveEvent> streamEvents({int? lastEventId}) {
+    return streamController.stream;
+  }
+
+  void dispose() {
+    streamController.close();
+  }
 }
 
 class _FakeTaxiRouteService extends TaxiRouteService {
@@ -340,6 +350,108 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(api.acceptedCustomerFareRideIds, [101]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'captain app bar exposes competitions and notifications actions',
+    (tester) async {
+      final api = _FakeTaxiApi(
+        nearbyRequests: [_nearbyRequest()],
+        dashboard: {
+          'metrics': {
+            'day': {'ridesCount': 0},
+          },
+        },
+        profile: {
+          'profile': {
+            'id': 42,
+            'fullName': 'Taxi Captain Test',
+            'phone': '07800000000',
+            'carMake': 'Toyota',
+            'carModel': 'Corolla',
+            'carYear': 2022,
+            'carColor': 'Silver',
+            'plateNumber': 'TX-001',
+            'vehicleType': 'sedan',
+            'isActive': true,
+            'deliveryAccountApproved': true,
+            'ratingAvg': 4.8,
+            'ridesCount': 12,
+          },
+        },
+        subscription: {
+          'subscription': {
+            'canAccess': true,
+            'phase': 'trial',
+            'monthlyFeeIqd': 10000,
+            'discountedMonthlyFeeIqd': 0,
+          },
+        },
+      );
+
+      addTearDown(api.dispose);
+      await _pumpScreen(tester, api);
+
+      expect(find.byIcon(Icons.emoji_events_outlined), findsWidgets);
+      expect(find.byIcon(Icons.notifications_active_outlined), findsWidgets);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('captain realtime ride request shows a visible snack', (
+    tester,
+  ) async {
+    final streamController = StreamController<TaxiLiveEvent>.broadcast();
+    final api = _FakeTaxiApi(
+      nearbyRequests: [_nearbyRequest()],
+      dashboard: {
+        'metrics': {
+          'day': {'ridesCount': 0},
+        },
+      },
+      profile: {
+        'profile': {
+          'id': 42,
+          'fullName': 'Taxi Captain Test',
+          'phone': '07800000000',
+          'carMake': 'Toyota',
+          'carModel': 'Corolla',
+          'carYear': 2022,
+          'carColor': 'Silver',
+          'plateNumber': 'TX-001',
+          'vehicleType': 'sedan',
+          'isActive': true,
+          'deliveryAccountApproved': true,
+          'ratingAvg': 4.8,
+          'ridesCount': 12,
+        },
+      },
+      subscription: {
+        'subscription': {
+          'canAccess': true,
+          'phase': 'trial',
+          'monthlyFeeIqd': 10000,
+          'discountedMonthlyFeeIqd': 0,
+        },
+      },
+      streamController: streamController,
+    );
+
+    addTearDown(api.dispose);
+    await _pumpScreen(tester, api);
+
+    streamController.add(
+      const TaxiLiveEvent(
+        event: 'taxi_ride_requested',
+        data: {'rideId': 101},
+        eventId: 1,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('New taxi request arrived'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

@@ -75,6 +75,10 @@ export function mapSocialPostProductRow(row) {
         ? null
         : String(row.audience_scope_code).trim().toUpperCase(),
     caption: row.caption || "",
+    storyStyle:
+      row.story_style && typeof row.story_style === "object" && !Array.isArray(row.story_style)
+        ? row.story_style
+        : {},
     sharedEntity:
       row.shared_entity_type || row.shared_entity_id != null || row.shared_snapshot_json
         ? {

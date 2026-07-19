@@ -124,9 +124,7 @@ void runUserAppBootstrap() {
     // The compile-time line is emitted synchronously so it survives even an
     // early crash; the enriched line adds the runtime applicationId/version.
     debugPrint(BuildInfo.compileTime.toLogLine());
-    unawaited(
-      BuildInfo.load().then((info) => debugPrint(info.toLogLine())),
-    );
+    unawaited(BuildInfo.load().then((info) => debugPrint(info.toLogLine())));
 
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
@@ -455,14 +453,14 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   /// Critical notes:
   /// - Ù‡Ø°Ø§ Ù„ÙŠØ³ route guard ÙƒØ§Ù…Ù„Ø§Ù‹ØŒ Ù„ÙƒÙ†Ù‡ Ø£ÙˆÙ„ Ù†Ù‚Ø·Ø© ØªÙ‚Ø³ÙŠÙ… UX Ø­Ø³Ø¨ Ø§Ù„Ø¯ÙˆØ±.
   Widget _homeForAuth(AuthState auth) {
-    if (auth.isSuperAdmin) {
+    if (auth.isBackoffice) {
       return const AdminDashboardScreen();
     }
     return const MaslakiUserShell();
   }
 
   bool _isUserAppRole(AuthState auth) {
-    return auth.isCustomer || auth.isSuperAdmin;
+    return auth.isCustomer || auth.isBackoffice || auth.isServiceProvider;
   }
 
   bool _hasVerifiedSession(AuthState auth) =>
@@ -869,8 +867,10 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
             ? const AppFirstLaunchScreen()
             : (_hasVerifiedSession(auth)
                   ? _homeForAuth(auth)
-                  : auth.isGuest || (auth.token?.trim().isNotEmpty ?? false)
+                  : auth.isGuest
                   ? const MaslakiUserShell()
+                  : (auth.token?.trim().isNotEmpty ?? false)
+                  ? const AppFirstLaunchScreen()
                   : const LoginScreen()),
       AppStartupPhase.idle ||
       AppStartupPhase.checkingServer ||

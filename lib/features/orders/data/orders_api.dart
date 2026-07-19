@@ -512,7 +512,11 @@ class OrdersApi {
       data: payload,
     );
     final map = Map<String, dynamic>.from(r.data as Map);
-    return ProductReview.fromJson(map['review'] as Map<String, dynamic>);
+    final rawReview = map['review'];
+    if (rawReview is! Map) {
+      throw StateError('INVALID_REVIEW_RESPONSE');
+    }
+    return ProductReview.fromJson(Map<String, dynamic>.from(rawReview));
   }
 
   Future<void> deleteProductReview(int productId) async {

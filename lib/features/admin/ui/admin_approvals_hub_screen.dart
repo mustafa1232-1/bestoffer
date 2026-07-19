@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/widgets/app_user_drawer.dart';
+import '../../auth/state/auth_controller.dart';
 import '../state/admin_controller.dart';
 import 'admin_delivery_approvals_screen.dart';
 import 'admin_merchant_approvals_screen.dart';
 import 'admin_receivables_screen.dart';
+import 'admin_dashboard_screen.dart';
+import 'admin_services_hub_screen.dart';
 import 'admin_service_provider_subscription_requests_screen.dart';
 import 'admin_taxi_captain_requests_screen.dart';
 import 'admin_taxi_cash_payments_screen.dart';
@@ -22,9 +26,84 @@ class AdminApprovalsHubScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(adminControllerProvider);
+    final auth = ref.watch(authControllerProvider);
     final l10n = context.l10n;
 
     return Scaffold(
+      drawer: Drawer(
+        child: AppUserDrawer(
+          title: 'لوحة الإدارة',
+          subtitle: auth.user?.fullName,
+          showCommunitySection: false,
+          showSettings: false,
+          enableItemSearch: false,
+          items: [
+            AppUserDrawerItem(
+              icon: Icons.space_dashboard_rounded,
+              label: 'لوحة التحكم',
+              subtitle: 'الصفحة الرئيسية للأدمن',
+              group: 'التنقل',
+              onTap: (_) async {
+                await Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AdminDashboardScreen(),
+                  ),
+                  (route) => false,
+                );
+              },
+            ),
+            AppUserDrawerItem(
+              icon: Icons.verified_user_outlined,
+              label: 'حوض الموافقات',
+              subtitle: 'مراجعة الطلبات المعلقة',
+              group: 'التنقل',
+              onTap: (_) async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AdminApprovalsHubScreen(),
+                  ),
+                );
+              },
+            ),
+            AppUserDrawerItem(
+              icon: Icons.home_repair_service_outlined,
+              label: 'إدارة الخدمات',
+              subtitle: 'ملخص الخدمات والطلبات',
+              group: 'التنقل',
+              onTap: (_) async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AdminServicesHubScreen(),
+                  ),
+                );
+              },
+            ),
+            AppUserDrawerItem(
+              icon: Icons.description_outlined,
+              label: 'طلبات الاشتراك',
+              subtitle: 'عرض طلبات أصحاب الخدمة',
+              group: 'التنقل',
+              onTap: (_) async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        const AdminServiceProviderSubscriptionRequestsScreen(),
+                  ),
+                );
+              },
+            ),
+            AppUserDrawerItem(
+              icon: Icons.refresh_rounded,
+              label: 'تحديث الصفحة',
+              subtitle: 'إعادة تحميل موافقات المنصة',
+              group: 'الإجراءات',
+              onTap: (_) async {
+                await ref.read(adminControllerProvider.notifier).bootstrap();
+              },
+            ),
+          ],
+        ),
+      ),
       appBar: AppBar(
         title: Text(l10n.adminApprovalsHubTitle),
         actions: [
@@ -100,6 +179,20 @@ class AdminApprovalsHubScreen extends ConsumerWidget {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const AdminTaxiCashPaymentsScreen(),
+                ),
+              );
+            },
+            ),
+            const SizedBox(height: 12),
+            _ApprovalHubTile(
+              icon: Icons.home_repair_service_outlined,
+              title: 'الخدمات بانتظار المراجعة',
+              subtitle: 'مراجعة الخدمات المنشورة أو المعدلة قبل الظهور العام',
+              count: state.pendingServiceOfferings.length,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AdminServicesHubScreen(),
                   ),
                 );
               },

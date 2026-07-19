@@ -93,6 +93,38 @@ void main() {
       expect(module, 'taxi');
     });
 
+    test('Taxi ride requested dotted alias resolves to new taxi requests', () {
+      final target = NotificationNavigation.resolveTarget(
+        rawTarget: null,
+        type: 'taxi.ride.requested',
+        orderId: null,
+      );
+      final module = NotificationNavigation.resolveModule(
+        rawModule: null,
+        roleScope: 'taxi_captain',
+        rawTarget: target,
+        type: 'taxi.ride.requested',
+      );
+      expect(target, 'taxi_trips_new');
+      expect(module, 'taxi');
+    });
+
+    test('Taxi competition notifications resolve to competitions target', () {
+      final target = NotificationNavigation.resolveTarget(
+        rawTarget: null,
+        type: 'taxi.competition.progress',
+        orderId: null,
+      );
+      final module = NotificationNavigation.resolveModule(
+        rawModule: null,
+        roleScope: 'taxi_captain',
+        rawTarget: target,
+        type: 'taxi.competition.progress',
+      );
+      expect(target, 'taxi_competitions');
+      expect(module, 'taxi');
+    });
+
     test('Taxi chat notifications resolve to live taxi target', () {
       final target = NotificationNavigation.resolveTarget(
         rawTarget: null,
@@ -176,21 +208,24 @@ void main() {
       expect(payload.target, 'taxi_live');
     });
 
-    test('Car listing notifications resolve to direct customer detail target', () {
-      final target = NotificationNavigation.resolveTarget(
-        rawTarget: null,
-        type: 'car_listing',
-        orderId: null,
-      );
-      final module = NotificationNavigation.resolveModule(
-        rawModule: null,
-        roleScope: 'customer',
-        rawTarget: target,
-        type: 'car_listing',
-      );
-      expect(target, 'car_listing');
-      expect(module, 'customer');
-    });
+    test(
+      'Car listing notifications resolve to direct customer detail target',
+      () {
+        final target = NotificationNavigation.resolveTarget(
+          rawTarget: null,
+          type: 'car_listing',
+          orderId: null,
+        );
+        final module = NotificationNavigation.resolveModule(
+          rawModule: null,
+          roleScope: 'customer',
+          rawTarget: target,
+          type: 'car_listing',
+        );
+        expect(target, 'car_listing');
+        expect(module, 'customer');
+      },
+    );
 
     test(
       'Real estate listing notifications resolve to direct customer detail target',
@@ -273,6 +308,18 @@ void main() {
         );
         expect(target, 'service_request_details');
         expect(module, 'customer');
+      },
+    );
+
+    test(
+      'Service offering moderation notifications resolve to the admin review queue target',
+      () {
+        final target = NotificationNavigation.resolveTarget(
+          rawTarget: null,
+          type: 'services.offering.pending_review',
+          orderId: null,
+        );
+        expect(target, 'admin_services_offerings_pending');
       },
     );
 

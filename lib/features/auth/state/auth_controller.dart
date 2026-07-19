@@ -171,8 +171,8 @@ class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
 
   AuthController(this.ref) : super(const AuthState()) {
-    // When the network layer confirms a terminal INVALID_TOKEN, drop cleanly to
-    // guest/login instead of leaving controllers polling protected endpoints.
+    // When the network layer confirms a terminal session failure, drop cleanly
+    // to guest/login instead of leaving controllers polling protected endpoints.
     SessionInvalidationBus.instance.addListener(_onSessionInvalidatedSignal);
     ref.onDispose(
       () => SessionInvalidationBus.instance.removeListener(
@@ -190,7 +190,6 @@ class AuthController extends StateNotifier<AuthState> {
   Future<void> _dropToGuestAfterInvalidSession() async {
     final store = ref.read(secureStoreProvider);
     try {
-      await store.clear();
       await store.saveGuestMode(true);
     } catch (_) {}
     if (!mounted) return;
@@ -239,11 +238,30 @@ class AuthController extends StateNotifier<AuthState> {
         clearErrorCode: true,
       );
     } catch (e) {
-      if (_isInvalidStoredSession(e)) {
-        await store.clear();
-        await store.saveGuestMode(true);
-        state = const AuthState(guestMode: true);
-        return;
+      if (e is DioException) {
+        final decision = SessionInvalidationCoordinator.instance.classify(e);
+        if (decision == SessionInvalidationDecision.terminal) {
+          await SessionInvalidationCoordinator.instance
+              .invalidateTerminalSession(
+                cleanup: () async {
+                  try {
+                    await store.clear();
+                  } catch (_) {}
+                },
+              );
+          await store.saveGuestMode(true);
+          state = const AuthState(guestMode: true);
+          return;
+        }
+        if (decision == SessionInvalidationDecision.staleFailure ||
+            decision == SessionInvalidationDecision.recoverable) {
+          state = state.copyWith(
+            loading: false,
+            clearValidationError: true,
+            clearErrorCode: true,
+          );
+          return;
+        }
       }
       state = state.copyWith(
         loading: false,
@@ -428,8 +446,10 @@ class AuthController extends StateNotifier<AuthState> {
             merchantPhone: merchantPhone,
             merchantImageUrl: optionalTrimmed(dto['merchantImageUrl']),
             merchantServiceFlags:
-                dto['merchantServiceFlags'] is Map<String, dynamic>
-                ? dto['merchantServiceFlags'] as Map<String, dynamic>
+                dto['merchantServiceFlags'] is Map
+                ? Map<String, dynamic>.from(
+                    dto['merchantServiceFlags'] as Map,
+                  )
                 : null,
             merchantBadges: dto['merchantBadges'] is List
                 ? List<String>.from(dto['merchantBadges'] as List)
@@ -813,16 +833,4 @@ class AuthController extends StateNotifier<AuthState> {
       appendRequestId: true,
     );
   }
-}
-
-bool _isInvalidStoredSession(Object error) {
-  if (error is! DioException) return false;
-  if (error.response?.statusCode != 401) return false;
-
-  final data = error.response?.data;
-  final rawMessage = data is Map ? (data['message'] ?? data['code']) : data;
-  final message = '$rawMessage'.trim().toUpperCase();
-  return message == 'INVALID_TOKEN' ||
-      message == 'NO_TOKEN' ||
-      message == 'INVALID_REFRESH_TOKEN';
 }
