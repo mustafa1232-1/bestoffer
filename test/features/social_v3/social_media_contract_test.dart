@@ -27,6 +27,7 @@ SocialMediaAsset _asset({
     failureCode: null,
     processingStatus: processingStatus,
     createdAt: null,
+    traceId: streamUid,
   );
 }
 

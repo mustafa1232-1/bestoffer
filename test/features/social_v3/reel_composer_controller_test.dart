@@ -101,12 +101,13 @@ void main() {
     c.dispose();
   });
 
-  test('processing does not block publish', () async {
+  test('publishing fails closed when the asset never reaches ready', () async {
     final api = _FakeApi(statuses: const ['processing', 'failed']);
     final c = _controller(api);
     await c.publish(video: _video, caption: '', audience: 'public');
-    expect(c.stage, ReelComposerStage.published);
-    expect(api.publishCalls, 1);
+    expect(c.stage, ReelComposerStage.failed);
+    expect(c.error, 'ASSET_NOT_READY');
+    expect(api.publishCalls, 0);
     c.dispose();
   });
 
@@ -118,7 +119,7 @@ void main() {
     c.dispose();
   });
 
-  test('stage transitions pass through processing', () async {
+  test('stage transitions pass through processing before ready publish', () async {
     final api = _FakeApi(statuses: const ['processing', 'processing', 'ready']);
     final c = _controller(api);
     final stages = <ReelComposerStage>[];

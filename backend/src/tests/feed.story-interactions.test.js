@@ -284,6 +284,34 @@ test("story interactions, exact reads, and native sharing enforce the persisted 
     );
     assert.deepEqual(storedMessage.rows[0].shared_snapshot_json, sentSnapshot);
 
+    const attachmentSent = await sendMessage({
+      userId: Number(owner.id),
+      threadId,
+      body: "",
+      attachment: {
+        url: "https://example.com/chat-video.mp4",
+        kind: "video",
+        provider: "stream",
+        name: "chat-video.mp4",
+        mimeType: "video/mp4",
+        sizeBytes: 4242,
+        durationMs: 6100,
+        previewUrl: "https://example.com/chat-video-thumb.jpg",
+        thumbnailUrl: "https://example.com/chat-video-thumb.jpg",
+        width: 720,
+        height: 1280,
+        uploadState: "ready",
+        traceId: "trace-chat-video-1",
+      },
+    });
+    assert.equal(attachmentSent.message.attachment.kind, "video");
+    assert.equal(attachmentSent.message.attachment.provider, "stream");
+    assert.equal(
+      attachmentSent.message.attachment.previewUrl,
+      "https://example.com/chat-video-thumb.jpg"
+    );
+    assert.equal(attachmentSent.message.attachment.traceId, "trace-chat-video-1");
+
     const scheduled = await scheduleMessage({
       userId: Number(owner.id),
       threadId,

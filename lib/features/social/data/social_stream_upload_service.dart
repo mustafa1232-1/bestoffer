@@ -156,6 +156,7 @@ class SocialStreamUploadService {
       failureCode: null,
       processingStatus: 'processing',
       createdAt: DateTime.now().toUtc(),
+      traceId: session.streamUid,
     );
   }
 

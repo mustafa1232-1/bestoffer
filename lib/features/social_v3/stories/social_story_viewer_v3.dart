@@ -98,6 +98,7 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
   bool _gesturePaused = false;
   bool _lifecyclePaused = false;
   int _overlayPauseDepth = 0;
+  bool _advancing = false;
 
   StoryV3Group get _group => widget.groups[_groupIndex];
   StoryV3Item? get _item =>
@@ -173,6 +174,7 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
   }
 
   void _startItem() {
+    _advancing = false;
     _imageCtrl.stop();
     _disposeVideo();
     _progress.value = 0;
@@ -334,6 +336,8 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
   }
 
   void _next() {
+    if (_advancing) return;
+    _advancing = true;
     if (_itemIndex < _group.items.length - 1) {
       setState(() => _itemIndex += 1);
       _startItem();
@@ -366,6 +370,7 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
       _groupIndex = index;
       _itemIndex = 0;
     });
+    _advancing = false;
     _startItem();
   }
 

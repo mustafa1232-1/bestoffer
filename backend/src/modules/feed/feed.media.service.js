@@ -62,6 +62,7 @@ function mapSocialMediaAssetRow(row) {
     sourceType: row.source_type || null,
     provider: row.provider || null,
     streamUid,
+    traceId: row.trace_id || streamUid || (row.id == null ? null : `asset:${row.id}`),
     originalUrl: row.original_url || null,
     normalizedUrl: row.normalized_url || null,
     posterUrl,
@@ -158,6 +159,7 @@ export async function prepareSocialMediaAsset({
     sourceType: resolvedSourceType,
     provider,
     streamUid,
+    traceId: streamUid,
     originalUrl: sourceUrl,
     normalizedUrl,
     posterUrl,
@@ -289,6 +291,7 @@ export async function createSocialMediaStreamUploadSession({
     sourceType: normalizedSourceType,
     provider: "stream",
     streamUid: session.streamUid,
+    traceId: session.streamUid,
     originalUrl: session.uploadUrl,
     normalizedUrl: null,
     posterUrl: null,
@@ -352,6 +355,26 @@ export async function getSocialMediaAssetById({ userId, assetId }) {
     throw new AppError("MEDIA_ASSET_FORBIDDEN", { status: 403 });
   }
   return { asset: mapSocialMediaAssetRow(asset) };
+}
+
+export async function getSocialMediaAssetDiagnosticsById({ userId, assetId }) {
+  const asset = await repo.findSocialMediaAssetById(assetId);
+  if (!asset) {
+    throw new AppError("MEDIA_ASSET_NOT_FOUND", { status: 404 });
+  }
+  if (Number(asset.owner_user_id) !== Number(userId)) {
+    throw new AppError("MEDIA_ASSET_FORBIDDEN", { status: 403 });
+  }
+  const mapped = mapSocialMediaAssetRow(asset);
+  return {
+    assetId: mapped?.id ?? null,
+    provider: mapped?.provider ?? null,
+    processingStatus: mapped?.processingStatus ?? null,
+    publishStatus: mapped?.processingStatus ?? null,
+    failureCode: mapped?.failureCode ?? mapped?.processingError ?? null,
+    updatedAt: mapped?.updatedAt ?? null,
+    traceId: mapped?.traceId ?? null,
+  };
 }
 
 export function mapStreamDetailsToStatus(details, fallbackStatus = "processing") {

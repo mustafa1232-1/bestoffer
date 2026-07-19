@@ -171,8 +171,9 @@ class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
 
   AuthController(this.ref) : super(const AuthState()) {
-    // When the network layer confirms a terminal INVALID_TOKEN, drop cleanly to
-    // guest/login instead of leaving controllers polling protected endpoints.
+    // When the network layer confirms a terminal session failure, drop cleanly
+    // to guest/login instead of leaving controllers polling protected
+    // endpoints.
     SessionInvalidationBus.instance.addListener(_onSessionInvalidatedSignal);
     ref.onDispose(
       () => SessionInvalidationBus.instance.removeListener(
@@ -822,7 +823,14 @@ bool _isInvalidStoredSession(Object error) {
   final data = error.response?.data;
   final rawMessage = data is Map ? (data['message'] ?? data['code']) : data;
   final message = '$rawMessage'.trim().toUpperCase();
-  return message == 'INVALID_TOKEN' ||
-      message == 'NO_TOKEN' ||
-      message == 'INVALID_REFRESH_TOKEN';
+  return message == 'REFRESH_TOKEN_EXPIRED' ||
+      message == 'REFRESH_TOKEN_REUSED' ||
+      message == 'SESSION_REVOKED' ||
+      message == 'DEVICE_BINDING_MISMATCH' ||
+      message == 'APP_SURFACE_MISMATCH' ||
+      message == 'JWT_SIGNATURE_INVALID' ||
+      message == 'ACCOUNT_DISABLED' ||
+      message == 'INVALID_REFRESH_TOKEN' ||
+      message == 'INVALID_TOKEN' ||
+      message == 'TOKEN_EXPIRED';
 }

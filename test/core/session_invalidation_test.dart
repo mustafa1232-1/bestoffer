@@ -36,9 +36,13 @@ void main() {
         isFalse,
       );
       expect(
-        isTerminalAuthError(_err(401, 'invalid_token')),
+        isTerminalAuthError(_err(401, {'message': 'REFRESH_TOKEN_EXPIRED'})),
         isFalse,
-      ); // case-insensitive
+      );
+      expect(
+        isTerminalAuthError(_err(401, {'message': 'TOKEN_EXPIRED'})),
+        isFalse,
+      );
     });
 
     test(
@@ -107,6 +111,17 @@ void main() {
           ),
           isFalse,
         );
+        expect(
+          isTerminalAuthError(
+            _err(
+              401,
+              {'message': 'REFRESH_TOKEN_REUSED'},
+              path: '/api/auth/refresh',
+              data: const <String, dynamic>{'refreshToken': 'refresh-token'},
+            ),
+          ),
+          isFalse,
+        );
       },
     );
 
@@ -120,13 +135,13 @@ void main() {
             headers: const {'Authorization': 'Bearer access-token'},
           ),
         ),
-        isTrue,
+        isFalse,
       );
       expect(
         isTerminalAuthError(
           _err(
             401,
-            {'message': 'TOKEN_EXPIRED'},
+            {'message': 'REFRESH_TOKEN_EXPIRED'},
             path: '/api/hr/dashboard',
             headers: const {'Authorization': 'Bearer access-token'},
           ),
@@ -148,10 +163,65 @@ void main() {
         isTerminalAuthError(
           _err(
             401,
-            {'code': 'INVALID_REFRESH_TOKEN'},
+            {'message': 'REFRESH_TOKEN_REUSED'},
             path: '/api/auth/refresh',
             headers: const {'Authorization': 'Bearer access-token'},
             data: const <String, dynamic>{'refreshToken': 'refresh-token'},
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        isTerminalAuthError(
+          _err(
+            401,
+            {'message': 'SESSION_REVOKED'},
+            path: '/api/accountant/summary',
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        isTerminalAuthError(
+          _err(
+            401,
+            {'message': 'DEVICE_BINDING_MISMATCH'},
+            path: '/api/accountant/summary',
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        isTerminalAuthError(
+          _err(
+            401,
+            {'message': 'APP_SURFACE_MISMATCH'},
+            path: '/api/accountant/summary',
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        isTerminalAuthError(
+          _err(
+            401,
+            {'message': 'JWT_SIGNATURE_INVALID'},
+            path: '/api/accountant/summary',
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        isTerminalAuthError(
+          _err(
+            401,
+            {'message': 'ACCOUNT_DISABLED'},
+            path: '/api/accountant/summary',
+            headers: const {'Authorization': 'Bearer access-token'},
           ),
         ),
         isTrue,
@@ -188,8 +258,28 @@ void main() {
     );
 
     test('false for non-terminal 401s and other statuses', () {
-      // A 401 that is not a terminal token failure (e.g. a one-off permission
-      // check) must NOT nuke the session.
+      expect(
+        isTerminalAuthError(
+          _err(
+            401,
+            {'message': 'INVALID_TOKEN'},
+            path: '/api/company/dashboard',
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        isTerminalAuthError(
+          _err(
+            401,
+            {'message': 'NO_TOKEN'},
+            path: '/api/company/dashboard',
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        isFalse,
+      );
       expect(
         isTerminalAuthError(_err(401, {'message': 'SOME_OTHER_401'})),
         isFalse,

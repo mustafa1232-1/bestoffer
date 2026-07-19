@@ -234,6 +234,7 @@ class DioClient {
     if (refreshToken == null || refreshToken.isEmpty) {
       return allowExpired ? null : currentAccessToken;
     }
+    final requestedRefreshToken = refreshToken;
 
     try {
       final deviceId = await _ensureDeviceId(store);
@@ -270,6 +271,18 @@ class DioClient {
       return accessToken;
     } on DioException catch (error) {
       if (_isInvalidRefreshFailure(error)) {
+        final latestRefreshToken = await store.readRefreshToken();
+        if (latestRefreshToken != null &&
+            latestRefreshToken.isNotEmpty &&
+            latestRefreshToken != requestedRefreshToken) {
+          final latestAccessToken =
+              await store.readToken() ??
+              AuthSessionTokenCache.currentToken(flavor: store.flavor);
+          if (latestAccessToken != null && latestAccessToken.isNotEmpty) {
+            return latestAccessToken;
+          }
+          return currentAccessToken;
+        }
         await _clearSigningMaterial();
         await store.clear();
         return null;
@@ -593,6 +606,13 @@ bool _isInvalidRefreshFailure(DioException error) {
   final rawMessage = data is Map ? (data['message'] ?? data['code']) : data;
   final message = '$rawMessage'.trim().toUpperCase();
   return message == 'INVALID_REFRESH_TOKEN' ||
+      message == 'REFRESH_TOKEN_EXPIRED' ||
+      message == 'REFRESH_TOKEN_REUSED' ||
+      message == 'SESSION_REVOKED' ||
+      message == 'DEVICE_BINDING_MISMATCH' ||
+      message == 'APP_SURFACE_MISMATCH' ||
+      message == 'JWT_SIGNATURE_INVALID' ||
+      message == 'ACCOUNT_DISABLED' ||
       message == 'VALIDATION_ERROR' ||
       message == 'NO_TOKEN';
 }

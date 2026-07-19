@@ -504,17 +504,19 @@ void main() {
     },
   );
 
-  testWidgets('completed ride shows the localized rating call to action', (
+  testWidgets('completed ride returns to the taxi home shell', (
     tester,
   ) async {
     await _pumpMapPage(
       tester,
       currentRideEnvelope: _rideEnvelope(status: 'completed'),
     );
+    await tester.pump(const Duration(milliseconds: 600));
 
     final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
-
-    expect(find.text(l10n.mapPageRideCompletedTitle), findsAtLeastNWidgets(1));
-    expect(find.text(l10n.mapPageRateTaxiRide), findsOneWidget);
+    expect(find.text(l10n.mapPageRideCompletedTitle), findsNothing);
+    expect(find.text(l10n.mapPageRateTaxiRide), findsNothing);
+    expect(find.text(l10n.mapPageRideRequestHeroSubtitle), findsAtLeastNWidgets(1));
+    expect(find.text(l10n.mapPageCurrentLocation), findsWidgets);
   });
 }

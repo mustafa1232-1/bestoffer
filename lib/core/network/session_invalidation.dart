@@ -96,11 +96,13 @@ bool isTerminalAuthError(DioException error) {
 bool isSessionAuthFailureCode(String? code) {
   final normalized = code?.trim().toUpperCase();
   if (normalized == null || normalized.isEmpty) return false;
-  return normalized == 'INVALID_TOKEN' ||
-      normalized == 'NO_TOKEN' ||
-      normalized == 'INVALID_REFRESH_TOKEN' ||
-      normalized == 'TOKEN_EXPIRED' ||
-      normalized == 'SESSION_EXPIRED';
+  return normalized == 'REFRESH_TOKEN_EXPIRED' ||
+      normalized == 'REFRESH_TOKEN_REUSED' ||
+      normalized == 'SESSION_REVOKED' ||
+      normalized == 'DEVICE_BINDING_MISMATCH' ||
+      normalized == 'APP_SURFACE_MISMATCH' ||
+      normalized == 'JWT_SIGNATURE_INVALID' ||
+      normalized == 'ACCOUNT_DISABLED';
 }
 
 bool isSessionInvalidationExemptRequest(RequestOptions request) {

@@ -40,6 +40,13 @@ test("social media asset insert persists stream playback fields", async () => {
     asset.thumbnail_url,
     "https://customer-test.cloudflarestream.com/stream_uid_test_001/thumbnails/thumbnail.jpg?time=1s"
   );
+  assert.equal(asset.trace_id, "stream_uid_test_001");
+
+  const persisted = await pool.query(
+    "SELECT trace_id FROM social_media_asset WHERE id = $1",
+    [asset.id]
+  );
+  assert.equal(persisted.rows[0].trace_id, "stream_uid_test_001");
 
   await pool.query("DELETE FROM social_media_asset WHERE id = $1", [asset.id]);
 });

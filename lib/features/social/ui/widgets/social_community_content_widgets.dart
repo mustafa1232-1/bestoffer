@@ -10,6 +10,7 @@ import '../../../../core/media/media_cache_service.dart';
 import '../../../../core/platform/app_platform_capabilities.dart';
 import '../../models/social_models.dart';
 import 'social_community_widgets.dart';
+import 'social_inline_attachment_message_card.dart';
 import 'social_voice_message_widgets.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
@@ -390,51 +391,17 @@ class CommunityChatBubble extends StatelessWidget {
               ],
               if (!isDeleted &&
                   message.attachment != null &&
-                  message.attachment!.kind.trim().toLowerCase() == 'audio') ...[
+                  message.attachment!.isAudio) ...[
                 const SizedBox(height: 6),
                 SocialAudioAttachmentBubble(attachment: message.attachment!),
               ],
               if (!isDeleted &&
                   message.attachment != null &&
-                  message.attachment!.kind.trim().toLowerCase() != 'audio') ...[
+                  !message.attachment!.isAudio) ...[
                 const SizedBox(height: 6),
-                InkWell(
-                  borderRadius: BorderRadius.circular(10),
-                  onTap: onOpenAttachment,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          message.attachment!.kind.trim().toLowerCase() ==
-                                  'image'
-                              ? Icons.image_outlined
-                              : message.attachment!.kind.trim().toLowerCase() ==
-                                    'video'
-                              ? Icons.videocam_outlined
-                              : Icons.attach_file_rounded,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            message.attachment!.previewLabel,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textDirection: TextDirection.rtl,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                SocialInlineAttachmentMessageCard(
+                  attachment: message.attachment!,
+                  onTap: onOpenAttachment ?? () {},
                 ),
               ],
               if (!isDeleted && message.sharedEntity != null) ...[

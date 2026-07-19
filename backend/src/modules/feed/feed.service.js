@@ -1275,9 +1275,16 @@ function mapMessageAttachment(row) {
   if (row?.is_deleted === true) return null;
   const url = row?.attachment_url || row?.attachmentUrl || null;
   if (!url) return null;
+  const traceId =
+    row?.attachment_trace_id ||
+    row?.attachmentTraceId ||
+    row?.client_message_id ||
+    row?.clientMessageId ||
+    null;
   return {
     url,
     kind: row?.attachment_kind || row?.attachmentKind || "file",
+    provider: row?.attachment_provider || row?.attachmentProvider || null,
     name: row?.attachment_name || row?.attachmentName || "attachment",
     mimeType: row?.attachment_mime_type || row?.attachmentMimeType || null,
     sizeBytes:
@@ -1288,6 +1295,20 @@ function mapMessageAttachment(row) {
       row?.attachment_duration_ms == null && row?.attachmentDurationMs == null
         ? null
         : Number(row?.attachment_duration_ms ?? row?.attachmentDurationMs),
+    previewUrl: row?.attachment_preview_url || row?.attachmentPreviewUrl || null,
+    thumbnailUrl:
+      row?.attachment_thumbnail_url || row?.attachmentThumbnailUrl || null,
+    width:
+      row?.attachment_width == null && row?.attachmentWidth == null
+        ? null
+        : Number(row?.attachment_width ?? row?.attachmentWidth),
+    height:
+      row?.attachment_height == null && row?.attachmentHeight == null
+        ? null
+        : Number(row?.attachment_height ?? row?.attachmentHeight),
+    uploadState:
+      row?.attachment_upload_state || row?.attachmentUploadState || null,
+    traceId,
   };
 }
 
@@ -6215,6 +6236,26 @@ function normalizeOutgoingThreadMessagePayload({
               ? null
               : Number(attachment.durationMs)
             : Number(attachmentDurationMs),
+        provider:
+          attachment.provider == null
+            ? null
+            : String(attachment.provider).trim() || null,
+        previewUrl:
+          attachment.previewUrl == null
+            ? null
+            : String(attachment.previewUrl).trim() || null,
+        thumbnailUrl:
+          attachment.thumbnailUrl == null
+            ? null
+            : String(attachment.thumbnailUrl).trim() || null,
+        width: attachment.width == null ? null : Number(attachment.width),
+        height: attachment.height == null ? null : Number(attachment.height),
+        uploadState:
+          attachment.uploadState == null
+            ? null
+            : String(attachment.uploadState).trim().toUpperCase() || null,
+        traceId:
+          attachment.traceId == null ? null : String(attachment.traceId).trim() || null,
       }
     : null;
 
@@ -6317,10 +6358,18 @@ async function insertAndDispatchThreadMessage({
       reply_sender_full_name: "",
       attachment_url: normalizedAttachment?.url || null,
       attachment_kind: normalizedAttachment?.kind || null,
+      attachment_provider: normalizedAttachment?.provider || null,
       attachment_name: normalizedAttachment?.name || null,
       attachment_mime_type: normalizedAttachment?.mimeType || null,
       attachment_size_bytes: normalizedAttachment?.sizeBytes || null,
       attachment_duration_ms: normalizedAttachment?.durationMs || null,
+      attachment_preview_url: normalizedAttachment?.previewUrl || null,
+      attachment_thumbnail_url: normalizedAttachment?.thumbnailUrl || null,
+      attachment_width: normalizedAttachment?.width || null,
+      attachment_height: normalizedAttachment?.height || null,
+      attachment_upload_state: normalizedAttachment?.uploadState || null,
+      attachment_trace_id:
+        normalizedAttachment?.traceId || inserted?.client_message_id || clientMessageId || null,
       shared_entity_type: normalizedSharedEntity?.type || null,
       shared_entity_id: normalizedSharedEntity?.id || null,
       shared_snapshot_json: normalizedSharedEntity?.snapshot || null,
@@ -6467,48 +6516,17 @@ export async function sendMessage({
     throw new AppError("CHAT_REQUEST_UNAVAILABLE", { status: 403 });
   }
 
-  const text = String(body || "").trim();
-  const attachmentMeta = attachment?.url
-    ? {
-        url: attachment.url,
-        name: String(attachment.name || "").trim() || "attachment",
-        mimeType:
-          String(attachment.mimeType || "").trim() || "application/octet-stream",
-        sizeBytes:
-          attachment.sizeBytes == null ? null : Number(attachment.sizeBytes),
-        durationMs:
-          attachmentDurationMs == null
-            ? attachment.durationMs == null
-              ? null
-              : Number(attachment.durationMs)
-            : Number(attachmentDurationMs),
-      }
-    : null;
-
-  const clientSharedEntity =
-    sharedEntity?.type && Number(sharedEntity?.id || 0) > 0
-      ? {
-          type: String(sharedEntity.type).trim().toLowerCase(),
-          id: Number(sharedEntity.id),
-          snapshot:
-            sharedEntity.snapshot &&
-            typeof sharedEntity.snapshot === "object" &&
-            !Array.isArray(sharedEntity.snapshot)
-              ? sharedEntity.snapshot
-              : null,
-        }
-      : null;
+  const { text, normalizedAttachment, normalizedSharedEntity: clientSharedEntity } =
+    normalizeOutgoingThreadMessagePayload({
+      body,
+      attachmentDurationMs,
+      attachment,
+      sharedEntity,
+    });
   const normalizedSharedEntity = await resolveSharedEntityForSender({
     senderUserId: userId,
     sharedEntity: clientSharedEntity,
   });
-
-  if (!text && !attachmentMeta && !normalizedSharedEntity) {
-    throw new AppError("EMPTY_MESSAGE", { status: 400 });
-  }
-  if (text) {
-    assertContentAllowed(text);
-  }
 
   let replyTo = null;
   if (replyToMessageId != null) {
@@ -6520,14 +6538,6 @@ export async function sendMessage({
       throw new AppError("REPLY_MESSAGE_NOT_FOUND", { status: 404 });
     }
   }
-
-  const normalizedAttachment =
-    attachmentMeta == null
-      ? null
-      : {
-          ...attachmentMeta,
-          kind: resolveChatAttachmentKind(attachmentMeta),
-        };
 
   const inserted = await repo.insertThreadMessage({
     threadId,
@@ -6780,6 +6790,19 @@ async function processScheduledThreadMessages() {
                   claimed.attachment_duration_ms == null
                     ? null
                     : Number(claimed.attachment_duration_ms),
+                provider: claimed.attachment_provider || null,
+                previewUrl: claimed.attachment_preview_url || null,
+                thumbnailUrl: claimed.attachment_thumbnail_url || null,
+                width:
+                  claimed.attachment_width == null
+                    ? null
+                    : Number(claimed.attachment_width),
+                height:
+                  claimed.attachment_height == null
+                    ? null
+                    : Number(claimed.attachment_height),
+                uploadState: claimed.attachment_upload_state || null,
+                traceId: claimed.attachment_trace_id || null,
               }
             : null,
           sharedEntity:
@@ -8658,6 +8681,22 @@ export async function sendCommunityChatMessage({
                 : Number(attachment.durationMs)
               : Number(dto.attachmentDurationMs),
           kind: resolveChatAttachmentKind(attachment),
+          provider:
+            attachment.provider == null ? null : String(attachment.provider).trim() || null,
+          previewUrl:
+            attachment.previewUrl == null ? null : String(attachment.previewUrl).trim() || null,
+          thumbnailUrl:
+            attachment.thumbnailUrl == null
+              ? null
+              : String(attachment.thumbnailUrl).trim() || null,
+          width: attachment.width == null ? null : Number(attachment.width),
+          height: attachment.height == null ? null : Number(attachment.height),
+          uploadState:
+            attachment.uploadState == null
+              ? null
+              : String(attachment.uploadState).trim().toUpperCase() || null,
+          traceId:
+            attachment.traceId == null ? null : String(attachment.traceId).trim() || null,
         }
       : null;
   const clientSharedEntity =

@@ -1583,7 +1583,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _openCommunityAttachment(SocialChatAttachment attachment) async {
-    final kind = attachment.kind.trim().toLowerCase();
+    final kind = attachment.effectiveKind;
     if (kind == 'image') {
       await showDialog<void>(
         context: context,
@@ -1594,9 +1594,24 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
             minScale: 0.8,
             maxScale: 4,
             child: CachedAppImage(
-              imageUrl: attachment.url,
+              imageUrl: attachment.resolvedPreviewUrl ?? attachment.url,
               fit: BoxFit.contain,
             ),
+          ),
+        ),
+      );
+      return;
+    }
+    if (kind == 'video') {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CommunityMediaViewerPage(
+            mediaUrl: attachment.url,
+            isVideo: true,
+            initiallyMuted: true,
+            title: attachment.previewLabel,
+            subtitle: attachment.name ?? '',
+            caption: attachment.name,
           ),
         ),
       );

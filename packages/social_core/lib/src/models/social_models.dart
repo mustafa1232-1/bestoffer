@@ -163,6 +163,7 @@ class SocialMediaAsset {
   final int? durationMs;
   final String? failureCode;
   final String? processingStatus;
+  final String? traceId;
   final DateTime? createdAt;
 
   const SocialMediaAsset({
@@ -177,6 +178,7 @@ class SocialMediaAsset {
     required this.durationMs,
     required this.failureCode,
     required this.processingStatus,
+    required this.traceId,
     required this.createdAt,
   });
 
@@ -198,6 +200,7 @@ class SocialMediaAsset {
     processingStatus: parseNullableString(
       j['processingStatus'] ?? j['processing_status'],
     ),
+    traceId: parseNullableString(j['traceId'] ?? j['trace_id']),
     createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
   );
 
@@ -1531,26 +1534,49 @@ class SocialChatReplyPreview {
 class SocialChatAttachment {
   final String url;
   final String kind;
+  final String? provider;
   final String? name;
   final String? mimeType;
   final int? sizeBytes;
   final int? durationMs;
+  final String? previewUrl;
+  final String? thumbnailUrl;
+  final int? width;
+  final int? height;
+  final String? uploadState;
+  final String? traceId;
 
   const SocialChatAttachment({
     required this.url,
     required this.kind,
-    required this.name,
-    required this.mimeType,
-    required this.sizeBytes,
-    required this.durationMs,
+    this.provider,
+    this.name,
+    this.mimeType,
+    this.sizeBytes,
+    this.durationMs,
+    this.previewUrl,
+    this.thumbnailUrl,
+    this.width,
+    this.height,
+    this.uploadState,
+    this.traceId,
   });
 
   factory SocialChatAttachment.fromJson(Map<String, dynamic> j) =>
       SocialChatAttachment(
-        url: parseString(j['url'] ?? j['attachmentUrl'] ?? j['attachment_url']),
+        url: parseString(
+          j['url'] ?? j['attachmentUrl'] ?? j['attachment_url'],
+        ),
         kind: parseString(
           j['kind'] ?? j['attachmentKind'] ?? j['attachment_kind'],
           fallback: 'file',
+        ),
+        provider: parseNullableString(
+          j['provider'] ??
+              j['attachmentProvider'] ??
+              j['attachment_provider'] ??
+              j['providerType'] ??
+              j['provider_type'],
         ),
         name: parseNullableString(
           j['name'] ?? j['attachmentName'] ?? j['attachment_name'],
@@ -1562,14 +1588,82 @@ class SocialChatAttachment {
           j['sizeBytes'] ?? j['attachment_size_bytes'],
         ),
         durationMs: parseNullableInt(
-          j['durationMs'] ??
+              j['durationMs'] ??
               j['attachmentDurationMs'] ??
               j['attachment_duration_ms'],
         ),
+        previewUrl: parseNullableString(
+          j['previewUrl'] ??
+              j['attachmentPreviewUrl'] ??
+              j['attachment_preview_url'] ??
+              j['preview_url'],
+        ),
+        thumbnailUrl: parseNullableString(
+          j['thumbnailUrl'] ??
+              j['attachmentThumbnailUrl'] ??
+              j['attachment_thumbnail_url'] ??
+              j['thumbnail_url'],
+        ),
+        width: parseNullableInt(j['width'] ?? j['attachmentWidth'] ?? j['attachment_width']),
+        height: parseNullableInt(
+          j['height'] ?? j['attachmentHeight'] ?? j['attachment_height'],
+        ),
+        uploadState: parseNullableString(
+          j['uploadState'] ??
+              j['attachmentUploadState'] ??
+              j['attachment_upload_state'] ??
+              j['state'],
+        ),
+        traceId: parseNullableString(
+          j['traceId'] ?? j['attachmentTraceId'] ?? j['attachment_trace_id'],
+        ),
       );
 
+  String get normalizedKind => kind.trim().toLowerCase();
+
+  String? get normalizedProvider {
+    final value = provider?.trim().toLowerCase();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  String? get normalizedUploadState {
+    final value = uploadState?.trim().toLowerCase();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  String get effectiveKind => _inferAttachmentKindFromMetadata(
+    normalizedKind,
+    mimeType: mimeType,
+    url: url,
+    name: name,
+  );
+
+  bool get isAudio => effectiveKind == 'audio';
+  bool get isImage => effectiveKind == 'image';
+  bool get isVideo => effectiveKind == 'video';
+  bool get isFile => !isAudio && !isImage && !isVideo;
+  bool get isVisual => isImage || isVideo;
+
+  String? get resolvedPreviewUrl {
+    final preview = previewUrl?.trim();
+    if (preview != null && preview.isNotEmpty) return preview;
+    final thumb = thumbnailUrl?.trim();
+    if (thumb != null && thumb.isNotEmpty) return thumb;
+    final resolvedUrl = url.trim();
+    return isVisual && resolvedUrl.isNotEmpty ? resolvedUrl : null;
+  }
+
+  String? get resolvedThumbnailUrl {
+    final thumb = thumbnailUrl?.trim();
+    if (thumb != null && thumb.isNotEmpty) return thumb;
+    final preview = previewUrl?.trim();
+    if (preview != null && preview.isNotEmpty) return preview;
+    final resolvedUrl = url.trim();
+    return isImage && resolvedUrl.isNotEmpty ? resolvedUrl : null;
+  }
+
   String get previewLabel {
-    switch (kind.trim().toLowerCase()) {
+    switch (effectiveKind) {
       case 'image':
         return 'صورة';
       case 'video':
@@ -1580,6 +1674,92 @@ class SocialChatAttachment {
         return (name ?? '').trim().isNotEmpty ? name!.trim() : 'ملف';
     }
   }
+}
+
+String _inferAttachmentKindFromMetadata(
+  String normalizedKind, {
+  String? mimeType,
+  String? url,
+  String? name,
+}) {
+  final rawKind = normalizedKind.trim().toLowerCase();
+  if (rawKind.isNotEmpty && rawKind != 'file') return rawKind;
+
+  final normalizedMime = (mimeType ?? '').trim().toLowerCase();
+  if (normalizedMime.startsWith('audio/')) return 'audio';
+  if (normalizedMime.startsWith('image/')) return 'image';
+  if (normalizedMime.startsWith('video/')) return 'video';
+
+  final candidates = <String>[
+    (name ?? '').trim().toLowerCase(),
+    (url ?? '').trim().toLowerCase(),
+  ];
+  if (_hasAnySuffix(candidates, const ['.m4a', '.mp3', '.aac', '.ogg', '.wav', '.opus'])) {
+    return 'audio';
+  }
+  if (_hasAnySuffix(candidates, const ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic'])) {
+    return 'image';
+  }
+  if (_hasAnySuffix(candidates, const ['.mp4', '.mov', '.mkv', '.webm', '.m4v', '.3gp'])) {
+    return 'video';
+  }
+  return rawKind.isEmpty ? 'file' : rawKind;
+}
+
+bool _hasAnySuffix(List<String> values, List<String> suffixes) {
+  for (final value in values) {
+    for (final suffix in suffixes) {
+      if (value.endsWith(suffix)) return true;
+    }
+  }
+  return false;
+}
+
+Map<String, dynamic> _socialChatAttachmentFallback({
+  required String? url,
+  required String? kind,
+  String? provider,
+  String? name,
+  String? mimeType,
+  int? sizeBytes,
+  int? durationMs,
+  String? previewUrl,
+  String? thumbnailUrl,
+  int? width,
+  int? height,
+  String? uploadState,
+  String? traceId,
+}) {
+  final data = <String, dynamic>{
+    'url': url,
+    'kind': kind,
+    'provider': provider,
+    'name': name,
+    'mimeType': mimeType,
+    'sizeBytes': sizeBytes,
+    'durationMs': durationMs,
+    'previewUrl': previewUrl,
+    'thumbnailUrl': thumbnailUrl,
+    'width': width,
+    'height': height,
+    'uploadState': uploadState,
+    'traceId': traceId,
+    'attachmentUrl': url,
+    'attachmentKind': kind,
+    'attachmentProvider': provider,
+    'attachmentName': name,
+    'attachmentMimeType': mimeType,
+    'attachmentSizeBytes': sizeBytes,
+    'attachmentDurationMs': durationMs,
+    'attachmentPreviewUrl': previewUrl,
+    'attachmentThumbnailUrl': thumbnailUrl,
+    'attachmentWidth': width,
+    'attachmentHeight': height,
+    'attachmentUploadState': uploadState,
+    'attachmentTraceId': traceId,
+  };
+  data.removeWhere((_, value) => value == null);
+  return data;
 }
 
 class SocialSharedEntity {
@@ -1859,19 +2039,31 @@ class SocialScheduledChatMessage {
         ? SocialChatAttachment.fromJson(
             Map<String, dynamic>.from(
               j['attachment'] as Map? ??
-                  <String, dynamic>{
-                    'attachmentUrl': j['attachmentUrl'] ?? j['attachment_url'],
-                    'attachmentKind':
-                        j['attachmentKind'] ?? j['attachment_kind'],
-                    'attachmentName':
-                        j['attachmentName'] ?? j['attachment_name'],
-                    'attachmentMimeType':
+                  _socialChatAttachmentFallback(
+                    url: j['attachmentUrl'] ?? j['attachment_url'],
+                    kind: j['attachmentKind'] ?? j['attachment_kind'],
+                    provider:
+                        j['attachmentProvider'] ?? j['attachment_provider'],
+                    name: j['attachmentName'] ?? j['attachment_name'],
+                    mimeType:
                         j['attachmentMimeType'] ?? j['attachment_mime_type'],
-                    'sizeBytes': j['sizeBytes'] ?? j['attachment_size_bytes'],
-                    'attachmentDurationMs':
+                    sizeBytes: j['sizeBytes'] ?? j['attachment_size_bytes'],
+                    durationMs:
                         j['attachmentDurationMs'] ??
                         j['attachment_duration_ms'],
-                  },
+                    previewUrl:
+                        j['attachmentPreviewUrl'] ??
+                        j['attachment_preview_url'],
+                    thumbnailUrl:
+                        j['attachmentThumbnailUrl'] ??
+                        j['attachment_thumbnail_url'],
+                    width: j['attachmentWidth'] ?? j['attachment_width'],
+                    height: j['attachmentHeight'] ?? j['attachment_height'],
+                    uploadState:
+                        j['attachmentUploadState'] ??
+                        j['attachment_upload_state'],
+                    traceId: j['attachmentTraceId'] ?? j['attachment_trace_id'],
+                  ),
             ),
           )
         : null,
@@ -2167,16 +2359,31 @@ class SocialChatMessage {
         ? SocialChatAttachment.fromJson(
             Map<String, dynamic>.from(
               j['attachment'] as Map? ??
-                  <String, dynamic>{
-                    'attachmentUrl': j['attachmentUrl'] ?? j['attachment_url'],
-                    'attachmentKind':
-                        j['attachmentKind'] ?? j['attachment_kind'],
-                    'attachmentName':
-                        j['attachmentName'] ?? j['attachment_name'],
-                    'attachmentMimeType':
+                  _socialChatAttachmentFallback(
+                    url: j['attachmentUrl'] ?? j['attachment_url'],
+                    kind: j['attachmentKind'] ?? j['attachment_kind'],
+                    provider:
+                        j['attachmentProvider'] ?? j['attachment_provider'],
+                    name: j['attachmentName'] ?? j['attachment_name'],
+                    mimeType:
                         j['attachmentMimeType'] ?? j['attachment_mime_type'],
-                    'sizeBytes': j['sizeBytes'] ?? j['attachment_size_bytes'],
-                  },
+                    sizeBytes: j['sizeBytes'] ?? j['attachment_size_bytes'],
+                    durationMs:
+                        j['attachmentDurationMs'] ??
+                        j['attachment_duration_ms'],
+                    previewUrl:
+                        j['attachmentPreviewUrl'] ??
+                        j['attachment_preview_url'],
+                    thumbnailUrl:
+                        j['attachmentThumbnailUrl'] ??
+                        j['attachment_thumbnail_url'],
+                    width: j['attachmentWidth'] ?? j['attachment_width'],
+                    height: j['attachmentHeight'] ?? j['attachment_height'],
+                    uploadState:
+                        j['attachmentUploadState'] ??
+                        j['attachment_upload_state'],
+                    traceId: j['attachmentTraceId'] ?? j['attachment_trace_id'],
+                  ),
             ),
           )
         : null,
@@ -3185,19 +3392,31 @@ class SocialCommunityChatMessage {
         ? SocialChatAttachment.fromJson(
             Map<String, dynamic>.from(
               j['attachment'] as Map? ??
-                  <String, dynamic>{
-                    'attachmentUrl': j['attachmentUrl'] ?? j['attachment_url'],
-                    'attachmentKind':
-                        j['attachmentKind'] ?? j['attachment_kind'],
-                    'attachmentName':
-                        j['attachmentName'] ?? j['attachment_name'],
-                    'attachmentMimeType':
+                  _socialChatAttachmentFallback(
+                    url: j['attachmentUrl'] ?? j['attachment_url'],
+                    kind: j['attachmentKind'] ?? j['attachment_kind'],
+                    provider:
+                        j['attachmentProvider'] ?? j['attachment_provider'],
+                    name: j['attachmentName'] ?? j['attachment_name'],
+                    mimeType:
                         j['attachmentMimeType'] ?? j['attachment_mime_type'],
-                    'sizeBytes': j['sizeBytes'] ?? j['attachment_size_bytes'],
-                    'attachmentDurationMs':
+                    sizeBytes: j['sizeBytes'] ?? j['attachment_size_bytes'],
+                    durationMs:
                         j['attachmentDurationMs'] ??
                         j['attachment_duration_ms'],
-                  },
+                    previewUrl:
+                        j['attachmentPreviewUrl'] ??
+                        j['attachment_preview_url'],
+                    thumbnailUrl:
+                        j['attachmentThumbnailUrl'] ??
+                        j['attachment_thumbnail_url'],
+                    width: j['attachmentWidth'] ?? j['attachment_width'],
+                    height: j['attachmentHeight'] ?? j['attachment_height'],
+                    uploadState:
+                        j['attachmentUploadState'] ??
+                        j['attachment_upload_state'],
+                    traceId: j['attachmentTraceId'] ?? j['attachment_trace_id'],
+                  ),
             ),
           )
         : null,
@@ -3293,14 +3512,37 @@ class SocialCommunityBill {
             ? SocialChatAttachment.fromJson(
                 Map<String, dynamic>.from(
                   j['attachment'] as Map? ??
-                      <String, dynamic>{
-                        'attachmentUrl':
-                            j['attachmentUrl'] ?? j['attachment_url'],
-                        'attachmentKind':
-                            j['attachmentKind'] ?? j['attachment_kind'],
-                        'attachmentName':
-                            j['attachmentName'] ?? j['attachment_name'],
-                      },
+                      _socialChatAttachmentFallback(
+                        url: j['attachmentUrl'] ?? j['attachment_url'],
+                        kind: j['attachmentKind'] ?? j['attachment_kind'],
+                        provider:
+                            j['attachmentProvider'] ??
+                            j['attachment_provider'],
+                        name: j['attachmentName'] ?? j['attachment_name'],
+                        mimeType:
+                            j['attachmentMimeType'] ??
+                            j['attachment_mime_type'],
+                        sizeBytes:
+                            j['sizeBytes'] ?? j['attachment_size_bytes'],
+                        durationMs:
+                            j['attachmentDurationMs'] ??
+                            j['attachment_duration_ms'],
+                        previewUrl:
+                            j['attachmentPreviewUrl'] ??
+                            j['attachment_preview_url'],
+                        thumbnailUrl:
+                            j['attachmentThumbnailUrl'] ??
+                            j['attachment_thumbnail_url'],
+                        width: j['attachmentWidth'] ?? j['attachment_width'],
+                        height: j['attachmentHeight'] ??
+                            j['attachment_height'],
+                        uploadState:
+                            j['attachmentUploadState'] ??
+                            j['attachment_upload_state'],
+                        traceId:
+                            j['attachmentTraceId'] ??
+                            j['attachment_trace_id'],
+                      ),
                 ),
               )
             : null,

@@ -15,6 +15,7 @@ import 'package:maslaki/core/forms/form_scroll_coordinator.dart';
 import 'package:maslaki/core/i18n/app_localizations_context.dart';
 import 'package:maslaki/core/i18n/locale_text.dart';
 import 'package:maslaki/core/network/api_error_mapper.dart';
+import 'package:maslaki/core/network/session_invalidation.dart';
 import 'package:maslaki/core/sections/section_availability_controller.dart';
 import 'package:maslaki/core/sections/section_availability_models.dart';
 import 'package:maslaki/core/sections/section_unavailable_screen.dart';
@@ -330,7 +331,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       }
     } on DioException catch (e) {
       if (!mounted) return;
-      final unauthorized = _isUnauthorizedStatus(e.response?.statusCode);
+      final unauthorized = isTerminalAuthError(e);
       if (unauthorized) {
         _canUseTaxiApi = false;
         _streamSub?.cancel();
@@ -714,7 +715,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
           },
           onError: (error) {
             if (!mounted) return;
-            final unauthorized = _isUnauthorizedDioError(error);
+            final unauthorized = isTerminalAuthError(error);
             setState(() {
               _streamConnected = false;
               if (unauthorized) {
@@ -1091,15 +1092,6 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     } catch (_) {
       // Keep manual labels if reverse geocoding is unavailable.
     }
-  }
-
-  bool _isUnauthorizedStatus(int? statusCode) {
-    return statusCode == 401 || statusCode == 403;
-  }
-
-  bool _isUnauthorizedDioError(Object error) {
-    if (error is! DioException) return false;
-    return _isUnauthorizedStatus(error.response?.statusCode);
   }
 
   Future<void> _goToMyLocation({bool setAsPickupIfEmpty = false}) async {
@@ -2263,10 +2255,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     });
 
     try {
-      await _taxiApi.raiseRideFare(
-        rideId: rideId,
-        proposedFareIqd: proposedFareIqd,
-      );
+      await _taxiApi.rebookRide(rideId);
       await _loadCurrentRide(silent: true);
       _showMessage(
         _t(
@@ -3647,11 +3636,14 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     if (data is Map<String, dynamic>) {
       final message = data['message'];
       if (message is String && message.trim().isNotEmpty) {
+        if (isTerminalAuthError(e)) {
+          return l10n.mapPageSessionExpired;
+        }
         switch (message) {
           case 'INVALID_TOKEN':
           case 'UNAUTHORIZED':
           case 'FORBIDDEN':
-            return l10n.mapPageSessionExpired;
+            return _t('تعذر تنفيذ الطلب.', 'Request failed.');
           case 'TAXI_ACTIVE_RIDE_EXISTS':
             return l10n.mapPageApiActiveRideExists;
           case 'TAXI_RIDE_NOT_ACCEPTING_BIDS':

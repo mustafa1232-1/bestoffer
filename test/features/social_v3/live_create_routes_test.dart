@@ -85,6 +85,10 @@ class _FakePicker extends SocialMediaPickerV3 {
   @override
   Future<PickedSocialMedia?> pickReelVideo() async => video;
   @override
+  Future<PickedSocialMedia?> pickStoryImage() async => single;
+  @override
+  Future<PickedSocialMedia?> pickStoryVideo() async => video;
+  @override
   Future<PickedSocialMedia?> pickStoryImageOrVideo() async => single;
   @override
   Future<List<PickedSocialMedia>> pickMultiplePostMedia() async => multi;
@@ -133,6 +137,9 @@ void main() {
       (ctx) =>
           openStoryComposerV3FromGallery(ctx, picker: _FakePicker(single: _image)),
     );
+    await tester.tap(find.text('صورة'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 800));
     expect(find.byType(StoryComposerV3), findsOneWidget);
   });
 
@@ -213,6 +220,9 @@ void main() {
     await tester.tap(find.text('إنشاء قصة عامة'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.text('صورة'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 800));
     final composer = tester.widget<StoryComposerV3>(find.byType(StoryComposerV3));
     expect(composer.scope.scope, StoryAudienceScope.global);
     // The global audience label is visible.
@@ -240,6 +250,9 @@ void main() {
         picker: _FakePicker(single: _image),
       ),
     );
+    await tester.tap(find.text('صورة'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 800));
     final composer = tester.widget<StoryComposerV3>(find.byType(StoryComposerV3));
     expect(composer.scope.scope, StoryAudienceScope.building);
     expect(composer.scope.locked, isTrue);
