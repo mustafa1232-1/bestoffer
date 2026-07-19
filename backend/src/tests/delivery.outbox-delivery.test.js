@@ -12,6 +12,7 @@ import { drainNotificationOutbox } from "../modules/delivery/notification-outbox
 import { __setFirebaseMessagingForTests } from "../modules/notifications/notifications.repo.js";
 
 const MARK = "fixt_ob_";
+let recipientSerial = 0;
 function newClient() {
   return new pg.Client({ connectionString: process.env.DATABASE_URL });
 }
@@ -39,13 +40,15 @@ async function cleanup(c) {
 }
 
 async function makeRecipient(c, { role = "delivery", surface = "delivery", tokens = ["tok1"], suffix }) {
+  recipientSerial += 1;
+  const uniquePhone = `0${Date.now().toString(36)}${process.pid}${recipientSerial}`.slice(0, 15);
   const uid = Number(
     (
       await c.query(
         `INSERT INTO app_user
            (full_name, phone, pin_hash, block, building_number, apartment, username, role, delivery_account_approved)
          VALUES ($1,$2,'x','A','1','1',$3,$4,$5) RETURNING id`,
-        [`${MARK}u`, `0${suffix}`.slice(0, 15), `${MARK}${suffix}`, role, role === "delivery"]
+        [`${MARK}u`, uniquePhone, `${MARK}${suffix}`, role, role === "delivery"]
       )
     ).rows[0].id
   );
