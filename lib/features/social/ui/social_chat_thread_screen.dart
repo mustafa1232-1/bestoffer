@@ -24,6 +24,7 @@ import '../../notifications/data/notifications_api.dart';
 import '../../notifications/state/notifications_controller.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
+import '../models/social_pending_message.dart';
 import '../state/social_controller.dart';
 import 'social_call_screen.dart';
 import 'social_content_navigation.dart';
@@ -34,6 +35,7 @@ import 'widgets/social_attachment_preview_card.dart';
 import 'widgets/social_group_thread_sheet.dart';
 import 'widgets/social_identity_view.dart';
 import 'widgets/social_mention_hashtag_text.dart';
+import 'widgets/social_pending_message_bubble.dart';
 import 'widgets/social_voice_composer_controller.dart';
 import 'widgets/social_voice_message_widgets.dart';
 import 'social_message_client_id.dart';
@@ -56,6 +58,67 @@ const int _kChatConnectedSyncEveryTicks = 9;
 const Duration _kTypingStateEmitThrottle = Duration(milliseconds: 900);
 
 enum _ChatComposerAttachmentAction { image, video, file, location }
+
+String? _socialChatErrorCode(Object error) {
+  if (error is DioException) {
+    final data = error.response?.data;
+    if (data is Map) {
+      final rawCode =
+          data['code'] ?? data['errorCode'] ?? data['message'] ?? data['error'];
+      final code = '$rawCode'.trim().toUpperCase();
+      if (code.isNotEmpty) return code;
+    }
+    final statusMessage = error.response?.statusMessage?.trim().toUpperCase();
+    if (statusMessage != null && statusMessage.isNotEmpty) {
+      return statusMessage;
+    }
+  }
+  final text = error.toString().trim().toUpperCase();
+  return text.isEmpty ? null : text;
+}
+
+bool socialChatShouldRecoverMissingThread(
+  Object error, {
+  required bool hasPeerUserId,
+  required bool recoveryAttempted,
+}) {
+  if (!hasPeerUserId || recoveryAttempted) return false;
+  if (error is DioException) {
+    final code = error.response?.statusCode;
+    final apiCode = _socialChatErrorCode(error);
+    if (code == 404) return true;
+    if (code == 403 &&
+        (apiCode == 'THREAD_NOT_FOUND' ||
+            apiCode == 'CHAT_REQUEST_UNAVAILABLE')) {
+      return true;
+    }
+  }
+  final text = error.toString().toUpperCase();
+  return text.contains('THREAD_NOT_FOUND') ||
+      text.contains('CHAT_REQUEST_UNAVAILABLE');
+}
+
+bool socialChatIsRelationRequiredThreadError(Object error) {
+  final apiCode = _socialChatErrorCode(error);
+  if (apiCode == 'RELATION_REQUIRED' ||
+      apiCode == 'RELATION_BLOCKED' ||
+      apiCode == 'CHAT_REQUEST_PENDING') {
+    return true;
+  }
+  final text = error.toString().toUpperCase();
+  return text.contains('RELATION_REQUIRED') ||
+      text.contains('RELATION_BLOCKED') ||
+      text.contains('CHAT_REQUEST_PENDING');
+}
+
+bool socialChatShouldLockComposer({
+  required bool readOnly,
+  required bool monitorMode,
+  required bool pendingRequest,
+  required bool accessBlocked,
+}) {
+  return readOnly || monitorMode || pendingRequest || accessBlocked;
+}
 
 /// شاشة thread الواحدة للمحادثات الاجتماعية، وتشمل الرسائل، المرفقات،
 /// الردود، typing، read receipts، والـ realtime fallback.
@@ -132,6 +195,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   LocalMediaFile? _attachmentDraft;
   SocialSharedEntity? _sharedEntityDraft;
   late final SocialVoiceComposerController _voiceComposer;
+  late final LocalPendingMessageController _pendingMessagesController;
   bool _loading = false;
   bool _loadingMore = false;
   bool _sending = false;
@@ -144,11 +208,13 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   bool _searchMode = false;
   bool _searchLoading = false;
   String? _error;
+  bool _threadAccessBlocked = false;
   String? _searchError;
   String _searchQuery = '';
   int _searchResultIndex = 0;
   int? _highlightedMessageId;
   List<SocialChatMessage> _searchResults = const [];
+  final Set<String> _cancelledPendingClientIds = <String>{};
 
   int? get _currentUserId => ref.read(authControllerProvider).user?.id;
   int get _threadId => _resolvedThreadId ?? widget.threadId;
@@ -171,25 +237,6 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       phone: user.phone,
       role: user.role,
     );
-  }
-
-  bool _isRecoverableThreadLoadError(Object error) {
-    if (widget.peerUserId == null || _threadRecoveryAttempted) return false;
-    if (error is DioException) {
-      final code = error.response?.statusCode;
-      if (code == 404 || code == 403) return true;
-      final message =
-          '${error.response?.data is Map ? (error.response?.data as Map)['message'] : ''}'
-              .trim()
-              .toUpperCase();
-      if (message == 'THREAD_NOT_FOUND' ||
-          message == 'CHAT_REQUEST_UNAVAILABLE') {
-        return true;
-      }
-    }
-    final text = error.toString().toUpperCase();
-    return text.contains('THREAD_NOT_FOUND') ||
-        text.contains('CHAT_REQUEST_UNAVAILABLE');
   }
 
   Future<bool> _recoverMissingThread() async {
@@ -252,6 +299,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     _liveApi = ref.read(_liveNotificationsApiProvider);
     _voiceComposer = SocialVoiceComposerController()
       ..addListener(_handleVoiceComposerChanged);
+    _pendingMessagesController = LocalPendingMessageController()
+      ..addListener(_handlePendingMessagesChanged);
     WidgetsBinding.instance.addObserver(this);
     ActiveChatContextRegistry.enterSocialThread(_threadId);
     _scrollController.addListener(_handleScroll);
@@ -260,6 +309,11 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   }
 
   void _handleVoiceComposerChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _handlePendingMessagesChanged() {
     if (!mounted) return;
     setState(() {});
   }
@@ -509,6 +563,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       if (!mounted) return;
 
       setState(() {
+        _threadAccessBlocked = false;
         if (threadRaw is Map) {
           _thread = SocialChatThread.fromJson(
             Map<String, dynamic>.from(threadRaw),
@@ -563,7 +618,11 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     } catch (e) {
       if (!mounted) return;
       if (!loadMore &&
-          _isRecoverableThreadLoadError(e) &&
+          socialChatShouldRecoverMissingThread(
+            e,
+            hasPeerUserId: widget.peerUserId != null && widget.peerUserId! > 0,
+            recoveryAttempted: _threadRecoveryAttempted,
+          ) &&
           await _recoverMissingThread()) {
         await _loadMessages(initial: initial, silent: silent, loadMore: false);
         return;
@@ -571,6 +630,9 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       setState(() {
         _loading = false;
         _loadingMore = false;
+        if (socialChatIsRelationRequiredThreadError(e)) {
+          _threadAccessBlocked = true;
+        }
         if (!silent) {
           _error = mapAnyError(
             e,
@@ -1296,6 +1358,29 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       return;
     }
 
+    final attachmentFile = _voiceComposer.state.draft?.file ?? _attachmentDraft;
+    final attachmentDurationMs = _voiceComposer.state.draft?.durationMs;
+    final clientMessageId = buildSocialMessageClientId(
+      scopeKey: 'thread:$_threadId',
+      body: text,
+      replyToMessageId: _replyingTo?.id,
+      attachmentFile: attachmentFile,
+      attachmentDurationMs: attachmentDurationMs,
+      sharedEntityType: sharedDraft?.type,
+      sharedEntityId: sharedDraft?.id,
+      sharedSnapshot: sharedDraft?.snapshot,
+    );
+    final pending = _enqueuePendingMessage(
+      clientMessageId: clientMessageId,
+      body: text,
+      attachmentFile: attachmentFile,
+      attachmentDurationMs: attachmentDurationMs,
+      replyToMessageId: _replyingTo?.id,
+      sharedEntityType: sharedDraft?.type,
+      sharedEntityId: sharedDraft?.id,
+      sharedSnapshot: sharedDraft?.snapshot,
+    );
+
     setState(() {
       _sending = true;
       _error = null;
@@ -1307,22 +1392,14 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
         _threadId,
         text,
         replyToMessageId: _replyingTo?.id,
-        attachmentFile: _voiceComposer.state.draft?.file ?? _attachmentDraft,
-        attachmentDurationMs: _voiceComposer.state.draft?.durationMs,
+        attachmentFile: attachmentFile,
+        attachmentDurationMs: attachmentDurationMs,
         sharedEntityType: sharedDraft?.type,
         sharedEntityId: sharedDraft?.id,
         sharedSnapshot: sharedDraft?.snapshot,
-        clientMessageId: buildSocialMessageClientId(
-          scopeKey: 'thread:$_threadId',
-          body: text,
-          replyToMessageId: _replyingTo?.id,
-          attachmentFile: _voiceComposer.state.draft?.file ?? _attachmentDraft,
-          attachmentDurationMs: _voiceComposer.state.draft?.durationMs,
-          sharedEntityType: sharedDraft?.type,
-          sharedEntityId: sharedDraft?.id,
-          sharedSnapshot: sharedDraft?.snapshot,
-        ),
+        clientMessageId: clientMessageId,
       );
+      if (_cancelledPendingClientIds.contains(clientMessageId)) return;
       _applySentMessage(out);
       _inputController.clear();
       _composerHasText = false;
@@ -1335,6 +1412,10 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
+      _pendingMessagesController.markFailed(
+        pending.clientMessageId,
+        errorCode: _socialChatErrorCode(e),
+      );
       setState(() {
         _error = mapAnyError(
           e,
@@ -1438,11 +1519,136 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     final message = SocialChatMessage.fromJson(Map<String, dynamic>.from(raw));
     if (!mounted) return;
     setState(() {
-      final exists = _messages.any((m) => m.id == message.id);
-      if (!exists) {
-        _messages = [..._messages, message];
+      final clientId = (message.clientMessageId ?? '').trim();
+      if (clientId.isNotEmpty) {
+        _cancelledPendingClientIds.remove(clientId);
       }
+      _pendingMessagesController.reconcileServerMessage(message);
+      _messages = upsertSocialChatMessage(_messages, message);
     });
+  }
+
+  Future<void> _retryPendingMessage(LocalPendingMessage pending) async {
+    if (_sending || widget.readOnly) return;
+    final clientMessageId = pending.clientMessageId.trim();
+    if (clientMessageId.isEmpty || _cancelledPendingClientIds.contains(clientMessageId)) {
+      return;
+    }
+
+    final sharedDraft = pending.sharedEntityType == null
+        ? null
+        : SocialSharedEntity(
+            type: pending.sharedEntityType!,
+            id: pending.sharedEntityId ?? 0,
+            snapshot: pending.sharedSnapshot,
+          );
+    final attachmentFile = pending.localFile;
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    _pendingMessagesController.retry(clientMessageId);
+
+    try {
+      _stopTyping();
+      final out = await _api.sendThreadMessage(
+        _threadId,
+        pending.body,
+        replyToMessageId: pending.replyToMessageId,
+        attachmentFile: attachmentFile,
+        attachmentDurationMs: pending.durationMs,
+        sharedEntityType: sharedDraft?.type,
+        sharedEntityId: sharedDraft?.id,
+        sharedSnapshot: sharedDraft?.snapshot,
+        clientMessageId: clientMessageId,
+      );
+      if (!mounted || _cancelledPendingClientIds.contains(clientMessageId)) {
+        return;
+      }
+      _applySentMessage(out);
+      if (_replyingTo?.id == pending.replyToMessageId) {
+        _replyingTo = null;
+      }
+      _attachmentDraft = null;
+      if (_voiceComposer.state.draft != null &&
+          _voiceComposer.state.draft?.file.path == attachmentFile?.path) {
+        await _voiceComposer.discardDraft();
+      }
+      _sharedEntityDraft = null;
+      _inputController.clear();
+      _composerHasText = false;
+      _scrollToBottom();
+      _pendingMessagesController.markSent(clientMessageId);
+    } catch (e) {
+      if (!mounted || _cancelledPendingClientIds.contains(clientMessageId)) {
+        return;
+      }
+      _pendingMessagesController.markFailed(
+        clientMessageId,
+        errorCode: _socialChatErrorCode(e),
+      );
+      setState(() {
+        _error = mapAnyError(
+          e,
+          fallback: context.l10n.socialChatThreadSendFailed,
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+      }
+    }
+  }
+
+  Future<void> _cancelPendingMessage(LocalPendingMessage pending) async {
+    final clientMessageId = pending.clientMessageId.trim();
+    if (clientMessageId.isEmpty) return;
+    _cancelledPendingClientIds.add(clientMessageId);
+    _pendingMessagesController.cancel(clientMessageId);
+    if (_voiceComposer.state.draft != null &&
+        _voiceComposer.state.draft?.file.path == pending.localFile?.path) {
+      await _voiceComposer.discardDraft();
+    }
+    if (!mounted) return;
+    setState(() {
+      if (_replyingTo?.id == pending.replyToMessageId) {
+        _replyingTo = null;
+      }
+      _attachmentDraft = null;
+      _sharedEntityDraft = null;
+      _inputController.clear();
+      _composerHasText = false;
+      _error = null;
+    });
+  }
+
+  LocalPendingMessage _enqueuePendingMessage({
+    required String clientMessageId,
+    required String body,
+    required LocalMediaFile? attachmentFile,
+    required int? attachmentDurationMs,
+    required int? replyToMessageId,
+    String? sharedEntityType,
+    int? sharedEntityId,
+    Map<String, dynamic>? sharedSnapshot,
+  }) {
+    final pending = _pendingMessagesController.enqueue(
+      clientMessageId: clientMessageId,
+      threadId: _threadId,
+      kind: attachmentFile == null
+          ? 'text'
+          : pendingAttachmentKindForFile(attachmentFile),
+      localFile: attachmentFile,
+      body: body,
+      durationMs: attachmentDurationMs,
+      replyToMessageId: replyToMessageId,
+      sharedEntityType: sharedEntityType,
+      sharedEntityId: sharedEntityId,
+      sharedSnapshot: sharedSnapshot,
+    );
+    _pendingMessagesController.markUploading(clientMessageId);
+    _cancelledPendingClientIds.remove(clientMessageId);
+    return pending;
   }
 
   Future<void> _finishVoiceHold() async {
@@ -1470,29 +1676,58 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   Future<void> _sendVoiceDraft() async {
     final l10n = context.l10n;
     final result = await _voiceComposer.sendDraft((draft) async {
+      final clientMessageId = buildSocialMessageClientId(
+        scopeKey: 'thread:$_threadId',
+        body: '',
+        replyToMessageId: _replyingTo?.id,
+        attachmentFile: draft.file,
+        attachmentDurationMs: draft.durationMs,
+      );
+      final pending = _enqueuePendingMessage(
+        clientMessageId: clientMessageId,
+        body: '',
+        attachmentFile: draft.file,
+        attachmentDurationMs: draft.durationMs,
+        replyToMessageId: _replyingTo?.id,
+      );
       final out = await _api.sendThreadMessage(
         _threadId,
         '',
         replyToMessageId: _replyingTo?.id,
         attachmentFile: draft.file,
         attachmentDurationMs: draft.durationMs,
-        clientMessageId: buildSocialMessageClientId(
+        clientMessageId: clientMessageId,
+      );
+      if (_cancelledPendingClientIds.contains(clientMessageId)) return;
+      _applySentMessage(out);
+      _replyingTo = null;
+      _scrollToBottom();
+      _pendingMessagesController.markSent(pending.clientMessageId);
+    });
+    if (result.type == SocialVoiceComposerResultType.failed) {
+      final draft = _voiceComposer.state.draft;
+      final Object voiceError =
+          result.error ?? StateError('VOICE_SEND_FAILED');
+      if (draft != null) {
+        final pendingId = buildSocialMessageClientId(
           scopeKey: 'thread:$_threadId',
           body: '',
           replyToMessageId: _replyingTo?.id,
           attachmentFile: draft.file,
           attachmentDurationMs: draft.durationMs,
-        ),
-      );
-      _applySentMessage(out);
-      _replyingTo = null;
-      _scrollToBottom();
-    });
-    if (result.type == SocialVoiceComposerResultType.failed) {
+        );
+        if (!_cancelledPendingClientIds.contains(pendingId) &&
+            _pendingMessagesController.contains(pendingId)) {
+          _pendingMessagesController.markFailed(
+            pendingId,
+            errorCode: _socialChatErrorCode(voiceError),
+          );
+        }
+      }
       if (!mounted) return;
       setState(() {
         _error = mapAnyError(
-          result.error ?? StateError('VOICE_SEND_FAILED'),
+          voiceError,
           fallback: l10n.socialChatThreadVoiceMessageSendFailed,
         );
       });
@@ -2426,6 +2661,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     _reconnectTimer?.cancel();
     _voiceComposer.removeListener(_handleVoiceComposerChanged);
     _voiceComposer.dispose();
+    _pendingMessagesController.removeListener(_handlePendingMessagesChanged);
+    _pendingMessagesController.dispose();
     _searchDebounceTimer?.cancel();
     _typingStopTimer?.cancel();
     _peerTypingResetTimer?.cancel();
@@ -2502,9 +2739,15 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     final isPendingRequest =
         (_thread?.state.inboxBucket ?? '').trim() == 'requests' &&
         (_thread?.state.requestStatus ?? '').trim() == 'pending';
+    final composerLocked = socialChatShouldLockComposer(
+      readOnly: widget.readOnly,
+      monitorMode: widget.monitorMode,
+      pendingRequest: isPendingRequest,
+      accessBlocked: _threadAccessBlocked,
+    );
     final readOnlyLabel = widget.monitorMode
         ? l10n.socialChatThreadReadOnlyMonitor
-        : isPendingRequest
+        : (isPendingRequest || _threadAccessBlocked)
         ? l10n.socialChatThreadReadOnlyRequests
         : l10n.socialChatThreadReadOnlyDefault;
 
@@ -2740,7 +2983,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                   icon: const Icon(Icons.groups_2_outlined),
                 ),
               if (appInAppCallsEnabled &&
-                  !widget.readOnly &&
+                  !composerLocked &&
                   _thread?.isGroup != true)
                 IconButton(
                   tooltip: l10n.commonCall,
@@ -2917,104 +3160,160 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                             : Text(l10n.socialChatThreadEmpty),
                                       ),
                                     ),
-                                  for (final message in _messages)
-                                    KeyedSubtree(
-                                      key: _messageKey(message.id),
-                                      child: _ChatBubble(
-                                        message: _resolveMessageForViewer(
-                                          message,
-                                          currentUserId: currentUserId,
-                                          currentUserAuthor: currentUserAuthor,
-                                          peerAuthor: peer,
-                                        ),
-                                        translation: _translatedMessageFor(
-                                          message.id,
-                                        ),
-                                        translationBusy:
-                                            _translationBusyMessageIds.contains(
-                                              message.id,
+                                  ...(() {
+                                    final pendingMessages =
+                                        _pendingMessagesController.items
+                                            .where(
+                                              (item) =>
+                                                  item.threadId == _threadId &&
+                                                  item.status !=
+                                                      LocalPendingMessageStatus
+                                                          .cancelled,
+                                            )
+                                            .toList(growable: false)
+                                          ..sort(
+                                            (a, b) => a.createdAt.compareTo(
+                                              b.createdAt,
                                             ),
-                                        visualTheme: visualTheme,
-                                        highlighted:
-                                            _highlightedMessageId == message.id,
-                                        readOnly: widget.readOnly,
-                                        showReadReceipts:
-                                            ((_thread?.isGroup ?? false)
-                                                ? false
-                                                : _thread
-                                                      ?.presence
-                                                      .canSeeReadReceipts) ??
-                                            false,
-                                        reactionBusy: _reactionBusyMessageIds
-                                            .contains(message.id),
-                                        timeText: message.createdAt == null
-                                            ? ''
-                                            : _timeFormat.format(
-                                                message.createdAt!.toLocal(),
-                                              ),
-                                        currentUserId: currentUserId,
-                                        onOpenAttachment:
-                                            message.attachment == null
-                                            ? null
-                                            : () => _openAttachment(
-                                                message.attachment!,
-                                              ),
-                                        onOpenSharedEntity:
-                                            message.sharedEntity == null
-                                            ? null
-                                            : () => openSocialSharedEntity(
-                                                context,
-                                                entity: message.sharedEntity!,
-                                              ),
-                                        onOpenAuthorAvatar: () =>
-                                            _openUserAvatar(
-                                              userId: _resolveMessageForViewer(
-                                                message,
-                                                currentUserId: currentUserId,
-                                                currentUserAuthor:
-                                                    currentUserAuthor,
-                                                peerAuthor: peer,
-                                              ).sender.id,
-                                              fullName:
-                                                  _resolveMessageForViewer(
+                                          );
+                                    return <Widget>[
+                                      for (final message in _messages)
+                                        KeyedSubtree(
+                                          key: _messageKey(message.id),
+                                          child: _ChatBubble(
+                                            message: _resolveMessageForViewer(
+                                              message,
+                                              currentUserId: currentUserId,
+                                              currentUserAuthor:
+                                                  currentUserAuthor,
+                                              peerAuthor: peer,
+                                            ),
+                                            translation:
+                                                _translatedMessageFor(
+                                                  message.id,
+                                                ),
+                                            translationBusy:
+                                                _translationBusyMessageIds
+                                                    .contains(message.id),
+                                            visualTheme: visualTheme,
+                                            highlighted:
+                                                _highlightedMessageId ==
+                                                message.id,
+                                            readOnly: widget.readOnly,
+                                            showReadReceipts:
+                                                ((_thread?.isGroup ?? false)
+                                                    ? false
+                                                    : _thread
+                                                          ?.presence
+                                                          .canSeeReadReceipts) ??
+                                                false,
+                                            reactionBusy:
+                                                _reactionBusyMessageIds.contains(
+                                                  message.id,
+                                                ),
+                                            timeText: message.createdAt == null
+                                                ? ''
+                                                : _timeFormat.format(
+                                                    message.createdAt!
+                                                        .toLocal(),
+                                                  ),
+                                            currentUserId: currentUserId,
+                                            onOpenAttachment:
+                                                message.attachment == null
+                                                ? null
+                                                : () => _openAttachment(
+                                                    message.attachment!,
+                                                  ),
+                                            onOpenSharedEntity:
+                                                message.sharedEntity == null
+                                                ? null
+                                                : () => openSocialSharedEntity(
+                                                    context,
+                                                    entity:
+                                                        message.sharedEntity!,
+                                                  ),
+                                            onOpenAuthorAvatar: () =>
+                                                _openUserAvatar(
+                                                  userId:
+                                                      _resolveMessageForViewer(
+                                                        message,
+                                                        currentUserId:
+                                                            currentUserId,
+                                                        currentUserAuthor:
+                                                            currentUserAuthor,
+                                                        peerAuthor: peer,
+                                                      ).sender.id,
+                                                  fullName:
+                                                      _resolveMessageForViewer(
+                                                        message,
+                                                        currentUserId:
+                                                            currentUserId,
+                                                        currentUserAuthor:
+                                                            currentUserAuthor,
+                                                        peerAuthor: peer,
+                                                      ).sender.fullName,
+                                                ),
+                                            onOpenAuthorProfile: () =>
+                                                _openUserProfile(
+                                                  userId:
+                                                      _resolveMessageForViewer(
+                                                        message,
+                                                        currentUserId:
+                                                            currentUserId,
+                                                        currentUserAuthor:
+                                                            currentUserAuthor,
+                                                        peerAuthor: peer,
+                                                      ).sender.id,
+                                                  fullName:
+                                                      _resolveMessageForViewer(
+                                                        message,
+                                                        currentUserId:
+                                                            currentUserId,
+                                                        currentUserAuthor:
+                                                            currentUserAuthor,
+                                                        peerAuthor: peer,
+                                                      ).sender.fullName,
+                                                ),
+                                            onMore: widget.readOnly
+                                                ? null
+                                                : () => _openMessageActions(
                                                     message,
-                                                    currentUserId:
-                                                        currentUserId,
-                                                    currentUserAuthor:
-                                                        currentUserAuthor,
-                                                    peerAuthor: peer,
-                                                  ).sender.fullName,
-                                            ),
-                                        onOpenAuthorProfile: () =>
-                                            _openUserProfile(
-                                              userId: _resolveMessageForViewer(
-                                                message,
-                                                currentUserId: currentUserId,
-                                                currentUserAuthor:
-                                                    currentUserAuthor,
-                                                peerAuthor: peer,
-                                              ).sender.id,
-                                              fullName:
-                                                  _resolveMessageForViewer(
-                                                    message,
-                                                    currentUserId:
-                                                        currentUserId,
-                                                    currentUserAuthor:
-                                                        currentUserAuthor,
-                                                    peerAuthor: peer,
-                                                  ).sender.fullName,
-                                            ),
-                                        onMore: widget.readOnly
-                                            ? null
-                                            : () =>
-                                                  _openMessageActions(message),
-                                      ),
-                                    ),
+                                                  ),
+                                          ),
+                                        ),
+                                      for (final pending in pendingMessages)
+                                        KeyedSubtree(
+                                          key: ValueKey<String>(
+                                            'pending_${pending.clientMessageId}',
+                                          ),
+                                          child: SocialPendingMessageBubble(
+                                            message: pending,
+                                            onRetry:
+                                                pending.status ==
+                                                    LocalPendingMessageStatus
+                                                        .failed
+                                                ? () {
+                                                    unawaited(
+                                                      _retryPendingMessage(
+                                                        pending,
+                                                      ),
+                                                    );
+                                                  }
+                                                : null,
+                                            onCancel: () {
+                                              unawaited(
+                                                _cancelPendingMessage(pending),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                    ];
+                                  }()),
                                   if (_peerTyping &&
-                                      (_thread
-                                              ?.presence
-                                              .canSeeTypingIndicators ??
-                                          false))
+                                          (_thread
+                                                  ?.presence
+                                                  .canSeeTypingIndicators ??
+                                              false))
                                     Padding(
                                       padding: const EdgeInsets.only(top: 8),
                                       child: Align(
@@ -3080,7 +3379,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                       context,
                     ).bottom.clamp(0.0, 8.0).toDouble(),
                   ),
-                  child: widget.readOnly
+                  child: composerLocked
                       ? Container(
                           width: double.infinity,
                           padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
@@ -3196,7 +3495,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                     ],
                                   ),
                                 ),
-                              if (!widget.readOnly &&
+                              if (!composerLocked &&
                                   _scheduledMessages.isNotEmpty)
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 12),

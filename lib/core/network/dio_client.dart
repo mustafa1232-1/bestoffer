@@ -250,7 +250,11 @@ class DioClient {
             'X-Client-Platform': store.flavor.clientPlatformTag,
             'X-App-Flavor': store.flavor.key,
           },
-          extra: const {'skipSigning': true, 'skipAuthRefresh': true},
+          extra: const {
+            'skipSigning': true,
+            'skipAuthRefresh': true,
+            'skipTerminalSessionInvalidation': true,
+          },
         ),
       );
       final raw = response.data;
@@ -270,8 +274,34 @@ class DioClient {
       return accessToken;
     } on DioException catch (error) {
       if (_isInvalidRefreshFailure(error)) {
-        await _clearSigningMaterial();
-        await store.clear();
+        final currentRefreshToken = await store.readRefreshToken();
+        final decision = SessionInvalidationCoordinator.instance.classify(
+          error,
+          expectedRefreshToken: refreshToken,
+          currentRefreshToken: currentRefreshToken,
+        );
+        if (decision == SessionInvalidationDecision.staleFailure) {
+          error.requestOptions.extra['skipTerminalSessionInvalidation'] = true;
+          final storedAccessToken = await store.readToken();
+          if (storedAccessToken != null &&
+              storedAccessToken.isNotEmpty &&
+              storedAccessToken != currentAccessToken) {
+            return storedAccessToken;
+          }
+          return null;
+        }
+        if (decision == SessionInvalidationDecision.terminal) {
+          await SessionInvalidationCoordinator.instance.invalidateTerminalSession(
+            cleanup: () async {
+              try {
+                await _clearSigningMaterial();
+              } catch (_) {}
+              try {
+                await store.clear();
+              } catch (_) {}
+            },
+          );
+        }
         return null;
       }
       rethrow;
