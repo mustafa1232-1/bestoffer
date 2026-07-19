@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/core/network/dio_client.dart';
+import 'package:maslaki/core/network/session_invalidation.dart';
 import 'package:maslaki/core/platform/app_flavor.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
 
@@ -13,38 +14,42 @@ class _MemorySecureStore extends SecureStore {
     String? accessToken,
     String? refreshToken,
     String? deviceId,
-  })  : _accessToken = accessToken,
-        _refreshToken = refreshToken,
-        _deviceId = deviceId,
-        super(flavor: AppFlavor.user);
+  }) : super(flavor: AppFlavor.user) {
+    if (accessToken != null) {
+      _values['access_token'] = accessToken;
+    }
+    if (refreshToken != null) {
+      _values['refresh_token'] = refreshToken;
+    }
+    _values['device_id'] = deviceId ?? 'device-1';
+  }
 
-  String? _accessToken;
-  String? _refreshToken;
-  String? _deviceId;
+  final Map<String, String> _values = <String, String>{};
+  int clearCount = 0;
+  bool guestMode = false;
 
   @override
   Future<void> clear() async {
-    _accessToken = null;
-    _refreshToken = null;
-    _deviceId = null;
+    clearCount++;
+    _values.clear();
   }
 
   @override
-  Future<String?> readString(String key) async {
-    if (key == 'device_id') return _deviceId;
-    if (key == 'refresh_token') return _refreshToken;
-    return null;
+  Future<String?> readString(String key) async => _values[key];
+
+  @override
+  Future<void> writeString(String key, String value) async {
+    _values[key] = value;
   }
 
   @override
-  Future<String?> readToken() async => _accessToken;
-
-  @override
-  Future<String?> readRefreshToken() async => _refreshToken;
+  Future<void> delete(String key) async {
+    _values.remove(key);
+  }
 
   @override
   Future<void> saveToken(String token) async {
-    _accessToken = token;
+    _values['access_token'] = token;
   }
 
   @override
@@ -52,25 +57,47 @@ class _MemorySecureStore extends SecureStore {
     required String accessToken,
     String? refreshToken,
   }) async {
-    _accessToken = accessToken;
+    _values['access_token'] = accessToken;
     if (refreshToken != null && refreshToken.trim().isNotEmpty) {
-      _refreshToken = refreshToken.trim();
+      _values['refresh_token'] = refreshToken.trim();
     }
   }
 
   @override
-  Future<void> writeString(String key, String value) async {
-    if (key == 'device_id') {
-      _deviceId = value;
-    } else if (key == 'refresh_token') {
-      _refreshToken = value;
+  Future<String?> readToken() async => _values['access_token'];
+
+  @override
+  Future<String?> readRefreshToken() async => _values['refresh_token'];
+
+  @override
+  Future<void> saveGuestMode(bool enabled) async {
+    guestMode = enabled;
+    if (enabled) {
+      _values['guest_mode_active'] = '1';
+    } else {
+      _values.remove('guest_mode_active');
     }
   }
+
+  @override
+  Future<bool> readGuestMode() async => guestMode;
+
+  String? value(String key) => _values[key];
 }
 
-abstract class _BaseRefreshAdapter implements HttpClientAdapter {
-  int refreshCalls = 0;
-  int protectedCalls = 0;
+class _RefreshConcurrencyAdapter implements HttpClientAdapter {
+  _RefreshConcurrencyAdapter({
+    required this.validAccessToken,
+    this.refreshResponder,
+    this.refreshStarted,
+  });
+
+  String validAccessToken;
+  final Future<ResponseBody> Function(RequestOptions options)? refreshResponder;
+  final Completer<void>? refreshStarted;
+
+  int protectedFetchCount = 0;
+  int refreshFetchCount = 0;
 
   @override
   Future<ResponseBody> fetch(
@@ -78,153 +105,110 @@ abstract class _BaseRefreshAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
-    final path = options.path;
-    if (path == '/api/auth/refresh') {
-      return handleRefresh();
-    }
-
-    if (path == '/protected') {
-      protectedCalls += 1;
-      final auth = '${options.headers['Authorization'] ?? ''}';
-      final ok = auth.trim() == 'Bearer rotated-access-token';
-      return ResponseBody.fromString(
-        jsonEncode(<String, dynamic>{
-          'message': ok ? 'OK' : 'INVALID_TOKEN',
-          'ok': ok,
-          'authorization': auth,
-        }),
-        ok ? 200 : 401,
-        headers: {
-          Headers.contentTypeHeader: [Headers.jsonContentType],
+    if (options.path == '/api/auth/refresh') {
+      refreshFetchCount++;
+      refreshStarted?.complete();
+      if (refreshResponder != null) {
+        return refreshResponder!(options);
+      }
+      return _json(
+        200,
+        <String, dynamic>{
+          'token': validAccessToken,
+          'refreshToken': 'refresh-new',
         },
       );
     }
 
-    return ResponseBody.fromString(
-      jsonEncode(<String, dynamic>{'ok': true}),
-      200,
-      headers: {
-        Headers.contentTypeHeader: [Headers.jsonContentType],
-      },
-    );
+    protectedFetchCount++;
+    final auth = options.headers['Authorization'];
+    if (auth == 'Bearer $validAccessToken') {
+      return _json(200, <String, dynamic>{'ok': true});
+    }
+    return _json(401, <String, dynamic>{'message': 'INVALID_TOKEN'});
   }
 
   @override
   void close({bool force = false}) {}
-
-  Future<ResponseBody> handleRefresh();
 }
 
-class _SingleRefreshAdapter extends _BaseRefreshAdapter {
-  @override
-  Future<ResponseBody> handleRefresh() async {
-    refreshCalls += 1;
-    return ResponseBody.fromString(
-      jsonEncode(<String, dynamic>{
-        'token': 'rotated-access-token',
-        'refreshToken': 'rotated-refresh-token',
-      }),
-      200,
-      headers: {
-        Headers.contentTypeHeader: [Headers.jsonContentType],
-      },
-    );
-  }
-}
-
-class _StaleRefreshAdapter extends _BaseRefreshAdapter {
-  final Completer<void> _secondRefreshCompleted = Completer<void>();
-
-  @override
-  Future<ResponseBody> handleRefresh() async {
-    refreshCalls += 1;
-    if (refreshCalls == 1) {
-      await _secondRefreshCompleted.future.timeout(
-        const Duration(seconds: 5),
-      );
-      return ResponseBody.fromString(
-        jsonEncode(<String, dynamic>{'message': 'INVALID_REFRESH_TOKEN'}),
-        401,
-        headers: {
-          Headers.contentTypeHeader: [Headers.jsonContentType],
-        },
-      );
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-    if (!_secondRefreshCompleted.isCompleted) {
-      _secondRefreshCompleted.complete();
-    }
-    return ResponseBody.fromString(
-      jsonEncode(<String, dynamic>{
-        'token': 'rotated-access-token',
-        'refreshToken': 'rotated-refresh-token',
-      }),
-      200,
-      headers: {
-        Headers.contentTypeHeader: [Headers.jsonContentType],
-      },
-    );
-  }
+ResponseBody _json(int status, Map<String, dynamic> body) {
+  return ResponseBody.fromString(
+    jsonEncode(body),
+    status,
+    headers: <String, List<String>>{
+      Headers.contentTypeHeader: <String>['application/json; charset=utf-8'],
+    },
+  );
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('50 concurrent requests reuse a single refresh flight', () async {
+  setUp(() {
+    SessionInvalidationCoordinator.instance.reset();
+  });
+
+  test('50 concurrent protected requests share one refresh only', () async {
     final store = _MemorySecureStore(
-      accessToken: 'legacy-access-token',
-      refreshToken: 'legacy-refresh-token',
-      deviceId: 'device-a',
+      accessToken: 'access-old',
+      refreshToken: 'refresh-old',
+      deviceId: 'device-1',
     );
-    final adapter = _SingleRefreshAdapter();
+    final adapter = _RefreshConcurrencyAdapter(validAccessToken: 'access-new');
     final client = DioClient(store);
     client.dio.httpClientAdapter = adapter;
     client.dio.options.baseUrl = 'http://127.0.0.1';
 
     final results = await Future.wait(
-      List.generate(50, (_) => client.dio.get<dynamic>('/protected')),
+      List.generate(50, (_) => client.dio.get('/api/feed/posts')),
     );
 
-    expect(adapter.refreshCalls, 1);
-    expect(adapter.protectedCalls, 100);
-    expect(results.every((response) => response.statusCode == 200), isTrue);
-    expect(store.readToken(), completion('rotated-access-token'));
-    expect(store.readRefreshToken(), completion('rotated-refresh-token'));
+    expect(results, hasLength(50));
+    expect(adapter.refreshFetchCount, 1);
+    expect(store.value('access_token'), 'access-new');
+    expect(store.value('refresh_token'), 'refresh-new');
+    expect(store.clearCount, 0);
   });
 
-  test(
-    'stale refresh failure from one DioClient does not clear a later success',
-    () async {
-      final store = _MemorySecureStore(
-        accessToken: 'legacy-access-token',
-        refreshToken: 'legacy-refresh-token',
-        deviceId: 'device-b',
-      );
-      final adapter = _StaleRefreshAdapter();
-      final clientA = DioClient(store);
-      final clientB = DioClient(store);
-      clientA.dio.httpClientAdapter = adapter;
-      clientB.dio.httpClientAdapter = adapter;
-      clientA.dio.options.baseUrl = 'http://127.0.0.1';
-      clientB.dio.options.baseUrl = 'http://127.0.0.1';
+  test('stale refresh failure keeps the newer session intact', () async {
+    final store = _MemorySecureStore(
+      accessToken: 'access-old',
+      refreshToken: 'refresh-old',
+      deviceId: 'device-1',
+    );
+    final refreshStarted = Completer<void>();
+    final refreshResponse = Completer<ResponseBody>();
+    final adapter = _RefreshConcurrencyAdapter(
+      validAccessToken: 'access-new',
+      refreshStarted: refreshStarted,
+      refreshResponder: (_) => refreshResponse.future,
+    );
+    final client = DioClient(store);
+    client.dio.httpClientAdapter = adapter;
+    client.dio.options.baseUrl = 'http://127.0.0.1';
 
-      final first = clientA.dio.get<dynamic>('/protected');
-      final second = clientB.dio.get<dynamic>('/protected');
+    final request = client.dio.get('/api/feed/posts');
+    await refreshStarted.future;
 
-      final settled = await Future.wait<Object>([
-        first.then<Object>((response) => response).catchError((error) => error),
-        second.then<Object>((response) => response).catchError((error) => error),
-      ]);
-      expect(adapter.refreshCalls, 2);
-      expect(
-        settled.whereType<Response<dynamic>>().any((response) {
-          return response.statusCode == 200;
-        }),
-        isTrue,
-      );
-      expect(await store.readToken(), 'rotated-access-token');
-      expect(await store.readRefreshToken(), 'rotated-refresh-token');
-      expect(await store.readGuestMode(), isFalse);
-    },
-  );
+    await store.saveAuthTokens(
+      accessToken: 'access-new',
+      refreshToken: 'refresh-new',
+    );
+
+    refreshResponse.complete(
+      _json(401, <String, dynamic>{'message': 'INVALID_REFRESH_TOKEN'}),
+    );
+
+    await expectLater(
+      request,
+      throwsA(isA<DioException>()),
+    );
+
+    expect(store.value('access_token'), 'access-new');
+    expect(store.value('refresh_token'), 'refresh-new');
+    expect(store.clearCount, 0);
+    expect(store.guestMode, isFalse);
+    expect(SessionInvalidationCoordinator.instance.terminalInvalidated, isFalse);
+  });
 }

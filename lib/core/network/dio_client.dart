@@ -234,7 +234,6 @@ class DioClient {
     if (refreshToken == null || refreshToken.isEmpty) {
       return allowExpired ? null : currentAccessToken;
     }
-    final requestedRefreshToken = refreshToken;
 
     try {
       final deviceId = await _ensureDeviceId(store);
@@ -251,7 +250,11 @@ class DioClient {
             'X-Client-Platform': store.flavor.clientPlatformTag,
             'X-App-Flavor': store.flavor.key,
           },
-          extra: const {'skipSigning': true, 'skipAuthRefresh': true},
+          extra: const {
+            'skipSigning': true,
+            'skipAuthRefresh': true,
+            'skipTerminalSessionInvalidation': true,
+          },
         ),
       );
       final raw = response.data;
@@ -271,20 +274,34 @@ class DioClient {
       return accessToken;
     } on DioException catch (error) {
       if (_isInvalidRefreshFailure(error)) {
-        final latestRefreshToken = await store.readRefreshToken();
-        if (latestRefreshToken != null &&
-            latestRefreshToken.isNotEmpty &&
-            latestRefreshToken != requestedRefreshToken) {
-          final latestAccessToken =
-              await store.readToken() ??
-              AuthSessionTokenCache.currentToken(flavor: store.flavor);
-          if (latestAccessToken != null && latestAccessToken.isNotEmpty) {
-            return latestAccessToken;
+        final currentRefreshToken = await store.readRefreshToken();
+        final decision = SessionInvalidationCoordinator.instance.classify(
+          error,
+          expectedRefreshToken: refreshToken,
+          currentRefreshToken: currentRefreshToken,
+        );
+        if (decision == SessionInvalidationDecision.staleFailure) {
+          error.requestOptions.extra['skipTerminalSessionInvalidation'] = true;
+          final storedAccessToken = await store.readToken();
+          if (storedAccessToken != null &&
+              storedAccessToken.isNotEmpty &&
+              storedAccessToken != currentAccessToken) {
+            return storedAccessToken;
           }
-          return currentAccessToken;
+          return null;
         }
-        await _clearSigningMaterial();
-        await store.clear();
+        if (decision == SessionInvalidationDecision.terminal) {
+          await SessionInvalidationCoordinator.instance.invalidateTerminalSession(
+            cleanup: () async {
+              try {
+                await _clearSigningMaterial();
+              } catch (_) {}
+              try {
+                await store.clear();
+              } catch (_) {}
+            },
+          );
+        }
         return null;
       }
       rethrow;
@@ -306,7 +323,7 @@ class DioClient {
     }
 
     final responseCode = _extractAuthCode(error.response?.data);
-    if (!isRecoverableSessionRefreshCode(responseCode)) {
+    if (!isSessionAuthFailureCode(responseCode)) {
       return null;
     }
 
@@ -606,13 +623,6 @@ bool _isInvalidRefreshFailure(DioException error) {
   final rawMessage = data is Map ? (data['message'] ?? data['code']) : data;
   final message = '$rawMessage'.trim().toUpperCase();
   return message == 'INVALID_REFRESH_TOKEN' ||
-      message == 'REFRESH_TOKEN_EXPIRED' ||
-      message == 'REFRESH_TOKEN_REUSED' ||
-      message == 'SESSION_REVOKED' ||
-      message == 'DEVICE_BINDING_MISMATCH' ||
-      message == 'APP_SURFACE_MISMATCH' ||
-      message == 'JWT_SIGNATURE_INVALID' ||
-      message == 'ACCOUNT_DISABLED' ||
       message == 'VALIDATION_ERROR' ||
       message == 'NO_TOKEN';
 }

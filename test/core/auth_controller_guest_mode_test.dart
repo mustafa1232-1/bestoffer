@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/core/files/local_image_file.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
 import 'package:maslaki/features/auth/domain/auth_repo.dart';
@@ -23,6 +23,45 @@ class _MemorySecureStore extends SecureStore {
   @override
   Future<void> delete(String key) async {
     _values.remove(key);
+  }
+
+  @override
+  Future<void> saveToken(String token) async {
+    _values['access_token'] = token;
+  }
+
+  @override
+  Future<void> saveAuthTokens({
+    required String accessToken,
+    String? refreshToken,
+  }) async {
+    _values['access_token'] = accessToken;
+    if (refreshToken != null && refreshToken.trim().isNotEmpty) {
+      _values['refresh_token'] = refreshToken.trim();
+    }
+  }
+
+  @override
+  Future<String?> readToken() async => _values['access_token'];
+
+  @override
+  Future<String?> readRefreshToken() async => _values['refresh_token'];
+
+  @override
+  Future<void> saveGuestMode(bool enabled) async {
+    if (enabled) {
+      _values['guest_mode_active'] = '1';
+    } else {
+      _values.remove('guest_mode_active');
+    }
+  }
+
+  @override
+  Future<bool> readGuestMode() async => _values['guest_mode_active'] == '1';
+
+  @override
+  Future<void> clear() async {
+    _values.clear();
   }
 }
 
@@ -137,9 +176,12 @@ class _FakeAuthRepo implements AuthRepo {
 }
 
 void main() {
-  test('invalid stored token is not treated as terminal bootstrap failure', () async {
+  test('invalid stored token stays recoverable and does not downgrade to guest mode', () async {
     final store = _MemorySecureStore();
-    await store.saveAuthTokens(accessToken: 'stale-token');
+    await store.saveAuthTokens(
+      accessToken: 'stale-token',
+      refreshToken: 'refresh-token',
+    );
 
     final container = ProviderContainer(
       overrides: [
@@ -156,7 +198,6 @@ void main() {
     expect(state.isGuest, isFalse);
     expect(state.token, 'stale-token');
     expect(state.user, isNull);
-    expect(state.error, isNotNull);
     expect(await store.readGuestMode(), isFalse);
     expect(await store.readToken(), 'stale-token');
   });

@@ -1,6 +1,12 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+enum SessionInvalidationDecision {
+  recoverable,
+  staleFailure,
+  terminal,
+}
+
 /// Broadcasts a "the session is terminally invalid" event.
 ///
 /// The Dio interceptor bumps this once when it detects a terminal auth failure;
@@ -36,9 +42,56 @@ class SessionInvalidationCoordinator {
 
   bool get terminalInvalidated => _terminalInvalidated;
 
+  SessionInvalidationDecision classify(
+    DioException error, {
+    String? expectedRefreshToken,
+    String? currentRefreshToken,
+  }) {
+    if (error.response?.statusCode != 401) {
+      return SessionInvalidationDecision.recoverable;
+    }
+
+    if (error.requestOptions.extra['skipTerminalSessionInvalidation'] == true) {
+      return SessionInvalidationDecision.recoverable;
+    }
+
+    if (isSessionInvalidationExemptRequest(error.requestOptions)) {
+      return SessionInvalidationDecision.recoverable;
+    }
+
+    final code = _extractAuthCode(error.response?.data);
+    final hasBearer = _hasBearerAuthorization(error.requestOptions);
+    if (!hasBearer) {
+      return SessionInvalidationDecision.recoverable;
+    }
+
+    if (!isSessionAuthFailureCode(code)) {
+      return SessionInvalidationDecision.recoverable;
+    }
+
+    if (isRecoverableSessionAuthCode(code)) {
+      return SessionInvalidationDecision.recoverable;
+    }
+
+    if (!isTerminalSessionAuthCode(code)) {
+      return SessionInvalidationDecision.recoverable;
+    }
+
+    if (expectedRefreshToken != null && currentRefreshToken != null) {
+      final expected = expectedRefreshToken.trim();
+      final current = currentRefreshToken.trim();
+      if (expected.isNotEmpty && current.isNotEmpty && expected != current) {
+        return SessionInvalidationDecision.staleFailure;
+      }
+    }
+
+    return SessionInvalidationDecision.terminal;
+  }
+
   Future<void> invalidateTerminalSession({
     required Future<void> Function() cleanup,
   }) async {
+    if (_terminalInvalidated) return;
     final inFlight = _invalidateInFlight;
     if (inFlight != null) return inFlight;
 
@@ -55,6 +108,7 @@ class SessionInvalidationCoordinator {
 
   void reset() {
     _terminalInvalidated = false;
+    _invalidateInFlight = null;
   }
 
   Future<void> _runTerminalInvalidation(Future<void> Function() cleanup) async {
@@ -73,30 +127,25 @@ class SessionInvalidationCoordinator {
 /// surface a false "session expired" state when they receive a 401 for reasons
 /// unrelated to a logged-in session.
 bool isTerminalAuthError(DioException error) {
-  if (error.response?.statusCode != 401) return false;
-
-  if (error.requestOptions.extra['skipTerminalSessionInvalidation'] == true) {
-    return false;
-  }
-
-  if (isSessionInvalidationExemptRequest(error.requestOptions)) {
-    return false;
-  }
-
-  final request = error.requestOptions;
-  final code = _extractAuthCode(error.response?.data);
-  final hasBearer = _hasBearerAuthorization(request);
-
-  if (!isSessionAuthFailureCode(code)) {
-    return false;
-  }
-  return hasBearer;
+  return SessionInvalidationCoordinator.instance.classify(error) ==
+      SessionInvalidationDecision.terminal;
 }
 
-bool isSessionAuthFailureCode(String? code) {
+bool isRecoverableSessionAuthCode(String? code) {
   final normalized = code?.trim().toUpperCase();
   if (normalized == null || normalized.isEmpty) return false;
-  return normalized == 'REFRESH_TOKEN_EXPIRED' ||
+  return normalized == 'INVALID_TOKEN' ||
+      normalized == 'NO_TOKEN' ||
+      normalized == 'TOKEN_EXPIRED' ||
+      normalized == 'ACCESS_TOKEN_EXPIRED' ||
+      normalized == 'SESSION_EXPIRED';
+}
+
+bool isTerminalSessionAuthCode(String? code) {
+  final normalized = code?.trim().toUpperCase();
+  if (normalized == null || normalized.isEmpty) return false;
+  return normalized == 'INVALID_REFRESH_TOKEN' ||
+      normalized == 'REFRESH_TOKEN_EXPIRED' ||
       normalized == 'REFRESH_TOKEN_REUSED' ||
       normalized == 'SESSION_REVOKED' ||
       normalized == 'DEVICE_BINDING_MISMATCH' ||
@@ -105,18 +154,8 @@ bool isSessionAuthFailureCode(String? code) {
       normalized == 'ACCOUNT_DISABLED';
 }
 
-/// True when a 401 should first try a recoverable access-token refresh.
-///
-/// These codes are intentionally broader than [isSessionAuthFailureCode] so
-/// the networking layer can recover from expired/invalid access tokens without
-/// immediately treating the session as terminal.
-bool isRecoverableSessionRefreshCode(String? code) {
-  final normalized = code?.trim().toUpperCase();
-  if (normalized == null || normalized.isEmpty) return false;
-  return normalized == 'INVALID_TOKEN' ||
-      normalized == 'TOKEN_EXPIRED' ||
-      normalized == 'ACCESS_TOKEN_EXPIRED' ||
-      isSessionAuthFailureCode(normalized);
+bool isSessionAuthFailureCode(String? code) {
+  return isRecoverableSessionAuthCode(code) || isTerminalSessionAuthCode(code);
 }
 
 bool isSessionInvalidationExemptRequest(RequestOptions request) {

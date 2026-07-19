@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/core/network/session_invalidation.dart';
@@ -19,282 +21,151 @@ DioException _err(
   return DioException(
     requestOptions: req,
     type: DioExceptionType.badResponse,
-    response: Response(requestOptions: req, statusCode: status, data: body),
+    response: Response(
+      requestOptions: req,
+      statusCode: status,
+      data: body,
+    ),
   );
 }
 
 void main() {
-  group('isTerminalAuthError', () {
-    test('false for 401 auth codes without bearer on guest requests', () {
+  setUp(() {
+    SessionInvalidationCoordinator.instance.reset();
+  });
+
+  group('SessionInvalidationCoordinator.classify', () {
+    test('treats access-token failures as recoverable', () {
       expect(
-        isTerminalAuthError(_err(401, {'message': 'INVALID_TOKEN'})),
-        isFalse,
+        SessionInvalidationCoordinator.instance.classify(
+          _err(
+            401,
+            {'message': 'INVALID_TOKEN'},
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        SessionInvalidationDecision.recoverable,
       );
-      expect(isTerminalAuthError(_err(401, {'message': 'NO_TOKEN'})), isFalse);
       expect(
-        isTerminalAuthError(_err(401, {'code': 'INVALID_REFRESH_TOKEN'})),
-        isFalse,
+        SessionInvalidationCoordinator.instance.classify(
+          _err(
+            401,
+            {'message': 'TOKEN_EXPIRED'},
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        SessionInvalidationDecision.recoverable,
       );
       expect(
-        isTerminalAuthError(_err(401, {'message': 'REFRESH_TOKEN_EXPIRED'})),
-        isFalse,
-      );
-      expect(
-        isTerminalAuthError(_err(401, {'message': 'TOKEN_EXPIRED'})),
-        isFalse,
+        SessionInvalidationCoordinator.instance.classify(
+          _err(
+            401,
+            {'message': 'ACCESS_TOKEN_EXPIRED'},
+            headers: const {'Authorization': 'Bearer access-token'},
+          ),
+        ),
+        SessionInvalidationDecision.recoverable,
       );
     });
 
-    test(
-      'false for guest and auth bootstrap flows without a stored session',
-      () {
+    test('treats terminal session codes as terminal when bearer token exists', () {
+      final terminalCodes = <String>[
+        'INVALID_REFRESH_TOKEN',
+        'REFRESH_TOKEN_EXPIRED',
+        'REFRESH_TOKEN_REUSED',
+        'SESSION_REVOKED',
+        'DEVICE_BINDING_MISMATCH',
+        'APP_SURFACE_MISMATCH',
+        'JWT_SIGNATURE_INVALID',
+        'ACCOUNT_DISABLED',
+      ];
+
+      for (final code in terminalCodes) {
         expect(
-          isTerminalAuthError(
-            _err(401, {'message': 'NO_TOKEN'}, path: '/api/realtime/token'),
-          ),
-          isFalse,
-        );
-        expect(
-          isTerminalAuthError(
-            _err(401, {
-              'message': 'NO_TOKEN',
-            }, path: '/api/notifications/push-token'),
-          ),
-          isFalse,
-        );
-        expect(
-          isTerminalAuthError(
-            _err(401, {
-              'message': 'INVALID_CREDENTIALS',
-            }, path: '/api/auth/login'),
-          ),
-          isFalse,
-        );
-        expect(
-          isTerminalAuthError(
-            _err(401, {'message': 'NO_TOKEN'}, path: '/api/auth/register'),
-          ),
-          isFalse,
-        );
-        expect(
-          isTerminalAuthError(
-            _err(401, {
-              'message': 'NO_TOKEN',
-            }, path: '/api/services/provider/register'),
-          ),
-          isFalse,
-        );
-        expect(
-          isTerminalAuthError(
-            _err(401, {
-              'message': 'NO_TOKEN',
-            }, path: '/api/services/provider/subscription/status'),
-          ),
-          isFalse,
-        );
-        expect(
-          isTerminalAuthError(
+          SessionInvalidationCoordinator.instance.classify(
             _err(
               401,
-              {'message': 'NO_TOKEN'},
+              {'message': code},
               path: '/api/auth/refresh',
-              data: const <String, dynamic>{},
-            ),
-          ),
-          isFalse,
-        );
-        expect(
-          isTerminalAuthError(
-            _err(401, {
-              'message': 'INVALID_TOKEN',
-            }, path: '/api/services/public/categories'),
-          ),
-          isFalse,
-        );
-        expect(
-          isTerminalAuthError(
-            _err(
-              401,
-              {'message': 'REFRESH_TOKEN_REUSED'},
-              path: '/api/auth/refresh',
+              headers: const {'Authorization': 'Bearer access-token'},
               data: const <String, dynamic>{'refreshToken': 'refresh-token'},
             ),
           ),
-          isFalse,
+          SessionInvalidationDecision.terminal,
+          reason: code,
         );
-      },
-    );
+      }
+    });
 
-    test('true for authenticated requests with bearer tokens', () {
+    test('returns staleFailure when an older refresh token fails after rotation', () {
       expect(
-        isTerminalAuthError(
+        SessionInvalidationCoordinator.instance.classify(
           _err(
             401,
-            {'message': 'NO_TOKEN'},
-            path: '/api/realtime/token',
-            headers: const {'Authorization': 'Bearer access-token'},
-          ),
-        ),
-        isFalse,
-      );
-      expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'REFRESH_TOKEN_EXPIRED'},
-            path: '/api/hr/dashboard',
-            headers: const {'Authorization': 'Bearer access-token'},
-          ),
-        ),
-        isTrue,
-      );
-      expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'UNAUTHORIZED'},
-            path: '/api/company/dashboard',
-            headers: const {'Authorization': 'Bearer access-token'},
-          ),
-        ),
-        isFalse,
-      );
-      expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'REFRESH_TOKEN_REUSED'},
+            {'message': 'INVALID_REFRESH_TOKEN'},
             path: '/api/auth/refresh',
             headers: const {'Authorization': 'Bearer access-token'},
             data: const <String, dynamic>{'refreshToken': 'refresh-token'},
           ),
+          expectedRefreshToken: 'refresh-token',
+          currentRefreshToken: 'new-refresh-token',
         ),
-        isTrue,
-      );
-      expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'SESSION_REVOKED'},
-            path: '/api/accountant/summary',
-            headers: const {'Authorization': 'Bearer access-token'},
-          ),
-        ),
-        isTrue,
-      );
-      expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'DEVICE_BINDING_MISMATCH'},
-            path: '/api/accountant/summary',
-            headers: const {'Authorization': 'Bearer access-token'},
-          ),
-        ),
-        isTrue,
-      );
-      expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'APP_SURFACE_MISMATCH'},
-            path: '/api/accountant/summary',
-            headers: const {'Authorization': 'Bearer access-token'},
-          ),
-        ),
-        isTrue,
-      );
-      expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'JWT_SIGNATURE_INVALID'},
-            path: '/api/accountant/summary',
-            headers: const {'Authorization': 'Bearer access-token'},
-          ),
-        ),
-        isTrue,
-      );
-      expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'ACCOUNT_DISABLED'},
-            path: '/api/accountant/summary',
-            headers: const {'Authorization': 'Bearer access-token'},
-          ),
-        ),
-        isTrue,
-      );
-      expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'REQUEST_SIGNATURE_INVALID'},
-            path: '/api/accountant/summary',
-            headers: const {'Authorization': 'Bearer access-token'},
-          ),
-        ),
-        isFalse,
+        SessionInvalidationDecision.staleFailure,
       );
     });
 
-    test(
-      'false when support requests explicitly opt out of terminal invalidation',
-      () {
-        expect(
-          isTerminalAuthError(
-            _err(
-              401,
-              {'message': 'NO_TOKEN'},
-              path: '/api/delivery/orders/current',
-              headers: const {'Authorization': 'Bearer access-token'},
-              extra: const {'skipTerminalSessionInvalidation': true},
-            ),
+    test('skips terminal invalidation when explicitly opted out', () {
+      expect(
+        SessionInvalidationCoordinator.instance.classify(
+          _err(
+            401,
+            {'message': 'INVALID_REFRESH_TOKEN'},
+            path: '/api/auth/refresh',
+            headers: const {'Authorization': 'Bearer access-token'},
+            extra: const {'skipTerminalSessionInvalidation': true},
+            data: const <String, dynamic>{'refreshToken': 'refresh-token'},
           ),
-          isFalse,
-        );
-      },
-    );
+        ),
+        SessionInvalidationDecision.recoverable,
+      );
+    });
 
-    test('false for non-terminal 401s and other statuses', () {
+    test('ignores non-terminal 401s and other statuses', () {
       expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'INVALID_TOKEN'},
-            path: '/api/company/dashboard',
-            headers: const {'Authorization': 'Bearer access-token'},
+        SessionInvalidationCoordinator.instance.classify(
+          _err(401, {'message': 'UNAUTHORIZED'}),
+        ),
+        SessionInvalidationDecision.recoverable,
+      );
+      expect(
+        SessionInvalidationCoordinator.instance.classify(
+          _err(403, {'message': 'FORBIDDEN_CUSTOMER_ONLY'}),
+        ),
+        SessionInvalidationDecision.recoverable,
+      );
+      expect(
+        SessionInvalidationCoordinator.instance.classify(
+          _err(500, {'message': 'INVALID_TOKEN'}),
+        ),
+        SessionInvalidationDecision.recoverable,
+      );
+      expect(
+        SessionInvalidationCoordinator.instance.classify(
+          DioException(
+            requestOptions: RequestOptions(path: '/api/feed/posts'),
+            type: DioExceptionType.connectionTimeout,
           ),
         ),
-        isFalse,
+        SessionInvalidationDecision.recoverable,
       );
       expect(
-        isTerminalAuthError(
-          _err(
-            401,
-            {'message': 'NO_TOKEN'},
-            path: '/api/company/dashboard',
-            headers: const {'Authorization': 'Bearer access-token'},
+        SessionInvalidationCoordinator.instance.classify(
+          DioException(
+            requestOptions: RequestOptions(path: '/api/feed/posts'),
+            type: DioExceptionType.connectionError,
           ),
         ),
-        isFalse,
-      );
-      expect(
-        isTerminalAuthError(_err(401, {'message': 'SOME_OTHER_401'})),
-        isFalse,
-      );
-      expect(
-        isTerminalAuthError(_err(403, {'message': 'FORBIDDEN_CUSTOMER_ONLY'})),
-        isFalse,
-      );
-      expect(
-        isTerminalAuthError(_err(500, {'message': 'INVALID_TOKEN'})),
-        isFalse,
-      );
-      expect(
-        isTerminalAuthError(_err(400, {'message': 'INVALID_PERIOD'})),
-        isFalse,
+        SessionInvalidationDecision.recoverable,
       );
     });
   });
@@ -315,6 +186,47 @@ void main() {
       bus.invalidate();
       expect(bus.tick, startTick + 2);
       expect(notified, 2);
+    });
+  });
+
+  group('invalidateTerminalSession', () {
+    test('runs cleanup once for concurrent callers and stays idempotent', () async {
+      final coordinator = SessionInvalidationCoordinator.instance;
+      var cleanupCount = 0;
+      final gate = Completer<void>();
+
+      final first = coordinator.invalidateTerminalSession(
+        cleanup: () async {
+          cleanupCount++;
+          await gate.future;
+        },
+      );
+      final second = coordinator.invalidateTerminalSession(
+        cleanup: () async {
+          cleanupCount++;
+        },
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      expect(cleanupCount, 1);
+
+      gate.complete();
+      await Future.wait([first, second]);
+
+      await coordinator.invalidateTerminalSession(
+        cleanup: () async {
+          cleanupCount++;
+        },
+      );
+      expect(cleanupCount, 1);
+
+      coordinator.reset();
+      await coordinator.invalidateTerminalSession(
+        cleanup: () async {
+          cleanupCount++;
+        },
+      );
+      expect(cleanupCount, 2);
     });
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:social_core/social_core.dart';
 
@@ -101,6 +103,19 @@ class _AttachmentPreviewThumb extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         child: Image.memory(
           file.bytes!,
+          width: 72,
+          height: 72,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+        ),
+      );
+    }
+    final path = file.path?.trim();
+    if (file.isImage && path != null && path.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.file(
+          File(path),
           width: 72,
           height: 72,
           fit: BoxFit.cover,
