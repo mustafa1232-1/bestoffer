@@ -105,6 +105,20 @@ bool isSessionAuthFailureCode(String? code) {
       normalized == 'ACCOUNT_DISABLED';
 }
 
+/// True when a 401 should first try a recoverable access-token refresh.
+///
+/// These codes are intentionally broader than [isSessionAuthFailureCode] so
+/// the networking layer can recover from expired/invalid access tokens without
+/// immediately treating the session as terminal.
+bool isRecoverableSessionRefreshCode(String? code) {
+  final normalized = code?.trim().toUpperCase();
+  if (normalized == null || normalized.isEmpty) return false;
+  return normalized == 'INVALID_TOKEN' ||
+      normalized == 'TOKEN_EXPIRED' ||
+      normalized == 'ACCESS_TOKEN_EXPIRED' ||
+      isSessionAuthFailureCode(normalized);
+}
+
 bool isSessionInvalidationExemptRequest(RequestOptions request) {
   final path = _normalizedPath(request.path);
   final hasBearer = _hasBearerAuthorization(request);

@@ -137,7 +137,7 @@ class _FakeAuthRepo implements AuthRepo {
 }
 
 void main() {
-  test('invalid stored token downgrades to guest mode and clears auth token', () async {
+  test('invalid stored token is not treated as terminal bootstrap failure', () async {
     final store = _MemorySecureStore();
     await store.saveAuthTokens(accessToken: 'stale-token');
 
@@ -153,10 +153,11 @@ void main() {
     await controller.bootstrap();
 
     final state = container.read(authControllerProvider);
-    expect(state.isGuest, isTrue);
-    expect(state.token, isNull);
+    expect(state.isGuest, isFalse);
+    expect(state.token, 'stale-token');
     expect(state.user, isNull);
-    expect(await store.readGuestMode(), isTrue);
-    expect(await store.readToken(), isNull);
+    expect(state.error, isNotNull);
+    expect(await store.readGuestMode(), isFalse);
+    expect(await store.readToken(), 'stale-token');
   });
 }

@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { pool } from "../config/db.js";
-import { insertSocialMediaAsset } from "../modules/feed/feed.repo.js";
+import {
+  getSocialMediaAssetDiagnosticsById,
+} from "../modules/feed/feed.media.service.js";
+import {
+  insertSocialMediaAsset,
+  updateSocialMediaAssetStatus,
+} from "../modules/feed/feed.repo.js";
 
 test("social media asset insert persists stream playback fields", async () => {
   const owner = await pool.query(
@@ -47,6 +53,62 @@ test("social media asset insert persists stream playback fields", async () => {
     [asset.id]
   );
   assert.equal(persisted.rows[0].trace_id, "stream_uid_test_001");
+
+  await pool.query("DELETE FROM social_media_asset WHERE id = $1", [asset.id]);
+});
+
+test("social media asset diagnostics expose failure code and trace stages", async () => {
+  const owner = await pool.query(
+    "SELECT id FROM app_user ORDER BY id ASC LIMIT 1"
+  );
+  assert.equal(owner.rowCount > 0, true, "expected at least one user row");
+  const ownerUserId = Number(owner.rows[0].id);
+
+  const asset = await insertSocialMediaAsset({
+    ownerUserId,
+    sourceType: "reel",
+    provider: "stream",
+    streamUid: "stream_uid_test_002",
+    originalUrl: "https://example.com/original.mp4",
+    normalizedUrl: null,
+    posterUrl: null,
+    playbackUrl: null,
+    thumbnailUrl: null,
+    mimeType: "video/mp4",
+    mediaKind: "video",
+    durationMs: 12000,
+    width: 1080,
+    height: 1920,
+    processingStatus: "processing",
+  });
+
+  await updateSocialMediaAssetStatus({
+    assetId: asset.id,
+    streamUid: asset.stream_uid,
+    processingStatus: "failed",
+    processingError: "CF_STREAM_TIMEOUT",
+  });
+
+  const diagnostics = await getSocialMediaAssetDiagnosticsById({
+    userId: ownerUserId,
+    assetId: asset.id,
+  });
+  assert.equal(diagnostics.assetId, Number(asset.id));
+  assert.equal(diagnostics.provider, "stream");
+  assert.equal(diagnostics.failureCode, "CF_STREAM_TIMEOUT");
+  assert.equal(diagnostics.traceStages?.length > 0, true);
+  assert.equal(
+    diagnostics.traceStages.some((stage) => stage.stage === "PROCESSING"),
+    true
+  );
+  assert.equal(
+    diagnostics.traceStages.some((stage) => stage.stage === "READY"),
+    true
+  );
+  assert.equal(
+    diagnostics.traceStages.some((stage) => stage.stage === "PUBLISHED"),
+    true
+  );
 
   await pool.query("DELETE FROM social_media_asset WHERE id = $1", [asset.id]);
 });

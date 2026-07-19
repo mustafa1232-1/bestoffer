@@ -306,7 +306,7 @@ class DioClient {
     }
 
     final responseCode = _extractAuthCode(error.response?.data);
-    if (!isSessionAuthFailureCode(responseCode)) {
+    if (!isRecoverableSessionRefreshCode(responseCode)) {
       return null;
     }
 

@@ -87,6 +87,89 @@ function mapSocialMediaAssetRow(row) {
   };
 }
 
+function buildSocialMediaAssetTraceStages(mapped) {
+  if (!mapped) return [];
+  const provider = String(mapped.provider || "").trim().toLowerCase();
+  const status = String(mapped.processingStatus || "").trim().toLowerCase();
+  const updatedAt = mapped.updatedAt || null;
+
+  if (provider !== "stream") {
+    return [
+      {
+        stage: "SESSION_CREATED",
+        state: provider === "r2" ? "not_applicable" : "unknown",
+        at: updatedAt,
+      },
+      {
+        stage: "TUS_STARTED",
+        state: provider === "r2" ? "not_applicable" : "unknown",
+        at: updatedAt,
+      },
+      {
+        stage: "PROCESSING",
+        state: status || "unknown",
+        at: updatedAt,
+      },
+      {
+        stage: "READY",
+        state: status === "ready" ? "complete" : "pending",
+        at: updatedAt,
+      },
+    ];
+  }
+
+  return [
+    {
+      stage: "SESSION_CREATED",
+      state: mapped.traceId ? "complete" : "missing",
+      at: updatedAt,
+    },
+    {
+      stage: "TUS_STARTED",
+      state: ["pending", "processing", "ready", "failed", "published"].includes(status)
+        ? "complete"
+        : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "PROCESSING",
+      state: ["processing", "ready", "published"].includes(status)
+        ? "complete"
+        : status === "failed"
+          ? "failed"
+          : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "WEBHOOK_RECEIVED",
+      state: ["ready", "failed", "published"].includes(status)
+        ? "complete"
+        : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "RECONCILED",
+      state: ["ready", "published"].includes(status) ? "complete" : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "READY",
+      state: ["ready", "published"].includes(status) ? "complete" : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "PUBLISH_STARTED",
+      state: status === "published" ? "complete" : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "PUBLISHED",
+      state: status === "published" ? "complete" : "pending",
+      at: updatedAt,
+    },
+  ];
+}
+
 async function cleanupTemporarySource(media = null) {
   const r2Key = trim(media?.r2Key || media?.key);
   if (r2Key) {
@@ -374,6 +457,7 @@ export async function getSocialMediaAssetDiagnosticsById({ userId, assetId }) {
     failureCode: mapped?.failureCode ?? mapped?.processingError ?? null,
     updatedAt: mapped?.updatedAt ?? null,
     traceId: mapped?.traceId ?? null,
+    traceStages: buildSocialMediaAssetTraceStages(mapped),
   };
 }
 

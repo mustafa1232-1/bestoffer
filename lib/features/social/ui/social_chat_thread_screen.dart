@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:core_maps/core_maps.dart';
@@ -14,6 +15,7 @@ import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/media/media_cache_models.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/notifications/active_chat_context_registry.dart';
@@ -24,6 +26,7 @@ import '../../notifications/data/notifications_api.dart';
 import '../../notifications/state/notifications_controller.dart';
 import '../data/social_api.dart';
 import '../models/social_models.dart';
+import '../models/social_pending_message.dart';
 import '../state/social_controller.dart';
 import 'social_call_screen.dart';
 import 'social_content_navigation.dart';
@@ -119,6 +122,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   int? _lastMarkedReadMessageId;
 
   List<SocialChatMessage> _messages = const [];
+  List<LocalPendingMessage> _pendingMessages = const [];
   List<SocialChatMessage> _pinnedMessages = const [];
   List<SocialScheduledChatMessage> _scheduledMessages = const [];
   SocialChatThread? _thread;
@@ -151,6 +155,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   int _searchResultIndex = 0;
   int? _highlightedMessageId;
   List<SocialChatMessage> _searchResults = const [];
+  final Set<String> _cancelledPendingClientMessageIds = <String>{};
 
   int? get _currentUserId => ref.read(authControllerProvider).user?.id;
   int get _threadId => _resolvedThreadId ?? widget.threadId;
@@ -523,17 +528,20 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
           }
         }
         _nextCursor = _parseInt(out['nextCursor']);
-        if (pinnedRaw.isNotEmpty || !loadMore) {
-          _setPinnedMessages(
-            pinnedParsed
-                .map((message) => _resolveMessageForViewer(message))
-                .toList(growable: false),
-          );
-        }
-        if (loadMore) {
-          _messages = [
-            ...parsed.map((message) => _resolveMessageForViewer(message)),
-            ..._messages,
+      if (pinnedRaw.isNotEmpty || !loadMore) {
+        _setPinnedMessages(
+          pinnedParsed
+              .map((message) => _resolveMessageForViewer(message))
+              .toList(growable: false),
+        );
+      }
+      _reconcilePendingFromServerMessages(
+        parsed.map((message) => _resolveMessageForViewer(message)),
+      );
+      if (loadMore) {
+        _messages = [
+          ...parsed.map((message) => _resolveMessageForViewer(message)),
+          ..._messages,
           ];
         } else if (initial) {
           _messages = parsed
@@ -858,6 +866,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     if (!mounted) return;
     final wasNearBottom = _isNearBottom(threshold: 260);
     final resolvedNext = _resolveMessageForViewer(next);
+    _reconcilePendingFromServerMessages([resolvedNext]);
     final current = [..._messages];
     final index = current.indexWhere((m) => m.id == resolvedNext.id);
     if (index >= 0) {
@@ -1206,13 +1215,16 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                 .toList(growable: false),
           );
         }
-        final merged = <int, SocialChatMessage>{};
-        for (final message in _messages) {
-          merged[message.id] = message;
-        }
-        for (final message in parsed) {
-          merged[message.id] = _resolveMessageForViewer(message);
-        }
+      final merged = <int, SocialChatMessage>{};
+      for (final message in _messages) {
+        merged[message.id] = message;
+      }
+      _reconcilePendingFromServerMessages(
+        parsed.map((message) => _resolveMessageForViewer(message)),
+      );
+      for (final message in parsed) {
+        merged[message.id] = _resolveMessageForViewer(message);
+      }
         final ordered = merged.values.toList()
           ..sort((a, b) => a.id.compareTo(b.id));
         _messages = ordered;
@@ -1289,8 +1301,10 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   Future<void> _sendMessage() async {
     final text = _inputController.text.trim();
     final sharedDraft = _sharedEntityDraft;
+    final attachmentFile = _voiceComposer.state.draft?.file ?? _attachmentDraft;
+    final attachmentDurationMs = _voiceComposer.state.draft?.durationMs;
     if ((text.isEmpty &&
-            _attachmentDraft == null &&
+            attachmentFile == null &&
             _voiceComposer.state.draft == null &&
             sharedDraft == null) ||
         _sending ||
@@ -1298,45 +1312,79 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       return;
     }
 
+    final clientMessageId = buildSocialMessageClientId(
+      scopeKey: 'thread:$_threadId',
+      body: text,
+      replyToMessageId: _replyingTo?.id,
+      attachmentFile: attachmentFile,
+      attachmentDurationMs: attachmentDurationMs,
+      sharedEntityType: sharedDraft?.type,
+      sharedEntityId: sharedDraft?.id,
+      sharedSnapshot: sharedDraft?.snapshot,
+    );
+    final pending = LocalPendingMessage(
+      clientMessageId: clientMessageId,
+      threadId: _threadId,
+      kind: _pendingKindFor(attachmentFile),
+      localFile: attachmentFile,
+      body: text,
+      durationMs: attachmentDurationMs,
+      uploadProgress: 0,
+      status: LocalPendingMessageStatus.queued,
+      createdAt: DateTime.now(),
+      errorCode: null,
+    );
+    _queuePendingMessage(pending);
+
     setState(() {
       _sending = true;
       _error = null;
+      _composerHasText = false;
     });
 
     try {
       _stopTyping();
+      _updatePendingMessage(
+        clientMessageId,
+        status: LocalPendingMessageStatus.uploading,
+        uploadProgress: 0.18,
+      );
       final out = await _api.sendThreadMessage(
         _threadId,
         text,
         replyToMessageId: _replyingTo?.id,
-        attachmentFile: _voiceComposer.state.draft?.file ?? _attachmentDraft,
-        attachmentDurationMs: _voiceComposer.state.draft?.durationMs,
+        attachmentFile: attachmentFile,
+        attachmentDurationMs: attachmentDurationMs,
         sharedEntityType: sharedDraft?.type,
         sharedEntityId: sharedDraft?.id,
         sharedSnapshot: sharedDraft?.snapshot,
-        clientMessageId: buildSocialMessageClientId(
-          scopeKey: 'thread:$_threadId',
-          body: text,
-          replyToMessageId: _replyingTo?.id,
-          attachmentFile: _voiceComposer.state.draft?.file ?? _attachmentDraft,
-          attachmentDurationMs: _voiceComposer.state.draft?.durationMs,
-          sharedEntityType: sharedDraft?.type,
-          sharedEntityId: sharedDraft?.id,
-          sharedSnapshot: sharedDraft?.snapshot,
-        ),
+        clientMessageId: clientMessageId,
+      );
+      if (_cancelledPendingClientMessageIds.contains(clientMessageId)) return;
+      _updatePendingMessage(
+        clientMessageId,
+        status: LocalPendingMessageStatus.sent,
+        uploadProgress: 1,
+        clearErrorCode: true,
       );
       _applySentMessage(out);
       _inputController.clear();
-      _composerHasText = false;
       _replyingTo = null;
       _attachmentDraft = null;
       if (_voiceComposer.state.draft != null) {
         await _voiceComposer.discardDraft();
       }
       _sharedEntityDraft = null;
+      _removePendingMessage(clientMessageId);
       _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
+      _updatePendingMessage(
+        clientMessageId,
+        status: LocalPendingMessageStatus.failed,
+        uploadProgress: 0,
+        errorCode: _pendingFailureCode(e),
+      );
       setState(() {
         _error = mapAnyError(
           e,
@@ -1434,14 +1482,182 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     }
   }
 
+  String _pendingKindFor(LocalMediaFile? file) {
+    if (file == null) return 'text';
+    if (file.isImage) return 'image';
+    if (file.isVideo) return 'video';
+    if (file.isAudio) return 'audio';
+    return 'file';
+  }
+
+  void _queuePendingMessage(LocalPendingMessage message) {
+    if (!mounted) return;
+    setState(() {
+      final next = [..._pendingMessages];
+      next.removeWhere(
+        (entry) => entry.clientMessageId == message.clientMessageId,
+      );
+      next.add(message);
+      next.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      _pendingMessages = next;
+    });
+  }
+
+  void _updatePendingMessage(
+    String clientMessageId, {
+    LocalPendingMessageStatus? status,
+    double? uploadProgress,
+    String? errorCode,
+    bool clearErrorCode = false,
+  }) {
+    if (!mounted) return;
+    setState(() {
+      _pendingMessages = _pendingMessages
+          .map((entry) {
+            if (entry.clientMessageId != clientMessageId) return entry;
+            return entry.copyWith(
+              status: status,
+              uploadProgress: uploadProgress,
+              errorCode: errorCode,
+              clearErrorCode: clearErrorCode,
+            );
+          })
+          .toList(growable: false);
+    });
+  }
+
+  void _cancelPendingMessage(String clientMessageId) {
+    _cancelledPendingClientMessageIds.add(clientMessageId);
+    if (!mounted) return;
+    setState(() {
+      _pendingMessages = _pendingMessages
+          .where((entry) => entry.clientMessageId != clientMessageId)
+          .toList(growable: false);
+    });
+  }
+
+  void _removePendingMessage(String clientMessageId) {
+    if (!mounted) return;
+    setState(() {
+      _pendingMessages = _pendingMessages
+          .where((entry) => entry.clientMessageId != clientMessageId)
+          .toList(growable: false);
+    });
+  }
+
+  void _reconcilePendingFromServerMessages(
+    Iterable<SocialChatMessage> messages,
+  ) {
+    final clientIds = messages
+        .map((message) => message.clientMessageId?.trim())
+        .where((value) => value?.isNotEmpty == true)
+        .cast<String>()
+        .toSet();
+    if (clientIds.isEmpty || !mounted) return;
+    setState(() {
+      _pendingMessages = _pendingMessages
+          .where((entry) => !clientIds.contains(entry.clientMessageId))
+          .toList(growable: false);
+    });
+  }
+
+  String _pendingFailureCode(Object error) {
+    if (error is DioException) {
+      final data = error.response?.data;
+      if (data is Map) {
+        final raw = data['message'] ?? data['code'] ?? error.response?.statusCode;
+        final text = '$raw'.trim();
+        if (text.isNotEmpty) return text.toUpperCase();
+      }
+      final statusCode = error.response?.statusCode;
+      if (statusCode != null) {
+        return 'HTTP_$statusCode';
+      }
+    }
+    return error.runtimeType.toString().toUpperCase();
+  }
+
+  Future<bool> _sendPendingMessage({
+    required LocalPendingMessage pending,
+    required String failureFallback,
+    int? replyToMessageId,
+    String? sharedEntityType,
+    int? sharedEntityId,
+    Map<String, dynamic>? sharedSnapshot,
+    Future<void> Function()? onSuccessCleanup,
+  }) async {
+    final clientMessageId = pending.clientMessageId;
+    _queuePendingMessage(pending);
+    _updatePendingMessage(
+      clientMessageId,
+      status: LocalPendingMessageStatus.uploading,
+      uploadProgress: 0.18,
+    );
+    try {
+      final out = await _api.sendThreadMessage(
+        _threadId,
+        pending.body,
+        replyToMessageId: replyToMessageId,
+        attachmentFile: pending.localFile,
+        attachmentDurationMs: pending.durationMs,
+        sharedEntityType: sharedEntityType,
+        sharedEntityId: sharedEntityId,
+        sharedSnapshot: sharedSnapshot,
+        clientMessageId: clientMessageId,
+      );
+      if (_cancelledPendingClientMessageIds.contains(clientMessageId)) {
+        return true;
+      }
+      _updatePendingMessage(
+        clientMessageId,
+        status: LocalPendingMessageStatus.sent,
+        uploadProgress: 1,
+        clearErrorCode: true,
+      );
+      _applySentMessage(out);
+      _removePendingMessage(clientMessageId);
+      if (onSuccessCleanup != null) {
+        try {
+          await onSuccessCleanup();
+        } catch (_) {
+          // Cleanup is best-effort and must not block delivery.
+        }
+      }
+      _scrollToBottom();
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      if (_cancelledPendingClientMessageIds.contains(clientMessageId)) {
+        return false;
+      }
+      _updatePendingMessage(
+        clientMessageId,
+        status: LocalPendingMessageStatus.failed,
+        uploadProgress: 0,
+        errorCode: _pendingFailureCode(e),
+      );
+      setState(() {
+        _error = mapAnyError(e, fallback: failureFallback);
+      });
+      return false;
+    }
+  }
+
   void _applySentMessage(Map<String, dynamic> out) {
     final raw = out['message'];
     if (raw is! Map) return;
     final message = SocialChatMessage.fromJson(Map<String, dynamic>.from(raw));
     if (!mounted) return;
+    _reconcilePendingFromServerMessages([message]);
     setState(() {
       final exists = _messages.any((m) => m.id == message.id);
-      if (!exists) {
+      final clientMessageId = message.clientMessageId?.trim();
+      final duplicateByClientId = clientMessageId != null &&
+          clientMessageId.isNotEmpty &&
+          _messages.any(
+            (m) => (m.clientMessageId ?? '').trim() == clientMessageId,
+          );
+      if (!exists && !duplicateByClientId) {
         _messages = [..._messages, message];
       }
     });
@@ -1472,32 +1688,69 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   Future<void> _sendVoiceDraft() async {
     final l10n = context.l10n;
     final result = await _voiceComposer.sendDraft((draft) async {
-      final out = await _api.sendThreadMessage(
-        _threadId,
-        '',
+      final clientMessageId = buildSocialMessageClientId(
+        scopeKey: 'thread:$_threadId',
+        body: '',
         replyToMessageId: _replyingTo?.id,
         attachmentFile: draft.file,
         attachmentDurationMs: draft.durationMs,
-        clientMessageId: buildSocialMessageClientId(
-          scopeKey: 'thread:$_threadId',
-          body: '',
-          replyToMessageId: _replyingTo?.id,
-          attachmentFile: draft.file,
-          attachmentDurationMs: draft.durationMs,
-        ),
       );
-      _applySentMessage(out);
-      _replyingTo = null;
-      _scrollToBottom();
+      final pending = LocalPendingMessage(
+        clientMessageId: clientMessageId,
+        threadId: _threadId,
+        kind: _pendingKindFor(draft.file),
+        localFile: draft.file,
+        body: '',
+        durationMs: draft.durationMs,
+        uploadProgress: 0,
+        status: LocalPendingMessageStatus.queued,
+        createdAt: DateTime.now(),
+        errorCode: null,
+      );
+      final success = await _sendPendingMessage(
+        pending: pending,
+        replyToMessageId: _replyingTo?.id,
+        failureFallback: l10n.socialChatThreadVoiceMessageSendFailed,
+        onSuccessCleanup: () async {
+          _replyingTo = null;
+        },
+      );
+      if (!success) {
+        throw StateError('VOICE_SEND_FAILED');
+      }
     });
     if (result.type == SocialVoiceComposerResultType.failed) {
       if (!mounted) return;
       setState(() {
-        _error = mapAnyError(
+        _error ??= mapAnyError(
           result.error ?? StateError('VOICE_SEND_FAILED'),
           fallback: l10n.socialChatThreadVoiceMessageSendFailed,
         );
       });
+    }
+  }
+
+  Future<void> _retryPendingMessage(LocalPendingMessage pending) async {
+    if (_sending ||
+        widget.readOnly ||
+        pending.status != LocalPendingMessageStatus.failed) {
+      return;
+    }
+    _cancelledPendingClientMessageIds.remove(pending.clientMessageId);
+    setState(() => _sending = true);
+    try {
+      await _sendPendingMessage(
+        pending: pending.copyWith(
+          status: LocalPendingMessageStatus.queued,
+          uploadProgress: 0,
+          clearErrorCode: true,
+        ),
+        failureFallback: context.l10n.socialChatThreadSendFailed,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+      }
     }
   }
 
@@ -3027,6 +3280,28 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                                   _openMessageActions(message),
                                       ),
                                     ),
+                                  for (final pending in _pendingMessages)
+                                    KeyedSubtree(
+                                      key: ValueKey<String>(
+                                        'pending-${pending.clientMessageId}',
+                                      ),
+                                      child: _PendingChatBubble(
+                                        pending: pending,
+                                        onRetry:
+                                            pending.status ==
+                                                    LocalPendingMessageStatus
+                                                        .failed
+                                                ? () => _retryPendingMessage(
+                                                    pending,
+                                                  )
+                                                : null,
+                                        onCancel: pending.isActive
+                                            ? () => _cancelPendingMessage(
+                                                pending.clientMessageId,
+                                              )
+                                            : null,
+                                      ),
+                                    ),
                                   if (_peerTyping &&
                                       (_thread
                                               ?.presence
@@ -3826,6 +4101,556 @@ class _ChatBubble extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PendingChatBubble extends StatelessWidget {
+  final LocalPendingMessage pending;
+  final VoidCallback? onRetry;
+  final VoidCallback? onCancel;
+
+  const _PendingChatBubble({
+    required this.pending,
+    required this.onRetry,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final status = pending.status;
+    final isFailed = status == LocalPendingMessageStatus.failed;
+    final isActive = pending.isActive;
+    final statusLabel = switch (status) {
+      LocalPendingMessageStatus.queued =>
+        context.lt(ar: 'قيد الانتظار', en: 'Queued'),
+      LocalPendingMessageStatus.uploading =>
+        context.lt(ar: 'جارٍ الرفع', en: 'Uploading'),
+      LocalPendingMessageStatus.sent => context.l10n.socialChatThreadSent,
+      LocalPendingMessageStatus.failed => context.l10n.socialChatThreadSendFailed,
+      LocalPendingMessageStatus.cancelled => context.l10n.commonCancelled,
+    };
+    final kindLabel = switch (pending.kind.trim().toLowerCase()) {
+      'image' => context.l10n.commonImage,
+      'video' => context.l10n.commonVideo,
+      'audio' => context.l10n.socialChatThreadVoiceMessageReady,
+      'file' => context.l10n.commonFile,
+      _ => context.lt(ar: 'رسالة', en: 'Message'),
+    };
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 320),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 5),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.86),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isFailed
+                  ? scheme.error.withValues(alpha: 0.42)
+                  : scheme.primary.withValues(alpha: 0.26),
+              width: 1.2,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      color: scheme.primary.withValues(alpha: 0.12),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: TextStyle(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    isFailed
+                        ? Icons.error_outline_rounded
+                        : isActive
+                        ? Icons.schedule_rounded
+                        : Icons.check_circle_outline_rounded,
+                    size: 18,
+                    color: isFailed ? scheme.error : scheme.primary,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _buildPendingPreview(context),
+              if (pending.body.trim().isNotEmpty &&
+                  pending.kind.trim().toLowerCase() == 'text') ...[
+                const SizedBox(height: 8),
+                Text(
+                  pending.body.trim(),
+                  style: TextStyle(
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: LinearProgressIndicator(
+                      minHeight: 4,
+                      value: isFailed
+                          ? 0
+                          : (pending.status == LocalPendingMessageStatus.sent
+                              ? 1
+                              : pending.uploadProgress.clamp(0.0, 1.0)),
+                      backgroundColor: scheme.onSurfaceVariant.withValues(
+                        alpha: 0.14,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    kindLabel,
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11.2,
+                    ),
+                  ),
+                  if (pending.durationMs != null && pending.durationMs! > 0) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      formatSocialAudioDuration(
+                        Duration(milliseconds: pending.durationMs!),
+                      ),
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11.2,
+                      ),
+                    ),
+                  ],
+                  if (pending.errorCode != null &&
+                      pending.errorCode!.trim().isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        pending.errorCode!.trim(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: scheme.error,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              if (isFailed || isActive) ...[
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (isFailed && onRetry != null)
+                      TextButton.icon(
+                        onPressed: onRetry,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: Text(context.l10n.commonRetry),
+                      ),
+                    if (onCancel != null) ...[
+                      if (isFailed && onRetry != null) const SizedBox(width: 8),
+                      TextButton.icon(
+                        onPressed: onCancel,
+                        icon: const Icon(Icons.close_rounded),
+                        label: Text(context.l10n.commonCancel),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPendingPreview(BuildContext context) {
+    final kind = pending.kind.trim().toLowerCase();
+    if (kind == 'image') {
+      return _PendingImagePreview(pending: pending);
+    }
+    if (kind == 'video') {
+      return _PendingVideoPreview(pending: pending);
+    }
+    if (kind == 'audio') {
+      return _PendingAudioPreview(pending: pending);
+    }
+    return _PendingFilePreview(pending: pending);
+  }
+}
+
+class _PendingImagePreview extends StatelessWidget {
+  final LocalPendingMessage pending;
+
+  const _PendingImagePreview({required this.pending});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final file = pending.localFile;
+    final path = (file?.path ?? '').trim();
+    final hasBytes = file?.hasBytes == true;
+    Widget child = _PendingGenericMediaFrame(
+      icon: Icons.image_outlined,
+      title: pending.localFile?.name ?? context.l10n.commonImage,
+      subtitle: context.lt(ar: 'جارٍ الرفع', en: 'Uploading'),
+    );
+    if (hasBytes) {
+      child = Image.memory(
+        file!.bytes!,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+      );
+    } else if (path.isNotEmpty) {
+      child = Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            _PendingGenericMediaFrame(
+          icon: Icons.image_outlined,
+          title: pending.localFile?.name ?? context.l10n.commonImage,
+          subtitle: context.lt(ar: 'جارٍ الرفع', en: 'Uploading'),
+        ),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: AspectRatio(
+        aspectRatio: 4 / 5,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ColoredBox(color: scheme.surfaceContainerHighest),
+            child,
+            PositionedDirectional(
+              top: 8,
+              end: 8,
+              child: _PendingPulseDot(color: scheme.primary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingVideoPreview extends StatelessWidget {
+  final LocalPendingMessage pending;
+
+  const _PendingVideoPreview({required this.pending});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    scheme.primary.withValues(alpha: 0.22),
+                    scheme.secondary.withValues(alpha: 0.12),
+                    scheme.surfaceContainerHighest,
+                  ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+              ),
+            ),
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(15),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black.withValues(alpha: 0.38),
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 30,
+                ),
+              ),
+            ),
+            PositionedDirectional(
+              bottom: 10,
+              start: 10,
+              end: 10,
+              child: Text(
+                pending.localFile?.name ?? context.l10n.commonVideo,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: scheme.onPrimary,
+                  fontWeight: FontWeight.w800,
+                  shadows: const [
+                    Shadow(color: Colors.black87, blurRadius: 8),
+                  ],
+                ),
+              ),
+            ),
+            PositionedDirectional(
+              top: 8,
+              end: 8,
+              child: _PendingPulseDot(color: scheme.primary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingAudioPreview extends StatelessWidget {
+  final LocalPendingMessage pending;
+
+  const _PendingAudioPreview({required this.pending});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.34)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: scheme.primary.withValues(alpha: 0.14),
+            ),
+            child: Icon(
+              Icons.mic_rounded,
+              color: scheme.primary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  pending.localFile?.name ?? context.l10n.socialChatThreadVoiceMessageReady,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: scheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                LinearProgressIndicator(
+                  minHeight: 4,
+                  value: pending.status == LocalPendingMessageStatus.sent
+                      ? 1
+                      : pending.uploadProgress.clamp(0.0, 1.0),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  formatSocialAudioDuration(
+                    Duration(milliseconds: pending.durationMs ?? 0),
+                  ),
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PendingFilePreview extends StatelessWidget {
+  final LocalPendingMessage pending;
+
+  const _PendingFilePreview({required this.pending});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.68),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.34)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: scheme.primary.withValues(alpha: 0.12),
+            ),
+            child: Icon(
+              Icons.insert_drive_file_outlined,
+              color: scheme.primary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  pending.localFile?.name ?? context.l10n.commonFile,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: scheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  context.lt(ar: 'جارٍ الرفع', en: 'Uploading'),
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PendingGenericMediaFrame extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _PendingGenericMediaFrame({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            scheme.primary.withValues(alpha: 0.20),
+            scheme.secondary.withValues(alpha: 0.10),
+          ],
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: scheme.primary, size: 42),
+            const SizedBox(height: 6),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontWeight: FontWeight.w800,
+                fontSize: 11.5,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+                fontSize: 10.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingPulseDot extends StatelessWidget {
+  final Color color;
+
+  const _PendingPulseDot({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color,
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.35),
+            blurRadius: 12,
+            spreadRadius: 1,
+          ),
+        ],
       ),
     );
   }

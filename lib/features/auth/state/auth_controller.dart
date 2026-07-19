@@ -830,7 +830,5 @@ bool _isInvalidStoredSession(Object error) {
       message == 'APP_SURFACE_MISMATCH' ||
       message == 'JWT_SIGNATURE_INVALID' ||
       message == 'ACCOUNT_DISABLED' ||
-      message == 'INVALID_REFRESH_TOKEN' ||
-      message == 'INVALID_TOKEN' ||
-      message == 'TOKEN_EXPIRED';
+      message == 'INVALID_REFRESH_TOKEN';
 }

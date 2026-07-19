@@ -165,6 +165,8 @@ typedef StoryV3CommentsCallback = Future<int?> Function(int storyId);
 
 typedef StoryV3ShareCallback = Future<void> Function(int storyId);
 
+typedef SocialStoryMetricCallback = void Function(String metricName, Duration elapsed);
+
 /// A per-user story group (the progress bar only ever shows one group's items).
 class StoryV3Group {
   const StoryV3Group({
