@@ -291,16 +291,17 @@ class DioClient {
           return null;
         }
         if (decision == SessionInvalidationDecision.terminal) {
-          await SessionInvalidationCoordinator.instance.invalidateTerminalSession(
-            cleanup: () async {
-              try {
-                await _clearSigningMaterial();
-              } catch (_) {}
-              try {
-                await store.clear();
-              } catch (_) {}
-            },
-          );
+          await SessionInvalidationCoordinator.instance
+              .invalidateTerminalSession(
+                cleanup: () async {
+                  try {
+                    await _clearSigningMaterial();
+                  } catch (_) {}
+                  try {
+                    await store.clear();
+                  } catch (_) {}
+                },
+              );
         }
         return null;
       }
@@ -464,6 +465,11 @@ class DioClient {
         await _clearSigningMaterial();
         return null;
       }
+      if (_isRetryableConnectionError(error) ||
+          (error.response?.statusCode ?? 0) >= 500 ||
+          isRecoverableSessionAuthCode(messageCode)) {
+        return null;
+      }
       rethrow;
     }
   }
@@ -622,16 +628,14 @@ bool _isInvalidRefreshFailure(DioException error) {
   final data = error.response?.data;
   final rawMessage = data is Map ? (data['message'] ?? data['code']) : data;
   final message = '$rawMessage'.trim().toUpperCase();
-  return message == 'INVALID_REFRESH_TOKEN' ||
-      message == 'VALIDATION_ERROR' ||
-      message == 'NO_TOKEN';
+  return isSessionAuthFailureCode(message);
 }
 
 String? _readBearerHeader(Object? value) {
   final raw = '$value'.trim();
   if (raw.isEmpty) return null;
   const prefix = 'Bearer ';
-  if (!raw.startsWith(prefix)) return null;
+  if (!raw.toLowerCase().startsWith(prefix.toLowerCase())) return null;
   final token = raw.substring(prefix.length).trim();
   return token.isEmpty ? null : token;
 }

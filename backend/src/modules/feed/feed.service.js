@@ -3856,7 +3856,7 @@ export async function createPost(userId, dto, media) {
         userId,
         mediaAssetId,
         expectedSourceType: requestedIsReel ? "reel" : "post",
-        allowProcessing: requestedIsReel,
+        allowProcessing: false,
       })
     );
   } else {
@@ -3868,6 +3868,20 @@ export async function createPost(userId, dto, media) {
         preferredKind: requestedIsReel ? "reel" : uploadedMediaKind,
         sourceType: requestedIsReel ? "reel" : "post",
       });
+      if (requestedIsReel) {
+        const asset = preparedMedia?.asset || null;
+        const status = String(asset?.processing_status || "").trim().toLowerCase();
+        if (status && status !== "ready") {
+          throw new AppError("MEDIA_ASSET_NOT_READY", {
+            status: 409,
+            details: {
+              mediaAssetId: asset?.id == null ? null : Number(asset.id),
+              processingStatus: status,
+              failureCode: asset?.processing_error || asset?.failure_code || null,
+            },
+          });
+        }
+      }
       preparedMediaItems.push(preparedMedia);
     }
   }

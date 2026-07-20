@@ -1,11 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-enum SessionInvalidationDecision {
-  recoverable,
-  staleFailure,
-  terminal,
-}
+enum SessionInvalidationDecision { recoverable, staleFailure, terminal }
 
 /// Broadcasts a "the session is terminally invalid" event.
 ///
@@ -69,20 +65,20 @@ class SessionInvalidationCoordinator {
       return SessionInvalidationDecision.recoverable;
     }
 
+    if (expectedRefreshToken != null) {
+      final expected = expectedRefreshToken.trim();
+      final current = (currentRefreshToken ?? '').trim();
+      if (expected.isNotEmpty && (current.isEmpty || expected != current)) {
+        return SessionInvalidationDecision.staleFailure;
+      }
+    }
+
     if (isRecoverableSessionAuthCode(code)) {
       return SessionInvalidationDecision.recoverable;
     }
 
     if (!isTerminalSessionAuthCode(code)) {
       return SessionInvalidationDecision.recoverable;
-    }
-
-    if (expectedRefreshToken != null && currentRefreshToken != null) {
-      final expected = expectedRefreshToken.trim();
-      final current = currentRefreshToken.trim();
-      if (expected.isNotEmpty && current.isNotEmpty && expected != current) {
-        return SessionInvalidationDecision.staleFailure;
-      }
     }
 
     return SessionInvalidationDecision.terminal;
@@ -136,6 +132,7 @@ bool isRecoverableSessionAuthCode(String? code) {
   if (normalized == null || normalized.isEmpty) return false;
   return normalized == 'INVALID_TOKEN' ||
       normalized == 'NO_TOKEN' ||
+      normalized == 'INVALID_REFRESH_TOKEN' ||
       normalized == 'TOKEN_EXPIRED' ||
       normalized == 'ACCESS_TOKEN_EXPIRED' ||
       normalized == 'SESSION_EXPIRED';
@@ -144,8 +141,7 @@ bool isRecoverableSessionAuthCode(String? code) {
 bool isTerminalSessionAuthCode(String? code) {
   final normalized = code?.trim().toUpperCase();
   if (normalized == null || normalized.isEmpty) return false;
-  return normalized == 'INVALID_REFRESH_TOKEN' ||
-      normalized == 'REFRESH_TOKEN_EXPIRED' ||
+  return normalized == 'REFRESH_TOKEN_EXPIRED' ||
       normalized == 'REFRESH_TOKEN_REUSED' ||
       normalized == 'SESSION_REVOKED' ||
       normalized == 'DEVICE_BINDING_MISMATCH' ||

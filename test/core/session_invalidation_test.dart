@@ -21,11 +21,7 @@ DioException _err(
   return DioException(
     requestOptions: req,
     type: DioExceptionType.badResponse,
-    response: Response(
-      requestOptions: req,
-      statusCode: status,
-      data: body,
-    ),
+    response: Response(requestOptions: req, statusCode: status, data: body),
   );
 }
 
@@ -68,9 +64,8 @@ void main() {
       );
     });
 
-    test('treats terminal session codes as terminal when bearer token exists', () {
+    test('treats confirmed terminal session codes as terminal', () {
       final terminalCodes = <String>[
-        'INVALID_REFRESH_TOKEN',
         'REFRESH_TOKEN_EXPIRED',
         'REFRESH_TOKEN_REUSED',
         'SESSION_REVOKED',
@@ -90,6 +85,8 @@ void main() {
               headers: const {'Authorization': 'Bearer access-token'},
               data: const <String, dynamic>{'refreshToken': 'refresh-token'},
             ),
+            expectedRefreshToken: 'refresh-token',
+            currentRefreshToken: 'refresh-token',
           ),
           SessionInvalidationDecision.terminal,
           reason: code,
@@ -97,7 +94,7 @@ void main() {
       }
     });
 
-    test('returns staleFailure when an older refresh token fails after rotation', () {
+    test('treats generic invalid refresh as recoverable', () {
       expect(
         SessionInvalidationCoordinator.instance.classify(
           _err(
@@ -108,11 +105,51 @@ void main() {
             data: const <String, dynamic>{'refreshToken': 'refresh-token'},
           ),
           expectedRefreshToken: 'refresh-token',
-          currentRefreshToken: 'new-refresh-token',
+          currentRefreshToken: 'refresh-token',
         ),
-        SessionInvalidationDecision.staleFailure,
+        SessionInvalidationDecision.recoverable,
       );
     });
+
+    test(
+      'returns staleFailure when an older refresh token fails after rotation',
+      () {
+        expect(
+          SessionInvalidationCoordinator.instance.classify(
+            _err(
+              401,
+              {'message': 'INVALID_REFRESH_TOKEN'},
+              path: '/api/auth/refresh',
+              headers: const {'Authorization': 'Bearer access-token'},
+              data: const <String, dynamic>{'refreshToken': 'refresh-token'},
+            ),
+            expectedRefreshToken: 'refresh-token',
+            currentRefreshToken: 'new-refresh-token',
+          ),
+          SessionInvalidationDecision.staleFailure,
+        );
+      },
+    );
+
+    test(
+      'returns staleFailure before clearing when stored refresh token is missing',
+      () {
+        expect(
+          SessionInvalidationCoordinator.instance.classify(
+            _err(
+              401,
+              {'message': 'REFRESH_TOKEN_EXPIRED'},
+              path: '/api/auth/refresh',
+              headers: const {'Authorization': 'Bearer access-token'},
+              data: const <String, dynamic>{'refreshToken': 'refresh-token'},
+            ),
+            expectedRefreshToken: 'refresh-token',
+            currentRefreshToken: null,
+          ),
+          SessionInvalidationDecision.staleFailure,
+        );
+      },
+    );
 
     test('skips terminal invalidation when explicitly opted out', () {
       expect(
@@ -190,43 +227,46 @@ void main() {
   });
 
   group('invalidateTerminalSession', () {
-    test('runs cleanup once for concurrent callers and stays idempotent', () async {
-      final coordinator = SessionInvalidationCoordinator.instance;
-      var cleanupCount = 0;
-      final gate = Completer<void>();
+    test(
+      'runs cleanup once for concurrent callers and stays idempotent',
+      () async {
+        final coordinator = SessionInvalidationCoordinator.instance;
+        var cleanupCount = 0;
+        final gate = Completer<void>();
 
-      final first = coordinator.invalidateTerminalSession(
-        cleanup: () async {
-          cleanupCount++;
-          await gate.future;
-        },
-      );
-      final second = coordinator.invalidateTerminalSession(
-        cleanup: () async {
-          cleanupCount++;
-        },
-      );
+        final first = coordinator.invalidateTerminalSession(
+          cleanup: () async {
+            cleanupCount++;
+            await gate.future;
+          },
+        );
+        final second = coordinator.invalidateTerminalSession(
+          cleanup: () async {
+            cleanupCount++;
+          },
+        );
 
-      await Future<void>.delayed(Duration.zero);
-      expect(cleanupCount, 1);
+        await Future<void>.delayed(Duration.zero);
+        expect(cleanupCount, 1);
 
-      gate.complete();
-      await Future.wait([first, second]);
+        gate.complete();
+        await Future.wait([first, second]);
 
-      await coordinator.invalidateTerminalSession(
-        cleanup: () async {
-          cleanupCount++;
-        },
-      );
-      expect(cleanupCount, 1);
+        await coordinator.invalidateTerminalSession(
+          cleanup: () async {
+            cleanupCount++;
+          },
+        );
+        expect(cleanupCount, 1);
 
-      coordinator.reset();
-      await coordinator.invalidateTerminalSession(
-        cleanup: () async {
-          cleanupCount++;
-        },
-      );
-      expect(cleanupCount, 2);
-    });
+        coordinator.reset();
+        await coordinator.invalidateTerminalSession(
+          cleanup: () async {
+            cleanupCount++;
+          },
+        );
+        expect(cleanupCount, 2);
+      },
+    );
   });
 }

@@ -64,7 +64,7 @@ class SocialPendingMessageBubble extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          statusLabel,
+                          _statusLine(message, statusLabel),
                           style: TextStyle(
                             color: scheme.onSurfaceVariant,
                             fontWeight: FontWeight.w700,
@@ -124,7 +124,8 @@ class SocialPendingMessageBubble extends StatelessWidget {
                   ),
                 ),
               ],
-              if ((isFailed || message.status == LocalPendingMessageStatus.queued) &&
+              if ((isFailed ||
+                      message.status == LocalPendingMessageStatus.queued) &&
                   (onRetry != null || onCancel != null)) ...[
                 const SizedBox(height: 10),
                 Wrap(
@@ -201,16 +202,13 @@ class _PendingKindThumb extends StatelessWidget {
         borderRadius: borderRadius,
         color: scheme.primary.withValues(alpha: 0.14),
       ),
-      child: Icon(
-        switch (kind) {
-          'audio' => Icons.mic_rounded,
-          'video' => Icons.videocam_rounded,
-          'image' => Icons.image_rounded,
-          'text' => Icons.chat_bubble_outline_rounded,
-          _ => Icons.insert_drive_file_outlined,
-        },
-        color: scheme.primary,
-      ),
+      child: Icon(switch (kind) {
+        'audio' => Icons.mic_rounded,
+        'video' => Icons.videocam_rounded,
+        'image' => Icons.image_rounded,
+        'text' => Icons.chat_bubble_outline_rounded,
+        _ => Icons.insert_drive_file_outlined,
+      }, color: scheme.primary),
     );
   }
 }
@@ -223,8 +221,25 @@ String _kindLabel(LocalPendingMessage message) {
   return 'File';
 }
 
+String _statusLine(LocalPendingMessage message, String statusLabel) {
+  final duration = _formatDuration(message.durationMs);
+  if (duration == null) return statusLabel;
+  return '$statusLabel - $duration';
+}
+
+String? _formatDuration(int? durationMs) {
+  if (durationMs == null || durationMs <= 0) return null;
+  final totalSeconds = (durationMs / 1000).round().clamp(1, 359999);
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
+}
+
 bool _shouldShowBody(LocalPendingMessage message) {
   final body = message.body.trim();
   if (body.isEmpty) return false;
-  return message.isText || message.isAudio || message.isImage || message.isVideo;
+  return message.isText ||
+      message.isAudio ||
+      message.isImage ||
+      message.isVideo;
 }
