@@ -53,12 +53,16 @@ class _FakeSecureStore extends SecureStore {
   Future<void> saveAuthTokens({
     required String accessToken,
     String? refreshToken,
+    String? sessionId,
     String? deviceSessionId,
     String? deviceRecoverySecret,
   }) async {
     await saveToken(accessToken);
     if (refreshToken != null && refreshToken.trim().isNotEmpty) {
       _values['refresh_token'] = refreshToken.trim();
+    }
+    if (sessionId != null && sessionId.trim().isNotEmpty) {
+      _values['session_id'] = sessionId.trim();
     }
     if (deviceSessionId != null && deviceSessionId.trim().isNotEmpty) {
       _values['device_session_id'] = deviceSessionId.trim();

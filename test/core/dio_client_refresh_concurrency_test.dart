@@ -56,12 +56,16 @@ class _MemorySecureStore extends SecureStore {
   Future<void> saveAuthTokens({
     required String accessToken,
     String? refreshToken,
+    String? sessionId,
     String? deviceSessionId,
     String? deviceRecoverySecret,
   }) async {
     _values['access_token'] = accessToken;
     if (refreshToken != null && refreshToken.trim().isNotEmpty) {
       _values['refresh_token'] = refreshToken.trim();
+    }
+    if (sessionId != null && sessionId.trim().isNotEmpty) {
+      _values['session_id'] = sessionId.trim();
     }
     if (deviceSessionId != null && deviceSessionId.trim().isNotEmpty) {
       _values['device_session_id'] = deviceSessionId.trim();
@@ -77,6 +81,9 @@ class _MemorySecureStore extends SecureStore {
 
   @override
   Future<String?> readRefreshToken() async => _values['refresh_token'];
+
+  @override
+  Future<String?> readSessionId() async => _values['session_id'];
 
   @override
   Future<void> saveGuestMode(bool enabled) async {
@@ -168,6 +175,35 @@ void main() {
 
     final results = await Future.wait(
       List.generate(50, (_) => client.dio.get('/api/feed/posts')),
+    );
+
+    expect(results, hasLength(50));
+    expect(adapter.refreshFetchCount, 1);
+    expect(store.value('access_token'), 'access-new');
+    expect(store.value('refresh_token'), 'refresh-new');
+    expect(store.clearCount, 0);
+  });
+
+  test('multiple DioClient instances share one process-wide refresh', () async {
+    final store = _MemorySecureStore(
+      accessToken: 'access-old',
+      refreshToken: 'refresh-old',
+      deviceId: 'device-1',
+    );
+    await store.writeString('session_id', 'session-1');
+    final adapter = _RefreshConcurrencyAdapter(validAccessToken: 'access-new');
+    final clients = List.generate(3, (_) {
+      final client = DioClient(store);
+      client.dio.httpClientAdapter = adapter;
+      client.dio.options.baseUrl = 'http://127.0.0.1';
+      return client;
+    });
+
+    final results = await Future.wait(
+      List.generate(
+        50,
+        (index) => clients[index % clients.length].dio.get('/api/feed/posts'),
+      ),
     );
 
     expect(results, hasLength(50));

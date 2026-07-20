@@ -146,8 +146,6 @@ class DioClient {
 
   RequestSigningMaterial? _cachedSigningMaterial;
   Future<RequestSigningMaterial?>? _signingRefreshFuture;
-  Future<String?>? _accessRefreshFuture;
-  Future<String?>? _sessionRecoveryFuture;
 
   /// Set once a confirmed terminal auth failure (INVALID_TOKEN) is observed and
   /// the session is cleared. While true (and no token exists) protected requests
@@ -193,16 +191,13 @@ class DioClient {
     String currentAccessToken, {
     bool allowExpired = false,
   }) async {
-    if (_accessRefreshFuture != null) return _accessRefreshFuture;
-    _accessRefreshFuture = _refreshAccessTokenOnce(
-      currentAccessToken,
-      allowExpired: allowExpired,
+    return SessionRecoveryCoordinator.instance.runRefreshOnce(
+      key: await _sessionCoordinationKey(),
+      task: () => _refreshAccessTokenOnce(
+        currentAccessToken,
+        allowExpired: allowExpired,
+      ),
     );
-    try {
-      return await _accessRefreshFuture;
-    } finally {
-      _accessRefreshFuture = null;
-    }
   }
 
   Future<String?> _refreshAccessTokenOnce(
@@ -244,12 +239,14 @@ class DioClient {
               .trim();
       final nextRefreshToken =
           '${raw['refreshToken'] ?? raw['refresh_token'] ?? ''}'.trim();
+      final sessionId = '${raw['sessionId'] ?? raw['session_id'] ?? ''}'.trim();
       if (accessToken.isEmpty) return null;
       await store.saveAuthTokens(
         accessToken: accessToken,
         refreshToken: nextRefreshToken.isEmpty
             ? refreshToken
             : nextRefreshToken,
+        sessionId: sessionId.isEmpty ? null : sessionId,
       );
       return accessToken;
     } on DioException catch (error) {
@@ -279,13 +276,22 @@ class DioClient {
   }
 
   Future<String?> _recoverAccessToken(String? currentAccessToken) async {
-    if (_sessionRecoveryFuture != null) return _sessionRecoveryFuture;
-    _sessionRecoveryFuture = _recoverAccessTokenOnce(currentAccessToken);
-    try {
-      return await _sessionRecoveryFuture;
-    } finally {
-      _sessionRecoveryFuture = null;
+    return SessionRecoveryCoordinator.instance.runSessionRecoveryOnce(
+      key: await _sessionCoordinationKey(),
+      task: () => _recoverAccessTokenOnce(currentAccessToken),
+    );
+  }
+
+  Future<String> _sessionCoordinationKey() async {
+    final sessionId = await store.readSessionId();
+    if (sessionId != null && sessionId.isNotEmpty) {
+      return '${store.flavor.key}:session:$sessionId';
     }
+    final deviceSessionId = await store.readDeviceSessionId();
+    if (deviceSessionId != null && deviceSessionId.isNotEmpty) {
+      return '${store.flavor.key}:device:$deviceSessionId';
+    }
+    return '${store.flavor.key}:anonymous';
   }
 
   Future<String?> _recoverAccessTokenOnce(String? currentAccessToken) async {
@@ -333,6 +339,7 @@ class DioClient {
               .trim();
       final refreshToken =
           '${raw['refreshToken'] ?? raw['refresh_token'] ?? ''}'.trim();
+      final sessionId = '${raw['sessionId'] ?? raw['session_id'] ?? ''}'.trim();
       final nextDeviceSessionId =
           '${raw['deviceSessionId'] ?? raw['device_session_id'] ?? ''}'.trim();
       final nextRecoverySecret =
@@ -342,6 +349,7 @@ class DioClient {
       await store.saveAuthTokens(
         accessToken: accessToken,
         refreshToken: refreshToken.isEmpty ? null : refreshToken,
+        sessionId: sessionId.isEmpty ? null : sessionId,
         deviceSessionId: nextDeviceSessionId.isEmpty
             ? null
             : nextDeviceSessionId,

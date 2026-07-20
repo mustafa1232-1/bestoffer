@@ -209,7 +209,7 @@ void main() {
 
   group('SessionRecoveryBus', () {
     test(
-      'requestRecovery() bumps the tick without notifying legacy listeners',
+      'requestRecovery() bumps the tick and notifies recovery listeners',
       () {
         final bus = SessionRecoveryBus.instance;
         final startTick = bus.tick;
@@ -220,11 +220,11 @@ void main() {
 
         bus.requestRecovery();
         expect(bus.tick, startTick + 1);
-        expect(notified, 0);
+        expect(notified, 1);
 
         bus.requestRecovery();
         expect(bus.tick, startTick + 2);
-        expect(notified, 0);
+        expect(notified, 2);
       },
     );
   });

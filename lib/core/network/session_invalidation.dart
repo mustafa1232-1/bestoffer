@@ -23,6 +23,7 @@ class SessionRecoveryBus extends ChangeNotifier {
 
   void requestRecovery() {
     _tick++;
+    notifyListeners();
   }
 
   @Deprecated('Use requestRecovery(); this no longer means logout.')
@@ -41,6 +42,10 @@ class SessionRecoveryCoordinator {
 
   final SessionRecoveryBus bus = SessionRecoveryBus.instance;
   Future<void>? _recoveryInFlight;
+  final Map<String, Future<String?>> _refreshFutures =
+      <String, Future<String?>>{};
+  final Map<String, Future<String?>> _sessionRecoveryFutures =
+      <String, Future<String?>>{};
   bool _recoveryPending = false;
 
   bool get terminalInvalidated => false;
@@ -103,6 +108,20 @@ class SessionRecoveryCoordinator {
     }
   }
 
+  Future<String?> runRefreshOnce({
+    required String key,
+    required Future<String?> Function() task,
+  }) {
+    return _runStringOnce(_refreshFutures, key: key, task: task);
+  }
+
+  Future<String?> runSessionRecoveryOnce({
+    required String key,
+    required Future<String?> Function() task,
+  }) {
+    return _runStringOnce(_sessionRecoveryFutures, key: key, task: task);
+  }
+
   @Deprecated('Use runRecovery(); automatic terminal logout is disabled.')
   Future<void> invalidateTerminalSession({
     required Future<void> Function() cleanup,
@@ -111,6 +130,25 @@ class SessionRecoveryCoordinator {
   void reset() {
     _recoveryPending = false;
     _recoveryInFlight = null;
+    _refreshFutures.clear();
+    _sessionRecoveryFutures.clear();
+  }
+
+  Future<String?> _runStringOnce(
+    Map<String, Future<String?>> futures, {
+    required String key,
+    required Future<String?> Function() task,
+  }) {
+    final normalizedKey = key.trim().isEmpty ? 'default' : key.trim();
+    final inFlight = futures[normalizedKey];
+    if (inFlight != null) return inFlight;
+    final future = task();
+    futures[normalizedKey] = future;
+    return future.whenComplete(() {
+      if (identical(futures[normalizedKey], future)) {
+        futures.remove(normalizedKey);
+      }
+    });
   }
 
   Future<void> _runRecovery(Future<void> Function() cleanup) async {

@@ -15,12 +15,14 @@ class CompanySecureStore {
   Future<void> saveAuthTokens({
     required String accessToken,
     String? refreshToken,
+    String? sessionId,
     String? deviceSessionId,
     String? deviceRecoverySecret,
   }) async {
     await _store.saveAuthTokens(
       accessToken: accessToken,
       refreshToken: refreshToken,
+      sessionId: sessionId,
       deviceSessionId: deviceSessionId,
       deviceRecoverySecret: deviceRecoverySecret,
     );

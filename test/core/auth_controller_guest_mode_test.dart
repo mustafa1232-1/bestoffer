@@ -34,12 +34,16 @@ class _MemorySecureStore extends SecureStore {
   Future<void> saveAuthTokens({
     required String accessToken,
     String? refreshToken,
+    String? sessionId,
     String? deviceSessionId,
     String? deviceRecoverySecret,
   }) async {
     _values['access_token'] = accessToken;
     if (refreshToken != null && refreshToken.trim().isNotEmpty) {
       _values['refresh_token'] = refreshToken.trim();
+    }
+    if (sessionId != null && sessionId.trim().isNotEmpty) {
+      _values['session_id'] = sessionId.trim();
     }
     if (deviceSessionId != null && deviceSessionId.trim().isNotEmpty) {
       _values['device_session_id'] = deviceSessionId.trim();
@@ -107,8 +111,7 @@ class _FakeAuthRepo implements AuthRepo {
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? imageFile,
-  }) =>
-      throw UnimplementedError();
+  }) => throw UnimplementedError();
 
   @override
   Future<UserModel> registerDelivery({
@@ -128,8 +131,7 @@ class _FakeAuthRepo implements AuthRepo {
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? profileImageFile,
     LocalImageFile? carImageFile,
-  }) =>
-      throw UnimplementedError();
+  }) => throw UnimplementedError();
 
   @override
   Future<UserModel> registerOwner({
@@ -158,56 +160,55 @@ class _FakeAuthRepo implements AuthRepo {
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? ownerImageFile,
     LocalImageFile? merchantImageFile,
-  }) =>
-      throw UnimplementedError();
+  }) => throw UnimplementedError();
 
   @override
   Future<Map<String, dynamic>> extractResidenceCard({
     required LocalImageFile cardImageFile,
-  }) =>
-      throw UnimplementedError();
+  }) => throw UnimplementedError();
 
   @override
   Future<UserModel> registerWithCard({
     required Map<String, dynamic> payload,
     LocalImageFile? imageFile,
     required LocalImageFile cardImageFile,
-  }) =>
-      throw UnimplementedError();
+  }) => throw UnimplementedError();
 
   @override
   Future<UserModel> updateAccount({
     required String currentPin,
     String? newPhone,
     String? newPin,
-  }) =>
-      throw UnimplementedError();
+  }) => throw UnimplementedError();
 }
 
 void main() {
-  test('invalid stored token stays recoverable and does not downgrade to guest mode', () async {
-    final store = _MemorySecureStore();
-    await store.saveAuthTokens(
-      accessToken: 'stale-token',
-      refreshToken: 'refresh-token',
-    );
+  test(
+    'invalid stored token stays recoverable and does not downgrade to guest mode',
+    () async {
+      final store = _MemorySecureStore();
+      await store.saveAuthTokens(
+        accessToken: 'stale-token',
+        refreshToken: 'refresh-token',
+      );
 
-    final container = ProviderContainer(
-      overrides: [
-        secureStoreProvider.overrideWithValue(store),
-        authRepoProvider.overrideWithValue(_FakeAuthRepo()),
-      ],
-    );
-    addTearDown(container.dispose);
+      final container = ProviderContainer(
+        overrides: [
+          secureStoreProvider.overrideWithValue(store),
+          authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+        ],
+      );
+      addTearDown(container.dispose);
 
-    final controller = container.read(authControllerProvider.notifier);
-    await controller.bootstrap();
+      final controller = container.read(authControllerProvider.notifier);
+      await controller.bootstrap();
 
-    final state = container.read(authControllerProvider);
-    expect(state.isGuest, isFalse);
-    expect(state.token, 'stale-token');
-    expect(state.user, isNull);
-    expect(await store.readGuestMode(), isFalse);
-    expect(await store.readToken(), 'stale-token');
-  });
+      final state = container.read(authControllerProvider);
+      expect(state.isGuest, isFalse);
+      expect(state.token, 'stale-token');
+      expect(state.user, isNull);
+      expect(await store.readGuestMode(), isFalse);
+      expect(await store.readToken(), 'stale-token');
+    },
+  );
 }
