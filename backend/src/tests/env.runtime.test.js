@@ -9,8 +9,10 @@ const ENV_KEYS = [
   "JWT_SECRET_PREVIOUS",
   "CORS_ORIGINS",
   "AUTH_ALLOW_LEGACY_TOKENS",
+  "GIT_COMMIT_SHA",
   "GLOBAL_RATE_LIMIT_FLOOR",
   "PORT",
+  "RAILWAY_GIT_COMMIT_SHA",
   "RAILWAY_SERVICE_NAME",
   "SUPABASE_REALTIME_ENABLED",
   "SUPABASE_REALTIME_MODE",
@@ -145,6 +147,38 @@ test("readNumber uses fallback when env var is unset or blank", async () => {
       assert.equal(mod.env.globalRateLimitFloor, 20000);
     }
   );
+});
+
+test("env prefers railway deployment commit sha over legacy git commit sha", async () => {
+  await withEnv(
+    {
+      RAILWAY_GIT_COMMIT_SHA: "railway-sha",
+      GIT_COMMIT_SHA: "legacy-sha",
+    },
+    async () => {
+      const mod = await loadEnvModule();
+      assert.equal(mod.env.gitCommitSha, "railway-sha");
+    }
+  );
+});
+
+test("env falls back to legacy git commit sha when railway sha is missing", async () => {
+  await withEnv(
+    {
+      GIT_COMMIT_SHA: "local-sha",
+    },
+    async () => {
+      const mod = await loadEnvModule();
+      assert.equal(mod.env.gitCommitSha, "local-sha");
+    }
+  );
+});
+
+test("env leaves git commit sha blank when no deployment sha is configured", async () => {
+  await withEnv({}, async () => {
+    const mod = await loadEnvModule();
+    assert.equal(mod.env.gitCommitSha, "");
+  });
 });
 
 test("env prefers public database url for railway cli runs outside private network", async () => {

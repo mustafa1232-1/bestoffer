@@ -180,7 +180,10 @@ export const env = {
   isProduction: readString("NODE_ENV", "development") === "production",
   appEnv: readString("APP_ENV", readString("NODE_ENV", "development")),
   appVersion: readString("APP_VERSION", "0.0.0-dev"),
-  gitCommitSha: readString("GIT_COMMIT_SHA", ""),
+  gitCommitSha: readString(
+    "RAILWAY_GIT_COMMIT_SHA",
+    readString("GIT_COMMIT_SHA", "")
+  ),
   appClusterMode: readString(
     "APP_CLUSTER_MODE",
     "off"
