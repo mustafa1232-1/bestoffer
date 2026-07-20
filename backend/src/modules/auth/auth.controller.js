@@ -299,7 +299,9 @@ export async function deleteAddress(req, res, next) {
 async function resolveOptionalAuth(req) {
   const authorization = String(req?.headers?.authorization || "");
   const hasBearer = authorization.startsWith("Bearer ");
-  const attempts = hasBearer ? 3 : 1;
+  const bearerToken = hasBearer ? authorization.slice("Bearer ".length).trim() : "";
+  const looksLikeJwt = bearerToken.split(".").length === 3;
+  const attempts = looksLikeJwt ? 5 : 1;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const auth = await resolveAccessAuth(req, { strict: false });
@@ -313,7 +315,9 @@ async function resolveOptionalAuth(req) {
       // Logout routes are idempotent; invalid tokens still resolve as no-op.
     }
     if (attempt < attempts - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+      await new Promise((resolve) =>
+        setTimeout(resolve, [100, 250, 500, 1000][attempt] || 1000)
+      );
     }
   }
   return null;
