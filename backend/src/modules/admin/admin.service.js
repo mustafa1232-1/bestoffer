@@ -639,7 +639,7 @@ export async function approveDeliveryAccount(deliveryUserId, adminUserId) {
       userId: Number(approved.id),
       type: "delivery_account_approved",
       title: "تمت الموافقة على حسابك",
-      body: "تمت مراجعة بياناتك ويمكنك الآن تسجيل الدخول ككابتن.",
+      body: "تمت مراجعة بياناتك ويمكنك الآن تسجيل الدخول كتطبيق دلفري.",
       payload: {
         deliveryUserId: Number(approved.id),
       },

@@ -368,22 +368,17 @@ export async function listPendingDeliveryAccounts() {
        u.apartment,
        u.created_at,
        p.vehicle_type,
-       p.car_make,
-       p.car_model,
-       p.car_year,
-       p.car_color,
-       p.plate_number,
-       p.profile_image_url,
-       p.car_image_url
+       NULL::text AS car_make,
+       NULL::text AS car_model,
+       NULL::int AS car_year,
+       NULL::text AS car_color,
+       NULL::text AS plate_number,
+       u.image_url AS profile_image_url,
+       NULL::text AS car_image_url
      FROM app_user u
-     LEFT JOIN taxi_captain_profile p
+     LEFT JOIN courier_profile p
        ON p.user_id = u.id
      WHERE u.role = 'delivery'
-       AND NOT EXISTS (
-         SELECT 1
-         FROM taxi_captain_profile tcp
-         WHERE tcp.user_id = u.id
-       )
        AND u.delivery_account_approved = FALSE
      ORDER BY u.created_at DESC, u.id DESC`
   );
@@ -412,7 +407,7 @@ export async function listPendingTaxiCaptainAccounts() {
      FROM app_user u
      JOIN taxi_captain_profile p
        ON p.user_id = u.id
-     WHERE u.role IN ('taxi_captain', 'delivery')
+     WHERE u.role = 'taxi_captain'
        AND u.delivery_account_approved = FALSE
      ORDER BY u.created_at DESC, u.id DESC`
   );
@@ -444,7 +439,7 @@ export async function approveTaxiCaptainAccount(captainUserId, approvedByUserId)
          delivery_approved_by_user_id = $2,
          delivery_approved_at = NOW()
      WHERE u.id = $1
-       AND u.role IN ('taxi_captain', 'delivery')
+       AND u.role = 'taxi_captain'
        AND u.delivery_account_approved = FALSE
        AND EXISTS (
          SELECT 1

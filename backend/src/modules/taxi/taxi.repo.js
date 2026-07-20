@@ -180,7 +180,7 @@ export async function listNearbyCaptainsForPickup({
      FROM taxi_captain_presence p
      JOIN app_user u ON u.id = p.captain_user_id
      WHERE p.is_online = TRUE
-       AND u.role IN ('delivery', 'taxi_captain')
+       AND u.role = 'taxi_captain'
        AND p.latitude IS NOT NULL
        AND p.longitude IS NOT NULL
        AND p.last_seen_at >= NOW() - INTERVAL '3 minutes'
@@ -228,7 +228,7 @@ export async function listNearbyCaptainMarkers({
      FROM taxi_captain_presence p
      JOIN app_user u ON u.id = p.captain_user_id
      WHERE p.is_online = TRUE
-       AND u.role IN ('delivery', 'taxi_captain')
+       AND u.role = 'taxi_captain'
        AND p.latitude IS NOT NULL
        AND p.longitude IS NOT NULL
        AND p.last_seen_at >= NOW() - INTERVAL '3 minutes'
@@ -2529,11 +2529,69 @@ export async function getCaptainProfile(captainUserId) {
      LEFT JOIN taxi_captain_profile p
        ON p.user_id = u.id
      WHERE u.id = $1
-       AND u.role IN ('delivery', 'taxi_captain')
+       AND u.role = 'taxi_captain'
      LIMIT 1`,
     [Number(captainUserId)]
   );
   return r.rows[0] || null;
+}
+
+export async function createPendingCaptainProfile({
+  userId,
+  profileImageUrl = null,
+  carImageUrl = null,
+  vehicleType,
+  carMake,
+  carModel,
+  carYear,
+  carColor = null,
+  plateNumber,
+}) {
+  const result = await q(
+    `INSERT INTO taxi_captain_profile
+      (
+        user_id,
+        profile_image_url,
+        car_image_url,
+        vehicle_type,
+        car_make,
+        car_model,
+        car_year,
+        car_color,
+        plate_number,
+        is_active,
+        rating_avg,
+        rides_count,
+        created_at,
+        updated_at
+      )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,0,0,NOW(),NOW())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       profile_image_url = COALESCE(EXCLUDED.profile_image_url, taxi_captain_profile.profile_image_url),
+       car_image_url = COALESCE(EXCLUDED.car_image_url, taxi_captain_profile.car_image_url),
+       vehicle_type = EXCLUDED.vehicle_type,
+       car_make = EXCLUDED.car_make,
+       car_model = EXCLUDED.car_model,
+       car_year = EXCLUDED.car_year,
+       car_color = EXCLUDED.car_color,
+       plate_number = EXCLUDED.plate_number,
+       is_active = TRUE,
+       updated_at = NOW()
+     RETURNING *`,
+    [
+      Number(userId),
+      profileImageUrl || null,
+      carImageUrl || null,
+      String(vehicleType || "sedan").trim() || "sedan",
+      String(carMake || "").trim(),
+      String(carModel || "").trim(),
+      Number.isFinite(Number(carYear)) ? Number(carYear) : new Date().getFullYear(),
+      carColor ? String(carColor).trim() : null,
+      String(plateNumber || "").trim(),
+    ]
+  );
+  return result.rows[0] || null;
 }
 
 export async function createCaptainProfileEditRequest({
@@ -2593,7 +2651,7 @@ export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
      FROM taxi_captain_subscription s
      JOIN app_user u
        ON u.id = s.captain_user_id
-      AND u.role IN ('delivery', 'taxi_captain')
+      AND u.role = 'taxi_captain'
      LEFT JOIN taxi_captain_profile p
        ON p.user_id = s.captain_user_id
      WHERE s.cash_payment_pending = TRUE
@@ -2883,7 +2941,7 @@ export async function assertCaptainRole(userId) {
     [Number(userId)]
   );
   const role = r.rows[0]?.role;
-  return role === "delivery" || role === "taxi_captain";
+  return role === "taxi_captain";
 }
 
 export async function listPendingCaptainProfileEditRequests({ limit = 100 } = {}) {

@@ -51,7 +51,7 @@ export async function findUserByPhone(phone) {
          SELECT 1
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
-       ) AS is_taxi_captain
+       ) AND u.role = 'taxi_captain' AS is_taxi_captain
      FROM app_user u
      WHERE u.phone_normalized = $1
      LIMIT 1`,
@@ -89,7 +89,7 @@ export async function findUserByIdWithAuthFields(id) {
          SELECT 1
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
-       ) AS is_taxi_captain
+       ) AND u.role = 'taxi_captain' AS is_taxi_captain
      FROM app_user u
      WHERE u.id = $1
      LIMIT 1`,
@@ -263,7 +263,7 @@ export async function getUserPublicById(id) {
            SELECT 1
            FROM taxi_captain_profile tcp
            WHERE tcp.user_id = u.id
-         ) AS is_taxi_captain
+         ) AND u.role = 'taxi_captain' AS is_taxi_captain
        FROM app_user u
        WHERE u.id = $1`,
       [id]
@@ -421,7 +421,7 @@ export async function findActiveSessionByRefreshToken(refreshToken) {
          SELECT 1
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
-       ) AS is_taxi_captain
+       ) AND u.role = 'taxi_captain' AS is_taxi_captain
      FROM user_session s
      JOIN app_user u ON u.id = s.user_id
      WHERE s.refresh_token = $1
@@ -515,7 +515,7 @@ export async function findRecoverableSessionByDeviceSession(deviceSessionId) {
          SELECT 1
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
-       ) AS is_taxi_captain
+       ) AND u.role = 'taxi_captain' AS is_taxi_captain
      FROM user_session s
      JOIN app_user u ON u.id = s.user_id
      WHERE s.device_session_id = $1

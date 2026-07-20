@@ -1,6 +1,12 @@
 ﻿import { createNotification } from "../notifications/notifications.repo.js";
 import { emitRealtimeToUser } from "../../shared/realtime/realtime-gateway.js";
 import { AppError } from "../../shared/utils/errors.js";
+import { createManyNotifications } from "../notifications/notifications.repo.js";
+import { hashPin } from "../../shared/utils/hash.js";
+import { validateBasmayaAddress } from "../../shared/utils/basmaya-address.js";
+import { createUser, findUserByPhone } from "../auth/auth.repo.js";
+import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
+import * as deliveryRepo from "../delivery/delivery.repo.js";
 import * as repo from "./taxi.repo.js";
 import * as loyaltyRepo from "./taxi.loyalty.repo.js";
 
@@ -16,6 +22,121 @@ let lifecycleWorker = null;
 let lifecycleRunning = false;
 let lastLifecycleSweepAt = 0;
 const LIFECYCLE_MIN_INTERVAL_MS = 4000;
+
+function normalizeConsentAccepted(value) {
+  if (value === true) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
+function assertValidBasmayaAddress(address) {
+  const validation = validateBasmayaAddress(address);
+  if (!validation.ok) {
+    const err = new Error("INVALID_BASMAYA_ADDRESS");
+    err.status = 400;
+    err.fields = validation.errors;
+    throw err;
+  }
+  return validation.normalized;
+}
+
+export async function registerCaptain(dto) {
+  const address = assertValidBasmayaAddress({
+    block: dto.block,
+    buildingNumber: dto.buildingNumber,
+    apartment: dto.apartment,
+  });
+  if (!normalizeConsentAccepted(dto.analyticsConsentAccepted)) {
+    const err = new Error("ANALYTICS_CONSENT_REQUIRED");
+    err.status = 400;
+    throw err;
+  }
+
+  const phone = String(dto.phone || "").trim();
+  const exists = await findUserByPhone(phone);
+  if (exists) {
+    const err = new Error("PHONE_EXISTS");
+    err.status = 409;
+    throw err;
+  }
+
+  const fullName = String(dto.fullName || "").trim();
+  const pinHash = await hashPin(dto.pin);
+  const analyticsConsentVersion =
+    typeof dto.analyticsConsentVersion === "string" &&
+    dto.analyticsConsentVersion.trim().length > 0
+      ? dto.analyticsConsentVersion.trim().slice(0, 32)
+      : "taxi_registration_contract_v1";
+
+  let user = null;
+  try {
+    user = await runWithGeneratedAppUserUsername({
+      fullName,
+      phone,
+      execute: (username) =>
+        createUser({
+          fullName,
+          username,
+          phone,
+          pinHash,
+          block: address.block,
+          buildingNumber: address.buildingNumber,
+          apartment: address.apartment,
+          imageUrl: dto.profileImageUrl || dto.imageUrl || null,
+          role: "taxi_captain",
+          analyticsConsentGranted: true,
+          analyticsConsentVersion,
+          analyticsConsentGrantedAt: new Date(),
+          chatQualityReviewConsent: true,
+        }),
+    });
+
+    await deliveryRepo.setDeliveryAccountPendingApproval(Number(user.id));
+    await repo.createPendingCaptainProfile({
+      userId: Number(user.id),
+      profileImageUrl: dto.profileImageUrl || dto.imageUrl || null,
+      carImageUrl: dto.carImageUrl || null,
+      vehicleType: dto.vehicleType,
+      carMake: dto.carMake,
+      carModel: dto.carModel,
+      carYear: dto.carYear,
+      carColor: dto.carColor,
+      plateNumber: dto.plateNumber,
+    });
+  } catch (error) {
+    if (user?.id) {
+      await deliveryRepo.deleteUserById(Number(user.id)).catch(() => {});
+    }
+    throw error;
+  }
+
+  const approvers = await deliveryRepo.listDeliveryApproverUserIds();
+  await createManyNotifications(
+    approvers.map((approverId) => ({
+      userId: Number(approverId),
+      type: "admin_delivery_pending_approval",
+      title: "Taxi captain account pending approval",
+      body: `New taxi captain request: ${fullName} (${phone})`,
+      payload: {
+        captainUserId: Number(user.id),
+      },
+    }))
+  );
+
+  return {
+    pendingApproval: true,
+    message: "TAXI_CAPTAIN_ACCOUNT_PENDING_APPROVAL",
+    user: {
+      id: Number(user.id),
+      fullName: user.full_name,
+      phone: user.phone,
+      role: user.role,
+      isTaxiCaptain: true,
+      deliveryAccountApproved: false,
+    },
+  };
+}
 
 function addDays(dateInput, days) {
   const d = new Date(dateInput);
@@ -109,7 +230,7 @@ function asInt(value) {
 
 function isCaptainRole(role) {
   const normalized = String(role || "").trim().toLowerCase();
-  return normalized === "delivery" || normalized === "taxi_captain";
+  return normalized === "taxi_captain";
 }
 
 function hasCaptainTaxiProfileCompleteness(row) {

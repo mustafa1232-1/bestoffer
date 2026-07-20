@@ -1,4 +1,3 @@
-import { q } from "../../config/db.js";
 import { hashPin } from "../../shared/utils/hash.js";
 import { validateBasmayaAddress } from "../../shared/utils/basmaya-address.js";
 import * as analyticsRepo from "../../shared/analytics/commerce-analytics.repo.js";
@@ -7,6 +6,7 @@ import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
 import { invalidateOrderListCacheForUser } from "../orders/orders.service.js";
+import * as commerceRepo from "../commerce/commerce.repo.js";
 import * as repo from "./delivery.repo.js";
 
 function normalizeConsentAccepted(value) {
@@ -88,56 +88,17 @@ export async function registerDelivery(dto) {
       typeof dto.vehicleType === "string" && dto.vehicleType.trim().length > 0
         ? dto.vehicleType.trim()
         : "sedan";
-    const carMake = String(dto.carMake || "").trim();
-    const carModel = String(dto.carModel || "").trim();
-    const carColor = String(dto.carColor || "").trim() || null;
-    const plateNumber = String(dto.plateNumber || "").trim();
-    const carYear = Number(dto.carYear);
-
-    await q(
-      `INSERT INTO taxi_captain_profile
-        (
-          user_id,
-          profile_image_url,
-          car_image_url,
-          vehicle_type,
-          car_make,
-          car_model,
-          car_year,
-          car_color,
-          plate_number,
-          is_active,
-          rating_avg,
-          rides_count,
-          created_at,
-          updated_at
-        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,0,0,NOW(),NOW())
-       ON CONFLICT (user_id)
-       DO UPDATE SET
-         profile_image_url = COALESCE(EXCLUDED.profile_image_url, taxi_captain_profile.profile_image_url),
-         car_image_url = COALESCE(EXCLUDED.car_image_url, taxi_captain_profile.car_image_url),
-         vehicle_type = EXCLUDED.vehicle_type,
-         car_make = EXCLUDED.car_make,
-         car_model = EXCLUDED.car_model,
-         car_year = EXCLUDED.car_year,
-         car_color = EXCLUDED.car_color,
-         plate_number = EXCLUDED.plate_number,
-         is_active = TRUE,
-         updated_at = NOW()`
-      ,
-      [
-        Number(user.id),
-        dto.profileImageUrl || dto.imageUrl || null,
-        dto.carImageUrl || null,
-        vehicleType,
-        carMake,
-        carModel,
-        Number.isFinite(carYear) ? carYear : new Date().getFullYear(),
-        carColor,
-        plateNumber,
-      ]
-    );
+    await commerceRepo.syncCourierDriverAffiliation({
+      userId: Number(user.id),
+      driverType: "app_driver",
+      merchantId: null,
+      merchantIdSet: true,
+      coverageBlock: address.block,
+      vehicleType,
+      activeStatus: true,
+      availabilityStatus: "online",
+      source: "delivery_registration",
+    });
   } catch (error) {
     if (user?.id) {
       await repo.deleteUserById(Number(user.id)).catch(() => {});
@@ -150,10 +111,10 @@ export async function registerDelivery(dto) {
     approvers.map((approverId) => ({
       userId: Number(approverId),
       type: "admin_delivery_pending_approval",
-      title: "Taxi captain account pending approval",
-      body: `New taxi captain request: ${dto.fullName.trim()} (${dto.phone.trim()})`, 
+      title: "Delivery account pending approval",
+      body: `New delivery request: ${dto.fullName.trim()} (${dto.phone.trim()})`,
       payload: {
-        captainUserId: Number(user.id),
+        deliveryUserId: Number(user.id),
       },
     }))
   );
@@ -166,7 +127,7 @@ export async function registerDelivery(dto) {
       fullName: user.full_name,
       phone: user.phone,
       role: user.role,
-      isTaxiCaptain: true,
+      isTaxiCaptain: false,
       deliveryAccountApproved: false,
     },
   };

@@ -34,10 +34,19 @@ class _MemorySecureStore extends SecureStore {
   Future<void> saveAuthTokens({
     required String accessToken,
     String? refreshToken,
+    String? deviceSessionId,
+    String? deviceRecoverySecret,
   }) async {
     _values['access_token'] = accessToken;
     if (refreshToken != null && refreshToken.trim().isNotEmpty) {
       _values['refresh_token'] = refreshToken.trim();
+    }
+    if (deviceSessionId != null && deviceSessionId.trim().isNotEmpty) {
+      _values['device_session_id'] = deviceSessionId.trim();
+    }
+    if (deviceRecoverySecret != null &&
+        deviceRecoverySecret.trim().isNotEmpty) {
+      _values['device_recovery_secret'] = deviceRecoverySecret.trim();
     }
   }
 
