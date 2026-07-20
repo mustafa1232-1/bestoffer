@@ -344,6 +344,9 @@ export async function createUserSession({
   ipAddress,
   expiresAt,
   accessExpiresAt,
+  deviceSessionId = null,
+  recoverySecretHash = null,
+  appSurface = null,
 }) {
   const r = await q(
     `INSERT INTO user_session
@@ -359,10 +362,13 @@ export async function createUserSession({
         last_seen_at,
         expires_at,
         access_expires_at,
+        device_session_id,
+        recovery_secret_hash,
+        app_surface,
         is_revoked
       )
-     VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW(),NOW(),$7,$8,FALSE)
-     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at`,
+     VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW(),NOW(),$7,$8,$9,$10,$11,FALSE)
+     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at, device_session_id, recovery_secret_hash, app_surface`,
     [
       Number(userId),
       String(refreshToken || ""),
@@ -372,6 +378,9 @@ export async function createUserSession({
       ipAddress || null,
       expiresAt,
       accessExpiresAt || null,
+      deviceSessionId || null,
+      recoverySecretHash || null,
+      appSurface || null,
     ]
   );
   return r.rows[0] || null;
@@ -387,6 +396,9 @@ export async function findActiveSessionByRefreshToken(refreshToken) {
        s.refresh_token,
        s.token_jti,
        s.device_fingerprint,
+       s.device_session_id,
+       s.recovery_secret_hash,
+       s.app_surface,
        s.expires_at AS session_expires_at,
        s.is_revoked,
        u.id,
@@ -414,7 +426,6 @@ export async function findActiveSessionByRefreshToken(refreshToken) {
      JOIN app_user u ON u.id = s.user_id
      WHERE s.refresh_token = $1
        AND s.is_revoked = FALSE
-       AND s.expires_at > NOW()
        AND COALESCE(u.is_account_disabled, FALSE) = FALSE
      LIMIT 1`,
     [token]
@@ -429,6 +440,11 @@ export async function rotateUserSessionTokens({
   tokenJti,
   ipAddress = null,
   userAgent = null,
+  deviceFingerprint = null,
+  expiresAt = null,
+  deviceSessionId = null,
+  recoverySecretHash = null,
+  appSurface = null,
 }) {
   const r = await q(
     `UPDATE user_session
@@ -436,13 +452,17 @@ export async function rotateUserSessionTokens({
          token_jti = $4,
          ip = COALESCE($5, ip),
          user_agent = COALESCE($6, user_agent),
+         device_fingerprint = COALESCE($7, device_fingerprint),
+         expires_at = COALESCE($8, expires_at),
+         device_session_id = COALESCE($9, device_session_id),
+         recovery_secret_hash = COALESCE($10, recovery_secret_hash),
+         app_surface = COALESCE($11, app_surface),
          last_seen_at = NOW(),
          updated_at = NOW()
      WHERE id = $1
        AND user_id = $2
        AND is_revoked = FALSE
-       AND expires_at > NOW()
-     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at`,
+     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at, device_session_id, recovery_secret_hash, app_surface`,
     [
       Number(sessionId),
       Number(userId),
@@ -450,49 +470,66 @@ export async function rotateUserSessionTokens({
       tokenJti || null,
       ipAddress || null,
       userAgent || null,
+      deviceFingerprint || null,
+      expiresAt || null,
+      deviceSessionId || null,
+      recoverySecretHash || null,
+      appSurface || null,
     ]
   );
   return r.rows[0] || null;
 }
 
+export async function findRecoverableSessionByDeviceSession(deviceSessionId) {
+  const id = String(deviceSessionId || "").trim();
+  if (!id) return null;
+  const r = await q(
+    `SELECT
+       s.id AS session_id,
+       s.user_id AS session_user_id,
+       s.refresh_token,
+       s.token_jti,
+       s.device_fingerprint,
+       s.device_session_id,
+       s.recovery_secret_hash,
+       s.app_surface,
+       s.expires_at AS session_expires_at,
+       s.is_revoked,
+       u.id,
+       u.username,
+       u.full_name,
+       u.phone,
+       u.preferred_locale,
+       u.role,
+       u.block,
+       u.building_number,
+       u.apartment,
+       u.image_url,
+       u.work_title,
+       u.work_company,
+       u.is_super_admin,
+       u.is_account_disabled,
+       u.account_disabled_note,
+       u.delivery_account_approved,
+       EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       ) AS is_taxi_captain
+     FROM user_session s
+     JOIN app_user u ON u.id = s.user_id
+     WHERE s.device_session_id = $1
+       AND s.is_revoked = FALSE
+     LIMIT 1`,
+    [id]
+  );
+  return r.rows[0] || null;
+}
+
 export async function pruneUserSessions(userId, { maxActive }) {
-  const cap = Math.max(1, Number(maxActive) || 1);
-  const rows = await q(
-    `SELECT id
-     FROM user_session
-     WHERE user_id = $1
-       AND is_revoked = FALSE
-       AND expires_at > NOW()
-     ORDER BY last_seen_at DESC NULLS LAST, id DESC`,
-    [Number(userId)]
-  );
-
-  if (rows.rowCount <= cap) {
-    return {
-      revokedCount: 0,
-      revokedSessionIds: [],
-    };
-  }
-  const staleIds = rows.rows.slice(cap).map((row) => Number(row.id));
-  if (staleIds.length === 0) {
-    return {
-      revokedCount: 0,
-      revokedSessionIds: [],
-    };
-  }
-
-  const out = await q(
-    `UPDATE user_session
-     SET is_revoked = TRUE,
-         revoked_at = NOW(),
-         revoked_reason = 'session_pruned',
-         updated_at = NOW()
-     WHERE id = ANY($1::bigint[])`,
-    [staleIds]
-  );
   return {
-    revokedCount: out.rowCount || 0,
-    revokedSessionIds: staleIds,
+    revokedCount: 0,
+    revokedSessionIds: [],
   };
 }
 
@@ -516,7 +553,6 @@ export async function getActiveSessionByAccess({
      WHERE s.id = $1
        AND s.user_id = $2
        AND s.is_revoked = FALSE
-       AND s.expires_at > NOW()
        AND COALESCE(u.is_account_disabled, FALSE) = FALSE
        AND (s.token_jti IS NULL OR s.token_jti = $3)
      LIMIT 1`,
@@ -603,7 +639,6 @@ export async function listUserActiveSessions(userId) {
      FROM user_session
      WHERE user_id = $1
        AND is_revoked = FALSE
-       AND expires_at > NOW()
      ORDER BY last_seen_at DESC NULLS LAST, id DESC`,
     [Number(userId)]
   );

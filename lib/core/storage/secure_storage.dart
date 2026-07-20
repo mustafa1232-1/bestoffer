@@ -10,6 +10,8 @@ class SecureStore {
   static const _tokenKey = 'access_token';
   static const _refreshTokenKey = 'refresh_token';
   static const _guestModeKey = 'guest_mode_active';
+  static const _deviceSessionIdKey = 'device_session_id';
+  static const _deviceRecoverySecretKey = 'device_recovery_secret';
   static const _requestSigningKeys = <String>{
     requestSigningKeyIdStorageKey,
     requestSigningSecretStorageKey,
@@ -22,6 +24,8 @@ class SecureStore {
     _tokenKey,
     _refreshTokenKey,
     _guestModeKey,
+    _deviceSessionIdKey,
+    _deviceRecoverySecretKey,
     ..._requestSigningKeys,
   };
 
@@ -81,11 +85,23 @@ class SecureStore {
   Future<void> saveAuthTokens({
     required String accessToken,
     String? refreshToken,
+    String? deviceSessionId,
+    String? deviceRecoverySecret,
   }) async {
     await saveToken(accessToken);
     final normalizedRefreshToken = refreshToken?.trim();
     if (normalizedRefreshToken != null && normalizedRefreshToken.isNotEmpty) {
       await writeString(_refreshTokenKey, normalizedRefreshToken);
+    }
+    final normalizedDeviceSessionId = deviceSessionId?.trim();
+    if (normalizedDeviceSessionId != null &&
+        normalizedDeviceSessionId.isNotEmpty) {
+      await writeString(_deviceSessionIdKey, normalizedDeviceSessionId);
+    }
+    final normalizedRecoverySecret = deviceRecoverySecret?.trim();
+    if (normalizedRecoverySecret != null &&
+        normalizedRecoverySecret.isNotEmpty) {
+      await writeString(_deviceRecoverySecretKey, normalizedRecoverySecret);
     }
   }
 
@@ -126,6 +142,18 @@ class SecureStore {
 
   Future<String?> readRefreshToken() async {
     final value = await readString(_refreshTokenKey);
+    final normalized = value?.trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
+  }
+
+  Future<String?> readDeviceSessionId() async {
+    final value = await readString(_deviceSessionIdKey);
+    final normalized = value?.trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
+  }
+
+  Future<String?> readDeviceRecoverySecret() async {
+    final value = await readString(_deviceRecoverySecretKey);
     final normalized = value?.trim();
     return normalized == null || normalized.isEmpty ? null : normalized;
   }
@@ -201,4 +229,3 @@ class SecureStore {
     return null;
   }
 }
-

@@ -16,7 +16,6 @@ import '../../../core/files/media_picker_service.dart';
 import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
-import '../../../core/auth/session_expiry_notice.dart';
 import '../../../core/notifications/active_chat_context_registry.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
@@ -931,7 +930,6 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
 
   Future<void> _reload({bool silent = false}) async {
     if (!mounted) return;
-    final hadVerifiedSession = _hasVerifiedSession;
     setState(() {
       _loading = !silent;
       if (!silent) _error = null;
@@ -1091,16 +1089,6 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
           }
         });
         _syncActiveCommunityChatContext();
-        if (hadVerifiedSession) {
-          unawaited(
-            SessionExpiryNoticeGate.instance.show(
-              context,
-              messageArabic: 'انتهت الجلسة الحالية. يمكنك متابعة التصفح كزائر.',
-              messageEnglish:
-                  'Your session expired. You can continue browsing as a guest.',
-            ),
-          );
-        }
         return;
       }
       setState(() {

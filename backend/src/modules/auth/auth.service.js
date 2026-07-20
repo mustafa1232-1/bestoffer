@@ -4,6 +4,7 @@ import {
   createCustomerAddress,
   deactivateCustomerAddress,
   findActiveSessionByRefreshToken,
+  findRecoverableSessionByDeviceSession,
   findUserByIdWithAuthFields,
   findUserByPhone,
   getCustomerDefaultAddress,
@@ -247,6 +248,29 @@ function createTokenJti() {
   return crypto.randomBytes(18).toString("base64url");
 }
 
+function createDeviceSessionId() {
+  return crypto.randomBytes(24).toString("base64url");
+}
+
+function createDeviceRecoverySecret() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function hashRecoverySecret(secret) {
+  const value = String(secret || "").trim();
+  if (!value) return null;
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function recoverySecretMatches(candidate, storedHash) {
+  const candidateHash = hashRecoverySecret(candidate);
+  const stored = String(storedHash || "").trim();
+  if (!candidateHash || !stored) return false;
+  const left = Buffer.from(candidateHash, "utf8");
+  const right = Buffer.from(stored, "utf8");
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
 async function markRevokedSessionsInCache(sessionIds = []) {
   const ids = Array.isArray(sessionIds)
     ? sessionIds
@@ -260,6 +284,8 @@ async function markRevokedSessionsInCache(sessionIds = []) {
 async function issueSessionToken(user, deviceContext = {}) {
   const tokenJti = createTokenJti();
   const refreshToken = createRefreshToken();
+  const deviceSessionId = createDeviceSessionId();
+  const deviceRecoverySecret = createDeviceRecoverySecret();
   const { expiresAt } = buildSessionTimestamps();
   const appSurface = resolveRoleAppSurface(user.role);
 
@@ -272,6 +298,9 @@ async function issueSessionToken(user, deviceContext = {}) {
     ipAddress: deviceContext.ipAddress || null,
     expiresAt,
     accessExpiresAt: null,
+    deviceSessionId,
+    recoverySecretHash: hashRecoverySecret(deviceRecoverySecret),
+    appSurface,
   });
 
   const token = signAccessToken(
@@ -303,6 +332,8 @@ async function issueSessionToken(user, deviceContext = {}) {
     token,
     refreshToken,
     sessionId: session?.id || null,
+    deviceSessionId,
+    deviceRecoverySecret,
   };
 }
 
@@ -373,6 +404,8 @@ export async function register(dto, deviceContext = {}) {
     token: session.token,
     refreshToken: session.refreshToken,
     sessionId: session.sessionId,
+    deviceSessionId: session.deviceSessionId,
+    deviceRecoverySecret: session.deviceRecoverySecret,
     user: mapUser(created),
   };
 }
@@ -449,6 +482,8 @@ export async function login({ phone, pin }, deviceContext = {}) {
     token: session.token,
     refreshToken: session.refreshToken,
     sessionId: session.sessionId,
+    deviceSessionId: session.deviceSessionId,
+    deviceRecoverySecret: session.deviceRecoverySecret,
     user: {
       id: user.id,
       fullName: user.full_name,
@@ -466,14 +501,14 @@ export async function login({ phone, pin }, deviceContext = {}) {
 export async function refreshSession(refreshToken, deviceContext = {}) {
   const normalizedRefreshToken = String(refreshToken || "").trim();
   if (normalizedRefreshToken.length < 24 || normalizedRefreshToken.length > 256) {
-    const err = new Error("INVALID_REFRESH_TOKEN");
+    const err = new Error("SESSION_RECOVERY_REQUIRED");
     err.status = 401;
     throw err;
   }
 
   const row = await findActiveSessionByRefreshToken(normalizedRefreshToken);
   if (!row) {
-    const err = new Error("INVALID_REFRESH_TOKEN");
+    const err = new Error("SESSION_RECOVERY_REQUIRED");
     err.status = 401;
     throw err;
   }
@@ -492,18 +527,22 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
   const currentDevice = String(deviceContext.deviceFingerprint || "").trim();
   if (env.authDeviceBindingRequired) {
     if (!expectedDevice || !currentDevice || expectedDevice !== currentDevice) {
-      const err = new Error("INVALID_REFRESH_TOKEN");
+      const err = new Error("SESSION_RECOVERY_REQUIRED");
       err.status = 401;
       throw err;
     }
   } else if (expectedDevice && currentDevice && expectedDevice !== currentDevice) {
-    const err = new Error("INVALID_REFRESH_TOKEN");
+    const err = new Error("SESSION_RECOVERY_REQUIRED");
     err.status = 401;
     throw err;
   }
 
   const nextRefreshToken = createRefreshToken();
   const nextTokenJti = createTokenJti();
+  const needsRecoverySeed = !row.device_session_id || !row.recovery_secret_hash;
+  const nextDeviceSessionId = row.device_session_id || createDeviceSessionId();
+  const nextRecoverySecret = needsRecoverySeed ? createDeviceRecoverySecret() : null;
+  const { expiresAt } = buildSessionTimestamps();
   const session = await rotateUserSessionTokens({
     sessionId: row.session_id,
     userId: row.id,
@@ -511,9 +550,16 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
     tokenJti: nextTokenJti,
     ipAddress: deviceContext.ipAddress || null,
     userAgent: deviceContext.userAgent || null,
+    deviceFingerprint: currentDevice || expectedDevice || null,
+    expiresAt,
+    deviceSessionId: needsRecoverySeed ? nextDeviceSessionId : null,
+    recoverySecretHash: nextRecoverySecret
+      ? hashRecoverySecret(nextRecoverySecret)
+      : null,
+    appSurface: resolveRoleAppSurface(row.role),
   });
   if (!session) {
-    const err = new Error("INVALID_REFRESH_TOKEN");
+    const err = new Error("SESSION_RECOVERY_REQUIRED");
     err.status = 401;
     throw err;
   }
@@ -559,7 +605,106 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
     token,
     refreshToken: nextRefreshToken,
     sessionId: session.id,
+    deviceSessionId: session.device_session_id || nextDeviceSessionId,
+    ...(nextRecoverySecret ? { deviceRecoverySecret: nextRecoverySecret } : {}),
     user: mapUser(user),
+  };
+}
+
+export async function recoverSession(dto = {}, deviceContext = {}) {
+  const deviceSessionId = String(dto.deviceSessionId || dto.device_session_id || "").trim();
+  const deviceRecoverySecret = String(
+    dto.deviceRecoverySecret || dto.device_recovery_secret || ""
+  ).trim();
+
+  if (
+    deviceSessionId.length < 16 ||
+    deviceSessionId.length > 120 ||
+    deviceRecoverySecret.length < 24 ||
+    deviceRecoverySecret.length > 256
+  ) {
+    const err = new Error("SESSION_RECOVERY_REQUIRED");
+    err.status = 401;
+    throw err;
+  }
+
+  const row = await findRecoverableSessionByDeviceSession(deviceSessionId);
+  if (!row || !recoverySecretMatches(deviceRecoverySecret, row.recovery_secret_hash)) {
+    const err = new Error("SESSION_RECOVERY_REQUIRED");
+    err.status = 401;
+    throw err;
+  }
+
+  if (row.is_account_disabled === true) {
+    const err = new Error("ACCOUNT_DISABLED");
+    err.status = 403;
+    const note = String(row.account_disabled_note || "").trim();
+    err.details = { note: note || null };
+    throw err;
+  }
+
+  const requestedSurface = String(
+    dto.appFlavor || dto.app_flavor || deviceContext.appFlavor || ""
+  ).trim() || null;
+  if (requestedSurface && !isRequestedSurfaceAllowedForUser(row, requestedSurface)) {
+    const err = new AppError("FORBIDDEN_APP_SURFACE", { status: 403 });
+    err.details = { appSurface: requestedSurface };
+    throw err;
+  }
+
+  const currentDevice = String(deviceContext.deviceFingerprint || "").trim();
+  const existingDevice = String(row.device_fingerprint || "").trim();
+  const nextRefreshToken = createRefreshToken();
+  const nextTokenJti = createTokenJti();
+  const nextRecoverySecret = createDeviceRecoverySecret();
+  const { expiresAt } = buildSessionTimestamps();
+  const appSurface = resolveRoleAppSurface(row.role);
+  const session = await rotateUserSessionTokens({
+    sessionId: row.session_id,
+    userId: row.id,
+    refreshToken: nextRefreshToken,
+    tokenJti: nextTokenJti,
+    ipAddress: deviceContext.ipAddress || null,
+    userAgent: deviceContext.userAgent || null,
+    deviceFingerprint: currentDevice || existingDevice || null,
+    expiresAt,
+    recoverySecretHash: hashRecoverySecret(nextRecoverySecret),
+    appSurface,
+  });
+
+  if (!session) {
+    const err = new Error("SESSION_RECOVERY_REQUIRED");
+    err.status = 401;
+    throw err;
+  }
+
+  invalidateSessionAccessCacheForSession({
+    sessionId: row.session_id,
+    userId: row.id,
+  });
+
+  const token = signAccessToken(
+    {
+      id: row.id,
+      role: row.role || "user",
+      isSuperAdmin: resolveSuperAdmin(row),
+      isTaxiCaptain: row.is_taxi_captain === true,
+      appSurface,
+    },
+    {
+      sessionId: session.id,
+      tokenJti: nextTokenJti,
+      deviceFingerprint: currentDevice || existingDevice || null,
+    }
+  );
+
+  return {
+    token,
+    refreshToken: nextRefreshToken,
+    sessionId: session.id,
+    deviceSessionId: session.device_session_id || deviceSessionId,
+    deviceRecoverySecret: nextRecoverySecret,
+    user: mapUser(row),
   };
 }
 
@@ -621,19 +766,6 @@ export async function updateAccount(userId, dto, { currentSessionId = null } = {
     phone: nextPhone && nextPhone !== normalizedCurrentPhone ? nextPhone : null,
     pinHash,
   });
-
-  if (nextPin) {
-    const revoked = await revokeAllUserSessionsDetailed({
-      userId: user.id,
-      exceptSessionId: currentSessionId,
-      reason: "pin_changed",
-    });
-    await markRevokedSessionsInCache(revoked.revokedSessionIds);
-    invalidateSessionAccessCacheForUser({
-      userId: user.id,
-      exceptSessionId: currentSessionId,
-    });
-  }
 
   return { user: mapUser(updated || user) };
 }

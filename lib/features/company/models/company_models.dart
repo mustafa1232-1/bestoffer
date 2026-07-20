@@ -64,8 +64,8 @@ class CompanyMembership {
       companyId: _toInt(json['companyId'] ?? json['company_id']),
       userId: _toInt(json['userId'] ?? json['user_id']),
       role: '${json['role'] ?? ''}'.trim(),
-      companyName:
-          '${json['companyName'] ?? json['company_name'] ?? ''}'.trim(),
+      companyName: '${json['companyName'] ?? json['company_name'] ?? ''}'
+          .trim(),
       companyCode: _toNullableString(
         json['companyCode'] ?? json['company_code'],
       ),
@@ -156,30 +156,24 @@ class CompanySummary {
       supportPhone: _toNullableString(
         json['supportPhone'] ?? json['support_phone'],
       ),
-      websiteUrl: _toNullableString(
-        json['websiteUrl'] ?? json['website_url'],
-      ),
+      websiteUrl: _toNullableString(json['websiteUrl'] ?? json['website_url']),
       registrationNumber: _toNullableString(
         json['registrationNumber'] ?? json['registration_number'],
       ),
-      taxNumber: _toNullableString(
-        json['taxNumber'] ?? json['tax_number'],
-      ),
+      taxNumber: _toNullableString(json['taxNumber'] ?? json['tax_number']),
       status: '${json['status'] ?? 'active'}'.trim(),
       notes: _toNullableString(json['notes']),
-      branchesCount: json['branchesCount'] == null &&
-              json['branches_count'] == null
+      branchesCount:
+          json['branchesCount'] == null && json['branches_count'] == null
           ? null
           : _toInt(json['branchesCount'] ?? json['branches_count']),
       usersCount: json['usersCount'] == null && json['users_count'] == null
           ? null
           : _toInt(json['usersCount'] ?? json['users_count']),
-      activeUsersCount: json['activeUsersCount'] == null &&
-              json['active_users_count'] == null
+      activeUsersCount:
+          json['activeUsersCount'] == null && json['active_users_count'] == null
           ? null
-          : _toInt(
-              json['activeUsersCount'] ?? json['active_users_count'],
-            ),
+          : _toInt(json['activeUsersCount'] ?? json['active_users_count']),
       createdAt: _toNullableString(json['createdAt'] ?? json['created_at']),
       updatedAt: _toNullableString(json['updatedAt'] ?? json['updated_at']),
     );
@@ -221,10 +215,12 @@ class CompanyDashboard {
     return CompanyDashboard(
       branchesCount: _toInt(json['branchesCount'] ?? json['branches_count']),
       totalOrders: _toInt(json['totalOrders'] ?? json['total_orders']),
-      completedOrders:
-          _toInt(json['completedOrders'] ?? json['completed_orders']),
-      cancelledOrders:
-          _toInt(json['cancelledOrders'] ?? json['cancelled_orders']),
+      completedOrders: _toInt(
+        json['completedOrders'] ?? json['completed_orders'],
+      ),
+      cancelledOrders: _toInt(
+        json['cancelledOrders'] ?? json['cancelled_orders'],
+      ),
       activeOrders: _toInt(json['activeOrders'] ?? json['active_orders']),
       totalSales: _toDouble(json['totalSales'] ?? json['total_sales']),
       totalServiceFees: _toDouble(
@@ -234,11 +230,15 @@ class CompanyDashboard {
         json['totalAppDeliveryFees'] ?? json['total_app_delivery_fees'],
       ),
       totalAppDue: _toDouble(json['totalAppDue'] ?? json['total_app_due']),
-      totalCollected:
-          _toDouble(json['totalCollected'] ?? json['total_collected']),
-      totalOutstanding:
-          _toDouble(json['totalOutstanding'] ?? json['total_outstanding']),
-      bestBranch: json['bestBranch'] == null ? null : _toMap(json['bestBranch']),
+      totalCollected: _toDouble(
+        json['totalCollected'] ?? json['total_collected'],
+      ),
+      totalOutstanding: _toDouble(
+        json['totalOutstanding'] ?? json['total_outstanding'],
+      ),
+      bestBranch: json['bestBranch'] == null
+          ? null
+          : _toMap(json['bestBranch']),
       weakestBranch: json['weakestBranch'] == null
           ? null
           : _toMap(json['weakestBranch']),
@@ -279,31 +279,31 @@ class CompanyPolicy {
 
   factory CompanyPolicy.fromJson(Map<String, dynamic> json) {
     return CompanyPolicy(
-      commissionRate: json['commissionRate'] == null &&
-              json['commission_rate'] == null
+      commissionRate:
+          json['commissionRate'] == null && json['commission_rate'] == null
           ? null
           : _toDouble(json['commissionRate'] ?? json['commission_rate']),
       serviceFeeMode: _toNullableString(
         json['serviceFeeMode'] ?? json['service_fee_mode'],
       ),
-      serviceFeeValue: json['serviceFeeValue'] == null &&
-              json['service_fee_value'] == null
+      serviceFeeValue:
+          json['serviceFeeValue'] == null && json['service_fee_value'] == null
           ? null
           : _toDouble(json['serviceFeeValue'] ?? json['service_fee_value']),
       deliveryFeeMode: _toNullableString(
         json['deliveryFeeMode'] ?? json['delivery_fee_mode'],
       ),
-      deliveryFeeValue: json['deliveryFeeValue'] == null &&
-              json['delivery_fee_value'] == null
+      deliveryFeeValue:
+          json['deliveryFeeValue'] == null && json['delivery_fee_value'] == null
           ? null
           : _toDouble(json['deliveryFeeValue'] ?? json['delivery_fee_value']),
-      appDeliveryEnabled: json['appDeliveryEnabled'] == null &&
+      appDeliveryEnabled:
+          json['appDeliveryEnabled'] == null &&
               json['app_delivery_enabled'] == null
           ? null
-          : _toBool(
-              json['appDeliveryEnabled'] ?? json['app_delivery_enabled'],
-            ),
-      merchantDeliveryEnabled: json['merchantDeliveryEnabled'] == null &&
+          : _toBool(json['appDeliveryEnabled'] ?? json['app_delivery_enabled']),
+      merchantDeliveryEnabled:
+          json['merchantDeliveryEnabled'] == null &&
               json['merchant_delivery_enabled'] == null
           ? null
           : _toBool(
@@ -313,8 +313,9 @@ class CompanyPolicy {
       settlementCycle: _toNullableString(
         json['settlementCycle'] ?? json['settlement_cycle'],
       ),
-      inventoryEnabled:
-          _toBool(json['inventoryEnabled'] ?? json['inventory_enabled']),
+      inventoryEnabled: _toBool(
+        json['inventoryEnabled'] ?? json['inventory_enabled'],
+      ),
       inventoryUpdateMode:
           '${json['inventoryUpdateMode'] ?? json['inventory_update_mode'] ?? 'manual_override'}'
               .trim(),
@@ -440,35 +441,42 @@ class CompanyBranch {
       id: _toInt(json['id']),
       name: '${json['name'] ?? ''}'.trim(),
       type: '${json['type'] ?? ''}'.trim(),
-      description:
-          _toNullableString(json['description'] ?? json['requestedDescription']),
+      description: _toNullableString(
+        json['description'] ?? json['requestedDescription'],
+      ),
       phone: _toNullableString(json['phone']),
       imageUrl: _toNullableString(json['imageUrl'] ?? json['image_url']),
       isOpen: _toBool(json['isOpen'] ?? json['is_open']),
       isApproved: _toBool(json['isApproved'] ?? json['is_approved']),
       isDisabled: _toBool(json['isDisabled'] ?? json['is_disabled']),
-      ownerFullName:
-          _toNullableString(json['ownerFullName'] ?? json['owner_full_name']),
-      ownerPhone:
-          _toNullableString(json['ownerPhone'] ?? json['owner_phone']),
+      ownerFullName: _toNullableString(
+        json['ownerFullName'] ?? json['owner_full_name'],
+      ),
+      ownerPhone: _toNullableString(json['ownerPhone'] ?? json['owner_phone']),
       totalOrders: _toInt(json['totalOrders'] ?? json['total_orders']),
-      completedOrders:
-          _toInt(json['completedOrders'] ?? json['completed_orders']),
-      cancelledOrders:
-          _toInt(json['cancelledOrders'] ?? json['cancelled_orders']),
+      completedOrders: _toInt(
+        json['completedOrders'] ?? json['completed_orders'],
+      ),
+      cancelledOrders: _toInt(
+        json['cancelledOrders'] ?? json['cancelled_orders'],
+      ),
       activeOrders: _toInt(json['activeOrders'] ?? json['active_orders']),
       grossSales: _toDouble(json['grossSales'] ?? json['gross_sales']),
       appDue: _toDouble(json['appDue'] ?? json['app_due']),
-      totalCollected:
-          _toDouble(json['totalCollected'] ?? json['total_collected']),
-      outstandingAmount:
-          _toDouble(json['outstandingAmount'] ?? json['outstanding_amount']),
+      totalCollected: _toDouble(
+        json['totalCollected'] ?? json['total_collected'],
+      ),
+      outstandingAmount: _toDouble(
+        json['outstandingAmount'] ?? json['outstanding_amount'],
+      ),
       trackedItems: _toInt(json['trackedItems'] ?? json['tracked_items']),
-      outOfStockItems:
-          _toInt(json['outOfStockItems'] ?? json['out_of_stock_items']),
+      outOfStockItems: _toInt(
+        json['outOfStockItems'] ?? json['out_of_stock_items'],
+      ),
       lowStockItems: _toInt(json['lowStockItems'] ?? json['low_stock_items']),
-      inventoryEnabled:
-          _toBool(json['inventoryEnabled'] ?? json['inventory_enabled']),
+      inventoryEnabled: _toBool(
+        json['inventoryEnabled'] ?? json['inventory_enabled'],
+      ),
       dailyUpdateMode: _toNullableString(
         json['dailyUpdateMode'] ?? json['daily_update_mode'],
       ),
@@ -482,8 +490,9 @@ class CompanyBranch {
         json['showAllWithoutAutoDisable'] ??
             json['show_all_without_auto_disable'],
       ),
-      staleDailyCheck:
-          _toBool(json['staleDailyCheck'] ?? json['stale_daily_check']),
+      staleDailyCheck: _toBool(
+        json['staleDailyCheck'] ?? json['stale_daily_check'],
+      ),
     );
   }
 }
@@ -538,8 +547,9 @@ class CompanyInventorySettings {
       companyId: json['companyId'] == null && json['company_id'] == null
           ? null
           : _toInt(json['companyId'] ?? json['company_id']),
-      inventoryEnabled:
-          _toBool(json['inventoryEnabled'] ?? json['inventory_enabled']),
+      inventoryEnabled: _toBool(
+        json['inventoryEnabled'] ?? json['inventory_enabled'],
+      ),
       dailyUpdateMode:
           '${json['dailyUpdateMode'] ?? json['daily_update_mode'] ?? 'manual_override'}'
               .trim(),
@@ -600,13 +610,14 @@ class CompanyInventoryItem {
     return CompanyInventoryItem(
       id: _toInt(json['id']),
       productId: _toInt(json['productId'] ?? json['product_id']),
-      productName: '${json['productName'] ?? json['product_name'] ?? ''}'.trim(),
+      productName: '${json['productName'] ?? json['product_name'] ?? ''}'
+          .trim(),
       productImageUrl: _toNullableString(
         json['productImageUrl'] ?? json['product_image_url'],
       ),
       price: json['price'] == null ? null : _toDouble(json['price']),
-      discountedPrice: json['discountedPrice'] == null &&
-              json['discounted_price'] == null
+      discountedPrice:
+          json['discountedPrice'] == null && json['discounted_price'] == null
           ? null
           : _toDouble(json['discountedPrice'] ?? json['discounted_price']),
       quantity: _toInt(json['quantity']),
@@ -617,11 +628,13 @@ class CompanyInventoryItem {
           : _toInt(json['reorderThreshold']),
       stockStatus:
           '${json['stockStatus'] ?? json['stock_status'] ?? 'in_stock'}'.trim(),
-      manualDisabled:
-          _toBool(json['manualDisabled'] ?? json['manual_disabled']),
+      manualDisabled: _toBool(
+        json['manualDisabled'] ?? json['manual_disabled'],
+      ),
       autoDisabled: _toBool(json['autoDisabled'] ?? json['auto_disabled']),
-      productIsAvailable:
-          _toBool(json['productIsAvailable'] ?? json['product_is_available']),
+      productIsAvailable: _toBool(
+        json['productIsAvailable'] ?? json['product_is_available'],
+      ),
       updatedAt: _toNullableString(json['updatedAt'] ?? json['updated_at']),
     );
   }
@@ -696,18 +709,16 @@ class CompanyCoupon {
     final effectiveStatus = status.isNotEmpty
         ? status
         : (_toBool(json['isActive'] ?? json['is_active'], true)
-            ? 'active'
-            : 'inactive');
+              ? 'active'
+              : 'inactive');
     return CompanyCoupon(
       id: _toInt(json['id']),
       code: '${json['code'] ?? ''}'.trim(),
-      discountType:
-          '${json['discountType'] ?? json['discount_type'] ?? ''}'.trim(),
-      discountValue:
-          _toDouble(json['discountValue'] ?? json['discount_value']),
+      discountType: '${json['discountType'] ?? json['discount_type'] ?? ''}'
+          .trim(),
+      discountValue: _toDouble(json['discountValue'] ?? json['discount_value']),
       appliesToAllBranches: _toBool(
-        json['appliesToAllBranches'] ??
-            json['company_applies_to_all_branches'],
+        json['appliesToAllBranches'] ?? json['company_applies_to_all_branches'],
       ),
       isActive: _toBool(json['isActive'] ?? json['is_active'], true),
       status: effectiveStatus,
@@ -784,30 +795,29 @@ class CompanyBranchRequest {
     return CompanyBranchRequest(
       id: _toInt(json['id']),
       companyId: _toInt(json['companyId'] ?? json['company_id']),
-      requestedName:
-          '${json['requestedName'] ?? json['requested_name'] ?? ''}'.trim(),
-      requestedType:
-          '${json['requestedType'] ?? json['requested_type'] ?? ''}'.trim(),
+      requestedName: '${json['requestedName'] ?? json['requested_name'] ?? ''}'
+          .trim(),
+      requestedType: '${json['requestedType'] ?? json['requested_type'] ?? ''}'
+          .trim(),
       requestedDescription: _toNullableString(
         json['requestedDescription'] ?? json['requested_description'],
       ),
-      requestedPhone:
-          _toNullableString(json['requestedPhone'] ?? json['requested_phone']),
+      requestedPhone: _toNullableString(
+        json['requestedPhone'] ?? json['requested_phone'],
+      ),
       branchLocationLabel: _toNullableString(
         json['branchLocationLabel'] ?? json['branch_location_label'],
       ),
-      ownerFullName:
-          _toNullableString(json['ownerFullName'] ?? json['owner_full_name']),
-      ownerPhone:
-          _toNullableString(json['ownerPhone'] ?? json['owner_phone']),
+      ownerFullName: _toNullableString(
+        json['ownerFullName'] ?? json['owner_full_name'],
+      ),
+      ownerPhone: _toNullableString(json['ownerPhone'] ?? json['owner_phone']),
       status: '${json['status'] ?? ''}'.trim(),
       reviewNote: _toNullableString(json['reviewNote'] ?? json['review_note']),
       approvedMerchantId:
           json['approvedMerchantId'] ?? json['approved_merchant_id'] == null
-              ? null
-              : _toInt(
-                  json['approvedMerchantId'] ?? json['approved_merchant_id'],
-                ),
+          ? null
+          : _toInt(json['approvedMerchantId'] ?? json['approved_merchant_id']),
       approvedMerchantName: _toNullableString(
         json['approvedMerchantName'] ?? json['approved_merchant_name'],
       ),
@@ -847,8 +857,9 @@ class CompanyPortalUser {
       role: '${json['role'] ?? ''}'.trim(),
       imageUrl: _toNullableString(json['imageUrl'] ?? json['image_url']),
       workTitle: _toNullableString(json['workTitle'] ?? json['work_title']),
-      workCompany:
-          _toNullableString(json['workCompany'] ?? json['work_company']),
+      workCompany: _toNullableString(
+        json['workCompany'] ?? json['work_company'],
+      ),
     );
   }
 }
@@ -857,10 +868,7 @@ class CompanyPortalBootstrap {
   final CompanyPortalUser user;
   final List<CompanyMembership> memberships;
 
-  const CompanyPortalBootstrap({
-    required this.user,
-    required this.memberships,
-  });
+  const CompanyPortalBootstrap({required this.user, required this.memberships});
 
   factory CompanyPortalBootstrap.fromJson(Map<String, dynamic> json) {
     final memberships = (json['memberships'] as List? ?? const [])
@@ -868,9 +876,7 @@ class CompanyPortalBootstrap {
         .map(CompanyMembership.fromJson)
         .toList();
     return CompanyPortalBootstrap(
-      user: CompanyPortalUser.fromJson(
-        _toMap(json['user']),
-      ),
+      user: CompanyPortalUser.fromJson(_toMap(json['user'])),
       memberships: memberships,
     );
   }
@@ -880,6 +886,8 @@ class CompanyPortalLoginResult {
   final String token;
   final String? refreshToken;
   final int? sessionId;
+  final String? deviceSessionId;
+  final String? deviceRecoverySecret;
   final CompanyPortalUser user;
   final List<CompanyMembership> memberships;
 
@@ -887,6 +895,8 @@ class CompanyPortalLoginResult {
     required this.token,
     this.refreshToken,
     this.sessionId,
+    this.deviceSessionId,
+    this.deviceRecoverySecret,
     required this.user,
     required this.memberships,
   });
@@ -906,6 +916,12 @@ class CompanyPortalLoginResult {
       sessionId: json['sessionId'] == null && json['session_id'] == null
           ? null
           : _toInt(json['sessionId'] ?? json['session_id']),
+      deviceSessionId: _toNullableString(
+        json['deviceSessionId'] ?? json['device_session_id'],
+      ),
+      deviceRecoverySecret: _toNullableString(
+        json['deviceRecoverySecret'] ?? json['device_recovery_secret'],
+      ),
       user: CompanyPortalUser.fromJson(_toMap(json['user'])),
       memberships: memberships,
     );

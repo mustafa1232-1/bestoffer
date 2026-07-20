@@ -42,6 +42,7 @@ authRouter.post(
 );
 authRouter.post("/login", c.login);
 authRouter.post("/refresh", c.refreshSession);
+authRouter.post("/session/recover", c.recoverSession);
 authRouter.post("/logout", c.logout);
 authRouter.post("/logout-all", c.logoutAll);
 authRouter.get("/sessions", requireAuth, c.listSessions);

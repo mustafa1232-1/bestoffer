@@ -210,7 +210,10 @@ export async function ensureSchema() {
         created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         expires_at         TIMESTAMPTZ NOT NULL,
-        access_expires_at  TIMESTAMPTZ
+        access_expires_at  TIMESTAMPTZ,
+        device_session_id  VARCHAR(80),
+        recovery_secret_hash VARCHAR(255),
+        app_surface        VARCHAR(40)
       );
     `);
 
@@ -251,6 +254,21 @@ export async function ensureSchema() {
 
     await q(`
       ALTER TABLE user_session
+      ADD COLUMN IF NOT EXISTS device_session_id VARCHAR(80);
+    `);
+
+    await q(`
+      ALTER TABLE user_session
+      ADD COLUMN IF NOT EXISTS recovery_secret_hash VARCHAR(255);
+    `);
+
+    await q(`
+      ALTER TABLE user_session
+      ADD COLUMN IF NOT EXISTS app_surface VARCHAR(40);
+    `);
+
+    await q(`
+      ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     `);
 
@@ -263,6 +281,17 @@ export async function ensureSchema() {
     await q(`
       CREATE INDEX IF NOT EXISTS idx_user_session_user_active
       ON user_session (user_id, is_revoked, expires_at DESC);
+    `);
+
+    await q(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_user_session_device_session_unique
+      ON user_session (device_session_id)
+      WHERE device_session_id IS NOT NULL;
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_user_session_device_recovery_active
+      ON user_session (device_session_id, is_revoked);
     `);
 
     await q(`

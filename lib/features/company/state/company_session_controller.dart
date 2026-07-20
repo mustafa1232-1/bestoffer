@@ -109,7 +109,9 @@ class CompanySessionController extends StateNotifier<CompanySessionState> {
     }
     try {
       final bootstrap = await _api.bootstrap();
-      final activeCompanyId = await _resolveActiveCompanyId(bootstrap.memberships);
+      final activeCompanyId = await _resolveActiveCompanyId(
+        bootstrap.memberships,
+      );
       state = CompanySessionState(
         bootstrapping: false,
         user: bootstrap.user,
@@ -117,13 +119,9 @@ class CompanySessionController extends StateNotifier<CompanySessionState> {
         activeCompanyId: activeCompanyId,
       );
     } catch (error) {
-      await _store.clear();
-      state = CompanySessionState(
+      state = state.copyWith(
         bootstrapping: false,
-        error: mapAnyError(
-          error,
-          fallback: 'تعذر تحميل بوابة الشركات. يرجى تسجيل الدخول من جديد.',
-        ),
+        error: mapAnyError(error, fallback: 'تعذر تحميل بوابة الشركات.'),
       );
     }
   }
@@ -136,6 +134,8 @@ class CompanySessionController extends StateNotifier<CompanySessionState> {
       await _store.saveAuthTokens(
         accessToken: result.token,
         refreshToken: result.refreshToken,
+        deviceSessionId: result.deviceSessionId,
+        deviceRecoverySecret: result.deviceRecoverySecret,
       );
       final activeCompanyId = await _resolveActiveCompanyId(result.memberships);
       state = CompanySessionState(
@@ -172,7 +172,9 @@ class CompanySessionController extends StateNotifier<CompanySessionState> {
 
   /// يختار الشركة النشطة المخزنة إن كانت ما زالت ضمن العضويات، وإلا يرجع
   /// إلى أول عضوية صالحة لتفادي شاشة عالقة على company قد حذفت عضويتها.
-  Future<int?> _resolveActiveCompanyId(List<CompanyMembership> memberships) async {
+  Future<int?> _resolveActiveCompanyId(
+    List<CompanyMembership> memberships,
+  ) async {
     if (memberships.isEmpty) return null;
     final saved = await _store.readActiveCompanyId();
     final match = memberships

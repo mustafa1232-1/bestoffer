@@ -1,3 +1,4 @@
+import 'package:maslaki/core/platform/app_flavor.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
 import '../../../core/files/local_image_file.dart';
 
@@ -221,6 +222,21 @@ class AuthRepoImpl implements AuthRepo {
     return _readUser(data);
   }
 
+  Future<UserModel> recoverSession({
+    required String deviceSessionId,
+    required String deviceRecoverySecret,
+    required String deviceId,
+  }) async {
+    final data = await api.recoverSession({
+      'deviceSessionId': deviceSessionId,
+      'deviceRecoverySecret': deviceRecoverySecret,
+      'deviceId': deviceId,
+      'appFlavor': store.flavor.key,
+    });
+    await _saveAuthPayload(data, store);
+    return _readUser(data);
+  }
+
   @override
   Future<UserModel> me() async {
     final data = await api.me();
@@ -274,6 +290,19 @@ String? _readRefreshToken(Map<String, dynamic> payload) {
   return null;
 }
 
+String? _readDeviceSessionId(Map<String, dynamic> payload) {
+  final raw = payload['deviceSessionId'] ?? payload['device_session_id'];
+  if (raw is String && raw.trim().isNotEmpty) return raw.trim();
+  return null;
+}
+
+String? _readDeviceRecoverySecret(Map<String, dynamic> payload) {
+  final raw =
+      payload['deviceRecoverySecret'] ?? payload['device_recovery_secret'];
+  if (raw is String && raw.trim().isNotEmpty) return raw.trim();
+  return null;
+}
+
 Future<void> _saveAuthPayload(
   Map<String, dynamic> payload,
   SecureStore store,
@@ -281,6 +310,8 @@ Future<void> _saveAuthPayload(
   await store.saveAuthTokens(
     accessToken: _readToken(payload),
     refreshToken: _readRefreshToken(payload),
+    deviceSessionId: _readDeviceSessionId(payload),
+    deviceRecoverySecret: _readDeviceRecoverySecret(payload),
   );
 }
 

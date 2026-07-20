@@ -24,7 +24,6 @@ import 'core/media/media_cache_service.dart';
 import 'core/notifications/local_notification_service.dart';
 import 'core/notifications/notification_navigation.dart';
 import 'core/notifications/push_notification_service.dart';
-import 'core/auth/session_expiry_notice.dart';
 import 'core/realtime/maslaki_realtime_service.dart';
 import 'core/sections/section_availability_controller.dart';
 import 'core/settings/app_settings_controller.dart';
@@ -537,9 +536,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       unawaited(ref.read(pushNotificationsProvider).unregisterCurrentToken());
       unawaited(ref.read(maslakiRealtimeServiceProvider).clearSession());
       unawaited(_syncCallLiveStreams(next));
-      if (next.guestMode) {
-        unawaited(SessionExpiryNoticeGate.instance.show(context));
-      } else {
+      if (!next.guestMode) {
         _redirectToLogin();
       }
       return;

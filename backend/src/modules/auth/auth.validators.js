@@ -87,6 +87,36 @@ export function validateRefreshSession(body) {
   };
 }
 
+export function validateRecoverSession(body) {
+  const errors = [];
+  const deviceSessionId = String(body?.deviceSessionId || body?.device_session_id || "").trim();
+  const deviceRecoverySecret = String(
+    body?.deviceRecoverySecret || body?.device_recovery_secret || ""
+  ).trim();
+  const deviceId = String(body?.deviceId || body?.device_id || "").trim();
+  const appFlavor = String(body?.appFlavor || body?.app_flavor || "").trim();
+
+  if (deviceSessionId.length < 16 || deviceSessionId.length > 120) {
+    errors.push("deviceSessionId");
+  }
+  if (deviceRecoverySecret.length < 24 || deviceRecoverySecret.length > 256) {
+    errors.push("deviceRecoverySecret");
+  }
+  if (deviceId && deviceId.length > 160) errors.push("deviceId");
+  if (appFlavor && appFlavor.length > 40) errors.push("appFlavor");
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      deviceSessionId,
+      deviceRecoverySecret,
+      deviceId: deviceId || null,
+      appFlavor: appFlavor || null,
+    },
+  };
+}
+
 export function validateUpdateAccount(body) {
   const errors = [];
 

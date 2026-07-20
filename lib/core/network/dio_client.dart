@@ -39,7 +39,7 @@ class DioClient {
               if (token != null && token.isNotEmpty) {
                 // A usable token is back (e.g. after re-login) - clear the gate.
                 _sessionInvalidated = false;
-                SessionInvalidationCoordinator.instance.reset();
+                SessionRecoveryCoordinator.instance.reset();
               } else if (_sessionInvalidated && !sessionGateExempt) {
                 // Session was terminally invalidated and there is no token.
                 // Fail fast locally so background pollers stop spamming the
@@ -99,13 +99,6 @@ class DioClient {
             return handler.next(refreshError);
           }
 
-          // Refresh could not rescue this request. If it is a terminal auth
-          // failure, invalidate the session once: clear tokens + signal the app
-          // to drop to guest/login, and start failing protected requests fast.
-          if (isTerminalAuthError(error)) {
-            await _handleTerminalAuthFailure();
-          }
-
           if (!_isRetryableConnectionError(error)) {
             return handler.next(error);
           }
@@ -154,27 +147,13 @@ class DioClient {
   RequestSigningMaterial? _cachedSigningMaterial;
   Future<RequestSigningMaterial?>? _signingRefreshFuture;
   Future<String?>? _accessRefreshFuture;
+  Future<String?>? _sessionRecoveryFuture;
 
   /// Set once a confirmed terminal auth failure (INVALID_TOKEN) is observed and
   /// the session is cleared. While true (and no token exists) protected requests
   /// fail fast locally instead of hitting the server. Cleared when a usable
   /// token reappears (re-login).
   bool _sessionInvalidated = false;
-
-  Future<void> _handleTerminalAuthFailure() async {
-    if (_sessionInvalidated) return;
-    _sessionInvalidated = true;
-    await SessionInvalidationCoordinator.instance.invalidateTerminalSession(
-      cleanup: () async {
-        try {
-          await _clearSigningMaterial();
-        } catch (_) {}
-        try {
-          await store.clear();
-        } catch (_) {}
-      },
-    );
-  }
 
   Future<String?> _readUsableAccessToken() async {
     final token =
@@ -232,7 +211,8 @@ class DioClient {
   }) async {
     final refreshToken = await store.readRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) {
-      return allowExpired ? null : currentAccessToken;
+      return await _recoverAccessToken(currentAccessToken) ??
+          (allowExpired ? null : currentAccessToken);
     }
 
     try {
@@ -275,12 +255,12 @@ class DioClient {
     } on DioException catch (error) {
       if (_isInvalidRefreshFailure(error)) {
         final currentRefreshToken = await store.readRefreshToken();
-        final decision = SessionInvalidationCoordinator.instance.classify(
+        final decision = SessionRecoveryCoordinator.instance.classify(
           error,
           expectedRefreshToken: refreshToken,
           currentRefreshToken: currentRefreshToken,
         );
-        if (decision == SessionInvalidationDecision.staleFailure) {
+        if (decision == SessionRecoveryDecision.staleFailure) {
           error.requestOptions.extra['skipTerminalSessionInvalidation'] = true;
           final storedAccessToken = await store.readToken();
           if (storedAccessToken != null &&
@@ -290,22 +270,88 @@ class DioClient {
           }
           return null;
         }
-        if (decision == SessionInvalidationDecision.terminal) {
-          await SessionInvalidationCoordinator.instance
-              .invalidateTerminalSession(
-                cleanup: () async {
-                  try {
-                    await _clearSigningMaterial();
-                  } catch (_) {}
-                  try {
-                    await store.clear();
-                  } catch (_) {}
-                },
-              );
-        }
-        return null;
+        return await _recoverAccessToken(currentAccessToken);
       }
       rethrow;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _recoverAccessToken(String? currentAccessToken) async {
+    if (_sessionRecoveryFuture != null) return _sessionRecoveryFuture;
+    _sessionRecoveryFuture = _recoverAccessTokenOnce(currentAccessToken);
+    try {
+      return await _sessionRecoveryFuture;
+    } finally {
+      _sessionRecoveryFuture = null;
+    }
+  }
+
+  Future<String?> _recoverAccessTokenOnce(String? currentAccessToken) async {
+    final deviceSessionId = await store.readDeviceSessionId();
+    final recoverySecret = await store.readDeviceRecoverySecret();
+    if (deviceSessionId == null ||
+        deviceSessionId.isEmpty ||
+        recoverySecret == null ||
+        recoverySecret.isEmpty) {
+      return null;
+    }
+
+    try {
+      final deviceId = await _ensureDeviceId(store);
+      final response = await dio.fetch<dynamic>(
+        RequestOptions(
+          path: '/api/auth/session/recover',
+          method: 'POST',
+          baseUrl: dio.options.baseUrl,
+          data: {
+            'deviceSessionId': deviceSessionId,
+            'deviceRecoverySecret': recoverySecret,
+            'deviceId': deviceId,
+            'appFlavor': store.flavor.key,
+          },
+          headers: {
+            'Accept': 'application/json; charset=utf-8',
+            if (currentAccessToken != null && currentAccessToken.isNotEmpty)
+              'Authorization': 'Bearer $currentAccessToken',
+            'X-Device-Id': deviceId,
+            'X-Client-Platform': store.flavor.clientPlatformTag,
+            'X-App-Flavor': store.flavor.key,
+          },
+          extra: const {
+            'skipSigning': true,
+            'skipAuthRefresh': true,
+            'skipTerminalSessionInvalidation': true,
+          },
+        ),
+      );
+      final raw = response.data;
+      if (raw is! Map) return null;
+      final accessToken =
+          '${raw['token'] ?? raw['accessToken'] ?? raw['access_token'] ?? ''}'
+              .trim();
+      final refreshToken =
+          '${raw['refreshToken'] ?? raw['refresh_token'] ?? ''}'.trim();
+      final nextDeviceSessionId =
+          '${raw['deviceSessionId'] ?? raw['device_session_id'] ?? ''}'.trim();
+      final nextRecoverySecret =
+          '${raw['deviceRecoverySecret'] ?? raw['device_recovery_secret'] ?? ''}'
+              .trim();
+      if (accessToken.isEmpty) return null;
+      await store.saveAuthTokens(
+        accessToken: accessToken,
+        refreshToken: refreshToken.isEmpty ? null : refreshToken,
+        deviceSessionId: nextDeviceSessionId.isEmpty
+            ? null
+            : nextDeviceSessionId,
+        deviceRecoverySecret: nextRecoverySecret.isEmpty
+            ? null
+            : nextRecoverySecret,
+      );
+      _sessionInvalidated = false;
+      SessionRecoveryCoordinator.instance.reset();
+      return accessToken;
     } catch (_) {
       return null;
     }

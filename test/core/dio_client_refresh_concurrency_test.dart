@@ -56,10 +56,19 @@ class _MemorySecureStore extends SecureStore {
   Future<void> saveAuthTokens({
     required String accessToken,
     String? refreshToken,
+    String? deviceSessionId,
+    String? deviceRecoverySecret,
   }) async {
     _values['access_token'] = accessToken;
     if (refreshToken != null && refreshToken.trim().isNotEmpty) {
       _values['refresh_token'] = refreshToken.trim();
+    }
+    if (deviceSessionId != null && deviceSessionId.trim().isNotEmpty) {
+      _values['device_session_id'] = deviceSessionId.trim();
+    }
+    if (deviceRecoverySecret != null &&
+        deviceRecoverySecret.trim().isNotEmpty) {
+      _values['device_recovery_secret'] = deviceRecoverySecret.trim();
     }
   }
 
@@ -111,13 +120,10 @@ class _RefreshConcurrencyAdapter implements HttpClientAdapter {
       if (refreshResponder != null) {
         return refreshResponder!(options);
       }
-      return _json(
-        200,
-        <String, dynamic>{
-          'token': validAccessToken,
-          'refreshToken': 'refresh-new',
-        },
-      );
+      return _json(200, <String, dynamic>{
+        'token': validAccessToken,
+        'refreshToken': 'refresh-new',
+      });
     }
 
     protectedFetchCount++;
@@ -146,7 +152,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
-    SessionInvalidationCoordinator.instance.reset();
+    SessionRecoveryCoordinator.instance.reset();
   });
 
   test('50 concurrent protected requests share one refresh only', () async {
@@ -200,15 +206,12 @@ void main() {
       _json(401, <String, dynamic>{'message': 'INVALID_REFRESH_TOKEN'}),
     );
 
-    await expectLater(
-      request,
-      throwsA(isA<DioException>()),
-    );
+    await expectLater(request, throwsA(isA<DioException>()));
 
     expect(store.value('access_token'), 'access-new');
     expect(store.value('refresh_token'), 'refresh-new');
     expect(store.clearCount, 0);
     expect(store.guestMode, isFalse);
-    expect(SessionInvalidationCoordinator.instance.terminalInvalidated, isFalse);
+    expect(SessionRecoveryCoordinator.instance.terminalInvalidated, isFalse);
   });
 }

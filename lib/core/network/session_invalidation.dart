@@ -1,130 +1,132 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-enum SessionInvalidationDecision { recoverable, staleFailure, terminal }
+enum SessionRecoveryDecision {
+  recoverable,
+  staleFailure,
+  needsRecovery,
+  userRequestedLogout,
+}
 
-/// Broadcasts a "the session is terminally invalid" event.
+typedef SessionInvalidationDecision = SessionRecoveryDecision;
+
+/// Broadcasts non-destructive session recovery hints.
 ///
-/// The Dio interceptor bumps this once when it detects a terminal auth failure;
-/// [AuthController] listens and drops the app to guest/login. Using a tiny
-/// broadcast avoids a circular dependency between the network layer and auth.
-class SessionInvalidationBus extends ChangeNotifier {
-  SessionInvalidationBus._();
+/// This bus must never be used to clear auth storage or navigate to login.
+class SessionRecoveryBus extends ChangeNotifier {
+  SessionRecoveryBus._();
 
-  static final SessionInvalidationBus instance = SessionInvalidationBus._();
+  static final SessionRecoveryBus instance = SessionRecoveryBus._();
 
   int _tick = 0;
   int get tick => _tick;
 
-  /// Signals that the session is terminally invalid. Idempotent per burst is not
-  /// required - listeners simply react to the latest tick.
-  void invalidate() {
+  void requestRecovery() {
     _tick++;
-    notifyListeners();
   }
+
+  @Deprecated('Use requestRecovery(); this no longer means logout.')
+  void invalidate() {}
 }
 
-/// Coordinates terminal session cleanup so multiple 401s cannot trigger
-/// repeated teardown/navigation work across the app.
-class SessionInvalidationCoordinator {
-  SessionInvalidationCoordinator._();
+typedef SessionInvalidationBus = SessionRecoveryBus;
 
-  static final SessionInvalidationCoordinator instance =
-      SessionInvalidationCoordinator._();
+/// Coordinates auth recovery decisions. It does not own logout and never clears
+/// user/session storage for server or network errors.
+class SessionRecoveryCoordinator {
+  SessionRecoveryCoordinator._();
 
-  final SessionInvalidationBus bus = SessionInvalidationBus.instance;
-  Future<void>? _invalidateInFlight;
-  bool _terminalInvalidated = false;
+  static final SessionRecoveryCoordinator instance =
+      SessionRecoveryCoordinator._();
 
-  bool get terminalInvalidated => _terminalInvalidated;
+  final SessionRecoveryBus bus = SessionRecoveryBus.instance;
+  Future<void>? _recoveryInFlight;
+  bool _recoveryPending = false;
 
-  SessionInvalidationDecision classify(
+  bool get terminalInvalidated => false;
+  bool get recoveryPending => _recoveryPending;
+
+  SessionRecoveryDecision classify(
     DioException error, {
     String? expectedRefreshToken,
     String? currentRefreshToken,
   }) {
     if (error.response?.statusCode != 401) {
-      return SessionInvalidationDecision.recoverable;
+      return SessionRecoveryDecision.recoverable;
     }
 
     if (error.requestOptions.extra['skipTerminalSessionInvalidation'] == true) {
-      return SessionInvalidationDecision.recoverable;
+      return SessionRecoveryDecision.recoverable;
     }
 
     if (isSessionInvalidationExemptRequest(error.requestOptions)) {
-      return SessionInvalidationDecision.recoverable;
+      return SessionRecoveryDecision.recoverable;
     }
 
     final code = _extractAuthCode(error.response?.data);
     final hasBearer = _hasBearerAuthorization(error.requestOptions);
     if (!hasBearer) {
-      return SessionInvalidationDecision.recoverable;
+      return SessionRecoveryDecision.recoverable;
     }
 
     if (!isSessionAuthFailureCode(code)) {
-      return SessionInvalidationDecision.recoverable;
+      return SessionRecoveryDecision.recoverable;
     }
 
     if (expectedRefreshToken != null) {
       final expected = expectedRefreshToken.trim();
       final current = (currentRefreshToken ?? '').trim();
       if (expected.isNotEmpty && (current.isEmpty || expected != current)) {
-        return SessionInvalidationDecision.staleFailure;
+        return SessionRecoveryDecision.staleFailure;
       }
     }
 
     if (isRecoverableSessionAuthCode(code)) {
-      return SessionInvalidationDecision.recoverable;
+      return SessionRecoveryDecision.needsRecovery;
     }
 
-    if (!isTerminalSessionAuthCode(code)) {
-      return SessionInvalidationDecision.recoverable;
-    }
-
-    return SessionInvalidationDecision.terminal;
+    return SessionRecoveryDecision.needsRecovery;
   }
 
-  Future<void> invalidateTerminalSession({
-    required Future<void> Function() cleanup,
-  }) async {
-    if (_terminalInvalidated) return;
-    final inFlight = _invalidateInFlight;
+  Future<void> runRecovery({required Future<void> Function() cleanup}) async {
+    final inFlight = _recoveryInFlight;
     if (inFlight != null) return inFlight;
 
-    final future = _runTerminalInvalidation(cleanup);
-    _invalidateInFlight = future;
+    final future = _runRecovery(cleanup);
+    _recoveryInFlight = future;
     try {
       await future;
     } finally {
-      if (identical(_invalidateInFlight, future)) {
-        _invalidateInFlight = null;
+      if (identical(_recoveryInFlight, future)) {
+        _recoveryInFlight = null;
       }
     }
   }
 
+  @Deprecated('Use runRecovery(); automatic terminal logout is disabled.')
+  Future<void> invalidateTerminalSession({
+    required Future<void> Function() cleanup,
+  }) => runRecovery(cleanup: () async {});
+
   void reset() {
-    _terminalInvalidated = false;
-    _invalidateInFlight = null;
+    _recoveryPending = false;
+    _recoveryInFlight = null;
   }
 
-  Future<void> _runTerminalInvalidation(Future<void> Function() cleanup) async {
-    _terminalInvalidated = true;
+  Future<void> _runRecovery(Future<void> Function() cleanup) async {
+    _recoveryPending = true;
     try {
       await cleanup();
     } finally {
-      bus.invalidate();
+      bus.requestRecovery();
     }
   }
 }
 
-/// True for a 401 that should invalidate the current authenticated session.
-///
-/// Anonymous/public requests are excluded so login/register/guest flows do not
-/// surface a false "session expired" state when they receive a 401 for reasons
-/// unrelated to a logged-in session.
+typedef SessionInvalidationCoordinator = SessionRecoveryCoordinator;
+
 bool isTerminalAuthError(DioException error) {
-  return SessionInvalidationCoordinator.instance.classify(error) ==
-      SessionInvalidationDecision.terminal;
+  return false;
 }
 
 bool isRecoverableSessionAuthCode(String? code) {
@@ -133,6 +135,7 @@ bool isRecoverableSessionAuthCode(String? code) {
   return normalized == 'INVALID_TOKEN' ||
       normalized == 'NO_TOKEN' ||
       normalized == 'INVALID_REFRESH_TOKEN' ||
+      normalized == 'SESSION_RECOVERY_REQUIRED' ||
       normalized == 'TOKEN_EXPIRED' ||
       normalized == 'ACCESS_TOKEN_EXPIRED' ||
       normalized == 'SESSION_EXPIRED';

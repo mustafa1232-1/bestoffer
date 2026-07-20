@@ -3,6 +3,7 @@ import {
   validateAddressCreate,
   validateAddressUpdate,
   validateLogin,
+  validateRecoverSession,
   validateRefreshSession,
   validateRegister,
   validateRegisterWithCard,
@@ -155,6 +156,23 @@ export async function refreshSession(req, res, next) {
 
     const out = await service.refreshSession(
       v.value.refreshToken,
+      extractDeviceContext(req)
+    );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function recoverSession(req, res, next) {
+  try {
+    const v = validateRecoverSession(req.body || {});
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const out = await service.recoverSession(
+      v.value,
       extractDeviceContext(req)
     );
     res.json(out);

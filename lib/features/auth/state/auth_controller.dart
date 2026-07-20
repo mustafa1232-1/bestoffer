@@ -41,6 +41,7 @@ class AuthState {
   final String? error;
   final ParsedBackendFieldErrors? validationError;
   final String? errorCode;
+  final bool sessionRecoveryPending;
 
   const AuthState({
     this.loading = false,
@@ -50,6 +51,7 @@ class AuthState {
     this.error,
     this.validationError,
     this.errorCode,
+    this.sessionRecoveryPending = false,
   });
 
   bool get isAuthed => token != null && token!.isNotEmpty;
@@ -144,6 +146,7 @@ class AuthState {
     String? error,
     ParsedBackendFieldErrors? validationError,
     String? errorCode,
+    bool? sessionRecoveryPending,
     bool clearValidationError = false,
     bool clearErrorCode = false,
   }) {
@@ -157,6 +160,8 @@ class AuthState {
           ? null
           : (validationError ?? this.validationError),
       errorCode: clearErrorCode ? null : (errorCode ?? this.errorCode),
+      sessionRecoveryPending:
+          sessionRecoveryPending ?? this.sessionRecoveryPending,
     );
   }
 }
@@ -170,31 +175,7 @@ const Duration kAuthSessionVerifyTimeout = Duration(seconds: 20);
 class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
 
-  AuthController(this.ref) : super(const AuthState()) {
-    // When the network layer confirms a terminal session failure, drop cleanly
-    // to guest/login instead of leaving controllers polling protected endpoints.
-    SessionInvalidationBus.instance.addListener(_onSessionInvalidatedSignal);
-    ref.onDispose(
-      () => SessionInvalidationBus.instance.removeListener(
-        _onSessionInvalidatedSignal,
-      ),
-    );
-  }
-
-  void _onSessionInvalidatedSignal() {
-    // Only react if we currently believe we are signed in.
-    if (state.token == null && state.user == null) return;
-    unawaited(_dropToGuestAfterInvalidSession());
-  }
-
-  Future<void> _dropToGuestAfterInvalidSession() async {
-    final store = ref.read(secureStoreProvider);
-    try {
-      await store.saveGuestMode(true);
-    } catch (_) {}
-    if (!mounted) return;
-    state = const AuthState(guestMode: true);
-  }
+  AuthController(this.ref) : super(const AuthState());
 
   Future<void> bootstrap() async {
     final store = ref.read(secureStoreProvider);
@@ -228,35 +209,29 @@ class AuthController extends StateNotifier<AuthState> {
       final latestToken = await store.readToken() ?? token;
       await _applyPreferredLocale(user);
       await store.saveGuestMode(false);
-      SessionInvalidationCoordinator.instance.reset();
+      SessionRecoveryCoordinator.instance.reset();
       state = state.copyWith(
         user: user,
         token: latestToken,
         guestMode: false,
         error: null,
+        sessionRecoveryPending: false,
         clearValidationError: true,
         clearErrorCode: true,
       );
     } catch (e) {
       if (e is DioException) {
-        final decision = SessionInvalidationCoordinator.instance.classify(e);
-        if (decision == SessionInvalidationDecision.terminal) {
-          await SessionInvalidationCoordinator.instance
-              .invalidateTerminalSession(
-                cleanup: () async {
-                  try {
-                    await store.clear();
-                  } catch (_) {}
-                },
-              );
-          await store.saveGuestMode(true);
-          state = const AuthState(guestMode: true);
-          return;
-        }
-        if (decision == SessionInvalidationDecision.staleFailure ||
-            decision == SessionInvalidationDecision.recoverable) {
+        final decision = SessionRecoveryCoordinator.instance.classify(e);
+        if (decision == SessionRecoveryDecision.staleFailure ||
+            decision == SessionRecoveryDecision.recoverable ||
+            decision == SessionRecoveryDecision.needsRecovery) {
+          final latestToken = await store.readToken() ?? token;
           state = state.copyWith(
             loading: false,
+            token: latestToken,
+            guestMode: false,
+            sessionRecoveryPending:
+                decision == SessionRecoveryDecision.needsRecovery,
             clearValidationError: true,
             clearErrorCode: true,
           );
@@ -265,6 +240,9 @@ class AuthController extends StateNotifier<AuthState> {
       }
       state = state.copyWith(
         loading: false,
+        token: await store.readToken() ?? token,
+        guestMode: false,
+        sessionRecoveryPending: true,
         error: mapAnyError(
           e,
           fallback: 'Unable to verify session. Please try again.',
@@ -276,6 +254,7 @@ class AuthController extends StateNotifier<AuthState> {
     }
     state = state.copyWith(
       loading: false,
+      sessionRecoveryPending: false,
       clearValidationError: true,
       clearErrorCode: true,
     );
@@ -296,7 +275,7 @@ class AuthController extends StateNotifier<AuthState> {
       final token = await ref.read(secureStoreProvider).readToken();
       await _applyPreferredLocale(user);
       await ref.read(secureStoreProvider).saveGuestMode(false);
-      SessionInvalidationCoordinator.instance.reset();
+      SessionRecoveryCoordinator.instance.reset();
       state = state.copyWith(
         loading: false,
         user: user,
@@ -354,7 +333,7 @@ class AuthController extends StateNotifier<AuthState> {
       final token = await ref.read(secureStoreProvider).readToken();
       await _applyPreferredLocale(user);
       await ref.read(secureStoreProvider).saveGuestMode(false);
-      SessionInvalidationCoordinator.instance.reset();
+      SessionRecoveryCoordinator.instance.reset();
       state = state.copyWith(
         loading: false,
         user: user,
@@ -472,7 +451,7 @@ class AuthController extends StateNotifier<AuthState> {
       final token = await ref.read(secureStoreProvider).readToken();
       await _applyPreferredLocale(user);
       await ref.read(secureStoreProvider).saveGuestMode(false);
-      SessionInvalidationCoordinator.instance.reset();
+      SessionRecoveryCoordinator.instance.reset();
       state = state.copyWith(
         loading: false,
         user: user,
@@ -649,7 +628,6 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> continueAsGuest() async {
     final store = ref.read(secureStoreProvider);
-    await store.clear();
     await store.saveGuestMode(true);
     state = const AuthState(guestMode: true);
   }

@@ -653,6 +653,12 @@ function assertValidStaffCandidate(user, { targetRole }) {
 async function issueOwnerSession(user, deviceContext = {}) {
   const tokenJti = crypto.randomBytes(18).toString("base64url");
   const refreshToken = crypto.randomBytes(32).toString("base64url");
+  const deviceSessionId = crypto.randomBytes(24).toString("base64url");
+  const deviceRecoverySecret = crypto.randomBytes(32).toString("base64url");
+  const recoverySecretHash = crypto
+    .createHash("sha256")
+    .update(deviceRecoverySecret)
+    .digest("hex");
   const expiresAt = new Date(
     Date.now() + Math.max(1, Number(env.authSessionTtlDays || 30)) * 24 * 60 * 60 * 1000
   );
@@ -666,6 +672,9 @@ async function issueOwnerSession(user, deviceContext = {}) {
     ipAddress: deviceContext.ipAddress || null,
     expiresAt,
     accessExpiresAt: null,
+    deviceSessionId,
+    recoverySecretHash,
+    appSurface: "store",
   });
 
   const token = signAccessToken(
@@ -696,6 +705,8 @@ async function issueOwnerSession(user, deviceContext = {}) {
     token,
     refreshToken,
     sessionId: session?.id || null,
+    deviceSessionId,
+    deviceRecoverySecret,
   };
 }
 
@@ -858,6 +869,8 @@ export async function registerOwner(dto, deviceContext = {}) {
     token: session.token,
     refreshToken: session.refreshToken,
     sessionId: session.sessionId,
+    deviceSessionId: session.deviceSessionId,
+    deviceRecoverySecret: session.deviceRecoverySecret,
     user: mapUser(out.user),
     merchant: mapMerchant(out.merchant),
   };

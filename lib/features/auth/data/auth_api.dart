@@ -42,10 +42,7 @@ class AuthApi {
   }) async {
     final requestData = await _withOptionalFiles(
       body,
-      files: {
-        'imageFile': imageFile,
-        'cardImageFile': cardImageFile,
-      },
+      files: {'imageFile': imageFile, 'cardImageFile': cardImageFile},
     );
     final response = await dio.post(
       '/api/auth/register-with-card',
@@ -56,6 +53,21 @@ class AuthApi {
 
   Future<Map<String, dynamic>> login(Map<String, dynamic> body) async {
     final response = await dio.post('/api/auth/login', data: body);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> recoverSession(Map<String, dynamic> body) async {
+    final response = await dio.post(
+      '/api/auth/session/recover',
+      data: body,
+      options: Options(
+        extra: const {
+          'skipSigning': true,
+          'skipAuthRefresh': true,
+          'skipTerminalSessionInvalidation': true,
+        },
+      ),
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -128,12 +140,16 @@ class AuthApi {
     try {
       final response = await dio.get('/api/users/me/sessions');
       final rows = List<dynamic>.from(response.data as List? ?? const []);
-      return rows.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+      return rows
+          .map((entry) => Map<String, dynamic>.from(entry as Map))
+          .toList();
     } on DioException catch (error) {
       if (error.response?.statusCode != 404) rethrow;
       final fallback = await dio.get('/api/auth/sessions');
       final rows = List<dynamic>.from(fallback.data as List? ?? const []);
-      return rows.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+      return rows
+          .map((entry) => Map<String, dynamic>.from(entry as Map))
+          .toList();
     }
   }
 
