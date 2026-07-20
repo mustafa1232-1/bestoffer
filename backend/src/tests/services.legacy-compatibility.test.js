@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import test from 'node:test';
 
 import { q } from '../config/db.js';
@@ -23,6 +23,10 @@ function makeSeed(prefix) {
 
 function makeUsername(prefix) {
   return `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 6)}`;
+}
+
+function makePhone(prefix) {
+  return `${prefix}${String(randomInt(0, 10_000_000)).padStart(7, '0')}`;
 }
 
 async function createAuthUser({ role, fullName, phone, username }) {
@@ -58,13 +62,13 @@ async function seedFixture() {
   const providerUser = await createAuthUser({
     role: 'service_provider',
     fullName: makeSeed('provider').slice(0, 20),
-    phone: `077${String(Date.now()).slice(-7)}`,
+    phone: makePhone('077'),
     username: makeUsername('prov'),
   });
   const customerUser = await createAuthUser({
     role: 'user',
     fullName: makeSeed('customer').slice(0, 20),
-    phone: `078${String(Date.now() + 1111).slice(-7)}`,
+    phone: makePhone('078'),
     username: makeUsername('cust'),
   });
 

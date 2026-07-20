@@ -127,13 +127,19 @@ class ReelComposerController extends ChangeNotifier {
         return;
       }
 
-      // Processing — the backend/webhook/reconciliation own the terminal
-      // state. Publish immediately instead of waiting for READY so the reel can
-      // appear while the asset is still processing.
+      // Processing - the backend/webhook/reconciliation own the terminal
+      // state. Wait for READY before publishing so the reel is never exposed
+      // publicly with an incomplete asset.
       _set(ReelComposerStage.processing, progress: 1);
 
+      final readyAssetId = await _waitForReadyAsset(session.assetId);
+      if (readyAssetId == null) {
+        _set(ReelComposerStage.failed, error: 'ASSET_NOT_READY');
+        return;
+      }
+
       final reelId = await api.publishReel(
-        assetId: session.assetId,
+        assetId: readyAssetId,
         caption: caption,
         audience: audience,
         commentsEnabled: commentsEnabled,
@@ -160,6 +166,24 @@ class ReelComposerController extends ChangeNotifier {
     if (result == TusUploadState.completed) {
       _set(ReelComposerStage.processing, progress: 1);
     }
+  }
+
+  Future<int?> _waitForReadyAsset(int assetId) async {
+    const attempts = 30;
+    for (var i = 0; i < attempts; i++) {
+      final status = (await api.pollStatus(assetId)).trim().toLowerCase();
+      if (status == 'ready' || status == 'published') {
+        return assetId;
+      }
+      if (status == 'failed' ||
+          status == 'rejected' ||
+          status == 'deleted' ||
+          status == 'expired') {
+        return null;
+      }
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+    return null;
   }
 
   void cancelUpload() {

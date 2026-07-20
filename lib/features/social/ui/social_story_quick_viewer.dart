@@ -38,7 +38,9 @@ Future<void> showSocialStoryQuickViewer({
   ValueChanged<int>? onStoryViewed,
   SocialApi? api,
   VoidCallback? onStoryArchiveChanged,
-}) async {
+  SocialStoryMetricCallback? onMetric,
+}) {
+  final launchStartedAt = DateTime.now();
   final sourceGroups = (storyGroups == null || storyGroups.isEmpty)
       ? <SocialStoryGroup>[group]
       : storyGroups;
@@ -51,7 +53,26 @@ Future<void> showSocialStoryQuickViewer({
     }
   }
 
-  await openSocialStoryViewerV3(
+  scheduleMicrotask(() {
+    if (!context.mounted) return;
+    unawaited(
+      _prewarmStoryViewerLaunch(
+        context: context,
+        sourceGroups: sourceGroups,
+        initialGroup: group,
+        initialStoryId: initialStoryId,
+        launchStartedAt: launchStartedAt,
+        onMetric: onMetric,
+      ),
+    );
+  });
+
+  if (!context.mounted) return Future<void>.value();
+  onMetric?.call(
+    'storyTapToRouteMs',
+    DateTime.now().difference(launchStartedAt),
+  );
+  return openSocialStoryViewerV3(
     context: context,
     group: group,
     storyGroups: storyGroups,
@@ -120,7 +141,121 @@ Future<void> showSocialStoryQuickViewer({
         ),
       );
     },
+    onMetric: onMetric,
   );
+}
+
+Future<void> _prewarmStoryViewerLaunch({
+  required BuildContext context,
+  required List<SocialStoryGroup> sourceGroups,
+  required SocialStoryGroup initialGroup,
+  required int? initialStoryId,
+  required DateTime launchStartedAt,
+  SocialStoryMetricCallback? onMetric,
+}) async {
+  final currentGroupIndex = sourceGroups.indexWhere(
+    (sourceGroup) => sourceGroup.userId == initialGroup.userId,
+  );
+  final selectedGroupIndex = currentGroupIndex < 0 ? 0 : currentGroupIndex;
+  final selectedGroup = sourceGroups.isEmpty
+      ? initialGroup
+      : sourceGroups[selectedGroupIndex.clamp(0, sourceGroups.length - 1)];
+  final selectedStoryIndex =
+      initialStoryId == null || initialStoryId <= 0
+      ? 0
+      : selectedGroup.stories.indexWhere((story) => story.id == initialStoryId);
+  final resolvedStoryIndex =
+      selectedStoryIndex < 0 ? 0 : selectedStoryIndex;
+
+  if (selectedGroup.stories.isEmpty) return;
+
+  final currentStoryIndex = resolvedStoryIndex.clamp(
+    0,
+    selectedGroup.stories.length - 1,
+  ).toInt();
+  final currentStory = selectedGroup.stories[currentStoryIndex];
+
+  Future<void> warmPoster(SocialStory story) async {
+    final posterUrl =
+        (story.asset?.posterUrl ??
+                story.asset?.thumbnailUrl ??
+                story.mediaUrl ??
+                '')
+            .trim();
+    if (posterUrl.isEmpty) return;
+    try {
+      if (!context.mounted) return;
+      final provider = appCachedImageProvider(
+        posterUrl,
+        cacheIdentity: 'story_launch_${story.id}',
+      );
+      if (provider != null) {
+        await precacheImage(provider, context).timeout(
+          const Duration(milliseconds: 220),
+          onTimeout: () {},
+        );
+      }
+    } catch (_) {
+      // Best-effort only.
+    }
+  }
+
+  Future<void> warmVideo(SocialStory story) async {
+    final playbackUrl =
+        (story.asset?.playbackUrl ?? story.mediaUrl ?? '').trim();
+    if ((story.mediaKind ?? '').trim().toLowerCase() != 'video' ||
+        playbackUrl.isEmpty) {
+      return;
+    }
+    try {
+      await MediaCacheService.instance.resolveVideoSource(
+        url: playbackUrl,
+        cacheIdentity: 'story_launch_${story.id}',
+        scope: MediaCacheScope.public,
+      );
+    } catch (_) {
+      // Best-effort only.
+    }
+  }
+
+  unawaited(warmPoster(currentStory).whenComplete(() {
+    onMetric?.call(
+      'storyTapToPosterMs',
+      DateTime.now().difference(launchStartedAt),
+    );
+  }));
+  unawaited(warmVideo(currentStory));
+
+  final neighboringStories = <SocialStory>{};
+  void addNeighbor(SocialStory? story) {
+    if (story == null) return;
+    if (story.id == currentStory.id) return;
+    neighboringStories.add(story);
+  }
+
+  addNeighbor(
+    selectedGroup.stories.length > 1
+        ? selectedGroup.stories[(currentStoryIndex + 1) % selectedGroup.stories.length]
+        : null,
+  );
+  addNeighbor(
+    selectedGroup.stories.length > 1
+        ? selectedGroup.stories[(currentStoryIndex - 1 + selectedGroup.stories.length) %
+            selectedGroup.stories.length]
+        : null,
+  );
+  if (selectedGroupIndex > 0 && sourceGroups[selectedGroupIndex - 1].stories.isNotEmpty) {
+    addNeighbor(sourceGroups[selectedGroupIndex - 1].stories.first);
+  }
+  if (selectedGroupIndex < sourceGroups.length - 1 &&
+      sourceGroups[selectedGroupIndex + 1].stories.isNotEmpty) {
+    addNeighbor(sourceGroups[selectedGroupIndex + 1].stories.first);
+  }
+
+  for (final story in neighboringStories) {
+    unawaited(warmPoster(story));
+    unawaited(warmVideo(story));
+  }
 }
 
 class SocialStoryQuickViewerScreen extends StatelessWidget {

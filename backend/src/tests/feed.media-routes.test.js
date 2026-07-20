@@ -32,6 +32,10 @@ test("Stream media HTTP routes are registered on feedRouter", () => {
     "get asset route missing"
   );
   assert.ok(
+    routes.includes("GET /media/assets/:assetId/diagnostics"),
+    "asset diagnostics route missing"
+  );
+  assert.ok(
     routes.includes("POST /media/stream/webhook"),
     "webhook route missing"
   );

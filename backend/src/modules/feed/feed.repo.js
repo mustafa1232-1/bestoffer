@@ -4356,6 +4356,13 @@ export async function listMessagesForThread({
        m.attachment_mime_type,
        m.attachment_size_bytes,
        m.attachment_duration_ms,
+       m.attachment_provider,
+       m.attachment_preview_url,
+       m.attachment_thumbnail_url,
+       m.attachment_width,
+       m.attachment_height,
+       m.attachment_upload_state,
+       m.attachment_trace_id,
        pm.pinned_at,
        pm.pinned_by_user_id,
        m.shared_entity_type,
@@ -4429,6 +4436,13 @@ export async function searchMessagesInThread({
        m.attachment_mime_type,
        m.attachment_size_bytes,
        m.attachment_duration_ms,
+       m.attachment_provider,
+       m.attachment_preview_url,
+       m.attachment_thumbnail_url,
+       m.attachment_width,
+       m.attachment_height,
+       m.attachment_upload_state,
+       m.attachment_trace_id,
        pm.pinned_at,
        pm.pinned_by_user_id,
        m.shared_entity_type,
@@ -4508,6 +4522,13 @@ export async function listPinnedMessagesForThread({
        m.attachment_mime_type,
        m.attachment_size_bytes,
        m.attachment_duration_ms,
+       m.attachment_provider,
+       m.attachment_preview_url,
+       m.attachment_thumbnail_url,
+       m.attachment_width,
+       m.attachment_height,
+       m.attachment_upload_state,
+       m.attachment_trace_id,
        pm.pinned_at,
        pm.pinned_by_user_id,
        m.shared_entity_type,
@@ -4642,6 +4663,13 @@ export async function getThreadMessageDetailsById({
        m.attachment_mime_type,
        m.attachment_size_bytes,
        m.attachment_duration_ms,
+       m.attachment_provider,
+       m.attachment_preview_url,
+       m.attachment_thumbnail_url,
+       m.attachment_width,
+       m.attachment_height,
+       m.attachment_upload_state,
+       m.attachment_trace_id,
        pm.pinned_at,
        pm.pinned_by_user_id,
        m.shared_entity_type,
@@ -4847,12 +4875,25 @@ export async function insertThreadMessage({
              attachment_mime_type,
              attachment_size_bytes,
              attachment_duration_ms,
+             attachment_provider,
+             attachment_preview_url,
+             attachment_thumbnail_url,
+             attachment_width,
+             attachment_height,
+             attachment_upload_state,
+             attachment_trace_id,
              shared_entity_type,
              shared_entity_id,
              shared_snapshot_json,
              client_message_id
            )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         VALUES (
+           $1, $2, $3, $4, $5,
+           $6, $7, $8, $9, $10,
+           $11, $12, $13, $14, $15,
+           $16, $17, $18, $19, $20,
+           $21
+         )
          ON CONFLICT (thread_id, sender_user_id, client_message_id)
          WHERE client_message_id IS NOT NULL
          DO NOTHING
@@ -4863,7 +4904,7 @@ export async function insertThreadMessage({
          FROM social_chat_message m
          WHERE m.thread_id = $1
            AND m.sender_user_id = $2
-           AND m.client_message_id = $14
+           AND m.client_message_id = $21
          LIMIT 1
        )
        SELECT *
@@ -4884,6 +4925,17 @@ export async function insertThreadMessage({
         attachment?.mimeType || null,
         attachment?.sizeBytes == null ? null : Number(attachment.sizeBytes),
         attachment?.durationMs == null ? null : Number(attachment.durationMs),
+        attachment?.provider == null ? null : String(attachment.provider).trim() || null,
+        attachment?.previewUrl == null ? null : String(attachment.previewUrl).trim() || null,
+        attachment?.thumbnailUrl == null
+          ? null
+          : String(attachment.thumbnailUrl).trim() || null,
+        attachment?.width == null ? null : Number(attachment.width),
+        attachment?.height == null ? null : Number(attachment.height),
+        attachment?.uploadState == null
+          ? null
+          : String(attachment.uploadState).trim().toUpperCase() || null,
+        attachment?.traceId == null ? null : String(attachment.traceId).trim() || null,
         sharedEntity?.type || null,
         sharedEntity?.id == null ? null : Number(sharedEntity.id),
         sharedEntity?.snapshot == null ? null : JSON.stringify(sharedEntity.snapshot),
@@ -4906,11 +4958,23 @@ export async function insertThreadMessage({
         attachment_mime_type,
         attachment_size_bytes,
         attachment_duration_ms,
+        attachment_provider,
+        attachment_preview_url,
+        attachment_thumbnail_url,
+        attachment_width,
+        attachment_height,
+        attachment_upload_state,
+        attachment_trace_id,
         shared_entity_type,
         shared_entity_id,
         shared_snapshot_json
       )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     VALUES (
+       $1, $2, $3, $4, $5,
+       $6, $7, $8, $9, $10,
+       $11, $12, $13, $14, $15,
+       $16, $17, $18, $19, $20
+     )
      RETURNING *`,
     [
       Number(threadId),
@@ -4923,6 +4987,17 @@ export async function insertThreadMessage({
       attachment?.mimeType || null,
       attachment?.sizeBytes == null ? null : Number(attachment.sizeBytes),
       attachment?.durationMs == null ? null : Number(attachment.durationMs),
+      attachment?.provider == null ? null : String(attachment.provider).trim() || null,
+      attachment?.previewUrl == null ? null : String(attachment.previewUrl).trim() || null,
+      attachment?.thumbnailUrl == null
+        ? null
+        : String(attachment.thumbnailUrl).trim() || null,
+      attachment?.width == null ? null : Number(attachment.width),
+      attachment?.height == null ? null : Number(attachment.height),
+      attachment?.uploadState == null
+        ? null
+        : String(attachment.uploadState).trim().toUpperCase() || null,
+      attachment?.traceId == null ? null : String(attachment.traceId).trim() || null,
       sharedEntity?.type || null,
       sharedEntity?.id == null ? null : Number(sharedEntity.id),
       sharedEntity?.snapshot == null ? null : JSON.stringify(sharedEntity.snapshot),
@@ -4954,12 +5029,25 @@ export async function insertScheduledThreadMessage({
         attachment_mime_type,
         attachment_size_bytes,
         attachment_duration_ms,
+        attachment_provider,
+        attachment_preview_url,
+        attachment_thumbnail_url,
+        attachment_width,
+        attachment_height,
+        attachment_upload_state,
+        attachment_trace_id,
         shared_entity_type,
         shared_entity_id,
         shared_snapshot_json,
         scheduled_for
       )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     VALUES (
+       $1, $2, $3, $4, $5,
+       $6, $7, $8, $9, $10,
+       $11, $12, $13, $14, $15,
+       $16, $17, $18, $19, $20,
+       $21
+     )
      RETURNING *`,
     [
       Number(threadId),
@@ -4972,6 +5060,17 @@ export async function insertScheduledThreadMessage({
       attachment?.mimeType || null,
       attachment?.sizeBytes == null ? null : Number(attachment.sizeBytes),
       attachment?.durationMs == null ? null : Number(attachment.durationMs),
+      attachment?.provider == null ? null : String(attachment.provider).trim() || null,
+      attachment?.previewUrl == null ? null : String(attachment.previewUrl).trim() || null,
+      attachment?.thumbnailUrl == null
+        ? null
+        : String(attachment.thumbnailUrl).trim() || null,
+      attachment?.width == null ? null : Number(attachment.width),
+      attachment?.height == null ? null : Number(attachment.height),
+      attachment?.uploadState == null
+        ? null
+        : String(attachment.uploadState).trim().toUpperCase() || null,
+      attachment?.traceId == null ? null : String(attachment.traceId).trim() || null,
       sharedEntity?.type || null,
       sharedEntity?.id == null ? null : Number(sharedEntity.id),
       sharedEntity?.snapshot == null ? null : JSON.stringify(sharedEntity.snapshot),
@@ -4999,6 +5098,13 @@ export async function listScheduledMessagesForUserThread({
        sm.attachment_mime_type,
        sm.attachment_size_bytes,
        sm.attachment_duration_ms,
+       sm.attachment_provider,
+       sm.attachment_preview_url,
+       sm.attachment_thumbnail_url,
+       sm.attachment_width,
+       sm.attachment_height,
+       sm.attachment_upload_state,
+       sm.attachment_trace_id,
        sm.shared_entity_type,
        sm.shared_entity_id,
        sm.shared_snapshot_json,
@@ -6446,6 +6552,13 @@ export async function listScopeChatMessages({
         m.attachment_mime_type,
         m.attachment_size_bytes,
         m.attachment_duration_ms,
+        m.attachment_provider,
+        m.attachment_preview_url,
+        m.attachment_thumbnail_url,
+        m.attachment_width,
+        m.attachment_height,
+        m.attachment_upload_state,
+        m.attachment_trace_id,
         m.shared_entity_type,
         m.shared_entity_id,
         m.shared_snapshot_json,
@@ -6505,6 +6618,13 @@ export async function searchScopeChatMessages({
         m.attachment_mime_type,
         m.attachment_size_bytes,
         m.attachment_duration_ms,
+        m.attachment_provider,
+        m.attachment_preview_url,
+        m.attachment_thumbnail_url,
+        m.attachment_width,
+        m.attachment_height,
+        m.attachment_upload_state,
+        m.attachment_trace_id,
         m.shared_entity_type,
         m.shared_entity_id,
         m.shared_snapshot_json,
@@ -6710,15 +6830,22 @@ export async function getScopeChatMessageDetailsById({
        m.reply_to_message_id,
        m.attachment_url,
        m.attachment_kind,
-        m.attachment_name,
-        m.attachment_mime_type,
-        m.attachment_size_bytes,
-        m.attachment_duration_ms,
-        m.shared_entity_type,
-        m.shared_entity_id,
-        m.shared_snapshot_json,
-        m.is_system,
-        m.is_deleted,
+       m.attachment_name,
+       m.attachment_mime_type,
+       m.attachment_size_bytes,
+       m.attachment_duration_ms,
+       m.attachment_provider,
+       m.attachment_preview_url,
+       m.attachment_thumbnail_url,
+       m.attachment_width,
+       m.attachment_height,
+       m.attachment_upload_state,
+       m.attachment_trace_id,
+       m.shared_entity_type,
+       m.shared_entity_id,
+       m.shared_snapshot_json,
+       m.is_system,
+       m.is_deleted,
        m.created_at,
        m.updated_at,
        m.edited_at,
@@ -7007,6 +7134,7 @@ export async function insertSocialMediaAsset({
   sourceType,
   provider = "r2",
   streamUid = null,
+  traceId = null,
   originalUrl,
   normalizedUrl = null,
   posterUrl = null,
@@ -7019,6 +7147,12 @@ export async function insertSocialMediaAsset({
   height = null,
   processingStatus = "ready",
 }) {
+  const normalizedStreamUid = streamUid == null ? null : String(streamUid).trim() || null;
+  // Stream assets should always retain a trace identifier even if callers omit
+  // traceId explicitly. Reuse the stream UID so persistence and diagnostics stay
+  // aligned with the upload session.
+  const normalizedTraceId =
+    traceId == null ? normalizedStreamUid : String(traceId).trim() || normalizedStreamUid;
   const r = await q(
     `INSERT INTO social_media_asset
       (
@@ -7032,29 +7166,32 @@ export async function insertSocialMediaAsset({
         poster_url,
         playback_url,
         thumbnail_url,
+        trace_id,
         mime_type,
         duration_ms,
         width,
         height,
         processing_status
-      )
+     )
      VALUES (
        $1, $2, $3, $4, $5,
        $6, $7, $8, $9, $10,
-       $11, $12, $13, $14, $15
+       $11, $12, $13, $14, $15,
+       $16
      )
      RETURNING *`,
     [
       Number(ownerUserId),
       String(sourceType || "post").trim().toLowerCase(),
       String(provider || "r2").trim().toLowerCase(),
-      streamUid == null ? null : String(streamUid).trim() || null,
+      normalizedStreamUid,
       mediaKind == null ? null : String(mediaKind).trim().toLowerCase(),
       String(originalUrl || "").trim(),
       normalizedUrl == null ? null : String(normalizedUrl).trim() || null,
       posterUrl == null ? null : String(posterUrl).trim() || null,
       playbackUrl == null ? null : String(playbackUrl).trim() || null,
       thumbnailUrl == null ? null : String(thumbnailUrl).trim() || null,
+      normalizedTraceId,
       mimeType == null ? null : String(mimeType).trim() || null,
       durationMs == null ? null : Number(durationMs),
       width == null ? null : Number(width),
@@ -7529,6 +7666,13 @@ export async function listThreadMedia({
        attachment_mime_type,
        attachment_size_bytes,
        attachment_duration_ms,
+       attachment_provider,
+       attachment_preview_url,
+       attachment_thumbnail_url,
+       attachment_width,
+       attachment_height,
+       attachment_upload_state,
+       attachment_trace_id,
        created_at
      FROM social_chat_message
      WHERE thread_id = $1

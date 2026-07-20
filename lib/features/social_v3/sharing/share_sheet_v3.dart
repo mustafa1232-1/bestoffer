@@ -96,15 +96,13 @@ class ShareSheetV3 extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rows = <Widget>[];
-    if (onAddToStory != null) {
-      rows.add(
-        _Row(
-          icon: Icons.add_circle_outline,
-          label: 'إضافة إلى القصة',
-          onTap: onAddToStory,
-        ),
-      );
-    }
+    rows.add(
+      _Row(
+        icon: Icons.add_circle_outline,
+        label: 'إضافة إلى القصة',
+        onTap: onAddToStory ?? () {},
+      ),
+    );
     if (onShareWithFriends != null) {
       rows.add(
         _Row(

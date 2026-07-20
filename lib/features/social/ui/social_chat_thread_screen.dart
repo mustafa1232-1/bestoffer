@@ -34,6 +34,7 @@ import 'widgets/social_business_context_banner.dart';
 import 'widgets/social_attachment_preview_card.dart';
 import 'widgets/social_group_thread_sheet.dart';
 import 'widgets/social_identity_view.dart';
+import 'widgets/social_inline_attachment_message_card.dart';
 import 'widgets/social_mention_hashtag_text.dart';
 import 'widgets/social_pending_message_bubble.dart';
 import 'widgets/social_voice_composer_controller.dart';
@@ -3965,80 +3966,17 @@ class _ChatBubble extends StatelessWidget {
                 ],
                 if (!isDeleted && message.attachment != null) ...[
                   if (displayBody.trim().isNotEmpty) const SizedBox(height: 8),
-                  if (message.attachment!.kind.trim().toLowerCase() == 'audio')
+                  if (message.attachment!.isAudio)
                     SocialAudioAttachmentBubble(
                       attachment: message.attachment!,
                       textColor: textColor,
                     )
                   else
-                    InkWell(
-                      onTap: onOpenAttachment,
-                      borderRadius: BorderRadius.circular(14),
-                      child: Ink(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          color: Colors.black.withValues(alpha: 0.08),
-                          border: Border.all(
-                            color: textColor.withValues(alpha: 0.14),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 42,
-                              height: 42,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.14),
-                              ),
-                              child: Icon(
-                                _attachmentIcon(message.attachment!),
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    message.attachment!.previewLabel,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: textColor,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _attachmentMetaLine(
-                                      context,
-                                      message.attachment!,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: textColor.withValues(alpha: 0.7),
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 11.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Icon(
-                              Icons.open_in_new_rounded,
-                              size: 18,
-                              color: textColor.withValues(alpha: 0.75),
-                            ),
-                          ],
-                        ),
-                      ),
+                    SocialInlineAttachmentMessageCard(
+                      attachment: message.attachment!,
+                      scope: MediaCacheScope.userPrivate,
+                      userId: currentUserId,
+                      onTap: onOpenAttachment ?? () {},
                     ),
                 ],
                 if (!isDeleted && message.sharedEntity != null) ...[
@@ -4496,52 +4434,6 @@ class _ComposerMetaCard extends StatelessWidget {
 int? _parseInt(dynamic value) {
   if (value == null) return null;
   return int.tryParse('$value');
-}
-
-IconData _attachmentIcon(SocialChatAttachment attachment) {
-  switch (attachment.kind.trim().toLowerCase()) {
-    case 'image':
-      return Icons.image_outlined;
-    case 'video':
-      return Icons.videocam_outlined;
-    case 'audio':
-      return Icons.mic_rounded;
-    default:
-      return Icons.insert_drive_file_outlined;
-  }
-}
-
-String _attachmentMetaLine(
-  BuildContext context,
-  SocialChatAttachment attachment,
-) {
-  final parts = <String>[];
-  switch (attachment.kind.trim().toLowerCase()) {
-    case 'image':
-      parts.add(context.l10n.commonImage);
-      break;
-    case 'video':
-      parts.add(context.l10n.commonVideo);
-      break;
-    case 'audio':
-      parts.add(context.l10n.socialChatThreadVoiceMessageReady);
-      break;
-    default:
-      parts.add(context.l10n.commonFile);
-      break;
-  }
-  if (attachment.sizeBytes != null && attachment.sizeBytes! > 0) {
-    parts.add(_formatBytes(attachment.sizeBytes!));
-  }
-  return parts.join(' - ');
-}
-
-String _formatBytes(int bytes) {
-  if (bytes < 1024) return '$bytes B';
-  if (bytes < 1024 * 1024) {
-    return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  }
-  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
 
 String _reactionEmojiForKey(String? key) {

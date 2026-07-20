@@ -196,6 +196,7 @@ class SocialMediaAsset {
   final int? durationMs;
   final String? failureCode;
   final String? processingStatus;
+  final String? traceId;
   final DateTime? createdAt;
 
   const SocialMediaAsset({
@@ -210,6 +211,7 @@ class SocialMediaAsset {
     required this.durationMs,
     required this.failureCode,
     required this.processingStatus,
+    required this.traceId,
     required this.createdAt,
   });
 
@@ -231,6 +233,7 @@ class SocialMediaAsset {
     processingStatus: parseNullableString(
       j['processingStatus'] ?? j['processing_status'],
     ),
+    traceId: parseNullableString(j['traceId'] ?? j['trace_id']),
     createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
   );
 
@@ -1529,18 +1532,32 @@ class SocialChatReplyPreview {
 class SocialChatAttachment {
   final String url;
   final String kind;
+  final String? provider;
   final String? name;
   final String? mimeType;
   final int? sizeBytes;
   final int? durationMs;
+  final String? previewUrl;
+  final String? thumbnailUrl;
+  final int? width;
+  final int? height;
+  final String? uploadState;
+  final String? traceId;
 
   const SocialChatAttachment({
     required this.url,
     required this.kind,
-    required this.name,
-    required this.mimeType,
-    required this.sizeBytes,
-    required this.durationMs,
+    this.provider,
+    this.name,
+    this.mimeType,
+    this.sizeBytes,
+    this.durationMs,
+    this.previewUrl,
+    this.thumbnailUrl,
+    this.width,
+    this.height,
+    this.uploadState,
+    this.traceId,
   });
 
   factory SocialChatAttachment.fromJson(Map<String, dynamic> j) =>
@@ -1549,6 +1566,13 @@ class SocialChatAttachment {
         kind: parseString(
           j['kind'] ?? j['attachmentKind'] ?? j['attachment_kind'],
           fallback: 'file',
+        ),
+        provider: parseNullableString(
+          j['provider'] ??
+              j['attachmentProvider'] ??
+              j['attachment_provider'] ??
+              j['providerType'] ??
+              j['provider_type'],
         ),
         name: parseNullableString(
           j['name'] ?? j['attachmentName'] ?? j['attachment_name'],
@@ -1564,10 +1588,80 @@ class SocialChatAttachment {
               j['attachmentDurationMs'] ??
               j['attachment_duration_ms'],
         ),
+        previewUrl: parseNullableString(
+          j['previewUrl'] ??
+              j['attachmentPreviewUrl'] ??
+              j['attachment_preview_url'] ??
+              j['preview_url'],
+        ),
+        thumbnailUrl: parseNullableString(
+          j['thumbnailUrl'] ??
+              j['attachmentThumbnailUrl'] ??
+              j['attachment_thumbnail_url'] ??
+              j['thumbnail_url'],
+        ),
+        width: parseNullableInt(
+          j['width'] ?? j['attachmentWidth'] ?? j['attachment_width'],
+        ),
+        height: parseNullableInt(
+          j['height'] ?? j['attachmentHeight'] ?? j['attachment_height'],
+        ),
+        uploadState: parseNullableString(
+          j['uploadState'] ??
+              j['attachmentUploadState'] ??
+              j['attachment_upload_state'] ??
+              j['state'],
+        ),
+        traceId: parseNullableString(
+          j['traceId'] ?? j['attachmentTraceId'] ?? j['attachment_trace_id'],
+        ),
       );
 
+  String get normalizedKind => kind.trim().toLowerCase();
+
+  String? get normalizedProvider {
+    final value = provider?.trim().toLowerCase();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  String? get normalizedUploadState {
+    final value = uploadState?.trim().toLowerCase();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  String get effectiveKind => _inferAttachmentKindFromMetadata(
+    normalizedKind,
+    mimeType: mimeType,
+    url: url,
+    name: name,
+  );
+
+  bool get isAudio => effectiveKind == 'audio';
+  bool get isImage => effectiveKind == 'image';
+  bool get isVideo => effectiveKind == 'video';
+  bool get isFile => !isAudio && !isImage && !isVideo;
+  bool get isVisual => isImage || isVideo;
+
+  String? get resolvedPreviewUrl {
+    final preview = previewUrl?.trim();
+    if (preview != null && preview.isNotEmpty) return preview;
+    final thumb = thumbnailUrl?.trim();
+    if (thumb != null && thumb.isNotEmpty) return thumb;
+    final resolvedUrl = url.trim();
+    return isVisual && resolvedUrl.isNotEmpty ? resolvedUrl : null;
+  }
+
+  String? get resolvedThumbnailUrl {
+    final thumb = thumbnailUrl?.trim();
+    if (thumb != null && thumb.isNotEmpty) return thumb;
+    final preview = previewUrl?.trim();
+    if (preview != null && preview.isNotEmpty) return preview;
+    final resolvedUrl = url.trim();
+    return isImage && resolvedUrl.isNotEmpty ? resolvedUrl : null;
+  }
+
   String get previewLabel {
-    switch (kind.trim().toLowerCase()) {
+    switch (effectiveKind) {
       case 'image':
         return 'صورة';
       case 'video':
@@ -1578,6 +1672,133 @@ class SocialChatAttachment {
         return (name ?? '').trim().isNotEmpty ? name!.trim() : 'ملف';
     }
   }
+}
+
+String _inferAttachmentKindFromMetadata(
+  String normalizedKind, {
+  String? mimeType,
+  String? url,
+  String? name,
+}) {
+  final rawKind = normalizedKind.trim().toLowerCase();
+  if (rawKind.isNotEmpty && rawKind != 'file') return rawKind;
+
+  final normalizedMime = (mimeType ?? '').trim().toLowerCase();
+  if (normalizedMime.startsWith('audio/')) return 'audio';
+  if (normalizedMime.startsWith('image/')) return 'image';
+  if (normalizedMime.startsWith('video/')) return 'video';
+
+  final candidates = <String>[
+    (name ?? '').trim().toLowerCase(),
+    (url ?? '').trim().toLowerCase(),
+  ];
+  if (_hasAnySuffix(candidates, const [
+    '.m4a',
+    '.mp3',
+    '.aac',
+    '.ogg',
+    '.wav',
+    '.opus',
+  ])) {
+    return 'audio';
+  }
+  if (_hasAnySuffix(candidates, const [
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.gif',
+    '.webp',
+    '.heic',
+  ])) {
+    return 'image';
+  }
+  if (_hasAnySuffix(candidates, const [
+    '.mp4',
+    '.mov',
+    '.mkv',
+    '.webm',
+    '.m4v',
+    '.3gp',
+  ])) {
+    return 'video';
+  }
+  return rawKind.isEmpty ? 'file' : rawKind;
+}
+
+bool _hasAnySuffix(List<String> values, List<String> suffixes) {
+  for (final value in values) {
+    for (final suffix in suffixes) {
+      if (value.endsWith(suffix)) return true;
+    }
+  }
+  return false;
+}
+
+Map<String, dynamic> _socialChatAttachmentFallback({
+  required String? url,
+  required String? kind,
+  String? provider,
+  String? name,
+  String? mimeType,
+  int? sizeBytes,
+  int? durationMs,
+  String? previewUrl,
+  String? thumbnailUrl,
+  int? width,
+  int? height,
+  String? uploadState,
+  String? traceId,
+}) {
+  final data = <String, dynamic>{
+    'url': url,
+    'kind': kind,
+    'provider': provider,
+    'name': name,
+    'mimeType': mimeType,
+    'sizeBytes': sizeBytes,
+    'durationMs': durationMs,
+    'previewUrl': previewUrl,
+    'thumbnailUrl': thumbnailUrl,
+    'width': width,
+    'height': height,
+    'uploadState': uploadState,
+    'traceId': traceId,
+    'attachmentUrl': url,
+    'attachmentKind': kind,
+    'attachmentProvider': provider,
+    'attachmentName': name,
+    'attachmentMimeType': mimeType,
+    'attachmentSizeBytes': sizeBytes,
+    'attachmentDurationMs': durationMs,
+    'attachmentPreviewUrl': previewUrl,
+    'attachmentThumbnailUrl': thumbnailUrl,
+    'attachmentWidth': width,
+    'attachmentHeight': height,
+    'attachmentUploadState': uploadState,
+    'attachmentTraceId': traceId,
+  };
+  data.removeWhere((_, value) => value == null);
+  return data;
+}
+
+Map<String, dynamic> _socialChatAttachmentPayload(Map<String, dynamic> j) {
+  final attachmentMap = _parseJsonMap(j['attachment']);
+  if (attachmentMap.isNotEmpty) return attachmentMap;
+  return _socialChatAttachmentFallback(
+    url: j['attachmentUrl'] ?? j['attachment_url'],
+    kind: j['attachmentKind'] ?? j['attachment_kind'],
+    provider: j['attachmentProvider'] ?? j['attachment_provider'],
+    name: j['attachmentName'] ?? j['attachment_name'],
+    mimeType: j['attachmentMimeType'] ?? j['attachment_mime_type'],
+    sizeBytes: j['sizeBytes'] ?? j['attachment_size_bytes'],
+    durationMs: j['attachmentDurationMs'] ?? j['attachment_duration_ms'],
+    previewUrl: j['attachmentPreviewUrl'] ?? j['attachment_preview_url'],
+    thumbnailUrl: j['attachmentThumbnailUrl'] ?? j['attachment_thumbnail_url'],
+    width: j['attachmentWidth'] ?? j['attachment_width'],
+    height: j['attachmentHeight'] ?? j['attachment_height'],
+    uploadState: j['attachmentUploadState'] ?? j['attachment_upload_state'],
+    traceId: j['attachmentTraceId'] ?? j['attachment_trace_id'],
+  );
 }
 
 class SocialSharedEntity {
@@ -1607,7 +1828,8 @@ class SocialSharedEntity {
 
   Map<String, dynamic> get _snapshot => snapshot ?? const <String, dynamic>{};
 
-  Map<String, dynamic> get _authorSnapshot => _parseJsonMap(_snapshot['author']);
+  Map<String, dynamic> get _authorSnapshot =>
+      _parseJsonMap(_snapshot['author']);
 
   String get previewLabel {
     switch (type.trim().toLowerCase()) {
@@ -1824,7 +2046,8 @@ class SocialScheduledChatMessage {
     threadId: parseInt(j['threadId'] ?? j['thread_id']),
     senderUserId: parseInt(j['senderUserId'] ?? j['sender_user_id']),
     body: parseString(j['body']),
-    replyToMessage: _parseJsonMap(j['replyToMessage']).isNotEmpty ||
+    replyToMessage:
+        _parseJsonMap(j['replyToMessage']).isNotEmpty ||
             _parseJsonMap(j['reply_to_message']).isNotEmpty ||
             j['replyMessageId'] != null ||
             j['reply_message_id'] != null
@@ -1849,28 +2072,14 @@ class SocialScheduledChatMessage {
                   },
           )
         : null,
-    attachment: _parseJsonMap(j['attachment']).isNotEmpty ||
+    attachment:
+        _parseJsonMap(j['attachment']).isNotEmpty ||
             j['attachmentUrl'] != null ||
             j['attachment_url'] != null
-        ? SocialChatAttachment.fromJson(
-            _parseJsonMap(j['attachment']).isNotEmpty
-                ? _parseJsonMap(j['attachment'])
-                : <String, dynamic>{
-                    'attachmentUrl': j['attachmentUrl'] ?? j['attachment_url'],
-                    'attachmentKind':
-                        j['attachmentKind'] ?? j['attachment_kind'],
-                    'attachmentName':
-                        j['attachmentName'] ?? j['attachment_name'],
-                    'attachmentMimeType':
-                        j['attachmentMimeType'] ?? j['attachment_mime_type'],
-                    'sizeBytes': j['sizeBytes'] ?? j['attachment_size_bytes'],
-                    'attachmentDurationMs':
-                        j['attachmentDurationMs'] ??
-                        j['attachment_duration_ms'],
-                  },
-          )
+        ? SocialChatAttachment.fromJson(_socialChatAttachmentPayload(j))
         : null,
-    sharedEntity: _parseJsonMap(j['sharedEntity']).isNotEmpty ||
+    sharedEntity:
+        _parseJsonMap(j['sharedEntity']).isNotEmpty ||
             _parseJsonMap(j['shared_entity']).isNotEmpty ||
             j['sharedEntityType'] != null ||
             j['shared_entity_type'] != null
@@ -2138,9 +2347,7 @@ class SocialChatMessage {
     required this.sender,
   });
 
-  factory SocialChatMessage.fromJson(
-    Map<String, dynamic> j,
-  ) {
+  factory SocialChatMessage.fromJson(Map<String, dynamic> j) {
     final replyMap = _parseJsonMap(j['replyToMessage']);
     final replySnake = _parseJsonMap(j['reply_to_message']);
     final attachmentMap = _parseJsonMap(j['attachment']);
@@ -2167,18 +2374,7 @@ class SocialChatMessage {
           ? SocialChatAttachment.fromJson(
               attachmentMap.isNotEmpty
                   ? attachmentMap
-                  : <String, dynamic>{
-                      'attachmentUrl':
-                          j['attachmentUrl'] ?? j['attachment_url'],
-                      'attachmentKind':
-                          j['attachmentKind'] ?? j['attachment_kind'],
-                      'attachmentName':
-                          j['attachmentName'] ?? j['attachment_name'],
-                      'attachmentMimeType':
-                          j['attachmentMimeType'] ??
-                          j['attachment_mime_type'],
-                      'sizeBytes': j['sizeBytes'] ?? j['attachment_size_bytes'],
-                    },
+                  : _socialChatAttachmentPayload(j),
             )
           : null,
       sharedEntity:
@@ -2469,9 +2665,7 @@ class SocialChatThread {
           : null,
       peer: SocialAuthor.fromJson(peerMap),
       peerPhone: parseString(
-        j['peerPhone'] ??
-            j['peer_phone'] ??
-            peerMap['phone'],
+        j['peerPhone'] ?? j['peer_phone'] ?? peerMap['phone'],
       ),
       presence: SocialThreadPresence.fromJson(presenceMap),
       lastMessageAt: parseNullableDateTime(
@@ -2660,31 +2854,24 @@ class SocialExplorePayload {
   factory SocialExplorePayload.fromJson(
     Map<String, dynamic> j,
   ) => SocialExplorePayload(
-    forYou: List<dynamic>.from(j['forYou'] ?? j['for_you'] ?? const [])
-        .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
-        .toList(growable: false),
-    reels: List<dynamic>.from(j['reels'] as List? ?? const [])
-        .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
-        .toList(growable: false),
-    trendingBasmaya:
-        List<dynamic>.from(
-              j['trendingBasmaya'] ?? j['trending_basmaya'] ?? const [],
-            )
-            .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
-            .toList(growable: false),
-    sameArea: List<dynamic>.from(j['sameArea'] ?? j['same_area'] ?? const [])
-        .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
-        .toList(growable: false),
-    restaurantReviews:
-        List<dynamic>.from(
-              j['restaurantReviews'] ?? j['restaurant_reviews'] ?? const [],
-            )
-            .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
-            .toList(growable: false),
-    popularPosts:
-        List<dynamic>.from(j['popularPosts'] ?? j['popular_posts'] ?? const [])
-            .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
-            .toList(growable: false),
+    forYou: List<dynamic>.from(
+      j['forYou'] ?? j['for_you'] ?? const [],
+    ).map((e) => SocialPost.fromJson(_parseJsonMap(e))).toList(growable: false),
+    reels: List<dynamic>.from(
+      j['reels'] as List? ?? const [],
+    ).map((e) => SocialPost.fromJson(_parseJsonMap(e))).toList(growable: false),
+    trendingBasmaya: List<dynamic>.from(
+      j['trendingBasmaya'] ?? j['trending_basmaya'] ?? const [],
+    ).map((e) => SocialPost.fromJson(_parseJsonMap(e))).toList(growable: false),
+    sameArea: List<dynamic>.from(
+      j['sameArea'] ?? j['same_area'] ?? const [],
+    ).map((e) => SocialPost.fromJson(_parseJsonMap(e))).toList(growable: false),
+    restaurantReviews: List<dynamic>.from(
+      j['restaurantReviews'] ?? j['restaurant_reviews'] ?? const [],
+    ).map((e) => SocialPost.fromJson(_parseJsonMap(e))).toList(growable: false),
+    popularPosts: List<dynamic>.from(
+      j['popularPosts'] ?? j['popular_posts'] ?? const [],
+    ).map((e) => SocialPost.fromJson(_parseJsonMap(e))).toList(growable: false),
     localTopics:
         List<dynamic>.from(j['localTopics'] ?? j['local_topics'] ?? const [])
             .map((e) => '$e')
@@ -2740,21 +2927,20 @@ class SocialProfileInsights {
     required this.topContent,
   });
 
-  factory SocialProfileInsights.fromJson(
-    Map<String, dynamic> j,
-  ) => SocialProfileInsights(
-    summary: _parseJsonMap(j['summary']),
-    bestPostingTimes: List<dynamic>.from(
-      j['bestPostingTimes'] ?? j['best_posting_times'] ?? const [],
-    ).map((e) => _parseJsonMap(e)).toList(growable: false),
-    audienceLocality: List<dynamic>.from(
-      j['audienceLocality'] ?? j['audience_locality'] ?? const [],
-    ).map((e) => _parseJsonMap(e)).toList(growable: false),
-    topContent:
-        List<dynamic>.from(j['topContent'] ?? j['top_content'] ?? const [])
-            .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
-            .toList(growable: false),
-  );
+  factory SocialProfileInsights.fromJson(Map<String, dynamic> j) =>
+      SocialProfileInsights(
+        summary: _parseJsonMap(j['summary']),
+        bestPostingTimes: List<dynamic>.from(
+          j['bestPostingTimes'] ?? j['best_posting_times'] ?? const [],
+        ).map((e) => _parseJsonMap(e)).toList(growable: false),
+        audienceLocality: List<dynamic>.from(
+          j['audienceLocality'] ?? j['audience_locality'] ?? const [],
+        ).map((e) => _parseJsonMap(e)).toList(growable: false),
+        topContent:
+            List<dynamic>.from(j['topContent'] ?? j['top_content'] ?? const [])
+                .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
+                .toList(growable: false),
+      );
 }
 
 class SocialReelMetrics {
@@ -2799,9 +2985,7 @@ class SocialReelItem {
     post: SocialPost.fromJson(
       _parseJsonMap(j['post']).isNotEmpty ? _parseJsonMap(j['post']) : j,
     ),
-    metrics: SocialReelMetrics.fromJson(
-      _parseJsonMap(j['metrics']),
-    ),
+    metrics: SocialReelMetrics.fromJson(_parseJsonMap(j['metrics'])),
   );
 }
 
@@ -2935,23 +3119,13 @@ class SocialSearchResults {
         j['recentSearches'] ?? j['recent_searches'] ?? const [],
       ).map((e) => _parseJsonMap(e)).toList(growable: false),
       suggestedPeople: readList('suggestedPeople', 'suggested_people')
-          .map(
-            (e) => SocialUserSearchResult.fromJson(
-              _parseJsonMap(e),
-            ),
-          )
+          .map((e) => SocialUserSearchResult.fromJson(_parseJsonMap(e)))
           .toList(growable: false),
       users: readList('users', 'users')
-          .map(
-            (e) => SocialUserSearchResult.fromJson(
-              _parseJsonMap(e),
-            ),
-          )
+          .map((e) => SocialUserSearchResult.fromJson(_parseJsonMap(e)))
           .toList(growable: false),
       hashtags: readList('hashtags', 'hashtags')
-          .map(
-            (e) => SocialHashtag.fromJson(_parseJsonMap(e)),
-          )
+          .map((e) => SocialHashtag.fromJson(_parseJsonMap(e)))
           .toList(growable: false),
       posts: readList('posts', 'posts')
           .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
@@ -2963,11 +3137,7 @@ class SocialSearchResults {
           .map((e) => SocialPost.fromJson(_parseJsonMap(e)))
           .toList(growable: false),
       merchants: readList('merchants', 'merchants')
-          .map(
-            (e) => SocialMerchantOption.fromJson(
-              _parseJsonMap(e),
-            ),
-          )
+          .map((e) => SocialMerchantOption.fromJson(_parseJsonMap(e)))
           .toList(growable: false),
     );
   }
@@ -3123,82 +3293,68 @@ class SocialCommunityChatMessage {
     required this.sender,
   });
 
-  factory SocialCommunityChatMessage.fromJson(
-    Map<String, dynamic> j,
-  ) => SocialCommunityChatMessage(
-    id: parseInt(j['id']),
-    scopeType: parseNullableString(j['scopeType'] ?? j['scope_type']),
-    scopeCode: parseNullableString(j['scopeCode'] ?? j['scope_code']),
-    senderUserId: parseInt(j['senderUserId'] ?? j['sender_user_id']),
-    body: parseString(j['body']),
-    clientMessageId: parseNullableString(
-      j['clientMessageId'] ?? j['client_message_id'],
-    ),
-    createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
-    updatedAt: parseNullableDateTime(j['updatedAt'] ?? j['updated_at']),
-    editedAt: parseNullableDateTime(j['editedAt'] ?? j['edited_at']),
-    deletedAt: parseNullableDateTime(j['deletedAt'] ?? j['deleted_at']),
-    isDeleted: parseBool(j['isDeleted'] ?? j['is_deleted']),
-    isMine: parseBool(j['isMine'] ?? j['is_mine']),
-    isSystem: parseBool(j['isSystem'] ?? j['is_system']),
-    reactionCounts: _parseReactionCounts(j['reactions']),
-    reactionTotalCount: parseInt(
-      j['reactionTotalCount'] ?? j['reaction_total_count'],
-    ),
-    myReaction: parseNullableString(j['myReaction'] ?? j['my_reaction']),
-    replyToMessage: _parseJsonMap(j['replyToMessage']).isNotEmpty ||
-            _parseJsonMap(j['reply_to_message']).isNotEmpty
-        ? SocialChatReplyPreview.fromJson(
-            _parseJsonMap(j['replyToMessage']).isNotEmpty
-                ? _parseJsonMap(j['replyToMessage'])
-                : _parseJsonMap(j['reply_to_message']),
-          )
-        : null,
-    attachment: _parseJsonMap(j['attachment']).isNotEmpty ||
-            j['attachmentUrl'] != null ||
-            j['attachment_url'] != null
-        ? SocialChatAttachment.fromJson(
-            _parseJsonMap(j['attachment']).isNotEmpty
-                ? _parseJsonMap(j['attachment'])
-                : <String, dynamic>{
-                    'attachmentUrl': j['attachmentUrl'] ?? j['attachment_url'],
-                    'attachmentKind':
-                        j['attachmentKind'] ?? j['attachment_kind'],
-                    'attachmentName':
-                        j['attachmentName'] ?? j['attachment_name'],
-                    'attachmentMimeType':
-                        j['attachmentMimeType'] ?? j['attachment_mime_type'],
-                    'sizeBytes': j['sizeBytes'] ?? j['attachment_size_bytes'],
-                    'attachmentDurationMs':
-                        j['attachmentDurationMs'] ??
-                        j['attachment_duration_ms'],
-                  },
-          )
-        : null,
-    sharedEntity: _parseJsonMap(j['sharedEntity']).isNotEmpty ||
-            _parseJsonMap(j['shared_entity']).isNotEmpty ||
-            j['sharedEntityType'] != null ||
-            j['shared_entity_type'] != null
-        ? SocialSharedEntity.fromJson(
-            _parseJsonMap(j['sharedEntity']).isNotEmpty
-                ? _parseJsonMap(j['sharedEntity'])
-                : _parseJsonMap(j['shared_entity']).isNotEmpty
-                ? _parseJsonMap(j['shared_entity'])
-                : <String, dynamic>{
-                    'type':
-                        j['sharedEntityType'] ??
-                        j['shared_entity_type'] ??
-                        'post',
-                    'id': j['sharedEntityId'] ?? j['shared_entity_id'],
-                    'snapshot':
-                        j['sharedSnapshot'] ??
-                        j['shared_snapshot_json'] ??
-                        j['shared_snapshot'],
-                  },
-          )
-        : null,
-    sender: SocialAuthor.fromJson(_parseJsonMap(j['sender'])),
-  );
+  factory SocialCommunityChatMessage.fromJson(Map<String, dynamic> j) =>
+      SocialCommunityChatMessage(
+        id: parseInt(j['id']),
+        scopeType: parseNullableString(j['scopeType'] ?? j['scope_type']),
+        scopeCode: parseNullableString(j['scopeCode'] ?? j['scope_code']),
+        senderUserId: parseInt(j['senderUserId'] ?? j['sender_user_id']),
+        body: parseString(j['body']),
+        clientMessageId: parseNullableString(
+          j['clientMessageId'] ?? j['client_message_id'],
+        ),
+        createdAt: parseNullableDateTime(j['createdAt'] ?? j['created_at']),
+        updatedAt: parseNullableDateTime(j['updatedAt'] ?? j['updated_at']),
+        editedAt: parseNullableDateTime(j['editedAt'] ?? j['edited_at']),
+        deletedAt: parseNullableDateTime(j['deletedAt'] ?? j['deleted_at']),
+        isDeleted: parseBool(j['isDeleted'] ?? j['is_deleted']),
+        isMine: parseBool(j['isMine'] ?? j['is_mine']),
+        isSystem: parseBool(j['isSystem'] ?? j['is_system']),
+        reactionCounts: _parseReactionCounts(j['reactions']),
+        reactionTotalCount: parseInt(
+          j['reactionTotalCount'] ?? j['reaction_total_count'],
+        ),
+        myReaction: parseNullableString(j['myReaction'] ?? j['my_reaction']),
+        replyToMessage:
+            _parseJsonMap(j['replyToMessage']).isNotEmpty ||
+                _parseJsonMap(j['reply_to_message']).isNotEmpty
+            ? SocialChatReplyPreview.fromJson(
+                _parseJsonMap(j['replyToMessage']).isNotEmpty
+                    ? _parseJsonMap(j['replyToMessage'])
+                    : _parseJsonMap(j['reply_to_message']),
+              )
+            : null,
+        attachment:
+            _parseJsonMap(j['attachment']).isNotEmpty ||
+                j['attachmentUrl'] != null ||
+                j['attachment_url'] != null
+            ? SocialChatAttachment.fromJson(_socialChatAttachmentPayload(j))
+            : null,
+        sharedEntity:
+            _parseJsonMap(j['sharedEntity']).isNotEmpty ||
+                _parseJsonMap(j['shared_entity']).isNotEmpty ||
+                j['sharedEntityType'] != null ||
+                j['shared_entity_type'] != null
+            ? SocialSharedEntity.fromJson(
+                _parseJsonMap(j['sharedEntity']).isNotEmpty
+                    ? _parseJsonMap(j['sharedEntity'])
+                    : _parseJsonMap(j['shared_entity']).isNotEmpty
+                    ? _parseJsonMap(j['shared_entity'])
+                    : <String, dynamic>{
+                        'type':
+                            j['sharedEntityType'] ??
+                            j['shared_entity_type'] ??
+                            'post',
+                        'id': j['sharedEntityId'] ?? j['shared_entity_id'],
+                        'snapshot':
+                            j['sharedSnapshot'] ??
+                            j['shared_snapshot_json'] ??
+                            j['shared_snapshot'],
+                      },
+              )
+            : null,
+        sender: SocialAuthor.fromJson(_parseJsonMap(j['sender'])),
+      );
 }
 
 class SocialCommunityAnnouncement {
@@ -3258,21 +3414,11 @@ class SocialCommunityBill {
         dueDate: parseNullableString(j['dueDate'] ?? j['due_date']),
         description: parseNullableString(j['description']),
         details: parseNullableString(j['details']),
-        attachment: _parseJsonMap(j['attachment']).isNotEmpty ||
+        attachment:
+            _parseJsonMap(j['attachment']).isNotEmpty ||
                 j['attachmentUrl'] != null ||
                 j['attachment_url'] != null
-            ? SocialChatAttachment.fromJson(
-                _parseJsonMap(j['attachment']).isNotEmpty
-                    ? _parseJsonMap(j['attachment'])
-                    : <String, dynamic>{
-                        'attachmentUrl':
-                            j['attachmentUrl'] ?? j['attachment_url'],
-                        'attachmentKind':
-                            j['attachmentKind'] ?? j['attachment_kind'],
-                        'attachmentName':
-                            j['attachmentName'] ?? j['attachment_name'],
-                      },
-              )
+            ? SocialChatAttachment.fromJson(_socialChatAttachmentPayload(j))
             : null,
       );
 }

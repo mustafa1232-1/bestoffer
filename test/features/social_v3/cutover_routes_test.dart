@@ -95,6 +95,41 @@ void main() {
       expect(find.byType(BottomSheet), findsNothing);
     });
 
+    testWidgets('showSocialStoryQuickViewer routes immediately while poster '
+        'prewarm stays in the background', (tester) async {
+      final metrics = <String>[];
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () => showSocialStoryQuickViewer(
+                    context: context,
+                    group: _group(),
+                    onMetric: (name, _) => metrics.add(name),
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pump();
+
+      expect(find.byType(SocialStoryViewerV3), findsOneWidget);
+      expect(metrics, contains('storyTapToRouteMs'));
+      final routeIndex = metrics.indexOf('storyTapToRouteMs');
+      final posterIndex = metrics.indexOf('storyTapToPosterMs');
+      expect(routeIndex, isNonNegative);
+      if (posterIndex >= 0) {
+        expect(routeIndex, lessThanOrEqualTo(posterIndex));
+      }
+    });
+
     testWidgets('openSocialStoryViewerV3 preserves the initial group',
         (tester) async {
       await tester.pumpWidget(

@@ -445,11 +445,8 @@ class AuthController extends StateNotifier<AuthState> {
                 optionalTrimmed(dto['merchantDescription']) ?? '',
             merchantPhone: merchantPhone,
             merchantImageUrl: optionalTrimmed(dto['merchantImageUrl']),
-            merchantServiceFlags:
-                dto['merchantServiceFlags'] is Map
-                ? Map<String, dynamic>.from(
-                    dto['merchantServiceFlags'] as Map,
-                  )
+            merchantServiceFlags: dto['merchantServiceFlags'] is Map
+                ? Map<String, dynamic>.from(dto['merchantServiceFlags'] as Map)
                 : null,
             merchantBadges: dto['merchantBadges'] is List
                 ? List<String>.from(dto['merchantBadges'] as List)

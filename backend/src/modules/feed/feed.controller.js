@@ -741,6 +741,20 @@ export async function getSocialMediaAssetById(req, res, next) {
   }
 }
 
+export async function getSocialMediaAssetDiagnosticsById(req, res, next) {
+  try {
+    const asset = validateMediaAssetId(req.params.assetId);
+    if (!asset.ok) return badRequest(res, asset.errors);
+    const out = await service.getSocialMediaAssetDiagnosticsById({
+      userId: req.userId,
+      assetId: asset.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function cancelStreamUploadSession(req, res, next) {
   try {
     const asset = validateMediaAssetId(req.params.assetId);
@@ -1437,10 +1451,15 @@ export async function sendThreadMessage(req, res, next) {
       attachment: req.file
         ? {
             url: buildUploadedFileUrl(req, req.file),
+            previewUrl: buildUploadedFileUrl(req, req.file),
+            thumbnailUrl: buildUploadedFileUrl(req, req.file),
             name: req.file.originalname || req.file.filename || "attachment",
             mimeType: req.file.mimetype || "application/octet-stream",
             sizeBytes: Number(req.file.size || 0),
             durationMs: body.value.attachmentDurationMs,
+            provider: "upload",
+            uploadState: "READY",
+            traceId: body.value.clientMessageId || null,
           }
         : null,
     });
@@ -1487,10 +1506,15 @@ export async function scheduleThreadMessage(req, res, next) {
       attachment: req.file
         ? {
             url: buildUploadedFileUrl(req, req.file),
+            previewUrl: buildUploadedFileUrl(req, req.file),
+            thumbnailUrl: buildUploadedFileUrl(req, req.file),
             name: req.file.originalname || req.file.filename || "attachment",
             mimeType: req.file.mimetype || "application/octet-stream",
             sizeBytes: Number(req.file.size || 0),
             durationMs: body.value.attachmentDurationMs,
+            provider: "upload",
+            uploadState: "READY",
+            traceId: body.value.clientMessageId || null,
           }
         : null,
     });
@@ -2059,10 +2083,15 @@ export async function sendCommunityChatMessage(req, res, next) {
       attachment: req.file
         ? {
             url: buildUploadedFileUrl(req, req.file),
+            previewUrl: buildUploadedFileUrl(req, req.file),
+            thumbnailUrl: buildUploadedFileUrl(req, req.file),
             name: req.file.originalname || req.file.filename || "attachment",
             mimeType: req.file.mimetype || "application/octet-stream",
             sizeBytes: Number(req.file.size || 0),
             durationMs: body.value.attachmentDurationMs,
+            provider: "upload",
+            uploadState: "READY",
+            traceId: body.value.clientMessageId || null,
           }
         : null,
       clientMessageId: body.value.clientMessageId,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -29,6 +31,7 @@ class SocialStoryViewerV3 extends StatefulWidget {
     this.onToggleLike,
     this.onOpenComments,
     this.onShare,
+    this.onMetric,
     this.videoFactory,
   }) : assert(groups.length > 0);
 
@@ -42,6 +45,7 @@ class SocialStoryViewerV3 extends StatefulWidget {
   final StoryV3LikeCallback? onToggleLike;
   final StoryV3CommentsCallback? onOpenComments;
   final StoryV3ShareCallback? onShare;
+  final SocialStoryMetricCallback? onMetric;
 
   /// Test seam for the video controller.
   final VideoPlayerController Function(String url)? videoFactory;
@@ -56,11 +60,13 @@ class SocialStoryViewerV3 extends StatefulWidget {
     StoryV3LikeCallback? onToggleLike,
     StoryV3CommentsCallback? onOpenComments,
     StoryV3ShareCallback? onShare,
+    SocialStoryMetricCallback? onMetric,
   }) {
     return PageRouteBuilder<void>(
       opaque: true,
       barrierColor: Colors.black,
-      transitionDuration: const Duration(milliseconds: 220),
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
       pageBuilder: (context, animation, secondaryAnimation) =>
           SocialStoryViewerV3(
             groups: groups,
@@ -71,6 +77,7 @@ class SocialStoryViewerV3 extends StatefulWidget {
             onToggleLike: onToggleLike,
             onOpenComments: onOpenComments,
             onShare: onShare,
+            onMetric: onMetric,
           ),
       transitionsBuilder: (context, animation, secondaryAnimation, child) =>
           FadeTransition(opacity: animation, child: child),
@@ -91,13 +98,23 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
   final Map<int, int> _likesByStoryId = <int, int>{};
   final Map<int, int> _commentsByStoryId = <int, int>{};
   final Set<int> _likeBusyStoryIds = <int>{};
+  final Map<int, VideoPlayerController> _videoControllers =
+      <int, VideoPlayerController>{};
+  final Map<int, String> _videoControllerUrls = <int, String>{};
+  final Map<int, Future<void>> _videoInitFutures = <int, Future<void>>{};
+  final Set<String> _reportedMetrics = <String>{};
+  final DateTime _openedAt = DateTime.now();
+  DateTime? _itemStartedAt;
+  bool _currentItemStartedFromAdvance = false;
 
   VideoPlayerController? _video;
+  int? _activeVideoIndex;
   int _groupIndex = 0;
   int _itemIndex = 0;
   bool _gesturePaused = false;
   bool _lifecyclePaused = false;
   int _overlayPauseDepth = 0;
+  bool _advancing = false;
 
   StoryV3Group get _group => widget.groups[_groupIndex];
   StoryV3Item? get _item =>
@@ -133,14 +150,25 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
         if (s == AnimationStatus.completed) _next();
       });
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _startItem());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _syncVideoWindow();
+      _startItem();
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _imageCtrl.dispose();
-    _disposeVideo();
+    _disposeActiveVideo();
+    for (final controller in _videoControllers.values) {
+      controller.removeListener(_onVideoTick);
+      controller.dispose();
+    }
+    _videoControllers.clear();
+    _videoControllerUrls.clear();
+    _videoInitFutures.clear();
     _progress.dispose();
     _groupPager.dispose();
     super.dispose();
@@ -156,13 +184,6 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
     }
   }
 
-  void _disposeVideo() {
-    _video?.removeListener(_onVideoTick);
-    _video?.pause();
-    _video?.dispose();
-    _video = null;
-  }
-
   void _recordView() {
     final item = _item;
     if (item == null) return;
@@ -172,9 +193,19 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
     }
   }
 
+  void _disposeActiveVideo() {
+    final index = _activeVideoIndex;
+    final controller = index == null ? _video : _videoControllers[index];
+    controller?.removeListener(_onVideoTick);
+    controller?.pause();
+    _video = null;
+    _activeVideoIndex = null;
+  }
+
   void _startItem() {
+    _advancing = false;
     _imageCtrl.stop();
-    _disposeVideo();
+    _disposeActiveVideo();
     _progress.value = 0;
     final item = _item;
     if (item == null) {
@@ -182,39 +213,40 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
       return;
     }
     _recordView();
+    _itemStartedAt = DateTime.now();
+    final startedByAdvance = _currentItemStartedFromAdvance;
+    _currentItemStartedFromAdvance = false;
+    _syncVideoWindow();
 
     if (item.isVideo && item.media.hasVideo) {
-      _startVideo(item);
+      _startVideo(item, startedByAdvance: startedByAdvance);
     } else {
       _imageCtrl.duration = item.imageDuration;
       if (!_isProgressPaused) _imageCtrl.forward(from: 0);
+      _reportFirstFrameMetric(startedByAdvance: startedByAdvance);
     }
   }
 
-  void _startVideo(StoryV3Item item) {
-    final url = item.media.videoPlaybackUrl!;
-    final controller =
-        widget.videoFactory?.call(url) ??
-        VideoPlayerController.networkUrl(Uri.parse(url));
-    _video = controller;
-    controller.setLooping(false);
-    controller.addListener(_onVideoTick);
-    controller
-        .initialize()
-        .then((_) {
-          if (!mounted || _video != controller) return;
-          final start = item.clipStart;
-          if (start != null) controller.seekTo(start);
-          if (!_isProgressPaused) controller.play();
-          setState(() {});
-        })
-        .catchError((Object _) {
-          // Failed media briefly shows a controlled failure then advances.
-          if (!mounted || _video != controller) return;
-          Future<void>.delayed(const Duration(milliseconds: 900), () {
-            if (mounted && _video == controller) _next();
-          });
-        });
+  void _startVideo(StoryV3Item item, {required bool startedByAdvance}) {
+    final index = _itemIndex;
+    final controller = _ensureVideoController(
+      index,
+      activate: true,
+      startedByAdvance: startedByAdvance,
+    );
+    if (controller == null) {
+      Future<void>.delayed(const Duration(milliseconds: 900), () {
+        if (mounted && _itemIndex == index) _next();
+      });
+      return;
+    }
+    if (controller.value.isInitialized) {
+      _attachActiveVideoController(
+        index,
+        controller,
+        startedByAdvance: startedByAdvance,
+      );
+    }
   }
 
   void _onVideoTick() {
@@ -254,6 +286,151 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
       _video?.play();
     } else if (!_imageCtrl.isAnimating) {
       _imageCtrl.forward();
+    }
+  }
+
+  void _reportMetricOnce(String name, Duration elapsed) {
+    final item = _item;
+    final storyId = item?.storyId ?? -1;
+    final key = '$name:${_groupIndex}_$_itemIndex:$storyId';
+    if (_reportedMetrics.add(key)) {
+      widget.onMetric?.call(name, elapsed);
+    }
+  }
+
+  void _reportFirstFrameMetric({required bool startedByAdvance}) {
+    final startedAt = _itemStartedAt ?? _openedAt;
+    _reportMetricOnce(
+      startedByAdvance ? 'storyNextItemFirstFrameMs' : 'storyTapToFirstFrameMs',
+      DateTime.now().difference(startedAt),
+    );
+  }
+
+  StoryV3Item? _itemAtIndex(int index) {
+    if (index < 0 || index >= _group.items.length) return null;
+    return _group.items[index];
+  }
+
+  VideoPlayerController? _ensureVideoController(
+    int index, {
+    required bool activate,
+    required bool startedByAdvance,
+  }) {
+    final item = _itemAtIndex(index);
+    if (item == null || !item.isVideo || !item.media.hasVideo) return null;
+    final effectiveUrl = item.media.videoPlaybackUrl!;
+    final existing = _videoControllers[index];
+    if (existing != null && _videoControllerUrls[index] == effectiveUrl) {
+      if (activate) {
+        _attachActiveVideoController(
+          index,
+          existing,
+          startedByAdvance: startedByAdvance,
+        );
+      }
+      return existing;
+    }
+
+    if (existing != null) {
+      existing.removeListener(_onVideoTick);
+      existing.pause();
+      existing.dispose();
+    }
+
+    final controller =
+        widget.videoFactory?.call(effectiveUrl) ??
+        VideoPlayerController.networkUrl(Uri.parse(effectiveUrl));
+    _videoControllers[index] = controller;
+    _videoControllerUrls[index] = effectiveUrl;
+    controller.setLooping(false);
+    _videoInitFutures[index] = controller.initialize().then((_) {
+      if (!mounted || _videoControllers[index] != controller) return;
+      if (activate && _itemIndex == index) {
+        _attachActiveVideoController(
+          index,
+          controller,
+          startedByAdvance: startedByAdvance,
+        );
+      }
+    }).catchError((Object _) {
+      if (!mounted || _videoControllers[index] != controller) return;
+      Future<void>.delayed(const Duration(milliseconds: 900), () {
+        if (mounted && _itemIndex == index) _next();
+      });
+    });
+    if (activate && _itemIndex == index) {
+      _video = controller;
+      _activeVideoIndex = index;
+    }
+    return controller;
+  }
+
+  void _attachActiveVideoController(
+    int index,
+    VideoPlayerController controller, {
+    required bool startedByAdvance,
+  }) {
+    final previousIndex = _activeVideoIndex;
+    if (previousIndex != null && previousIndex != index) {
+      _videoControllers[previousIndex]?.removeListener(_onVideoTick);
+      if (_videoControllers[previousIndex] != null &&
+          !identical(_videoControllers[previousIndex], controller)) {
+        _videoControllers[previousIndex]?.pause();
+      }
+    }
+    _activeVideoIndex = index;
+    _video = controller;
+    controller.removeListener(_onVideoTick);
+    controller.addListener(_onVideoTick);
+    controller.setVolume(1);
+    if (controller.value.isInitialized) {
+      final start = _item?.clipStart;
+      if (start != null) {
+        unawaited(controller.seekTo(start));
+      }
+      if (!_isProgressPaused) {
+        unawaited(controller.play());
+      }
+      if (mounted) {
+        setState(() {});
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _activeVideoIndex != index) return;
+          _reportFirstFrameMetric(startedByAdvance: startedByAdvance);
+        });
+      }
+    }
+  }
+
+  void _syncVideoWindow() {
+    final indexes = <int>{
+      _itemIndex - 1,
+      _itemIndex,
+      _itemIndex + 1,
+    }.where((index) => index >= 0 && index < _group.items.length).toList();
+
+    for (final index in indexes) {
+      final item = _itemAtIndex(index);
+      if (item == null || !item.isVideo || !item.media.hasVideo) continue;
+      final url = item.media.videoPlaybackUrl!;
+      final existing = _videoControllers[index];
+      if (existing != null && _videoControllerUrls[index] == url) {
+        continue;
+      }
+      _ensureVideoController(
+        index,
+        activate: index == _itemIndex,
+        startedByAdvance: index == _itemIndex && _currentItemStartedFromAdvance,
+      );
+    }
+
+    for (final index in _videoControllers.keys.toList()) {
+      if (indexes.contains(index)) continue;
+      final controller = _videoControllers.remove(index);
+      _videoControllerUrls.remove(index);
+      _videoInitFutures.remove(index);
+      controller?.removeListener(_onVideoTick);
+      controller?.pause();
+      controller?.dispose();
     }
   }
 
@@ -334,10 +511,14 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
   }
 
   void _next() {
+    if (_advancing) return;
+    _advancing = true;
     if (_itemIndex < _group.items.length - 1) {
+      _currentItemStartedFromAdvance = true;
       setState(() => _itemIndex += 1);
       _startItem();
     } else if (_groupIndex < widget.groups.length - 1) {
+      _currentItemStartedFromAdvance = true;
       _groupPager.animateToPage(
         _groupIndex + 1,
         duration: const Duration(milliseconds: 260),
@@ -350,9 +531,11 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
 
   void _prev() {
     if (_itemIndex > 0) {
+      _currentItemStartedFromAdvance = false;
       setState(() => _itemIndex -= 1);
       _startItem();
     } else if (_groupIndex > 0) {
+      _currentItemStartedFromAdvance = false;
       _groupPager.animateToPage(
         _groupIndex - 1,
         duration: const Duration(milliseconds: 260),
@@ -366,6 +549,8 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
       _groupIndex = index;
       _itemIndex = 0;
     });
+    _advancing = false;
+    _currentItemStartedFromAdvance = false;
     _startItem();
   }
 

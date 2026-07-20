@@ -21,6 +21,10 @@ feedRouter.post(
   c.cancelStreamUploadSession
 );
 feedRouter.get("/media/assets/:assetId", c.getSocialMediaAssetById);
+feedRouter.get(
+  "/media/assets/:assetId/diagnostics",
+  c.getSocialMediaAssetDiagnosticsById
+);
 
 feedRouter.get("/explore", c.listExplore);
 feedRouter.get("/trending", c.listTrending);

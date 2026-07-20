@@ -39,7 +39,7 @@ void main() {
     expect(find.byType(MaslakiCard), findsWidgets);
   });
 
-  testWidgets('fashion & clothing is offered as a dedicated category', (
+  testWidgets('fashion market is offered as a dedicated category', (
     tester,
   ) async {
     await _pumpMarket(tester);

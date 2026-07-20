@@ -62,6 +62,7 @@ function mapSocialMediaAssetRow(row) {
     sourceType: row.source_type || null,
     provider: row.provider || null,
     streamUid,
+    traceId: row.trace_id || streamUid || (row.id == null ? null : `asset:${row.id}`),
     originalUrl: row.original_url || null,
     normalizedUrl: row.normalized_url || null,
     posterUrl,
@@ -84,6 +85,89 @@ function mapSocialMediaAssetRow(row) {
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
   };
+}
+
+function buildSocialMediaAssetTraceStages(mapped) {
+  if (!mapped) return [];
+  const provider = String(mapped.provider || "").trim().toLowerCase();
+  const status = String(mapped.processingStatus || "").trim().toLowerCase();
+  const updatedAt = mapped.updatedAt || null;
+
+  if (provider !== "stream") {
+    return [
+      {
+        stage: "SESSION_CREATED",
+        state: provider === "r2" ? "not_applicable" : "unknown",
+        at: updatedAt,
+      },
+      {
+        stage: "TUS_STARTED",
+        state: provider === "r2" ? "not_applicable" : "unknown",
+        at: updatedAt,
+      },
+      {
+        stage: "PROCESSING",
+        state: status || "unknown",
+        at: updatedAt,
+      },
+      {
+        stage: "READY",
+        state: status === "ready" ? "complete" : "pending",
+        at: updatedAt,
+      },
+    ];
+  }
+
+  return [
+    {
+      stage: "SESSION_CREATED",
+      state: mapped.traceId ? "complete" : "missing",
+      at: updatedAt,
+    },
+    {
+      stage: "TUS_STARTED",
+      state: ["pending", "processing", "ready", "failed", "published"].includes(status)
+        ? "complete"
+        : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "PROCESSING",
+      state: ["processing", "ready", "published"].includes(status)
+        ? "complete"
+        : status === "failed"
+          ? "failed"
+          : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "WEBHOOK_RECEIVED",
+      state: ["ready", "failed", "published"].includes(status)
+        ? "complete"
+        : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "RECONCILED",
+      state: ["ready", "published"].includes(status) ? "complete" : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "READY",
+      state: ["ready", "published"].includes(status) ? "complete" : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "PUBLISH_STARTED",
+      state: status === "published" ? "complete" : "pending",
+      at: updatedAt,
+    },
+    {
+      stage: "PUBLISHED",
+      state: status === "published" ? "complete" : "pending",
+      at: updatedAt,
+    },
+  ];
 }
 
 async function cleanupTemporarySource(media = null) {
@@ -158,6 +242,7 @@ export async function prepareSocialMediaAsset({
     sourceType: resolvedSourceType,
     provider,
     streamUid,
+    traceId: streamUid,
     originalUrl: sourceUrl,
     normalizedUrl,
     posterUrl,
@@ -289,6 +374,7 @@ export async function createSocialMediaStreamUploadSession({
     sourceType: normalizedSourceType,
     provider: "stream",
     streamUid: session.streamUid,
+    traceId: session.streamUid,
     originalUrl: session.uploadUrl,
     normalizedUrl: null,
     posterUrl: null,
@@ -352,6 +438,27 @@ export async function getSocialMediaAssetById({ userId, assetId }) {
     throw new AppError("MEDIA_ASSET_FORBIDDEN", { status: 403 });
   }
   return { asset: mapSocialMediaAssetRow(asset) };
+}
+
+export async function getSocialMediaAssetDiagnosticsById({ userId, assetId }) {
+  const asset = await repo.findSocialMediaAssetById(assetId);
+  if (!asset) {
+    throw new AppError("MEDIA_ASSET_NOT_FOUND", { status: 404 });
+  }
+  if (Number(asset.owner_user_id) !== Number(userId)) {
+    throw new AppError("MEDIA_ASSET_FORBIDDEN", { status: 403 });
+  }
+  const mapped = mapSocialMediaAssetRow(asset);
+  return {
+    assetId: mapped?.id ?? null,
+    provider: mapped?.provider ?? null,
+    processingStatus: mapped?.processingStatus ?? null,
+    publishStatus: mapped?.processingStatus ?? null,
+    failureCode: mapped?.failureCode ?? mapped?.processingError ?? null,
+    updatedAt: mapped?.updatedAt ?? null,
+    traceId: mapped?.traceId ?? null,
+    traceStages: buildSocialMediaAssetTraceStages(mapped),
+  };
 }
 
 export function mapStreamDetailsToStatus(details, fallbackStatus = "processing") {

@@ -17,6 +17,7 @@ Future<void> openSocialStoryViewerV3({
   StoryV3LikeCallback? onToggleLike,
   StoryV3CommentsCallback? onOpenComments,
   StoryV3ShareCallback? onShare,
+  SocialStoryMetricCallback? onMetric,
 }) {
   final groups = (storyGroups == null || storyGroups.isEmpty)
       ? <SocialStoryGroup>[group]
@@ -47,6 +48,7 @@ Future<void> openSocialStoryViewerV3({
       onToggleLike: onToggleLike,
       onOpenComments: onOpenComments,
       onShare: onShare,
+      onMetric: onMetric,
     ),
   );
 }

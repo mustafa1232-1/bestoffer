@@ -32,9 +32,7 @@ class _FakeSocialApi extends SocialApi {
   @override
   Future<Map<String, dynamic>> getUserRelation(int userId) async {
     return <String, dynamic>{
-      'relation': <String, dynamic>{
-        'state': 'none',
-      },
+      'relation': <String, dynamic>{'state': 'none'},
     };
   }
 }
@@ -68,12 +66,18 @@ Future<void> _pumpButtonWithCaps(
 }
 
 const _video = PickedSocialMedia(
-  path: '/tmp/r.mp4', name: 'r.mp4', mimeType: 'video/mp4',
-  sizeBytes: 1024, type: PickedMediaType.video,
+  path: '/tmp/r.mp4',
+  name: 'r.mp4',
+  mimeType: 'video/mp4',
+  sizeBytes: 1024,
+  type: PickedMediaType.video,
 );
 const _image = PickedSocialMedia(
-  path: '/tmp/p.jpg', name: 'p.jpg', mimeType: 'image/jpeg',
-  sizeBytes: 512, type: PickedMediaType.image,
+  path: '/tmp/p.jpg',
+  name: 'p.jpg',
+  mimeType: 'image/jpeg',
+  sizeBytes: 512,
+  type: PickedMediaType.image,
 );
 
 /// Fake native picker (overrides the platform methods).
@@ -100,9 +104,7 @@ Future<void> _pumpButton(
 ) async {
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [
-        socialApiProvider.overrideWithValue(_FakeSocialApi()),
-      ],
+      overrides: [socialApiProvider.overrideWithValue(_FakeSocialApi())],
       child: MaterialApp(
         home: Builder(
           builder: (ctx) => Scaffold(
@@ -134,58 +136,71 @@ void main() {
   testWidgets('Create Story entry → StoryComposerV3', (tester) async {
     await _pumpButton(
       tester,
-      (ctx) =>
-          openStoryComposerV3FromGallery(ctx, picker: _FakePicker(single: _image)),
+      (ctx) => openStoryComposerV3FromGallery(
+        ctx,
+        picker: _FakePicker(single: _image),
+      ),
     );
     await tester.tap(find.text('صورة'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 800));
     expect(find.byType(StoryComposerV3), findsOneWidget);
   });
 
   testWidgets('Create Post entry → PostComposerV3', (tester) async {
     await _pumpButton(
       tester,
-      (ctx) => openPostComposerV3(ctx, picker: _FakePicker(multi: [_image, _image])),
+      (ctx) =>
+          openPostComposerV3(ctx, picker: _FakePicker(multi: [_image, _image])),
     );
     expect(find.byType(PostComposerV3), findsOneWidget);
   });
 
-  testWidgets('Add Reel to Story → StoryComposerV3 with SharedReelSource',
-      (tester) async {
+  testWidgets('Add Reel to Story → StoryComposerV3 with SharedReelSource', (
+    tester,
+  ) async {
     await _pumpButton(
       tester,
       (ctx) => openStoryComposerV3WithReel(
         ctx,
         reel: const SharedReelSource(
-          reelId: 1, originalOwnerId: 2, playbackUrl: null,
-          thumbnailUrl: 'https://x/t.jpg', posterUrl: null,
-          width: 1080, height: 1920, caption: '', available: true,
+          reelId: 1,
+          originalOwnerId: 2,
+          playbackUrl: null,
+          thumbnailUrl: 'https://x/t.jpg',
+          posterUrl: null,
+          width: 1080,
+          height: 1920,
+          caption: '',
+          available: true,
         ),
       ),
     );
-    final composer = tester.widget<StoryComposerV3>(find.byType(StoryComposerV3));
+    final composer = tester.widget<StoryComposerV3>(
+      find.byType(StoryComposerV3),
+    );
     expect(composer.source.kind, StorySourceKind.sharedReel);
   });
 
   testWidgets(
-      '§3 unsupported scoped: shows confirmation dialog, no composer yet',
-      (tester) async {
-    await _pumpButtonWithCaps(
-      tester,
-      caps: SocialCapabilities.failClosed,
-      onTap: (ctx) => openStoryComposerV3Scoped(
-        ctx,
-        scopeType: 'building',
-        scopeCode: 'B12',
-        picker: _FakePicker(single: _image),
-      ),
-    );
-    // The confirmation dialog appears; NO composer opens before confirmation.
-    expect(find.text('القصص المخصصة غير متاحة حالياً'), findsOneWidget);
-    expect(find.text('إنشاء قصة عامة'), findsOneWidget);
-    expect(find.byType(StoryComposerV3), findsNothing);
-  });
+    '§3 unsupported scoped: shows confirmation dialog, no composer yet',
+    (tester) async {
+      await _pumpButtonWithCaps(
+        tester,
+        caps: SocialCapabilities.failClosed,
+        onTap: (ctx) => openStoryComposerV3Scoped(
+          ctx,
+          scopeType: 'building',
+          scopeCode: 'B12',
+          picker: _FakePicker(single: _image),
+        ),
+      );
+      // The confirmation dialog appears; NO composer opens before confirmation.
+      expect(find.text('القصص المخصصة غير متاحة حالياً'), findsOneWidget);
+      expect(find.text('إنشاء قصة عامة'), findsOneWidget);
+      expect(find.byType(StoryComposerV3), findsNothing);
+    },
+  );
 
   testWidgets('§3 unsupported scoped: Cancel opens nothing', (tester) async {
     await _pumpButtonWithCaps(
@@ -205,32 +220,36 @@ void main() {
   });
 
   testWidgets(
-      '§3 unsupported scoped: explicit "global" opens global composer with label',
-      (tester) async {
-    await _pumpButtonWithCaps(
-      tester,
-      caps: SocialCapabilities.failClosed,
-      onTap: (ctx) => openStoryComposerV3Scoped(
-        ctx,
-        scopeType: 'building',
-        scopeCode: 'B12',
-        picker: _FakePicker(single: _image),
-      ),
-    );
-    await tester.tap(find.text('إنشاء قصة عامة'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 350));
-    await tester.tap(find.text('صورة'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 350));
-    final composer = tester.widget<StoryComposerV3>(find.byType(StoryComposerV3));
-    expect(composer.scope.scope, StoryAudienceScope.global);
-    // The global audience label is visible.
-    expect(find.text('الجمهور: جميع المستخدمين'), findsOneWidget);
-  });
+    '§3 unsupported scoped: explicit "global" opens global composer with label',
+    (tester) async {
+      await _pumpButtonWithCaps(
+        tester,
+        caps: SocialCapabilities.failClosed,
+        onTap: (ctx) => openStoryComposerV3Scoped(
+          ctx,
+          scopeType: 'building',
+          scopeCode: 'B12',
+          picker: _FakePicker(single: _image),
+        ),
+      );
+      await tester.tap(find.text('إنشاء قصة عامة'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.tap(find.text('صورة'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
+      final composer = tester.widget<StoryComposerV3>(
+        find.byType(StoryComposerV3),
+      );
+      expect(composer.scope.scope, StoryAudienceScope.global);
+      // The global audience label is visible.
+      expect(find.text('الجمهور: جميع المستخدمين'), findsOneWidget);
+    },
+  );
 
-  testWidgets('Scoped community Story: capability supported → locked scope',
-      (tester) async {
+  testWidgets('Scoped community Story: capability supported → locked scope', (
+    tester,
+  ) async {
     await _pumpButtonWithCaps(
       tester,
       caps: const SocialCapabilities(
@@ -252,19 +271,24 @@ void main() {
     );
     await tester.tap(find.text('صورة'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 350));
-    final composer = tester.widget<StoryComposerV3>(find.byType(StoryComposerV3));
+    await tester.pump(const Duration(milliseconds: 800));
+    final composer = tester.widget<StoryComposerV3>(
+      find.byType(StoryComposerV3),
+    );
     expect(composer.scope.scope, StoryAudienceScope.building);
     expect(composer.scope.locked, isTrue);
   });
 
-  testWidgets('Merchant review → PostComposerV3 in review mode', (tester) async {
+  testWidgets('Merchant review → PostComposerV3 in review mode', (
+    tester,
+  ) async {
     await _pumpButton(
       tester,
       (ctx) => openPostComposerV3Review(
         ctx,
         review: const MerchantReviewDraft(
-          merchantId: 3, merchantName: 'سوبر ماركت',
+          merchantId: 3,
+          merchantName: 'سوبر ماركت',
         ),
       ),
     );
@@ -278,10 +302,12 @@ void main() {
     late BuildContext ctx;
     await tester.pumpWidget(
       MaterialApp(
-        home: Builder(builder: (c) {
-          ctx = c;
-          return const Scaffold(body: SizedBox());
-        }),
+        home: Builder(
+          builder: (c) {
+            ctx = c;
+            return const Scaffold(body: SizedBox());
+          },
+        ),
       ),
     );
     // ignore: unawaited_futures
@@ -293,13 +319,12 @@ void main() {
     expect(find.text('ريل'), findsOneWidget);
   });
 
-  testWidgets('full-screen Reels route renders NO floating Create button',
-      (tester) async {
+  testWidgets('full-screen Reels route renders NO floating Create button', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          socialApiProvider.overrideWithValue(_FakeSocialApi()),
-        ],
+        overrides: [socialApiProvider.overrideWithValue(_FakeSocialApi())],
         child: MediaQuery(
           data: const MediaQueryData(size: Size(393, 852)),
           child: MaterialApp(

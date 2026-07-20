@@ -184,6 +184,10 @@ class _FakeTaxiApi extends TaxiApi {
   _FakeTaxiApi({this.currentRideEnvelope}) : super(Dio());
 
   final Map<String, dynamic>? currentRideEnvelope;
+  int raiseRideFareCalls = 0;
+  int rebookRideCalls = 0;
+  int? lastRaisedRideId;
+  int? lastProposedFareIqd;
 
   @override
   Future<Map<String, dynamic>?> getCurrentRideForCustomer() async {
@@ -192,6 +196,23 @@ class _FakeTaxiApi extends TaxiApi {
 
   @override
   Stream<TaxiLiveEvent> streamEvents({int? lastEventId}) async* {}
+
+  @override
+  Future<Map<String, dynamic>> raiseRideFare({
+    required int rideId,
+    required int proposedFareIqd,
+  }) async {
+    raiseRideFareCalls++;
+    lastRaisedRideId = rideId;
+    lastProposedFareIqd = proposedFareIqd;
+    return currentRideEnvelope ?? <String, dynamic>{};
+  }
+
+  @override
+  Future<Map<String, dynamic>> rebookRide(int rideId) async {
+    rebookRideCalls++;
+    return currentRideEnvelope ?? <String, dynamic>{};
+  }
 }
 
 class _FakeTaxiRouteService extends TaxiRouteService {
@@ -339,6 +360,7 @@ Map<String, dynamic> _searchingEnvelopeWithOfferCollections() {
 Future<void> _pumpMapPage(
   WidgetTester tester, {
   Map<String, dynamic>? currentRideEnvelope,
+  TaxiApi? taxiApi,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -350,7 +372,7 @@ Future<void> _pumpMapPage(
           ),
         ),
         taxiApiProvider.overrideWithValue(
-          _FakeTaxiApi(currentRideEnvelope: currentRideEnvelope),
+          taxiApi ?? _FakeTaxiApi(currentRideEnvelope: currentRideEnvelope),
         ),
         taxiRouteServiceProvider.overrideWithValue(_FakeTaxiRouteService()),
       ],
@@ -507,19 +529,44 @@ void main() {
     },
   );
 
-  testWidgets(
-    'completed ride clears current ride and returns to request composer',
-    (tester) async {
-      await _pumpMapPage(
-        tester,
-        currentRideEnvelope: _rideEnvelope(status: 'completed'),
-      );
+  testWidgets('completed ride returns to the taxi home shell', (tester) async {
+    await _pumpMapPage(
+      tester,
+      currentRideEnvelope: _rideEnvelope(status: 'completed'),
+    );
+    await tester.pump(const Duration(milliseconds: 600));
 
-      final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
+    final l10n = AppLocalizations.of(tester.element(find.byType(MapPage)));
 
-      expect(find.text(l10n.mapPageRideCompletedTitle), findsNothing);
-      expect(find.text(l10n.mapPagePickupSearchLabel), findsAtLeastNWidgets(1));
-      expect(tester.takeException(), isNull);
-    },
-  );
+    expect(find.text(l10n.mapPageRideCompletedTitle), findsNothing);
+    expect(find.text(l10n.mapPageRateTaxiRide), findsNothing);
+    expect(
+      find.text(l10n.mapPageRideRequestHeroSubtitle),
+      findsAtLeastNWidgets(1),
+    );
+    expect(find.text(l10n.mapPageCurrentLocation), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('raise fare action calls raise-fare endpoint, not rebook', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final envelope = _rideEnvelope(status: 'price_raise_required');
+    final api = _FakeTaxiApi(currentRideEnvelope: envelope);
+    await _pumpMapPage(tester, currentRideEnvelope: envelope, taxiApi: api);
+
+    await tester.tap(find.text('Raise fare now'));
+    await tester.pump();
+
+    expect(api.raiseRideFareCalls, 1);
+    expect(api.rebookRideCalls, 0);
+    expect(api.lastRaisedRideId, 41);
+    expect(api.lastProposedFareIqd, 11000);
+    expect(tester.takeException(), isNull);
+  });
 }

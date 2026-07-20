@@ -1091,11 +1091,9 @@ export async function searchPublicOfferings(query = {}, { viewerUserId = null } 
     const offerings = r.rows.map(mapOffering);
     const offeringIds = offerings.map((x) => x.id);
     const providerIds = offerings.map((x) => x.providerId);
-    const [pricingMap, mediaMap, promoMap] = await Promise.all([
-      fetchPricingMap(client, offeringIds),
-      fetchMediaMap(client, offeringIds),
-      fetchActivePromotionMap(client, providerIds),
-    ]);
+    const pricingMap = await fetchPricingMap(client, offeringIds);
+    const mediaMap = await fetchMediaMap(client, offeringIds);
+    const promoMap = await fetchActivePromotionMap(client, providerIds);
 
     return offerings.map((offering) => ({
       ...offering,
@@ -1125,88 +1123,83 @@ export async function getPublicProviderById(providerId) {
       return null;
     }
 
-    const [areasR, availabilityR, offeringsR, promotionsR, portfolioR, reviewsR] =
-      await Promise.all([
-        client.query(
-          `SELECT city, area, note
-           FROM service_provider_areas
-           WHERE provider_id = $1
-           ORDER BY city ASC, area ASC NULLS LAST`,
-          [Number(providerId)]
-        ),
-        client.query(
-          `SELECT day_of_week, start_time, end_time, is_active
-           FROM service_provider_availability_rules
-           WHERE provider_id = $1
-           ORDER BY day_of_week ASC, start_time ASC`,
-          [Number(providerId)]
-        ),
-        client.query(
-          `SELECT
-             o.*,
-             mc.name AS main_category_name,
-             sc.name AS subcategory_name,
-             p.business_name AS provider_business_name,
-             p.city AS provider_city,
-             p.area AS provider_area,
-             p.rating_avg AS provider_rating_avg,
-             p.rating_count AS provider_rating_count,
-             p.completed_orders_count AS provider_completed_orders_count,
-             p.has_emergency_service AS provider_has_emergency_service,
-             p.is_featured AS provider_is_featured,
-             p.logo_url AS provider_logo_url,
-             p.provider_approval_status AS provider_approval_status,
-             p.average_response_minutes AS provider_average_response_minutes,
-             p.is_temporarily_paused AS provider_is_temporarily_paused
-           FROM service_offerings o
-           JOIN service_provider_profiles p ON p.id = o.provider_id
-           LEFT JOIN service_categories mc ON mc.id = o.main_category_id
-           LEFT JOIN service_categories sc ON sc.id = o.subcategory_id
-           WHERE o.provider_id = $1
-             AND o.is_active = TRUE
-             AND o.is_temporarily_paused = FALSE
-             AND o.moderation_status = 'approved'
-           ORDER BY o.created_at DESC`,
-          [Number(providerId)]
-        ),
-        client.query(
-          `SELECT *
-           FROM service_promotions
-           WHERE provider_id = $1
-             AND is_active = TRUE
-             AND starts_at <= NOW()
-             AND ends_at >= NOW()
-           ORDER BY starts_at DESC`,
-          [Number(providerId)]
-        ),
-        client.query(
-          `SELECT *
-           FROM service_portfolio_items
-           WHERE provider_id = $1
-           ORDER BY is_pinned DESC, sort_order ASC, id DESC
-           LIMIT 100`,
-          [Number(providerId)]
-        ),
-        client.query(
-          `SELECT
-             r.*,
-             u.full_name AS customer_full_name,
-             u.image_url AS customer_image_url
-           FROM service_reviews r
-           JOIN app_user u ON u.id = r.customer_user_id
-           WHERE r.provider_id = $1
-           ORDER BY r.created_at DESC
-           LIMIT 80`,
-          [Number(providerId)]
-        ),
-      ]);
+    const areasR = await client.query(
+      `SELECT city, area, note
+       FROM service_provider_areas
+       WHERE provider_id = $1
+       ORDER BY city ASC, area ASC NULLS LAST`,
+      [Number(providerId)]
+    );
+    const availabilityR = await client.query(
+      `SELECT day_of_week, start_time, end_time, is_active
+       FROM service_provider_availability_rules
+       WHERE provider_id = $1
+       ORDER BY day_of_week ASC, start_time ASC`,
+      [Number(providerId)]
+    );
+    const offeringsR = await client.query(
+      `SELECT
+         o.*,
+         mc.name AS main_category_name,
+         sc.name AS subcategory_name,
+         p.business_name AS provider_business_name,
+         p.city AS provider_city,
+         p.area AS provider_area,
+         p.rating_avg AS provider_rating_avg,
+         p.rating_count AS provider_rating_count,
+         p.completed_orders_count AS provider_completed_orders_count,
+         p.has_emergency_service AS provider_has_emergency_service,
+         p.is_featured AS provider_is_featured,
+         p.logo_url AS provider_logo_url,
+         p.provider_approval_status AS provider_approval_status,
+         p.average_response_minutes AS provider_average_response_minutes,
+         p.is_temporarily_paused AS provider_is_temporarily_paused
+       FROM service_offerings o
+       JOIN service_provider_profiles p ON p.id = o.provider_id
+       LEFT JOIN service_categories mc ON mc.id = o.main_category_id
+       LEFT JOIN service_categories sc ON sc.id = o.subcategory_id
+       WHERE o.provider_id = $1
+         AND o.is_active = TRUE
+         AND o.is_temporarily_paused = FALSE
+         AND o.moderation_status = 'approved'
+       ORDER BY o.created_at DESC`,
+      [Number(providerId)]
+    );
+    const promotionsR = await client.query(
+      `SELECT *
+       FROM service_promotions
+       WHERE provider_id = $1
+         AND is_active = TRUE
+         AND starts_at <= NOW()
+         AND ends_at >= NOW()
+       ORDER BY starts_at DESC`,
+      [Number(providerId)]
+    );
+    const portfolioR = await client.query(
+      `SELECT *
+       FROM service_portfolio_items
+       WHERE provider_id = $1
+       ORDER BY is_pinned DESC, sort_order ASC, id DESC
+       LIMIT 100`,
+      [Number(providerId)]
+    );
+    const reviewsR = await client.query(
+      `SELECT
+         r.*,
+         u.full_name AS customer_full_name,
+         u.image_url AS customer_image_url
+       FROM service_reviews r
+       JOIN app_user u ON u.id = r.customer_user_id
+       WHERE r.provider_id = $1
+       ORDER BY r.created_at DESC
+       LIMIT 80`,
+      [Number(providerId)]
+    );
 
     const offerings = offeringsR.rows.map(mapOffering);
     const offeringIds = offerings.map((x) => x.id);
-    const [pricingMap, mediaMap] = await Promise.all([
-      fetchPricingMap(client, offeringIds),
-      fetchMediaMap(client, offeringIds),
-    ]);
+    const pricingMap = await fetchPricingMap(client, offeringIds);
+    const mediaMap = await fetchMediaMap(client, offeringIds);
 
     return {
       ...provider,
@@ -1302,23 +1295,21 @@ export async function getPublicOfferingById(offeringId) {
       return null;
     }
 
-    const [pricingMap, mediaMap, promoMap, reviewsR] = await Promise.all([
-      fetchPricingMap(client, [offering.id]),
-      fetchMediaMap(client, [offering.id]),
-      fetchActivePromotionMap(client, [offering.providerId]),
-      client.query(
-        `SELECT
-           r.*,
-           u.full_name AS customer_full_name,
-           u.image_url AS customer_image_url
-         FROM service_reviews r
-         JOIN app_user u ON u.id = r.customer_user_id
-         WHERE r.offering_id = $1
-         ORDER BY r.created_at DESC
-         LIMIT 40`,
-        [offering.id]
-      ),
-    ]);
+    const pricingMap = await fetchPricingMap(client, [offering.id]);
+    const mediaMap = await fetchMediaMap(client, [offering.id]);
+    const promoMap = await fetchActivePromotionMap(client, [offering.providerId]);
+    const reviewsR = await client.query(
+      `SELECT
+         r.*,
+         u.full_name AS customer_full_name,
+         u.image_url AS customer_image_url
+       FROM service_reviews r
+       JOIN app_user u ON u.id = r.customer_user_id
+       WHERE r.offering_id = $1
+       ORDER BY r.created_at DESC
+       LIMIT 40`,
+      [offering.id]
+    );
 
     return {
       ...offering,
@@ -1762,10 +1753,8 @@ async function getOfferingForProvider(client, providerId, offeringId) {
   );
   const offering = mapOffering(r.rows[0] || null);
   if (!offering) return null;
-  const [pricingMap, mediaMap] = await Promise.all([
-    fetchPricingMap(client, [offering.id]),
-    fetchMediaMap(client, [offering.id]),
-  ]);
+  const pricingMap = await fetchPricingMap(client, [offering.id]);
+  const mediaMap = await fetchMediaMap(client, [offering.id]);
   return {
     ...offering,
     pricingOptions: pricingMap.get(offering.id) || [],
@@ -2405,11 +2394,9 @@ async function listHistoryMap(client, requestIds = []) {
 
 async function hydrateRequests(client, rows = []) {
   const ids = rows.map((x) => Number(x.id));
-  const [attachmentsMap, quotesMap, historyMap] = await Promise.all([
-    listAttachmentsMap(client, ids),
-    listQuotesMap(client, ids),
-    listHistoryMap(client, ids),
-  ]);
+  const attachmentsMap = await listAttachmentsMap(client, ids);
+  const quotesMap = await listQuotesMap(client, ids);
+  const historyMap = await listHistoryMap(client, ids);
   return rows.map((row) => ({
     ...mapRequest(row),
     attachments: attachmentsMap.get(Number(row.id)) || [],
@@ -3728,76 +3715,71 @@ export async function listProviderWorkspace(userId) {
   try {
     const provider = await getProviderByUserId(client, userId);
     if (!provider) return null;
-    const [areasR, availabilityR, offeringsR, requestsCountsR, promotionsR, portfolioR] =
-      await Promise.all([
-        client.query(
-          `SELECT city, area, note
-           FROM service_provider_areas
-           WHERE provider_id = $1
-           ORDER BY city ASC, area ASC NULLS LAST`,
-          [provider.id]
-        ),
-        client.query(
-          `SELECT day_of_week, start_time, end_time, is_active
-           FROM service_provider_availability_rules
-           WHERE provider_id = $1
-           ORDER BY day_of_week ASC, start_time ASC`,
-          [provider.id]
-        ),
-        client.query(
-          `SELECT
-             o.*,
-             mc.name AS main_category_name,
-             sc.name AS subcategory_name,
-             p.business_name AS provider_business_name,
-             p.city AS provider_city,
-             p.area AS provider_area,
-             p.rating_avg AS provider_rating_avg,
-             p.rating_count AS provider_rating_count,
-             p.completed_orders_count AS provider_completed_orders_count,
-             p.has_emergency_service AS provider_has_emergency_service,
-             p.is_featured AS provider_is_featured,
-             p.logo_url AS provider_logo_url,
-             p.provider_approval_status AS provider_approval_status,
-             p.average_response_minutes AS provider_average_response_minutes,
-             p.is_temporarily_paused AS provider_is_temporarily_paused
-           FROM service_offerings o
-           JOIN service_provider_profiles p ON p.id = o.provider_id
-           LEFT JOIN service_categories mc ON mc.id = o.main_category_id
-           LEFT JOIN service_categories sc ON sc.id = o.subcategory_id
-           WHERE o.provider_id = $1
-           ORDER BY o.updated_at DESC, o.id DESC`,
-          [provider.id]
-        ),
-        client.query(
-          `SELECT status, COUNT(*)::int AS count
-           FROM service_requests
-           WHERE provider_id = $1
-           GROUP BY status`,
-          [provider.id]
-        ),
-        client.query(
-          `SELECT *
-           FROM service_promotions
-           WHERE provider_id = $1
-           ORDER BY created_at DESC`,
-          [provider.id]
-        ),
-        client.query(
-          `SELECT *
-           FROM service_portfolio_items
-           WHERE provider_id = $1
-           ORDER BY is_pinned DESC, sort_order ASC, id DESC`,
-          [provider.id]
-        ),
-      ]);
+    const areasR = await client.query(
+      `SELECT city, area, note
+       FROM service_provider_areas
+       WHERE provider_id = $1
+       ORDER BY city ASC, area ASC NULLS LAST`,
+      [provider.id]
+    );
+    const availabilityR = await client.query(
+      `SELECT day_of_week, start_time, end_time, is_active
+       FROM service_provider_availability_rules
+       WHERE provider_id = $1
+       ORDER BY day_of_week ASC, start_time ASC`,
+      [provider.id]
+    );
+    const offeringsR = await client.query(
+      `SELECT
+         o.*,
+         mc.name AS main_category_name,
+         sc.name AS subcategory_name,
+         p.business_name AS provider_business_name,
+         p.city AS provider_city,
+         p.area AS provider_area,
+         p.rating_avg AS provider_rating_avg,
+         p.rating_count AS provider_rating_count,
+         p.completed_orders_count AS provider_completed_orders_count,
+         p.has_emergency_service AS provider_has_emergency_service,
+         p.is_featured AS provider_is_featured,
+         p.logo_url AS provider_logo_url,
+         p.provider_approval_status AS provider_approval_status,
+         p.average_response_minutes AS provider_average_response_minutes,
+         p.is_temporarily_paused AS provider_is_temporarily_paused
+       FROM service_offerings o
+       JOIN service_provider_profiles p ON p.id = o.provider_id
+       LEFT JOIN service_categories mc ON mc.id = o.main_category_id
+       LEFT JOIN service_categories sc ON sc.id = o.subcategory_id
+       WHERE o.provider_id = $1
+       ORDER BY o.updated_at DESC, o.id DESC`,
+      [provider.id]
+    );
+    const requestsCountsR = await client.query(
+      `SELECT status, COUNT(*)::int AS count
+       FROM service_requests
+       WHERE provider_id = $1
+       GROUP BY status`,
+      [provider.id]
+    );
+    const promotionsR = await client.query(
+      `SELECT *
+       FROM service_promotions
+       WHERE provider_id = $1
+       ORDER BY created_at DESC`,
+      [provider.id]
+    );
+    const portfolioR = await client.query(
+      `SELECT *
+       FROM service_portfolio_items
+       WHERE provider_id = $1
+       ORDER BY is_pinned DESC, sort_order ASC, id DESC`,
+      [provider.id]
+    );
 
     const offerings = offeringsR.rows.map(mapOffering);
     const offeringIds = offerings.map((x) => x.id);
-    const [pricingMap, mediaMap] = await Promise.all([
-      fetchPricingMap(client, offeringIds),
-      fetchMediaMap(client, offeringIds),
-    ]);
+    const pricingMap = await fetchPricingMap(client, offeringIds);
+    const mediaMap = await fetchMediaMap(client, offeringIds);
 
     const requestCounts = {};
     for (const row of requestsCountsR.rows) {
@@ -4212,10 +4194,8 @@ export async function listSavedOfferings(userId, { limit = 40, offset = 0 } = {}
     );
     const offerings = r.rows.map(mapOffering);
     const ids = offerings.map((x) => x.id);
-    const [pricingMap, mediaMap] = await Promise.all([
-      fetchPricingMap(client, ids),
-      fetchMediaMap(client, ids),
-    ]);
+    const pricingMap = await fetchPricingMap(client, ids);
+    const mediaMap = await fetchMediaMap(client, ids);
     return offerings.map((offering) => ({
       ...offering,
       pricingOptions: pricingMap.get(offering.id) || [],
@@ -5190,10 +5170,8 @@ export async function listOfferingsForAdmin({ status = 'pending', limit = 40, of
     );
     const offerings = r.rows.map(mapOffering);
     const ids = offerings.map((x) => x.id);
-    const [pricingMap, mediaMap] = await Promise.all([
-      fetchPricingMap(client, ids),
-      fetchMediaMap(client, ids),
-    ]);
+    const pricingMap = await fetchPricingMap(client, ids);
+    const mediaMap = await fetchMediaMap(client, ids);
     return offerings.map((offering) => ({
       ...offering,
       pricingOptions: pricingMap.get(offering.id) || [],
