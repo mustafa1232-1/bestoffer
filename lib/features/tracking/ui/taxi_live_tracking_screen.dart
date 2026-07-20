@@ -55,7 +55,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   bool _lifecycleResumed = true;
   bool _submitting = false;
   bool _returnedToTaxiHome = false;
-  late final VoidCallback _sessionInvalidationListener;
+  late final VoidCallback _sessionRecoveryListener;
 
   TaxiApi get _taxiApi => ref.read(taxiApiProvider);
 
@@ -66,8 +66,8 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _sessionInvalidationListener = _handleSessionInvalidation;
-    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+    _sessionRecoveryListener = _handleSessionRecovery;
+    SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
     _envelope = widget.initialEnvelope;
     _loading = widget.initialEnvelope == null;
     unawaited(_load(silent: widget.initialEnvelope != null));
@@ -80,9 +80,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    SessionInvalidationBus.instance.removeListener(
-      _sessionInvalidationListener,
-    );
+    SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
     _stopLiveUpdates();
     super.dispose();
   }
@@ -100,14 +98,17 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     }
   }
 
-  void _handleSessionInvalidation() {
+  /// Re-syncs live ride tracking after a silent session recovery.
+  ///
+  /// Recovery is not a logout: dropping the envelope here used to blank the
+  /// map mid-ride, so the current ride is kept and only the live updates are
+  /// re-armed.
+  void _handleSessionRecovery() {
     if (!mounted) return;
-    _stopLiveUpdates();
-    setState(() {
-      _envelope = null;
-      _loading = false;
-      _error = null;
-    });
+    if (taxiTrackingIsActive(_envelope)) {
+      _startLiveUpdates();
+      unawaited(_load(silent: true));
+    }
   }
 
   void _startLiveUpdates() {

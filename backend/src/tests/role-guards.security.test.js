@@ -26,17 +26,23 @@ test("requireCustomer allows only user role", async () => {
   assert.equal(captainError?.message, "FORBIDDEN_CUSTOMER_ONLY");
 });
 
-test("requireTaxiCaptain rejects generic delivery and allows captain identities only", async () => {
+test("requireTaxiCaptain rejects every delivery identity and allows captains only", async () => {
   assert.equal(
     await invokeMiddleware(requireTaxiCaptain, { userRole: "taxi_captain" }),
     null
   );
+
+  // Taxi and delivery are separate accounts (migration 159). `is_taxi_captain`
+  // is derived as `EXISTS(taxi_captain_profile) AND role = 'taxi_captain'`, so a
+  // delivery-role identity can never carry the captain flag — and must not reach
+  // captain-only endpoints even if a legacy taxi profile still exists for it.
+  const legacyDeliveryWithTaxiProfileError = await invokeMiddleware(
+    requireTaxiCaptain,
+    { userRole: "delivery", userIsTaxiCaptain: true }
+  );
   assert.equal(
-    await invokeMiddleware(requireTaxiCaptain, {
-      userRole: "delivery",
-      userIsTaxiCaptain: true,
-    }),
-    null
+    legacyDeliveryWithTaxiProfileError?.message,
+    "FORBIDDEN_TAXI_CAPTAIN_ONLY"
   );
 
   const genericDeliveryError = await invokeMiddleware(requireTaxiCaptain, {

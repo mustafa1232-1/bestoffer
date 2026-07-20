@@ -53,6 +53,10 @@ function mockMessaging() {
   };
 }
 
+// Own namespace: test files run in parallel processes and must not delete each
+// other's seeded merchants during teardown.
+const FIXTURE_MARK = "fixt_coe2e_";
+
 async function jobRow(client, orderGroupId) {
   return (
     await client.query("SELECT * FROM delivery_job WHERE order_group_id=$1", [
@@ -75,11 +79,11 @@ test("E2E: real checkout → store acceptance → grouped worker assigns one cou
     // by updateOwnerOrderStatus after commit) settle before we delete rows, so
     // its in-flight grouped pass does not race the teardown.
     await new Promise((r) => setTimeout(r, 500));
-    await cleanupCheckoutFixture(client).catch(() => {});
+    await cleanupCheckoutFixture(client, FIXTURE_MARK).catch(() => {});
     client.release();
   });
 
-  const fx = await createRealMultiStoreCheckout(client);
+  const fx = await createRealMultiStoreCheckout(client, { mark: FIXTURE_MARK });
   assert.equal(fx.childOrderIds.length, 2, "two child orders created");
 
   // Seed the courier's push targets + Firebase mock BEFORE assignment, because
@@ -91,14 +95,14 @@ test("E2E: real checkout → store acceptance → grouped worker assigns one cou
       await client.query(
         `INSERT INTO user_session (user_id, refresh_token, expires_at)
          VALUES ($1,$2, NOW() + INTERVAL '1 day') RETURNING id`,
-        [fx.courierId, `fixt_co_sess_${fx.courierId}`]
+        [fx.courierId, `${FIXTURE_MARK}sess_${fx.courierId}`]
       )
     ).rows[0].id
   );
   await client.query(
     `INSERT INTO user_push_token (user_id, push_token, app_surface, is_active, auth_session_id, locale)
      VALUES ($1,$2,'delivery',TRUE,$3,'ar'), ($1,$4,'store',TRUE,$3,'ar')`,
-    [fx.courierId, `fixt_co_tokD_${fx.courierId}`, sid, `fixt_co_tokS_${fx.courierId}`]
+    [fx.courierId, `${FIXTURE_MARK}tokD_${fx.courierId}`, sid, `${FIXTURE_MARK}tokS_${fx.courierId}`]
   );
   __setFirebaseMessagingForTests(mockMessaging());
 

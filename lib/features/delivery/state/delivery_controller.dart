@@ -156,12 +156,13 @@ class DeliveryController extends StateNotifier<DeliveryState>
   bool _disposed = false;
   int _livePollingSubscribers = 0;
   bool _lifecycleResumed = true;
-  late final VoidCallback _sessionInvalidationListener;
+  bool _recoveryResyncInFlight = false;
+  late final VoidCallback _sessionRecoveryListener;
 
   DeliveryController(this.ref) : super(const DeliveryState()) {
     WidgetsBinding.instance.addObserver(this);
-    _sessionInvalidationListener = _handleSessionInvalidation;
-    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+    _sessionRecoveryListener = _handleSessionRecovery;
+    SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
     _lifecycleResumed =
         WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
@@ -185,14 +186,28 @@ class DeliveryController extends StateNotifier<DeliveryState>
     state = nextState;
   }
 
-  void _handleSessionInvalidation() {
+  /// Re-syncs delivery data after the session was silently recovered.
+  ///
+  /// Recovery is not a logout: the assigned order, the current list, presence
+  /// and polling must all survive it. Clearing state here used to blank the
+  /// courier screen mid-delivery, so this path only re-arms the background
+  /// work and never resets [DeliveryState].
+  void _handleSessionRecovery() {
     if (_disposed) return;
-    stopLiveOrders(force: true);
-    stopPresenceHeartbeat();
+    if (!_canRunDeliveryPolling()) return;
+    // Drop the in-flight guards: the requests they were protecting died with
+    // the stale token, so leaving them set would block the resync below.
     _liveFetchInFlight = false;
     _presenceSyncInFlight = false;
-    _lastPresenceSyncAt = null;
-    _setStateSafely(const DeliveryState());
+    // Duplicate recovery ticks must not stack timers or resync bursts.
+    if (_recoveryResyncInFlight) return;
+    _recoveryResyncInFlight = true;
+    startPresenceHeartbeat();
+    unawaited(
+      refreshCurrentOrders(silent: true, forcePresenceSync: true).whenComplete(
+        () => _recoveryResyncInFlight = false,
+      ),
+    );
   }
 
   bool _canRunDeliveryPolling() {
@@ -405,6 +420,13 @@ class DeliveryController extends StateNotifier<DeliveryState>
     _presenceHeartbeatTimer?.cancel();
     _presenceHeartbeatTimer = null;
   }
+
+  /// Whether the presence heartbeat is currently armed.
+  ///
+  /// Exposed so recovery regression tests can assert the heartbeat survives a
+  /// session recovery instead of being torn down.
+  @visibleForTesting
+  bool get presenceHeartbeatActive => _presenceHeartbeatTimer != null;
 
   Future<void> syncCourierPresenceForTesting({
     bool force = false,
@@ -999,9 +1021,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
   void dispose() {
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
-    SessionInvalidationBus.instance.removeListener(
-      _sessionInvalidationListener,
-    );
+    SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
     stopLiveOrders(force: true);
     stopPresenceHeartbeat();
     super.dispose();

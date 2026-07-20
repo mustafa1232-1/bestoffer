@@ -10,6 +10,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
+import 'package:maslaki/core/network/session_invalidation.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
 import 'package:maslaki/features/taxi/data/taxi_route_service.dart';
 import 'package:maslaki/features/taxi/ui/taxi_captain_dashboard_screen.dart';
@@ -105,9 +106,11 @@ class _FakeTaxiApi extends TaxiApi {
 
   Map<String, dynamic>? currentRideEnvelope;
   final List<int> acceptedCustomerFareRideIds = [];
+  int currentRideCalls = 0;
 
   @override
   Future<Map<String, dynamic>?> getCurrentRideForCaptain() async {
+    currentRideCalls += 1;
     return currentRideEnvelope;
   }
 
@@ -301,6 +304,95 @@ void main() {
   tearDownAll(() {
     HttpOverrides.global = null;
     GeolocatorPlatform.instance = previousGeolocatorPlatform;
+  });
+
+  testWidgets('session recovery keeps the active ride and re-syncs it', (
+    tester,
+  ) async {
+    final api = _FakeTaxiApi(
+      nearbyRequests: [_nearbyRequest()],
+      dashboard: {
+        'metrics': {
+          'day': {'ridesCount': 0},
+        },
+      },
+      profile: {
+        'profile': {
+          'id': 42,
+          'fullName': 'Taxi Captain Test',
+          'phone': '07800000000',
+          'carMake': 'Toyota',
+          'carModel': 'Corolla',
+          'carYear': 2022,
+          'carColor': 'Silver',
+          'plateNumber': 'TX-001',
+          'vehicleType': 'sedan',
+          'isActive': true,
+          'taxiAccountApproved': true,
+          'ratingAvg': 4.8,
+          'ridesCount': 12,
+        },
+      },
+      subscription: {
+        'subscription': {
+          'canAccess': true,
+          'phase': 'trial',
+          'monthlyFeeIqd': 10000,
+          'discountedMonthlyFeeIqd': 0,
+        },
+      },
+    );
+    // The captain is mid-ride when the session is silently recovered.
+    api.currentRideEnvelope = {
+      'ride': {
+        'id': 555,
+        'status': 'captain_assigned',
+        'assignedCaptainUserId': 42,
+        'customerUserId': 7,
+        'pickup': {
+          'latitude': 33.31456,
+          'longitude': 44.36611,
+          'label': 'Bismayah Gate',
+        },
+        'dropoff': {
+          'latitude': 33.32091,
+          'longitude': 44.39118,
+          'label': 'Central Mall',
+        },
+        'proposedFareIqd': 15000,
+        'agreedFareIqd': 15000,
+        'captain': {
+          'fullName': 'Captain Noor',
+          'phone': '07711111111',
+          'carMake': 'Toyota',
+          'carModel': 'Corolla',
+          'carYear': 2022,
+          'plateNumber': 'TX-001',
+          'carColor': 'Silver',
+        },
+      },
+      'bids': const <Map<String, dynamic>>[],
+    };
+
+    await _pumpScreen(tester, api);
+
+    // An active ride suppresses new request cards.
+    expect(find.text('Accept customer fare'), findsNothing);
+    final callsBeforeRecovery = api.currentRideCalls;
+
+    SessionRecoveryBus.instance.requestRecovery();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Recovery must not drop the captain out of the ride, and must not start
+    // surfacing new requests while that ride is still active.
+    expect(tester.takeException(), isNull);
+    expect(find.text('Accept customer fare'), findsNothing);
+    expect(
+      api.currentRideCalls,
+      greaterThan(callsBeforeRecovery),
+      reason: 'recovery must re-sync the current ride in the background',
+    );
   });
 
   testWidgets('captain request card exposes accept customer fare action', (

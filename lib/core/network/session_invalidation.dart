@@ -30,6 +30,10 @@ class SessionRecoveryBus extends ChangeNotifier {
   void invalidate() {}
 }
 
+@Deprecated(
+  'Use SessionRecoveryBus. This bus never means logout: listeners must resync, '
+  'not clear state.',
+)
 typedef SessionInvalidationBus = SessionRecoveryBus;
 
 /// Coordinates auth recovery decisions. It does not own logout and never clears

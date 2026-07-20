@@ -71,6 +71,15 @@ async function seedFixture() {
     phone: makePhone('078'),
     username: makeUsername('cust'),
   });
+  // Seed the approver instead of assuming user id 1 exists: a freshly migrated
+  // QA database has no admin row, and the hardcoded id violated
+  // service_provider_profiles_approved_by_user_id_fkey (23503).
+  const approverUser = await createAuthUser({
+    role: 'admin',
+    fullName: makeSeed('approver').slice(0, 20),
+    phone: makePhone('079'),
+    username: makeUsername('appr'),
+  });
 
   const provider = await createProviderProfile({
     userId: Number(providerUser.id),
@@ -102,7 +111,7 @@ async function seedFixture() {
     },
     moderation: {
       approvalStatus: 'approved',
-      approvedByUserId: 1,
+      approvedByUserId: Number(approverUser.id),
       approvedAt: new Date().toISOString(),
     },
   });
@@ -153,6 +162,7 @@ async function seedFixture() {
   return {
     providerUser,
     customerUser,
+    approverUser,
     provider,
     offering,
   };
@@ -197,9 +207,10 @@ async function cleanupFixture(fixture, requestIds = []) {
   await q(`DELETE FROM service_provider_profiles WHERE id = $1`, [providerId]).catch(
     () => {}
   );
-  await q(`DELETE FROM app_user WHERE id IN ($1, $2)`, [
+  await q(`DELETE FROM app_user WHERE id IN ($1, $2, $3)`, [
     providerUserId,
     customerUserId,
+    Number(fixture.approverUser.id),
   ]).catch(() => {});
 }
 

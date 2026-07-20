@@ -218,7 +218,9 @@ test("taxi captain eligibility requires approved, online, and complete profile",
     car_model: "Corolla",
     car_color: "White",
     plate_number: "BGD-123",
-    delivery_account_approved: true,
+    // Migration 159 split taxi approval away from the courier flag: a captain
+    // is eligible only when the taxi account itself is approved.
+    taxi_account_approved: true,
     is_active: true,
     rating_avg: 4.8,
     rides_count: 29,

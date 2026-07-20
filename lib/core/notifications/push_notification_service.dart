@@ -166,22 +166,27 @@ class PushNotificationService {
   final NotificationsApi api;
   final LocalNotificationService local;
   final SecureStore store;
-  late final VoidCallback _sessionInvalidationListener;
+  late final VoidCallback _sessionRecoveryListener;
 
   PushNotificationService({
     required this.api,
     required this.local,
     required this.store,
   }) {
-    _sessionInvalidationListener = () {
-      _activeUserId = null;
+    _sessionRecoveryListener = () {
+      // Recovery is not a logout: keep the bound user and re-register the push
+      // token against the recovered session. Dropping the user id and killing
+      // the heartbeat here left the device unreachable for push until the next
+      // cold start.
       _tokenSyncInFlight = false;
       _lastSyncedToken = null;
       _lastSyncedAt = null;
-      _tokenHeartbeatTimer?.cancel();
-      _tokenHeartbeatTimer = null;
+      final userId = _activeUserId;
+      if (userId != null) {
+        unawaited(syncToken(userId: userId));
+      }
     };
-    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+    SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
   }
 
   final StreamController<NotificationTapPayload> _tapController =
@@ -480,7 +485,7 @@ class PushNotificationService {
   }
 
   void dispose() {
-    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
+    SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
     _tokenHeartbeatTimer?.cancel();
     _tokenRefreshSub?.cancel();
     _foregroundSub?.cancel();

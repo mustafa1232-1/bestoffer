@@ -8,12 +8,27 @@
 //
 // Seed rows are marked `fixt_co_` for idempotent teardown.
 
+import crypto from "node:crypto";
+
 import { pool } from "../../config/db.js";
 import { createOrderGroupWithItems } from "../../modules/orders/orders.repo.js";
 
-const MARK = "fixt_co_";
+const DEFAULT_MARK = "fixt_co_";
 
-export async function cleanupCheckoutFixture(client) {
+// The node test runner executes test files in parallel processes. Two files
+// sharing one mark made each file's teardown delete the other file's merchant
+// mid-checkout (FK 23503 on customer_order.merchant_id), so every consumer must
+// own a distinct namespace.
+function resolveMark(mark) {
+  const normalized = String(mark || DEFAULT_MARK);
+  if (!/^[a-z0-9_]+_$/.test(normalized)) {
+    throw new Error(`INVALID_FIXTURE_MARK: ${normalized}`);
+  }
+  return normalized;
+}
+
+export async function cleanupCheckoutFixture(client, mark) {
+  const MARK = resolveMark(mark);
   await client.query(
     `DELETE FROM delivery_pickup_stop WHERE child_order_id IN
        (SELECT id FROM customer_order WHERE customer_full_name LIKE '${MARK}%')`
@@ -71,7 +86,17 @@ export async function cleanupCheckoutFixture(client) {
   await client.query(`DELETE FROM app_user WHERE username LIKE '${MARK}%'`);
 }
 
-async function insertUser(client, { role, name, suffix }) {
+// app_user.phone is globally unique, so it has to be namespaced by mark too --
+// otherwise two parallel fixture consumers collide on the same seeded number.
+function markedPhone(MARK, suffix) {
+  const digest = crypto
+    .createHash("sha1")
+    .update(`${MARK}${suffix}`)
+    .digest("hex");
+  return `07${BigInt(`0x${digest.slice(0, 10)}`)}`.slice(0, 15);
+}
+
+async function insertUser(client, { role, name, suffix, mark: MARK }) {
   return Number(
     (
       await client.query(
@@ -79,13 +104,13 @@ async function insertUser(client, { role, name, suffix }) {
            (full_name, phone, pin_hash, block, building_number, apartment, username, role)
          VALUES ($1,$2,'x',$3,$4,$5,$6,$7)
          RETURNING id`,
-        [name, `0${suffix}`.slice(0, 15), "A101", "1", "1", `${MARK}${suffix}`, role]
+        [name, markedPhone(MARK, suffix), "A101", "1", "1", `${MARK}${suffix}`, role]
       )
     ).rows[0].id
   );
 }
 
-async function insertMerchantWithProduct(client, { owner, storeName, suffix }) {
+async function insertMerchantWithProduct(client, { owner, storeName, suffix, mark: MARK }) {
   const merchantId = Number(
     (
       await client.query(
@@ -114,32 +139,47 @@ async function insertMerchantWithProduct(client, { owner, storeName, suffix }) {
  */
 export async function createRealMultiStoreCheckout(
   client,
-  { courierOnline = true, presenceAgeSec = 5 } = {}
+  { courierOnline = true, presenceAgeSec = 5, mark } = {}
 ) {
-  await cleanupCheckoutFixture(client);
+  const MARK = resolveMark(mark);
+  await cleanupCheckoutFixture(client, MARK);
 
   const customerId = await insertUser(client, {
     role: "user",
     name: `${MARK}customer`,
     suffix: "cust",
+    mark: MARK,
   });
-  const owner1 = await insertUser(client, { role: "owner", name: `${MARK}o1`, suffix: "own1" });
-  const owner2 = await insertUser(client, { role: "owner", name: `${MARK}o2`, suffix: "own2" });
+  const owner1 = await insertUser(client, {
+    role: "owner",
+    name: `${MARK}o1`,
+    suffix: "own1",
+    mark: MARK,
+  });
+  const owner2 = await insertUser(client, {
+    role: "owner",
+    name: `${MARK}o2`,
+    suffix: "own2",
+    mark: MARK,
+  });
   const courierId = await insertUser(client, {
     role: "delivery",
     name: `${MARK}courier`,
     suffix: "cour",
+    mark: MARK,
   });
 
   const store1 = await insertMerchantWithProduct(client, {
     owner: owner1,
     storeName: `${MARK}store1`,
     suffix: "s1",
+    mark: MARK,
   });
   const store2 = await insertMerchantWithProduct(client, {
     owner: owner2,
     storeName: `${MARK}store2`,
     suffix: "s2",
+    mark: MARK,
   });
 
   await client.query(

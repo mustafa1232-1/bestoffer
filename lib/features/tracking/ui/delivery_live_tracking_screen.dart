@@ -46,7 +46,7 @@ class _DeliveryLiveTrackingScreenState
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
   bool _lifecycleResumed = true;
-  late final VoidCallback _sessionInvalidationListener;
+  late final VoidCallback _sessionRecoveryListener;
 
   bool get _isPublic => widget.publicToken != null;
 
@@ -54,8 +54,8 @@ class _DeliveryLiveTrackingScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _sessionInvalidationListener = _handleSessionInvalidation;
-    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+    _sessionRecoveryListener = _handleSessionRecovery;
+    SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
     unawaited(_load());
     _startLiveUpdates();
   }
@@ -63,9 +63,7 @@ class _DeliveryLiveTrackingScreenState
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    SessionInvalidationBus.instance.removeListener(
-      _sessionInvalidationListener,
-    );
+    SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
     _stopLiveUpdates();
     super.dispose();
   }
@@ -83,14 +81,17 @@ class _DeliveryLiveTrackingScreenState
     }
   }
 
-  void _handleSessionInvalidation() {
+  /// Re-syncs live order tracking after a silent session recovery.
+  ///
+  /// Recovery is not a logout: dropping the snapshot here used to blank the
+  /// tracking map mid-delivery, so it is kept and only the live updates are
+  /// re-armed.
+  void _handleSessionRecovery() {
     if (!mounted) return;
-    _stopLiveUpdates();
-    setState(() {
-      _snapshot = null;
-      _loading = false;
-      _error = null;
-    });
+    if (orderTrackingIsActive(_snapshot)) {
+      _startLiveUpdates();
+      unawaited(_load(silent: true));
+    }
   }
 
   void _startLiveUpdates() {
