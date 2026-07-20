@@ -297,14 +297,24 @@ export async function deleteAddress(req, res, next) {
 }
 
 async function resolveOptionalAuth(req) {
-  try {
-    const auth = await resolveAccessAuth(req, { strict: false });
-    if (!auth) return null;
-    return {
-      userId: auth.userId,
-      sessionId: auth.sessionId || null,
-    };
-  } catch (_) {
-    return null;
+  const authorization = String(req?.headers?.authorization || "");
+  const hasBearer = authorization.startsWith("Bearer ");
+  const attempts = hasBearer ? 3 : 1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const auth = await resolveAccessAuth(req, { strict: false });
+      if (auth) {
+        return {
+          userId: auth.userId,
+          sessionId: auth.sessionId || null,
+        };
+      }
+    } catch (_) {
+      // Logout routes are idempotent; invalid tokens still resolve as no-op.
+    }
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+    }
   }
+  return null;
 }
