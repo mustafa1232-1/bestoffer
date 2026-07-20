@@ -645,10 +645,10 @@ export async function logout(userId, sessionId) {
     sessionId,
     reason: "logout",
   });
+  await markSessionRevoked(sessionId);
+  invalidateSessionAccessCacheForSession({ userId, sessionId });
   if (revoked) {
     await deactivatePushTokensForSession(userId, sessionId);
-    await markSessionRevoked(sessionId);
-    invalidateSessionAccessCacheForSession({ userId, sessionId });
   }
   return { revoked: !!revoked };
 }
