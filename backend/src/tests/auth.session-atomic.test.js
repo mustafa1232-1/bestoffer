@@ -24,6 +24,11 @@ function token(label) {
   return `${label}_${crypto.randomBytes(32).toString("base64url")}`;
 }
 
+function decodeClaims(accessToken) {
+  const payload = String(accessToken || "").split(".")[1] || "";
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+}
+
 async function createSessionFixture(label) {
   const suffix = uniqueSuffix();
   const user = await createUser({
@@ -232,6 +237,10 @@ test("legacy delivery account with a taxi profile stays delivery after refresh a
       ipAddress: "127.0.0.1",
     });
     assert.equal(refreshed.user.role, "delivery");
+    // sessionAuthSelect drives both paths. If its is_taxi_captain lacks the
+    // role guard, the refreshed access token claims a captain identity for a
+    // courier and the account drifts off the delivery surface.
+    assert.equal(decodeClaims(refreshed.token).tc, false);
 
     const recovered = await authService.recoverSession(
       {
@@ -247,6 +256,7 @@ test("legacy delivery account with a taxi profile stays delivery after refresh a
       }
     );
     assert.equal(recovered.user.role, "delivery");
+    assert.equal(decodeClaims(recovered.token).tc, false);
 
     const row = (
       await q(`SELECT app_surface, is_revoked FROM user_session WHERE id=$1`, [
