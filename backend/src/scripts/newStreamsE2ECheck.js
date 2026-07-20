@@ -92,9 +92,7 @@ async function main() {
     env.superAdminPin,
     "super admin login"
   );
-  console.log(
-    `[e2e:new-streams] super admin ready -> userId=${admin.userId}, phone=${env.superAdminPhone}`
-  );
+  console.log(`[e2e:new-streams] super admin ready -> userId=${admin.userId}`);
 
   await registerCustomer(
     customer,
@@ -111,9 +109,7 @@ async function main() {
     "customer register"
   );
   await login(customer, baseUrl, customerPhone, customerPin, "customer login");
-  console.log(
-    `[e2e:new-streams] customer ready -> userId=${customer.userId}, phone=${customerPhone}`
-  );
+  console.log(`[e2e:new-streams] customer ready -> userId=${customer.userId}`);
 
   // Residence change
   const residenceBefore = await request(

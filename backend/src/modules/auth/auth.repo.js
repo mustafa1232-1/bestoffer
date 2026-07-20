@@ -558,7 +558,7 @@ export async function revokeUserSession({
   return r.rows[0] || null;
 }
 
-export async function revokeAllUserSessions({
+export async function revokeAllUserSessionsDetailed({
   userId,
   exceptSessionId = null,
   reason = "logout_all",
@@ -575,8 +575,17 @@ export async function revokeAllUserSessions({
     params.push(Number(exceptSessionId));
     sql += ` AND id <> $3`;
   }
+  sql += ` RETURNING id`;
   const r = await q(sql, params);
-  return r.rowCount || 0;
+  return {
+    revokedCount: r.rowCount || 0,
+    revokedSessionIds: r.rows.map((row) => Number(row.id)).filter((id) => id > 0),
+  };
+}
+
+export async function revokeAllUserSessions(options) {
+  const out = await revokeAllUserSessionsDetailed(options);
+  return out.revokedCount;
 }
 
 export async function listUserActiveSessions(userId) {

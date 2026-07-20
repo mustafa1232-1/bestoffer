@@ -13,7 +13,7 @@ import {
   pruneUserSessions,
   registerFailedLoginAttempt,
   resetLoginProtection,
-  revokeAllUserSessions,
+  revokeAllUserSessionsDetailed,
   revokeUserSession,
   rotateUserSessionTokens,
   setCustomerDefaultAddress,
@@ -42,7 +42,6 @@ import {
   invalidateSessionAccessCacheForSession,
   invalidateSessionAccessCacheForUser,
   markSessionRevoked,
-  markUserSessionsRevokedAfter,
 } from "../../shared/middleware/access-auth.js";
 
 const APP_USER_USERNAME_MAX_LENGTH = 24;
@@ -246,6 +245,16 @@ function createRefreshToken() {
 
 function createTokenJti() {
   return crypto.randomBytes(18).toString("base64url");
+}
+
+async function markRevokedSessionsInCache(sessionIds = []) {
+  const ids = Array.isArray(sessionIds)
+    ? sessionIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    : [];
+  if (ids.length === 0) return;
+  await Promise.all(ids.map((sessionId) => markSessionRevoked(sessionId)));
 }
 
 async function issueSessionToken(user, deviceContext = {}) {
@@ -614,12 +623,12 @@ export async function updateAccount(userId, dto, { currentSessionId = null } = {
   });
 
   if (nextPin) {
-    await revokeAllUserSessions({
+    const revoked = await revokeAllUserSessionsDetailed({
       userId: user.id,
       exceptSessionId: currentSessionId,
       reason: "pin_changed",
     });
-    await markUserSessionsRevokedAfter(user.id);
+    await markRevokedSessionsInCache(revoked.revokedSessionIds);
     invalidateSessionAccessCacheForUser({
       userId: user.id,
       exceptSessionId: currentSessionId,
@@ -645,18 +654,18 @@ export async function logout(userId, sessionId) {
 }
 
 export async function logoutAll(userId, currentSessionId = null) {
-  const revokedCount = await revokeAllUserSessions({
+  const revoked = await revokeAllUserSessionsDetailed({
     userId,
     exceptSessionId: currentSessionId,
     reason: "logout_all",
   });
-  await markUserSessionsRevokedAfter(userId);
+  await markRevokedSessionsInCache(revoked.revokedSessionIds);
   await deactivatePushTokensForUser(userId);
   invalidateSessionAccessCacheForUser({
     userId,
     exceptSessionId: currentSessionId,
   });
-  return { revokedCount };
+  return { revokedCount: revoked.revokedCount };
 }
 
 export async function listSessions(userId) {
