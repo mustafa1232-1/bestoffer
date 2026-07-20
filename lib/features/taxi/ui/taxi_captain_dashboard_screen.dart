@@ -375,7 +375,8 @@ class _TaxiCaptainDashboardScreenState
   Timer? _ticker;
   StreamSubscription<TaxiLiveEvent>? _streamSub;
   Timer? _streamReconnectTimer;
-  late final VoidCallback _sessionInvalidationListener;
+  late final VoidCallback _sessionRecoveryListener;
+  bool _recoveryResyncInFlight = false;
 
   bool _loading = true;
   bool _sending = false;
@@ -685,8 +686,8 @@ class _TaxiCaptainDashboardScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _sessionInvalidationListener = _handleSessionInvalidation;
-    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+    _sessionRecoveryListener = _handleSessionRecovery;
+    SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
     _applyIntentPreset();
     if (widget.initialIntent == TaxiCaptainDashboardIntent.defaultHome) {
       _tab = widget.initialTab.index;
@@ -703,9 +704,7 @@ class _TaxiCaptainDashboardScreenState
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    SessionInvalidationBus.instance.removeListener(
-      _sessionInvalidationListener,
-    );
+    SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
     _ticker?.cancel();
     _streamSub?.cancel();
     _streamReconnectTimer?.cancel();
@@ -718,30 +717,28 @@ class _TaxiCaptainDashboardScreenState
     if (_lifecycleResumed) unawaited(_tick(full: true));
   }
 
-  void _handleSessionInvalidation() {
+  /// Re-syncs the captain dashboard after a silent session recovery.
+  ///
+  /// Recovery is not a logout: the active ride, its offers, the route points
+  /// and the presence ticker must all survive it. Clearing them used to drop
+  /// the captain out of an in-progress ride and lose tracking, so this path
+  /// only re-arms the stream and refreshes in place.
+  void _handleSessionRecovery() {
     if (!mounted) return;
-    _ticker?.cancel();
-    _ticker = null;
-    _streamSub?.cancel();
-    _streamSub = null;
-    _streamReconnectTimer?.cancel();
-    _streamReconnectTimer = null;
-    setState(() {
-      _currentRideEnvelope = null;
-      _dashboard = null;
-      _profile = null;
-      _subscription = null;
-      _nearby = const [];
-      _routePoints = const [];
-      _captainPoint = null;
-      _lastStreamEventId = null;
-      _lastRealtimeRefreshAt = null;
-      _streamConnected = false;
-      _focusedRideSnapshot = null;
-      _focusedRideUnavailable = false;
-      _loading = false;
-      _error = null;
+    // Duplicate recovery ticks must not stack streams or refresh bursts.
+    if (_recoveryResyncInFlight) return;
+    _recoveryResyncInFlight = true;
+    // The periodic ticker keeps presence alive; only re-arm it if a previous
+    // teardown left it cancelled.
+    _ticker ??= Timer.periodic(const Duration(seconds: 5), (_) async {
+      await _tick();
+      _tickCounter++;
+      if (_tickCounter % 6 == 0) await _refreshMeta();
     });
+    _connectStream();
+    unawaited(
+      _tick(full: true).whenComplete(() => _recoveryResyncInFlight = false),
+    );
   }
 
   /// يحمل بيانات الكابتن، الرحلات الحالية، والـ meta اللازمة لبناء اللوحة.

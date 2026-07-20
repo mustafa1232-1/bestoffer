@@ -118,11 +118,12 @@ class NotificationsController extends StateNotifier<NotificationsState> {
   DateTime? _lastUnreadRefreshAt;
   DateTime? _lastListRefreshAt;
   Future<void>? _unreadRefreshInFlight;
-  late final VoidCallback _sessionInvalidationListener;
+  late final VoidCallback _sessionRecoveryListener;
+  bool _recoveryResyncInFlight = false;
 
   NotificationsController(this.ref) : super(const NotificationsState()) {
-    _sessionInvalidationListener = _handleSessionInvalidation;
-    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+    _sessionRecoveryListener = _handleSessionRecovery;
+    SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
     ref.listen<AuthState>(authControllerProvider, (previous, next) {
       final prevToken = previous?.token?.trim() ?? '';
       final nextToken = next.token?.trim() ?? '';
@@ -154,25 +155,26 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     });
   }
 
-  void _handleSessionInvalidation() {
+  /// Re-syncs notifications after a silent session recovery.
+  ///
+  /// Recovery is not a logout: the list and the unread badge must survive it,
+  /// and realtime must come back rather than stay offline.
+  void _handleSessionRecovery() {
     if (!mounted) return;
+    // Let the next 401 be handled again and allow an immediate reconnect.
     _unauthorizedHandled = false;
-    _realtimeRequestedByUi = false;
-    _lastEventId = null;
     _reconnectAttempt = 0;
-    _fallbackTick = 0;
-    _recentRealtimeEventIds.clear();
-    _recentRealtimeEventOrder.clear();
-    _lastUnreadRefreshAt = null;
-    _lastListRefreshAt = null;
-    _unreadRefreshInFlight = null;
-    stopRealtime();
-    state = state.copyWith(
-      unreadCount: 0,
-      notifications: const [],
-      error: null,
-      realtimeStatus: NotificationsRealtimeStatus.offline,
-      reconnectAttempt: 0,
+    // Duplicate recovery ticks must not stack reconnects or refresh bursts.
+    if (_recoveryResyncInFlight) return;
+    _recoveryResyncInFlight = true;
+    if (_realtimeRequestedByUi) {
+      // stopRealtime clears the started flag so startRealtime re-subscribes
+      // with a freshly minted token instead of returning early.
+      stopRealtime();
+      startRealtime();
+    }
+    unawaited(
+      refreshUnreadCount().whenComplete(() => _recoveryResyncInFlight = false),
     );
   }
 
@@ -903,7 +905,7 @@ class NotificationsController extends StateNotifier<NotificationsState> {
   @override
   /// ينظف جميع الـ timers والاشتراكات لتفادي memory leaks أو events متأخرة.
   void dispose() {
-    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
+    SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
     stopRealtime();
     super.dispose();
   }

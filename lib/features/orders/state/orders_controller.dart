@@ -68,11 +68,12 @@ class OrdersController extends StateNotifier<OrdersState> {
   Timer? _liveOrdersTimer;
   bool _liveFetchInFlight = false;
   bool _disposed = false;
-  late final VoidCallback _sessionInvalidationListener;
+  bool _recoveryResyncInFlight = false;
+  late final VoidCallback _sessionRecoveryListener;
 
   OrdersController(this.ref) : super(const OrdersState()) {
-    _sessionInvalidationListener = _handleSessionInvalidation;
-    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+    _sessionRecoveryListener = _handleSessionRecovery;
+    SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
   }
 
   void _setStateSafely(OrdersState nextState) {
@@ -98,11 +99,25 @@ class OrdersController extends StateNotifier<OrdersState> {
         code == 'FORBIDDEN_CUSTOMER_ONLY';
   }
 
-  void _handleSessionInvalidation() {
+  /// Re-syncs the customer's orders after a silent session recovery.
+  ///
+  /// Recovery is not a logout: the current order must stay on screen and the
+  /// account must never fall back to guest. Only the background refresh is
+  /// re-armed here; [OrdersState] is left intact.
+  void _handleSessionRecovery() {
     if (_disposed) return;
-    stopLiveOrders();
+    if (!_canRunCustomerPolling()) return;
+    // The request this guard protected died with the stale token.
     _liveFetchInFlight = false;
-    _setStateSafely(const OrdersState());
+    // Duplicate recovery ticks must not stack polling or resync bursts.
+    if (_recoveryResyncInFlight) return;
+    _recoveryResyncInFlight = true;
+    startLiveOrders();
+    unawaited(
+      loadMyOrders(
+        silent: true,
+      ).whenComplete(() => _recoveryResyncInFlight = false),
+    );
   }
 
   /// يحمل طلبات العميل الحالية مع حماية ضد البيانات الجزئية أو النماذج
@@ -473,7 +488,7 @@ class OrdersController extends StateNotifier<OrdersState> {
   @override
   void dispose() {
     _disposed = true;
-    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
+    SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
     stopLiveOrders();
     super.dispose();
   }

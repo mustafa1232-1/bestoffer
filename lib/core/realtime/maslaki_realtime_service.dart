@@ -49,17 +49,38 @@ class MaslakiRealtimeEvent {
 class MaslakiRealtimeService implements MaslakiRealtimeClient {
   MaslakiRealtimeService(this._dio, {SecureStore? store})
     : _store = store ?? SecureStore() {
-    _sessionInvalidationListener = () {
-      unawaited(clearSession());
+    _sessionRecoveryListener = () {
+      unawaited(_resyncAfterSessionRecovery());
     };
-    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+    SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
+  }
+
+  /// Re-binds realtime after a silent session recovery.
+  ///
+  /// Recovery is not a logout. `clearSession` closes every topic controller and
+  /// disposes the client, which permanently killed realtime for subscribers
+  /// that had already been handed a stream. Instead we re-mint the realtime
+  /// token and re-attach the existing topics, exactly like resuming the app.
+  Future<void> _resyncAfterSessionRecovery() async {
+    if (_disposed) return;
+    // Duplicate recovery ticks must not run overlapping rebinds.
+    if (_recoveryResyncInFlight) return;
+    _recoveryResyncInFlight = true;
+    try {
+      final ready = await bindAuthenticatedSession(force: true);
+      if (!ready || _disposed) return;
+      await _restoreLiveTopics();
+    } finally {
+      _recoveryResyncInFlight = false;
+    }
   }
 
   final Dio _dio;
   final SecureStore _store;
   final Map<String, _TopicSubscriptionEntry> _topics =
       <String, _TopicSubscriptionEntry>{};
-  late final VoidCallback _sessionInvalidationListener;
+  late final VoidCallback _sessionRecoveryListener;
+  bool _recoveryResyncInFlight = false;
 
   SupabaseClient? _client;
   String? _supabaseUrl;
@@ -162,7 +183,7 @@ class MaslakiRealtimeService implements MaslakiRealtimeClient {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
-    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
+    SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
     await clearSession();
   }
 

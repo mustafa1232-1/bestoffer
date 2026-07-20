@@ -9,6 +9,12 @@ import {
   assignDeliveryJobTx,
   listCourierGroupedJobs,
   getGroupedAssignmentView,
+  acknowledgeGroupedJob,
+  headingToPickups,
+  markStopArrived,
+  markStopCollected,
+  headingToCustomer,
+  markGroupedDelivered,
 } from "../modules/delivery/delivery-job.service.js";
 import {
   createMultiStoreFixture,
@@ -106,6 +112,108 @@ test("FIX: one grouped job, one courier, two pickup stops, courier sees it", asy
     assert.ok(kids.rows.every((r) => Number(r.delivery_user_id) === fx.courierId));
   } finally {
     await cleanupMultiStoreFixture(c);
+    await c.end();
+  }
+});
+
+test("completion releases courier for a second grouped job without relogin", async () => {
+  const c = newClient();
+  await c.connect();
+  try {
+    const fx = await createMultiStoreFixture(c, { mark: "fixt_ms_second_" });
+
+    await c.query("BEGIN");
+    await ensureDeliveryJobForGroup(c, fx.orderGroupId);
+    await recomputeGroupReadiness(c, fx.orderGroupId);
+    const first = await assignDeliveryJobTx(c, {
+      orderGroupId: fx.orderGroupId,
+      courierUserId: fx.courierId,
+      idempotencyKey: `first-${fx.orderGroupId}`,
+    });
+    await c.query("COMMIT");
+
+    await acknowledgeGroupedJob({
+      courierUserId: fx.courierId,
+      deliveryJobId: first.job.id,
+    });
+    await headingToPickups({
+      courierUserId: fx.courierId,
+      deliveryJobId: first.job.id,
+    });
+    for (const stop of first.stops) {
+      await markStopArrived({
+        courierUserId: fx.courierId,
+        deliveryJobId: first.job.id,
+        stopId: Number(stop.id),
+      });
+      await markStopCollected({
+        courierUserId: fx.courierId,
+        deliveryJobId: first.job.id,
+        stopId: Number(stop.id),
+      });
+    }
+    await headingToCustomer({
+      courierUserId: fx.courierId,
+      deliveryJobId: first.job.id,
+    });
+    await markGroupedDelivered({
+      courierUserId: fx.courierId,
+      deliveryJobId: first.job.id,
+    });
+
+    const closed = await c.query(
+      `SELECT status, ended_at
+       FROM courier_assignment
+       WHERE delivery_job_id=$1`,
+      [first.job.id]
+    );
+    assert.equal(closed.rows[0].status, "completed");
+    assert.ok(closed.rows[0].ended_at, "first assignment ended");
+
+    const eligibleAfterCompletion = await selectEligibleCourier(c, {
+      restrictToCourierUserIds: [fx.courierId],
+    });
+    assert.equal(eligibleAfterCompletion.courierUserId, fx.courierId);
+
+    const secondGroupId = Number(
+      (
+        await c.query(
+          `INSERT INTO order_group
+             (public_id, customer_user_id, status, is_multi_store, stores_count, payment_method)
+           VALUES ($1,$2,'active',TRUE,2,'cash') RETURNING id`,
+          [`fixt_ms_second_${Date.now()}_grp2`, fx.customerId]
+        )
+      ).rows[0].id
+    );
+    for (const [index, merchantId] of fx.merchantIds.entries()) {
+      await c.query(
+        `INSERT INTO customer_order
+           (merchant_id, customer_user_id, customer_full_name, customer_phone,
+            customer_block, customer_building_number, customer_apartment,
+            order_group_id, status, delivery_type, delivery_assignment_status,
+            order_scope, courier_source)
+         VALUES ($1,$2,$3,'0770','A101','1','1',$4,'ready_for_delivery','delivery','NOT_REQUIRED','group_child','app')`,
+        [merchantId, fx.customerId, `fixt_ms_second_order_${index}`, secondGroupId]
+      );
+    }
+
+    await c.query("BEGIN");
+    await ensureDeliveryJobForGroup(c, secondGroupId);
+    await recomputeGroupReadiness(c, secondGroupId);
+    const second = await assignDeliveryJobTx(c, {
+      orderGroupId: secondGroupId,
+      courierUserId: fx.courierId,
+      idempotencyKey: `second-${secondGroupId}`,
+    });
+    await c.query("COMMIT");
+
+    assert.equal(Number(second.job.delivery_user_id), fx.courierId);
+    assert.equal(second.job.assignment_status, "ASSIGNED");
+  } catch (error) {
+    await c.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    await cleanupMultiStoreFixture(c, "fixt_ms_second_");
     await c.end();
   }
 });

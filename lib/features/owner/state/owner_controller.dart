@@ -162,12 +162,13 @@ class OwnerController extends StateNotifier<OwnerState> {
   Future<void>? _bootstrapInFlight;
   DateTime? _lastBootstrapAt;
   bool _disposed = false;
-  late final VoidCallback _sessionInvalidationListener;
+  bool _recoveryResyncInFlight = false;
+  late final VoidCallback _sessionRecoveryListener;
   static const Duration _bootstrapFreshWindow = Duration(seconds: 12);
 
   OwnerController(this.ref) : super(const OwnerState()) {
-    _sessionInvalidationListener = _handleSessionInvalidation;
-    SessionInvalidationBus.instance.addListener(_sessionInvalidationListener);
+    _sessionRecoveryListener = _handleSessionRecovery;
+    SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
   }
 
   /// يحدد ما إذا كان polling مسموحاً حالياً حسب جلسة المستخدم والدور.
@@ -186,14 +187,25 @@ class OwnerController extends StateNotifier<OwnerState> {
     return message == 'FORBIDDEN_OWNER_ONLY' || code == 'FORBIDDEN_OWNER_ONLY';
   }
 
-  void _handleSessionInvalidation() {
+  /// Re-syncs the store snapshot after a silent session recovery.
+  ///
+  /// Recovery is not a logout: the merchant, its orders and its catalogue must
+  /// stay on screen. `bootstrap` only overwrites fields once a valid snapshot
+  /// arrives, so the store is never blanked while the token is refreshed.
+  void _handleSessionRecovery() {
     if (_disposed) return;
-    stopLiveOrders();
+    if (!_canRunOwnerPolling()) return;
+    // The requests these guards protected died with the stale token; leaving
+    // them set would block the resync below.
     _liveFetchInFlight = false;
     _ordersRefreshInFlight = false;
-    _bootstrapInFlight = null;
-    _lastBootstrapAt = null;
-    state = const OwnerState();
+    // Duplicate recovery ticks must not stack polling or resync bursts.
+    if (_recoveryResyncInFlight) return;
+    _recoveryResyncInFlight = true;
+    startLiveOrders();
+    unawaited(
+      bootstrap(force: true).whenComplete(() => _recoveryResyncInFlight = false),
+    );
   }
 
   /// يحمّل snapshot owner الكامل المستخدم في معظم tabs.
@@ -1795,7 +1807,7 @@ class OwnerController extends StateNotifier<OwnerState> {
   @override
   void dispose() {
     _disposed = true;
-    SessionInvalidationBus.instance.removeListener(_sessionInvalidationListener);
+    SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
     stopLiveOrders();
     super.dispose();
   }

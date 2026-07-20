@@ -103,7 +103,10 @@ void main() {
       );
 
       expect(find.text('Audio'), findsOneWidget);
-      expect(find.text('Queued'), findsOneWidget);
+      // The bubble renders "<status> - <duration>" whenever the attachment has
+      // a duration (see _statusLine), and this audio fixture has one, so an
+      // exact-text match can never hold here.
+      expect(find.textContaining('Queued'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
       expect(find.text('File'), findsNothing);
       expect(find.byIcon(Icons.insert_drive_file_outlined), findsNothing);

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import crypto from "node:crypto";
+
 import { pool } from "../config/db.js";
 import {
   getSocialMediaAssetDiagnosticsById,
@@ -10,12 +12,27 @@ import {
   updateSocialMediaAssetStatus,
 } from "../modules/feed/feed.repo.js";
 
-test("social media asset insert persists stream playback fields", async () => {
-  const owner = await pool.query(
-    "SELECT id FROM app_user ORDER BY id ASC LIMIT 1"
+// Seed an owner instead of borrowing whatever row happens to be first in
+// app_user: each test file now runs against its own freshly cloned database, so
+// there is no ambient user to pick up.
+async function createAssetOwner() {
+  const suffix = crypto.randomBytes(5).toString("hex");
+  const result = await pool.query(
+    `INSERT INTO app_user
+       (full_name, username, phone, pin_hash, block, building_number, apartment, role)
+     VALUES ($1,$2,$3,'x','A','1','1','user')
+     RETURNING id`,
+    [
+      `Social Asset Owner ${suffix}`,
+      `social_asset_${suffix}`,
+      `079${suffix.replace(/\D/g, "").padEnd(8, "0").slice(0, 8)}`,
+    ]
   );
-  assert.equal(owner.rowCount > 0, true, "expected at least one user row");
-  const ownerUserId = Number(owner.rows[0].id);
+  return Number(result.rows[0].id);
+}
+
+test("social media asset insert persists stream playback fields", async () => {
+  const ownerUserId = await createAssetOwner();
 
   const asset = await insertSocialMediaAsset({
     ownerUserId,
@@ -58,11 +75,7 @@ test("social media asset insert persists stream playback fields", async () => {
 });
 
 test("social media asset diagnostics expose failure code and trace stages", async () => {
-  const owner = await pool.query(
-    "SELECT id FROM app_user ORDER BY id ASC LIMIT 1"
-  );
-  assert.equal(owner.rowCount > 0, true, "expected at least one user row");
-  const ownerUserId = Number(owner.rows[0].id);
+  const ownerUserId = await createAssetOwner();
 
   const asset = await insertSocialMediaAsset({
     ownerUserId,

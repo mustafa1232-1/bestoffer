@@ -469,11 +469,15 @@ function sessionAuthSelect() {
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
-       EXISTS (
+       -- A legacy delivery account can still own a taxi_captain_profile row.
+       -- Without the role guard the refresh/recovery paths that use this select
+       -- would hand it a captain identity and flip it off the delivery surface,
+       -- so the flag must match every other derivation site in this file.
+       (EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
-       ) AS is_taxi_captain
+       ) AND u.role = 'taxi_captain') AS is_taxi_captain
      FROM user_session s
      JOIN app_user u ON u.id = s.user_id`;
 }

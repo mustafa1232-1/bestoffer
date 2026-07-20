@@ -11,6 +11,10 @@ import {
   cleanupCheckoutFixture,
 } from "./fixtures/multistore-checkout.fixture.js";
 
+// Own namespace: test files run in parallel processes and must not delete each
+// other's seeded merchants during teardown.
+const FIXTURE_MARK = "fixt_cofee_";
+
 const { buildGroupedDeliveryFeePlan } = __ordersRepoTestables;
 
 function makeEntry({
@@ -156,12 +160,12 @@ test("real multi-store checkout persists raw and allocated delivery fees", async
     // setImmediate. Let it finish before removing child orders so teardown does
     // not create a false notification FK error in clean DB test runs.
     await delay(200);
-    await cleanupCheckoutFixture(client).catch(() => {});
+    await cleanupCheckoutFixture(client, FIXTURE_MARK).catch(() => {});
     await client.end();
   });
 
-  await cleanupCheckoutFixture(client);
-  const fx = await createRealMultiStoreCheckout(client);
+  await cleanupCheckoutFixture(client, FIXTURE_MARK);
+  const fx = await createRealMultiStoreCheckout(client, { mark: FIXTURE_MARK });
 
   const group = (
     await client.query(
