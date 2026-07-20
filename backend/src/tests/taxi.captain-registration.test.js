@@ -21,7 +21,7 @@ async function cleanupCaptainRegistration({ userId, phone }) {
 
   await q(
     `DELETE FROM app_notification
-     WHERE type = 'admin_delivery_pending_approval'
+     WHERE type IN ('admin_delivery_pending_approval', 'admin_taxi_captain_pending_approval')
        AND (
          COALESCE(payload->>'captainUserId', '') = $1
          OR COALESCE(payload->>'deliveryUserId', '') = $1
@@ -125,7 +125,7 @@ test("taxi captain registration creates a taxi-only pending approval profile", a
     assert.equal(result.pendingApproval, true);
     assert.equal(result.user.role, "taxi_captain");
     assert.equal(result.user.isTaxiCaptain, true);
-    assert.equal(result.user.deliveryAccountApproved, false);
+    assert.equal(result.user.taxiAccountApproved, false);
     assert.ok(createdUserId, "expected a created user id");
 
     const pendingCaptains = await adminRepo.listPendingTaxiCaptainAccounts();
@@ -143,6 +143,8 @@ test("taxi captain registration creates a taxi-only pending approval profile", a
 
     const captainProfile = await taxiRepo.getCaptainProfile(createdUserId);
     assert.ok(captainProfile, "taxi captain profile should be created");
+    assert.equal(captainProfile.taxi_account_approved, false);
+    assert.equal(captainProfile.delivery_account_approved, true);
     assert.equal(captainProfile.car_make, "Toyota");
     assert.equal(captainProfile.car_model, "Corolla");
     assert.equal(captainProfile.car_year, 2022);

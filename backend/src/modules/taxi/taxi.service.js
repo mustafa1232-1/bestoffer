@@ -92,7 +92,7 @@ export async function registerCaptain(dto) {
         }),
     });
 
-    await deliveryRepo.setDeliveryAccountPendingApproval(Number(user.id));
+    await repo.setTaxiAccountPendingApproval(Number(user.id));
     await repo.createPendingCaptainProfile({
       userId: Number(user.id),
       profileImageUrl: dto.profileImageUrl || dto.imageUrl || null,
@@ -115,7 +115,7 @@ export async function registerCaptain(dto) {
   await createManyNotifications(
     approvers.map((approverId) => ({
       userId: Number(approverId),
-      type: "admin_delivery_pending_approval",
+      type: "admin_taxi_captain_pending_approval",
       title: "Taxi captain account pending approval",
       body: `New taxi captain request: ${fullName} (${phone})`,
       payload: {
@@ -133,7 +133,7 @@ export async function registerCaptain(dto) {
       phone: user.phone,
       role: user.role,
       isTaxiCaptain: true,
-      deliveryAccountApproved: false,
+      taxiAccountApproved: false,
     },
   };
 }
@@ -256,7 +256,7 @@ function buildCaptainTaxiEligibility({ profileRow, presenceRow }) {
     presenceRow?.longitude != null &&
     presenceRow?.lastSeenAt != null &&
     Date.now() - new Date(presenceRow.lastSeenAt).getTime() <= 3 * 60 * 1000;
-  const isApproved = profile?.deliveryAccountApproved === true;
+  const isApproved = profile?.taxiAccountApproved === true;
   const isActive = profile?.isActive === true;
   const isProfileComplete = hasCaptainTaxiProfileCompleteness(profileRow);
   const canReceiveRideRequests =
@@ -1430,7 +1430,8 @@ function mapCaptainProfile(row) {
     apartment: row.apartment || null,
     imageUrl: row.image_url || null,
     createdAt: row.created_at || null,
-    deliveryAccountApproved: row.delivery_account_approved === true,
+    deliveryAccountApproved: row.taxi_account_approved === true,
+    taxiAccountApproved: row.taxi_account_approved === true,
     profileImageUrl: row.profile_image_url || null,
     carImageUrl: row.car_image_url || null,
     vehicleType: row.vehicle_type || null,

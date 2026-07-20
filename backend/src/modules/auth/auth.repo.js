@@ -43,15 +43,16 @@ export async function findUserByPhone(phone) {
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
+       u.taxi_account_approved,
        u.failed_login_attempts,
        u.locked_until,
        u.last_failed_login_at,
        u.last_login_at,
-       EXISTS (
+       (EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
-       ) AND u.role = 'taxi_captain' AS is_taxi_captain
+       ) AND u.role = 'taxi_captain') AS is_taxi_captain
      FROM app_user u
      WHERE u.phone_normalized = $1
      LIMIT 1`,
@@ -81,15 +82,16 @@ export async function findUserByIdWithAuthFields(id) {
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
+       u.taxi_account_approved,
        u.failed_login_attempts,
        u.locked_until,
        u.last_failed_login_at,
        u.last_login_at,
-       EXISTS (
+       (EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
-       ) AND u.role = 'taxi_captain' AS is_taxi_captain
+       ) AND u.role = 'taxi_captain') AS is_taxi_captain
      FROM app_user u
      WHERE u.id = $1
      LIMIT 1`,
@@ -259,11 +261,11 @@ export async function getUserPublicById(id) {
          u.work_title,
          u.work_company,
          u.is_super_admin,
-         EXISTS (
+         (EXISTS (
            SELECT 1
            FROM taxi_captain_profile tcp
            WHERE tcp.user_id = u.id
-         ) AND u.role = 'taxi_captain' AS is_taxi_captain
+         ) AND u.role = 'taxi_captain') AS is_taxi_captain
        FROM app_user u
        WHERE u.id = $1`,
       [id]
@@ -421,11 +423,12 @@ export async function findActiveSessionByRefreshToken(refreshToken) {
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
-       EXISTS (
+       u.taxi_account_approved,
+       (EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
-       ) AND u.role = 'taxi_captain' AS is_taxi_captain
+       ) AND u.role = 'taxi_captain') AS is_taxi_captain
      FROM user_session s
      JOIN app_user u ON u.id = s.user_id
      WHERE s.refresh_token = $1
@@ -469,11 +472,12 @@ function sessionAuthSelect() {
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
-       EXISTS (
+       u.taxi_account_approved,
+       (EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
-       ) AS is_taxi_captain
+       ) AND u.role = 'taxi_captain') AS is_taxi_captain
      FROM user_session s
      JOIN app_user u ON u.id = s.user_id`;
 }
@@ -680,11 +684,12 @@ export async function findRecoverableSessionByDeviceSession(deviceSessionId) {
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
-       EXISTS (
+       u.taxi_account_approved,
+       (EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
-       ) AND u.role = 'taxi_captain' AS is_taxi_captain
+       ) AND u.role = 'taxi_captain') AS is_taxi_captain
      FROM user_session s
      JOIN app_user u ON u.id = s.user_id
      WHERE s.device_session_id = $1

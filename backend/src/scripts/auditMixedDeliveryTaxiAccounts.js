@@ -12,6 +12,7 @@ async function run() {
        u.phone,
        u.role,
        u.delivery_account_approved,
+       u.taxi_account_approved,
        EXISTS (
          SELECT 1 FROM courier_profile cp WHERE cp.user_id = u.id
        ) AS has_courier_profile,

@@ -2514,6 +2514,7 @@ export async function getCaptainProfile(captainUserId) {
        u.image_url,
        u.created_at,
        u.delivery_account_approved,
+       u.taxi_account_approved,
        p.profile_image_url,
        p.car_image_url,
        p.vehicle_type,
@@ -2534,6 +2535,18 @@ export async function getCaptainProfile(captainUserId) {
     [Number(captainUserId)]
   );
   return r.rows[0] || null;
+}
+
+export async function setTaxiAccountPendingApproval(userId) {
+  await q(
+    `UPDATE app_user
+     SET taxi_account_approved = FALSE,
+         taxi_approved_by_user_id = NULL,
+         taxi_approved_at = NULL
+     WHERE id = $1
+       AND role = 'taxi_captain'`,
+    [Number(userId)]
+  );
 }
 
 export async function createPendingCaptainProfile({

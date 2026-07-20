@@ -122,9 +122,9 @@ async function cleanup(state) {
 
     if (state.superAdminId && (state.captainUserIds || []).length > 0) {
       await client.query(
-        `DELETE FROM app_notification
+       `DELETE FROM app_notification
          WHERE user_id = $1
-           AND type = 'admin_delivery_pending_approval'
+           AND type IN ('admin_delivery_pending_approval', 'admin_taxi_captain_pending_approval')
            AND COALESCE(payload->>'captainUserId', '') = ANY($2::text[])`,
         [
           Number(state.superAdminId),
@@ -410,7 +410,7 @@ async function main() {
     await expectNotification(
       {
         userId: state.superAdminId,
-        type: "admin_delivery_pending_approval",
+        type: "admin_taxi_captain_pending_approval",
         payloadChecks: { captainUserId: state.captainUserIds[0] },
       },
       "admin pending captain notification"

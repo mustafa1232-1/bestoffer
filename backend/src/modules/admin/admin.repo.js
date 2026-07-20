@@ -408,7 +408,7 @@ export async function listPendingTaxiCaptainAccounts() {
      JOIN taxi_captain_profile p
        ON p.user_id = u.id
      WHERE u.role = 'taxi_captain'
-       AND u.delivery_account_approved = FALSE
+       AND u.taxi_account_approved = FALSE
      ORDER BY u.created_at DESC, u.id DESC`
   );
 
@@ -434,13 +434,12 @@ export async function approveDeliveryAccount(deliveryUserId, approvedByUserId) {
 export async function approveTaxiCaptainAccount(captainUserId, approvedByUserId) {
   const r = await q(
     `UPDATE app_user u
-     SET role = 'taxi_captain',
-         delivery_account_approved = TRUE,
-         delivery_approved_by_user_id = $2,
-         delivery_approved_at = NOW()
+     SET taxi_account_approved = TRUE,
+         taxi_approved_by_user_id = $2,
+         taxi_approved_at = NOW()
      WHERE u.id = $1
        AND u.role = 'taxi_captain'
-       AND u.delivery_account_approved = FALSE
+       AND u.taxi_account_approved = FALSE
        AND EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp

@@ -154,9 +154,54 @@ export async function ensureSchema() {
     `);
 
     await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS taxi_account_approved BOOLEAN;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS taxi_approved_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS taxi_approved_at TIMESTAMPTZ;
+    `);
+
+    await q(`
+      UPDATE app_user
+      SET taxi_account_approved = delivery_account_approved
+      WHERE role = 'taxi_captain'
+        AND taxi_account_approved IS NULL;
+    `);
+
+    await q(`
+      UPDATE app_user
+      SET taxi_account_approved = TRUE
+      WHERE role <> 'taxi_captain'
+        AND taxi_account_approved IS NULL;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ALTER COLUMN taxi_account_approved SET DEFAULT TRUE;
+    `);
+
+    await q(`
+      ALTER TABLE app_user
+      ALTER COLUMN taxi_account_approved SET NOT NULL;
+    `);
+
+    await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_app_user_single_super_admin
       ON app_user ((is_super_admin))
       WHERE is_super_admin = TRUE;
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_app_user_taxi_approval
+      ON app_user (role, taxi_account_approved)
+      WHERE role = 'taxi_captain';
     `);
 
     await q(`

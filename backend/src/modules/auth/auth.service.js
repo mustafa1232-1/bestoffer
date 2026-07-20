@@ -478,6 +478,15 @@ export async function login({ phone, pin }, deviceContext = {}) {
     throw err;
   }
 
+  if (
+    user.role === "taxi_captain" &&
+    user.taxi_account_approved !== true
+  ) {
+    const err = new Error("TAXI_CAPTAIN_ACCOUNT_PENDING_APPROVAL");
+    err.status = 403;
+    throw err;
+  }
+
   const requestedSurface = deviceContext.appFlavor || null;
   if (requestedSurface && !isRequestedSurfaceAllowedForUser(user, requestedSurface)) {
     const err = new AppError("FORBIDDEN_APP_SURFACE", { status: 403 });
@@ -632,6 +641,7 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
     work_company: row.work_company,
     is_super_admin: row.is_super_admin,
     is_taxi_captain: row.is_taxi_captain,
+    taxi_account_approved: row.taxi_account_approved,
   };
 
   const token = signAccessToken(

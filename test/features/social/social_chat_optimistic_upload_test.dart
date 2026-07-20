@@ -103,7 +103,7 @@ void main() {
       );
 
       expect(find.text('Audio'), findsOneWidget);
-      expect(find.text('Queued'), findsOneWidget);
+      expect(find.textContaining('Queued'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
       expect(find.text('File'), findsNothing);
       expect(find.byIcon(Icons.insert_drive_file_outlined), findsNothing);

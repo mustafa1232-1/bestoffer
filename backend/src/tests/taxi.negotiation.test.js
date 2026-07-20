@@ -49,7 +49,8 @@ async function createTaxiUser({
 async function seedCaptainReady(captainUserId, index) {
   await q(
     `UPDATE app_user
-     SET delivery_account_approved = TRUE
+     SET delivery_account_approved = TRUE,
+         taxi_account_approved = TRUE
      WHERE id = $1`,
     [Number(captainUserId)]
   );
@@ -356,6 +357,161 @@ test("taxi negotiation keeps multi-offer rides separate from captain availabilit
     });
     assert.equal(nearby.total, 0);
     assert.equal(nearby.items.length, 0);
+  } finally {
+    await cleanupRows({
+      userIds: state.userIds,
+      rideIds: state.rideIds,
+    });
+  }
+});
+
+test("taxi negotiation counteroffers one bid, atomically rejects losing offers, and releases captain after completion", async () => {
+  const state = {
+    userIds: [],
+    rideIds: [],
+  };
+
+  try {
+    const customer = await createTaxiUser({
+      fullName: `Taxi Multi Bid Customer ${makeSuffix("cust-multi-")}`,
+      phone: makePhone(70),
+      role: "user",
+    });
+    state.userIds.push(Number(customer.id));
+
+    const captainA = await createTaxiUser({
+      fullName: `Taxi Multi Bid Captain A ${makeSuffix("cap-a-")}`,
+      phone: makePhone(71),
+      role: "taxi_captain",
+    });
+    state.userIds.push(Number(captainA.id));
+    await seedCaptainReady(captainA.id, 0);
+
+    const captainB = await createTaxiUser({
+      fullName: `Taxi Multi Bid Captain B ${makeSuffix("cap-b-")}`,
+      phone: makePhone(72),
+      role: "taxi_captain",
+    });
+    state.userIds.push(Number(captainB.id));
+    await seedCaptainReady(captainB.id, 1);
+
+    const ride = await seedRequestRide(customer.id, "multi-bid");
+    state.rideIds.push(ride.rideId);
+
+    const bidA = await taxiService.submitBid({
+      captainUserId: captainA.id,
+      rideId: ride.rideId,
+      dto: {
+        offeredFareIqd: 17000,
+        etaMinutes: 8,
+        note: "captain-a-first-offer",
+      },
+    });
+    const bidB = await taxiService.submitBid({
+      captainUserId: captainB.id,
+      rideId: ride.rideId,
+      dto: {
+        offeredFareIqd: 16500,
+        etaMinutes: 10,
+        note: "captain-b-waiting-offer",
+      },
+    });
+
+    const bidAId = Number(bidA.bid.id);
+    const bidBId = Number(bidB.bid.id);
+    assert.notEqual(bidAId, bidBId);
+
+    const customerRideWithOffers = await taxiService.getCurrentRideForCustomer(
+      customer.id
+    );
+    const offerIds = new Set(
+      customerRideWithOffers.offers.map((offer) => Number(offer.offerId))
+    );
+    assert.equal(customerRideWithOffers.offers.length, 2);
+    assert.ok(offerIds.has(bidAId));
+    assert.ok(offerIds.has(bidBId));
+
+    const counter = await taxiService.counterOfferCurrentBid({
+      customerUserId: customer.id,
+      rideId: ride.rideId,
+      bidId: bidAId,
+      dto: {
+        offeredFareIqd: 15500,
+        note: "customer-targeted-counter",
+      },
+    });
+    assert.equal(counter.ride.status, "searching");
+    assert.equal(Number(counter.currentOfferId), bidAId);
+    assert.equal(
+      Number(counter.offers.find((offer) => Number(offer.offerId) === bidAId)?.offeredFareIqd),
+      15500
+    );
+    assert.equal(
+      counter.offers.find((offer) => Number(offer.offerId) === bidBId)?.status,
+      "active"
+    );
+
+    const accepted = await taxiService.acceptBid({
+      customerUserId: customer.id,
+      rideId: ride.rideId,
+      bidId: bidAId,
+    });
+    assert.equal(accepted.ride.status, "captain_assigned");
+    assert.equal(Number(accepted.ride.assignedCaptainUserId), Number(captainA.id));
+    assert.equal(Number(accepted.ride.agreedFareIqd), 15500);
+
+    const firstRideBids = await taxiRepo.listRideBids(ride.rideId);
+    assert.equal(
+      firstRideBids.find((bid) => Number(bid.id) === bidAId)?.status,
+      "accepted"
+    );
+    assert.equal(
+      firstRideBids.find((bid) => Number(bid.id) === bidBId)?.status,
+      "rejected"
+    );
+
+    await assert.rejects(
+      () =>
+        taxiService.acceptBid({
+          customerUserId: customer.id,
+          rideId: ride.rideId,
+          bidId: bidBId,
+        }),
+      (error) => {
+        assert.equal(error?.status, 409);
+        assert.equal(error?.message, "TAXI_RIDE_NOT_ACCEPTING_BIDS");
+        return true;
+      }
+    );
+
+    await taxiService.startRide({
+      captainUserId: captainA.id,
+      rideId: ride.rideId,
+    });
+    const completed = await taxiService.completeRide({
+      captainUserId: captainA.id,
+      rideId: ride.rideId,
+    });
+    assert.equal(completed.status, "completed");
+
+    const captainCurrentRide = await taxiService.getCurrentRideForCaptain(captainA.id);
+    assert.equal(captainCurrentRide, null);
+
+    const secondRide = await seedRequestRide(customer.id, "multi-bid-second");
+    state.rideIds.push(secondRide.rideId);
+
+    const secondBid = await taxiService.submitBid({
+      captainUserId: captainA.id,
+      rideId: secondRide.rideId,
+      dto: {
+        offeredFareIqd: 18000,
+        etaMinutes: 6,
+        note: "released-captain-second-offer",
+      },
+    });
+
+    assert.equal(Number(secondBid.bid.captainUserId), Number(captainA.id));
+    assert.equal(secondBid.bid.status, "active");
   } finally {
     await cleanupRows({
       userIds: state.userIds,
