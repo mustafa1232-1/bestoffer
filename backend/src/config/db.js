@@ -213,7 +213,11 @@ export async function ensureSchema() {
         access_expires_at  TIMESTAMPTZ,
         device_session_id  VARCHAR(80),
         recovery_secret_hash VARCHAR(255),
-        app_surface        VARCHAR(40)
+        app_surface        VARCHAR(40),
+        refresh_generation INTEGER NOT NULL DEFAULT 0,
+        previous_refresh_token_hash VARCHAR(128),
+        previous_refresh_valid_until TIMESTAMPTZ,
+        last_recovered_at TIMESTAMPTZ
       );
     `);
 
@@ -269,6 +273,26 @@ export async function ensureSchema() {
 
     await q(`
       ALTER TABLE user_session
+      ADD COLUMN IF NOT EXISTS refresh_generation INTEGER NOT NULL DEFAULT 0;
+    `);
+
+    await q(`
+      ALTER TABLE user_session
+      ADD COLUMN IF NOT EXISTS previous_refresh_token_hash VARCHAR(128);
+    `);
+
+    await q(`
+      ALTER TABLE user_session
+      ADD COLUMN IF NOT EXISTS previous_refresh_valid_until TIMESTAMPTZ;
+    `);
+
+    await q(`
+      ALTER TABLE user_session
+      ADD COLUMN IF NOT EXISTS last_recovered_at TIMESTAMPTZ;
+    `);
+
+    await q(`
+      ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     `);
 
@@ -276,6 +300,12 @@ export async function ensureSchema() {
       UPDATE user_session
       SET is_revoked = FALSE
       WHERE is_revoked IS NULL;
+    `);
+
+    await q(`
+      UPDATE user_session
+      SET refresh_generation = 0
+      WHERE refresh_generation IS NULL;
     `);
 
     await q(`
@@ -292,6 +322,18 @@ export async function ensureSchema() {
     await q(`
       CREATE INDEX IF NOT EXISTS idx_user_session_device_recovery_active
       ON user_session (device_session_id, is_revoked);
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_user_session_recovery_lookup
+      ON user_session (device_session_id, app_surface, is_revoked)
+      WHERE device_session_id IS NOT NULL;
+    `);
+
+    await q(`
+      CREATE INDEX IF NOT EXISTS idx_user_session_previous_refresh_grace
+      ON user_session (previous_refresh_token_hash, previous_refresh_valid_until)
+      WHERE previous_refresh_token_hash IS NOT NULL;
     `);
 
     await q(`

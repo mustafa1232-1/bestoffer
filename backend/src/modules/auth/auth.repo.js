@@ -368,7 +368,7 @@ export async function createUserSession({
         is_revoked
       )
      VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW(),NOW(),$7,$8,$9,$10,$11,FALSE)
-     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at, device_session_id, recovery_secret_hash, app_surface`,
+     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at, device_session_id, recovery_secret_hash, app_surface, refresh_generation, previous_refresh_token_hash, previous_refresh_valid_until, last_recovered_at`,
     [
       Number(userId),
       String(refreshToken || ""),
@@ -399,6 +399,10 @@ export async function findActiveSessionByRefreshToken(refreshToken) {
        s.device_session_id,
        s.recovery_secret_hash,
        s.app_surface,
+       s.refresh_generation,
+       s.previous_refresh_token_hash,
+       s.previous_refresh_valid_until,
+       s.last_recovered_at,
        s.expires_at AS session_expires_at,
        s.is_revoked,
        u.id,
@@ -433,6 +437,167 @@ export async function findActiveSessionByRefreshToken(refreshToken) {
   return r.rows[0] || null;
 }
 
+function sessionAuthSelect() {
+  return `SELECT
+       s.id AS session_id,
+       s.user_id AS session_user_id,
+       s.refresh_token,
+       s.token_jti,
+       s.device_fingerprint,
+       s.device_session_id,
+       s.recovery_secret_hash,
+       s.app_surface,
+       s.refresh_generation,
+       s.previous_refresh_token_hash,
+       s.previous_refresh_valid_until,
+       s.last_recovered_at,
+       s.expires_at AS session_expires_at,
+       s.is_revoked,
+       u.id,
+       u.username,
+       u.full_name,
+       u.phone,
+       u.preferred_locale,
+       u.role,
+       u.block,
+       u.building_number,
+       u.apartment,
+       u.image_url,
+       u.work_title,
+       u.work_company,
+       u.is_super_admin,
+       u.is_account_disabled,
+       u.account_disabled_note,
+       u.delivery_account_approved,
+       EXISTS (
+         SELECT 1
+         FROM taxi_captain_profile tcp
+         WHERE tcp.user_id = u.id
+       ) AS is_taxi_captain
+     FROM user_session s
+     JOIN app_user u ON u.id = s.user_id`;
+}
+
+export async function withAuthTransaction(callback) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await callback(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function findRefreshSessionForUpdate(
+  client,
+  { refreshToken, refreshTokenHash }
+) {
+  const token = String(refreshToken || "").trim();
+  const tokenHash = String(refreshTokenHash || "").trim();
+  if (!token || !tokenHash) return null;
+  const r = await client.query(
+    `${sessionAuthSelect()}
+     WHERE (
+         s.refresh_token = $1
+         OR (
+           s.previous_refresh_token_hash = $2
+           AND s.previous_refresh_valid_until IS NOT NULL
+           AND s.previous_refresh_valid_until >= NOW()
+         )
+       )
+       AND s.is_revoked = FALSE
+       AND COALESCE(u.is_account_disabled, FALSE) = FALSE
+     ORDER BY CASE WHEN s.refresh_token = $1 THEN 0 ELSE 1 END
+     LIMIT 1
+     FOR UPDATE OF s`,
+    [token, tokenHash]
+  );
+  return r.rows[0] || null;
+}
+
+export async function rotateUserSessionTokensTx(
+  client,
+  {
+    sessionId,
+    userId,
+    oldRefreshToken,
+    oldRefreshGeneration,
+    previousRefreshTokenHash,
+    previousRefreshValidUntil,
+    refreshToken,
+    tokenJti,
+    ipAddress = null,
+    userAgent = null,
+    deviceFingerprint = null,
+    expiresAt = null,
+    deviceSessionId = null,
+    recoverySecretHash = null,
+    appSurface = null,
+  }
+) {
+  const r = await client.query(
+    `UPDATE user_session
+     SET refresh_token = $5,
+         token_jti = $6,
+         ip = COALESCE($7, ip),
+         user_agent = COALESCE($8, user_agent),
+         device_fingerprint = COALESCE($9, device_fingerprint),
+         expires_at = COALESCE($10, expires_at),
+         device_session_id = COALESCE($11, device_session_id),
+         recovery_secret_hash = COALESCE($12, recovery_secret_hash),
+         app_surface = COALESCE($13, app_surface),
+         previous_refresh_token_hash = $14,
+         previous_refresh_valid_until = $15,
+         refresh_generation = COALESCE(refresh_generation, 0) + 1,
+         last_seen_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $1
+       AND user_id = $2
+       AND refresh_token = $3
+       AND COALESCE(refresh_generation, 0) = $4
+       AND is_revoked = FALSE
+     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at, device_session_id, recovery_secret_hash, app_surface, refresh_generation, previous_refresh_token_hash, previous_refresh_valid_until, last_recovered_at`,
+    [
+      Number(sessionId),
+      Number(userId),
+      String(oldRefreshToken || ""),
+      Number(oldRefreshGeneration) || 0,
+      String(refreshToken || ""),
+      tokenJti || null,
+      ipAddress || null,
+      userAgent || null,
+      deviceFingerprint || null,
+      expiresAt || null,
+      deviceSessionId || null,
+      recoverySecretHash || null,
+      appSurface || null,
+      previousRefreshTokenHash || null,
+      previousRefreshValidUntil || null,
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function touchRefreshSessionTx(client, sessionId, { ipAddress, userAgent } = {}) {
+  const r = await client.query(
+    `UPDATE user_session
+     SET ip = COALESCE($2, ip),
+         user_agent = COALESCE($3, user_agent),
+         last_seen_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $1
+       AND is_revoked = FALSE
+     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at, device_session_id, recovery_secret_hash, app_surface, refresh_generation, previous_refresh_token_hash, previous_refresh_valid_until, last_recovered_at`,
+    [Number(sessionId), ipAddress || null, userAgent || null]
+  );
+  return r.rows[0] || null;
+}
+
 export async function rotateUserSessionTokens({
   sessionId,
   userId,
@@ -462,7 +627,7 @@ export async function rotateUserSessionTokens({
      WHERE id = $1
        AND user_id = $2
        AND is_revoked = FALSE
-     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at, device_session_id, recovery_secret_hash, app_surface`,
+     RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at, device_session_id, recovery_secret_hash, app_surface, refresh_generation, previous_refresh_token_hash, previous_refresh_valid_until, last_recovered_at`,
     [
       Number(sessionId),
       Number(userId),
@@ -493,6 +658,10 @@ export async function findRecoverableSessionByDeviceSession(deviceSessionId) {
        s.device_session_id,
        s.recovery_secret_hash,
        s.app_surface,
+       s.refresh_generation,
+       s.previous_refresh_token_hash,
+       s.previous_refresh_valid_until,
+       s.last_recovered_at,
        s.expires_at AS session_expires_at,
        s.is_revoked,
        u.id,
@@ -522,6 +691,62 @@ export async function findRecoverableSessionByDeviceSession(deviceSessionId) {
        AND s.is_revoked = FALSE
      LIMIT 1`,
     [id]
+  );
+  return r.rows[0] || null;
+}
+
+export async function findRecoverableSessionByDeviceSessionForUpdate(client, deviceSessionId) {
+  const id = String(deviceSessionId || "").trim();
+  if (!id) return null;
+  const r = await client.query(
+    `${sessionAuthSelect()}
+     WHERE s.device_session_id = $1
+       AND s.is_revoked = FALSE
+       AND COALESCE(u.is_account_disabled, FALSE) = FALSE
+     LIMIT 1
+     FOR UPDATE OF s`,
+    [id]
+  );
+  return r.rows[0] || null;
+}
+
+export async function recoverUserSessionTx(
+  client,
+  {
+    sessionId,
+    userId,
+    tokenJti,
+    ipAddress = null,
+    userAgent = null,
+    deviceFingerprint = null,
+    deviceFingerprintSet = false,
+    appSurface = null,
+  }
+) {
+  const r = await client.query(
+    `UPDATE user_session
+     SET token_jti = COALESCE($3, token_jti),
+         ip = COALESCE($4, ip),
+         user_agent = COALESCE($5, user_agent),
+         device_fingerprint = CASE WHEN $6::boolean THEN $7 ELSE device_fingerprint END,
+         app_surface = COALESCE($8, app_surface),
+         last_recovered_at = NOW(),
+         last_seen_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $1
+       AND user_id = $2
+       AND is_revoked = FALSE
+     RETURNING id, user_id, refresh_token, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at, device_session_id, recovery_secret_hash, app_surface, refresh_generation, previous_refresh_token_hash, previous_refresh_valid_until, last_recovered_at`,
+    [
+      Number(sessionId),
+      Number(userId),
+      tokenJti || null,
+      ipAddress || null,
+      userAgent || null,
+      deviceFingerprintSet === true,
+      deviceFingerprint || null,
+      appSurface || null,
+    ]
   );
   return r.rows[0] || null;
 }

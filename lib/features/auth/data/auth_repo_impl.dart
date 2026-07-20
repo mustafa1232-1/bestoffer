@@ -296,6 +296,13 @@ String? _readDeviceSessionId(Map<String, dynamic> payload) {
   return null;
 }
 
+String? _readSessionId(Map<String, dynamic> payload) {
+  final raw = payload['sessionId'] ?? payload['session_id'];
+  if (raw is String && raw.trim().isNotEmpty) return raw.trim();
+  if (raw is num) return raw.toString();
+  return null;
+}
+
 String? _readDeviceRecoverySecret(Map<String, dynamic> payload) {
   final raw =
       payload['deviceRecoverySecret'] ?? payload['device_recovery_secret'];
@@ -310,6 +317,7 @@ Future<void> _saveAuthPayload(
   await store.saveAuthTokens(
     accessToken: _readToken(payload),
     refreshToken: _readRefreshToken(payload),
+    sessionId: _readSessionId(payload),
     deviceSessionId: _readDeviceSessionId(payload),
     deviceRecoverySecret: _readDeviceRecoverySecret(payload),
   );
