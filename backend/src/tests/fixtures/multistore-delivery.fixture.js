@@ -69,7 +69,7 @@ export async function cleanupMultiStoreFixture(client, mark = DEFAULT_MARK) {
 
 export async function createMultiStoreFixture(
   client,
-  { childStatus = "accepted_by_store", courierOnline = true, presenceAgeSec = 5, mark = DEFAULT_MARK } = {}
+  { childStatus = "ready_for_delivery", courierOnline = true, presenceAgeSec = 5, mark = DEFAULT_MARK } = {}
 ) {
   await cleanupMultiStoreFixture(client, mark);
 

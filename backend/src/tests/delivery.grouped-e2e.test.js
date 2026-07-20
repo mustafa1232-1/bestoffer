@@ -279,6 +279,13 @@ test("E2E: real checkout → store acceptance → grouped worker assigns one cou
     finalChildren.every((r) => r.status === "delivered"),
     "all child orders delivered"
   );
+  const finalGroup = (
+    await client.query(
+      `SELECT status FROM order_group WHERE id=$1`,
+      [fx.orderGroupId]
+    )
+  ).rows[0];
+  assert.equal(finalGroup.status, "completed", "order group terminal status");
   const caFinal = (
     await client.query(
       `SELECT status, completed_at FROM courier_assignment WHERE delivery_job_id=$1`,

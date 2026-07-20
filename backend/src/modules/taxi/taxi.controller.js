@@ -6,6 +6,8 @@ import {
   writeSseEvent,
 } from "../../shared/realtime/live-events.js";
 import * as service from "./taxi.service.js";
+import { validateDeliveryRegister } from "../delivery/delivery.validators.js";
+import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 import {
   validateCaptainProfileEditRequest,
   validateBidId,
@@ -65,6 +67,35 @@ function validateShareTokenParam(token) {
     return { ok: false, errors: ["token"] };
   }
   return { ok: true, value };
+}
+
+export async function registerCaptain(req, res, next) {
+  try {
+    const files = req.files || {};
+    const profileImageFile = Array.isArray(files.profileImageFile)
+      ? files.profileImageFile[0]
+      : null;
+    const carImageFile = Array.isArray(files.carImageFile)
+      ? files.carImageFile[0]
+      : null;
+    const body = {
+      ...req.body,
+      profileImageUrl:
+        buildUploadedFileUrl(req, profileImageFile) ||
+        req.body?.profileImageUrl ||
+        req.body?.imageUrl,
+      carImageUrl: buildUploadedFileUrl(req, carImageFile) || req.body?.carImageUrl,
+    };
+    const v = validateDeliveryRegister(body);
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const out = await service.registerCaptain(body);
+    res.status(201).json(out);
+  } catch (error) {
+    next(error);
+  }
 }
 
 /**

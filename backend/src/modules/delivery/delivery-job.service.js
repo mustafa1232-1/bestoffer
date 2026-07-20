@@ -22,16 +22,9 @@ const CANCELLED_CHILD_STATUSES = new Set([
   "expired",
 ]);
 
-// "Accepted and progressing" child states — a group is READY_FOR_ASSIGNMENT only
-// when every active child order has reached at least store acceptance.
-//
-// NOTE: the real owner acceptance transition (order-flow.logic.js) uses
-// `approved` as the "store accepted" state, so it MUST be included here or a
-// group created through the production flow would never become ready.
-const ACCEPTED_CHILD_STATUSES = new Set([
-  "approved",
-  "accepted_by_store",
-  "preparing",
+// Effective rule: active children must be ready for pickup/delivery; store
+// acceptance and preparation states are intentionally not assignable.
+const READY_CHILD_STATUSES = new Set([
   "ready_for_delivery",
   "ready_for_pickup",
   "courier_requested",
@@ -47,8 +40,8 @@ export const DEFAULT_PRESENCE_FRESHNESS_SEC = 90;
 function isCancelled(status) {
   return CANCELLED_CHILD_STATUSES.has(String(status || "").trim().toLowerCase());
 }
-function isAccepted(status) {
-  return ACCEPTED_CHILD_STATUSES.has(String(status || "").trim().toLowerCase());
+function isReady(status) {
+  return READY_CHILD_STATUSES.has(String(status || "").trim().toLowerCase());
 }
 
 /**
@@ -124,7 +117,7 @@ export async function recomputeGroupReadiness(client, orderGroupId) {
   ).rows;
   const active = children.filter((c) => !isCancelled(c.status));
   const ready =
-    active.length > 0 && active.every((c) => isAccepted(c.status));
+    active.length > 0 && active.every((c) => isReady(c.status));
   // No active child remains (every store cancelled) → the grouped job is dead.
   const next =
     active.length === 0
@@ -998,6 +991,36 @@ export const markGroupedDelivered = withTx(async (client, { courierUserId, deliv
   await client.query(
     `UPDATE customer_order SET status='delivered', delivered_at=COALESCE(delivered_at,NOW()), delivery_assignment_status='COMPLETED', updated_at=NOW()
       WHERE order_group_id=$1 AND status NOT IN ('cancelled','delivered')`,
+    [Number(job.order_group_id)]
+  );
+  await client.query(
+    `UPDATE order_group
+        SET status='completed', updated_at=NOW()
+      WHERE id=$1
+        AND NOT EXISTS (
+          SELECT 1
+          FROM customer_order o
+          WHERE o.order_group_id=$1
+            AND o.status NOT IN (
+              'delivered',
+              'delivered_by_courier',
+              'received_by_customer',
+              'completed',
+              'cancelled',
+              'cancelled_by_store',
+              'cancelled_by_customer',
+              'cancelled_by_admin'
+            )
+        )`,
+    [Number(job.order_group_id)]
+  );
+  await client.query(
+    `UPDATE order_group_item_summary s
+        SET status=o.status,
+            updated_at=NOW()
+       FROM customer_order o
+      WHERE s.child_order_id=o.id
+        AND s.order_group_id=$1`,
     [Number(job.order_group_id)]
   );
   return { deliveryJobId: Number(job.id), lifecycleStatus: "DELIVERED" };

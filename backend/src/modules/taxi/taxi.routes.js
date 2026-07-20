@@ -4,7 +4,6 @@ import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireCustomer } from "../../shared/middleware/customer.middleware.js";
 import { requireTaxiCaptain } from "../../shared/middleware/taxi-captain.middleware.js";
 import { imageUpload } from "../../shared/utils/upload.js";
-import * as deliveryController from "../delivery/delivery.controller.js";
 import * as c from "./taxi.controller.js";
 import * as loyalty from "./taxi.loyalty.controller.js";
 
@@ -18,7 +17,7 @@ taxiRouter.post(
     { name: "profileImageFile", maxCount: 1 },
     { name: "carImageFile", maxCount: 1 },
   ]),
-  deliveryController.register
+  c.registerCaptain
 );
 
 taxiRouter.use(requireAuth);

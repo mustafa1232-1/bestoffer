@@ -110,6 +110,42 @@ test("FIX: one grouped job, one courier, two pickup stops, courier sees it", asy
   }
 });
 
+test("readiness waits until every active store is ready for pickup", async () => {
+  const c = newClient();
+  await c.connect();
+  try {
+    const fx = await createMultiStoreFixture(c, { childStatus: "preparing" });
+
+    await c.query("BEGIN");
+    await ensureDeliveryJobForGroup(c, fx.orderGroupId);
+    let readiness = await recomputeGroupReadiness(c, fx.orderGroupId);
+    assert.equal(readiness, "PENDING_STORES");
+    await assert.rejects(
+      assignDeliveryJobTx(c, {
+        orderGroupId: fx.orderGroupId,
+        courierUserId: fx.courierId,
+      }),
+      (error) => error.code === "DELIVERY_JOB_NOT_READY"
+    );
+
+    await c.query(
+      `UPDATE customer_order
+       SET status='ready_for_delivery'
+       WHERE order_group_id=$1`,
+      [fx.orderGroupId]
+    );
+    readiness = await recomputeGroupReadiness(c, fx.orderGroupId);
+    assert.equal(readiness, "READY_FOR_ASSIGNMENT");
+    await c.query("ROLLBACK");
+  } catch (error) {
+    await c.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    await cleanupMultiStoreFixture(c);
+    await c.end();
+  }
+});
+
 test("concurrency: two assignment attempts → only one succeeds", async () => {
   const c = newClient();
   await c.connect();

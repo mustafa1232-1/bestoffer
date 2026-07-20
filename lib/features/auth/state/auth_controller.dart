@@ -67,9 +67,10 @@ class AuthState {
   }
 
   bool get isTaxiCaptain {
-    if (user?.isTaxiCaptain == true) return true;
     final role = _resolveRole();
+    if (role == 'delivery') return false;
     if (role == 'taxi_captain') return true;
+    if (user?.isTaxiCaptain == true) return true;
     return _resolveTaxiCaptainClaim();
   }
 
