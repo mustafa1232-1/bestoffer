@@ -183,7 +183,12 @@ export function invalidateSessionAccessCacheForUser({
   return removed;
 }
 
-async function readSessionRevocationState({ sessionId, userId, tokenIssuedAtSec }) {
+async function readSessionRevocationState({
+  sessionId,
+  userId,
+  tokenJti = null,
+  tokenIssuedAtSec,
+}) {
   const redis = await getRedisClient().catch(() => null);
   if (!redis) return false;
   try {
@@ -200,7 +205,12 @@ async function readSessionRevocationState({ sessionId, userId, tokenIssuedAtSec 
       tokenIssuedAtSec > 0 &&
       userRevokedAfter >= tokenIssuedAtSec
     ) {
-      return true;
+      const activeSession = await getActiveSessionByAccess({
+        sessionId,
+        userId,
+        tokenJti,
+      });
+      return !activeSession;
     }
   } catch (_) {
     return false;
@@ -382,6 +392,7 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
     const revoked = await readSessionRevocationState({
       sessionId,
       userId,
+      tokenJti,
       tokenIssuedAtSec: Number(payload?.iat || 0),
     });
     if (revoked) {
