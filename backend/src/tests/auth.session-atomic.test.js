@@ -66,6 +66,28 @@ async function createSessionFixture(label) {
   };
 }
 
+async function createLoginFixture(label, { role = "user" } = {}) {
+  const suffix = uniqueSuffix();
+  const user = await createUser({
+    fullName: `Login Surface ${label} ${suffix}`,
+    username: `login_${label}_${suffix}`.slice(0, 24),
+    phone: `07${String(Date.now()).slice(-9)}`,
+    pinHash: await hashPin("1234"),
+    block: "B1",
+    buildingNumber: "B101",
+    apartment: "101",
+    role,
+    analyticsConsentGranted: true,
+    analyticsConsentVersion: "auth_login_surface_test_v1",
+    analyticsConsentGrantedAt: new Date(),
+  });
+  return {
+    userId: Number(user.id),
+    phone: user.phone,
+    pin: "1234",
+  };
+}
+
 async function cleanupFixture(fx) {
   if (!fx?.userId) return;
   await q(`DELETE FROM user_session WHERE user_id=$1`, [fx.userId]).catch(() => {});
@@ -74,6 +96,42 @@ async function cleanupFixture(fx) {
   );
   await q(`DELETE FROM app_user WHERE id=$1`, [fx.userId]).catch(() => {});
 }
+
+test("company admin login is blocked from user surface", async () => {
+  const fx = await createLoginFixture("company_admin_user_surface", {
+    role: "admin",
+  });
+  try {
+    await assert.rejects(
+      () =>
+        authService.login(
+          { phone: fx.phone, pin: fx.pin },
+          {
+            deviceFingerprint: "admin-user-surface-device",
+            appFlavor: "user",
+            userAgent: "auth-session-test",
+            ipAddress: "127.0.0.1",
+          }
+        ),
+      (error) =>
+        error?.message === "FORBIDDEN_APP_SURFACE" && error?.status === 403
+    );
+
+    const companyLogin = await authService.login(
+      { phone: fx.phone, pin: fx.pin },
+      {
+        deviceFingerprint: "admin-company-surface-device",
+        appFlavor: "company",
+        userAgent: "auth-session-test",
+        ipAddress: "127.0.0.1",
+      }
+    );
+    assert.ok(companyLogin.token);
+    assert.equal(companyLogin.user.role, "admin");
+  } finally {
+    await cleanupFixture(fx);
+  }
+});
 
 test("atomic refresh burst rotates one generation and shares the current bundle", async () => {
   const fx = await createSessionFixture("refresh");
