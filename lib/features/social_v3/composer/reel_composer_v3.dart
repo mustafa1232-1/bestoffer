@@ -38,6 +38,7 @@ class _ReelComposerV3State extends ConsumerState<ReelComposerV3> {
   late final TextEditingController _captionController;
   bool _seededDraft = false;
   bool _publishedCallbackFired = false;
+  bool _publishedCloseScheduled = false;
   bool _comments = true;
   bool _sharing = true;
 
@@ -82,9 +83,19 @@ class _ReelComposerV3State extends ConsumerState<ReelComposerV3> {
       if (reelId != null && reelId > 0) {
         _publishedCallbackFired = true;
         widget.onPublished?.call(reelId);
+        _scheduleCloseAfterPublish();
       }
     }
     setState(() {});
+  }
+
+  void _scheduleCloseAfterPublish() {
+    if (_publishedCloseScheduled) return;
+    _publishedCloseScheduled = true;
+    Future<void>.delayed(const Duration(milliseconds: 700), () {
+      if (!mounted) return;
+      Navigator.of(context).maybePop();
+    });
   }
 
   SocialStoryLayer? _selectedLayer(SocialStoryDraft draft, String? layerId) {

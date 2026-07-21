@@ -68,6 +68,23 @@ class _SpyController extends ReelComposerController {
   }
 }
 
+class _PublishedSpyController extends _SpyController {
+  ReelComposerStage simulatedStage = ReelComposerStage.draft;
+  int? simulatedPublishedReelId;
+
+  @override
+  ReelComposerStage get stage => simulatedStage;
+
+  @override
+  int? get publishedReelId => simulatedPublishedReelId;
+
+  void markPublished(int reelId) {
+    simulatedPublishedReelId = reelId;
+    simulatedStage = ReelComposerStage.published;
+    notifyListeners();
+  }
+}
+
 const _video = PickedSocialMedia(
   path: '/tmp/reel.mp4',
   name: 'reel.mp4',
@@ -132,6 +149,55 @@ void main() {
     expect(controller.capturedStyle?['caption'], 'Hello reel');
     expect(controller.capturedStyle?['layers'], isA<List<dynamic>>());
     expect((controller.capturedStyle?['layers'] as List).isNotEmpty, isTrue);
+    controller.dispose();
+  });
+
+  testWidgets('successful publish closes the composer once', (tester) async {
+    var published = 0;
+    final controller = _PublishedSpyController();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('ar'),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => MediaQuery(
+                        data: const MediaQueryData(size: Size(393, 852)),
+                        child: ReelComposerV3(
+                          video: _video,
+                          controller: controller,
+                          onPublished: (_) => published++,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byType(ReelComposerV3), findsOneWidget);
+
+    controller.markPublished(77);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pumpAndSettle();
+
+    expect(published, 1);
+    expect(find.byType(ReelComposerV3), findsNothing);
     controller.dispose();
   });
 }
