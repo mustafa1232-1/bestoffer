@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:maslaki/l10n/app_localizations.dart';
 import 'package:maslaki/features/social_v3/composer/post_composer_v3.dart';
 import 'package:maslaki/features/social_v3/composer/reel_composer_v3.dart';
 import 'package:maslaki/features/social_v3/composer/reel_gallery_entry_v3.dart';
@@ -8,8 +9,12 @@ import 'package:maslaki/features/social_v3/composer/social_create_selector_v3.da
 import 'package:maslaki/features/social_v3/composer/story_composer_source.dart';
 import 'package:maslaki/features/social_v3/composer/story_composer_v3.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
+import 'package:maslaki/features/notifications/data/notifications_api.dart';
+import 'package:maslaki/features/notifications/state/notifications_controller.dart';
 import 'package:maslaki/features/social/data/social_api.dart';
 import 'package:maslaki/features/social/state/social_controller.dart';
+import 'package:maslaki/features/social/ui/social_feed_screen.dart';
+import 'package:maslaki/features/social/ui/widgets/basmaya_shell_bars.dart';
 import 'package:maslaki/features/social_v3/pickers/social_media_picker_v3.dart';
 import 'package:maslaki/features/social_v3/reels/social_reels_screen_v3.dart';
 
@@ -38,6 +43,13 @@ class _FakeSocialApi extends SocialApi {
   }
 }
 
+class _FakeNotificationsApi extends NotificationsApi {
+  _FakeNotificationsApi() : super(Dio());
+
+  @override
+  Future<int> unreadCount() async => 0;
+}
+
 class _AuthedAuthController extends AuthController {
   _AuthedAuthController(super.ref) {
     state = const AuthState(token: 'token');
@@ -47,6 +59,53 @@ class _AuthedAuthController extends AuthController {
 class _GuestAuthController extends AuthController {
   _GuestAuthController(super.ref) {
     state = const AuthState(guestMode: true);
+  }
+}
+
+class _EmptySocialController extends SocialController {
+  _EmptySocialController(super.ref);
+
+  @override
+  Future<void> bootstrap() async {
+    state = state.copyWith(loadingPosts: false, loadingStories: false);
+  }
+
+  @override
+  Future<void> loadStories({bool silent = false}) async {
+    state = state.copyWith(loadingStories: false, stories: const []);
+  }
+
+  @override
+  Future<void> loadPosts({
+    bool refresh = false,
+    String? kind,
+    bool silent = false,
+  }) async {
+    state = state.copyWith(
+      loadingPosts: false,
+      loadingMorePosts: false,
+      posts: const [],
+      activeKind: kind ?? state.activeKind,
+      activeKindTouched: true,
+      nextPostsCursor: null,
+      nextPostsCursorTouched: true,
+    );
+  }
+
+  @override
+  Future<void> loadThreads({bool silent = false}) async {
+    state = state.copyWith(loadingThreads: false, threads: const []);
+  }
+
+  @override
+  Future<void> setActiveKind(String? kind) async {
+    state = state.copyWith(
+      activeKind: kind,
+      activeKindTouched: true,
+      posts: const [],
+      nextPostsCursor: null,
+      nextPostsCursorTouched: true,
+    );
   }
 }
 
@@ -455,6 +514,49 @@ void main() {
     await tester.tap(find.text('إنشاء ريل'));
     await tester.pump();
     expect(created, 1);
+  });
+
+  testWidgets('social feed reels filter exposes direct Create Reel action', (
+    tester,
+  ) async {
+    var opened = 0;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(_AuthedAuthController.new),
+          socialApiProvider.overrideWithValue(_FakeSocialApi()),
+          socialControllerProvider.overrideWith(_EmptySocialController.new),
+          notificationsApiProvider.overrideWithValue(_FakeNotificationsApi()),
+          basmayaScopeCodesProvider.overrideWith(
+            (ref) async => const BasmayaScopeCodes(
+              blockScopeCode: null,
+              compoundScopeCode: null,
+              buildingScopeCode: null,
+            ),
+          ),
+        ],
+        child: MediaQuery(
+          data: const MediaQueryData(size: Size(393, 852)),
+          child: MaterialApp(
+            locale: const Locale('ar'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: SocialFeedScreen(
+              openReelComposer: (_) async {
+                opened++;
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('ريلز'));
+    await tester.pump();
+    expect(find.text('إنشاء ريل'), findsWidgets);
+    await tester.tap(find.text('إنشاء ريل').first);
+    await tester.pump();
+    expect(opened, 1);
   });
 
   test('reel idempotency key is generated once per composer controller', () {

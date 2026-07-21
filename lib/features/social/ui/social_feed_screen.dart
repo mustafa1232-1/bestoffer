@@ -14,6 +14,7 @@ import '../../merchants/ui/merchant_products_screen.dart';
 import '../../notifications/ui/notifications_bell.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
+import '../../social_v3/composer/reel_gallery_entry_v3.dart';
 import 'social_content_navigation.dart';
 import 'social_community_screen.dart';
 import 'social_create_post_sheet.dart';
@@ -26,7 +27,9 @@ import 'widgets/social_feed_posts_sliver.dart';
 import 'widgets/social_stories_strip.dart';
 
 class SocialFeedScreen extends ConsumerStatefulWidget {
-  const SocialFeedScreen({super.key});
+  const SocialFeedScreen({super.key, this.openReelComposer});
+
+  final Future<void> Function(BuildContext context)? openReelComposer;
 
   @override
   ConsumerState<SocialFeedScreen> createState() => _SocialFeedScreenState();
@@ -75,6 +78,12 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
       return;
     }
     if (!mounted) return;
+    final isReelsFilter =
+        ref.read(socialControllerProvider).activeKind == 'reel';
+    if (isReelsFilter) {
+      await _openCreateReel();
+      return;
+    }
     final l10n = context.l10n;
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -98,6 +107,17 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
                   subtitle: Text(l10n.socialFeedCreateStoryBody),
                   onTap: () => Navigator.of(sheetContext).pop('story'),
                 ),
+                ListTile(
+                  leading: const Icon(Icons.ondemand_video_rounded),
+                  title: Text(context.lt(ar: 'إنشاء ريل', en: 'Create Reel')),
+                  subtitle: Text(
+                    context.lt(
+                      ar: 'اختر فيديو وانشره كريل في خلاصة مسلكي.',
+                      en: 'Pick a video and publish it as a Maslaki reel.',
+                    ),
+                  ),
+                  onTap: () => Navigator.of(sheetContext).pop('reel'),
+                ),
               ],
             ),
           ),
@@ -105,6 +125,10 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
       },
     );
     if (!mounted || action == null) return;
+    if (action == 'reel') {
+      await _openCreateReel();
+      return;
+    }
     if (action == 'story') {
       final posted = await showSocialStoryComposerEntrySheet(context);
       if (posted == true) {
@@ -116,6 +140,13 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
     if (posted == true) {
       await _refresh();
     }
+  }
+
+  Future<void> _openCreateReel() async {
+    final opener = widget.openReelComposer ?? openReelComposerV3;
+    await opener(context);
+    if (!mounted) return;
+    await _refresh();
   }
 
   Future<void> _openStoryGroup(SocialStoryGroup group) async {
@@ -324,6 +355,8 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
         (primaryScope?.buildingScopeCode ?? '').trim().isNotEmpty ||
         (primaryScope?.compoundScopeCode ?? '').trim().isNotEmpty ||
         (primaryScope?.blockScopeCode ?? '').trim().isNotEmpty;
+    final isReelsFilter = state.activeKind == 'reel';
+    final createReelLabel = context.lt(ar: 'إنشاء ريل', en: 'Create Reel');
 
     ref.listen<String?>(socialControllerProvider.select((s) => s.error), (
       previous,
@@ -364,6 +397,10 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
                   child: SocialFeedActionStrip(
                     onOpenSearch: _openSearch,
                     onOpenCreateMenu: _openCreateMenu,
+                    createLabel: isReelsFilter ? createReelLabel : null,
+                    createIcon: isReelsFilter
+                        ? Icons.ondemand_video_rounded
+                        : Icons.add_circle_outline_rounded,
                   ),
                 ),
               ),
@@ -415,7 +452,16 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
               else if (!hasPosts)
                 SliverFillRemaining(
                   hasScrollBody: false,
-                  child: SocialFeedEmptyState(onCreate: _openCreateMenu),
+                  child: SocialFeedEmptyState(
+                    onCreate: _openCreateMenu,
+                    actionLabel: isReelsFilter ? createReelLabel : null,
+                    actionIcon: isReelsFilter
+                        ? Icons.ondemand_video_rounded
+                        : Icons.add_rounded,
+                    illustrationIcon: isReelsFilter
+                        ? Icons.ondemand_video_rounded
+                        : Icons.auto_awesome_mosaic_rounded,
+                  ),
                 )
               else
                 SocialFeedPostsSliver(

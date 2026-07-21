@@ -7,10 +7,14 @@ class SocialFeedActionStrip extends StatelessWidget {
     super.key,
     required this.onOpenSearch,
     required this.onOpenCreateMenu,
+    this.createLabel,
+    this.createIcon = Icons.add_circle_outline_rounded,
   });
 
   final VoidCallback onOpenSearch;
   final VoidCallback onOpenCreateMenu;
+  final String? createLabel;
+  final IconData createIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -27,8 +31,8 @@ class SocialFeedActionStrip extends StatelessWidget {
         const SizedBox(width: 10),
         FilledButton.tonalIcon(
           onPressed: onOpenCreateMenu,
-          icon: const Icon(Icons.add_circle_outline_rounded),
-          label: Text(l10n.socialFeedControlsCreatePostOrStory),
+          icon: Icon(createIcon),
+          label: Text(createLabel ?? l10n.socialFeedControlsCreatePostOrStory),
         ),
       ],
     );
@@ -140,9 +144,18 @@ class SocialFeedFiltersRow extends StatelessWidget {
 }
 
 class SocialFeedEmptyState extends StatelessWidget {
-  const SocialFeedEmptyState({super.key, required this.onCreate});
+  const SocialFeedEmptyState({
+    super.key,
+    required this.onCreate,
+    this.actionLabel,
+    this.actionIcon = Icons.add_rounded,
+    this.illustrationIcon = Icons.auto_awesome_mosaic_rounded,
+  });
 
   final VoidCallback onCreate;
+  final String? actionLabel;
+  final IconData actionIcon;
+  final IconData illustrationIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -161,11 +174,7 @@ class SocialFeedEmptyState extends StatelessWidget {
                 color: scheme.primaryContainer,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.auto_awesome_mosaic_rounded,
-                color: scheme.primary,
-                size: 34,
-              ),
+              child: Icon(illustrationIcon, color: scheme.primary, size: 34),
             ),
             const SizedBox(height: 16),
             Text(
@@ -186,8 +195,8 @@ class SocialFeedEmptyState extends StatelessWidget {
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: onCreate,
-              icon: const Icon(Icons.add_rounded),
-              label: Text(l10n.socialFeedControlsStartNow),
+              icon: Icon(actionIcon),
+              label: Text(actionLabel ?? l10n.socialFeedControlsStartNow),
             ),
           ],
         ),
