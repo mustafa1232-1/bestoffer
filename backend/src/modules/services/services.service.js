@@ -1066,11 +1066,14 @@ export async function updateRequestStatusByProvider({
     throw new AppError('SERVICE_REQUEST_NOT_FOUND', { status: 404 });
   }
   if (updated.customerUserId) {
+    const notificationStatus = String(updated.status || dto.status || '')
+      .trim()
+      .toLowerCase();
     await createNotification({
       userId: Number(updated.customerUserId),
-      type: `services.request.status.${dto.status}`,
+      type: `services.request.status.${notificationStatus}`,
       title: 'ØªÙ… ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø·Ù„Ø¨ Ø§Ù„Ø®Ø¯Ù…Ø©',
-      body: `Ø­Ø§Ù„Ø© Ø·Ù„Ø¨Ùƒ Ø§Ù„Ø¢Ù†: ${dto.status}`,
+      body: `Ø­Ø§Ù„Ø© Ø·Ù„Ø¨Ùƒ Ø§Ù„Ø¢Ù†: ${notificationStatus}`,
       payload: {
         target: 'service_request_details',
         targetModule: 'customer',
