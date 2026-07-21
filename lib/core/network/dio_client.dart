@@ -158,11 +158,33 @@ class DioClient {
   bool _sessionInvalidated = false;
 
   Future<String?> recoverStoredSession() async {
+    final result = await restoreStoredSession();
+    return result.isRecovered ? result.token : null;
+  }
+
+  Future<SessionRestoreResult> restoreStoredSession() async {
     final refreshToken = await store.readRefreshToken();
     if (refreshToken != null && refreshToken.isNotEmpty) {
-      return _refreshAccessToken(null);
+      try {
+        final token = await _refreshAccessToken(null);
+        if (token != null && token.isNotEmpty) {
+          return SessionRestoreResult.recovered(token);
+        }
+      } on DioException catch (error) {
+        return _restoreFailureResult(error);
+      } catch (error) {
+        return SessionRestoreResult.pending(message: '$error');
+      }
+      if (!await _hasDeviceRecoveryBundle()) {
+        return const SessionRestoreResult.blocked(
+          code: 'SESSION_RESTORE_FAILED',
+        );
+      }
     }
-    return _recoverAccessToken(null);
+    if (!await _hasDeviceRecoveryBundle()) {
+      return const SessionRestoreResult.noStoredSession();
+    }
+    return _recoverAccessTokenResult(null);
   }
 
   Future<String?> _readUsableAccessToken() async {
@@ -297,7 +319,22 @@ class DioClient {
   }
 
   Future<String?> _recoverAccessToken(String? currentAccessToken) async {
-    return SessionRecoveryCoordinator.instance.runSessionRecoveryOnce(
+    final result = await _recoverAccessTokenResult(currentAccessToken);
+    if (result.isRecovered) return result.token;
+    if (result.status == SessionRestoreStatus.pending) {
+      throw DioException(
+        requestOptions: RequestOptions(path: '/api/auth/session/recover'),
+        type: DioExceptionType.connectionError,
+        error: result.message ?? result.code ?? 'SESSION_RECOVERY_PENDING',
+      );
+    }
+    return null;
+  }
+
+  Future<SessionRestoreResult> _recoverAccessTokenResult(
+    String? currentAccessToken,
+  ) async {
+    return SessionRecoveryCoordinator.instance.runSessionRestoreOnce(
       key: await _sessionCoordinationKey(),
       task: () => _recoverAccessTokenOnce(currentAccessToken),
     );
@@ -315,14 +352,16 @@ class DioClient {
     return '${store.flavor.key}:anonymous';
   }
 
-  Future<String?> _recoverAccessTokenOnce(String? currentAccessToken) async {
+  Future<SessionRestoreResult> _recoverAccessTokenOnce(
+    String? currentAccessToken,
+  ) async {
     final deviceSessionId = await store.readDeviceSessionId();
     final recoverySecret = await store.readDeviceRecoverySecret();
     if (deviceSessionId == null ||
         deviceSessionId.isEmpty ||
         recoverySecret == null ||
         recoverySecret.isEmpty) {
-      return null;
+      return const SessionRestoreResult.noStoredSession();
     }
 
     try {
@@ -356,7 +395,11 @@ class DioClient {
         ),
       );
       final raw = response.data;
-      if (raw is! Map) return null;
+      if (raw is! Map) {
+        return const SessionRestoreResult.blocked(
+          code: 'INVALID_RECOVERY_RESPONSE',
+        );
+      }
       final accessToken =
           '${raw['token'] ?? raw['accessToken'] ?? raw['access_token'] ?? ''}'
               .trim();
@@ -368,7 +411,11 @@ class DioClient {
       final nextRecoverySecret =
           '${raw['deviceRecoverySecret'] ?? raw['device_recovery_secret'] ?? ''}'
               .trim();
-      if (accessToken.isEmpty) return null;
+      if (accessToken.isEmpty) {
+        return const SessionRestoreResult.blocked(
+          code: 'INVALID_RECOVERY_RESPONSE',
+        );
+      }
       await store.saveAuthTokens(
         accessToken: accessToken,
         refreshToken: refreshToken.isEmpty ? null : refreshToken,
@@ -381,13 +428,51 @@ class DioClient {
             : nextRecoverySecret,
       );
       _sessionInvalidated = false;
-      return accessToken;
+      return SessionRestoreResult.recovered(accessToken);
     } on DioException catch (error) {
-      final status = error.response?.statusCode ?? 0;
-      if (_isRetryableConnectionError(error) || status >= 500) rethrow;
-      return null;
+      return _restoreFailureResult(error);
     } catch (_) {
-      return null;
+      return const SessionRestoreResult.pending(
+        code: 'SESSION_RECOVERY_FAILED',
+      );
+    }
+  }
+
+  Future<bool> _hasDeviceRecoveryBundle() async {
+    final deviceSessionId = await store.readDeviceSessionId();
+    final recoverySecret = await store.readDeviceRecoverySecret();
+    return deviceSessionId != null &&
+        deviceSessionId.isNotEmpty &&
+        recoverySecret != null &&
+        recoverySecret.isNotEmpty;
+  }
+
+  SessionRestoreResult _restoreFailureResult(DioException error) {
+    final status = error.response?.statusCode ?? 0;
+    final code = _extractAuthCode(error.response?.data);
+    final message = _extractAuthMessage(error.response?.data) ?? '$error';
+    if (_isRetryableConnectionError(error) || status == 0 || status >= 500) {
+      return SessionRestoreResult.pending(code: code, message: message);
+    }
+    switch (code) {
+      case 'DEVICE_REVERIFICATION_REQUIRED':
+      case 'DEVICE_BINDING_MISMATCH':
+        return SessionRestoreResult.reVerificationRequired(
+          code: code,
+          message: message,
+        );
+      case 'ACCOUNT_DISABLED':
+        return SessionRestoreResult.accountDisabled(
+          code: code,
+          message: message,
+        );
+      case 'APP_SURFACE_MISMATCH':
+        return SessionRestoreResult.surfaceMismatch(
+          code: code,
+          message: message,
+        );
+      default:
+        return SessionRestoreResult.blocked(code: code, message: message);
     }
   }
 
@@ -742,6 +827,19 @@ String? _extractAuthCode(dynamic data) {
   if (data is String) {
     final normalized = data.trim().toUpperCase();
     return normalized.isEmpty ? null : normalized;
+  }
+  return null;
+}
+
+String? _extractAuthMessage(dynamic data) {
+  if (data is Map) {
+    final raw = data['message'] ?? data['error'] ?? data['code'];
+    final text = '$raw'.trim();
+    return text.isEmpty ? null : text;
+  }
+  if (data is String) {
+    final text = data.trim();
+    return text.isEmpty ? null : text;
   }
   return null;
 }

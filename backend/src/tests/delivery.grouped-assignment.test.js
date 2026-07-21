@@ -25,6 +25,20 @@ function newClient() {
   return new pg.Client({ connectionString: process.env.DATABASE_URL });
 }
 
+async function createAssignedGroupedJob(client, { childStatus, mark }) {
+  const fx = await createMultiStoreFixture(client, { childStatus, mark });
+  await client.query("BEGIN");
+  await ensureDeliveryJobForGroup(client, fx.orderGroupId);
+  await recomputeGroupReadiness(client, fx.orderGroupId);
+  const assigned = await assignDeliveryJobTx(client, {
+    orderGroupId: fx.orderGroupId,
+    courierUserId: fx.courierId,
+    idempotencyKey: `${mark}assign`,
+  });
+  await client.query("COMMIT");
+  return { fx, assigned };
+}
+
 test("DEFECT reproduction: no grouped job → courier sees nothing", async () => {
   const c = newClient();
   await c.connect();
@@ -339,6 +353,119 @@ test("PENDING_NO_DRIVER: no eligible courier → not assigned, no false state", 
     assert.equal(view.active, false, "no false ASSIGNED when no driver");
   } finally {
     await cleanupMultiStoreFixture(c);
+    await c.end();
+  }
+});
+
+test("pickup collection only starts from store-ready child statuses", async () => {
+  const cases = [
+    ["preparing", "PICKUP_STOP_NOT_READY", "prep"],
+    ["approved", "PICKUP_STOP_NOT_READY", "appr"],
+    ["courier_requested", "PICKUP_STOP_NOT_READY", "req"],
+    ["courier_assigned", "PICKUP_STOP_NOT_READY", "asg"],
+    ["ready_for_delivery", "COLLECTED", "rfd"],
+    ["ready_for_pickup", "COLLECTED", "rfp"],
+  ];
+
+  for (const [childStatus, expected, suffix] of cases) {
+    const mark = `fxp_${suffix}_`;
+    const c = newClient();
+    await c.connect();
+    try {
+      const { fx, assigned } = await createAssignedGroupedJob(c, {
+        childStatus,
+        mark,
+      });
+      const stopId = Number(assigned.stops[0].id);
+      if (expected === "COLLECTED") {
+        const collected = await markStopCollected({
+          courierUserId: fx.courierId,
+          deliveryJobId: assigned.job.id,
+          stopId,
+        });
+        assert.equal(collected.pickupStatus, "COLLECTED", childStatus);
+      } else {
+        await assert.rejects(
+          markStopCollected({
+            courierUserId: fx.courierId,
+            deliveryJobId: assigned.job.id,
+            stopId,
+          }),
+          (error) => error.code === expected,
+          childStatus
+        );
+      }
+    } finally {
+      await cleanupMultiStoreFixture(c, mark);
+      await c.end();
+    }
+  }
+});
+
+test("pickup collection is idempotent only after the stop itself is collected", async () => {
+  const c = newClient();
+  const mark = "fxp_idem_";
+  await c.connect();
+  try {
+    const { fx, assigned } = await createAssignedGroupedJob(c, {
+      childStatus: "ready_for_delivery",
+      mark,
+    });
+    const stopId = Number(assigned.stops[0].id);
+    const first = await markStopCollected({
+      courierUserId: fx.courierId,
+      deliveryJobId: assigned.job.id,
+      stopId,
+    });
+    assert.equal(first.pickupStatus, "COLLECTED");
+
+    await c.query(
+      `UPDATE customer_order SET status='courier_assigned' WHERE id=$1`,
+      [fx.childOrderIds[0]]
+    );
+    const second = await markStopCollected({
+      courierUserId: fx.courierId,
+      deliveryJobId: assigned.job.id,
+      stopId,
+    });
+    assert.equal(second.pickupStatus, "COLLECTED");
+  } finally {
+    await cleanupMultiStoreFixture(c, mark);
+    await c.end();
+  }
+});
+
+test("one ready stop does not unlock another non-ready pickup stop", async () => {
+  const c = newClient();
+  const mark = "fxp_ind_";
+  await c.connect();
+  try {
+    const { fx, assigned } = await createAssignedGroupedJob(c, {
+      childStatus: "approved",
+      mark,
+    });
+    await c.query(
+      `UPDATE customer_order SET status='ready_for_delivery' WHERE id=$1`,
+      [fx.childOrderIds[0]]
+    );
+
+    const first = await markStopCollected({
+      courierUserId: fx.courierId,
+      deliveryJobId: assigned.job.id,
+      stopId: Number(assigned.stops[0].id),
+    });
+    assert.equal(first.pickupStatus, "COLLECTED");
+
+    await assert.rejects(
+      markStopCollected({
+        courierUserId: fx.courierId,
+        deliveryJobId: assigned.job.id,
+        stopId: Number(assigned.stops[1].id),
+      }),
+      (error) => error.code === "PICKUP_STOP_NOT_READY"
+    );
+  } finally {
+    await cleanupMultiStoreFixture(c, mark);
     await c.end();
   }
 });

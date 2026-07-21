@@ -8,6 +8,75 @@ enum SessionRecoveryDecision {
   userRequestedLogout,
 }
 
+enum SessionRestoreStatus {
+  recovered,
+  noStoredSession,
+  pending,
+  reVerificationRequired,
+  accountDisabled,
+  surfaceMismatch,
+  blocked,
+}
+
+class SessionRestoreResult {
+  final SessionRestoreStatus status;
+  final String? token;
+  final String? code;
+  final String? message;
+
+  const SessionRestoreResult._({
+    required this.status,
+    this.token,
+    this.code,
+    this.message,
+  });
+
+  const SessionRestoreResult.recovered(String token)
+    : this._(status: SessionRestoreStatus.recovered, token: token);
+
+  const SessionRestoreResult.noStoredSession()
+    : this._(status: SessionRestoreStatus.noStoredSession);
+
+  const SessionRestoreResult.pending({String? code, String? message})
+    : this._(
+        status: SessionRestoreStatus.pending,
+        code: code,
+        message: message,
+      );
+
+  const SessionRestoreResult.reVerificationRequired({
+    String? code,
+    String? message,
+  }) : this._(
+         status: SessionRestoreStatus.reVerificationRequired,
+         code: code,
+         message: message,
+       );
+
+  const SessionRestoreResult.accountDisabled({String? code, String? message})
+    : this._(
+        status: SessionRestoreStatus.accountDisabled,
+        code: code,
+        message: message,
+      );
+
+  const SessionRestoreResult.surfaceMismatch({String? code, String? message})
+    : this._(
+        status: SessionRestoreStatus.surfaceMismatch,
+        code: code,
+        message: message,
+      );
+
+  const SessionRestoreResult.blocked({String? code, String? message})
+    : this._(
+        status: SessionRestoreStatus.blocked,
+        code: code,
+        message: message,
+      );
+
+  bool get isRecovered => status == SessionRestoreStatus.recovered;
+}
+
 typedef SessionInvalidationDecision = SessionRecoveryDecision;
 
 /// Broadcasts non-destructive session recovery hints.
@@ -50,6 +119,8 @@ class SessionRecoveryCoordinator {
       <String, Future<String?>>{};
   final Map<String, Future<String?>> _sessionRecoveryFutures =
       <String, Future<String?>>{};
+  final Map<String, Future<SessionRestoreResult>> _sessionRestoreFutures =
+      <String, Future<SessionRestoreResult>>{};
   bool _recoveryPending = false;
 
   bool get terminalInvalidated => false;
@@ -126,6 +197,13 @@ class SessionRecoveryCoordinator {
     return _runStringOnce(_sessionRecoveryFutures, key: key, task: task);
   }
 
+  Future<SessionRestoreResult> runSessionRestoreOnce({
+    required String key,
+    required Future<SessionRestoreResult> Function() task,
+  }) {
+    return _runTypedOnce(_sessionRestoreFutures, key: key, task: task);
+  }
+
   @Deprecated('Use runRecovery(); automatic terminal logout is disabled.')
   Future<void> invalidateTerminalSession({
     required Future<void> Function() cleanup,
@@ -136,6 +214,7 @@ class SessionRecoveryCoordinator {
     _recoveryInFlight = null;
     _refreshFutures.clear();
     _sessionRecoveryFutures.clear();
+    _sessionRestoreFutures.clear();
   }
 
   Future<String?> _runStringOnce(
@@ -162,6 +241,23 @@ class SessionRecoveryCoordinator {
     } finally {
       bus.requestRecovery();
     }
+  }
+
+  Future<SessionRestoreResult> _runTypedOnce(
+    Map<String, Future<SessionRestoreResult>> futures, {
+    required String key,
+    required Future<SessionRestoreResult> Function() task,
+  }) {
+    final normalizedKey = key.trim().isEmpty ? 'default' : key.trim();
+    final inFlight = futures[normalizedKey];
+    if (inFlight != null) return inFlight;
+    final future = task();
+    futures[normalizedKey] = future;
+    return future.whenComplete(() {
+      if (identical(futures[normalizedKey], future)) {
+        futures.remove(normalizedKey);
+      }
+    });
   }
 }
 

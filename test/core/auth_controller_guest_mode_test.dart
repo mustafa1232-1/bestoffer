@@ -119,6 +119,7 @@ class _FakeAuthRepo implements AuthRepo {
   _FakeAuthRepo({this.user});
 
   final UserModel? user;
+  int logoutCalls = 0;
 
   @override
   Future<UserModel> me() {
@@ -137,7 +138,9 @@ class _FakeAuthRepo implements AuthRepo {
   }
 
   @override
-  Future<void> logout() async {}
+  Future<void> logout() async {
+    logoutCalls++;
+  }
 
   @override
   Future<UserModel> login({required String phone, required String pin}) =>
@@ -226,9 +229,15 @@ class _FakeAuthRepo implements AuthRepo {
 }
 
 class _RecoveryAdapter implements HttpClientAdapter {
-  _RecoveryAdapter({this.failRecovery = false});
+  _RecoveryAdapter({
+    this.failRecovery = false,
+    this.statusCode = 200,
+    this.message = 'RECOVERY_FAILED',
+  });
 
   final bool failRecovery;
+  final int statusCode;
+  final String message;
   int recoverCount = 0;
 
   @override
@@ -245,6 +254,9 @@ class _RecoveryAdapter implements HttpClientAdapter {
           type: DioExceptionType.connectionError,
           error: 'offline',
         );
+      }
+      if (statusCode != 200) {
+        return _json(statusCode, <String, dynamic>{'message': message});
       }
       return _json(200, <String, dynamic>{
         'token': 'recovered-token',
@@ -388,4 +400,224 @@ void main() {
       expect(await store.readGuestMode(), isFalse);
     },
   );
+
+  test('missing token with no bundle can enter normal guest state', () async {
+    final store = _MemorySecureStore();
+    await store.saveGuestMode(true);
+
+    final container = ProviderContainer(
+      overrides: [
+        secureStoreProvider.overrideWithValue(store),
+        authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(authControllerProvider.notifier).bootstrap();
+
+    final state = container.read(authControllerProvider);
+    expect(state.isGuest, isTrue);
+    expect(state.sessionRecoveryPending, isFalse);
+    expect(state.sessionRestoreStatus, SessionRestoreStatus.noStoredSession);
+  });
+
+  test('recovery 500 stays pending and preserves bundle', () async {
+    final store = _MemorySecureStore(
+      deviceId: 'device-1',
+      deviceSessionId: 'device-session-1',
+      deviceRecoverySecret: 'secret-1-012345678901234',
+    );
+    final adapter = _RecoveryAdapter(statusCode: 500, message: 'SERVER_ERROR');
+    final dioClient = DioClient(store)
+      ..dio.httpClientAdapter = adapter
+      ..dio.options.baseUrl = 'http://127.0.0.1';
+
+    final container = ProviderContainer(
+      overrides: [
+        secureStoreProvider.overrideWithValue(store),
+        dioClientProvider.overrideWithValue(dioClient),
+        authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(authControllerProvider.notifier).bootstrap();
+
+    final state = container.read(authControllerProvider);
+    expect(adapter.recoverCount, 1);
+    expect(state.isGuest, isFalse);
+    expect(state.sessionRecoveryPending, isTrue);
+    expect(state.sessionRestoreStatus, SessionRestoreStatus.pending);
+    expect(store.value('device_session_id'), 'device-session-1');
+    expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
+  });
+
+  test(
+    'invalid recovery 401 is blocked and does not switch to guest',
+    () async {
+      final store = _MemorySecureStore(
+        deviceId: 'device-1',
+        deviceSessionId: 'device-session-1',
+        deviceRecoverySecret: 'secret-1-012345678901234',
+      );
+      final adapter = _RecoveryAdapter(
+        statusCode: 401,
+        message: 'INVALID_RECOVERY_SECRET',
+      );
+      final dioClient = DioClient(store)
+        ..dio.httpClientAdapter = adapter
+        ..dio.options.baseUrl = 'http://127.0.0.1';
+
+      final container = ProviderContainer(
+        overrides: [
+          secureStoreProvider.overrideWithValue(store),
+          dioClientProvider.overrideWithValue(dioClient),
+          authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authControllerProvider.notifier).bootstrap();
+
+      final state = container.read(authControllerProvider);
+      expect(state.isGuest, isFalse);
+      expect(state.sessionRecoveryPending, isFalse);
+      expect(state.sessionRestoreStatus, SessionRestoreStatus.blocked);
+      expect(state.errorCode, 'INVALID_RECOVERY_SECRET');
+      expect(store.value('device_session_id'), 'device-session-1');
+      expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
+    },
+  );
+
+  test('device reverification 409 is explicit and preserves bundle', () async {
+    final store = _MemorySecureStore(
+      deviceId: 'device-1',
+      deviceSessionId: 'device-session-1',
+      deviceRecoverySecret: 'secret-1-012345678901234',
+    );
+    final adapter = _RecoveryAdapter(
+      statusCode: 409,
+      message: 'DEVICE_REVERIFICATION_REQUIRED',
+    );
+    final dioClient = DioClient(store)
+      ..dio.httpClientAdapter = adapter
+      ..dio.options.baseUrl = 'http://127.0.0.1';
+
+    final container = ProviderContainer(
+      overrides: [
+        secureStoreProvider.overrideWithValue(store),
+        dioClientProvider.overrideWithValue(dioClient),
+        authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(authControllerProvider.notifier).bootstrap();
+
+    final state = container.read(authControllerProvider);
+    expect(state.isGuest, isFalse);
+    expect(
+      state.sessionRestoreStatus,
+      SessionRestoreStatus.reVerificationRequired,
+    );
+    expect(store.value('device_session_id'), 'device-session-1');
+    expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
+  });
+
+  test(
+    'account disabled is explicit and does not clear local bundle',
+    () async {
+      final store = _MemorySecureStore(
+        deviceId: 'device-1',
+        deviceSessionId: 'device-session-1',
+        deviceRecoverySecret: 'secret-1-012345678901234',
+      );
+      final adapter = _RecoveryAdapter(
+        statusCode: 403,
+        message: 'ACCOUNT_DISABLED',
+      );
+      final dioClient = DioClient(store)
+        ..dio.httpClientAdapter = adapter
+        ..dio.options.baseUrl = 'http://127.0.0.1';
+
+      final container = ProviderContainer(
+        overrides: [
+          secureStoreProvider.overrideWithValue(store),
+          dioClientProvider.overrideWithValue(dioClient),
+          authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authControllerProvider.notifier).bootstrap();
+
+      final state = container.read(authControllerProvider);
+      expect(state.isGuest, isFalse);
+      expect(state.sessionRestoreStatus, SessionRestoreStatus.accountDisabled);
+      expect(store.value('device_session_id'), 'device-session-1');
+      expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
+    },
+  );
+
+  test(
+    'surface mismatch is explicit and does not clear local bundle',
+    () async {
+      final store = _MemorySecureStore(
+        deviceId: 'device-1',
+        deviceSessionId: 'device-session-1',
+        deviceRecoverySecret: 'secret-1-012345678901234',
+      );
+      final adapter = _RecoveryAdapter(
+        statusCode: 403,
+        message: 'APP_SURFACE_MISMATCH',
+      );
+      final dioClient = DioClient(store)
+        ..dio.httpClientAdapter = adapter
+        ..dio.options.baseUrl = 'http://127.0.0.1';
+
+      final container = ProviderContainer(
+        overrides: [
+          secureStoreProvider.overrideWithValue(store),
+          dioClientProvider.overrideWithValue(dioClient),
+          authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authControllerProvider.notifier).bootstrap();
+
+      final state = container.read(authControllerProvider);
+      expect(state.isGuest, isFalse);
+      expect(state.sessionRestoreStatus, SessionRestoreStatus.surfaceMismatch);
+      expect(store.value('device_session_id'), 'device-session-1');
+      expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
+    },
+  );
+
+  test('manual logout clears storage after blocked recovery state', () async {
+    final store = _MemorySecureStore(
+      accessToken: 'token',
+      refreshToken: 'refresh',
+      sessionId: 'session',
+      deviceId: 'device-1',
+      deviceSessionId: 'device-session-1',
+      deviceRecoverySecret: 'secret-1-012345678901234',
+    );
+    final repo = _FakeAuthRepo();
+    final container = ProviderContainer(
+      overrides: [
+        secureStoreProvider.overrideWithValue(store),
+        authRepoProvider.overrideWithValue(repo),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(authControllerProvider.notifier).logout();
+
+    expect(repo.logoutCalls, 1);
+    expect(store.value('access_token'), isNull);
+    expect(store.value('refresh_token'), isNull);
+    expect(store.value('device_session_id'), isNull);
+    expect(store.value('device_recovery_secret'), isNull);
+  });
 }

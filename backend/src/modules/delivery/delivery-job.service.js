@@ -40,12 +40,6 @@ const ASSIGNMENT_READY_CHILD_STATUSES = new Set([
 const PICKUP_READY_CHILD_STATUSES = new Set([
   "ready_for_delivery",
   "ready_for_pickup",
-  "courier_requested",
-  "courier_assigned",
-  "picked_up",
-  "on_the_way",
-  "arrived",
-  "delivered",
 ]);
 
 export const DEFAULT_PRESENCE_FRESHNESS_SEC = 90;
@@ -56,8 +50,16 @@ function isCancelled(status) {
 function isAssignmentReady(status) {
   return ASSIGNMENT_READY_CHILD_STATUSES.has(String(status || "").trim().toLowerCase());
 }
-function isPickupReady(status) {
+function canStartPickup(status) {
   return PICKUP_READY_CHILD_STATUSES.has(String(status || "").trim().toLowerCase());
+}
+function alreadyPastPickupLifecycle(status) {
+  return new Set([
+    "picked_up",
+    "on_the_way",
+    "arrived",
+    "delivered",
+  ]).has(String(status || "").trim().toLowerCase());
 }
 
 /**
@@ -949,13 +951,14 @@ export const markStopCollected = withTx(async (client, { courierUserId, delivery
         [Number(stop.child_order_id)]
       )
     ).rows[0];
-    if (!child || !isPickupReady(child.status)) {
+    if (!child || !canStartPickup(child.status)) {
       throw new AppError("PICKUP_STOP_NOT_READY", {
         status: 409,
         details: {
           stopId: Number(stop.id),
           childOrderId: Number(stop.child_order_id),
           status: child?.status || null,
+          alreadyPastPickupLifecycle: alreadyPastPickupLifecycle(child?.status),
         },
       });
     }

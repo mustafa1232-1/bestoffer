@@ -359,6 +359,33 @@ void main() {
   );
 
   test(
+    '20 concurrent restore calls share one device recovery attempt',
+    () async {
+      final store = _MemorySecureStore(
+        deviceId: 'device-1',
+        deviceSessionId: 'device-session-1',
+        deviceRecoverySecret: 'secret-1-012345678901234',
+      );
+      final adapter = _RefreshConcurrencyAdapter(
+        validAccessToken: 'access-new',
+      );
+      final client = DioClient(store);
+      client.dio.httpClientAdapter = adapter;
+      client.dio.options.baseUrl = 'http://127.0.0.1';
+
+      final results = await Future.wait(
+        List.generate(20, (_) => client.restoreStoredSession()),
+      );
+
+      expect(results, hasLength(20));
+      expect(results.every((result) => result.isRecovered), isTrue);
+      expect(adapter.recoverFetchCount, 1);
+      expect(store.value('access_token'), 'access-new');
+      expect(store.clearCount, 0);
+    },
+  );
+
+  test(
     'network failure during recovery preserves stored session bundle',
     () async {
       final store = _MemorySecureStore(

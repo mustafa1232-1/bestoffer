@@ -42,6 +42,7 @@ class AuthState {
   final ParsedBackendFieldErrors? validationError;
   final String? errorCode;
   final bool sessionRecoveryPending;
+  final SessionRestoreStatus? sessionRestoreStatus;
 
   const AuthState({
     this.loading = false,
@@ -52,6 +53,7 @@ class AuthState {
     this.validationError,
     this.errorCode,
     this.sessionRecoveryPending = false,
+    this.sessionRestoreStatus,
   });
 
   bool get isAuthed => token != null && token!.isNotEmpty;
@@ -148,8 +150,10 @@ class AuthState {
     ParsedBackendFieldErrors? validationError,
     String? errorCode,
     bool? sessionRecoveryPending,
+    SessionRestoreStatus? sessionRestoreStatus,
     bool clearValidationError = false,
     bool clearErrorCode = false,
+    bool clearSessionRestoreStatus = false,
   }) {
     return AuthState(
       loading: loading ?? this.loading,
@@ -163,6 +167,9 @@ class AuthState {
       errorCode: clearErrorCode ? null : (errorCode ?? this.errorCode),
       sessionRecoveryPending:
           sessionRecoveryPending ?? this.sessionRecoveryPending,
+      sessionRestoreStatus: clearSessionRestoreStatus
+          ? null
+          : (sessionRestoreStatus ?? this.sessionRestoreStatus),
     );
   }
 }
@@ -187,16 +194,18 @@ class AuthController extends StateNotifier<AuthState> {
     );
     var token = await store.readToken();
     if (token == null || token.isEmpty) {
+      late final SessionRestoreResult restore;
       try {
-        token = await ref
+        restore = await ref
             .read(dioClientProvider)
-            .recoverStoredSession()
+            .restoreStoredSession()
             .timeout(kAuthSessionVerifyTimeout);
       } catch (e) {
         state = state.copyWith(
           loading: false,
           guestMode: false,
           sessionRecoveryPending: true,
+          sessionRestoreStatus: SessionRestoreStatus.pending,
           error: mapAnyError(
             e,
             fallback: 'Unable to recover session. Please try again.',
@@ -207,14 +216,36 @@ class AuthController extends StateNotifier<AuthState> {
         return;
       }
 
-      if (token == null || token.isEmpty) {
-        state = state.copyWith(
-          loading: false,
-          guestMode: await store.readGuestMode(),
-          clearValidationError: true,
-          clearErrorCode: true,
-        );
-        return;
+      switch (restore.status) {
+        case SessionRestoreStatus.recovered:
+          token = restore.token;
+          break;
+        case SessionRestoreStatus.noStoredSession:
+          state = state.copyWith(
+            loading: false,
+            guestMode: await store.readGuestMode(),
+            sessionRecoveryPending: false,
+            sessionRestoreStatus: SessionRestoreStatus.noStoredSession,
+            clearValidationError: true,
+            clearErrorCode: true,
+          );
+          return;
+        case SessionRestoreStatus.pending:
+        case SessionRestoreStatus.reVerificationRequired:
+        case SessionRestoreStatus.accountDisabled:
+        case SessionRestoreStatus.surfaceMismatch:
+        case SessionRestoreStatus.blocked:
+          state = state.copyWith(
+            loading: false,
+            guestMode: false,
+            sessionRecoveryPending:
+                restore.status == SessionRestoreStatus.pending,
+            sessionRestoreStatus: restore.status,
+            error: _restoreStatusMessage(restore),
+            errorCode: restore.code,
+            clearValidationError: true,
+          );
+          return;
       }
     }
 
@@ -222,6 +253,7 @@ class AuthController extends StateNotifier<AuthState> {
       token: token,
       clearValidationError: true,
       clearErrorCode: true,
+      clearSessionRestoreStatus: true,
     );
 
     try {
@@ -239,6 +271,7 @@ class AuthController extends StateNotifier<AuthState> {
         guestMode: false,
         error: null,
         sessionRecoveryPending: false,
+        clearSessionRestoreStatus: true,
         clearValidationError: true,
         clearErrorCode: true,
       );
@@ -255,6 +288,10 @@ class AuthController extends StateNotifier<AuthState> {
             guestMode: false,
             sessionRecoveryPending:
                 decision == SessionRecoveryDecision.needsRecovery,
+            sessionRestoreStatus:
+                decision == SessionRecoveryDecision.needsRecovery
+                ? SessionRestoreStatus.pending
+                : state.sessionRestoreStatus,
             clearValidationError: true,
             clearErrorCode: true,
           );
@@ -278,6 +315,7 @@ class AuthController extends StateNotifier<AuthState> {
     state = state.copyWith(
       loading: false,
       sessionRecoveryPending: false,
+      clearSessionRestoreStatus: true,
       clearValidationError: true,
       clearErrorCode: true,
     );
@@ -646,7 +684,27 @@ class AuthController extends StateNotifier<AuthState> {
       await ref.read(mediaCacheServiceProvider).clearUserScopedCache(userId);
     }
     await ref.read(authRepoProvider).logout();
+    await ref.read(secureStoreProvider).clear();
     state = const AuthState();
+  }
+
+  String _restoreStatusMessage(SessionRestoreResult restore) {
+    switch (restore.status) {
+      case SessionRestoreStatus.recovered:
+      case SessionRestoreStatus.noStoredSession:
+        return restore.message ?? '';
+      case SessionRestoreStatus.pending:
+        return restore.message ??
+            'Unable to recover session. Please try again.';
+      case SessionRestoreStatus.reVerificationRequired:
+        return restore.message ?? 'Device re-verification is required.';
+      case SessionRestoreStatus.accountDisabled:
+        return restore.message ?? 'This account is disabled.';
+      case SessionRestoreStatus.surfaceMismatch:
+        return restore.message ?? 'This account is not allowed in this app.';
+      case SessionRestoreStatus.blocked:
+        return restore.message ?? 'Session recovery is blocked.';
+    }
   }
 
   Future<void> continueAsGuest() async {
