@@ -149,4 +149,180 @@ void main() {
       controller.dispose();
     },
   );
+
+  test(
+    'ReelUploadApiImpl accepts dynamic-key Dio maps from backend responses',
+    () async {
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.test'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.path.contains('/media/stream/upload-session')) {
+              return handler.resolve(
+                Response<dynamic>(
+                  requestOptions: options,
+                  statusCode: 201,
+                  data: <dynamic, dynamic>{
+                    'upload_session': <dynamic, dynamic>{
+                      'asset_id': 321,
+                      'upload_url':
+                          'https://upload.videodelivery.net/tus/dynamic',
+                    },
+                  },
+                ),
+              );
+            }
+            if (options.path.contains('/media/assets/')) {
+              return handler.resolve(
+                Response<dynamic>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: <dynamic, dynamic>{
+                    'media_asset': <dynamic, dynamic>{
+                      'processing_status': 'ready',
+                    },
+                  },
+                ),
+              );
+            }
+            if (options.path.contains('/feed/reels')) {
+              return handler.resolve(
+                Response<dynamic>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: <dynamic, dynamic>{
+                    'post': <dynamic, dynamic>{'id': 654},
+                  },
+                ),
+              );
+            }
+            return handler.resolve(
+              Response<dynamic>(
+                requestOptions: options,
+                statusCode: 404,
+                data: <dynamic, dynamic>{'message': 'NOT_FOUND'},
+              ),
+            );
+          },
+        ),
+      );
+
+      final api = ReelUploadApiImpl(dio);
+
+      final session = await api.createUploadSession(
+        sizeBytes: 1024,
+        mimeType: 'video/mp4',
+        fileName: 'dynamic.mp4',
+        idempotencyKey: 'dynamic-1',
+      );
+      expect(session.assetId, 321);
+      expect(session.uploadUrl, contains('/dynamic'));
+      expect(await api.pollStatus(session.assetId), 'ready');
+      expect(
+        await api.publishReel(
+          assetId: session.assetId,
+          caption: 'dynamic',
+          audience: 'public',
+          commentsEnabled: true,
+          sharingEnabled: true,
+          idempotencyKey: 'dynamic-2',
+        ),
+        654,
+      );
+    },
+  );
+
+  test(
+    'ReelUploadApiImpl supports camel aliases and rejects invalid bodies',
+    () async {
+      var mode = 'camel';
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.test'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (mode == 'list') {
+              return handler.resolve(
+                Response<dynamic>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: const <dynamic>[],
+                ),
+              );
+            }
+            if (mode == 'null') {
+              return handler.resolve(
+                Response<dynamic>(requestOptions: options, statusCode: 200),
+              );
+            }
+            if (options.path.contains('/media/stream/upload-session')) {
+              return handler.resolve(
+                Response<dynamic>(
+                  requestOptions: options,
+                  statusCode: 201,
+                  data: <String, dynamic>{
+                    'assetId': 987,
+                    'uploadUrl': 'https://upload.videodelivery.net/tus/root',
+                  },
+                ),
+              );
+            }
+            if (options.path.contains('/media/assets/')) {
+              return handler.resolve(
+                Response<dynamic>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: <String, dynamic>{
+                    'mediaAsset': <String, dynamic>{
+                      'processingStatus': 'ready',
+                    },
+                  },
+                ),
+              );
+            }
+            return handler.resolve(
+              Response<dynamic>(
+                requestOptions: options,
+                statusCode: 200,
+                data: <String, dynamic>{'id': 789},
+              ),
+            );
+          },
+        ),
+      );
+      final api = ReelUploadApiImpl(dio);
+
+      final session = await api.createUploadSession(
+        sizeBytes: 512,
+        mimeType: 'video/mp4',
+        fileName: 'camel.mp4',
+        idempotencyKey: 'camel-1',
+      );
+      expect(session.assetId, 987);
+      expect(await api.pollStatus(session.assetId), 'ready');
+      expect(
+        await api.publishReel(
+          assetId: session.assetId,
+          caption: 'camel',
+          audience: 'public',
+          commentsEnabled: true,
+          sharingEnabled: true,
+          idempotencyKey: 'camel-2',
+        ),
+        789,
+      );
+
+      mode = 'list';
+      expect(
+        () => api.createUploadSession(
+          sizeBytes: 512,
+          mimeType: 'video/mp4',
+          fileName: 'bad.mp4',
+          idempotencyKey: 'bad-list',
+        ),
+        throwsA(isA<StateError>()),
+      );
+      mode = 'null';
+      expect(() => api.pollStatus(987), throwsA(isA<StateError>()));
+    },
+  );
 }

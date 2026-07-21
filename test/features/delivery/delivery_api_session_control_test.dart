@@ -76,7 +76,7 @@ void main() {
       for (final request in captured) {
         final extra = request['extra'] as Map<String, dynamic>;
         expect(extra['skipTerminalSessionInvalidation'], isTrue);
-        expect(extra['skipAuthRefresh'], isTrue);
+        expect(extra['skipAuthRefresh'], isNot(isTrue));
       }
     },
   );

@@ -22,9 +22,22 @@ const CANCELLED_CHILD_STATUSES = new Set([
   "expired",
 ]);
 
-// Effective rule: active children must be ready for pickup/delivery; store
-// acceptance and preparation states are intentionally not assignable.
-const READY_CHILD_STATUSES = new Set([
+// Assignment can start once each active store has accepted the child order.
+// Actual store collection remains guarded by PICKUP_READY_CHILD_STATUSES.
+const ASSIGNMENT_READY_CHILD_STATUSES = new Set([
+  "approved",
+  "preparing",
+  "ready_for_delivery",
+  "ready_for_pickup",
+  "courier_requested",
+  "courier_assigned",
+  "picked_up",
+  "on_the_way",
+  "arrived",
+  "delivered",
+]);
+
+const PICKUP_READY_CHILD_STATUSES = new Set([
   "ready_for_delivery",
   "ready_for_pickup",
   "courier_requested",
@@ -40,8 +53,11 @@ export const DEFAULT_PRESENCE_FRESHNESS_SEC = 90;
 function isCancelled(status) {
   return CANCELLED_CHILD_STATUSES.has(String(status || "").trim().toLowerCase());
 }
-function isReady(status) {
-  return READY_CHILD_STATUSES.has(String(status || "").trim().toLowerCase());
+function isAssignmentReady(status) {
+  return ASSIGNMENT_READY_CHILD_STATUSES.has(String(status || "").trim().toLowerCase());
+}
+function isPickupReady(status) {
+  return PICKUP_READY_CHILD_STATUSES.has(String(status || "").trim().toLowerCase());
 }
 
 /**
@@ -117,7 +133,7 @@ export async function recomputeGroupReadiness(client, orderGroupId) {
   ).rows;
   const active = children.filter((c) => !isCancelled(c.status));
   const ready =
-    active.length > 0 && active.every((c) => isReady(c.status));
+    active.length > 0 && active.every((c) => isAssignmentReady(c.status));
   // No active child remains (every store cancelled) → the grouped job is dead.
   const next =
     active.length === 0
@@ -927,6 +943,22 @@ export const markStopCollected = withTx(async (client, { courierUserId, delivery
   if (stop.pickup_status === "CANCELLED") throw new AppError("STOP_CANCELLED", { status: 409 });
   // Collecting one stop must NOT affect the others.
   if (stop.pickup_status !== "COLLECTED") {
+    const child = (
+      await client.query(
+        `SELECT id, status FROM customer_order WHERE id=$1 FOR UPDATE`,
+        [Number(stop.child_order_id)]
+      )
+    ).rows[0];
+    if (!child || !isPickupReady(child.status)) {
+      throw new AppError("PICKUP_STOP_NOT_READY", {
+        status: 409,
+        details: {
+          stopId: Number(stop.id),
+          childOrderId: Number(stop.child_order_id),
+          status: child?.status || null,
+        },
+      });
+    }
     await client.query(
       `UPDATE delivery_pickup_stop SET pickup_status='COLLECTED', collected_at=COALESCE(collected_at,NOW()), updated_at=NOW() WHERE id=$1`,
       [stop.id]

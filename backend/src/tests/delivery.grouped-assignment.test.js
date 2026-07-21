@@ -218,22 +218,42 @@ test("completion releases courier for a second grouped job without relogin", asy
   }
 });
 
-test("readiness waits until every active store is ready for pickup", async () => {
+test("readiness starts after every active store accepts, but pickup waits for ready status", async () => {
   const c = newClient();
   await c.connect();
   try {
-    const fx = await createMultiStoreFixture(c, { childStatus: "preparing" });
+    const fx = await createMultiStoreFixture(c, { childStatus: "approved" });
 
     await c.query("BEGIN");
     await ensureDeliveryJobForGroup(c, fx.orderGroupId);
     let readiness = await recomputeGroupReadiness(c, fx.orderGroupId);
-    assert.equal(readiness, "PENDING_STORES");
+    assert.equal(readiness, "READY_FOR_ASSIGNMENT");
+    const assigned = await assignDeliveryJobTx(c, {
+      orderGroupId: fx.orderGroupId,
+      courierUserId: fx.courierId,
+    });
+    await c.query("COMMIT");
+
+    await acknowledgeGroupedJob({
+      courierUserId: fx.courierId,
+      deliveryJobId: assigned.job.id,
+    });
+    await headingToPickups({
+      courierUserId: fx.courierId,
+      deliveryJobId: assigned.job.id,
+    });
+    await markStopArrived({
+      courierUserId: fx.courierId,
+      deliveryJobId: assigned.job.id,
+      stopId: Number(assigned.stops[0].id),
+    });
     await assert.rejects(
-      assignDeliveryJobTx(c, {
-        orderGroupId: fx.orderGroupId,
+      markStopCollected({
         courierUserId: fx.courierId,
+        deliveryJobId: assigned.job.id,
+        stopId: Number(assigned.stops[0].id),
       }),
-      (error) => error.code === "DELIVERY_JOB_NOT_READY"
+      (error) => error.code === "PICKUP_STOP_NOT_READY"
     );
 
     await c.query(
@@ -242,9 +262,12 @@ test("readiness waits until every active store is ready for pickup", async () =>
        WHERE order_group_id=$1`,
       [fx.orderGroupId]
     );
-    readiness = await recomputeGroupReadiness(c, fx.orderGroupId);
-    assert.equal(readiness, "READY_FOR_ASSIGNMENT");
-    await c.query("ROLLBACK");
+    const collected = await markStopCollected({
+      courierUserId: fx.courierId,
+      deliveryJobId: assigned.job.id,
+      stopId: Number(assigned.stops[0].id),
+    });
+    assert.equal(collected.pickupStatus, "COLLECTED");
   } catch (error) {
     await c.query("ROLLBACK").catch(() => {});
     throw error;

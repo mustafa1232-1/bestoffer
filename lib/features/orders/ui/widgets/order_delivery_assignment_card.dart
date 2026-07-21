@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/i18n/locale_text.dart';
 import '../../../../core/media/cached_app_image.dart';
 import '../../../orders/models/delivery_assignment_model.dart';
 
@@ -30,15 +31,19 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
     final driver = assignment?.driver;
     final status = (assignment?.assignmentStatus ?? '').trim().toUpperCase();
     final isAssigned = assignment?.isAssigned == true;
-    final isPending = assignment?.isPendingNoDriver == true ||
-        status == 'PENDING_NO_DRIVER' ||
-        (status.isEmpty && driver == null);
+    final statusCopy = _copyForStatus(context, status);
+    final isPending =
+        statusCopy != null ||
+        assignment?.isPendingNoDriver == true ||
+        (status.isEmpty && driver == null && visibleWhenNoAssignment);
 
     if (!isAssigned && !isPending && !visibleWhenNoAssignment) {
       return const SizedBox.shrink();
     }
 
     if (isPending || driver == null || !showDriverDetails) {
+      final title = statusCopy?.title ?? waitingCopy;
+      final body = statusCopy?.helper ?? helperText;
       return Container(
         padding: EdgeInsets.all(compact ? 10 : 12),
         decoration: BoxDecoration(
@@ -50,7 +55,7 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              waitingCopy,
+              title,
               textDirection: TextDirection.rtl,
               style: TextStyle(
                 fontWeight: FontWeight.w800,
@@ -59,12 +64,12 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              helperText,
+              body,
               textDirection: TextDirection.rtl,
               style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface.withValues(
-                      alpha: 0.78,
-                    ),
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.78),
               ),
             ),
           ],
@@ -73,9 +78,12 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
     }
 
     final vehicleBits = <String>[
-      if ((driver.vehicleType ?? '').trim().isNotEmpty) driver.vehicleType!.trim(),
-      if ((driver.vehicleModel ?? '').trim().isNotEmpty) driver.vehicleModel!.trim(),
-      if ((driver.vehicleColor ?? '').trim().isNotEmpty) driver.vehicleColor!.trim(),
+      if ((driver.vehicleType ?? '').trim().isNotEmpty)
+        driver.vehicleType!.trim(),
+      if ((driver.vehicleModel ?? '').trim().isNotEmpty)
+        driver.vehicleModel!.trim(),
+      if ((driver.vehicleColor ?? '').trim().isNotEmpty)
+        driver.vehicleColor!.trim(),
       if ((driver.vehiclePlateNumber ?? '').trim().isNotEmpty)
         driver.vehiclePlateNumber!.trim(),
     ];
@@ -107,9 +115,7 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
                           maxWidthDiskCache: 128,
                           maxHeightDiskCache: 128,
                           errorWidget: (context, error, stackTrace) =>
-                              _DriverAvatarFallback(
-                            name: driver.name,
-                          ),
+                              _DriverAvatarFallback(name: driver.name),
                         )
                       : _DriverAvatarFallback(name: driver.name),
                 ),
@@ -157,7 +163,11 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    const Icon(Icons.star_rounded, color: Colors.amber, size: 20),
+                    const Icon(
+                      Icons.star_rounded,
+                      color: Colors.amber,
+                      size: 20,
+                    ),
                     Text(
                       driver.rating!.toStringAsFixed(1),
                       style: const TextStyle(fontWeight: FontWeight.w800),
@@ -182,9 +192,7 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
           Text(
             helperText,
             textDirection: TextDirection.rtl,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.72),
-            ),
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.72)),
           ),
           if (onCall != null || onChat != null) ...[
             const SizedBox(height: 10),
@@ -211,6 +219,53 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
       ),
     );
   }
+
+  _DeliveryAssignmentCopy? _copyForStatus(BuildContext context, String status) {
+    switch (status) {
+      case 'PENDING_STORES':
+        return _DeliveryAssignmentCopy(
+          title: context.lt(
+            ar: 'بانتظار قبول بقية المتاجر',
+            en: 'Waiting for the remaining stores',
+          ),
+          helper: context.lt(
+            ar: 'سيبدأ تعيين الدلفري بعد قبول بقية المتاجر للطلب.',
+            en: 'Courier assignment starts after the remaining stores accept the order.',
+          ),
+        );
+      case 'READY_FOR_ASSIGNMENT':
+        return _DeliveryAssignmentCopy(
+          title: context.lt(
+            ar: 'جارٍ تعيين الدلفري',
+            en: 'Assigning a courier',
+          ),
+          helper: context.lt(
+            ar: 'سيتم عرض بيانات الدلفري فور اكتمال التعيين.',
+            en: 'Courier details will appear as soon as assignment completes.',
+          ),
+        );
+      case 'PENDING_NO_DRIVER':
+        return _DeliveryAssignmentCopy(
+          title: context.lt(
+            ar: 'لا يوجد دلفري متاح حالياً، وستتم إعادة المحاولة تلقائياً',
+            en: 'No courier is available right now, retries will continue automatically',
+          ),
+          helper: context.lt(
+            ar: 'لا يلزم أي إجراء من المتجر، وسيتم التعيين عند توفر دلفري مناسب.',
+            en: 'No store action is required; assignment will happen when a suitable courier is available.',
+          ),
+        );
+      default:
+        return null;
+    }
+  }
+}
+
+class _DeliveryAssignmentCopy {
+  final String title;
+  final String helper;
+
+  const _DeliveryAssignmentCopy({required this.title, required this.helper});
 }
 
 class _DriverAvatarFallback extends StatelessWidget {

@@ -185,15 +185,37 @@ class AuthController extends StateNotifier<AuthState> {
       clearValidationError: true,
       clearErrorCode: true,
     );
-    final token = await store.readToken();
+    var token = await store.readToken();
     if (token == null || token.isEmpty) {
-      state = state.copyWith(
-        loading: false,
-        guestMode: await store.readGuestMode(),
-        clearValidationError: true,
-        clearErrorCode: true,
-      );
-      return;
+      try {
+        token = await ref
+            .read(dioClientProvider)
+            .recoverStoredSession()
+            .timeout(kAuthSessionVerifyTimeout);
+      } catch (e) {
+        state = state.copyWith(
+          loading: false,
+          guestMode: false,
+          sessionRecoveryPending: true,
+          error: mapAnyError(
+            e,
+            fallback: 'Unable to recover session. Please try again.',
+          ),
+          clearValidationError: true,
+          clearErrorCode: true,
+        );
+        return;
+      }
+
+      if (token == null || token.isEmpty) {
+        state = state.copyWith(
+          loading: false,
+          guestMode: await store.readGuestMode(),
+          clearValidationError: true,
+          clearErrorCode: true,
+        );
+        return;
+      }
     }
 
     state = state.copyWith(

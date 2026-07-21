@@ -1,14 +1,34 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/network/api_error_mapper.dart';
+import '../../../core/network/session_invalidation.dart';
 import '../../../core/widgets/app_user_drawer.dart';
 import '../../auth/state/auth_controller.dart';
 import 'admin_approvals_hub_screen.dart';
 import 'admin_dashboard_screen.dart';
 import '../state/admin_controller.dart';
 import 'admin_service_provider_subscription_requests_screen.dart';
+
+const _servicesRecoveryMessage = 'جارٍ استعادة الجلسة وتحديث البيانات...';
+const _servicesPermissionDeniedMessage =
+    'لا تملك صلاحية الوصول إلى إدارة الخدمات.';
+const _servicesNetworkMessage =
+    'تعذر الاتصال بالخادم. تحقق من الإنترنت وحاول مجدداً.';
+const _servicesServerMessage = 'تعذر تحميل بيانات الخدمات حالياً.';
+
+enum _ServicesLoadPhase {
+  loading,
+  recoveringSession,
+  loadedEmpty,
+  loadedWithData,
+  permissionDenied,
+  networkError,
+  serverError,
+}
 
 class AdminServicesHubScreen extends ConsumerStatefulWidget {
   const AdminServicesHubScreen({super.key});
@@ -23,6 +43,8 @@ class _AdminServicesHubScreenState
   bool _loading = true;
   bool _saving = false;
   String? _error;
+  _ServicesLoadPhase _phase = _ServicesLoadPhase.loading;
+  Future<void>? _loadInFlight;
   Map<String, dynamic> _stats = const <String, dynamic>{};
   List<Map<String, dynamic>> _providers = const <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _offerings = const <Map<String, dynamic>>[];
@@ -38,9 +60,26 @@ class _AdminServicesHubScreenState
   }
 
   Future<void> _load() async {
+    final inFlight = _loadInFlight;
+    if (inFlight != null) return inFlight;
+    final future = _loadOnce();
+    _loadInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_loadInFlight, future)) {
+        _loadInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _loadOnce() async {
     setState(() {
       _loading = true;
       _error = null;
+      _phase = SessionRecoveryCoordinator.instance.recoveryPending
+          ? _ServicesLoadPhase.recoveringSession
+          : _ServicesLoadPhase.loading;
     });
     try {
       final api = ref.read(adminApiProvider);
@@ -63,14 +102,80 @@ class _AdminServicesHubScreenState
         _requests = _itemsFromAny(results[5]);
         _settings = _itemsFromList(results[6]);
         _loading = false;
+        _phase = _hasAnyData
+            ? _ServicesLoadPhase.loadedWithData
+            : _ServicesLoadPhase.loadedEmpty;
       });
     } catch (error) {
       if (!mounted) return;
+      final mapped = _mapServicesError(error);
       setState(() {
         _loading = false;
-        _error = '$error';
+        _error = mapped.message;
+        _phase = mapped.phase;
       });
     }
+  }
+
+  bool get _hasAnyData =>
+      _stats.isNotEmpty ||
+      _providers.isNotEmpty ||
+      _offerings.isNotEmpty ||
+      _suggestions.isNotEmpty ||
+      _reports.isNotEmpty ||
+      _requests.isNotEmpty ||
+      _settings.isNotEmpty;
+
+  ({_ServicesLoadPhase phase, String message}) _mapServicesError(Object error) {
+    if (error is DioException) {
+      final status = error.response?.statusCode ?? 0;
+      if (status == 401) {
+        return (
+          phase: _ServicesLoadPhase.recoveringSession,
+          message: _servicesRecoveryMessage,
+        );
+      }
+      if (status == 403) {
+        return (
+          phase: _ServicesLoadPhase.permissionDenied,
+          message: _servicesPermissionDeniedMessage,
+        );
+      }
+      if (_isNetworkError(error)) {
+        return (
+          phase: _ServicesLoadPhase.networkError,
+          message: _servicesNetworkMessage,
+        );
+      }
+      if (status >= 500) {
+        return (
+          phase: _ServicesLoadPhase.serverError,
+          message: _servicesServerMessage,
+        );
+      }
+      return (
+        phase: _ServicesLoadPhase.serverError,
+        message: mapDioError(error, fallback: _servicesServerMessage),
+      );
+    }
+    return (
+      phase: _ServicesLoadPhase.serverError,
+      message: mapAnyError(error, fallback: _servicesServerMessage),
+    );
+  }
+
+  bool _isNetworkError(DioException error) {
+    return error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.sendTimeout ||
+        error.type == DioExceptionType.receiveTimeout;
+  }
+
+  bool _isBlockingErrorPhase(_ServicesLoadPhase phase) {
+    return phase == _ServicesLoadPhase.recoveringSession ||
+        phase == _ServicesLoadPhase.permissionDenied ||
+        phase == _ServicesLoadPhase.networkError ||
+        phase == _ServicesLoadPhase.serverError;
   }
 
   Map<String, dynamic> _asMap(dynamic raw) {
@@ -227,7 +332,7 @@ class _AdminServicesHubScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('$error')));
+      ).showSnackBar(SnackBar(content: Text(_mapServicesError(error).message)));
     } finally {
       controller.dispose();
       if (mounted) setState(() => _saving = false);
@@ -315,7 +420,7 @@ class _AdminServicesHubScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('$error')));
+      ).showSnackBar(SnackBar(content: Text(_mapServicesError(error).message)));
     } finally {
       noteCtrl.dispose();
       if (mounted) setState(() => _saving = false);
@@ -424,7 +529,7 @@ class _AdminServicesHubScreenState
         actions: [
           IconButton(
             tooltip: 'تحديث',
-            onPressed: _saving ? null : _load,
+            onPressed: (_saving || _loading) ? null : _load,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -435,21 +540,30 @@ class _AdminServicesHubScreenState
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
           children: [
             if (_error != null)
-              Card(
-                color: Colors.red.withValues(alpha: 0.1),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                ),
+              _ServicesStatusCard(
+                phase: _phase,
+                message: _error!,
+                loading: _loading,
+                onRetry: (_saving || _loading) ? null : _load,
               ),
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.only(top: 120),
-                child: Center(child: CircularProgressIndicator()),
+              Padding(
+                padding: const EdgeInsets.only(top: 120),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(),
+                      if (_phase == _ServicesLoadPhase.recoveringSession) ...[
+                        const SizedBox(height: 12),
+                        const Text(_servicesRecoveryMessage),
+                      ],
+                    ],
+                  ),
+                ),
               )
+            else if (_isBlockingErrorPhase(_phase) && !_hasAnyData)
+              const SizedBox.shrink()
             else ...[
               FilledButton.icon(
                 onPressed: () {
@@ -616,6 +730,66 @@ class _AdminServicesHubScreenState
   }
 }
 
+class _ServicesStatusCard extends StatelessWidget {
+  final _ServicesLoadPhase phase;
+  final String message;
+  final bool loading;
+  final VoidCallback? onRetry;
+
+  const _ServicesStatusCard({
+    required this.phase,
+    required this.message,
+    required this.loading,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isRecovering = phase == _ServicesLoadPhase.recoveringSession;
+    final color = isRecovering
+        ? Colors.blue
+        : phase == _ServicesLoadPhase.permissionDenied
+        ? Colors.orange
+        : Colors.red;
+    return Card(
+      color: color.withValues(alpha: 0.1),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (loading)
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            else
+              Icon(
+                isRecovering
+                    ? Icons.sync_problem_rounded
+                    : phase == _ServicesLoadPhase.permissionDenied
+                    ? Icons.lock_outline
+                    : Icons.error_outline,
+                color: color,
+              ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(message, style: TextStyle(color: color.shade700)),
+            ),
+            const SizedBox(width: 8),
+            TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('إعادة المحاولة'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _StatsSection extends StatelessWidget {
   final Map<String, dynamic> stats;
 
@@ -628,13 +802,17 @@ class _StatsSection extends StatelessWidget {
 
   String _formatListValue(List<dynamic> values) {
     if (values.isEmpty) return '—';
-    final mapRows = values.whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList(growable: false);
+    final mapRows = values
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
     if (mapRows.isNotEmpty) {
       return mapRows
           .take(4)
           .map((row) {
             final name = _text(row['name'], _text(row['title'], 'عنصر'));
-            final count = row['offeringsCount'] ?? row['count'] ?? row['itemsCount'];
+            final count =
+                row['offeringsCount'] ?? row['count'] ?? row['itemsCount'];
             if (count == null) return name;
             return '$name · ${_text(count)}';
           })

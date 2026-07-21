@@ -1,13 +1,38 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/core/files/local_image_file.dart';
+import 'package:maslaki/core/network/dio_client.dart';
+import 'package:maslaki/core/network/session_invalidation.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
 import 'package:maslaki/features/auth/domain/auth_repo.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 
 class _MemorySecureStore extends SecureStore {
+  _MemorySecureStore({
+    String? accessToken,
+    String? refreshToken,
+    String? deviceId,
+    String? sessionId,
+    String? deviceSessionId,
+    String? deviceRecoverySecret,
+  }) {
+    if (accessToken != null) _values['access_token'] = accessToken;
+    if (refreshToken != null) _values['refresh_token'] = refreshToken;
+    _values['device_id'] = deviceId ?? 'device-1';
+    if (sessionId != null) _values['session_id'] = sessionId;
+    if (deviceSessionId != null) {
+      _values['device_session_id'] = deviceSessionId;
+    }
+    if (deviceRecoverySecret != null) {
+      _values['device_recovery_secret'] = deviceRecoverySecret;
+    }
+  }
+
   final Map<String, String> _values = <String, String>{};
 
   @override
@@ -61,6 +86,16 @@ class _MemorySecureStore extends SecureStore {
   Future<String?> readRefreshToken() async => _values['refresh_token'];
 
   @override
+  Future<String?> readSessionId() async => _values['session_id'];
+
+  @override
+  Future<String?> readDeviceSessionId() async => _values['device_session_id'];
+
+  @override
+  Future<String?> readDeviceRecoverySecret() async =>
+      _values['device_recovery_secret'];
+
+  @override
   Future<void> saveGuestMode(bool enabled) async {
     if (enabled) {
       _values['guest_mode_active'] = '1';
@@ -76,11 +111,19 @@ class _MemorySecureStore extends SecureStore {
   Future<void> clear() async {
     _values.clear();
   }
+
+  String? value(String key) => _values[key];
 }
 
 class _FakeAuthRepo implements AuthRepo {
+  _FakeAuthRepo({this.user});
+
+  final UserModel? user;
+
   @override
   Future<UserModel> me() {
+    final currentUser = user;
+    if (currentUser != null) return Future<UserModel>.value(currentUser);
     final requestOptions = RequestOptions(path: '/api/users/me');
     throw DioException(
       requestOptions: requestOptions,
@@ -182,7 +225,57 @@ class _FakeAuthRepo implements AuthRepo {
   }) => throw UnimplementedError();
 }
 
+class _RecoveryAdapter implements HttpClientAdapter {
+  _RecoveryAdapter({this.failRecovery = false});
+
+  final bool failRecovery;
+  int recoverCount = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (options.path == '/api/auth/session/recover') {
+      recoverCount++;
+      if (failRecovery) {
+        throw DioException(
+          requestOptions: options,
+          type: DioExceptionType.connectionError,
+          error: 'offline',
+        );
+      }
+      return _json(200, <String, dynamic>{
+        'token': 'recovered-token',
+        'refreshToken': 'refresh-recovered',
+        'sessionId': 'session-recovered',
+        'deviceSessionId': 'device-session-1',
+        'deviceRecoverySecret': 'secret-1-012345678901234',
+      });
+    }
+    return _json(404, <String, dynamic>{'message': 'NOT_FOUND'});
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+ResponseBody _json(int status, Map<String, dynamic> body) {
+  return ResponseBody.fromString(
+    jsonEncode(body),
+    status,
+    headers: <String, List<String>>{
+      Headers.contentTypeHeader: <String>['application/json; charset=utf-8'],
+    },
+  );
+}
+
 void main() {
+  setUp(() {
+    SessionRecoveryCoordinator.instance.reset();
+  });
+
   test(
     'invalid stored token stays recoverable and does not downgrade to guest mode',
     () async {
@@ -209,6 +302,90 @@ void main() {
       expect(state.user, isNull);
       expect(await store.readGuestMode(), isFalse);
       expect(await store.readToken(), 'stale-token');
+    },
+  );
+
+  test(
+    'missing stored token recovers device session before deciding guest mode',
+    () async {
+      final store = _MemorySecureStore(
+        deviceId: 'device-1',
+        deviceSessionId: 'device-session-1',
+        deviceRecoverySecret: 'secret-1-012345678901234',
+      );
+      await store.saveGuestMode(true);
+      final adapter = _RecoveryAdapter();
+      final dioClient = DioClient(store);
+      dioClient.dio.httpClientAdapter = adapter;
+      dioClient.dio.options.baseUrl = 'http://127.0.0.1';
+
+      final container = ProviderContainer(
+        overrides: [
+          secureStoreProvider.overrideWithValue(store),
+          dioClientProvider.overrideWithValue(dioClient),
+          authRepoProvider.overrideWithValue(
+            _FakeAuthRepo(
+              user: UserModel.fromJson(const <String, dynamic>{
+                'id': 7,
+                'full_name': 'Recovered User',
+                'phone': '07700000000',
+                'role': 'delivery',
+                'block': 'A',
+                'building_number': '1',
+                'apartment': '2',
+              }),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(authControllerProvider.notifier);
+      await controller.bootstrap();
+
+      final state = container.read(authControllerProvider);
+      expect(adapter.recoverCount, 1);
+      expect(state.isGuest, isFalse);
+      expect(state.sessionRecoveryPending, isFalse);
+      expect(state.token, 'recovered-token');
+      expect(state.user?.id, 7);
+      expect(await store.readGuestMode(), isFalse);
+      expect(store.value('access_token'), 'recovered-token');
+    },
+  );
+
+  test(
+    'recovery failure stays pending and does not switch to guest automatically',
+    () async {
+      final store = _MemorySecureStore(
+        deviceId: 'device-1',
+        deviceSessionId: 'device-session-1',
+        deviceRecoverySecret: 'secret-1-012345678901234',
+      );
+      final adapter = _RecoveryAdapter(failRecovery: true);
+      final dioClient = DioClient(store);
+      dioClient.dio.httpClientAdapter = adapter;
+      dioClient.dio.options.baseUrl = 'http://127.0.0.1';
+
+      final container = ProviderContainer(
+        overrides: [
+          secureStoreProvider.overrideWithValue(store),
+          dioClientProvider.overrideWithValue(dioClient),
+          authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(authControllerProvider.notifier);
+      await controller.bootstrap();
+
+      final state = container.read(authControllerProvider);
+      expect(adapter.recoverCount, 1);
+      expect(state.isGuest, isFalse);
+      expect(state.sessionRecoveryPending, isTrue);
+      expect(store.value('device_session_id'), 'device-session-1');
+      expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
+      expect(await store.readGuestMode(), isFalse);
     },
   );
 }

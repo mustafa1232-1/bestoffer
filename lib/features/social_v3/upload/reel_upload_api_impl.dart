@@ -28,7 +28,7 @@ class ReelUploadApiImpl implements ReelUploadApi {
     required String fileName,
     required String idempotencyKey,
   }) async {
-    final response = await _dio.post<Map<String, dynamic>>(
+    final response = await _dio.post<dynamic>(
       '/api/feed/media/stream/upload-session',
       data: {
         'sourceType': 'reel',
@@ -38,9 +38,13 @@ class ReelUploadApiImpl implements ReelUploadApi {
       },
       options: Options(headers: {'Idempotency-Key': idempotencyKey}),
     );
-    final body = Map<String, dynamic>.from(response.data as Map);
-    final session = Map<String, dynamic>.from(
-      (body['uploadSession'] ?? body['upload_session'] ?? body) as Map,
+    final body = requireStringMap(
+      response.data,
+      'UPLOAD_SESSION_INVALID_RESPONSE',
+    );
+    final session = requireStringMap(
+      body['uploadSession'] ?? body['upload_session'] ?? body,
+      'UPLOAD_SESSION_INVALID_RESPONSE',
     );
     final uploadUrl = (session['uploadUrl'] ?? session['upload_url'] ?? '')
         .toString();
@@ -54,13 +58,11 @@ class ReelUploadApiImpl implements ReelUploadApi {
 
   @override
   Future<String> pollStatus(int assetId) async {
-    final response = await _dio.get<Map<String, dynamic>>(
-      '/api/feed/media/assets/$assetId',
-    );
-    final body = Map<String, dynamic>.from(response.data as Map);
+    final response = await _dio.get<dynamic>('/api/feed/media/assets/$assetId');
+    final body = requireStringMap(response.data, 'REEL_ASSET_INVALID_RESPONSE');
     final asset =
         body['asset'] ?? body['mediaAsset'] ?? body['media_asset'] ?? body;
-    final map = Map<String, dynamic>.from(asset as Map);
+    final map = requireStringMap(asset, 'REEL_ASSET_INVALID_RESPONSE');
     return (map['processingStatus'] ?? map['processing_status'] ?? 'processing')
         .toString();
   }
@@ -87,14 +89,24 @@ class ReelUploadApiImpl implements ReelUploadApi {
       'sharingEnabled': sharingEnabled.toString(),
       if (reelStyle != null) 'reelStyle': jsonEncode(reelStyle),
     });
-    final response = await _dio.post<Map<String, dynamic>>(
+    final response = await _dio.post<dynamic>(
       '/api/feed/reels',
       data: form,
       options: Options(headers: {'Idempotency-Key': idempotencyKey}),
     );
-    final body = Map<String, dynamic>.from(response.data as Map);
+    final body = requireStringMap(
+      response.data,
+      'REEL_PUBLISH_INVALID_RESPONSE',
+    );
     final reel = body['reel'] ?? body['post'] ?? body;
-    final map = Map<String, dynamic>.from(reel as Map);
+    final map = requireStringMap(reel, 'REEL_PUBLISH_INVALID_RESPONSE');
     return int.tryParse('${map['id']}') ?? 0;
   }
+}
+
+Map<String, dynamic> requireStringMap(dynamic raw, String code) {
+  if (raw is! Map) {
+    throw StateError('استجابة الفيديو غير صالحة ($code). حاول مرة أخرى.');
+  }
+  return Map<String, dynamic>.from(raw);
 }

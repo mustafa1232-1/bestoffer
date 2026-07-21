@@ -32,10 +32,7 @@ class DeliveryApi {
     required bool skipTerminalSessionInvalidation,
   }) {
     if (!skipTerminalSessionInvalidation) return const <String, dynamic>{};
-    return const <String, dynamic>{
-      'skipAuthRefresh': true,
-      'skipTerminalSessionInvalidation': true,
-    };
+    return const <String, dynamic>{'skipTerminalSessionInvalidation': true};
   }
 
   Future<List<dynamic>> currentOrders({
@@ -530,8 +527,9 @@ class DeliveryApi {
   }
 
   Future<Map<String, dynamic>> groupedJobDetails(int deliveryJobId) async {
-    final response =
-        await dio.get('/api/delivery/delivery-jobs/$deliveryJobId');
+    final response = await dio.get(
+      '/api/delivery/delivery-jobs/$deliveryJobId',
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -556,20 +554,37 @@ class DeliveryApi {
   Future<Map<String, dynamic>> acknowledgeJob(int id, {int? expectedVersion}) =>
       _jobAction(id, 'acknowledge', expectedVersion: expectedVersion);
 
-  Future<Map<String, dynamic>> headingToPickups(int id, {int? expectedVersion}) =>
-      _jobAction(id, 'heading-to-pickups', expectedVersion: expectedVersion);
+  Future<Map<String, dynamic>> headingToPickups(
+    int id, {
+    int? expectedVersion,
+  }) => _jobAction(id, 'heading-to-pickups', expectedVersion: expectedVersion);
 
-  Future<Map<String, dynamic>> stopArrived(int id, int stopId, {int? expectedVersion}) =>
+  Future<Map<String, dynamic>> stopArrived(
+    int id,
+    int stopId, {
+    int? expectedVersion,
+  }) =>
       _jobAction(id, 'stops/$stopId/arrived', expectedVersion: expectedVersion);
 
-  Future<Map<String, dynamic>> stopCollected(int id, int stopId, {int? expectedVersion}) =>
-      _jobAction(id, 'stops/$stopId/collected', expectedVersion: expectedVersion);
+  Future<Map<String, dynamic>> stopCollected(
+    int id,
+    int stopId, {
+    int? expectedVersion,
+  }) => _jobAction(
+    id,
+    'stops/$stopId/collected',
+    expectedVersion: expectedVersion,
+  );
 
-  Future<Map<String, dynamic>> headingToCustomer(int id, {int? expectedVersion}) =>
-      _jobAction(id, 'heading-to-customer', expectedVersion: expectedVersion);
+  Future<Map<String, dynamic>> headingToCustomer(
+    int id, {
+    int? expectedVersion,
+  }) => _jobAction(id, 'heading-to-customer', expectedVersion: expectedVersion);
 
-  Future<Map<String, dynamic>> markGroupedDelivered(int id, {int? expectedVersion}) =>
-      _jobAction(id, 'delivered', expectedVersion: expectedVersion);
+  Future<Map<String, dynamic>> markGroupedDelivered(
+    int id, {
+    int? expectedVersion,
+  }) => _jobAction(id, 'delivered', expectedVersion: expectedVersion);
 
   Future<Map<String, dynamic>> _getCourierMapWithFallback({
     required String courierPath,

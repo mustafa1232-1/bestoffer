@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
@@ -104,6 +105,9 @@ class DioClient {
           }
 
           final request = error.requestOptions;
+          if (request.extra['skipBaseUrlFallback'] == true) {
+            return handler.next(error);
+          }
           final fallbackUrls = Api.fallbackBaseUrls;
           if (fallbackUrls.length <= 1) {
             return handler.next(error);
@@ -153,11 +157,25 @@ class DioClient {
   /// token reappears (re-login).
   bool _sessionInvalidated = false;
 
+  Future<String?> recoverStoredSession() async {
+    final refreshToken = await store.readRefreshToken();
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      return _refreshAccessToken(null);
+    }
+    return _recoverAccessToken(null);
+  }
+
   Future<String?> _readUsableAccessToken() async {
     final token =
         await store.readToken() ??
         AuthSessionTokenCache.currentToken(flavor: store.flavor);
-    if (token == null || token.isEmpty) return null;
+    if (token == null || token.isEmpty) {
+      final refreshToken = await store.readRefreshToken();
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        return _refreshAccessToken(null);
+      }
+      return _recoverAccessToken(null);
+    }
     if (!_shouldRefreshAccessToken(token)) return token;
     try {
       final refreshed = await _refreshAccessToken(token, allowExpired: true);
@@ -188,7 +206,7 @@ class DioClient {
   }
 
   Future<String?> _refreshAccessToken(
-    String currentAccessToken, {
+    String? currentAccessToken, {
     bool allowExpired = false,
   }) async {
     return SessionRecoveryCoordinator.instance.runRefreshOnce(
@@ -201,7 +219,7 @@ class DioClient {
   }
 
   Future<String?> _refreshAccessTokenOnce(
-    String currentAccessToken, {
+    String? currentAccessToken, {
     bool allowExpired = false,
   }) async {
     final refreshToken = await store.readRefreshToken();
@@ -220,14 +238,17 @@ class DioClient {
           data: {'refreshToken': refreshToken},
           headers: {
             'Accept': 'application/json; charset=utf-8',
-            'Authorization': 'Bearer $currentAccessToken',
+            if (currentAccessToken != null && currentAccessToken.isNotEmpty)
+              'Authorization': 'Bearer $currentAccessToken',
             'X-Device-Id': deviceId,
             'X-Client-Platform': store.flavor.clientPlatformTag,
             'X-App-Flavor': store.flavor.key,
           },
           extra: const {
+            'skipAuth': true,
             'skipSigning': true,
             'skipAuthRefresh': true,
+            'skipBaseUrlFallback': true,
             'skipTerminalSessionInvalidation': true,
           },
         ),
@@ -326,8 +347,10 @@ class DioClient {
             'X-App-Flavor': store.flavor.key,
           },
           extra: const {
+            'skipAuth': true,
             'skipSigning': true,
             'skipAuthRefresh': true,
+            'skipBaseUrlFallback': true,
             'skipTerminalSessionInvalidation': true,
           },
         ),
@@ -358,8 +381,11 @@ class DioClient {
             : nextRecoverySecret,
       );
       _sessionInvalidated = false;
-      SessionRecoveryCoordinator.instance.reset();
       return accessToken;
+    } on DioException catch (error) {
+      final status = error.response?.statusCode ?? 0;
+      if (_isRetryableConnectionError(error) || status >= 500) rethrow;
+      return null;
     } catch (_) {
       return null;
     }
@@ -372,7 +398,6 @@ class DioClient {
     if (error.response?.statusCode != 401) return null;
     if (request.extra['skipAuth'] == true ||
         request.extra['skipAuthRefresh'] == true ||
-        request.extra['skipTerminalSessionInvalidation'] == true ||
         request.extra['_authRefreshRetried'] == true) {
       return null;
     }
@@ -385,10 +410,13 @@ class DioClient {
     final currentToken =
         await store.readToken() ??
         AuthSessionTokenCache.currentToken(flavor: store.flavor);
-    if (currentToken == null || currentToken.isEmpty) return null;
 
     final requestToken = _readBearerHeader(request.headers['Authorization']);
-    final nextToken = requestToken != null && requestToken != currentToken
+    final nextToken =
+        requestToken != null &&
+            currentToken != null &&
+            currentToken.isNotEmpty &&
+            requestToken != currentToken
         ? currentToken
         : await _refreshAccessToken(currentToken);
     if (nextToken == null || nextToken.isEmpty || nextToken == requestToken) {
@@ -500,7 +528,11 @@ class DioClient {
           method: 'POST',
           baseUrl: dio.options.baseUrl,
           headers: {'Authorization': 'Bearer $accessToken'},
-          extra: const {'skipSigning': true},
+          extra: const {
+            'skipAuth': true,
+            'skipSigning': true,
+            'skipBaseUrlFallback': true,
+          },
         ),
       );
       final raw = response.data;
@@ -641,28 +673,35 @@ Future<String> _ensureDeviceId(SecureStore store) async {
   final key = store.storageKey(DioClient._deviceIdKey);
   final existing = await store.readString(DioClient._deviceIdKey);
   if (existing != null && existing.trim().isNotEmpty) {
-    final normalized = existing.trim();
-    await _persistDeviceIdFallback(key, normalized);
-    return normalized;
+    return existing.trim();
   }
-  final prefs = await SharedPreferences.getInstance();
-  final fallback = prefs.getString(key);
-  if (fallback != null && fallback.trim().isNotEmpty) {
-    final normalized = fallback.trim();
-    await store.writeString(DioClient._deviceIdKey, normalized);
-    return normalized;
+  try {
+    final prefs = await SharedPreferences.getInstance().timeout(
+      const Duration(milliseconds: 500),
+    );
+    final fallback = prefs.getString(key);
+    if (fallback != null && fallback.trim().isNotEmpty) {
+      final normalized = fallback.trim();
+      await store.writeString(DioClient._deviceIdKey, normalized);
+      return normalized;
+    }
+  } catch (_) {
+    // SecureStore will get a fresh device id below; SharedPreferences is only
+    // a best-effort fallback for platform migrations.
   }
   final random = Random.secure();
   final bytes = List<int>.generate(16, (_) => random.nextInt(256));
   final value = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   await store.writeString(DioClient._deviceIdKey, value);
-  await _persistDeviceIdFallback(key, value);
+  unawaited(_persistDeviceIdFallback(key, value));
   return value;
 }
 
 Future<void> _persistDeviceIdFallback(String key, String value) async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance().timeout(
+      const Duration(milliseconds: 500),
+    );
     await prefs.setString(key, value);
   } catch (_) {
     // The in-memory SecureStore fallback still covers the current process.
