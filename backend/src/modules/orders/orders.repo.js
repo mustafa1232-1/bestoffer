@@ -9,7 +9,7 @@ import {
 import { insertOpsAuditLog } from "../../ops/auditLog.js";
 import {
   calcDiscount,
-  findValidCouponByIdOrCode,
+  validateCouponByIdOrCode,
 } from "../coupons/coupons.repo.js";
 import {
   applyMerchantOfferPricing,
@@ -2073,7 +2073,7 @@ async function calculateStoreOrderDraft({
     });
   }
 
-  const couponResult = await findValidCouponByIdOrCode(
+  const couponResult = await validateCouponByIdOrCode(
     { couponId, code: couponCode },
     {
       customerId: Number(customer.id),
@@ -2431,7 +2431,7 @@ export async function createOrderWithItems({
       }
     }
 
-    const couponResult = await findValidCouponByIdOrCode(
+    const couponResult = await validateCouponByIdOrCode(
       { couponId, code: couponCode },
       {
         customerId: Number(customer.id),

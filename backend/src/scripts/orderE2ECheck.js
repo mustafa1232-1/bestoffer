@@ -1308,10 +1308,10 @@ async function main() {
     await expectNotification(
       {
         userId: state.deliveryUserId,
-        type: "delivery_assigned_by_owner",
+        type: "delivery_order_available",
         orderId: state.orderId,
       },
-      "delivery direct assignment notification"
+      "delivery direct assignment availability notification"
     );
 
     const readyForDelivery = await request(
