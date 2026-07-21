@@ -22,6 +22,14 @@ import { resolveAccessAuth } from "./access-auth.js";
  *   و`authDeviceContext` على `req`.
  */
 export async function requireAuth(req, res, next) {
+  if (Number(req.userId) > 0) {
+    req.userIsSuperAdmin = req.userIsSuperAdmin === true;
+    req.userIsTaxiCaptain = req.userIsTaxiCaptain === true;
+    req.authSessionId = req.authSessionId || null;
+    req.authDeviceContext = req.authDeviceContext || null;
+    return next();
+  }
+
   if (req.authUserId) {
     req.userId = req.authUserId;
     req.userRole = req.authUserRole;

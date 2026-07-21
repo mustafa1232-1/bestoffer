@@ -266,6 +266,7 @@ async function main() {
     `${runTag}-paid-upgrades`,
     "e2e-new-streams/1"
   );
+  paidUpgradesAdmin.appFlavor = "company";
   await login(
     paidUpgradesAdmin,
     baseUrl,
