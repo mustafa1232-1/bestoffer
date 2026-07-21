@@ -591,6 +591,9 @@ export async function createPost(req, res, next) {
     const media = uploadedFiles.map((file) => ({
       url: buildUploadedFileUrl(req, file),
       mimetype: file.mimetype,
+      path: file.path || null,
+      storageProvider: file.storageProvider || null,
+      isTemporaryLocalPath: file.isTemporaryLocalPath === true,
     }));
     const post = await service.createPost(
       req.userId,
@@ -677,6 +680,8 @@ export async function createStory(req, res, next) {
           name: req.file.originalname || req.file.filename || null,
           filename: req.file.filename || null,
           mimetype: req.file.mimetype,
+          storageProvider: req.file.storageProvider || null,
+          isTemporaryLocalPath: req.file.isTemporaryLocalPath === true,
           size: req.file.size || null,
           width:
             req.body?.mediaWidth == null ? null : Number(req.body.mediaWidth),
@@ -2484,6 +2489,8 @@ export async function createReel(req, res, next) {
           key: req.file.key || null,
           r2Key: req.file.r2Key || null,
           name: req.file.originalname || req.file.filename || null,
+          storageProvider: req.file.storageProvider || null,
+          isTemporaryLocalPath: req.file.isTemporaryLocalPath === true,
         }
       : null;
     const reel = await service.createReel(

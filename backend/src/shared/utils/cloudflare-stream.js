@@ -100,10 +100,20 @@ async function openStreamSource({
     throw new Error(`STREAM_SOURCE_FETCH_FAILED:${response.status}`);
   }
 
-  const stream = Readable.fromWeb(response.body);
+  const webBody = response.body;
+  const stream = Readable.fromWeb(webBody);
   const cleanup = async () => {
     try {
-      response.body?.cancel?.();
+      if (!stream.destroyed) {
+        stream.destroy();
+      }
+    } catch (_) {
+      // ignore node stream cleanup failures
+    }
+    try {
+      if (webBody?.locked !== true) {
+        await webBody?.cancel?.();
+      }
     } catch (_) {
       // ignore fetch cleanup failures
     }

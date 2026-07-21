@@ -178,7 +178,6 @@ async function cleanupTemporarySource(media = null) {
     } catch (_) {
       // Best-effort cleanup only.
     }
-    return;
   }
   const localPath = trim(media?.path);
   if (localPath && fs.existsSync(localPath)) {
@@ -220,60 +219,62 @@ export async function prepareSocialMediaAsset({
   let playbackUrl = normalizedUrl;
   let processingStatus = "ready";
 
-  if (isStreamEligibleVideo) {
-    const streamUpload = await uploadVideoToCloudflareStream({
-      sourceUrl,
-      sourcePath: media.path,
-      originalName: media.name || media.filename || null,
+  try {
+    if (isStreamEligibleVideo) {
+      const streamUpload = await uploadVideoToCloudflareStream({
+        sourceUrl,
+        sourcePath: media.path,
+        originalName: media.name || media.filename || null,
+        mimeType: media.mimetype || media.mimeType || null,
+        title: media.name || media.filename || `${resolvedSourceType}_${userId}`,
+      });
+      provider = "stream";
+      streamUid = streamUpload.uid;
+      playbackUrl = streamUpload.playbackUrl || buildStreamPlaybackUrl(streamUpload.uid);
+      thumbnailUrl = streamUpload.thumbnailUrl || buildStreamThumbnailUrl(streamUpload.uid) || null;
+      normalizedUrl = playbackUrl;
+      posterUrl = thumbnailUrl;
+      processingStatus = streamUpload.readyToStream ? "ready" : "processing";
+    }
+
+    const asset = await repo.insertSocialMediaAsset({
+      ownerUserId: userId,
+      sourceType: resolvedSourceType,
+      provider,
+      streamUid,
+      traceId: streamUid,
+      originalUrl: sourceUrl,
+      normalizedUrl,
+      posterUrl,
+      playbackUrl,
+      thumbnailUrl,
       mimeType: media.mimetype || media.mimeType || null,
-      title: media.name || media.filename || `${resolvedSourceType}_${userId}`,
+      mediaKind,
+      durationMs: media.durationMs || null,
+      width: media.width || null,
+      height: media.height || null,
+      processingStatus,
     });
-    provider = "stream";
-    streamUid = streamUpload.uid;
-    playbackUrl = streamUpload.playbackUrl || buildStreamPlaybackUrl(streamUpload.uid);
-    thumbnailUrl = streamUpload.thumbnailUrl || buildStreamThumbnailUrl(streamUpload.uid) || null;
-    normalizedUrl = playbackUrl;
-    posterUrl = thumbnailUrl;
-    processingStatus = streamUpload.readyToStream ? "ready" : "processing";
+
+    if (asset?.id && requestedKind === "reel") {
+      await repo.insertSocialMediaProcessingJob({
+        assetId: Number(asset.id),
+        jobType: "normalize_video",
+        status: "completed",
+      });
+    }
+
+    return {
+      mediaUrl: normalizedUrl,
+      mediaKind,
+      mediaAssetId: asset?.id == null ? null : Number(asset.id),
+      asset,
+    };
+  } finally {
+    if (isStreamEligibleVideo || media.isTemporaryLocalPath === true) {
+      await cleanupTemporarySource(media);
+    }
   }
-
-  const asset = await repo.insertSocialMediaAsset({
-    ownerUserId: userId,
-    sourceType: resolvedSourceType,
-    provider,
-    streamUid,
-    traceId: streamUid,
-    originalUrl: sourceUrl,
-    normalizedUrl,
-    posterUrl,
-    playbackUrl,
-    thumbnailUrl,
-    mimeType: media.mimetype || media.mimeType || null,
-    mediaKind,
-    durationMs: media.durationMs || null,
-    width: media.width || null,
-    height: media.height || null,
-    processingStatus,
-  });
-
-  if (isStreamEligibleVideo) {
-    await cleanupTemporarySource(media);
-  }
-
-  if (asset?.id && requestedKind === "reel") {
-    await repo.insertSocialMediaProcessingJob({
-      assetId: Number(asset.id),
-      jobType: "normalize_video",
-      status: "completed",
-    });
-  }
-
-  return {
-    mediaUrl: normalizedUrl,
-    mediaKind,
-    mediaAssetId: asset?.id == null ? null : Number(asset.id),
-    asset,
-  };
 }
 
 export async function resolveSocialMediaAssetForPublishing({

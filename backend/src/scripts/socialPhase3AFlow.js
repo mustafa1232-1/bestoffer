@@ -20,6 +20,7 @@ import {
 } from "./e2eTestUtils.js";
 import {
   buildMultipartForm,
+  buildVideoMultipartForm,
   cleanupSocialArtifacts,
   loginActor,
   registerActor,
@@ -699,7 +700,7 @@ export async function runReelsPhase3AFlow() {
     ctx = await createBootstrapContext("reels-phase3a");
     const { baseUrl, runTag, alice, bob } = ctx;
     const tagKey = normalizeTagKey(runTag);
-    const reelForm = buildMultipartForm({
+    const reelForm = await buildVideoMultipartForm({
       fields: {
         caption: `Reel ${runTag} #${tagKey}`,
       },

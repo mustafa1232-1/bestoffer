@@ -38,6 +38,13 @@ ensureUploadsDir();
 let lastR2UploadError = null;
 let lastR2UploadAt = null;
 
+function shouldRetainLocalTempForStream(file) {
+  return (
+    file?._validationProfile === "media" &&
+    String(file?.mimetype || "").toLowerCase().startsWith("video/")
+  );
+}
+
 const allowedMimeTypes = new Set([
   "image/jpeg",
   "image/png",
@@ -394,13 +401,18 @@ const r2Storage = {
             contentLength: size,
             prefix: "uploads",
           });
-          safeUnlink(localPath);
+          const retainLocalTemp = shouldRetainLocalTempForStream(file);
+          if (!retainLocalTemp) {
+            safeUnlink(localPath);
+          }
 
           done(null, {
             filename: path.basename(uploaded.key),
             key: uploaded.key,
             r2Key: uploaded.key,
             location: uploaded.publicUrl,
+            path: retainLocalTemp ? localPath : null,
+            isTemporaryLocalPath: retainLocalTemp,
             size,
             mimetype: file.mimetype,
             storageProvider: "r2",

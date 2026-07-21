@@ -25,6 +25,9 @@ const SOCIAL_FIXTURE_PNG_BYTES = Buffer.from(
   "base64"
 );
 
+const REEL_FIXTURE_URL =
+  "https://filesamples.com/samples/video/mp4/sample_640x360.mp4";
+
 export function buildImageBlob(mimeType = "image/png") {
   return new Blob([SOCIAL_FIXTURE_PNG_BYTES], { type: mimeType });
 }
@@ -41,6 +44,33 @@ export function buildMultipartForm({
     formData.append(key, typeof value === "string" ? value : JSON.stringify(value));
   }
   formData.append(fileFieldName, buildImageBlob(mimeType), fileName);
+  return formData;
+}
+
+export async function buildVideoMultipartForm({
+  fields = {},
+  fileFieldName = "mediaFile",
+  fileName = "social-fixture.mp4",
+  mimeType = "video/mp4",
+} = {}) {
+  const response = await fetch(REEL_FIXTURE_URL, {
+    headers: {
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(
+      `REEL_FIXTURE_FETCH_FAILED:${response.status}:${REEL_FIXTURE_URL}`
+    );
+  }
+  const bytes = await response.arrayBuffer();
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value === undefined || value === null) continue;
+    formData.append(key, typeof value === "string" ? value : JSON.stringify(value));
+  }
+  formData.append(fileFieldName, new Blob([bytes], { type: mimeType }), fileName);
   return formData;
 }
 
