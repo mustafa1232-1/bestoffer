@@ -139,17 +139,26 @@ async function insertMerchantWithProduct(client, { owner, storeName, suffix, mar
  */
 export async function createRealMultiStoreCheckout(
   client,
-  { courierOnline = true, presenceAgeSec = 5, mark } = {}
+  {
+    courierOnline = true,
+    presenceAgeSec = 5,
+    mark,
+    reuseCustomerId = null,
+    reuseCourierId = null,
+  } = {}
 ) {
   const MARK = resolveMark(mark);
   await cleanupCheckoutFixture(client, MARK);
 
-  const customerId = await insertUser(client, {
-    role: "user",
-    name: `${MARK}customer`,
-    suffix: "cust",
-    mark: MARK,
-  });
+  const customerId =
+    reuseCustomerId == null
+      ? await insertUser(client, {
+          role: "user",
+          name: `${MARK}customer`,
+          suffix: "cust",
+          mark: MARK,
+        })
+      : Number(reuseCustomerId);
   const owner1 = await insertUser(client, {
     role: "owner",
     name: `${MARK}o1`,
@@ -162,12 +171,15 @@ export async function createRealMultiStoreCheckout(
     suffix: "own2",
     mark: MARK,
   });
-  const courierId = await insertUser(client, {
-    role: "delivery",
-    name: `${MARK}courier`,
-    suffix: "cour",
-    mark: MARK,
-  });
+  const courierId =
+    reuseCourierId == null
+      ? await insertUser(client, {
+          role: "delivery",
+          name: `${MARK}courier`,
+          suffix: "cour",
+          mark: MARK,
+        })
+      : Number(reuseCourierId);
 
   const store1 = await insertMerchantWithProduct(client, {
     owner: owner1,
@@ -191,7 +203,11 @@ export async function createRealMultiStoreCheckout(
   );
   await client.query(
     `INSERT INTO courier_presence (courier_user_id, is_online, recorded_at, updated_at)
-     VALUES ($1, $2, NOW() - ($3 || ' seconds')::interval, NOW())`,
+     VALUES ($1, $2, NOW() - ($3 || ' seconds')::interval, NOW())
+     ON CONFLICT (courier_user_id) DO UPDATE
+       SET is_online=EXCLUDED.is_online,
+           recorded_at=EXCLUDED.recorded_at,
+           updated_at=NOW()`,
     [courierId, courierOnline, String(presenceAgeSec)]
   );
 
