@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'core/diagnostics/build_identity_guard.dart';
 import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
 import 'core/platform/app_flavor.dart';
@@ -28,6 +29,13 @@ void runStoreAppBootstrap() {
   AppFlavorContext.setCurrent(AppFlavor.store);
   WidgetsFlutterBinding.ensureInitialized();
   installAppRuntimeErrorPresentation();
+  unawaited(_runStoreAppBootstrap());
+}
+
+Future<void> _runStoreAppBootstrap() async {
+  if (!await BuildIdentityGuard.validateOrShow(BuildIdentitySpec.store)) {
+    return;
+  }
   runApp(
     ProviderScope(
       overrides: [

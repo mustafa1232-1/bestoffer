@@ -13,6 +13,7 @@ import 'package:maslaki/l10n/app_localizations.dart';
 
 import 'core/calls/in_app_call_overlay_coordinator.dart';
 import 'core/constants/api.dart';
+import 'core/diagnostics/build_identity_guard.dart';
 import 'core/diagnostics/build_info.dart';
 import 'core/diagnostics/qa_build_badge.dart';
 import 'core/errors/app_runtime_error_presentation.dart';
@@ -118,6 +119,9 @@ void runUserAppBootstrap() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
     installAppRuntimeErrorPresentation();
+    if (!await BuildIdentityGuard.validateOrShow(BuildIdentitySpec.user)) {
+      return;
+    }
 
     // Build-identity contract (Social V3 §0): prove which binary is running.
     // The compile-time line is emitted synchronously so it survives even an
