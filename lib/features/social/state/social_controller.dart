@@ -583,7 +583,7 @@ class SocialController extends StateNotifier<SocialState> {
     int? mediaAssetId,
     LocalMediaFile? mediaFile,
     List<LocalMediaFile>? mediaFiles,
-    Map<String, dynamic>? reelStyle,
+    Object? reelStyle,
     String? sharedEntityType,
     int? sharedEntityId,
     Map<String, dynamic>? sharedSnapshot,
@@ -626,7 +626,13 @@ class SocialController extends StateNotifier<SocialState> {
         audienceScopeType: audienceScopeType,
         audienceScopeCode: audienceScopeCode,
       );
-      final postMap = Map<String, dynamic>.from(out['post'] as Map);
+      final rawPost = out['post'];
+      if (rawPost is! Map) {
+        throw const FormatException('REEL_PUBLISH_INVALID_RESPONSE');
+      }
+      final postMap = rawPost.map(
+        (key, value) => MapEntry<String, dynamic>(key.toString(), value),
+      );
       final post = SocialPost.fromJson(postMap);
       _safeSetState(
         state.copyWith(

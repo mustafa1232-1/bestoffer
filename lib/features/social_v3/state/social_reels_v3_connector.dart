@@ -17,6 +17,7 @@ import '../domain/reel_view_data.dart';
 import '../reels/social_reels_screen_v3.dart';
 import '../sharing/canonical_links.dart';
 import '../sharing/share_sheet_v3.dart';
+import '../upload/reel_map_normalizer.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../social/ui/social_share_sheet.dart';
 
@@ -58,7 +59,10 @@ class _SocialReelsV3ConnectorState
       try {
         final response = await ref.read(socialApiProvider).getReelById(reelId);
         final target = SocialReelItem.fromJson(
-          Map<String, dynamic>.from(response['reel'] as Map? ?? const {}),
+          normalizeReelMap(
+            response['reel'] ?? const {},
+            'REEL_INVALID_RESPONSE',
+          ),
         );
         if (mounted) setState(() => _pinnedInitial = target);
       } catch (_) {
@@ -215,9 +219,11 @@ class _SocialReelsV3ConnectorState
               final rawRelation = out['relation'];
               return rawRelation is Map
                   ? SocialRelation.fromJson(
-                      Map<String, dynamic>.from(rawRelation),
+                      normalizeReelMap(rawRelation, 'REEL_RELATION_INVALID'),
                     )
-                  : SocialRelation.fromJson(Map<String, dynamic>.from(out));
+                  : SocialRelation.fromJson(
+                      normalizeReelMap(out, 'REEL_RELATION_INVALID'),
+                    );
             } catch (_) {
               return null;
             }

@@ -8,6 +8,7 @@ import '../../social/state/social_controller.dart';
 import '../../social/ui/social_profile_screen.dart';
 import '../../social/models/social_models.dart';
 import '../domain/reel_view_data.dart';
+import '../upload/reel_map_normalizer.dart';
 import 'reel_page_v3.dart';
 import 'reel_playback_coordinator.dart';
 
@@ -178,8 +179,12 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
         final out = await ref.read(socialApiProvider).getUserRelation(authorId);
         final rawRelation = out['relation'];
         final relation = rawRelation is Map
-            ? SocialRelation.fromJson(Map<String, dynamic>.from(rawRelation))
-            : SocialRelation.fromJson(Map<String, dynamic>.from(out));
+            ? SocialRelation.fromJson(
+                normalizeReelMap(rawRelation, 'REEL_RELATION_INVALID'),
+              )
+            : SocialRelation.fromJson(
+                normalizeReelMap(out, 'REEL_RELATION_INVALID'),
+              );
         if (!mounted) return;
         setState(() {
           _relationCache[authorId] = relation;

@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:dio/dio.dart';
 import 'package:maslaki/features/social_v3/composer/reel_composer_state.dart';
 import 'package:maslaki/features/social_v3/pickers/social_media_picker_v3.dart';
+import 'package:maslaki/features/social_v3/upload/reel_map_normalizer.dart';
 import 'package:maslaki/features/social_v3/upload/tus_upload_client.dart';
 
 class _OkServer implements TusTransport {
@@ -25,8 +27,14 @@ class _OkServer implements TusTransport {
 }
 
 class _FakeApi implements ReelUploadApi {
-  _FakeApi({this.statuses = const ['processing', 'ready']});
+  _FakeApi({
+    this.statuses = const ['processing', 'ready'],
+    this.createFailure,
+    this.publishFailure,
+  });
   final List<String> statuses;
+  final Object? createFailure;
+  final Object? publishFailure;
   int _pollCount = 0;
   int createCalls = 0;
   int publishCalls = 0;
@@ -40,6 +48,8 @@ class _FakeApi implements ReelUploadApi {
     required String fileName,
     required String idempotencyKey,
   }) async {
+    final failure = createFailure;
+    if (failure != null) throw failure;
     createCalls++;
     return (uploadUrl: 'https://upload.test/tus/x', assetId: 555);
   }
@@ -58,12 +68,14 @@ class _FakeApi implements ReelUploadApi {
     required String audience,
     required bool commentsEnabled,
     required bool sharingEnabled,
-    Map<String, dynamic>? reelStyle,
+    Object? reelStyle,
     required String idempotencyKey,
   }) async {
+    final failure = publishFailure;
+    if (failure != null) throw failure;
     publishCalls++;
     publishKeys.add(idempotencyKey);
-    lastReelStyle = reelStyle;
+    lastReelStyle = normalizeOptionalMap(reelStyle);
     return 9001;
   }
 }
@@ -109,7 +121,7 @@ void main() {
     final c = _controller(api);
     await c.publish(video: _video, caption: '', audience: 'public');
     expect(c.stage, ReelComposerStage.failed);
-    expect(c.error, 'ASSET_NOT_READY');
+    expect(c.error, reelProcessingFailureMessage);
     expect(api.publishCalls, 0);
     c.dispose();
   });
@@ -138,6 +150,69 @@ void main() {
     expect(api.lastReelStyle, isNotNull);
     expect(api.lastReelStyle?['mode'], 'media');
     expect(api.lastReelStyle?['version'], 2);
+    c.dispose();
+  });
+
+  test('publish accepts deeply dynamic reel style maps', () async {
+    final api = _FakeApi();
+    final c = _controller(api);
+    await c.publish(
+      video: _video,
+      caption: 'dynamic style',
+      audience: 'public',
+      reelStyle: <dynamic, dynamic>{
+        'version': 2,
+        'mode': 'media',
+        77: 'numeric-key',
+        'layers': <dynamic>[
+          <dynamic, dynamic>{
+            'type': 'text',
+            12: <dynamic, dynamic>{'nested': true},
+          },
+        ],
+      },
+    );
+    expect(c.stage, ReelComposerStage.published);
+    expect(api.lastReelStyle?['77'], 'numeric-key');
+    final layers = api.lastReelStyle?['layers'] as List<dynamic>;
+    final firstLayer = layers.single as Map<String, dynamic>;
+    expect(firstLayer['12'], isA<Map<String, dynamic>>());
+    c.dispose();
+  });
+
+  test('invalid reel responses are hidden behind Arabic copy', () async {
+    final api = _FakeApi(
+      createFailure: const ReelInvalidResponseException(
+        'UPLOAD_SESSION_INVALID_RESPONSE',
+      ),
+    );
+    final c = _controller(api);
+    await c.publish(video: _video, caption: '', audience: 'public');
+    expect(c.stage, ReelComposerStage.failed);
+    expect(c.error, reelInvalidResponseMessage);
+    expect(c.error, isNot(contains('DioException')));
+    expect(c.error, isNot(contains('_Map<dynamic')));
+    expect(c.error, isNot(contains('Map<String, dynamic>')));
+    expect(c.error, isNot(contains('RequestOptions')));
+    c.dispose();
+  });
+
+  test('network Dio failures are hidden behind Arabic copy', () async {
+    final api = _FakeApi(
+      publishFailure: DioException(
+        requestOptions: RequestOptions(path: '/api/feed/reels'),
+        type: DioExceptionType.connectionError,
+        error: 'socket',
+      ),
+    );
+    final c = _controller(api);
+    await c.publish(video: _video, caption: '', audience: 'public');
+    expect(c.stage, ReelComposerStage.failed);
+    expect(c.error, reelNetworkMessage);
+    expect(c.error, isNot(contains('DioException')));
+    expect(c.error, isNot(contains('_Map<dynamic')));
+    expect(c.error, isNot(contains('Map<String, dynamic>')));
+    expect(c.error, isNot(contains('RequestOptions')));
     c.dispose();
   });
 

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../composer/reel_composer_state.dart';
+import 'reel_map_normalizer.dart';
 
 /// Production [ReelUploadApi] wired to the existing feed endpoints:
 ///  * `POST /api/feed/media/stream/upload-session` — provisions a one-time
@@ -51,7 +52,9 @@ class ReelUploadApiImpl implements ReelUploadApi {
     final assetId =
         int.tryParse('${session['assetId'] ?? session['asset_id']}') ?? 0;
     if (uploadUrl.isEmpty || assetId <= 0) {
-      throw StateError('UPLOAD_SESSION_INVALID_RESPONSE');
+      throw const ReelInvalidResponseException(
+        'UPLOAD_SESSION_INVALID_RESPONSE',
+      );
     }
     return (uploadUrl: uploadUrl, assetId: assetId);
   }
@@ -74,12 +77,13 @@ class ReelUploadApiImpl implements ReelUploadApi {
     required String audience,
     required bool commentsEnabled,
     required bool sharingEnabled,
-    Map<String, dynamic>? reelStyle,
+    Object? reelStyle,
     required String idempotencyKey,
   }) async {
     // Multipart form WITHOUT a file — the backend publishes from mediaAssetId
     // via resolveSocialMediaAssetForPublishing (ownership-checked and allowed
     // while PROCESSING for reels).
+    final normalizedReelStyle = normalizeOptionalMap(reelStyle);
     final form = FormData.fromMap({
       'caption': caption,
       'postKind': 'reel',
@@ -87,7 +91,8 @@ class ReelUploadApiImpl implements ReelUploadApi {
       'audienceScopeType': audience == 'public' ? 'global' : 'followers',
       'commentsEnabled': commentsEnabled.toString(),
       'sharingEnabled': sharingEnabled.toString(),
-      if (reelStyle != null) 'reelStyle': jsonEncode(reelStyle),
+      if (normalizedReelStyle != null)
+        'reelStyle': jsonEncode(normalizedReelStyle),
     });
     final response = await _dio.post<dynamic>(
       '/api/feed/reels',
@@ -100,7 +105,11 @@ class ReelUploadApiImpl implements ReelUploadApi {
     );
     final reel = body['reel'] ?? body['post'] ?? body;
     final map = requireStringMap(reel, 'REEL_PUBLISH_INVALID_RESPONSE');
-    return int.tryParse('${map['id']}') ?? 0;
+    final reelId = int.tryParse('${map['id']}') ?? 0;
+    if (reelId <= 0) {
+      throw const ReelInvalidResponseException('REEL_PUBLISH_INVALID_RESPONSE');
+    }
+    return reelId;
   }
 }
 
@@ -108,5 +117,5 @@ Map<String, dynamic> requireStringMap(dynamic raw, String code) {
   if (raw is! Map) {
     throw StateError('استجابة الفيديو غير صالحة ($code). حاول مرة أخرى.');
   }
-  return Map<String, dynamic>.from(raw);
+  return normalizeReelMap(raw, code);
 }

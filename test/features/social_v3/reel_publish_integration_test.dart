@@ -14,6 +14,7 @@ class _FakeHttpAdapter implements HttpClientAdapter {
   int pollCount = 0;
   final List<String> paths = [];
   bool sawReelStyle = false;
+  String? encodedReelStyle;
 
   @override
   void close({bool force = false}) {}
@@ -47,6 +48,10 @@ class _FakeHttpAdapter implements HttpClientAdapter {
       final data = options.data;
       if (data is FormData) {
         sawReelStyle = data.fields.any((field) => field.key == 'reelStyle');
+        encodedReelStyle = data.fields
+            .where((field) => field.key == 'reelStyle')
+            .map((field) => field.value)
+            .firstOrNull;
       }
       body = {
         'reel': {'id': 4242},
@@ -128,10 +133,16 @@ void main() {
         video: picked,
         caption: 'integration',
         audience: 'public',
-        reelStyle: const {
+        reelStyle: <dynamic, dynamic>{
           'version': 2,
           'mode': 'media',
-          'layers': <Map<String, dynamic>>[],
+          9: 'dynamic-key',
+          'layers': <dynamic>[
+            <dynamic, dynamic>{
+              'type': 'text',
+              10: <dynamic, dynamic>{'nested': 'ok'},
+            },
+          ],
         },
       );
 
@@ -139,6 +150,9 @@ void main() {
       expect(controller.publishedReelId, 4242);
       expect(controller.assetId, 777);
       expect(adapter.sawReelStyle, isTrue);
+      final encodedStyle = jsonDecode(adapter.encodedReelStyle!) as Map;
+      expect(encodedStyle['9'], 'dynamic-key');
+      expect((encodedStyle['layers'] as List).single['10']['nested'], 'ok');
 
       // The real API impl hit exactly the expected endpoints in order.
       expect(
@@ -325,4 +339,8 @@ void main() {
       expect(() => api.pollStatus(987), throwsA(isA<StateError>()));
     },
   );
+}
+
+extension<T> on Iterable<T> {
+  T? get firstOrNull => this.isEmpty ? null : first;
 }

@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/files/local_media_file.dart';
+import '../../social_v3/upload/reel_map_normalizer.dart';
 import '../models/social_models.dart';
 import 'social_api.dart';
 
@@ -406,7 +407,10 @@ class SocialStreamUploadService {
   }) {
     if (raw == null || raw.trim().isEmpty) return null;
     try {
-      final map = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      final map = normalizeReelMap(
+        jsonDecode(raw),
+        'INVALID_STREAM_UPLOAD_SESSION',
+      );
       return _PersistedSocialStreamUploadSession.fromJson(
         map,
         fallbackKey: fallbackKey,

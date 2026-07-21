@@ -10,6 +10,7 @@ import '../capabilities/story_scope_error.dart';
 import '../pickers/social_media_picker_v3.dart';
 import 'story_media_type_picker.dart';
 import '../upload/dio_tus_transport.dart';
+import '../upload/reel_map_normalizer.dart';
 import '../upload/reel_upload_api_impl.dart';
 import '../upload/tus_upload_client.dart';
 import 'post_composer_v3.dart';
@@ -173,7 +174,10 @@ Future<bool> _publishStoryDraft(
 }) async {
   final draft = container.read(socialStoryDraftControllerProvider).draft;
   final mediaFile = draft.buildLocalMediaFile();
-  final storyStyle = Map<String, dynamic>.from(draft.toStoryStyleJson());
+  final storyStyle = normalizeReelMap(
+    draft.toStoryStyleJson(),
+    'INVALID_REEL_STORY_STYLE',
+  );
   final publishCaption = caption.trim().isNotEmpty
       ? caption.trim()
       : draft.caption.trim();

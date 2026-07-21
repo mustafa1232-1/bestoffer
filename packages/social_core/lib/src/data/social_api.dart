@@ -9,6 +9,34 @@ class SocialApi {
 
   SocialApi(this.dio);
 
+  Map<String, dynamic> _stringMap(dynamic raw, String code) {
+    if (raw is! Map) {
+      throw FormatException(code);
+    }
+    return raw.map(
+      (key, value) =>
+          MapEntry<String, dynamic>(key.toString(), _jsonSafeValue(value)),
+    );
+  }
+
+  Map<String, dynamic>? _optionalStringMap(dynamic raw, String code) {
+    if (raw == null) return null;
+    return _stringMap(raw, code);
+  }
+
+  dynamic _jsonSafeValue(dynamic raw) {
+    if (raw is Map) {
+      return raw.map(
+        (key, value) =>
+            MapEntry<String, dynamic>(key.toString(), _jsonSafeValue(value)),
+      );
+    }
+    if (raw is Iterable) {
+      return raw.map(_jsonSafeValue).toList(growable: false);
+    }
+    return raw;
+  }
+
   Future<Map<String, dynamic>> listPosts({
     int limit = 20,
     int? beforeId,
@@ -103,19 +131,21 @@ class SocialApi {
       '/api/feed/media/stream/upload-session',
       data: payload,
     );
-    final body = Map<String, dynamic>.from(response.data as Map);
+    final body = _stringMap(response.data, 'UPLOAD_SESSION_INVALID_RESPONSE');
     final rawSession = body['uploadSession'] ?? body['upload_session'] ?? body;
     return SocialMediaUploadSession.fromJson(
-      Map<String, dynamic>.from(rawSession as Map),
+      _stringMap(rawSession, 'UPLOAD_SESSION_INVALID_RESPONSE'),
     );
   }
 
   Future<SocialMediaAsset?> getMediaAsset(int assetId) async {
     final response = await dio.get('/api/feed/media/assets/$assetId');
-    final body = Map<String, dynamic>.from(response.data as Map);
+    final body = _stringMap(response.data, 'REEL_ASSET_INVALID_RESPONSE');
     final raw = body['asset'] ?? body['mediaAsset'] ?? body['media_asset'];
     if (raw is Map) {
-      return SocialMediaAsset.fromJson(Map<String, dynamic>.from(raw));
+      return SocialMediaAsset.fromJson(
+        _stringMap(raw, 'REEL_ASSET_INVALID_RESPONSE'),
+      );
     }
     if (body.isNotEmpty) {
       return SocialMediaAsset.fromJson(body);
@@ -453,7 +483,7 @@ class SocialApi {
     int? mediaAssetId,
     LocalMediaFile? mediaFile,
     List<LocalMediaFile>? mediaFiles,
-    Map<String, dynamic>? reelStyle,
+    Object? reelStyle,
     String? sharedEntityType,
     int? sharedEntityId,
     Map<String, dynamic>? sharedSnapshot,
@@ -465,13 +495,17 @@ class SocialApi {
     int? linkOfferId,
     int? linkCouponId,
   }) async {
+    final normalizedReelStyle = _optionalStringMap(
+      reelStyle,
+      'INVALID_REEL_STYLE',
+    );
     final payload = <String, dynamic>{
       'caption': caption,
       'postKind': postKind,
       'merchantId': merchantId,
       'reviewRating': reviewRating,
       'mediaAssetId': mediaAssetId,
-      'reelStyle': reelStyle,
+      'reelStyle': normalizedReelStyle,
       'sharedEntityType': sharedEntityType,
       'sharedEntityId': sharedEntityId,
       'sharedEntity': (sharedEntityType != null && sharedEntityId != null)
@@ -502,14 +536,15 @@ class SocialApi {
             '/api/feed/posts',
             data: FormData.fromMap({
               ...payload,
-              if (reelStyle != null) 'reelStyle': jsonEncode(reelStyle),
+              if (normalizedReelStyle != null)
+                'reelStyle': jsonEncode(normalizedReelStyle),
               'mediaFiles': await Future.wait(
                 normalizedMediaFiles.map((file) => file.toMultipartFile()),
               ),
             }),
           );
 
-    return Map<String, dynamic>.from(response.data as Map);
+    return _stringMap(response.data, 'REEL_PUBLISH_INVALID_RESPONSE');
   }
 
   Future<Map<String, dynamic>> createStory({

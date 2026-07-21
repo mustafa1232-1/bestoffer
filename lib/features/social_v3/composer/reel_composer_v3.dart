@@ -11,6 +11,7 @@ import '../../social/state/social_story_draft_controller.dart';
 import '../../social/ui/widgets/social_story_canvas.dart';
 import '../../social/ui/widgets/social_story_tool_panels.dart';
 import '../pickers/social_media_picker_v3.dart';
+import '../upload/reel_map_normalizer.dart';
 import 'reel_composer_state.dart';
 
 /// Reel editor + publish screen (Social V3). This is the production reel
@@ -76,8 +77,7 @@ class _ReelComposerV3State extends ConsumerState<ReelComposerV3> {
   void _onControllerChanged() {
     if (!mounted) return;
     final stage = widget.controller.stage;
-    if (stage == ReelComposerStage.published &&
-        !_publishedCallbackFired) {
+    if (stage == ReelComposerStage.published && !_publishedCallbackFired) {
       final reelId = widget.controller.publishedReelId;
       if (reelId != null && reelId > 0) {
         _publishedCallbackFired = true;
@@ -87,10 +87,7 @@ class _ReelComposerV3State extends ConsumerState<ReelComposerV3> {
     setState(() {});
   }
 
-  SocialStoryLayer? _selectedLayer(
-    SocialStoryDraft draft,
-    String? layerId,
-  ) {
+  SocialStoryLayer? _selectedLayer(SocialStoryDraft draft, String? layerId) {
     if (layerId == null) return null;
     for (final layer in draft.layers) {
       if (layer.id == layerId) return layer;
@@ -117,7 +114,7 @@ class _ReelComposerV3State extends ConsumerState<ReelComposerV3> {
       audience: 'public',
       commentsEnabled: _comments,
       sharingEnabled: _sharing,
-      reelStyle: Map<String, dynamic>.from(draft.toStoryStyleJson()),
+      reelStyle: normalizeOptionalMap(draft.toStoryStyleJson()),
     );
   }
 
@@ -175,7 +172,8 @@ class _ReelComposerV3State extends ConsumerState<ReelComposerV3> {
     final padding = MediaQuery.of(context).padding;
     final notifier = ref.read(socialStoryDraftControllerProvider.notifier);
     final stage = widget.controller.stage;
-    final busy = stage != ReelComposerStage.draft &&
+    final busy =
+        stage != ReelComposerStage.draft &&
         stage != ReelComposerStage.failed &&
         stage != ReelComposerStage.cancelled;
     final showToolPanel = draftState.activeTool != SocialStoryComposerTool.none;
@@ -192,12 +190,14 @@ class _ReelComposerV3State extends ConsumerState<ReelComposerV3> {
               child: SocialStoryCanvas(
                 draft: draft,
                 selectedLayerId: draftState.selectedLayerId,
-                drawEnabled: draftState.activeTool == SocialStoryComposerTool.draw,
+                drawEnabled:
+                    draftState.activeTool == SocialStoryComposerTool.draw,
                 active: true,
                 borderRadius: BorderRadius.zero,
                 baseMedia: _buildBaseMedia(draft),
                 onSelectLayer: notifier.selectLayer,
-                onLayerChanged: (layer) => notifier.updateLayer(layer.id, layer),
+                onLayerChanged: (layer) =>
+                    notifier.updateLayer(layer.id, layer),
                 onDrawStroke: notifier.addDrawStroke,
                 onLayerTap: (layer) {
                   if (layer.type == SocialStoryLayerType.mention &&
@@ -238,7 +238,9 @@ class _ReelComposerV3State extends ConsumerState<ReelComposerV3> {
                               if (draftState.selectedLayerId == null ||
                                   selectedLayer?.type !=
                                       SocialStoryLayerType.text) {
-                                notifier.addTextLayer(text: _captionController.text);
+                                notifier.addTextLayer(
+                                  text: _captionController.text,
+                                );
                               }
                               _setTool(SocialStoryComposerTool.text);
                             },
@@ -451,10 +453,7 @@ class _StageView extends StatelessWidget {
       case ReelComposerStage.processing:
         return const _StatusLine(text: 'جاري تجهيز الفيديو...');
       case ReelComposerStage.published:
-        return const _StatusLine(
-          text: 'تم النشر ✓',
-          color: Color(0xFF4CAF50),
-        );
+        return const _StatusLine(text: 'تم النشر ✓', color: Color(0xFF4CAF50));
       case ReelComposerStage.failed:
         return _StatusLine(
           text: 'فشل: ${controller.error ?? ''}',
@@ -482,7 +481,9 @@ class _StatusLine extends StatelessWidget {
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
         const SizedBox(width: 10),
-        Expanded(child: Text(text, style: TextStyle(color: color))),
+        Expanded(
+          child: Text(text, style: TextStyle(color: color)),
+        ),
       ],
     );
   }
@@ -526,7 +527,11 @@ class _ScopeChip extends StatelessWidget {
           ),
           if (locked) ...[
             const SizedBox(width: 6),
-            const Icon(Icons.lock_outline_rounded, size: 14, color: Colors.white70),
+            const Icon(
+              Icons.lock_outline_rounded,
+              size: 14,
+              color: Colors.white70,
+            ),
           ],
         ],
       ),

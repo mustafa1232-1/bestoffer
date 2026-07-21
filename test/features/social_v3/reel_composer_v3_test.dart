@@ -6,6 +6,7 @@ import 'package:maslaki/l10n/app_localizations.dart';
 import 'package:maslaki/features/social_v3/composer/reel_composer_state.dart';
 import 'package:maslaki/features/social_v3/composer/reel_composer_v3.dart';
 import 'package:maslaki/features/social_v3/pickers/social_media_picker_v3.dart';
+import 'package:maslaki/features/social_v3/upload/reel_map_normalizer.dart';
 import 'package:maslaki/features/social/ui/widgets/social_story_canvas.dart';
 import 'package:maslaki/features/social/ui/widgets/social_story_tool_panels.dart';
 
@@ -32,7 +33,7 @@ class _NoopApi implements ReelUploadApi {
     required String audience,
     required bool commentsEnabled,
     required bool sharingEnabled,
-    Map<String, dynamic>? reelStyle,
+    Object? reelStyle,
     required String idempotencyKey,
   }) async {
     throw UnimplementedError();
@@ -59,10 +60,10 @@ class _SpyController extends ReelComposerController {
     required String audience,
     bool commentsEnabled = true,
     bool sharingEnabled = true,
-    Map<String, dynamic>? reelStyle,
+    Object? reelStyle,
   }) async {
     capturedCaption = caption;
-    capturedStyle = reelStyle;
+    capturedStyle = normalizeOptionalMap(reelStyle);
     notifyListeners();
   }
 }
@@ -108,8 +109,9 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('text tool opens, edits the draft, and publish forwards style',
-      (tester) async {
+  testWidgets('text tool opens, edits the draft, and publish forwards style', (
+    tester,
+  ) async {
     final controller = await _pumpComposer(tester);
 
     await tester.tap(find.byIcon(Icons.text_fields_rounded));

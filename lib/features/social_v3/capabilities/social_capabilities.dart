@@ -1,5 +1,8 @@
 import 'package:flutter/foundation.dart';
 
+Map<String, dynamic> _stringMap(Map raw) =>
+    raw.map((key, value) => MapEntry<String, dynamic>(key.toString(), value));
+
 /// Authoritative story audience-scope capability, mirrored from the backend
 /// `GET /api/feed/capabilities` response. The backend remains authoritative;
 /// this is used only for UX (whether to offer scoped-story options).
@@ -23,12 +26,12 @@ class StoryAudienceScopeCapability {
   /// fields, and before the first fetch. A failure must NEVER enable scope.
   static const StoryAudienceScopeCapability failClosed =
       StoryAudienceScopeCapability(
-    supported: false,
-    supportedTypes: ['global'],
-    officialStoriesSupported: false,
-    version: 1,
-    reason: 'UNAVAILABLE',
-  );
+        supported: false,
+        supportedTypes: ['global'],
+        officialStoriesSupported: false,
+        version: 1,
+        reason: 'UNAVAILABLE',
+      );
 
   bool supportsType(String type) =>
       supported && supportedTypes.contains(type.trim().toLowerCase());
@@ -41,9 +44,9 @@ class StoryAudienceScopeCapability {
     // the payload claims.
     final types = supported && rawTypes is List
         ? rawTypes
-            .map((e) => '$e'.trim().toLowerCase())
-            .where((e) => e.isNotEmpty)
-            .toList(growable: false)
+              .map((e) => '$e'.trim().toLowerCase())
+              .where((e) => e.isNotEmpty)
+              .toList(growable: false)
         : const ['global'];
     return StoryAudienceScopeCapability(
       supported: supported,
@@ -68,12 +71,10 @@ class SocialCapabilities {
 
   factory SocialCapabilities.fromJson(Map<String, dynamic>? j) {
     final social = j?['social'];
-    final scope = social is Map
-        ? social['storyAudienceScope']
-        : null;
+    final scope = social is Map ? social['storyAudienceScope'] : null;
     return SocialCapabilities(
       storyAudienceScope: StoryAudienceScopeCapability.fromJson(
-        scope is Map ? Map<String, dynamic>.from(scope) : null,
+        scope is Map ? _stringMap(scope) : null,
       ),
     );
   }

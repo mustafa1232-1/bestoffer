@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'package:dio/dio.dart';
 
 import '../pickers/social_media_picker_v3.dart';
+import '../upload/reel_map_normalizer.dart';
 import '../upload/tus_upload_client.dart';
 
 /// Reel publication lifecycle (§4/§8), driven entirely by the backend for the
@@ -39,7 +41,7 @@ abstract class ReelUploadApi {
     required String audience,
     required bool commentsEnabled,
     required bool sharingEnabled,
-    Map<String, dynamic>? reelStyle,
+    Object? reelStyle,
     required String idempotencyKey,
   });
 }
@@ -92,7 +94,7 @@ class ReelComposerController extends ChangeNotifier {
     required String audience,
     bool commentsEnabled = true,
     bool sharingEnabled = true,
-    Map<String, dynamic>? reelStyle,
+    Object? reelStyle,
   }) async {
     try {
       _set(ReelComposerStage.creatingSession);
@@ -123,7 +125,7 @@ class ReelComposerController extends ChangeNotifier {
         return;
       }
       if (result != TusUploadState.completed) {
-        _set(ReelComposerStage.failed, error: 'UPLOAD_FAILED');
+        _set(ReelComposerStage.failed, error: reelUploadFailureMessage);
         return;
       }
 
@@ -134,23 +136,29 @@ class ReelComposerController extends ChangeNotifier {
 
       final readyAssetId = await _waitForReadyAsset(session.assetId);
       if (readyAssetId == null) {
-        _set(ReelComposerStage.failed, error: 'ASSET_NOT_READY');
+        _set(ReelComposerStage.failed, error: reelProcessingFailureMessage);
         return;
       }
 
+      final normalizedReelStyle = normalizeOptionalMap(reelStyle);
       final reelId = await api.publishReel(
         assetId: readyAssetId,
         caption: caption,
         audience: audience,
         commentsEnabled: commentsEnabled,
         sharingEnabled: sharingEnabled,
-        reelStyle: reelStyle,
+        reelStyle: normalizedReelStyle,
         idempotencyKey: idempotencyKey,
       );
       _publishedReelId = reelId;
       _set(ReelComposerStage.published);
     } catch (error) {
-      _set(ReelComposerStage.failed, error: '$error');
+      final failedStage = _stage;
+      _debugLogReelPublishFailure(error, failedStage);
+      _set(
+        ReelComposerStage.failed,
+        error: mapReelPublishError(error, failedStage),
+      );
     }
   }
 
@@ -196,4 +204,84 @@ class ReelComposerController extends ChangeNotifier {
     _tus?.dispose();
     super.dispose();
   }
+}
+
+const reelInvalidResponseMessage =
+    'تعذر قراءة استجابة نشر الريل. حاول مرة أخرى.';
+const reelNetworkMessage =
+    'تعذر الاتصال أثناء رفع الريل. تحقق من الإنترنت وحاول مجدداً.';
+const reelUploadFailureMessage = 'تعذر رفع الفيديو. يمكنك إعادة المحاولة.';
+const reelProcessingFailureMessage = 'تعذرت معالجة الفيديو حالياً.';
+const reelSessionRecoveryMessage =
+    'جارٍ استعادة الجلسة. حاول النشر مجدداً بعد لحظات.';
+const reelServerFailureMessage = 'تعذر نشر الريل حالياً.';
+
+String mapReelPublishError(Object error, ReelComposerStage stage) {
+  if (error is ReelInvalidResponseException || error is FormatException) {
+    return reelInvalidResponseMessage;
+  }
+  if (error is StateError && '$error'.contains('INVALID_RESPONSE')) {
+    return reelInvalidResponseMessage;
+  }
+  if (error is TusExpiredUploadException) {
+    return reelUploadFailureMessage;
+  }
+  if (error is DioException) {
+    final statusCode = error.response?.statusCode ?? 0;
+    if (statusCode == 401 || statusCode == 419) {
+      return reelSessionRecoveryMessage;
+    }
+    if (_isNetworkDioError(error)) {
+      return reelNetworkMessage;
+    }
+    if (stage == ReelComposerStage.uploading) {
+      return reelUploadFailureMessage;
+    }
+    if (stage == ReelComposerStage.processing) {
+      return reelProcessingFailureMessage;
+    }
+    return reelServerFailureMessage;
+  }
+  if (stage == ReelComposerStage.uploading) {
+    return reelUploadFailureMessage;
+  }
+  if (stage == ReelComposerStage.processing) {
+    return reelProcessingFailureMessage;
+  }
+  return reelServerFailureMessage;
+}
+
+bool _isNetworkDioError(DioException error) {
+  if (error.response != null) return false;
+  return switch (error.type) {
+    DioExceptionType.connectionTimeout ||
+    DioExceptionType.sendTimeout ||
+    DioExceptionType.receiveTimeout ||
+    DioExceptionType.connectionError ||
+    DioExceptionType.unknown => true,
+    _ => false,
+  };
+}
+
+void _debugLogReelPublishFailure(Object error, ReelComposerStage stage) {
+  if (!kDebugMode) return;
+  if (error is DioException) {
+    debugPrint(
+      '[reel-publish] failed stage=${stage.name} '
+      'errorType=${error.runtimeType} dioType=${error.type.name} '
+      'status=${error.response?.statusCode ?? 0}',
+    );
+    return;
+  }
+  if (error is ReelInvalidResponseException) {
+    debugPrint(
+      '[reel-publish] failed stage=${stage.name} '
+      'errorType=${error.runtimeType} code=${error.code}',
+    );
+    return;
+  }
+  debugPrint(
+    '[reel-publish] failed stage=${stage.name} '
+    'errorType=${error.runtimeType}',
+  );
 }
