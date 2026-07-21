@@ -72,6 +72,7 @@ class ReelComposerController extends ChangeNotifier {
   String? _error;
   int? _assetId;
   int? _publishedReelId;
+  _ReelPublishRequest? _pendingPublishRequest;
   TusUploadClient? _tus;
 
   ReelComposerStage get stage => _stage;
@@ -97,6 +98,14 @@ class ReelComposerController extends ChangeNotifier {
     Object? reelStyle,
   }) async {
     try {
+      final request = _ReelPublishRequest(
+        caption: caption,
+        audience: audience,
+        commentsEnabled: commentsEnabled,
+        sharingEnabled: sharingEnabled,
+        reelStyle: normalizeOptionalMap(reelStyle),
+      );
+      _pendingPublishRequest = request;
       _set(ReelComposerStage.creatingSession);
       final session = await api.createUploadSession(
         sizeBytes: video.sizeBytes ?? 0,
@@ -124,6 +133,10 @@ class ReelComposerController extends ChangeNotifier {
         _set(ReelComposerStage.cancelled);
         return;
       }
+      if (result == TusUploadState.paused) {
+        _set(ReelComposerStage.paused);
+        return;
+      }
       if (result != TusUploadState.completed) {
         _set(ReelComposerStage.failed, error: reelUploadFailureMessage);
         return;
@@ -140,18 +153,7 @@ class ReelComposerController extends ChangeNotifier {
         return;
       }
 
-      final normalizedReelStyle = normalizeOptionalMap(reelStyle);
-      final reelId = await api.publishReel(
-        assetId: readyAssetId,
-        caption: caption,
-        audience: audience,
-        commentsEnabled: commentsEnabled,
-        sharingEnabled: sharingEnabled,
-        reelStyle: normalizedReelStyle,
-        idempotencyKey: idempotencyKey,
-      );
-      _publishedReelId = reelId;
-      _set(ReelComposerStage.published);
+      await _publishReadyReel(readyAssetId, request);
     } catch (error) {
       final failedStage = _stage;
       _debugLogReelPublishFailure(error, failedStage);
@@ -169,11 +171,59 @@ class ReelComposerController extends ChangeNotifier {
 
   Future<void> resumeUpload() async {
     if (_tus == null) return;
-    _set(ReelComposerStage.uploading);
-    final result = await _tus!.start();
-    if (result == TusUploadState.completed) {
+    try {
+      _set(ReelComposerStage.uploading);
+      final result = await _tus!.start();
+      if (result == TusUploadState.cancelled) {
+        _set(ReelComposerStage.cancelled);
+        return;
+      }
+      if (result == TusUploadState.paused) {
+        _set(ReelComposerStage.paused);
+        return;
+      }
+      if (result != TusUploadState.completed) {
+        _set(ReelComposerStage.failed, error: reelUploadFailureMessage);
+        return;
+      }
+      final assetId = _assetId ?? _tus?.assetId;
+      final request = _pendingPublishRequest;
+      if (assetId == null || request == null) {
+        _set(ReelComposerStage.failed, error: reelUploadFailureMessage);
+        return;
+      }
       _set(ReelComposerStage.processing, progress: 1);
+      final readyAssetId = await _waitForReadyAsset(assetId);
+      if (readyAssetId == null) {
+        _set(ReelComposerStage.failed, error: reelProcessingFailureMessage);
+        return;
+      }
+      await _publishReadyReel(readyAssetId, request);
+    } catch (error) {
+      final failedStage = _stage;
+      _debugLogReelPublishFailure(error, failedStage);
+      _set(
+        ReelComposerStage.failed,
+        error: mapReelPublishError(error, failedStage),
+      );
     }
+  }
+
+  Future<void> _publishReadyReel(
+    int readyAssetId,
+    _ReelPublishRequest request,
+  ) async {
+    final reelId = await api.publishReel(
+      assetId: readyAssetId,
+      caption: request.caption,
+      audience: request.audience,
+      commentsEnabled: request.commentsEnabled,
+      sharingEnabled: request.sharingEnabled,
+      reelStyle: request.reelStyle,
+      idempotencyKey: idempotencyKey,
+    );
+    _publishedReelId = reelId;
+    _set(ReelComposerStage.published);
   }
 
   Future<int?> _waitForReadyAsset(int assetId) async {
@@ -204,6 +254,22 @@ class ReelComposerController extends ChangeNotifier {
     _tus?.dispose();
     super.dispose();
   }
+}
+
+class _ReelPublishRequest {
+  const _ReelPublishRequest({
+    required this.caption,
+    required this.audience,
+    required this.commentsEnabled,
+    required this.sharingEnabled,
+    required this.reelStyle,
+  });
+
+  final String caption;
+  final String audience;
+  final bool commentsEnabled;
+  final bool sharingEnabled;
+  final Map<String, dynamic>? reelStyle;
 }
 
 const reelInvalidResponseMessage =

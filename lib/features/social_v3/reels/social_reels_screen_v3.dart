@@ -374,7 +374,7 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
       extendBody: true,
       extendBodyBehindAppBar: true,
       body: _reels.isEmpty
-          ? const _EmptyReels()
+          ? _EmptyReels(onCreate: widget.onCreate)
           : PageView.builder(
               controller: _pageController,
               scrollDirection: Axis.vertical,
@@ -438,20 +438,65 @@ String _followLabel(String state) {
 }
 
 class _EmptyReels extends StatelessWidget {
-  const _EmptyReels();
+  const _EmptyReels({required this.onCreate});
+
+  final VoidCallback? onCreate;
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+    return SafeArea(
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          Icon(Icons.movie_creation_outlined, color: Colors.white38, size: 56),
-          SizedBox(height: 12),
-          Text(
-            'لا توجد ريلز بعد',
-            style: TextStyle(color: Colors.white70, fontSize: 15),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.movie_creation_outlined,
+                  color: Colors.white38,
+                  size: 56,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'لا توجد ريلز بعد',
+                  style: TextStyle(color: Colors.white70, fontSize: 15),
+                ),
+                if (onCreate != null) ...[
+                  const SizedBox(height: 18),
+                  FilledButton.icon(
+                    onPressed: onCreate,
+                    icon: const Icon(Icons.videocam_rounded),
+                    label: const Text('إنشاء ريل'),
+                  ),
+                ],
+              ],
+            ),
           ),
+          if (onCreate != null)
+            PositionedDirectional(
+              top: 12,
+              end: 16,
+              child: Tooltip(
+                message: 'إنشاء ريل',
+                child: Material(
+                  color: const Color(0xCC0D1B2A),
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: onCreate,
+                    child: const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Icon(
+                        Icons.videocam_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

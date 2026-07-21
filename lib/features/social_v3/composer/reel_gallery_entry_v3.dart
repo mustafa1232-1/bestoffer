@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:social_core/local_media_file.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../social/state/social_controller.dart';
 import '../../social/models/social_story_document.dart';
@@ -19,6 +20,48 @@ import 'reel_composer_v3.dart';
 import 'story_composer_source.dart';
 import 'story_composer_v3.dart';
 import '../../social/state/social_story_draft_controller.dart';
+
+const int kMaxReelDurationMs = 3600 * 1000;
+int _reelIdempotencyCounter = 0;
+
+String createReelIdempotencyKey(PickedSocialMedia video) {
+  final timestamp = DateTime.now().toUtc().microsecondsSinceEpoch;
+  _reelIdempotencyCounter = (_reelIdempotencyCounter + 1) & 0x7fffffff;
+  return 'reel-$timestamp-$_reelIdempotencyCounter-${video.sizeBytes ?? 0}-${video.name.hashCode}';
+}
+
+String? validatePickedReelVideo(PickedSocialMedia video) {
+  if (!video.isVideo) {
+    return 'اختر فيديو فقط لإنشاء الريل.';
+  }
+  final mime = (video.mimeType ?? '').trim().toLowerCase();
+  final inferred = inferMediaTypeFromNameOrMime(
+    name: video.name,
+    mimeType: mime.isEmpty ? null : mime,
+  );
+  if (mime.isNotEmpty && !mime.startsWith('video/')) {
+    return 'صيغة الملف المختار ليست فيديو.';
+  }
+  if (inferred != PickedMediaType.video) {
+    return 'صيغة الفيديو غير مدعومة.';
+  }
+  final size = video.sizeBytes;
+  if (size == null || size <= 0) {
+    return 'تعذر قراءة حجم الفيديو. اختر فيديو آخر.';
+  }
+  final duration = video.durationMs;
+  if (duration != null && duration > kMaxReelDurationMs) {
+    return 'مدة الفيديو أطول من الحد المسموح.';
+  }
+  return null;
+}
+
+void _showReelPickerMessage(BuildContext context, String message) {
+  if (!context.mounted) return;
+  ScaffoldMessenger.maybeOf(
+    context,
+  )?.showSnackBar(SnackBar(content: Text(message)));
+}
 
 /// Builds a **production** [ReelComposerController] — real HTTP API + real tus
 /// transport, no fakes. Reads providers from [context] via the enclosing
@@ -50,18 +93,48 @@ Future<void> openReelComposerV3(
   SocialMediaPickerV3? picker,
   void Function(int reelId)? onPublished,
 }) async {
+  if (!await requireAuthBeforeAction(
+    context,
+    featureArabic: 'إنشاء ريل',
+    featureEnglish: 'creating a reel',
+  )) {
+    return;
+  }
   final p = picker ?? SocialMediaPickerV3();
-  final video = await p.pickReelVideo();
-  if (video == null || !context.mounted) return;
+  final PickedSocialMedia? video;
+  try {
+    video = await p.pickReelVideo();
+  } on SocialPickerException {
+    if (!context.mounted) return;
+    _showReelPickerMessage(
+      context,
+      'تعذر فتح معرض الفيديو. تحقق من صلاحية الصور والفيديو وحاول مجدداً.',
+    );
+    return;
+  } catch (_) {
+    if (!context.mounted) return;
+    _showReelPickerMessage(
+      context,
+      'تعذر فتح معرض الفيديو. تحقق من صلاحية الصور والفيديو وحاول مجدداً.',
+    );
+    return;
+  }
+  final selectedVideo = video;
+  if (selectedVideo == null || !context.mounted) return;
+  final validationError = validatePickedReelVideo(selectedVideo);
+  if (validationError != null) {
+    _showReelPickerMessage(context, validationError);
+    return;
+  }
   final controller = buildProductionReelComposerController(
     context,
-    videoPath: video.path,
-    idempotencyKey: 'reel-${video.name}-${video.sizeBytes}',
+    videoPath: selectedVideo.path,
+    idempotencyKey: createReelIdempotencyKey(selectedVideo),
   );
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => ReelComposerV3(
-        video: video,
+        video: selectedVideo,
         controller: controller,
         onPublished: onPublished,
       ),

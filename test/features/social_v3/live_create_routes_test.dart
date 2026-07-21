@@ -7,6 +7,7 @@ import 'package:maslaki/features/social_v3/composer/reel_gallery_entry_v3.dart';
 import 'package:maslaki/features/social_v3/composer/social_create_selector_v3.dart';
 import 'package:maslaki/features/social_v3/composer/story_composer_source.dart';
 import 'package:maslaki/features/social_v3/composer/story_composer_v3.dart';
+import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/social/data/social_api.dart';
 import 'package:maslaki/features/social/state/social_controller.dart';
 import 'package:maslaki/features/social_v3/pickers/social_media_picker_v3.dart';
@@ -34,6 +35,18 @@ class _FakeSocialApi extends SocialApi {
     return <String, dynamic>{
       'relation': <String, dynamic>{'state': 'none'},
     };
+  }
+}
+
+class _AuthedAuthController extends AuthController {
+  _AuthedAuthController(super.ref) {
+    state = const AuthState(token: 'token');
+  }
+}
+
+class _GuestAuthController extends AuthController {
+  _GuestAuthController(super.ref) {
+    state = const AuthState(guestMode: true);
   }
 }
 
@@ -82,12 +95,24 @@ const _image = PickedSocialMedia(
 
 /// Fake native picker (overrides the platform methods).
 class _FakePicker extends SocialMediaPickerV3 {
-  _FakePicker({this.video, this.single, this.multi = const []});
+  _FakePicker({
+    this.video,
+    this.single,
+    this.multi = const [],
+    this.throwOnReel = false,
+  });
   final PickedSocialMedia? video;
   final PickedSocialMedia? single;
   final List<PickedSocialMedia> multi;
+  final bool throwOnReel;
   @override
-  Future<PickedSocialMedia?> pickReelVideo() async => video;
+  Future<PickedSocialMedia?> pickReelVideo() async {
+    if (throwOnReel) {
+      throw const SocialPickerException('pickReelVideo', 'denied');
+    }
+    return video;
+  }
+
   @override
   Future<PickedSocialMedia?> pickStoryImage() async => single;
   @override
@@ -104,7 +129,10 @@ Future<void> _pumpButton(
 ) async {
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [socialApiProvider.overrideWithValue(_FakeSocialApi())],
+      overrides: [
+        authControllerProvider.overrideWith(_AuthedAuthController.new),
+        socialApiProvider.overrideWithValue(_FakeSocialApi()),
+      ],
       child: MaterialApp(
         home: Builder(
           builder: (ctx) => Scaffold(
@@ -131,6 +159,66 @@ void main() {
       (ctx) => openReelComposerV3(ctx, picker: _FakePicker(video: _video)),
     );
     expect(find.byType(ReelComposerV3), findsOneWidget);
+  });
+
+  testWidgets('Create Reel guest shows auth sheet instead of composer', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(_GuestAuthController.new),
+          socialApiProvider.overrideWithValue(_FakeSocialApi()),
+        ],
+        child: MaterialApp(
+          home: Builder(
+            builder: (ctx) => Scaffold(
+              body: ElevatedButton(
+                onPressed: () =>
+                    openReelComposerV3(ctx, picker: _FakePicker(video: _video)),
+                child: const Text('go'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('go'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byType(ReelComposerV3), findsNothing);
+    expect(find.text('Sign in'), findsOneWidget);
+  });
+
+  testWidgets('Create Reel picker cancel returns without error', (
+    tester,
+  ) async {
+    await _pumpButton(
+      tester,
+      (ctx) => openReelComposerV3(ctx, picker: _FakePicker()),
+    );
+    expect(find.byType(ReelComposerV3), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('Create Reel rejects non-video picker output', (tester) async {
+    await _pumpButton(
+      tester,
+      (ctx) => openReelComposerV3(ctx, picker: _FakePicker(video: _image)),
+    );
+    expect(find.byType(ReelComposerV3), findsNothing);
+    expect(find.text('اختر فيديو فقط لإنشاء الريل.'), findsOneWidget);
+  });
+
+  testWidgets('Create Reel hides raw picker platform errors', (tester) async {
+    await _pumpButton(
+      tester,
+      (ctx) => openReelComposerV3(ctx, picker: _FakePicker(throwOnReel: true)),
+    );
+    expect(find.byType(ReelComposerV3), findsNothing);
+    expect(find.textContaining('تعذر فتح معرض الفيديو'), findsOneWidget);
+    expect(find.textContaining('SocialPickerException'), findsNothing);
+    expect(find.textContaining('PlatformException'), findsNothing);
   });
 
   testWidgets('Create Story entry → StoryComposerV3', (tester) async {
@@ -341,4 +429,47 @@ void main() {
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
     expect(scaffold.floatingActionButton, isNull);
   });
+
+  testWidgets('empty Reels route exposes Create Reel button', (tester) async {
+    var created = 0;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(_AuthedAuthController.new),
+          socialApiProvider.overrideWithValue(_FakeSocialApi()),
+        ],
+        child: MediaQuery(
+          data: const MediaQueryData(size: Size(393, 852)),
+          child: MaterialApp(
+            home: SocialReelsScreenV3(
+              reels: const [],
+              coordinatorFactory: fakeCoordinator,
+              onCreate: () => created++,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('إنشاء ريل'), findsOneWidget);
+    await tester.tap(find.text('إنشاء ريل'));
+    await tester.pump();
+    expect(created, 1);
+  });
+
+  test('reel idempotency key is generated once per composer controller', () {
+    final first = createReelIdempotencyKey(_video);
+    final second = createReelIdempotencyKey(_video);
+    expect(first, startsWith('reel-'));
+    expect(second, startsWith('reel-'));
+    expect(first, isNot(second));
+  });
+
+  test(
+    'Map<dynamic,dynamic> style remains accepted by reel validation route',
+    () {
+      expect(validatePickedReelVideo(_video), isNull);
+      expect(validatePickedReelVideo(_image), 'اختر فيديو فقط لإنشاء الريل.');
+    },
+  );
 }

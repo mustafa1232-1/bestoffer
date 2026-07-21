@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dio/dio.dart';
 import 'package:maslaki/features/social_v3/composer/reel_composer_state.dart';
@@ -18,6 +20,38 @@ class _OkServer implements TusTransport {
     required int length,
     required int total,
   }) async {
+    this.offset = (this.offset + length).clamp(0, this.total);
+    return TusTransportResult(
+      offset: this.offset,
+      completed: this.offset >= this.total,
+    );
+  }
+}
+
+class _PausableServer implements TusTransport {
+  int offset = 0;
+  int patchCalls = 0;
+  final int total;
+  final firstPatchStarted = Completer<void>();
+  final allowFirstPatch = Completer<void>();
+
+  _PausableServer(this.total);
+
+  @override
+  Future<int> head(String u) async => offset;
+
+  @override
+  Future<TusTransportResult> patch(
+    String u, {
+    required int offset,
+    required int length,
+    required int total,
+  }) async {
+    patchCalls++;
+    if (patchCalls == 1) {
+      firstPatchStarted.complete();
+      await allowFirstPatch.future;
+    }
     this.offset = (this.offset + length).clamp(0, this.total);
     return TusTransportResult(
       offset: this.offset,
@@ -233,4 +267,44 @@ void main() {
       c.dispose();
     },
   );
+
+  test('pause then resume completes polling and publishes once', () async {
+    final api = _FakeApi(statuses: const ['ready']);
+    final server = _PausableServer(_video.sizeBytes!);
+    final c = ReelComposerController(
+      api: api,
+      idempotencyKey: 'idem-resume',
+      tusFactory:
+          ({required uploadUrl, required totalBytes, required assetId}) {
+            return TusUploadClient(
+              transport: server,
+              uploadUrl: uploadUrl,
+              totalBytes: totalBytes,
+              assetId: assetId,
+              chunkSize: totalBytes ~/ 2,
+            );
+          },
+    );
+
+    final publishFuture = c.publish(
+      video: _video,
+      caption: 'resume',
+      audience: 'public',
+    );
+    await server.firstPatchStarted.future;
+    c.pauseUpload();
+    server.allowFirstPatch.complete();
+    await publishFuture;
+
+    expect(c.stage, ReelComposerStage.paused);
+    expect(api.publishCalls, 0);
+
+    await c.resumeUpload();
+
+    expect(c.stage, ReelComposerStage.published);
+    expect(c.publishedReelId, 9001);
+    expect(api.publishCalls, 1);
+    expect(api.publishKeys, ['idem-resume']);
+    c.dispose();
+  });
 }
