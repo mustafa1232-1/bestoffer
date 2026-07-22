@@ -1,12 +1,16 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/diagnostics/build_info.dart';
 import '../data/delivery_api.dart';
 import '../models/grouped_delivery_job.dart';
 import 'delivery_controller.dart'
     show deliveryApiProvider, deliveryControllerProvider;
+
+typedef DeliveryTerminalResyncLogger = void Function(String message);
 
 /// State for the grouped multi-store delivery job screen (delivery closure §3).
 class GroupedDeliveryState {
@@ -68,6 +72,7 @@ class GroupedDeliveryState {
 class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
   final DeliveryApi _api;
   final Future<void> Function()? _onTerminalCompletion;
+  final DeliveryTerminalResyncLogger _terminalResyncLogger;
   Future<void>? _bootstrapInFlight;
   // Generation guard: bumped on logout / account switch so results from a prior
   // user are ignored and never leak into the next session.
@@ -76,7 +81,9 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
   GroupedDeliveryController(
     this._api, {
     Future<void> Function()? onTerminalCompletion,
+    DeliveryTerminalResyncLogger? terminalResyncLogger,
   }) : _onTerminalCompletion = onTerminalCompletion,
+       _terminalResyncLogger = terminalResyncLogger ?? debugPrint,
        super(const GroupedDeliveryState());
 
   bool _isStaleVersion(Object e) =>
@@ -93,6 +100,42 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
       return 'تعذّر الاتصال بالخادم.';
     }
     return 'حدث خطأ غير متوقع.';
+  }
+
+  String _resyncErrorCategory(Object e) {
+    if (e is DioException) {
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          return 'timeout';
+        case DioExceptionType.connectionError:
+          return 'network';
+        case DioExceptionType.badCertificate:
+          return 'bad_certificate';
+        case DioExceptionType.badResponse:
+          final code = e.response?.statusCode;
+          return code == null ? 'http_error' : 'http_$code';
+        case DioExceptionType.cancel:
+          return 'cancelled';
+        case DioExceptionType.unknown:
+          return 'dio_unknown';
+      }
+    }
+    return e.runtimeType.toString();
+  }
+
+  void _logTerminalResyncFailure({
+    required int deliveryJobId,
+    required Object error,
+  }) {
+    _terminalResyncLogger(
+      'event=delivery_terminal_resync_failed '
+      'surface=delivery '
+      'deliveryJobId=$deliveryJobId '
+      'APP_SHA=${BuildInfo.compileTime.gitSha} '
+      'category=${_resyncErrorCategory(error)}',
+    );
   }
 
   /// Load the current active grouped job (bootstrap / resume / reconnect /
@@ -245,7 +288,14 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
       if (terminalCompletion && state.job == null) {
         final onTerminalCompletion = _onTerminalCompletion;
         if (onTerminalCompletion != null) {
-          unawaited(onTerminalCompletion().catchError((_) {}));
+          unawaited(
+            onTerminalCompletion().catchError(
+              (Object error) => _logTerminalResyncFailure(
+                deliveryJobId: previous.deliveryJobId,
+                error: error,
+              ),
+            ),
+          );
         }
       }
       state = state.copyWith(saving: false);

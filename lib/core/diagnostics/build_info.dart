@@ -67,36 +67,58 @@ class BuildInfo {
   /// Backend (Railway) release SHA the app expects to talk to, or `unknown`.
   final String backendReleaseSha;
 
-  static const String _sha = String.fromEnvironment('GIT_SHA', defaultValue: 'unknown-dev');
-  static const String _branch =
-      String.fromEnvironment('GIT_BRANCH', defaultValue: 'unknown-dev');
-  static const String _timestamp =
-      String.fromEnvironment('BUILD_TIMESTAMP', defaultValue: 'unknown-dev');
+  static const String _gitSha = String.fromEnvironment(
+    'GIT_SHA',
+    defaultValue: '',
+  );
+  static const String _appSha = String.fromEnvironment(
+    'APP_SHA',
+    defaultValue: '',
+  );
+  static String get _sha => _gitSha.isNotEmpty
+      ? _gitSha
+      : (_appSha.isNotEmpty ? _appSha : 'unknown-dev');
+  static const String _branch = String.fromEnvironment(
+    'GIT_BRANCH',
+    defaultValue: 'unknown-dev',
+  );
+  static const String _timestamp = String.fromEnvironment(
+    'BUILD_TIMESTAMP',
+    defaultValue: 'unknown-dev',
+  );
   // NOTE: `FLUTTER_VERSION` is reserved by the Flutter tool and cannot be set
   // via --dart-define, so we use a non-reserved name for the build stamp.
-  static const String _flutterVersion =
-      String.fromEnvironment('BUILD_FLUTTER_VERSION', defaultValue: 'unknown-dev');
-  static const String _flavor =
-      String.fromEnvironment('APP_FLAVOR', defaultValue: 'user');
-  static const String _appVersionDefine =
-      String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
-  static const String _backendReleaseSha =
-      String.fromEnvironment('BACKEND_RELEASE_SHA', defaultValue: 'unknown');
+  static const String _flutterVersion = String.fromEnvironment(
+    'BUILD_FLUTTER_VERSION',
+    defaultValue: 'unknown-dev',
+  );
+  static const String _flavor = String.fromEnvironment(
+    'APP_FLAVOR',
+    defaultValue: 'user',
+  );
+  static const String _appVersionDefine = String.fromEnvironment(
+    'APP_VERSION',
+    defaultValue: 'dev',
+  );
+  static const String _backendReleaseSha = String.fromEnvironment(
+    'BACKEND_RELEASE_SHA',
+    defaultValue: 'unknown',
+  );
 
   /// The compile-time snapshot, available synchronously and without any plugin
   /// call. Use this for the very-first startup log line. [applicationId] and the
   /// resolved [appVersion] are enriched by [load].
   static BuildInfo get compileTime => BuildInfo(
-        gitSha: _sha,
-        gitBranch: _branch,
-        buildTimestamp: _timestamp,
-        flutterVersion: _flutterVersion,
-        appFlavor: _flavor,
-        applicationId: '',
-        appVersion: _appVersionDefine,
-        backendBaseUrl: Api.baseUrl,
-        backendReleaseSha: _backendReleaseSha,
-      );
+    gitSha: _sha,
+    gitBranch: _branch,
+    buildTimestamp: _timestamp,
+    flutterVersion: _flutterVersion,
+    appFlavor: _flavor,
+    applicationId: '',
+    appVersion: _appVersionDefine,
+    backendBaseUrl: Api.baseUrl,
+    backendReleaseSha: _backendReleaseSha,
+  );
 
   /// Enriches the compile-time snapshot with runtime package metadata
   /// (applicationId, installed version+build). Never throws — falls back to the
@@ -126,8 +148,7 @@ class BuildInfo {
 
   /// Short SHA for compact display (first 12 chars, matching `git log --oneline`
   /// plus a little margin), or the sentinel when unknown.
-  String get shortSha =>
-      gitSha.length > 12 ? gitSha.substring(0, 12) : gitSha;
+  String get shortSha => gitSha.length > 12 ? gitSha.substring(0, 12) : gitSha;
 
   /// True when this build carries an authoritative git SHA (a real release
   /// build), false for a plain `flutter run` dev build.
@@ -143,15 +164,18 @@ class BuildInfo {
 
   /// Ordered key/value rows for the diagnostics screen.
   List<MapEntry<String, String>> toRows() => <MapEntry<String, String>>[
-        MapEntry('Git SHA', gitSha),
-        MapEntry('Git branch', gitBranch),
-        MapEntry('Build timestamp (UTC)', buildTimestamp),
-        MapEntry('Flutter version', flutterVersion),
-        MapEntry('App flavor', appFlavor),
-        MapEntry('applicationId', applicationId.isEmpty ? '(loading…)' : applicationId),
-        MapEntry('App version', appVersion),
-        MapEntry('Backend base URL', backendBaseUrl),
-        MapEntry('Backend release SHA', backendReleaseSha),
-        MapEntry('Authoritative build', isAuthoritative ? 'yes' : 'NO (dev build)'),
-      ];
+    MapEntry('Git SHA', gitSha),
+    MapEntry('Git branch', gitBranch),
+    MapEntry('Build timestamp (UTC)', buildTimestamp),
+    MapEntry('Flutter version', flutterVersion),
+    MapEntry('App flavor', appFlavor),
+    MapEntry(
+      'applicationId',
+      applicationId.isEmpty ? '(loading…)' : applicationId,
+    ),
+    MapEntry('App version', appVersion),
+    MapEntry('Backend base URL', backendBaseUrl),
+    MapEntry('Backend release SHA', backendReleaseSha),
+    MapEntry('Authoritative build', isAuthoritative ? 'yes' : 'NO (dev build)'),
+  ];
 }

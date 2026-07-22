@@ -328,6 +328,47 @@ void main() {
     );
 
     test(
+      'terminal resync failure is nonblocking and logged once safely',
+      () async {
+        final api = FakeDeliveryApi();
+        final logs = <String>[];
+        var terminalResyncs = 0;
+        final c = GroupedDeliveryController(
+          api,
+          onTerminalCompletion: () async {
+            terminalResyncs++;
+            throw DioException(
+              requestOptions: RequestOptions(path: '/api/delivery/current'),
+              type: DioExceptionType.connectionError,
+            );
+          },
+          terminalResyncLogger: logs.add,
+        );
+        await c.bootstrap();
+
+        await c.collectStore(101);
+        await c.collectStore(102);
+        await c.headingToCustomer();
+        await c.markDelivered();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(c.state.job, isNull);
+        expect(c.state.saving, isFalse);
+        expect(c.state.error, isNull);
+        expect(terminalResyncs, 1);
+        expect(logs, hasLength(1));
+        expect(logs.single, contains('event=delivery_terminal_resync_failed'));
+        expect(logs.single, contains('surface=delivery'));
+        expect(logs.single, contains('deliveryJobId=7'));
+        expect(logs.single, contains('APP_SHA='));
+        expect(logs.single, contains('category=network'));
+        expect(logs.single, isNot(contains('DioException')));
+        expect(logs.single, isNot(contains('RequestOptions')));
+        expect(logs.single, isNot(contains('/api/delivery/current')));
+      },
+    );
+
+    test(
       'stale version (409) triggers an authoritative refresh, no crash',
       () async {
         final api = FakeDeliveryApi()..throwStaleOnce = true;
