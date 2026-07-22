@@ -237,11 +237,8 @@ class _ForbiddenOrdersApi extends OrdersApi {
 }
 
 class _FakeTaxiApi extends TaxiApi {
-  _FakeTaxiApi(
-    this.envelope, {
-    this.streamController,
-    this.currentRideEnvelope,
-  }) : super(Dio());
+  _FakeTaxiApi(this.envelope, {this.streamController, this.currentRideEnvelope})
+    : super(Dio());
 
   final Map<String, dynamic> envelope;
   final StreamController<TaxiLiveEvent>? streamController;
@@ -294,8 +291,7 @@ class _FakeTaxiApi extends TaxiApi {
     required double longitude,
     int radiusM = 3500,
     int limit = 60,
-  }) async =>
-      const [];
+  }) async => const [];
 }
 
 class _FakeAuthController extends AuthController {
@@ -465,8 +461,11 @@ Widget _wrapForTest(Widget child, {List<Override> overrides = const []}) {
   );
 }
 
-Future<void> _setTallSurface(WidgetTester tester) async {
-  await tester.binding.setSurfaceSize(const Size(1080, 2400));
+Future<void> _setTallSurface(
+  WidgetTester tester, {
+  Size size = const Size(1080, 2400),
+}) async {
+  await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
 }
 
@@ -487,8 +486,9 @@ Future<void> _scrollTaxiActionsIntoView(WidgetTester tester) async {
 Future<void> _expectTerminalTaxiRideReturnsHomeOnce(
   WidgetTester tester, {
   required String status,
+  Size size = const Size(1080, 2400),
 }) async {
-  await _setTallSurface(tester);
+  await _setTallSurface(tester, size: size);
   final api = _FakeTaxiApi(
     _assignedTaxiEnvelope(status: status),
     currentRideEnvelope: null,
@@ -534,6 +534,60 @@ Future<void> _expectTerminalTaxiRideReturnsHomeOnce(
   expect(api.rideDetailsCalls, 1);
   expect(api.currentRideCalls, 1);
   expect(api.sharedRideTrackCalls, 0);
+}
+
+Future<void> _expectTerminalTaxiRideKeepsMapAboveShellRoot(
+  WidgetTester tester, {
+  required Size size,
+}) async {
+  await _setTallSurface(tester, size: size);
+  final navigatorKey = GlobalKey<NavigatorState>();
+  final api = _FakeTaxiApi(
+    _assignedTaxiEnvelope(status: 'completed'),
+    currentRideEnvelope: null,
+  );
+
+  await tester.pumpWidget(
+    _wrapForTest(
+      Navigator(
+        key: navigatorKey,
+        onGenerateRoute: (_) => MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('Shell root')),
+        ),
+      ),
+      overrides: [
+        authControllerProvider.overrideWith(
+          (ref) => _FakeAuthController(
+            ref,
+            AuthState(token: 'token', user: _customerUser()),
+          ),
+        ),
+        taxiApiProvider.overrideWithValue(api),
+        taxiRouteServiceProvider.overrideWithValue(_FakeTaxiRouteService()),
+      ],
+    ),
+  );
+
+  navigatorKey.currentState!.push(
+    MaterialPageRoute<void>(
+      builder: (_) => TaxiLiveTrackingScreen(
+        rideId: 77,
+        initialEnvelope: _assignedTaxiEnvelope(status: 'completed'),
+      ),
+    ),
+  );
+  await tester.pump();
+  for (var i = 0; i < 20 && find.byType(MapPage).evaluate().isEmpty; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+
+  expect(tester.takeException(), isNull);
+  expect(find.byType(MapPage), findsOneWidget);
+  expect(find.text('Shell root'), findsNothing);
+  expect(find.byType(TaxiLiveTrackingScreen), findsNothing);
+  expect(navigatorKey.currentState!.canPop(), isTrue);
+  expect(api.rideDetailsCalls, 1);
+  expect(api.currentRideCalls, 1);
 }
 
 void main() {
@@ -717,15 +771,27 @@ void main() {
     expect(find.text('Cancel ride'), findsOneWidget);
   });
 
-  testWidgets(
-    'taxi tracking returns to home once after a completed ride',
-    (tester) async {
-      await _expectTerminalTaxiRideReturnsHomeOnce(
-        tester,
-        status: 'completed',
-      );
-    },
-  );
+  testWidgets('taxi tracking returns to home once after a completed ride', (
+    tester,
+  ) async {
+    await _expectTerminalTaxiRideReturnsHomeOnce(tester, status: 'completed');
+  });
+
+  for (final entry in <MapEntry<String, Size>>[
+    const MapEntry('360x640', Size(360, 640)),
+    const MapEntry('393x852', Size(393, 852)),
+    const MapEntry('412x915', Size(412, 915)),
+  ]) {
+    testWidgets(
+      'taxi terminal return keeps fullscreen map route above shell stack at ${entry.key}',
+      (tester) async {
+        await _expectTerminalTaxiRideKeepsMapAboveShellRoot(
+          tester,
+          size: entry.value,
+        );
+      },
+    );
+  }
 
   testWidgets(
     'taxi tracking returns to home once after a customer-cancelled ride',
@@ -757,15 +823,11 @@ void main() {
     },
   );
 
-  testWidgets(
-    'taxi tracking returns to home once after an expired ride',
-    (tester) async {
-      await _expectTerminalTaxiRideReturnsHomeOnce(
-        tester,
-        status: 'expired',
-      );
-    },
-  );
+  testWidgets('taxi tracking returns to home once after an expired ride', (
+    tester,
+  ) async {
+    await _expectTerminalTaxiRideReturnsHomeOnce(tester, status: 'expired');
+  });
 
   testWidgets(
     'taxi tracking preserves captain and vehicle snapshot after location updates',

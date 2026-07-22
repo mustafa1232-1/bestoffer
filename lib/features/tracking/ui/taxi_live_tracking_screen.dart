@@ -172,16 +172,18 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     if (!mounted || _isReadonly || _returnedToTaxiHome) return;
     if (!_isTerminalRide(_ride)) return;
     _returnedToTaxiHome = true;
-    Navigator.of(context).pushAndRemoveUntil<void>(
-      PageRouteBuilder<void>(
-        pageBuilder: (context, animation, secondaryAnimation) => const MapPage(
-          skipInitialBootstrap: true,
-        ),
-        transitionDuration: Duration.zero,
-        reverseTransitionDuration: Duration.zero,
-      ),
-      (route) => false,
+    final navigator = Navigator.of(context);
+    final route = PageRouteBuilder<void>(
+      pageBuilder: (context, animation, secondaryAnimation) =>
+          const MapPage(skipInitialBootstrap: true),
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
     );
+    if (navigator.canPop()) {
+      navigator.pushAndRemoveUntil<void>(route, (route) => route.isFirst);
+    } else {
+      navigator.pushReplacement<void, void>(route);
+    }
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -805,7 +807,8 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   ) {
     final tokens = context.maslakiTokens;
     final displayState = taxiRideDisplayState(ride);
-    final isWaitingState = displayState == 'searching' ||
+    final isWaitingState =
+        displayState == 'searching' ||
         displayState == 'negotiating' ||
         displayState == 'price_raise_required';
     final isTerminalState = _isTerminalRide(ride);
@@ -990,16 +993,16 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
         controller: scrollController,
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
-              Text(
-                displayState == 'price_raise_required'
-                    ? context.lt(
-                        ar: 'يجب رفع الأجرة لإعادة فتح البحث',
-                        en: 'Raise the fare to reopen search',
-                      )
-                    : displayState == 'negotiating'
-                    ? context.lt(
-                        ar: 'جاري التفاوض مع الكابتن',
-                        en: 'Negotiation in progress',
+          Text(
+            displayState == 'price_raise_required'
+                ? context.lt(
+                    ar: 'يجب رفع الأجرة لإعادة فتح البحث',
+                    en: 'Raise the fare to reopen search',
+                  )
+                : displayState == 'negotiating'
+                ? context.lt(
+                    ar: 'جاري التفاوض مع الكابتن',
+                    en: 'Negotiation in progress',
                   )
                 : context.lt(
                     ar: 'جاري البحث عن كابتن',
@@ -1035,16 +1038,16 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                   value: _formatRideFareLabel(context, finalFare, nonAvailable),
                 ),
                 const SizedBox(height: 4),
-              Text(
-                displayState == 'price_raise_required'
-                    ? context.lt(
-                        ar: 'يمكنك رفع الأجرة ثم ستُعرض الرحلة مجدداً.',
-                        en: 'Raise the fare and the ride will be shown again.',
-                      )
-                    : displayState == 'negotiating'
-                    ? context.lt(
-                        ar: 'بانتظار قبول العرض أو إرسال عرض مضاد.',
-                        en: 'Waiting for the captain to respond.',
+                Text(
+                  displayState == 'price_raise_required'
+                      ? context.lt(
+                          ar: 'يمكنك رفع الأجرة ثم ستُعرض الرحلة مجدداً.',
+                          en: 'Raise the fare and the ride will be shown again.',
+                        )
+                      : displayState == 'negotiating'
+                      ? context.lt(
+                          ar: 'بانتظار قبول العرض أو إرسال عرض مضاد.',
+                          en: 'Waiting for the captain to respond.',
                         )
                       : context.lt(
                           ar: 'سيبدأ التتبع الحي بعد تعيين الكابتن.',
@@ -1439,7 +1442,10 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                   title: isCompletedRide
                       ? context.lt(ar: 'الرحلة منتهية', en: 'Ride completed')
                       : isExpiredRide
-                      ? context.lt(ar: 'انتهت صلاحية الرحلة', en: 'Ride expired')
+                      ? context.lt(
+                          ar: 'انتهت صلاحية الرحلة',
+                          en: 'Ride expired',
+                        )
                       : context.lt(ar: 'الرحلة ملغاة', en: 'Ride cancelled'),
                   subtitle: _phaseMessage(ride),
                 ),
@@ -1920,10 +1926,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   String _statusLabel(String status) {
     switch (status) {
       case 'price_raise_required':
-        return context.lt(
-          ar: 'رفع الأجرة مطلوب',
-          en: 'Price raise required',
-        );
+        return context.lt(ar: 'رفع الأجرة مطلوب', en: 'Price raise required');
       case 'searching':
         return context.lt(
           ar: 'Ã˜Â¬Ã˜Â§Ã˜Â±Ã™Â Ã˜Â§Ã™â€žÃ˜Â¨Ã˜Â­Ã˜Â«',
@@ -1958,10 +1961,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
           en: 'Cancelled',
         );
       case 'expired':
-        return context.lt(
-          ar: 'انتهت صلاحية الرحلة',
-          en: 'Ride expired',
-        );
+        return context.lt(ar: 'انتهت صلاحية الرحلة', en: 'Ride expired');
       default:
         return context.lt(
           ar: 'Ã˜Â±Ã˜Â­Ã™â€žÃ˜Â© Ã™â€ Ã˜Â´Ã˜Â·Ã˜Â©',
