@@ -107,6 +107,39 @@ test("push message carries the canonical target app surface", () => {
   assert.equal(message.data.targetModule, "customer");
 });
 
+test("taxi critical push events use taxi urgent channels and do not fall back to live updates", () => {
+  const cases = [
+    ["taxi.new_ride", "maslaki_taxi_requests_urgent_v2"],
+    ["taxi.counteroffer.received", "maslaki_taxi_counteroffers_urgent_v2"],
+    ["taxi.offer.accepted", "maslaki_taxi_counteroffers_urgent_v2"],
+    ["taxi.ride.assigned", "maslaki_taxi_counteroffers_urgent_v2"],
+    ["taxi.captain.arrived", "maslaki_taxi_counteroffers_urgent_v2"],
+  ];
+
+  for (const [type, expectedChannel] of cases) {
+    const message = __notificationsRepoTestables.buildMulticastMessage(
+      {
+        id: 100,
+        type,
+        title: "Taxi",
+        body: "Taxi update",
+        payload: {
+          rideId: 77,
+          target: "taxi_ride_assigned",
+          targetModule: "taxi",
+        },
+      },
+      ["redacted-token"],
+      null,
+      { title: "Taxi", body: "Taxi update" },
+      "taxi"
+    );
+    assert.equal(message.android.notification.channelId, expectedChannel);
+    assert.notEqual(message.android.notification.channelId, "maslaki_live_updates");
+    assert.equal(message.data.urgentChannelId, expectedChannel);
+  }
+});
+
 test("listing notifications resolve to direct car and real-estate targets", () => {
   const carMessage = __notificationsRepoTestables.buildMulticastMessage(
     {

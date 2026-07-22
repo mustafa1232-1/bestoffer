@@ -908,11 +908,28 @@ async function dispatchPushNotification(notification) {
 const URGENT_CHANNEL_ALLOWLIST = new Set([
   "maslaki_courier_assignments_urgent_v2",
   "maslaki_store_orders_urgent_v2",
+  "maslaki_taxi_requests_urgent_v2",
+  "maslaki_taxi_counteroffers_urgent_v2",
+]);
+
+const TAXI_URGENT_CHANNEL_BY_TYPE = new Map([
+  ["taxi.new_ride", "maslaki_taxi_requests_urgent_v2"],
+  ["taxi.request.new", "maslaki_taxi_requests_urgent_v2"],
+  ["taxi.ride.requested", "maslaki_taxi_requests_urgent_v2"],
+  ["taxi.counteroffer.received", "maslaki_taxi_counteroffers_urgent_v2"],
+  ["taxi.counter_offer.received", "maslaki_taxi_counteroffers_urgent_v2"],
+  ["taxi.offer.received", "maslaki_taxi_counteroffers_urgent_v2"],
+  ["taxi.offer.accepted", "maslaki_taxi_counteroffers_urgent_v2"],
+  ["taxi.ride.assigned", "maslaki_taxi_counteroffers_urgent_v2"],
+  ["taxi.captain.arrived", "maslaki_taxi_counteroffers_urgent_v2"],
 ]);
 
 function resolveEventChannelId(notification) {
   const requested = String(notification?.payload?.urgentChannelId || "").trim();
   if (URGENT_CHANNEL_ALLOWLIST.has(requested)) return requested;
+  const type = String(notification?.type || "").trim().toLowerCase();
+  const taxiChannel = TAXI_URGENT_CHANNEL_BY_TYPE.get(type);
+  if (taxiChannel) return taxiChannel;
   return notification?.payload?.requiresAction
     ? "maslaki_action_required_v2"
     : "maslaki_live_updates";
@@ -1497,6 +1514,7 @@ export async function deactivatePushTokensForUser(userId) {
 export const __notificationsRepoTestables = {
   buildMulticastMessage,
   buildNotificationAudienceMetadata,
+  resolveEventChannelId,
 };
 
 

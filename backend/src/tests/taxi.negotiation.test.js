@@ -365,6 +365,121 @@ test("taxi negotiation keeps multi-offer rides separate from captain availabilit
   }
 });
 
+test("taxi direct assignment survives post-commit notification creation failure", async () => {
+  const state = {
+    userIds: [],
+    rideIds: [],
+  };
+  const warnings = [];
+  const originalWarn = console.warn;
+
+  try {
+    console.warn = (...args) => {
+      warnings.push(args);
+    };
+    taxiService.__setRideAssignedNotificationCreatorForTests(async () => {
+      throw new Error("fault_injected_assignment_notification_failure");
+    });
+
+    const customer = await createTaxiUser({
+      fullName: `Taxi Fault Customer ${makeSuffix("fault-cust-")}`,
+      phone: makePhone(110),
+      role: "user",
+    });
+    state.userIds.push(Number(customer.id));
+
+    const captainA = await createTaxiUser({
+      fullName: `Taxi Fault Captain A ${makeSuffix("fault-cap-a-")}`,
+      phone: makePhone(111),
+      role: "taxi_captain",
+    });
+    state.userIds.push(Number(captainA.id));
+    await seedCaptainReady(captainA.id, 0);
+
+    const captainB = await createTaxiUser({
+      fullName: `Taxi Fault Captain B ${makeSuffix("fault-cap-b-")}`,
+      phone: makePhone(112),
+      role: "taxi_captain",
+    });
+    state.userIds.push(Number(captainB.id));
+    await seedCaptainReady(captainB.id, 1);
+
+    const ride = await seedRequestRide(customer.id, "direct-fault");
+    state.rideIds.push(ride.rideId);
+
+    const accepted = await taxiService.acceptRideByCaptain({
+      captainUserId: captainA.id,
+      rideId: ride.rideId,
+    });
+    assert.equal(accepted.ride.status, "captain_assigned");
+    assert.equal(Number(accepted.ride.assignedCaptainUserId), Number(captainA.id));
+    assert.equal(accepted.notificationPending, true);
+    assert.equal(
+      accepted.notificationEventId,
+      `taxi.ride.assigned:${ride.rideId}:${captainA.id}`
+    );
+
+    const currentRide = await taxiService.getCurrentRideForCaptain(captainA.id);
+    assert.equal(Number(currentRide.ride.assignedCaptainUserId), Number(captainA.id));
+    assert.equal(currentRide.ride.status, "captain_assigned");
+
+    await assert.rejects(
+      () =>
+        taxiService.acceptRideByCaptain({
+          captainUserId: captainB.id,
+          rideId: ride.rideId,
+        }),
+      (error) => {
+        assert.equal(error?.status, 409);
+        assert.equal(error?.message, "TAXI_ALREADY_ASSIGNED");
+        return true;
+      }
+    );
+
+    const rideRow = await q(
+      `SELECT status, assigned_captain_user_id, accepted_bid_id
+       FROM taxi_ride_request
+       WHERE id=$1`,
+      [ride.rideId]
+    );
+    assert.equal(rideRow.rowCount, 1);
+    assert.equal(rideRow.rows[0].status, "captain_assigned");
+    assert.equal(Number(rideRow.rows[0].assigned_captain_user_id), Number(captainA.id));
+
+    const bids = await taxiRepo.listRideBids(ride.rideId);
+    assert.equal(
+      bids.filter((bid) => bid.status === "accepted").length,
+      1,
+      "direct assignment must keep one accepted bid"
+    );
+    assert.equal(
+      bids.filter((bid) => bid.status === "accepted")[0]?.captainUserId,
+      Number(captainA.id)
+    );
+
+    const notificationRows = await q(
+      `SELECT COUNT(*)::int AS count
+       FROM app_notification
+       WHERE event_id=$1`,
+      [`taxi.ride.assigned:${ride.rideId}:${captainA.id}`]
+    );
+    assert.equal(notificationRows.rows[0].count, 0);
+    assert.ok(
+      warnings.some((entry) =>
+        JSON.stringify(entry).includes("taxi_ride_assigned_notification_pending")
+      ),
+      "safe structured warning should be logged"
+    );
+  } finally {
+    taxiService.__setRideAssignedNotificationCreatorForTests(null);
+    console.warn = originalWarn;
+    await cleanupRows({
+      userIds: state.userIds,
+      rideIds: state.rideIds,
+    });
+  }
+});
+
 test("taxi negotiation counteroffers one bid, atomically rejects losing offers, and releases captain after completion", async () => {
   const state = {
     userIds: [],
@@ -513,6 +628,136 @@ test("taxi negotiation counteroffers one bid, atomically rejects losing offers, 
     assert.equal(Number(secondBid.bid.captainUserId), Number(captainA.id));
     assert.equal(secondBid.bid.status, "active");
   } finally {
+    await cleanupRows({
+      userIds: state.userIds,
+      rideIds: state.rideIds,
+    });
+  }
+});
+
+test("taxi bid acceptance survives post-commit notification creation failure", async () => {
+  const state = {
+    userIds: [],
+    rideIds: [],
+  };
+  const warnings = [];
+  const originalWarn = console.warn;
+
+  try {
+    console.warn = (...args) => {
+      warnings.push(args);
+    };
+    taxiService.__setRideAssignedNotificationCreatorForTests(async () => {
+      throw new Error("fault_injected_bid_assignment_notification_failure");
+    });
+
+    const customer = await createTaxiUser({
+      fullName: `Taxi Bid Fault Customer ${makeSuffix("bid-fault-cust-")}`,
+      phone: makePhone(120),
+      role: "user",
+    });
+    state.userIds.push(Number(customer.id));
+
+    const captainA = await createTaxiUser({
+      fullName: `Taxi Bid Fault Captain A ${makeSuffix("bid-fault-a-")}`,
+      phone: makePhone(121),
+      role: "taxi_captain",
+    });
+    state.userIds.push(Number(captainA.id));
+    await seedCaptainReady(captainA.id, 0);
+
+    const captainB = await createTaxiUser({
+      fullName: `Taxi Bid Fault Captain B ${makeSuffix("bid-fault-b-")}`,
+      phone: makePhone(122),
+      role: "taxi_captain",
+    });
+    state.userIds.push(Number(captainB.id));
+    await seedCaptainReady(captainB.id, 1);
+
+    const ride = await seedRequestRide(customer.id, "bid-fault");
+    state.rideIds.push(ride.rideId);
+
+    const bidA = await taxiService.submitBid({
+      captainUserId: captainA.id,
+      rideId: ride.rideId,
+      dto: {
+        offeredFareIqd: 17000,
+        etaMinutes: 8,
+      },
+    });
+    const bidB = await taxiService.submitBid({
+      captainUserId: captainB.id,
+      rideId: ride.rideId,
+      dto: {
+        offeredFareIqd: 16500,
+        etaMinutes: 9,
+      },
+    });
+
+    const bidAId = Number(bidA.bid.id);
+    const bidBId = Number(bidB.bid.id);
+    const accepted = await taxiService.acceptBid({
+      customerUserId: customer.id,
+      rideId: ride.rideId,
+      bidId: bidAId,
+    });
+    assert.equal(accepted.ride.status, "captain_assigned");
+    assert.equal(Number(accepted.ride.assignedCaptainUserId), Number(captainA.id));
+    assert.equal(accepted.notificationPending, true);
+    assert.equal(
+      accepted.notificationEventId,
+      `taxi.ride.assigned:${ride.rideId}:${captainA.id}`
+    );
+
+    const bids = await taxiRepo.listRideBids(ride.rideId);
+    assert.equal(
+      bids.find((bid) => Number(bid.id) === bidAId)?.status,
+      "accepted"
+    );
+    assert.equal(
+      bids.find((bid) => Number(bid.id) === bidBId)?.status,
+      "rejected"
+    );
+    assert.equal(
+      bids.filter((bid) => bid.status === "accepted").length,
+      1,
+      "bid assignment must keep one accepted bid"
+    );
+
+    await assert.rejects(
+      () =>
+        taxiService.acceptBid({
+          customerUserId: customer.id,
+          rideId: ride.rideId,
+          bidId: bidBId,
+        }),
+      (error) => {
+        assert.equal(error?.status, 409);
+        assert.equal(error?.message, "TAXI_RIDE_NOT_ACCEPTING_BIDS");
+        return true;
+      }
+    );
+
+    const currentRide = await taxiService.getCurrentRideForCustomer(customer.id);
+    assert.equal(Number(currentRide.ride.assignedCaptainUserId), Number(captainA.id));
+    assert.equal(currentRide.ride.status, "captain_assigned");
+
+    const notificationRows = await q(
+      `SELECT COUNT(*)::int AS count
+       FROM app_notification
+       WHERE event_id=$1`,
+      [`taxi.ride.assigned:${ride.rideId}:${captainA.id}`]
+    );
+    assert.equal(notificationRows.rows[0].count, 0);
+    assert.ok(
+      warnings.some((entry) =>
+        JSON.stringify(entry).includes("taxi_ride_assigned_notification_pending")
+      ),
+      "safe structured warning should be logged"
+    );
+  } finally {
+    taxiService.__setRideAssignedNotificationCreatorForTests(null);
+    console.warn = originalWarn;
     await cleanupRows({
       userIds: state.userIds,
       rideIds: state.rideIds,

@@ -1,5 +1,6 @@
 ﻿import { createNotification } from "../notifications/notifications.repo.js";
 import { emitRealtimeToUser } from "../../shared/realtime/realtime-gateway.js";
+import { createNotificationAndAwaitDelivery } from "../notifications/notifications.repo.js";
 import { AppError } from "../../shared/utils/errors.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import { hashPin } from "../../shared/utils/hash.js";
@@ -22,6 +23,64 @@ let lifecycleWorker = null;
 let lifecycleRunning = false;
 let lastLifecycleSweepAt = 0;
 const LIFECYCLE_MIN_INTERVAL_MS = 4000;
+
+let createRideAssignedNotification = createNotificationAndAwaitDelivery;
+
+export function __setRideAssignedNotificationCreatorForTests(fn) {
+  createRideAssignedNotification =
+    typeof fn === "function" ? fn : createNotificationAndAwaitDelivery;
+}
+
+function buildRideAssignedNotificationEventId(ride) {
+  return `taxi.ride.assigned:${Number(ride.id)}:${Number(ride.assignedCaptainUserId)}`;
+}
+
+async function createRideAssignedNotificationSafe({
+  ride,
+  title,
+  body,
+  offerId = null,
+  bidId = null,
+}) {
+  const eventId = buildRideAssignedNotificationEventId(ride);
+  try {
+    const result = await createRideAssignedNotification({
+      userId: ride.customerUserId,
+      type: "taxi.ride.assigned",
+      title,
+      body,
+      eventId,
+      payload: {
+        rideId: ride.id,
+        offerId,
+        bidId,
+        captainId: ride.assignedCaptainUserId,
+        customerUserId: ride.customerUserId,
+        agreedFareIqd: ride.agreedFareIqd,
+        target: "taxi_ride_assigned",
+      },
+    });
+    return {
+      notificationPending: false,
+      notificationEventId: eventId,
+      notificationId: result?.notificationId || null,
+    };
+  } catch (error) {
+    console.warn("[taxi] ride assigned notification pending", {
+      event: "taxi_ride_assigned_notification_pending",
+      rideId: Number(ride.id),
+      captainId: Number(ride.assignedCaptainUserId),
+      customerUserId: Number(ride.customerUserId),
+      eventId,
+      error: error?.message || String(error),
+    });
+    return {
+      notificationPending: true,
+      notificationEventId: eventId,
+      notificationId: null,
+    };
+  }
+}
 
 function normalizeConsentAccepted(value) {
   if (value === true) return true;
@@ -2587,20 +2646,12 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
     bidQueue,
   });
 
-  await createNotification({
-    userId: ride.customerUserId,
-    type: "taxi.ride.assigned",
+  const assignmentNotification = await createRideAssignedNotificationSafe({
+    ride,
     title: "تم تعيين الكابتن",
     body: "تم تثبيت الكابتن المختار للرحلة.",
-    payload: {
-      rideId: ride.id,
-      offerId: ride.acceptedBidId,
-      bidId: ride.acceptedBidId,
-      captainId: ride.assignedCaptainUserId,
-      customerUserId: ride.customerUserId,
-      agreedFareIqd: ride.agreedFareIqd,
-      target: "taxi_ride_assigned",
-    },
+    offerId: ride.acceptedBidId,
+    bidId: ride.acceptedBidId,
   });
 
   if (acceptedOffer?.captainUserId) {
@@ -2679,6 +2730,9 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
     offerQueue: bidQueue.offerQueue,
     currentOffer: bidQueue.currentOffer,
     currentOfferId: bidQueue.currentOfferId,
+    notificationPending: assignmentNotification.notificationPending,
+    notificationEventId: assignmentNotification.notificationEventId,
+    notificationId: assignmentNotification.notificationId,
   };
 }
 
@@ -2773,20 +2827,12 @@ export async function acceptRideByCaptain({ captainUserId, rideId }) {
     bidQueue,
   });
 
-  await createNotification({
-    userId: ride.customerUserId,
-    type: "taxi.ride.assigned",
+  const assignmentNotification = await createRideAssignedNotificationSafe({
+    ride,
     title: "تم قبول السعر",
     body: "قبل الكابتن أجرة الرحلة وتم تثبيته مباشرة.",
-    payload: {
-      rideId: ride.id,
-      offerId: ride.acceptedBidId,
-      bidId: ride.acceptedBidId,
-      captainId: ride.assignedCaptainUserId,
-      customerUserId: ride.customerUserId,
-      agreedFareIqd: ride.agreedFareIqd,
-      target: "taxi_ride_assigned",
-    },
+    offerId: ride.acceptedBidId,
+    bidId: ride.acceptedBidId,
   });
 
   if (acceptedOffer?.captainUserId) {
@@ -2849,6 +2895,9 @@ export async function acceptRideByCaptain({ captainUserId, rideId }) {
     currentOffer: bidQueue.currentOffer,
     currentOfferId: bidQueue.currentOfferId,
     acceptedBid: result.acceptedBid || null,
+    notificationPending: assignmentNotification.notificationPending,
+    notificationEventId: assignmentNotification.notificationEventId,
+    notificationId: assignmentNotification.notificationId,
   };
 }
 

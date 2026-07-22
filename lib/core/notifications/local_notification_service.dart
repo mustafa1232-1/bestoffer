@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../platform/app_platform_capabilities.dart';
 import '../i18n/notification_localizer.dart';
 import '../../features/notifications/models/app_notification_model.dart';
+import 'notification_channels.dart';
 
 final localNotificationsProvider = Provider<LocalNotificationService>((ref) {
   final service = LocalNotificationService();
@@ -97,7 +98,7 @@ enum _ActionReminderGroup {
 
 class LocalNotificationService {
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
-    'maslaki_live_updates',
+    MaslakiNotificationChannels.liveUpdates,
     'Maslaki Live Updates',
     description: 'Maslaki live order, taxi, and alert updates',
     importance: Importance.max,
@@ -106,9 +107,28 @@ class LocalNotificationService {
   );
   static const AndroidNotificationChannel _actionChannel =
       AndroidNotificationChannel(
-        'maslaki_action_required_v2',
+        MaslakiNotificationChannels.actionRequired,
         'Maslaki Action Required',
         description: 'Critical order actions that need immediate attention',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+      );
+  static const AndroidNotificationChannel _taxiRequestsUrgentChannel =
+      AndroidNotificationChannel(
+        MaslakiNotificationChannels.taxiRequestsUrgent,
+        'Maslaki Taxi Requests',
+        description: 'Urgent taxi ride requests and nearby trip alerts',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+      );
+  static const AndroidNotificationChannel _taxiCounteroffersUrgentChannel =
+      AndroidNotificationChannel(
+        MaslakiNotificationChannels.taxiCounteroffersUrgent,
+        'Maslaki Taxi Offers',
+        description:
+            'Urgent taxi counteroffers, assignment, and arrival alerts',
         importance: Importance.max,
         playSound: true,
         enableVibration: true,
@@ -202,6 +222,10 @@ class LocalNotificationService {
         >();
     await androidPlugin?.createNotificationChannel(_channel);
     await androidPlugin?.createNotificationChannel(_actionChannel);
+    await androidPlugin?.createNotificationChannel(_taxiRequestsUrgentChannel);
+    await androidPlugin?.createNotificationChannel(
+      _taxiCounteroffersUrgentChannel,
+    );
     await androidPlugin?.createNotificationChannel(_deliveryUrgentChannel);
     await androidPlugin?.createNotificationChannel(_callChannel);
     await androidPlugin?.createNotificationChannel(_deliveryOrdersChannel);
@@ -390,6 +414,10 @@ class LocalNotificationService {
       target: target,
       requiresAction: requiresAction,
     );
+    final taxiUrgentChannel = _resolveTaxiUrgentChannel(
+      type: type,
+      target: target,
+    );
     final id =
         actionId ??
         ((notificationId != null && notificationId > 0)
@@ -434,11 +462,16 @@ class LocalNotificationService {
 
     final androidChannel = isCall
         ? _callChannel
-        : (isDeliveryUrgent
-              ? _deliveryUrgentChannel
-              : (requiresAction ? _actionChannel : _channel));
+        : (taxiUrgentChannel ??
+              (isDeliveryUrgent
+                  ? _deliveryUrgentChannel
+                  : (requiresAction ? _actionChannel : _channel)));
     final useAttentionSound =
-        requiresAction || isCall || isUrgentRealtime || isDeliveryUrgent;
+        requiresAction ||
+        isCall ||
+        isUrgentRealtime ||
+        isDeliveryUrgent ||
+        taxiUrgentChannel != null;
     final androidActions = _buildAndroidActions(
       requiresAction: requiresAction,
       isUrgentRealtime: isUrgentRealtime,
@@ -450,7 +483,11 @@ class LocalNotificationService {
         channelDescription: androidChannel.description,
         importance: Importance.max,
         priority:
-            (requiresAction || isCall || isUrgentRealtime || isDeliveryUrgent)
+            (requiresAction ||
+                isCall ||
+                isUrgentRealtime ||
+                isDeliveryUrgent ||
+                taxiUrgentChannel != null)
             ? Priority.max
             : Priority.high,
         playSound: true,
@@ -459,7 +496,7 @@ class LocalNotificationService {
             : null,
         audioAttributesUsage: isCall
             ? AudioAttributesUsage.notificationRingtone
-            : (requiresAction || isDeliveryUrgent
+            : (requiresAction || isDeliveryUrgent || taxiUrgentChannel != null
                   ? AudioAttributesUsage.alarm
                   : AudioAttributesUsage.notification),
         enableVibration: true,
@@ -468,19 +505,21 @@ class LocalNotificationService {
             : null,
         ticker: isCall
             ? 'maslaki_incoming_call'
-            : (isDeliveryUrgent
-                  ? 'maslaki_delivery_urgent'
-                  : (requiresAction
-                        ? 'maslaki_action_required'
-                        : 'maslaki_update')),
+            : (taxiUrgentChannel != null
+                  ? 'maslaki_taxi_urgent'
+                  : (isDeliveryUrgent
+                        ? 'maslaki_delivery_urgent'
+                        : (requiresAction
+                              ? 'maslaki_action_required'
+                              : 'maslaki_update'))),
         category: isCall
             ? AndroidNotificationCategory.call
-            : (requiresAction || isDeliveryUrgent
+            : (requiresAction || isDeliveryUrgent || taxiUrgentChannel != null
                   ? AndroidNotificationCategory.alarm
                   : AndroidNotificationCategory.status),
-        fullScreenIntent: isCall || isUrgentRealtime,
+        fullScreenIntent: isCall,
         autoCancel: !(requiresAction || isCall || isUrgentRealtime),
-        ongoing: isCall || isUrgentRealtime,
+        ongoing: isCall,
         visibility: NotificationVisibility.public,
         timeoutAfter: (isCall || isUrgentRealtime) ? 30000 : null,
         actions: androidActions,
@@ -777,6 +816,35 @@ bool _isCallNotification({required String? type, required String? target}) {
     return true;
   }
   return normalizedType.startsWith('social.call.');
+}
+
+AndroidNotificationChannel? _resolveTaxiUrgentChannel({
+  required String? type,
+  required String? target,
+}) {
+  final normalizedType = (type ?? '').trim().toLowerCase();
+  final normalizedTarget = (target ?? '').trim().toLowerCase();
+  if (normalizedType == 'taxi.new_ride' ||
+      normalizedType == 'taxi.request.new' ||
+      normalizedType == 'taxi.ride.requested' ||
+      normalizedTarget == 'taxi_new_request' ||
+      normalizedTarget == 'taxi_ride_requested') {
+    return LocalNotificationService._taxiRequestsUrgentChannel;
+  }
+  if (normalizedType == 'taxi.counteroffer.received' ||
+      normalizedType == 'taxi.counter_offer.received' ||
+      normalizedType == 'taxi.offer.received' ||
+      normalizedType == 'taxi.offer.accepted' ||
+      normalizedType == 'taxi.ride.assigned' ||
+      normalizedType == 'taxi.captain.arrived' ||
+      normalizedTarget == 'taxi_counter_offer_received' ||
+      normalizedTarget == 'taxi_offer_received' ||
+      normalizedTarget == 'taxi_offer_accepted' ||
+      normalizedTarget == 'taxi_ride_assigned' ||
+      normalizedTarget == 'taxi_captain_arrived') {
+    return LocalNotificationService._taxiCounteroffersUrgentChannel;
+  }
+  return null;
 }
 
 bool _isUrgentRealtimeNotification({
