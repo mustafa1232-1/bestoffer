@@ -2587,7 +2587,7 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
     bidQueue,
   });
 
-  queueNotification({
+  await createNotification({
     userId: ride.customerUserId,
     type: "taxi.ride.assigned",
     title: "تم تعيين الكابتن",
@@ -2773,7 +2773,7 @@ export async function acceptRideByCaptain({ captainUserId, rideId }) {
     bidQueue,
   });
 
-  queueNotification({
+  await createNotification({
     userId: ride.customerUserId,
     type: "taxi.ride.assigned",
     title: "تم قبول السعر",
