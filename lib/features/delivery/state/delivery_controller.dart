@@ -204,9 +204,10 @@ class DeliveryController extends StateNotifier<DeliveryState>
     _recoveryResyncInFlight = true;
     startPresenceHeartbeat();
     unawaited(
-      refreshCurrentOrders(silent: true, forcePresenceSync: true).whenComplete(
-        () => _recoveryResyncInFlight = false,
-      ),
+      refreshCurrentOrders(
+        silent: true,
+        forcePresenceSync: true,
+      ).whenComplete(() => _recoveryResyncInFlight = false),
     );
   }
 
@@ -653,6 +654,7 @@ class DeliveryController extends StateNotifier<DeliveryState>
   Future<void> refreshCurrentOrders({
     bool silent = false,
     bool forcePresenceSync = false,
+    bool startHeartbeat = true,
   }) async {
     try {
       final api = ref.read(deliveryApiProvider);
@@ -743,7 +745,9 @@ class DeliveryController extends StateNotifier<DeliveryState>
           error: null,
         ),
       );
-      startPresenceHeartbeat();
+      if (startHeartbeat) {
+        startPresenceHeartbeat();
+      }
       unawaited(_syncCourierPresence(force: forcePresenceSync));
     } on DioException catch (e) {
       if (_isDeliveryForbiddenError(e)) {

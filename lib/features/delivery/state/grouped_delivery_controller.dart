@@ -243,7 +243,10 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
       await call(job.deliveryJobId, job.version);
       await refresh();
       if (terminalCompletion && state.job == null) {
-        await _onTerminalCompletion?.call();
+        final onTerminalCompletion = _onTerminalCompletion;
+        if (onTerminalCompletion != null) {
+          unawaited(onTerminalCompletion().catchError((_) {}));
+        }
       }
       state = state.copyWith(saving: false);
     } catch (e) {
@@ -298,6 +301,7 @@ final groupedDeliveryControllerProvider =
         onTerminalCompletion: () => deliveryController.refreshCurrentOrders(
           silent: true,
           forcePresenceSync: true,
+          startHeartbeat: false,
         ),
       );
     });

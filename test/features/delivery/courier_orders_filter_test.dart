@@ -27,6 +27,7 @@ class _SeededDeliveryController extends DeliveryController {
   Future<void> refreshCurrentOrders({
     bool silent = false,
     bool forcePresenceSync = false,
+    bool startHeartbeat = true,
   }) async {}
 }
 
