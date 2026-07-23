@@ -8,6 +8,7 @@ import '../../../../core/platform/app_platform_capabilities.dart';
 import '../../../../core/i18n/app_localizations_context.dart';
 import '../../../../core/media/media_cache_models.dart';
 import '../../../../core/media/media_cache_service.dart';
+import '../../../../core/navigation/app_route_observer.dart';
 import '../../models/social_models.dart';
 import '../social_content_navigation.dart';
 import '../social_share_sheet.dart';
@@ -552,6 +553,16 @@ class _InlineFeedMediaContent extends StatelessWidget {
             cacheIdentity: cacheIdentity,
             cacheVersion: cacheVersion,
           )
+        else if (posterUrl.trim().isEmpty)
+          ColoredBox(
+            color: fallbackColor,
+            child: Icon(
+              isVideo
+                  ? Icons.play_circle_outline_rounded
+                  : Icons.image_outlined,
+              size: 46,
+            ),
+          )
         else
           CachedAppImage(
             imageUrl: posterUrl,
@@ -785,7 +796,13 @@ List<_PostMediaDisplayItem> _buildPostMediaDisplayItems(SocialPost post) {
     for (final media in post.mediaGallery) {
       final mediaKind = (media.mediaKind ?? '').trim().toLowerCase();
       final isVideo = mediaKind == 'video' || mediaKind == 'reel';
-      final isReel = mediaKind == 'reel';
+      final isReel = mediaKind == 'reel' || isSocialReelPost(post);
+      final videoUrl = isVideo
+          ? (media.asset?.playbackUrl ??
+                    media.asset?.normalizedUrl ??
+                    media.mediaUrl)
+                ?.trim()
+          : null;
       final posterUrl =
           (media.asset?.thumbnailUrl ??
                   media.asset?.posterUrl ??
@@ -795,18 +812,13 @@ List<_PostMediaDisplayItem> _buildPostMediaDisplayItems(SocialPost post) {
                       : null) ??
                   '')
               .trim();
-      if (posterUrl.isEmpty) {
+      if (posterUrl.isEmpty && (videoUrl ?? '').isEmpty) {
         continue;
       }
       items.add(
         _PostMediaDisplayItem(
           posterUrl: posterUrl,
-          videoUrl: isVideo
-              ? (media.asset?.playbackUrl ??
-                        media.asset?.normalizedUrl ??
-                        media.mediaUrl)
-                    ?.trim()
-              : null,
+          videoUrl: videoUrl,
           isVideo: isVideo,
           isReel: isReel,
         ),
@@ -818,13 +830,14 @@ List<_PostMediaDisplayItem> _buildPostMediaDisplayItems(SocialPost post) {
   }
 
   final posterUrl = resolveSocialPostPosterUrl(post)?.trim();
-  if (posterUrl == null || posterUrl.isEmpty) {
+  final videoUrl = resolveSocialPostVideoUrl(post)?.trim();
+  if ((posterUrl == null || posterUrl.isEmpty) && (videoUrl ?? '').isEmpty) {
     return const <_PostMediaDisplayItem>[];
   }
   return <_PostMediaDisplayItem>[
     _PostMediaDisplayItem(
-      posterUrl: posterUrl,
-      videoUrl: resolveSocialPostVideoUrl(post)?.trim(),
+      posterUrl: posterUrl ?? '',
+      videoUrl: videoUrl,
       isVideo: isSocialVideoPost(post),
       isReel: isSocialReelPost(post),
     ),
@@ -929,15 +942,18 @@ class _InlineFeedVideoPreview extends StatefulWidget {
 }
 
 class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RouteAware {
   static final ValueNotifier<String?> _activeVideoKey = ValueNotifier<String?>(
     null,
   );
   final GlobalKey _containerKey = GlobalKey();
   VideoPlayerController? _controller;
+  ModalRoute<dynamic>? _route;
   ScrollPosition? _scrollPosition;
   bool _videoReady = false;
   bool _appActive = true;
+  bool _routeVisible = true;
+  bool _tickerEnabled = true;
   bool _scrollIdle = true;
   bool _visibilityCheckQueued = false;
 
@@ -952,6 +968,27 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final nextTickerEnabled = TickerMode.of(context);
+    if (_tickerEnabled != nextTickerEnabled) {
+      _tickerEnabled = nextTickerEnabled;
+      if (!_tickerEnabled) {
+        _pausePlayback();
+      }
+    }
+    final nextRoute = ModalRoute.of(context);
+    if (!identical(_route, nextRoute)) {
+      if (_route != null) {
+        appRouteObserver.unsubscribe(this);
+      }
+      _route = nextRoute;
+      _routeVisible = nextRoute?.isCurrent ?? true;
+      if (nextRoute != null) {
+        appRouteObserver.subscribe(this, nextRoute);
+      }
+      if (!_routeVisible) {
+        _pausePlayback();
+      }
+    }
     _bindScrollPosition();
     _scheduleVisibilityCheck();
   }
@@ -1069,7 +1106,12 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   Future<void> _syncPlaybackToViewport() async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
-    final shouldPlay = _appActive && _scrollIdle && _visibleFraction() >= 0.72;
+    final shouldPlay =
+        _appActive &&
+        _routeVisible &&
+        _tickerEnabled &&
+        _scrollIdle &&
+        _visibleFraction() >= 0.72;
     if (shouldPlay) {
       if (_activeVideoKey.value != widget.cacheIdentity) {
         _activeVideoKey.value = widget.cacheIdentity;
@@ -1081,6 +1123,18 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
       await controller.pause();
     }
     if (!shouldPlay && _activeVideoKey.value == widget.cacheIdentity) {
+      _activeVideoKey.value = null;
+    }
+  }
+
+  void _pausePlayback() {
+    final controller = _controller;
+    if (controller != null &&
+        controller.value.isInitialized &&
+        controller.value.isPlaying) {
+      unawaited(controller.pause());
+    }
+    if (_activeVideoKey.value == widget.cacheIdentity) {
       _activeVideoKey.value = null;
     }
   }
@@ -1099,7 +1153,34 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appActive = state == AppLifecycleState.resumed;
+    if (!_appActive) {
+      _pausePlayback();
+    }
     _scheduleVisibilityCheck();
+  }
+
+  @override
+  void didPush() {
+    _routeVisible = true;
+    _scheduleVisibilityCheck();
+  }
+
+  @override
+  void didPopNext() {
+    _routeVisible = true;
+    _scheduleVisibilityCheck();
+  }
+
+  @override
+  void didPushNext() {
+    _routeVisible = false;
+    _pausePlayback();
+  }
+
+  @override
+  void didPop() {
+    _routeVisible = false;
+    _pausePlayback();
   }
 
   Future<void> _disposeController() async {
@@ -1121,6 +1202,7 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    appRouteObserver.unsubscribe(this);
     _activeVideoKey.removeListener(_onActiveVideoChanged);
     if (_activeVideoKey.value == widget.cacheIdentity) {
       _activeVideoKey.value = null;
@@ -1142,6 +1224,11 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
                 height: _controller!.value.size.height,
                 child: VideoPlayer(_controller!),
               ),
+            )
+          : widget.posterUrl.trim().isEmpty
+          ? ColoredBox(
+              color: widget.fallbackColor,
+              child: const Icon(Icons.play_circle_outline_rounded, size: 46),
             )
           : CachedAppImage(
               imageUrl: widget.posterUrl,

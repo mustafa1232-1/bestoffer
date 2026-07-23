@@ -9,10 +9,14 @@ void main() {
       'id': 42,
       'provider': 'stream',
       'streamUid': 'stream-uid-42',
-      'normalizedUrl': 'https://customer-test.cloudflarestream.com/stream-uid-42/manifest/video.m3u8',
-      'posterUrl': 'https://customer-test.cloudflarestream.com/stream-uid-42/thumbnails/thumbnail.jpg?time=1s',
-      'playbackUrl': 'https://customer-test.cloudflarestream.com/stream-uid-42/manifest/video.m3u8',
-      'thumbnailUrl': 'https://customer-test.cloudflarestream.com/stream-uid-42/thumbnails/thumbnail.jpg?time=1s',
+      'normalizedUrl':
+          'https://customer-test.cloudflarestream.com/stream-uid-42/manifest/video.m3u8',
+      'posterUrl':
+          'https://customer-test.cloudflarestream.com/stream-uid-42/thumbnails/thumbnail.jpg?time=1s',
+      'playbackUrl':
+          'https://customer-test.cloudflarestream.com/stream-uid-42/manifest/video.m3u8',
+      'thumbnailUrl':
+          'https://customer-test.cloudflarestream.com/stream-uid-42/thumbnails/thumbnail.jpg?time=1s',
       'durationMs': 42000,
       'processingStatus': 'ready',
     });
@@ -36,10 +40,14 @@ void main() {
         'id': 77,
         'provider': 'stream',
         'streamUid': 'stream-uid-77',
-        'normalizedUrl': 'https://customer-test.cloudflarestream.com/stream-uid-77/manifest/video.m3u8',
-        'posterUrl': 'https://customer-test.cloudflarestream.com/stream-uid-77/thumbnails/thumbnail.jpg?time=1s',
-        'playbackUrl': 'https://customer-test.cloudflarestream.com/stream-uid-77/manifest/video.m3u8',
-        'thumbnailUrl': 'https://customer-test.cloudflarestream.com/stream-uid-77/thumbnails/thumbnail.jpg?time=1s',
+        'normalizedUrl':
+            'https://customer-test.cloudflarestream.com/stream-uid-77/manifest/video.m3u8',
+        'posterUrl':
+            'https://customer-test.cloudflarestream.com/stream-uid-77/thumbnails/thumbnail.jpg?time=1s',
+        'playbackUrl':
+            'https://customer-test.cloudflarestream.com/stream-uid-77/manifest/video.m3u8',
+        'thumbnailUrl':
+            'https://customer-test.cloudflarestream.com/stream-uid-77/thumbnails/thumbnail.jpg?time=1s',
         'durationMs': 31500,
         'processingStatus': 'ready',
       },
@@ -54,19 +62,21 @@ void main() {
       'reportCount': 0,
     });
 
-    expect(resolveSocialPostPosterUrl(post), contains('/thumbnails/thumbnail.jpg'));
+    expect(normalizeSocialPostMediaClass(post), 'reel');
+    expect(isSocialReelPost(post), isTrue);
+    expect(
+      resolveSocialPostPosterUrl(post),
+      contains('/thumbnails/thumbnail.jpg'),
+    );
     expect(resolveSocialPostVideoUrl(post), contains('/manifest/video.m3u8'));
   });
 
   test('gallery picker helper keeps order and max limit', () {
-    final picked = buildLocalMediaFilesFromPickedMedia(
-      [
-        XFile('/tmp/first.jpg', name: 'first.jpg', mimeType: 'image/jpeg'),
-        XFile('/tmp/second.mp4', name: 'second.mp4', mimeType: 'video/mp4'),
-        XFile('/tmp/third.webp', name: 'third.webp', mimeType: 'image/webp'),
-      ],
-      maxFiles: 2,
-    );
+    final picked = buildLocalMediaFilesFromPickedMedia([
+      XFile('/tmp/first.jpg', name: 'first.jpg', mimeType: 'image/jpeg'),
+      XFile('/tmp/second.mp4', name: 'second.mp4', mimeType: 'video/mp4'),
+      XFile('/tmp/third.webp', name: 'third.webp', mimeType: 'image/webp'),
+    ], maxFiles: 2);
 
     expect(picked, hasLength(2));
     expect(picked.first.name, isNotEmpty);

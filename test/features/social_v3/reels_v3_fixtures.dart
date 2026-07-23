@@ -20,6 +20,7 @@ ReelV3ViewData fakeReel({
   String? localBadge = 'Block 12',
   bool vertical = true,
   bool withPoster = false,
+  bool withVideo = false,
 }) {
   return ReelV3ViewData(
     postId: id,
@@ -33,8 +34,12 @@ ReelV3ViewData fakeReel({
       mediaAssetId: id,
       provider: 'cloudflare_stream',
       mediaKind: SocialMediaKind.reel,
-      playbackType: SocialPlaybackType.none,
-      videoPlaybackUrl: null,
+      playbackType: withVideo
+          ? SocialPlaybackType.hls
+          : SocialPlaybackType.none,
+      videoPlaybackUrl: withVideo
+          ? 'https://videodelivery.net/fake$id/manifest/video.m3u8'
+          : null,
       posterImageUrl: withPoster ? 'https://example.test/p.jpg' : null,
       width: vertical ? 1080 : 1920,
       height: vertical ? 1920 : 1080,
@@ -65,6 +70,7 @@ class FakeVideoPlayerController extends VideoPlayerController {
   bool initialized = false;
   int playCalls = 0;
   int pauseCalls = 0;
+  double playbackSpeed = 1;
   bool disposed = false;
 
   @override
@@ -96,6 +102,11 @@ class FakeVideoPlayerController extends VideoPlayerController {
 
   @override
   Future<void> setVolume(double volume) async {}
+
+  @override
+  Future<void> setPlaybackSpeed(double speed) async {
+    playbackSpeed = speed;
+  }
 
   @override
   Future<void> setLooping(bool looping) async {}

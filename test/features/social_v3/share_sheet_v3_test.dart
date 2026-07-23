@@ -10,7 +10,10 @@ void main() {
     const links = SocialCanonicalLinks();
 
     test('reel/post/story links are canonical app URLs', () {
-      expect(links.reel(12), 'https://maslaki.app/r/12');
+      expect(
+        links.reel(12),
+        'https://bestoffer-production.up.railway.app/r/12',
+      );
       expect(links.post(3), 'https://maslaki.app/p/3');
       expect(links.story(7, 9), 'https://maslaki.app/s/7/9');
     });
@@ -44,15 +47,15 @@ void main() {
 
     test('guardShareUrl returns the canonical url', () {
       expect(
-        links.guardShareUrl('https://maslaki.app/r/5'),
-        'https://maslaki.app/r/5',
+        links.guardShareUrl('https://bestoffer-production.up.railway.app/r/5'),
+        'https://bestoffer-production.up.railway.app/r/5',
       );
     });
   });
 
   group('ShareSheetV3', () {
-    testWidgets('lists options in the required order and external-shares the '
-        'canonical URL only', (tester) async {
+    testWidgets('lists options in the required order and external-shares reel '
+        'text with app fallback', (tester) async {
       String? externallyShared;
       await tester.pumpWidget(
         MaterialApp(
@@ -76,9 +79,13 @@ void main() {
 
       await tester.tap(find.text('مشاركة خارجية'));
       await tester.pump();
-      expect(externallyShared, 'https://maslaki.app/r/42');
-      // Never a manifest / storage / api url.
-      expect(isSafeShareUrl(externallyShared!), isTrue);
+      final lines = externallyShared!.split('\n');
+      expect(lines, [
+        'https://bestoffer-production.up.railway.app/r/42',
+        'maslaki-user://open/reel/42',
+      ]);
+      // The public URL remains canonical and never a manifest / storage / api url.
+      expect(isSafeShareUrl(lines.first), isTrue);
     });
   });
 

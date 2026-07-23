@@ -37,6 +37,7 @@ import 'widgets/social_identity_view.dart';
 import 'widgets/social_inline_attachment_message_card.dart';
 import 'widgets/social_mention_hashtag_text.dart';
 import 'widgets/social_pending_message_bubble.dart';
+import 'widgets/social_shared_reel_message_card.dart';
 import 'widgets/social_voice_composer_controller.dart';
 import 'widgets/social_voice_message_widgets.dart';
 import 'social_message_client_id.dart';
@@ -1532,7 +1533,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   Future<void> _retryPendingMessage(LocalPendingMessage pending) async {
     if (_sending || widget.readOnly) return;
     final clientMessageId = pending.clientMessageId.trim();
-    if (clientMessageId.isEmpty || _cancelledPendingClientIds.contains(clientMessageId)) {
+    if (clientMessageId.isEmpty ||
+        _cancelledPendingClientIds.contains(clientMessageId)) {
       return;
     }
 
@@ -1707,8 +1709,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     });
     if (result.type == SocialVoiceComposerResultType.failed) {
       final draft = _voiceComposer.state.draft;
-      final Object voiceError =
-          result.error ?? StateError('VOICE_SEND_FAILED');
+      final Object voiceError = result.error ?? StateError('VOICE_SEND_FAILED');
       if (draft != null) {
         final pendingId = buildSocialMessageClientId(
           scopeKey: 'thread:$_threadId',
@@ -3189,10 +3190,9 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                                   currentUserAuthor,
                                               peerAuthor: peer,
                                             ),
-                                            translation:
-                                                _translatedMessageFor(
-                                                  message.id,
-                                                ),
+                                            translation: _translatedMessageFor(
+                                              message.id,
+                                            ),
                                             translationBusy:
                                                 _translationBusyMessageIds
                                                     .contains(message.id),
@@ -3209,9 +3209,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                                           .canSeeReadReceipts) ??
                                                 false,
                                             reactionBusy:
-                                                _reactionBusyMessageIds.contains(
-                                                  message.id,
-                                                ),
+                                                _reactionBusyMessageIds
+                                                    .contains(message.id),
                                             timeText: message.createdAt == null
                                                 ? ''
                                                 : _timeFormat.format(
@@ -3311,10 +3310,10 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                     ];
                                   }()),
                                   if (_peerTyping &&
-                                          (_thread
-                                                  ?.presence
-                                                  .canSeeTypingIndicators ??
-                                              false))
+                                      (_thread
+                                              ?.presence
+                                              .canSeeTypingIndicators ??
+                                          false))
                                     Padding(
                                       padding: const EdgeInsets.only(top: 8),
                                       child: Align(
@@ -4217,6 +4216,11 @@ class _SharedEntityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final normalizedType = entity.type.trim().toLowerCase();
+    if (normalizedType == 'reel') {
+      return SocialSharedReelMessageCard(entity: entity, onTap: onTap);
+    }
+
     final subtitle = entity.subtitle;
     final subtitleParts = <String>[
       if ((entity.authorDisplayName ?? '').trim().isNotEmpty)
@@ -4237,7 +4241,6 @@ class _SharedEntityCard extends StatelessWidget {
       'user' => Icons.person_outline_rounded,
       _ => Icons.article_outlined,
     };
-    final normalizedType = entity.type.trim().toLowerCase();
     final titleText = normalizedType == 'location'
         ? (entity.address ?? entity.title)
         : entity.title;

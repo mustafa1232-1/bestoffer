@@ -455,20 +455,7 @@ async function main() {
     assertStatus(response, 201, "provider create offering");
     offeringId = readId(response.data?.offering);
     assert.ok(offeringId, "offering id missing");
-    assert.equal(String(response.data?.offering?.moderationStatus || ""), "pending");
-
-    response = await request(
-      baseUrl,
-      admin,
-      "PATCH",
-      `/api/admin/services/offerings/${offeringId}/status`,
-      {
-        status: "approved",
-        note: "Approved for runtime closure",
-      }
-    );
-    assertStatus(response, 200, "admin approve offering");
-    assert.equal(String(response.data?.moderationStatus || ""), "approved");
+    assert.equal(String(response.data?.offering?.moderationStatus || ""), "approved");
 
     response = await request(
       baseUrl,
@@ -480,7 +467,7 @@ async function main() {
     assert.ok(
       Array.isArray(response.data) &&
         response.data.some((item) => Number(item?.id || 0) === Number(offeringId)),
-      "approved offering should be visible in public search"
+      "published offering should be visible in public search"
     );
 
     response = await request(
@@ -698,7 +685,7 @@ async function main() {
     assert.ok(
       Array.isArray(response.data) &&
         response.data.some((item) => Number(item?.id || 0) === Number(offeringId)),
-      "public search should still expose the approved offering"
+      "public search should still expose the published offering"
     );
 
     console.log(

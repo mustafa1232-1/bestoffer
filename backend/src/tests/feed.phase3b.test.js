@@ -7,6 +7,7 @@ import {
   validateCreateStory,
   validateSendMessage,
 } from "../modules/feed/feed.validators.js";
+import { storyStyleHasShareAttachment } from "../modules/feed/feed.service.js";
 
 test("phase 3b thread messages accept clientMessageId and preserve it", () => {
   const result = validateSendMessage({
@@ -95,6 +96,32 @@ test("validateCreateStory preserves typed story attachments for reel shares", ()
   assert.equal(result.value.storyStyle.attachment.authorId, 9);
   assert.equal(result.value.storyStyle.attachment.playbackUrl, "https://example.com/playback.m3u8");
   assert.equal(result.value.storyStyle.attachment.thumbnailUrl, "https://example.com/thumb.jpg");
+});
+
+test("shared reel story counts as non-empty content without caption or upload", () => {
+  const result = validateCreateStory({
+    caption: "",
+    storyStyle: {
+      mode: "reelShare",
+      attachment: {
+        type: "reelShare",
+        reelId: 42,
+        authorId: 9,
+        playbackUrl: "https://example.com/playback.m3u8",
+        thumbnailUrl: "https://example.com/thumb.jpg",
+        mediaKind: "video",
+      },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(storyStyleHasShareAttachment(result.value.storyStyle), true);
+  assert.equal(
+    storyStyleHasShareAttachment({
+      attachment: { type: "reelShare", reelId: null },
+    }),
+    false
+  );
 });
 
 test("validateCreateStory preserves text mention sticker and draw layers", () => {

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../auth/state/auth_controller.dart';
 import '../../social/models/social_models.dart';
@@ -153,6 +154,10 @@ class _SocialReelsV3ConnectorState
       onRepost: () {
         Navigator.of(context).pop();
         unawaited(_repostReel(reel));
+      },
+      onExternalShare: (text) {
+        Navigator.of(context).pop();
+        unawaited(SharePlus.instance.share(ShareParams(text: text)));
       },
     );
   }

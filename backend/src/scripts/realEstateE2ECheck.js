@@ -13,7 +13,6 @@ import {
   buildRunTag,
   createActor,
   ensureSuperAdminAccount,
-  expectNotification,
   readId,
   request,
 } from "./e2eTestUtils.js";
@@ -164,20 +163,6 @@ async function createListing(baseUrl, actor, payload, label) {
   const response = await request(baseUrl, actor, "POST", "/api/real-estate/listings", payload);
   assertStatus(response, 201, label);
   return readListingId(response, label);
-}
-
-async function approveListing(baseUrl, adminActor, listingId, label) {
-  const response = await request(
-    baseUrl,
-    adminActor,
-    "PATCH",
-    `/api/admin/real-estate/listings/${listingId}/approve`,
-    {
-      reviewNote: `Approved for ${label}`,
-    }
-  );
-  assertStatus(response, 200, label);
-  return response.data?.listing || response.data || null;
 }
 
 async function createThread(baseUrl, actor, otherUserId, contextId, label) {
@@ -403,57 +388,6 @@ async function main() {
       "real estate create listing"
     );
 
-    const pendingNotification = await expectNotification(
-      {
-        userId: sellerUserId,
-        type: "real_estate.listing.pending_admin_review",
-        payloadChecks: {
-          listingId: String(listingId),
-        },
-      },
-      "seller pending admin review notification"
-    );
-    assert.equal(
-      pendingNotification.payload?.target,
-      "real_estate_workspace",
-      "seller pending notification target"
-    );
-
-    const adminPendingNotification = await expectNotification(
-      {
-        userId: superAdminId,
-        type: "real_estate.listing.pending_admin_review",
-        payloadChecks: {
-          listingId: String(listingId),
-        },
-      },
-      "admin pending review notification"
-    );
-    assert.equal(
-      adminPendingNotification.payload?.target,
-      "admin_real_estate_pending",
-      "admin pending notification target"
-    );
-
-    console.log("[phase2b:real-estate] approving listing");
-    await approveListing(baseUrl, admin, listingId, "real estate approve listing");
-
-    const approvedNotification = await expectNotification(
-      {
-        userId: sellerUserId,
-        type: "real_estate.listing.approved",
-        payloadChecks: {
-          listingId: String(listingId),
-        },
-      },
-      "seller approved notification"
-    );
-    assert.equal(
-      approvedNotification.payload?.target,
-      "real_estate_workspace",
-      "seller approved notification target"
-    );
-
     const publicListing = await request(
       baseUrl,
       buyer,
@@ -464,12 +398,65 @@ async function main() {
     assert.equal(
       Number(publicListing.data?.id || 0),
       listingId,
-      "buyer should see the approved listing"
+      "buyer should see the listing immediately after publish"
     );
     assert.equal(
       String(publicListing.data?.status || "").toLowerCase(),
       "active",
-      "approved real-estate listing should be active for buyers"
+      "published real-estate listing should be active for buyers"
+    );
+
+    console.log("[phase2b:real-estate] editing published listing stays visible");
+    const editedTitle = `Phase 2B Real Estate Edited ${runTag}`;
+    const editResponse = await request(
+      baseUrl,
+      seller,
+      "PATCH",
+      `/api/real-estate/listings/${listingId}`,
+      {
+        purpose: "sale",
+        title: editedTitle,
+        description: `Edited Phase 2B real estate listing ${runTag}`,
+        areaSqm: 118,
+        bankSettlementAmount: 0,
+        bankSettlementMode: "none",
+        paymentMethod: "cash",
+        furnished: false,
+        phone: sellerPhone,
+        price: 45000000,
+        city: "Baghdad",
+        block: "B1",
+        buildingNumber: "B101",
+        apartmentNumber: "12",
+        roomsCount: 3,
+        bathroomsCount: 2,
+        floorNumber: 4,
+        detailsJson: {
+          phase: "phase_2b",
+          runTag,
+          module: "real_estate",
+          editedAfterPublish: true,
+        },
+      }
+    );
+    assertStatus(editResponse, 200, "seller edit published listing");
+    assert.equal(
+      String(editResponse.data?.listing?.status || editResponse.data?.status || "").toLowerCase(),
+      "active",
+      "edited published listing should stay active"
+    );
+
+    const publicListingAfterEdit = await request(
+      baseUrl,
+      buyer,
+      "GET",
+      `/api/real-estate/listings/${listingId}`
+    );
+    assertStatus(publicListingAfterEdit, 200, "buyer edited listing detail");
+    assert.equal(
+      publicListingAfterEdit.data?.title,
+      editedTitle,
+      "buyer should see edited title immediately"
     );
 
     const workspace = await request(baseUrl, seller, "GET", "/api/real-estate/workspace");

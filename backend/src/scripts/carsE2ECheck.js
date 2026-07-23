@@ -434,7 +434,7 @@ async function main() {
     assert.equal(
       String(publicListing.data?.status || "").toLowerCase(),
       "active",
-      "approved car listing should be active for buyers"
+      "published car listing should be active for buyers"
     );
 
     const workspace = await request(baseUrl, seller, "GET", "/api/cars/workspace");

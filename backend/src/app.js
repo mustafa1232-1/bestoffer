@@ -141,6 +141,65 @@ function setNoStoreHeaders(res) {
   res.setHeader("Pragma", "no-cache");
 }
 
+function encodeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function parseAppLinkFingerprints() {
+  return String(process.env.ANDROID_APP_LINKS_SHA256_CERTS || "")
+    .split(/[,\n]/)
+    .map((value) => value.trim().toUpperCase())
+    .filter((value) => /^[0-9A-F]{2}(?::[0-9A-F]{2}){31}$/.test(value));
+}
+
+function buildReelIntentUrl(reelId, canonicalUrl) {
+  const fallback = encodeURIComponent(canonicalUrl);
+  return `intent://open/reel/${Number(reelId)}#Intent;scheme=maslaki-user;package=com.maslaki.user;S.browser_fallback_url=${fallback};end`;
+}
+
+function sendReelOpenPage(req, res) {
+  const reelId = Number(req.params.reelId);
+  if (!Number.isInteger(reelId) || reelId <= 0) {
+    return res.status(404).send("Not found");
+  }
+  const canonicalUrl = `${req.protocol}://${req.get("host")}/r/${reelId}`;
+  const intentUrl = buildReelIntentUrl(reelId, canonicalUrl);
+  const appSchemeUrl = `maslaki-user://open/reel/${reelId}`;
+  res
+    .status(200)
+    .set("Content-Type", "text/html; charset=utf-8")
+    .set("Cache-Control", "public, max-age=300")
+    .send(`<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>فتح الريل - مسلكي</title>
+  <meta property="og:type" content="video.other">
+  <meta property="og:title" content="ريل على مسلكي">
+  <meta property="og:url" content="${encodeHtml(canonicalUrl)}">
+  <script>
+    window.location.replace(${JSON.stringify(intentUrl)});
+    setTimeout(function () {
+      window.location.href = ${JSON.stringify(appSchemeUrl)};
+    }, 700);
+  </script>
+</head>
+<body style="margin:0;background:#081724;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;display:grid;min-height:100vh;place-items:center;text-align:center">
+  <main style="padding:24px;max-width:420px">
+    <h1 style="font-size:22px;margin:0 0 12px">فتح الريل في تطبيق مسلكي</h1>
+    <p style="opacity:.78;margin:0 0 20px">إذا لم يفتح التطبيق تلقائياً اضغط الزر.</p>
+    <a href="${encodeHtml(intentUrl)}" style="display:inline-block;background:#f6c343;color:#07111d;text-decoration:none;font-weight:800;border-radius:999px;padding:12px 18px">فتح الريل</a>
+  </main>
+</body>
+</html>`);
+}
+
 function registerPublicCatalogRoutes(prefix = "/api") {
   app.get(`${prefix}/merchants`, merchantsController.list);
   app.get(`${prefix}/merchants/activities`, merchantsController.listActivities);
@@ -330,6 +389,34 @@ app.get("/uploads/:fileName", (req, res) => {
     .set("Cross-Origin-Resource-Policy", "cross-origin")
     .send(missingImagePng);
 });
+
+app.get("/.well-known/assetlinks.json", (req, res) => {
+  const fingerprints = parseAppLinkFingerprints();
+  res
+    .status(200)
+    .set("Content-Type", "application/json; charset=utf-8")
+    .set("Cache-Control", "public, max-age=300")
+    .json(
+      fingerprints.length <= 0
+        ? []
+        : [
+            {
+              relation: [
+                "delegate_permission/common.handle_all_urls",
+              ],
+              target: {
+                namespace: "android_app",
+                package_name: "com.maslaki.user",
+                sha256_cert_fingerprints: fingerprints,
+              },
+            },
+          ]
+    );
+});
+
+app.get("/r/:reelId", sendReelOpenPage);
+app.get("/reel/:reelId", sendReelOpenPage);
+app.get("/reels/:reelId", sendReelOpenPage);
 
 app.get("/health", async (req, res, next) => {
   try {

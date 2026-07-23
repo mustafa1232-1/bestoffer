@@ -1,9 +1,5 @@
 import { AppError } from "../../shared/utils/errors.js";
-import {
-  createManyNotifications,
-  createNotification,
-} from "../notifications/notifications.repo.js";
-import { listBackofficeUserIds } from "../paid-upgrades/paid-upgrades.repo.js";
+import { createNotification } from "../notifications/notifications.repo.js";
 import * as repo from "./real-estate.repo.js";
 
 /**
@@ -15,14 +11,6 @@ import * as repo from "./real-estate.repo.js";
  * - `real-estate.controller.js`
  * - شاشات marketplace/workspace/admin review في Flutter
  */
-
-async function notifyBackoffice(payloadFactory) {
-  const adminIds = await listBackofficeUserIds();
-  if (!adminIds.length) return;
-  await createManyNotifications(
-    adminIds.map((userId) => payloadFactory(Number(userId)))
-  );
-}
 
 /**
  * يعيد الإعلانات العامة المرئية للمستخدم الحالي.
@@ -65,37 +53,10 @@ export async function getWorkspace(userId) {
 }
 
 /**
- * ينشئ إعلان عقار جديداً ويرسل fan-out إشعار إلى المالك والـ backoffice.
+ * ينشئ إعلان عقار جديداً وينشره مباشرة.
  */
 export async function createListing(userId, dto, files) {
-  const listing = await repo.createListing(userId, dto, files);
-  await Promise.all([
-    createNotification({
-      userId: Number(userId),
-      type: "real_estate.listing.pending_admin_review",
-      title: "تم استلام إعلان العقار",
-      body: "إعلانك بانتظار مراجعة الأدمن قبل النشر.",
-      payload: {
-        target: "real_estate_workspace",
-        targetModule: "customer",
-        listingId: listing.id,
-        requiresAction: false,
-      },
-    }),
-    notifyBackoffice((adminUserId) => ({
-      userId: adminUserId,
-      type: "real_estate.listing.pending_admin_review",
-      title: "إعلان عقار جديد",
-      body: `${listing.title} بانتظار المراجعة.`,
-      payload: {
-        target: "admin_real_estate_pending",
-        targetModule: "admin",
-        listingId: listing.id,
-        requiresAction: true,
-      },
-    })),
-  ]);
-  return listing;
+  return repo.createListing(userId, dto, files);
 }
 
 export async function updateListing(userId, listingId, dto, files) {

@@ -359,19 +359,6 @@ async function main() {
   );
   console.log("[e2e:new-streams] paid upgrades workflow passed");
 
-  const realEstateAdmin = createActor(
-    "super-admin-real-estate",
-    `${runTag}-real-estate`,
-    "e2e-new-streams/1"
-  );
-  await login(
-    realEstateAdmin,
-    baseUrl,
-    env.superAdminPhone,
-    env.superAdminPin,
-    "super admin refresh before real estate"
-  );
-
   // Real estate
   const listingCreate = await request(
     baseUrl,
@@ -400,42 +387,9 @@ async function main() {
   assert.ok(listingId > 0, "real estate listing id missing");
   assert.equal(
     String(listingCreate.data?.listing?.status || "").toLowerCase(),
-    "pending_admin_review",
-    "new real estate listing should start pending"
+    "active",
+    "new real estate listing should publish immediately"
   );
-
-  await login(
-    realEstateAdmin,
-    baseUrl,
-    env.superAdminPhone,
-    env.superAdminPin,
-    "super admin refresh before real estate pending list"
-  );
-
-  const pendingListings = await request(
-    baseUrl,
-    realEstateAdmin,
-    "GET",
-    "/api/admin/real-estate/listings/pending?limit=100"
-  );
-  assertStatus(pendingListings, 200, "list pending real estate listings");
-  const pendingListingRow = findById(
-    readList(pendingListings.data),
-    "id",
-    listingId
-  );
-  assert.ok(pendingListingRow, "pending real estate listing not visible to admin");
-
-  const listingApprove = await request(
-    baseUrl,
-    realEstateAdmin,
-    "PATCH",
-    `/api/admin/real-estate/listings/${listingId}/approve`,
-    {
-      reviewNote: `Approved by ${runTag}`,
-    }
-  );
-  assertStatus(listingApprove, 200, "approve real estate listing");
 
   const workspace = await request(
     baseUrl,

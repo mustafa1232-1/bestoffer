@@ -2532,6 +2532,20 @@ export async function getReelById(req, res, next) {
   }
 }
 
+export async function getPublicReelById(req, res, next) {
+  try {
+    const reel = validatePostId(req.params.reelId);
+    if (!reel.ok) return badRequest(res, reel.errors);
+    const out = await service.getPublicReelById({
+      viewerUserId: Number(req.userId) > 0 ? Number(req.userId) : null,
+      reelId: reel.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function listThreadMedia(req, res, next) {
   try {
     const thread = validateThreadId(req.params.threadId);

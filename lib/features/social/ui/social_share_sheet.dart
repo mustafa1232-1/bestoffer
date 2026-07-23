@@ -12,6 +12,7 @@ import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'widgets/social_identity_view.dart';
 import 'social_message_client_id.dart';
+import '../../social_v3/sharing/canonical_links.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -290,10 +291,15 @@ class _SocialShareSheetState extends ConsumerState<SocialShareSheet> {
   }
 
   Future<void> _shareExternal() async {
+    final externalShareText = _socialExternalShareText(
+      entityType: widget.entityType,
+      entityId: widget.entityId,
+      externalShareText: widget.externalShareText,
+    );
     final text = [
       widget.previewTitle.trim(),
       (widget.previewSubtitle ?? '').trim(),
-      (widget.externalShareText ?? '').trim(),
+      externalShareText,
     ].where((item) => item.isNotEmpty).join('\n');
     if (text.isEmpty) return;
     await SharePlus.instance.share(ShareParams(text: text));
@@ -568,6 +574,21 @@ class _SocialShareSheetState extends ConsumerState<SocialShareSheet> {
       ),
     );
   }
+}
+
+String _socialExternalShareText({
+  required String entityType,
+  required int entityId,
+  required String? externalShareText,
+}) {
+  final base = (externalShareText ?? '').trim();
+  if (entityType.trim().toLowerCase() != 'reel' || entityId <= 0) {
+    return base;
+  }
+  final fallback = const SocialCanonicalLinks().userReelDeepLink(entityId);
+  if (base.isEmpty) return fallback;
+  if (base.split(RegExp(r'\s+')).contains(fallback)) return base;
+  return '$base\n$fallback';
 }
 
 class _ShareRecipient {

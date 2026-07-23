@@ -25,6 +25,7 @@ class ReelPageV3 extends StatefulWidget {
     this.onCreate,
     this.onTogglePlay,
     this.onToggleMute,
+    this.onHoldSpeedChanged,
     this.onLike,
     this.onDoubleTapLike,
     this.onComments,
@@ -50,6 +51,7 @@ class ReelPageV3 extends StatefulWidget {
   final VoidCallback? onCreate;
   final VoidCallback? onTogglePlay;
   final VoidCallback? onToggleMute;
+  final ValueChanged<bool>? onHoldSpeedChanged;
   final Future<bool> Function(bool desiredLiked)? onLike;
   final Future<bool> Function(bool desiredLiked)? onDoubleTapLike;
   final VoidCallback? onComments;
@@ -73,6 +75,7 @@ class _ReelPageV3State extends State<ReelPageV3>
   );
   VideoPlayerController? _observedController;
   bool _showHeart = false;
+  bool _showFastForward = false;
   bool _completionNotified = false;
 
   @override
@@ -95,6 +98,9 @@ class _ReelPageV3State extends State<ReelPageV3>
 
   @override
   void dispose() {
+    if (_showFastForward) {
+      widget.onHoldSpeedChanged?.call(false);
+    }
     widget.coordinator.removeListener(_syncObservedController);
     _detachController();
     _heart.removeStatusListener(_onHeartStatus);
@@ -127,6 +133,13 @@ class _ReelPageV3State extends State<ReelPageV3>
 
   void _onDoubleTap() {
     unawaited(_handleLikeAction(desiredLiked: true, fromDoubleTap: true));
+  }
+
+  void _setHoldSpeed(bool active) {
+    if (_showFastForward != active) {
+      setState(() => _showFastForward = active);
+    }
+    widget.onHoldSpeedChanged?.call(active);
   }
 
   void _onHeartStatus(AnimationStatus status) {
@@ -187,6 +200,9 @@ class _ReelPageV3State extends State<ReelPageV3>
     return GestureDetector(
       onTap: widget.onTogglePlay,
       onDoubleTap: _onDoubleTap,
+      onLongPressStart: (_) => _setHoldSpeed(true),
+      onLongPressEnd: (_) => _setHoldSpeed(false),
+      onLongPressCancel: () => _setHoldSpeed(false),
       behavior: HitTestBehavior.opaque,
       child: Stack(
         fit: StackFit.expand,
@@ -253,6 +269,14 @@ class _ReelPageV3State extends State<ReelPageV3>
                   ),
                 ),
               ),
+            ),
+
+          if (_showFastForward)
+            Positioned(
+              top: padding.top + 62,
+              left: 0,
+              right: 0,
+              child: const IgnorePointer(child: _SpeedBadge()),
             ),
 
           // Top bar: "ريلز" + mute control (no toolbar / AppBar).
@@ -369,6 +393,40 @@ class _EdgeScrims extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SpeedBadge extends StatelessWidget {
+  const _SpeedBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xB3000000),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.fast_forward_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 6),
+              Text(
+                '2x',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -67,6 +67,35 @@ let socialCallLifecycleWorker = null;
 let socialCallLifecycleRunning = false;
 let socialScheduledMessageWorker = null;
 let socialScheduledMessageRunning = false;
+
+export function storyStyleHasShareAttachment(storyStyle) {
+  const attachment = storyStyle?.attachment;
+  if (
+    !attachment ||
+    typeof attachment !== "object" ||
+    Array.isArray(attachment)
+  ) {
+    return false;
+  }
+  const type = String(attachment.type || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+  if (type === "reelshare") {
+    return (
+      Number.isInteger(Number(attachment.reelId)) &&
+      Number(attachment.reelId) > 0
+    );
+  }
+  if (type === "postshare") {
+    return (
+      Number.isInteger(Number(attachment.postId)) &&
+      Number(attachment.postId) > 0
+    );
+  }
+  return false;
+}
+
 const moderationLexicon = {
   violence: [
     "اقتل",
@@ -3727,6 +3756,20 @@ export async function getReelById(viewerUserId, reelId) {
   return { reel: out.post };
 }
 
+export async function getPublicReelById({ viewerUserId = null, reelId }) {
+  if (Number(viewerUserId) > 0) {
+    return getReelById(Number(viewerUserId), reelId);
+  }
+  const row = await repo.findPublicReelById({ reelId });
+  if (!row) {
+    throw new AppError("REEL_NOT_FOUND", { status: 404 });
+  }
+  if (!isReelPostKind(row.post_kind)) {
+    throw new AppError("REEL_NOT_FOUND", { status: 404 });
+  }
+  return { reel: mapPostRow(await attachPostMediaRow(row)) };
+}
+
 export async function createPost(userId, dto, media) {
   await assertSocialWriteAllowed(
     userId,
@@ -4136,10 +4179,11 @@ export async function createStory(userId, dto, media) {
   const mediaKind = preparedMedia.mediaKind;
   const mediaUrl = preparedMedia.mediaUrl;
   const contentLink = normalizeContentLinkPayload(dto);
-  if (!dto.caption && !mediaUrl) {
+  const hasShareAttachment = storyStyleHasShareAttachment(dto.storyStyle);
+  if (!dto.caption && !mediaUrl && !hasShareAttachment) {
     throw new AppError("EMPTY_STORY", {
       status: 400,
-      details: { fields: ["caption", "media"] },
+      details: { fields: ["caption", "media", "storyStyle.attachment"] },
     });
   }
 

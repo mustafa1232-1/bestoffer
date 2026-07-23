@@ -47,6 +47,19 @@ void main() {
         },
         'layers': [
           {
+            'id': 'text-1',
+            'type': 'text',
+            'x': 0.5,
+            'y': 0.2,
+            'scale': 1.0,
+            'rotation': 0.0,
+            'zIndex': 10,
+            'text': 'My edit',
+            'color': '#FFFFFF',
+            'fontWeight': 'bold',
+            'textAlign': 'center',
+          },
+          {
             'id': 'reel-card',
             'type': 'reelShare',
             'x': 0.5,
@@ -69,6 +82,10 @@ void main() {
 
     final item = StoryV3Item.fromStory(story);
     expect(item.sharedReel, isNotNull);
+    expect(item.isVideo, isTrue);
+    expect(item.media.videoPlaybackUrl, 'https://example.com/playback.m3u8');
+    expect(item.media.posterImageUrl, 'https://example.com/thumb.jpg');
+    expect(item.draft?.layers.any((layer) => layer.text == 'My edit'), isTrue);
     expect(item.sharedReel!.reelId, 42);
     expect(item.sharedReel!.playbackUrl, 'https://example.com/playback.m3u8');
     expect(item.sharedReel!.thumbnailUrl, 'https://example.com/thumb.jpg');

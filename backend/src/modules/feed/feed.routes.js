@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-import { requireAuth } from "../../shared/middleware/auth.middleware.js";
+import { optionalAuth, requireAuth } from "../../shared/middleware/auth.middleware.js";
 import {
   chatAttachmentUpload,
   imageUpload,
@@ -11,6 +11,7 @@ import * as c from "./feed.controller.js";
 export const feedRouter = Router();
 
 feedRouter.post("/media/stream/webhook", c.streamWebhook);
+feedRouter.get("/reels/:reelId", optionalAuth, c.getPublicReelById);
 
 feedRouter.use(requireAuth);
 
@@ -217,7 +218,6 @@ feedRouter.get("/profiles/:userId/reels", c.listProfileReels);
 feedRouter.get("/profiles/:userId/tagged", c.listProfileTaggedPosts);
 feedRouter.post("/reels", mediaUpload.single("mediaFile"), c.createReel);
 feedRouter.post("/reels/:reelId/view", c.recordReelView);
-feedRouter.get("/reels/:reelId", c.getReelById);
 
 feedRouter.get("/chats/threads", c.listThreads);
 feedRouter.post("/chats/threads", c.createThread);

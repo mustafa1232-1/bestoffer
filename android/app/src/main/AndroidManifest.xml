@@ -61,6 +61,20 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="${deepLinkScheme}" android:host="open" />
             </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="maslaki.app" android:pathPrefix="/r/" />
+                <data android:scheme="https" android:host="www.maslaki.app" android:pathPrefix="/r/" />
+                <data android:scheme="https" android:host="bestoffer-production.up.railway.app" android:pathPrefix="/r/" />
+                <data android:scheme="https" android:host="maslaki.app" android:pathPrefix="/reel/" />
+                <data android:scheme="https" android:host="www.maslaki.app" android:pathPrefix="/reel/" />
+                <data android:scheme="https" android:host="bestoffer-production.up.railway.app" android:pathPrefix="/reel/" />
+                <data android:scheme="https" android:host="maslaki.app" android:pathPrefix="/reels/" />
+                <data android:scheme="https" android:host="www.maslaki.app" android:pathPrefix="/reels/" />
+                <data android:scheme="https" android:host="bestoffer-production.up.railway.app" android:pathPrefix="/reels/" />
+            </intent-filter>
         </activity>
 
         <!-- Used by Flutter tool to generate GeneratedPluginRegistrant.java -->

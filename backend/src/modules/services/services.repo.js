@@ -45,6 +45,18 @@ function safeJson(value) {
   return { ...value };
 }
 
+const SERVICE_BOOKING_SLOT_ACTIVE_STATUSES = [
+  'pending',
+  'awaiting_provider',
+  'accepted',
+  'scheduled',
+  'in_progress',
+  'PENDING_PROVIDER_CONFIRMATION',
+  'CONFIRMED',
+  'IN_PROGRESS',
+  'PROVIDER_COMPLETED',
+];
+
 let ensureServiceBookingSchemaPromise = null;
 
 async function ensureServiceBookingSchema() {
@@ -1861,7 +1873,7 @@ export async function createOfferingForProvider({ userId, dto, mediaUrls = [] })
          updated_at
        )
        VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'pending',NOW(),NOW()
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'approved',NOW(),NOW()
        )
        RETURNING id`,
       [
@@ -1948,15 +1960,6 @@ export async function updateOfferingForProvider({
       await client.query('ROLLBACK');
       return null;
     }
-    const previousModerationStatus = String(
-      existingOffering.moderation_status || ''
-    ).trim().toLowerCase();
-    const moderationReset = new Set([
-      'approved',
-      'rejected',
-      'changes_requested',
-    ]).has(previousModerationStatus);
-
     await client.query(
       `UPDATE service_offerings
        SET
@@ -1982,10 +1985,7 @@ export async function updateOfferingForProvider({
           supports_visit_booking = COALESCE($22, supports_visit_booking),
           supports_full_day_booking = COALESCE($23, supports_full_day_booking),
           search_text = COALESCE($24, search_text),
-          moderation_status = CASE
-            WHEN moderation_status IN ('approved', 'rejected', 'changes_requested') THEN 'pending'
-            ELSE moderation_status
-          END,
+          moderation_status = 'approved',
           updated_at = NOW()
         WHERE id = $1
           AND provider_id = $2`,
@@ -2038,11 +2038,7 @@ export async function updateOfferingForProvider({
     }
 
     await client.query('COMMIT');
-    return {
-      offering: await getOfferingForProvider(client, provider.id, oid),
-      moderationReset,
-      previousModerationStatus,
-    };
+    return await getOfferingForProvider(client, provider.id, oid);
   } catch (error) {
     try {
       await client.query('ROLLBACK');
@@ -2471,6 +2467,76 @@ export async function previewServiceBookingByCustomer({
   }
 }
 
+function normalizeRequestedServiceSlot({ requestedDate, requestedTime, durationMinutes }) {
+  const date = String(requestedDate || '').trim();
+  const time = String(requestedTime || '').trim();
+  if (!date || !time) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}(:\d{2})?$/.test(time)) {
+    throw new AppError('SERVICE_BOOKING_INVALID_SLOT', { status: 400 });
+  }
+  const minutes = Math.max(1, Math.round(Number(durationMinutes || 0) || 60));
+  return { date, time, durationMinutes: minutes };
+}
+
+async function assertServiceBookingSlotAvailable(client, {
+  providerId,
+  requestedDate,
+  requestedTime,
+  durationMinutes,
+}) {
+  const slot = normalizeRequestedServiceSlot({
+    requestedDate,
+    requestedTime,
+    durationMinutes,
+  });
+  if (!slot) return;
+
+  await client.query(
+    `SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))`,
+    ['service_booking_slot', String(Number(providerId))]
+  );
+
+  const conflictR = await client.query(
+    `WITH requested_slot AS (
+       SELECT
+         ($1::date + $2::time) AS starts_at,
+         (($1::date + $2::time) + ($3::int * interval '1 minute')) AS ends_at
+     )
+     SELECT sr.id
+     FROM service_requests sr
+     CROSS JOIN requested_slot slot
+     WHERE sr.provider_id = $4
+       AND sr.requested_date IS NOT NULL
+       AND sr.requested_time IS NOT NULL
+       AND sr.status = ANY($5::text[])
+       AND (sr.requested_date::timestamp + sr.requested_time) < slot.ends_at
+       AND (
+         (sr.requested_date::timestamp + sr.requested_time)
+         + (
+           GREATEST(
+             COALESCE(
+               sr.booking_duration_minutes,
+               ROUND(COALESCE(sr.duration_hours, 1) * 60)::int,
+               60
+             ),
+             1
+           ) * interval '1 minute'
+         )
+       ) > slot.starts_at
+     LIMIT 1`,
+    [
+      slot.date,
+      slot.time,
+      slot.durationMinutes,
+      Number(providerId),
+      SERVICE_BOOKING_SLOT_ACTIVE_STATUSES,
+    ]
+  );
+  if (conflictR.rows[0]) {
+    throw new AppError('SERVICE_BOOKING_SLOT_UNAVAILABLE', { status: 409 });
+  }
+}
+
 async function createServiceBookingByCustomer({
   client,
   customerUserId,
@@ -2526,6 +2592,13 @@ async function createServiceBookingByCustomer({
     const hydrated = await hydrateRequests(client, [existing]);
     return hydrated[0] || null;
   }
+
+  await assertServiceBookingSlotAvailable(client, {
+    providerId: dto.providerId,
+    requestedDate: dto.requestedDate,
+    requestedTime: dto.requestedTime,
+    durationMinutes: currentPreview.durationMinutes,
+  });
 
   const requestCode = `SR-${Date.now().toString(36).toUpperCase().slice(-8)}`;
   const insertR = await client.query(

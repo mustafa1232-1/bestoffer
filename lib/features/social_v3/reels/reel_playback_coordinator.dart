@@ -34,6 +34,7 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
   int _activeIndex = 0;
   bool _muted = false;
   bool _userPaused = false;
+  double _playbackSpeed = 1;
   bool _routeVisible = true;
   bool _appActive = true;
   bool _disposed = false;
@@ -41,6 +42,7 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
   int get activeIndex => _activeIndex;
   bool get isMuted => _muted;
   bool get isActivePaused => _userPaused;
+  double get playbackSpeed => _playbackSpeed;
 
   VideoPlayerController? controllerFor(int index) => _controllers[index];
 
@@ -89,6 +91,18 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
 
   void toggleMuted() => setMuted(!_muted);
 
+  Future<void> setPlaybackSpeed(double speed) async {
+    if (_disposed) return;
+    final normalized = speed <= 0 ? 1.0 : speed;
+    if (_playbackSpeed == normalized) return;
+    _playbackSpeed = normalized;
+    final controller = _controllers[_activeIndex];
+    if (controller != null && controller.value.isInitialized) {
+      await controller.setPlaybackSpeed(normalized);
+    }
+    notifyListeners();
+  }
+
   Future<void> replayActive() async {
     if (_disposed || _activeIndex < 0 || _activeIndex >= _items.length) return;
     final controller = _controllers[_activeIndex];
@@ -125,6 +139,7 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
       if (!c.value.isInitialized) continue;
       if (isActive && _shouldPlayActive) {
         c.setVolume(_muted ? 0 : 1);
+        c.setPlaybackSpeed(_playbackSpeed);
         if (!c.value.isPlaying) c.play();
       } else {
         if (c.value.isPlaying) c.pause();
@@ -175,6 +190,7 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
         .then((_) {
           if (_disposed || _controllers[index] != controller) return;
           controller.setVolume(_muted ? 0 : 1);
+          controller.setPlaybackSpeed(_playbackSpeed);
           _applyPlayState();
           notifyListeners();
         })

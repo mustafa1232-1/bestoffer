@@ -762,7 +762,8 @@ class _SharedReelPlaybackPreview extends StatefulWidget {
       _SharedReelPlaybackPreviewState();
 }
 
-class _SharedReelPlaybackPreviewState extends State<_SharedReelPlaybackPreview> {
+class _SharedReelPlaybackPreviewState
+    extends State<_SharedReelPlaybackPreview> {
   VideoPlayerController? _controller;
   bool _ready = false;
 
@@ -881,10 +882,7 @@ class _SharedReelPlaybackPreviewState extends State<_SharedReelPlaybackPreview> 
           decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.4)),
         ),
         Center(
-          child: AspectRatio(
-            aspectRatio: aspect,
-            child: player,
-          ),
+          child: AspectRatio(aspectRatio: aspect, child: player),
         ),
       ],
     );

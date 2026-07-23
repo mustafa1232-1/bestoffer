@@ -395,6 +395,9 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
                     onCreate: widget.onCreate,
                     onTogglePlay: _coordinator.togglePlay,
                     onToggleMute: _coordinator.toggleMuted,
+                    onHoldSpeedChanged: (active) => unawaited(
+                      _coordinator.setPlaybackSpeed(active ? 2.0 : 1.0),
+                    ),
                     onPlaybackCompleted: () =>
                         unawaited(_handlePlaybackCompleted(index)),
                     onLike: (desiredLiked) =>

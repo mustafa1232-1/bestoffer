@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:ui';
 
+import 'package:app_links/app_links.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -36,6 +37,7 @@ import 'features/admin/ui/admin_dashboard_screen.dart';
 import 'features/customer/ui/maslaki_user_shell.dart';
 import 'features/notifications/data/notifications_api.dart';
 import 'features/social/ui/social_call_screen.dart';
+import 'features/social/ui/social_content_navigation.dart';
 import 'features/startup/state/app_startup_controller.dart';
 import 'features/startup/ui/app_first_launch_screen.dart';
 
@@ -319,6 +321,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   ProviderSubscription<AuthState>? _authStateSub;
   StreamSubscription<NotificationTapPayload>? _notificationTapSub;
   StreamSubscription<NotificationTapPayload>? _pushTapSub;
+  StreamSubscription<Uri>? _appLinkSub;
   StreamSubscription<NotificationLiveEvent>? _socialCallSub;
   Timer? _socialCallReconnectTimer;
   NotificationTapPayload? _pendingTapPayload;
@@ -328,6 +331,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   bool _pushSyncInFlight = false;
   bool _roleMismatchLogoutInFlight = false;
   int _socialCallReconnectAttempt = 0;
+  String? _lastOpenedExternalReelLink;
 
   /// ÙŠØ±Ø§Ù‚Ø¨ ØªØºÙŠÙ‘Ø± Ø¬Ù„Ø³Ø© Ø§Ù„Ù…ØµØ§Ø¯Ù‚Ø© ÙˆÙŠØ­ÙˆÙ‘Ù„ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ø¨ÙŠÙ† Ø´Ø§Ø´Ø© Ø§Ù„Ø¯Ø®ÙˆÙ„ ÙˆØ§Ù„ÙˆØ¬Ù‡Ø©
   /// Ø§Ù„Ù…Ù†Ø§Ø³Ø¨Ø© Ù„Ù„Ø¯ÙˆØ±ØŒ ÙƒÙ…Ø§ ÙŠØ±Ø¨Ø· listeners Ø§Ù„Ø®Ø§ØµØ© Ø¨Ø§Ù„Ù†Ù‚Ø± Ø¹Ù„Ù‰ Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±Ø§Øª.
@@ -335,6 +339,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _initExternalReelLinks();
     _authStateSub = ref.listenManual<AuthState>(authControllerProvider, (
       previous,
       next,
@@ -404,12 +409,56 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     }
   }
 
+  void _initExternalReelLinks() {
+    final appLinks = AppLinks();
+    unawaited(() async {
+      try {
+        final initial = await appLinks.getInitialLink();
+        if (!mounted || initial == null) return;
+        _handleExternalReelLink(initial);
+      } catch (error) {
+        debugPrint('[app-link] initial link ignored: $error');
+      }
+    }());
+    _appLinkSub = appLinks.uriLinkStream.listen(
+      _handleExternalReelLink,
+      onError: (Object error) {
+        debugPrint('[app-link] stream link ignored: $error');
+      },
+    );
+  }
+
+  void _handleExternalReelLink(Uri uri) {
+    final reelId = userExternalReelIdFromUri(uri);
+    if (reelId == null) return;
+    final key = uri.toString();
+    if (_lastOpenedExternalReelLink == key) return;
+    _lastOpenedExternalReelLink = key;
+    _openExternalReel(reelId);
+  }
+
+  void _openExternalReel(int reelId) {
+    final nav = _navigatorKey.currentState;
+    if (nav == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _openExternalReel(reelId);
+      });
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(openSocialReelsV3(nav.context, reelId: reelId));
+    });
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _authStateSub?.close();
     _notificationTapSub?.cancel();
     _pushTapSub?.cancel();
+    _appLinkSub?.cancel();
     _socialCallSub?.cancel();
     _socialCallReconnectTimer?.cancel();
     super.dispose();
@@ -914,6 +963,42 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       home: appHome,
     );
   }
+}
+
+int? userExternalReelIdFromUri(Uri uri) {
+  final scheme = uri.scheme.toLowerCase();
+  final host = uri.host.toLowerCase();
+  final isWebLink =
+      scheme == 'https' &&
+      (host == 'maslaki.app' ||
+          host == 'www.maslaki.app' ||
+          host == 'bestoffer-production.up.railway.app');
+  final isUserScheme = scheme == 'maslaki-user' && host == 'open';
+  if (!isWebLink && !isUserScheme) return null;
+
+  int? positiveId(String? raw) {
+    final value = int.tryParse((raw ?? '').trim());
+    return value != null && value > 0 ? value : null;
+  }
+
+  for (final key in const <String>['reelId', 'reel_id', 'r', 'id']) {
+    final id = positiveId(uri.queryParameters[key]);
+    if (id != null) return id;
+  }
+
+  final segments = uri.pathSegments
+      .map((segment) => segment.trim().toLowerCase())
+      .where((segment) => segment.isNotEmpty)
+      .toList(growable: false);
+  for (var index = 0; index < segments.length - 1; index++) {
+    if (segments[index] == 'r' ||
+        segments[index] == 'reel' ||
+        segments[index] == 'reels') {
+      final id = positiveId(segments[index + 1]);
+      if (id != null) return id;
+    }
+  }
+  return null;
 }
 
 class _PendingIncomingSocialCall {

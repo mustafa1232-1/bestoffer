@@ -197,6 +197,37 @@ UserModel _serviceProviderUser() {
 }
 
 void main() {
+  test('external reel links resolve canonical and custom-scheme formats', () {
+    expect(
+      userExternalReelIdFromUri(Uri.parse('https://maslaki.app/r/42')),
+      42,
+    );
+    expect(
+      userExternalReelIdFromUri(Uri.parse('https://www.maslaki.app/reels/43')),
+      43,
+    );
+    expect(
+      userExternalReelIdFromUri(
+        Uri.parse('https://maslaki.app/open?reelId=44'),
+      ),
+      44,
+    );
+    expect(
+      userExternalReelIdFromUri(
+        Uri.parse('https://bestoffer-production.up.railway.app/r/45'),
+      ),
+      45,
+    );
+    expect(
+      userExternalReelIdFromUri(Uri.parse('maslaki-user://open/reel/45')),
+      45,
+    );
+    expect(
+      userExternalReelIdFromUri(Uri.parse('https://example.com/r/42')),
+      isNull,
+    );
+  });
+
   testWidgets(
     'authenticated regular user lands on CustomerHomeSelectorScreen',
     (tester) async {

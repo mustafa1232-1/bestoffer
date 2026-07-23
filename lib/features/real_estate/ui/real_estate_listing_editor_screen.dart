@@ -337,7 +337,7 @@ class _RealEstateListingEditorScreenState
       ownerFullName: existing?.ownerFullName,
       ownerPhone: existing?.ownerPhone,
       purpose: _purpose,
-      status: existing?.status ?? 'pending_admin_review',
+      status: existing?.status ?? 'active',
       title: _titleCtrl.text.trim(),
       description: _descriptionCtrl.text.trim(),
       areaSqm: _parseIntOrNull(_areaCtrl.text) ?? 0,

@@ -552,10 +552,11 @@ String normalizeSocialPostMediaClass(SocialPost post) {
   final postKind = post.postKind.trim().toLowerCase();
   final mediaKind = (post.mediaKind ?? '').trim().toLowerCase();
   final sharedKind = post.sharedEntity?.type.trim().toLowerCase() ?? '';
+  if (postKind == 'reel' || sharedKind == 'reel') return 'reel';
   final candidates = <String>[
     if (mediaKind.isNotEmpty) mediaKind,
-    if (sharedKind.isNotEmpty) sharedKind,
     if (postKind.isNotEmpty) postKind,
+    if (sharedKind.isNotEmpty) sharedKind,
   ];
   for (final candidate in candidates) {
     switch (candidate) {

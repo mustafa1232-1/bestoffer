@@ -22,6 +22,7 @@ class StoryV3Item {
     this.allowComments = true,
     this.allowSharing = true,
     this.allowReshare = true,
+    this.draft,
     required this.sharedReel,
   });
 
@@ -46,6 +47,7 @@ class StoryV3Item {
   final bool allowComments;
   final bool allowSharing;
   final bool allowReshare;
+  final SocialStoryDraft? draft;
 
   /// When this story is a shared reel, the reference to open the original.
   final SharedReelRef? sharedReel;
@@ -70,6 +72,40 @@ class StoryV3Item {
     final style = story.style;
     final draft = SocialStoryDraft.fromStoryStyle(story: story);
     final attachment = draft.attachment;
+    final sharedReel = attachment?.isReelShare != true
+        ? null
+        : SharedReelRef(
+            reelId: attachment?.reelId ?? style.sharedPostId ?? story.id,
+            originalOwnerId: story.userId,
+            playbackUrl:
+                attachment?.playbackUrl ??
+                attachment?.mediaUrl ??
+                style.sharedPostMediaUrl ??
+                story.mediaUrl ??
+                story.asset?.playbackUrl,
+            thumbnailUrl:
+                attachment?.thumbnailUrl ??
+                attachment?.posterUrl ??
+                story.asset?.thumbnailUrl ??
+                story.asset?.posterUrl,
+            posterUrl:
+                attachment?.posterUrl ??
+                attachment?.thumbnailUrl ??
+                story.asset?.posterUrl ??
+                story.asset?.thumbnailUrl,
+            aspectRatio:
+                attachment?.aspectRatio ?? story.asset?.aspectRatio ?? 9 / 16,
+            available: story.asset?.isReady != false,
+            author:
+                attachment?.authorName ??
+                style.sharedPostAuthor ??
+                'user_${story.userId}',
+            authorName: attachment?.authorName ?? style.sharedPostAuthor,
+            authorAvatarUrl: null,
+            authorHandle: null,
+            caption:
+                attachment?.caption ?? style.sharedPostCaption ?? story.caption,
+          );
     final kind = (story.mediaKind ?? '').trim().toLowerCase();
     final mediaKind = switch (kind) {
       'reel' => SocialMediaKind.reel,
@@ -80,10 +116,9 @@ class StoryV3Item {
             ? SocialMediaKind.video
             : SocialMediaKind.image,
     };
-    final media = SocialMediaPresentation.fromAsset(
-      story.asset,
-      kind: mediaKind,
-    );
+    final media = sharedReel == null
+        ? SocialMediaPresentation.fromAsset(story.asset, kind: mediaKind)
+        : _sharedReelMedia(sharedReel);
     final clipDurationSec = style.clipDurationSec;
     final clipStartSec = style.clipStartSec;
     return StoryV3Item(
@@ -106,43 +141,47 @@ class StoryV3Item {
       allowComments: story.allowComments,
       allowSharing: story.allowSharing,
       allowReshare: story.allowReshare,
-      sharedReel: attachment?.isReelShare != true
-          ? null
-          : SharedReelRef(
-              reelId: attachment?.reelId ?? style.sharedPostId ?? story.id,
-              originalOwnerId: story.userId,
-              playbackUrl:
-                  attachment?.playbackUrl ??
-                  attachment?.mediaUrl ??
-                  style.sharedPostMediaUrl ??
-                  story.mediaUrl ??
-                  story.asset?.playbackUrl,
-              thumbnailUrl:
-                  attachment?.thumbnailUrl ??
-                  attachment?.posterUrl ??
-                  story.asset?.thumbnailUrl ??
-                  story.asset?.posterUrl,
-              posterUrl:
-                  attachment?.posterUrl ??
-                  attachment?.thumbnailUrl ??
-                  story.asset?.posterUrl ??
-                  story.asset?.thumbnailUrl,
-              aspectRatio:
-                  attachment?.aspectRatio ?? story.asset?.aspectRatio ?? 9 / 16,
-              available: story.asset?.isReady != false,
-              author:
-                  attachment?.authorName ??
-                  style.sharedPostAuthor ??
-                  'user_${story.userId}',
-              authorName: attachment?.authorName ?? style.sharedPostAuthor,
-              authorAvatarUrl: null,
-              authorHandle: null,
-              caption:
-                  attachment?.caption ??
-                  style.sharedPostCaption ??
-                  story.caption,
-            ),
+      draft: draft,
+      sharedReel: sharedReel,
     );
+  }
+
+  static SocialMediaPresentation _sharedReelMedia(SharedReelRef ref) {
+    final playback = (ref.playbackUrl ?? '').trim();
+    final poster = _safePoster(ref.thumbnailUrl, ref.posterUrl);
+    final aspect = ref.aspectRatio;
+    final height = aspect == null || aspect <= 0 ? null : 1920;
+    final width = aspect == null || aspect <= 0
+        ? null
+        : (height! * aspect).round().clamp(1, 4096).toInt();
+    return SocialMediaPresentation(
+      mediaAssetId: ref.reelId,
+      provider: 'shared_reel',
+      mediaKind: SocialMediaKind.reel,
+      playbackType: playback.isEmpty
+          ? SocialPlaybackType.none
+          : (isStreamingManifestUrl(playback)
+                ? SocialPlaybackType.hls
+                : SocialPlaybackType.progressiveMp4),
+      videoPlaybackUrl: playback.isEmpty ? null : playback,
+      posterImageUrl: poster,
+      width: width,
+      height: height,
+      durationMs: null,
+      processingStatus: ref.available
+          ? SocialProcessingStatus.ready
+          : SocialProcessingStatus.deleted,
+    );
+  }
+
+  static String? _safePoster(String? primary, String? secondary) {
+    for (final candidate in <String?>[primary, secondary]) {
+      final value = (candidate ?? '').trim();
+      if (value.isEmpty) continue;
+      if (isStreamingManifestUrl(value) || isVideoFileUrl(value)) continue;
+      return value;
+    }
+    return null;
   }
 }
 
@@ -165,7 +204,8 @@ typedef StoryV3CommentsCallback = Future<int?> Function(int storyId);
 
 typedef StoryV3ShareCallback = Future<void> Function(int storyId);
 
-typedef SocialStoryMetricCallback = void Function(String metricName, Duration elapsed);
+typedef SocialStoryMetricCallback =
+    void Function(String metricName, Duration elapsed);
 
 /// A per-user story group (the progress bar only ever shows one group's items).
 class StoryV3Group {

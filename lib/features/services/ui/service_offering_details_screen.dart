@@ -110,6 +110,78 @@ class _ServiceOfferingDetailsScreenState
     }
   }
 
+  String _pricingModelLabel(String value) {
+    switch (value) {
+      case 'per_hour':
+      case 'hourly':
+      case 'HOURLY':
+        return 'حسب الساعات';
+      case 'fixed_package':
+      case 'fixed':
+      case 'FIXED':
+      case 'starting_from':
+        return 'حسب الحجز';
+      case 'per_visit':
+      case 'PER_VISIT':
+        return 'حسب الزيارة';
+      case 'per_unit':
+      case 'PER_UNIT':
+        return 'حسب الكمية';
+      case 'inspection_required':
+      case 'custom_quote':
+      case 'INSPECTION_REQUIRED':
+        return 'بعد المعاينة';
+      default:
+        return value;
+    }
+  }
+
+  String _pricingUnitLabel(String value) {
+    switch (value) {
+      case 'hour':
+        return 'ساعة';
+      case 'visit':
+        return 'زيارة';
+      case 'day':
+        return 'يوم';
+      case 'device':
+        return 'جهاز';
+      case 'room':
+        return 'غرفة';
+      case 'meter':
+        return 'متر';
+      case 'item':
+        return 'قطعة';
+      case 'package':
+      case 'job':
+        return 'حجز';
+      default:
+        return value;
+    }
+  }
+
+  String _executionModeLabel(String value) {
+    switch (value) {
+      case 'home':
+        return 'في المنزل';
+      case 'provider_location':
+        return 'عند مقدم الخدمة';
+      case 'remote':
+        return 'عن بعد';
+      case 'both':
+        return 'منزلي أو عند المقدم';
+      default:
+        return value;
+    }
+  }
+
+  Widget _specChip(String label, String value) {
+    return Chip(
+      label: Text('$label: $value'),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final servicesSection = ref
@@ -148,6 +220,10 @@ class _ServiceOfferingDetailsScreenState
 
     final offering = _offering!;
     final provider = offering.provider;
+    final primaryMediaUrl = offering.primaryMediaUrl;
+    final galleryMedia = offering.media.length > 1
+        ? offering.media.skip(1).toList()
+        : const <ServiceMediaModel>[];
     ServicePricingOptionModel? leadPricing;
     if (offering.pricingOptions.isNotEmpty) {
       leadPricing = offering.pricingOptions.firstWhere(
@@ -194,6 +270,31 @@ class _ServiceOfferingDetailsScreenState
                 ),
               ),
             if (_privatePreview) const SizedBox(height: 10),
+            if (primaryMediaUrl != null) ...[
+              Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: double.infinity,
+                    constraints: const BoxConstraints(maxHeight: 280),
+                    color: Colors.black12,
+                    alignment: Alignment.center,
+                    child: AspectRatio(
+                      aspectRatio: 16 / 10,
+                      child: Image.network(
+                        primaryMediaUrl,
+                        fit: BoxFit.contain,
+                        alignment: Alignment.center,
+                        errorBuilder: (_, _, _) => const Center(
+                          child: Icon(Icons.broken_image_outlined, size: 42),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
             Text(
               offering.name,
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
@@ -238,12 +339,28 @@ class _ServiceOfferingDetailsScreenState
                     ),
                     const SizedBox(height: 6),
                     if (leadPricing != null)
-                      Text('نموذج التسعير: ${leadPricing.pricingModel}'),
-                    if (leadPricing != null)
-                      Text('الوحدة: ${leadPricing.pricingUnit}'),
-                    if (offering.estimatedDurationMinutes != null)
-                      Text(
-                        'المدة التقديرية: ${offering.estimatedDurationMinutes} دقيقة',
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _specChip(
+                            'التسعير',
+                            _pricingModelLabel(leadPricing.pricingModel),
+                          ),
+                          _specChip(
+                            'الوحدة',
+                            _pricingUnitLabel(leadPricing.pricingUnit),
+                          ),
+                          _specChip(
+                            'مكان التنفيذ',
+                            _executionModeLabel(offering.executionMode),
+                          ),
+                          if (offering.estimatedDurationMinutes != null)
+                            _specChip(
+                              'المدة',
+                              '${offering.estimatedDurationMinutes} دقيقة',
+                            ),
+                        ],
                       ),
                     if (offering.inspectionRequired || offering.customQuoteOnly)
                       const Text(
@@ -254,7 +371,7 @@ class _ServiceOfferingDetailsScreenState
                 ),
               ),
             ),
-            if (offering.media.isNotEmpty) ...[
+            if (galleryMedia.isNotEmpty) ...[
               const SizedBox(height: 10),
               const Text(
                 'الصور',
@@ -265,10 +382,10 @@ class _ServiceOfferingDetailsScreenState
                 height: 120,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  itemCount: offering.media.length,
+                  itemCount: galleryMedia.length,
                   separatorBuilder: (_, _) => const SizedBox(width: 8),
                   itemBuilder: (context, index) {
-                    final media = offering.media[index];
+                    final media = galleryMedia[index];
                     return ClipRRect(
                       borderRadius: BorderRadius.circular(10),
                       child: Image.network(

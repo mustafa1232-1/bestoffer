@@ -52,8 +52,9 @@ class ShareSheetV3 extends StatelessWidget {
   final VoidCallback? onSearchUsers;
   final VoidCallback? onRepost;
 
-  /// Receives the guarded canonical URL for OS-level share.
-  final void Function(String canonicalUrl)? onExternalShare;
+  /// Receives OS-level share text. Reel shares include a canonical URL plus an
+  /// app-scheme fallback so they still open when Android App Links are disabled.
+  final void Function(String shareText)? onExternalShare;
   final List<String> recentConversations;
   final void Function(String conversation)? onOpenConversation;
 
@@ -68,13 +69,20 @@ class ShareSheetV3 extends StatelessWidget {
     }
   }
 
+  String get externalShareText {
+    if (target.kind == ShareEntityKind.reel) {
+      return links.externalReelShareText(target.entityId);
+    }
+    return links.guardShareUrl(canonicalUrl);
+  }
+
   static Future<void> show(
     BuildContext context, {
     required ShareTargetV3 target,
     SocialCanonicalLinks links = const SocialCanonicalLinks(),
     VoidCallback? onAddToStory,
     VoidCallback? onShareWithFriends,
-    void Function(String canonicalUrl)? onExternalShare,
+    void Function(String shareText)? onExternalShare,
     VoidCallback? onRepost,
   }) {
     return showModalBottomSheet<void>(
@@ -165,7 +173,7 @@ class ShareSheetV3 extends StatelessWidget {
         _Row(
           icon: Icons.ios_share,
           label: 'مشاركة خارجية',
-          onTap: () => onExternalShare?.call(links.guardShareUrl(canonicalUrl)),
+          onTap: () => onExternalShare?.call(externalShareText),
         ),
       );
     }

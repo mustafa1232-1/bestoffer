@@ -567,7 +567,7 @@ export async function createListing(userId, dto, files = []) {
          details_json
        )
        VALUES (
-         $1,$2,'pending_admin_review',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+         $1,$2,'active',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
          $14,$15,$16,$17,$18,$19,$20::jsonb
        )
        RETURNING *`,
@@ -608,7 +608,7 @@ export async function createListing(userId, dto, files = []) {
       client,
       listing.id,
       null,
-      "pending_admin_review",
+      "active",
       "created",
       Number(userId)
     );

@@ -348,6 +348,112 @@ test('service booking preview/create persists the price snapshot and rejects sta
     }
   );
 });
+
+test('service booking slots reject overlapping active bookings and release terminal bookings', async (t) => {
+  const fixture = await seedBookingFixture();
+  const requestIds = [];
+  const secondCustomer = await createAuthUser({
+    role: 'user',
+    fullName: makeSeed('customer_two'),
+    phone: makePhone('076'),
+    username: makeUsername('cust2'),
+  });
+  t.after(async () => {
+    await cleanupBookingFixture(fixture, requestIds);
+    await q(`DELETE FROM app_user WHERE id = $1`, [Number(secondCustomer.id)]).catch(
+      () => {}
+    );
+  });
+
+  const baseDto = {
+    offeringId: Number(fixture.offering.id),
+    providerId: Number(fixture.offering.providerId),
+    pricingType: 'per_hour',
+    durationMinutes: 120,
+    durationHours: 2,
+    quantity: 2,
+    requestedExecutionMode: 'home',
+    requestedDate: '2026-07-20',
+    requestedTime: '10:00',
+    requiresHomeService: true,
+    requiresQuote: false,
+  };
+
+  const first = await createServiceRequestByCustomer({
+    customerUserId: Number(fixture.customerUser.id),
+    dto: {
+      ...baseDto,
+      idempotencyKey: `${makeSeed('booking')}-slot-first`,
+    },
+    attachments: [],
+  });
+  requestIds.push(Number(first.id));
+  assert.equal(first.bookingStatus, 'PENDING_PROVIDER_CONFIRMATION');
+
+  await assert.rejects(
+    () =>
+      createServiceRequestByCustomer({
+        customerUserId: Number(secondCustomer.id),
+        dto: {
+          ...baseDto,
+          durationMinutes: 60,
+          durationHours: 1,
+          quantity: 1,
+          requestedTime: '11:00',
+          idempotencyKey: `${makeSeed('booking')}-slot-conflict`,
+        },
+        attachments: [],
+      }),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.equal(error.message, 'SERVICE_BOOKING_SLOT_UNAVAILABLE');
+      return true;
+    }
+  );
+
+  const adjacent = await createServiceRequestByCustomer({
+    customerUserId: Number(secondCustomer.id),
+    dto: {
+      ...baseDto,
+      durationMinutes: 60,
+      durationHours: 1,
+      quantity: 1,
+      requestedTime: '12:00',
+      idempotencyKey: `${makeSeed('booking')}-slot-adjacent`,
+    },
+    attachments: [],
+  });
+  requestIds.push(Number(adjacent.id));
+  assert.equal(adjacent.bookingStatus, 'PENDING_PROVIDER_CONFIRMATION');
+
+  const cancelled = await updateRequestStatusByCustomer({
+    userId: Number(fixture.customerUser.id),
+    requestId: Number(first.id),
+    dto: {
+      status: 'CANCELLED_BY_CUSTOMER',
+      note: 'customer cancelled',
+      expectedVersion: 2,
+      idempotencyKey: `${makeSeed('booking')}-slot-cancel`,
+    },
+  });
+  assert.equal(cancelled.bookingStatus, 'CANCELLED_BY_CUSTOMER');
+
+  const released = await createServiceRequestByCustomer({
+    customerUserId: Number(secondCustomer.id),
+    dto: {
+      ...baseDto,
+      durationMinutes: 30,
+      durationHours: 0.5,
+      quantity: 0.5,
+      requestedTime: '10:30',
+      idempotencyKey: `${makeSeed('booking')}-slot-released`,
+    },
+    attachments: [],
+  });
+  requestIds.push(Number(released.id));
+  assert.equal(released.bookingStatus, 'PENDING_PROVIDER_CONFIRMATION');
+});
+
 test('booking_flow_kind is immutable for persisted bookings', async (t) => {
   const fixture = await seedBookingFixture();
   const requestIds = [];

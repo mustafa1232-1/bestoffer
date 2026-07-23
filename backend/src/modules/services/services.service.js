@@ -865,20 +865,6 @@ export async function createOffering({
   if (!offering) {
     throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
   }
-
-  await notifyBackoffice((adminUserId) => ({
-    userId: adminUserId,
-    type: 'services.offering.pending_review',
-    title: 'Ø®Ø¯Ù…Ø© Ø¬Ø¯ÙŠØ¯Ø© Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©',
-    body: `${offering.name} Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ù…ÙˆØ§ÙÙ‚Ø© Ø§Ù„Ø£Ø¯Ù…Ù†.`,
-    payload: {
-      target: 'admin_services_offerings_pending',
-      targetModule: 'admin',
-      offeringId: offering.id,
-      requiresAction: true,
-    },
-  }));
-
   return offering;
 }
 
@@ -896,25 +882,10 @@ export async function updateOffering({
     dto,
     mediaUrls,
   });
-  const updatedOffering = offering?.offering ?? offering;
-  if (!updatedOffering) {
+  if (!offering) {
     throw new AppError('SERVICE_OFFERING_NOT_FOUND', { status: 404 });
   }
-  if (offering?.moderationReset === true) {
-    await notifyBackoffice((adminUserId) => ({
-      userId: adminUserId,
-      type: 'services.offering.pending_review',
-      title: 'خدمة معدلة بانتظار المراجعة',
-      body: `${updatedOffering.name} تم تعديلها وتنتظر مراجعة جديدة.`,
-      payload: {
-        target: 'admin_services_offerings_pending',
-        targetModule: 'admin',
-        offeringId: updatedOffering.id,
-        requiresAction: true,
-      },
-    }));
-  }
-  return updatedOffering;
+  return offering;
 }
 
 export async function replaceOfferingPricing({

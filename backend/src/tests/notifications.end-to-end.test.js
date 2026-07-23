@@ -809,15 +809,6 @@ test("services marketplace request and quote lifecycle keeps authz and notificat
     });
     assert.ok(offering?.id, "offering id missing");
 
-    await servicesService.adminUpdateOfferingStatus({
-      offeringId: offering.id,
-      dto: {
-        status: "approved",
-        note: "Approved for phase 2A runtime",
-      },
-      adminUserId: admin.id,
-    });
-
     const publicOfferings = await servicesService.searchPublicOfferings(
       {
         q: String(offering.name || ""),
@@ -829,7 +820,7 @@ test("services marketplace request and quote lifecycle keeps authz and notificat
     );
     assert.ok(
       publicOfferings.some((item) => Number(item.id || 0) === Number(offering.id)),
-      "approved offering should be searchable"
+      "published offering should be searchable"
     );
 
     const serviceRequest = await servicesService.createServiceRequest({
@@ -1371,10 +1362,10 @@ test("service request notifications target the provider owner and permitted empl
     });
     assert.ok(
       Array.isArray(pendingOfferingsBeforeReview) &&
-        pendingOfferingsBeforeReview.some(
+        !pendingOfferingsBeforeReview.some(
           (item) => Number(item?.id || 0) === Number(offering.id)
         ),
-      "admin should see newly published service offering in the review queue"
+      "newly published service offering should not enter the review queue"
     );
 
     await ensureServiceOfferingModerationMigration();

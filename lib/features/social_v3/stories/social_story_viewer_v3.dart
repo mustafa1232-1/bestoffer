@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/media/media_url.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../domain/story_view_data.dart';
 import '../media/social_safe_image.dart';
@@ -115,6 +116,7 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
   bool _lifecyclePaused = false;
   int _overlayPauseDepth = 0;
   bool _advancing = false;
+  int? _pendingImageReadyStoryId;
 
   StoryV3Group get _group => widget.groups[_groupIndex];
   StoryV3Item? get _item =>
@@ -221,10 +223,42 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
     if (item.isVideo && item.media.hasVideo) {
       _startVideo(item, startedByAdvance: startedByAdvance);
     } else {
-      _imageCtrl.duration = item.imageDuration;
+      _startImage(item, startedByAdvance: startedByAdvance);
+    }
+  }
+
+  void _startImage(StoryV3Item item, {required bool startedByAdvance}) {
+    _imageCtrl.duration = item.imageDuration;
+    final posterUrl = (item.media.posterImageUrl ?? '').trim();
+    if (posterUrl.isEmpty) {
+      _pendingImageReadyStoryId = null;
       if (!_isProgressPaused) _imageCtrl.forward(from: 0);
       _reportFirstFrameMetric(startedByAdvance: startedByAdvance);
+      return;
     }
+
+    final storyId = item.storyId;
+    _pendingImageReadyStoryId = storyId;
+    unawaited(() async {
+      final resolved = resolveMediaUrl(posterUrl) ?? posterUrl;
+      try {
+        await precacheImage(
+          NetworkImage(resolved),
+          context,
+        ).timeout(const Duration(seconds: 12));
+      } catch (_) {
+        // A broken/slow image must not auto-skip before the user sees the
+        // placeholder. After the bounded wait, start progress from zero.
+      }
+      if (!mounted ||
+          _pendingImageReadyStoryId != storyId ||
+          _item?.storyId != storyId) {
+        return;
+      }
+      _pendingImageReadyStoryId = null;
+      if (!_isProgressPaused) _imageCtrl.forward(from: 0);
+      _reportFirstFrameMetric(startedByAdvance: startedByAdvance);
+    }());
   }
 
   void _startVideo(StoryV3Item item, {required bool startedByAdvance}) {
@@ -235,9 +269,6 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
       startedByAdvance: startedByAdvance,
     );
     if (controller == null) {
-      Future<void>.delayed(const Duration(milliseconds: 900), () {
-        if (mounted && _itemIndex == index) _next();
-      });
       return;
     }
     if (controller.value.isInitialized) {
@@ -284,7 +315,8 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
     if (item == null) return;
     if (item.isVideo && item.media.hasVideo) {
       _video?.play();
-    } else if (!_imageCtrl.isAnimating) {
+    } else if (_pendingImageReadyStoryId != item.storyId &&
+        !_imageCtrl.isAnimating) {
       _imageCtrl.forward();
     }
   }
@@ -343,21 +375,22 @@ class _SocialStoryViewerV3State extends State<SocialStoryViewerV3>
     _videoControllers[index] = controller;
     _videoControllerUrls[index] = effectiveUrl;
     controller.setLooping(false);
-    _videoInitFutures[index] = controller.initialize().then((_) {
-      if (!mounted || _videoControllers[index] != controller) return;
-      if (activate && _itemIndex == index) {
-        _attachActiveVideoController(
-          index,
-          controller,
-          startedByAdvance: startedByAdvance,
-        );
-      }
-    }).catchError((Object _) {
-      if (!mounted || _videoControllers[index] != controller) return;
-      Future<void>.delayed(const Duration(milliseconds: 900), () {
-        if (mounted && _itemIndex == index) _next();
-      });
-    });
+    _videoInitFutures[index] = controller
+        .initialize()
+        .then((_) {
+          if (!mounted || _videoControllers[index] != controller) return;
+          if (activate && _itemIndex == index) {
+            _attachActiveVideoController(
+              index,
+              controller,
+              startedByAdvance: startedByAdvance,
+            );
+          }
+        })
+        .catchError((Object _) {
+          if (!mounted || _videoControllers[index] != controller) return;
+          if (activate && _itemIndex == index) setState(() {});
+        });
     if (activate && _itemIndex == index) {
       _video = controller;
       _activeVideoIndex = index;

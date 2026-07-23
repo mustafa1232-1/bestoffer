@@ -54,3 +54,28 @@ export async function requireAuth(req, res, next) {
     return next(new AppError("INVALID_TOKEN", { status: 401 }));
   }
 }
+
+export async function optionalAuth(req, res, next) {
+  if (Number(req.userId) > 0) {
+    req.userIsSuperAdmin = req.userIsSuperAdmin === true;
+    req.userIsTaxiCaptain = req.userIsTaxiCaptain === true;
+    req.authSessionId = req.authSessionId || null;
+    req.authDeviceContext = req.authDeviceContext || null;
+    return next();
+  }
+
+  try {
+    const auth = await resolveAccessAuth(req, { strict: false });
+    if (auth) {
+      req.userId = auth.userId;
+      req.userRole = auth.role;
+      req.userIsSuperAdmin = auth.isSuperAdmin === true;
+      req.userIsTaxiCaptain = auth.isTaxiCaptain === true;
+      req.authSessionId = auth.sessionId;
+      req.authDeviceContext = auth.deviceContext || null;
+    }
+    return next();
+  } catch (_) {
+    return next();
+  }
+}

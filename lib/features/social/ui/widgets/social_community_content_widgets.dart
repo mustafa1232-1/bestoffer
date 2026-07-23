@@ -11,6 +11,7 @@ import '../../../../core/platform/app_platform_capabilities.dart';
 import '../../models/social_models.dart';
 import 'social_community_widgets.dart';
 import 'social_inline_attachment_message_card.dart';
+import 'social_shared_reel_message_card.dart';
 import 'social_voice_message_widgets.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
@@ -406,62 +407,71 @@ class CommunityChatBubble extends StatelessWidget {
               ],
               if (!isDeleted && message.sharedEntity != null) ...[
                 const SizedBox(height: 6),
-                InkWell(
-                  borderRadius: BorderRadius.circular(10),
-                  onTap: onOpenSharedEntity,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 15,
-                          backgroundImage:
-                              (message.sharedEntity!.authorAvatarUrl ?? '')
-                                  .trim()
-                                  .isNotEmpty
-                              ? appCachedImageProvider(
-                                  message.sharedEntity!.authorAvatarUrl!,
-                                  cacheIdentity:
-                                      'shared_${message.sharedEntity!.type}_${message.sharedEntity!.id}',
-                                )
-                              : null,
-                          child:
-                              (message.sharedEntity!.authorAvatarUrl ?? '')
-                                  .trim()
-                                  .isEmpty
-                              ? Icon(
-                                  message.sharedEntity!.type
-                                              .trim()
-                                              .toLowerCase() ==
-                                          'location'
-                                      ? Icons.location_on_outlined
-                                      : Icons.link_rounded,
-                                  size: 18,
-                                )
-                              : null,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            message.sharedEntity!.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textDirection: TextDirection.rtl,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                if (message.sharedEntity!.type.trim().toLowerCase() == 'reel')
+                  SocialSharedReelMessageCard(
+                    entity: message.sharedEntity!,
+                    onTap: onOpenSharedEntity,
+                    compact: true,
+                  )
+                else
+                  InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: onOpenSharedEntity,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 15,
+                            backgroundImage:
+                                (message.sharedEntity!.authorAvatarUrl ?? '')
+                                    .trim()
+                                    .isNotEmpty
+                                ? appCachedImageProvider(
+                                    message.sharedEntity!.authorAvatarUrl!,
+                                    cacheIdentity:
+                                        'shared_${message.sharedEntity!.type}_${message.sharedEntity!.id}',
+                                  )
+                                : null,
+                            child:
+                                (message.sharedEntity!.authorAvatarUrl ?? '')
+                                    .trim()
+                                    .isEmpty
+                                ? Icon(
+                                    message.sharedEntity!.type
+                                                .trim()
+                                                .toLowerCase() ==
+                                            'location'
+                                        ? Icons.location_on_outlined
+                                        : Icons.link_rounded,
+                                    size: 18,
+                                  )
+                                : null,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              message.sharedEntity!.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
               ],
               const SizedBox(height: 6),
               Row(

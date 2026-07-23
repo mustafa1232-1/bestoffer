@@ -2,7 +2,9 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:social_core/social_story_document.dart';
 
+import '../../social/ui/widgets/social_story_canvas.dart';
 import '../domain/story_view_data.dart';
 import '../media/social_safe_image.dart';
 
@@ -13,11 +15,7 @@ import '../media/social_safe_image.dart';
 /// letterbox. Video uses the [controller] once it has a first frame; until then
 /// (and for image items) the poster/blur is shown.
 class StoryMediaSurfaceV3 extends StatelessWidget {
-  const StoryMediaSurfaceV3({
-    super.key,
-    required this.item,
-    this.controller,
-  });
+  const StoryMediaSurfaceV3({super.key, required this.item, this.controller});
 
   final StoryV3Item item;
   final VideoPlayerController? controller;
@@ -53,8 +51,30 @@ class StoryMediaSurfaceV3 extends StatelessWidget {
                     showVideoGlyph: item.isVideo,
                   ),
           ),
+          if (item.draft != null)
+            IgnorePointer(
+              child: SocialStoryCanvas(
+                draft: _overlayDraft(item.draft!),
+                active: true,
+                showBackground: false,
+                showBaseMedia: false,
+                borderRadius: BorderRadius.zero,
+              ),
+            ),
         ],
       ),
+    );
+  }
+
+  SocialStoryDraft _overlayDraft(SocialStoryDraft draft) {
+    return draft.copyWith(
+      layers: draft.layers
+          .where(
+            (layer) =>
+                layer.type != SocialStoryLayerType.reelShare &&
+                layer.type != SocialStoryLayerType.postShare,
+          )
+          .toList(growable: false),
     );
   }
 }

@@ -27,6 +27,7 @@ dependencies:
 
   # Routing
   go_router: ^14.2.1
+  app_links: ^7.0.0
 
   # Optional UI helpers (nice to have)
   google_fonts: ^6.2.1
