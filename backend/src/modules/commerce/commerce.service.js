@@ -519,6 +519,11 @@ export async function courierDeliveredOrder(courierUserId, orderId, body = {}) {
     },
   ]);
 
+  // The courier just became free. Run a dispatch round now so a waiting
+  // PENDING_NO_DRIVER order is handed to them immediately instead of idling
+  // until the next periodic recovery tick.
+  void requestDeliveryAssignmentRecovery({ limit: 25 }).catch(() => {});
+
   return out;
 }
 

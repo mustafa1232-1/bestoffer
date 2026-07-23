@@ -41,6 +41,7 @@ import { requestDeliveryAssignmentRecovery } from "./delivery-assignment.worker.
 import {
   ensureDeliveryJobForGroup,
   recomputeGroupReadiness,
+  settleGroupedJobIfChildrenTerminalTx,
 } from "../delivery/delivery-job.service.js";
 import { directAssignDeliveryOrderTx } from "../commerce/commerce.repo.js";
 import crypto from "crypto";
@@ -3568,9 +3569,43 @@ export async function cancelOrderByCustomer({
 
     await transitionInventoryReservationsTx(client, row.id, "released");
 
+    // A courier may already hold this order (assignment happens at `preparing`).
+    // Close the assignment and clear the ASSIGNED flag, otherwise the driver
+    // stays "busy" on a cancelled order and never gets another one.
+    await client.query(
+      `UPDATE courier_assignment
+       SET ended_at = COALESCE(ended_at, NOW()),
+           ended_reason = COALESCE(ended_reason, 'ORDER_CANCELLED'),
+           cancelled_at = COALESCE(cancelled_at, NOW()),
+           responded_at = COALESCE(responded_at, NOW()),
+           status = CASE
+             WHEN status IN ('pending', 'assigned', 'accepted') THEN 'cancelled'
+             ELSE status
+           END
+       WHERE order_id = $1
+         AND ended_at IS NULL`,
+      [Number(row.id)]
+    );
+    await client.query(
+      `UPDATE customer_order
+       SET delivery_assignment_status = 'CANCELLED',
+           updated_at = NOW()
+       WHERE id = $1
+         AND delivery_assignment_status IS DISTINCT FROM 'CANCELLED'`,
+      [Number(row.id)]
+    );
+
     await syncOrderGroupStatusTx(client, row.order_group_id);
 
     await client.query("COMMIT");
+
+    void requestDeliveryAssignmentRecovery({ limit: 25 }).catch((error) => {
+      console.error("[delivery-assignment] recovery trigger failed", {
+        orderId: Number(row.id),
+        error: error?.message || String(error),
+      });
+    });
+
     return {
       ok: true,
       orderId: Number(row.id),
@@ -5074,13 +5109,17 @@ export async function getDeliveryOrderDetail({
     );
     row = result.rows[0] || null;
   } else {
+    // Authorization is ownership of the delivery, not "still in progress":
+    // gating on delivery_assignment_status='ASSIGNED' made the courier's own
+    // order screen 404 the instant they pressed "delivered" (the completion
+    // flips the flag to COMPLETED). A reassignment moves delivery_user_id to the
+    // new courier, so the previous one correctly loses access.
     const result = await q(
       `${orderSelect}
        JOIN app_user du ON du.id = $2
        LEFT JOIN courier_profile ducp ON ducp.user_id = du.id
        WHERE o.id = $1
          AND o.delivery_user_id = $2
-         AND o.delivery_assignment_status = 'ASSIGNED'
        LIMIT 1`,
       [Number(orderId), Number(requestUserId)]
     );
@@ -5449,6 +5488,7 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
        o.id,
        o.customer_user_id,
        o.merchant_id,
+       o.order_group_id,
        m.owner_user_id`,
     [Number(orderId), Number(deliveryUserId)]
   );
@@ -5468,6 +5508,29 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
        AND ended_at IS NULL`,
     [Number(orderId), Number(deliveryUserId)]
   );
+
+  // Finishing a grouped child through the per-order screens must also close the
+  // grouped job once no active child remains — otherwise it keeps holding the
+  // courier as `busy_grouped_job`.
+  if (row.order_group_id) {
+    const groupClient = await pool.connect();
+    try {
+      await groupClient.query("BEGIN");
+      await settleGroupedJobIfChildrenTerminalTx(
+        groupClient,
+        Number(row.order_group_id)
+      );
+      await groupClient.query("COMMIT");
+    } catch (error) {
+      await groupClient.query("ROLLBACK").catch(() => {});
+      console.error("[delivery-assignment] grouped settle failed", {
+        orderId: Number(orderId),
+        error: error?.message || String(error),
+      });
+    } finally {
+      groupClient.release();
+    }
+  }
 
   await createManyNotifications(
     [

@@ -5,6 +5,7 @@ import { directAssignDeliveryOrderTx } from "../commerce/commerce.repo.js";
 import {
   loadAssignableGroupOrderIds,
   runGroupedAssignmentForGroupTx,
+  settleGroupedJobIfChildrenTerminalTx,
 } from "../delivery/delivery-job.service.js";
 import { drainNotificationOutbox } from "../delivery/notification-outbox.worker.js";
 
@@ -32,6 +33,178 @@ function workerConfig() {
       DEFAULT_INTERVAL_MS
     ),
   };
+}
+
+// Order states after which a courier must NOT be considered busy anymore.
+const TERMINAL_ORDER_STATUS_SQL = `(
+  'delivered',
+  'delivered_by_courier',
+  'received_by_customer',
+  'completed',
+  'cancelled',
+  'cancelled_by_store',
+  'cancelled_by_customer',
+  'cancelled_by_admin',
+  'failed_delivery',
+  'returned_if_needed',
+  'expired'
+)`;
+
+/**
+ * Self-healing pass: release couriers that finished (or lost) their work but are
+ * still flagged busy.
+ *
+ * A courier is excluded from every dispatch while an open `courier_assignment`
+ * row or an `ASSIGNED` order still points at them, and the partial unique index
+ * uq_courier_assignment_open_courier makes a leftover open row reject each new
+ * assignment INSERT with 23505. Any write path that finishes an order without
+ * closing both markers therefore retires that driver permanently.
+ *
+ * The write paths now close them at the source; this sweep is the safety net —
+ * it repairs rows stranded by older builds and by any path we have not reached
+ * yet. Every condition below is strictly terminal, so a courier mid-delivery is
+ * never touched.
+ */
+export async function reconcileStaleCourierAssignments(client) {
+  const summary = {
+    closedTerminalOrderAssignments: 0,
+    closedDetachedAssignments: 0,
+    closedExpiredOffers: 0,
+    closedTerminalJobAssignments: 0,
+    settledFinishedGroupedJobs: 0,
+    clearedOrderFlags: 0,
+  };
+
+  // 0. Grouped jobs whose child orders all finished, but whose job row was left
+  //    ASSIGNED. This happens when the courier completes a multi-store delivery
+  //    through the per-order screens: the children go terminal while
+  //    delivery_job keeps holding the courier as `busy_grouped_job`.
+  const finishedGroups = (
+    await client.query(
+      `SELECT j.order_group_id
+         FROM delivery_job j
+        WHERE j.assignment_status NOT IN ('COMPLETED', 'CANCELLED', 'FAILED')
+          AND EXISTS (
+            SELECT 1 FROM customer_order o WHERE o.order_group_id = j.order_group_id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM customer_order o
+             WHERE o.order_group_id = j.order_group_id
+               AND o.status::text NOT IN ${TERMINAL_ORDER_STATUS_SQL}
+          )
+        LIMIT 100`
+    )
+  ).rows;
+  for (const row of finishedGroups) {
+    const settled = await settleGroupedJobIfChildrenTerminalTx(
+      client,
+      Number(row.order_group_id)
+    );
+    if (settled) summary.settledFinishedGroupedJobs += 1;
+  }
+
+  // 1. Open assignment on an order that already reached a terminal state.
+  summary.closedTerminalOrderAssignments = (
+    await client.query(
+      `UPDATE courier_assignment ca
+       SET ended_at = COALESCE(ca.ended_at, NOW()),
+           ended_reason = COALESCE(
+             ca.ended_reason,
+             CASE
+               WHEN o.status::text IN ('delivered','delivered_by_courier','received_by_customer','completed')
+                 THEN 'COMPLETED'
+               ELSE 'ORDER_CANCELLED'
+             END
+           ),
+           status = CASE
+             WHEN ca.status IN ('pending','assigned','accepted')
+               AND o.status::text IN ('delivered','delivered_by_courier','received_by_customer','completed')
+               THEN 'completed'
+             WHEN ca.status IN ('pending','assigned','accepted') THEN 'cancelled'
+             ELSE ca.status
+           END
+       FROM customer_order o
+       WHERE o.id = ca.order_id
+         AND ca.ended_at IS NULL
+         AND o.status::text IN ${TERMINAL_ORDER_STATUS_SQL}`
+    )
+  ).rowCount;
+
+  // 2. Open assignment whose order no longer belongs to that courier.
+  summary.closedDetachedAssignments = (
+    await client.query(
+      `UPDATE courier_assignment ca
+       SET ended_at = COALESCE(ca.ended_at, NOW()),
+           ended_reason = COALESCE(ca.ended_reason, 'RELEASED'),
+           status = CASE
+             WHEN ca.status IN ('pending','assigned','accepted') THEN 'released'
+             ELSE ca.status
+           END
+       FROM customer_order o
+       WHERE o.id = ca.order_id
+         AND ca.ended_at IS NULL
+         AND ca.status IN ('assigned', 'accepted')
+         AND o.delivery_user_id IS DISTINCT FROM ca.courier_user_id`
+    )
+  ).rowCount;
+
+  // 3. Offers nobody ever answered.
+  summary.closedExpiredOffers = (
+    await client.query(
+      `UPDATE courier_assignment
+       SET ended_at = COALESCE(ended_at, NOW()),
+           ended_reason = COALESCE(ended_reason, 'EXPIRED'),
+           responded_at = COALESCE(responded_at, NOW()),
+           status = 'expired'
+       WHERE ended_at IS NULL
+         AND status = 'pending'
+         AND expires_at IS NOT NULL
+         AND expires_at < NOW()`
+    )
+  ).rowCount;
+
+  // 4. Grouped assignment on a delivery_job that already ended.
+  summary.closedTerminalJobAssignments = (
+    await client.query(
+      `UPDATE courier_assignment ca
+       SET ended_at = COALESCE(ca.ended_at, NOW()),
+           ended_reason = COALESCE(
+             ca.ended_reason,
+             CASE WHEN j.lifecycle_status = 'DELIVERED' THEN 'COMPLETED' ELSE 'RELEASED' END
+           ),
+           status = CASE
+             WHEN ca.status IN ('pending','assigned','accepted')
+               AND j.lifecycle_status = 'DELIVERED' THEN 'completed'
+             WHEN ca.status IN ('pending','assigned','accepted') THEN 'released'
+             ELSE ca.status
+           END
+       FROM delivery_job j
+       WHERE j.id = ca.delivery_job_id
+         AND ca.ended_at IS NULL
+         AND (
+           j.lifecycle_status IN ('DELIVERED', 'CANCELLED', 'FAILED')
+           OR j.assignment_status IN ('COMPLETED', 'CANCELLED', 'FAILED')
+         )`
+    )
+  ).rowCount;
+
+  // 5. Orders still flagged ASSIGNED although they are terminal.
+  summary.clearedOrderFlags = (
+    await client.query(
+      `UPDATE customer_order o
+       SET delivery_assignment_status = CASE
+             WHEN o.status::text IN ('delivered','delivered_by_courier','received_by_customer','completed')
+               THEN 'COMPLETED'
+             ELSE 'CANCELLED'
+           END,
+           updated_at = NOW()
+       WHERE o.delivery_assignment_status = 'ASSIGNED'
+         AND o.status::text IN ${TERMINAL_ORDER_STATUS_SQL}`
+    )
+  ).rowCount;
+
+  return summary;
 }
 
 export async function loadPendingAssignmentOrders(client, limit) {
@@ -307,6 +480,18 @@ export async function processDeliveryAssignmentRecoveryBatch({ limit = DEFAULT_B
       return { processed: 0, assigned: 0, pending: 0, locked: false };
     }
 
+    // Release couriers stranded by a terminal order/job BEFORE selecting
+    // candidates, so this same round can hand them the waiting work.
+    let reconciled = null;
+    try {
+      await client.query("BEGIN");
+      reconciled = await reconcileStaleCourierAssignments(client);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[delivery-assignment-worker] reconcile failed", error);
+    }
+
     await client.query("BEGIN");
     const rows = await loadPendingAssignmentOrders(client, limit);
     await client.query("COMMIT");
@@ -316,6 +501,7 @@ export async function processDeliveryAssignmentRecoveryBatch({ limit = DEFAULT_B
       assigned: 0,
       pending: 0,
       locked: true,
+      reconciled,
     };
 
     for (const row of rows) {

@@ -11,7 +11,11 @@ import * as c from "./feed.controller.js";
 export const feedRouter = Router();
 
 feedRouter.post("/media/stream/webhook", c.streamWebhook);
-feedRouter.get("/reels/:reelId", optionalAuth, c.getPublicReelById);
+// Numeric constraint: this public route is declared before the authenticated
+// block, so an unconstrained ":reelId" also swallowed GET /reels/explore
+// (reelId="explore" -> validatePostId fails -> 400) and the Reels page could
+// never load its feed.
+feedRouter.get("/reels/:reelId(\\d+)", optionalAuth, c.getPublicReelById);
 
 feedRouter.use(requireAuth);
 

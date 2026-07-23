@@ -144,18 +144,129 @@ export async function recomputeGroupReadiness(client, orderGroupId) {
         ? "READY_FOR_ASSIGNMENT"
         : "PENDING_STORES";
   await client.query(
+    // COMPLETED/CANCELLED and the terminal lifecycle states are preserved too: a
+    // late readiness recompute (e.g. an owner status edit after delivery) must
+    // never flip a finished job back to READY_FOR_ASSIGNMENT, which would hand a
+    // delivered job to a courier again and occupy them indefinitely.
     `UPDATE delivery_job
         SET assignment_status = CASE
-              WHEN assignment_status IN ('ASSIGNED','REASSIGNING','FAILED')
+              WHEN assignment_status IN ('ASSIGNED','REASSIGNING','FAILED','COMPLETED','CANCELLED')
               THEN assignment_status ELSE $2 END,
             lifecycle_status = CASE
-              WHEN lifecycle_status IN ('ASSIGNED') THEN lifecycle_status ELSE $2 END,
+              WHEN lifecycle_status IN ('ASSIGNED','DELIVERED','CANCELLED','FAILED')
+              THEN lifecycle_status ELSE $2 END,
             cancelled_at = CASE WHEN $2 = 'CANCELLED' THEN COALESCE(cancelled_at, NOW()) ELSE cancelled_at END,
             updated_at = NOW()
       WHERE order_group_id=$1`,
     [orderGroupId, next]
   );
   return next;
+}
+
+// Child-order states after which a grouped job holds no more work.
+const TERMINAL_CHILD_STATUSES = [
+  "delivered",
+  "delivered_by_courier",
+  "received_by_customer",
+  "completed",
+  "cancelled",
+  "cancelled_by_store",
+  "cancelled_by_customer",
+  "cancelled_by_admin",
+  "failed_delivery",
+  "returned_if_needed",
+  "expired",
+];
+
+const DELIVERED_CHILD_STATUSES = [
+  "delivered",
+  "delivered_by_courier",
+  "received_by_customer",
+  "completed",
+];
+
+/**
+ * Close a grouped job whose child orders have ALL reached a terminal state.
+ *
+ * A courier can finish a grouped delivery through the per-order screens (the
+ * children are mirrored onto `customer_order`), which never touches
+ * `delivery_job`. The job then stays ASSIGNED with an open grouped
+ * `courier_assignment`, and the courier is excluded from every later dispatch as
+ * `busy_grouped_job`. Callers that terminate a child order run this to keep the
+ * grouped truth in sync. Idempotent; a job with any active child is left alone.
+ */
+export async function settleGroupedJobIfChildrenTerminalTx(client, orderGroupId) {
+  const groupId = Number(orderGroupId);
+  if (!Number.isFinite(groupId) || groupId <= 0) return null;
+
+  const job = (
+    await client.query(
+      `SELECT id, assignment_status, lifecycle_status
+         FROM delivery_job
+        WHERE order_group_id = $1
+        FOR UPDATE`,
+      [groupId]
+    )
+  ).rows[0];
+  if (!job) return null;
+  if (["COMPLETED", "CANCELLED", "FAILED"].includes(String(job.assignment_status))) {
+    return null;
+  }
+
+  const pending = await client.query(
+    `SELECT 1
+       FROM customer_order
+      WHERE order_group_id = $1
+        AND status::text <> ALL($2::text[])
+      LIMIT 1`,
+    [groupId, TERMINAL_CHILD_STATUSES]
+  );
+  if (pending.rowCount > 0) return null;
+
+  const deliveredRows = await client.query(
+    `SELECT 1
+       FROM customer_order
+      WHERE order_group_id = $1
+        AND status::text = ANY($2::text[])
+      LIMIT 1`,
+    [groupId, DELIVERED_CHILD_STATUSES]
+  );
+  const delivered = deliveredRows.rowCount > 0;
+
+  await client.query(
+    `UPDATE courier_assignment
+        SET ended_at = COALESCE(ended_at, NOW()),
+            ended_reason = COALESCE(ended_reason, $2),
+            completed_at = CASE WHEN $3::boolean THEN COALESCE(completed_at, NOW()) ELSE completed_at END,
+            cancelled_at = CASE WHEN $3::boolean THEN cancelled_at ELSE COALESCE(cancelled_at, NOW()) END,
+            status = CASE
+              WHEN status IN ('pending','assigned','accepted') AND $3::boolean THEN 'completed'
+              WHEN status IN ('pending','assigned','accepted') THEN 'cancelled'
+              ELSE status
+            END
+      WHERE delivery_job_id = $1
+        AND ended_at IS NULL`,
+    [Number(job.id), delivered ? "COMPLETED" : "ORDER_CANCELLED", delivered]
+  );
+
+  await client.query(
+    `UPDATE delivery_job
+        SET assignment_status = $2,
+            lifecycle_status = $3,
+            completed_at = CASE WHEN $4::boolean THEN COALESCE(completed_at, NOW()) ELSE completed_at END,
+            cancelled_at = CASE WHEN $4::boolean THEN cancelled_at ELSE COALESCE(cancelled_at, NOW()) END,
+            version = version + 1,
+            updated_at = NOW()
+      WHERE id = $1`,
+    [
+      Number(job.id),
+      delivered ? "COMPLETED" : "CANCELLED",
+      delivered ? "DELIVERED" : "CANCELLED",
+      delivered,
+    ]
+  );
+
+  return { deliveryJobId: Number(job.id), delivered };
 }
 
 /**

@@ -22,6 +22,7 @@ import {
   loadProductRichCatalogByIds,
 } from "../products/products.repo.js";
 import { syncOrderIncentiveConsumptionForStatusTx } from "../orders/order-incentives.repo.js";
+import { settleGroupedJobIfChildrenTerminalTx } from "../delivery/delivery-job.service.js";
 
 const DELIVERY_APPROVED_FILTER = `
   u.role = 'delivery'
@@ -1433,6 +1434,85 @@ export async function directAssignDeliveryOrderTx(
   };
 }
 
+/**
+ * Authoritative "the courier is free again" transition for a SINGLE order.
+ *
+ * Every dispatcher (lockEligibleCourierCandidateTx, selectEligibleCourier,
+ * assertCourierEligibleForAssignment) treats a courier as BUSY while either
+ * marker survives:
+ *   1. an open `courier_assignment` row (ended_at IS NULL), and
+ *   2. a `customer_order` still flagged delivery_assignment_status='ASSIGNED'.
+ * The partial unique index uq_courier_assignment_open_courier additionally makes
+ * a leftover open row block every future INSERT for that courier (23505), so a
+ * terminal order that forgets to close these markers silently retires the
+ * courier for good — one order per driver, forever.
+ *
+ * This helper closes BOTH markers in the caller's transaction. It is idempotent
+ * and safe to call on an order that was already released.
+ */
+async function releaseOrderCourierTx(
+  client,
+  { orderId, outcome = "COMPLETED", endedReason = null }
+) {
+  const isCancelled = String(outcome).toUpperCase() === "CANCELLED";
+  const nextAssignmentStatus = isCancelled
+    ? DELIVERY_ASSIGNMENT_STATUSES.CANCELLED
+    : DELIVERY_ASSIGNMENT_STATUSES.COMPLETED;
+  const reason =
+    endedReason || (isCancelled ? "ORDER_CANCELLED" : "COMPLETED");
+
+  await client.query(
+    `UPDATE courier_assignment
+     SET ended_at = COALESCE(ended_at, NOW()),
+         ended_reason = COALESCE(ended_reason, $2),
+         responded_at = COALESCE(responded_at, NOW()),
+         completed_at = CASE
+           WHEN $3::boolean THEN completed_at
+           ELSE COALESCE(completed_at, NOW())
+         END,
+         cancelled_at = CASE
+           WHEN $3::boolean THEN COALESCE(cancelled_at, NOW())
+           ELSE cancelled_at
+         END,
+         status = CASE
+           WHEN status IN ('pending', 'assigned', 'accepted') AND $3::boolean THEN 'cancelled'
+           WHEN status IN ('pending', 'assigned', 'accepted') THEN 'completed'
+           ELSE status
+         END
+     WHERE order_id = $1
+       AND ended_at IS NULL`,
+    [Number(orderId), reason, isCancelled]
+  );
+
+  const updated = await client.query(
+    `UPDATE customer_order
+     SET delivery_assignment_status = $2,
+         updated_at = NOW()
+     WHERE id = $1
+       AND delivery_assignment_status IS DISTINCT FROM $2
+     RETURNING id, order_group_id`,
+    [Number(orderId), nextAssignmentStatus]
+  );
+
+  // Read the group id independently of the UPDATE above: on a repeat call the
+  // flag is already correct and RETURNING yields no row, but the grouped job may
+  // still need settling.
+  const orderGroupId =
+    updated.rows[0]?.order_group_id != null
+      ? Number(updated.rows[0].order_group_id)
+      : Number(
+          (
+            await client.query(
+              "SELECT order_group_id FROM customer_order WHERE id = $1",
+              [Number(orderId)]
+            )
+          ).rows[0]?.order_group_id || 0
+        ) || null;
+  if (orderGroupId) {
+    await settleGroupedJobIfChildrenTerminalTx(client, orderGroupId);
+  }
+}
+
 async function cancelPendingAssignmentsTx(client, orderId, exceptCourierId = null) {
   // Close the rows (ended_at) in addition to marking them cancelled. The open
   // uniqueness indexes key on `ended_at IS NULL`, so a 'cancelled' row that
@@ -1957,8 +2037,14 @@ export async function courierAcceptAssignment({
     }
 
     await client.query(
+      // `ended_at` must be stamped too: the open-assignment uniqueness indexes
+      // and every eligibility filter key on `ended_at IS NULL`, so a cancelled
+      // offer left open kept those couriers permanently busy.
       `UPDATE courier_assignment
        SET status = 'cancelled',
+           ended_at = COALESCE(ended_at, NOW()),
+           ended_reason = COALESCE(ended_reason, 'RELEASED'),
+           cancelled_at = COALESCE(cancelled_at, NOW()),
            responded_at = COALESCE(responded_at, NOW())
        WHERE order_id = $1
          AND status = 'pending'
@@ -2024,9 +2110,13 @@ export async function courierRejectAssignment({
   try {
     await client.query("BEGIN");
     const assignment = await client.query(
+      // A rejection ends this courier's involvement — close the row so it stops
+      // counting as an open assignment against them.
       `UPDATE courier_assignment
        SET status = 'rejected',
            responded_at = NOW(),
+           ended_at = COALESCE(ended_at, NOW()),
+           ended_reason = COALESCE(ended_reason, 'DRIVER_REJECTED'),
            response_note = COALESCE($3, response_note)
        WHERE order_id = $1
          AND courier_user_id = $2
@@ -3660,6 +3750,16 @@ export async function courierMarkDelivered({
       [Number(orderId)]
     );
 
+    // The delivery is over: free the courier in the SAME transaction so the very
+    // next dispatch round can pick them again. Skipping this left the order
+    // flagged ASSIGNED with an open courier_assignment, which every eligibility
+    // filter reads as "still busy" — the courier then never received a second
+    // order until an admin cleaned the rows by hand.
+    await releaseOrderCourierTx(client, {
+      orderId: Number(orderId),
+      outcome: "COMPLETED",
+    });
+
     await insertStatusHistoryTx(client, {
       orderId: Number(orderId),
       oldStatus: String(order.status),
@@ -3725,6 +3825,13 @@ export async function customerConfirmOrderReceived({
        WHERE id = $1`,
       [Number(orderId)]
     );
+
+    // Defensive: the courier is normally released at `delivered`, but a customer
+    // confirmation is also a terminal point — never leave the driver occupied.
+    await releaseOrderCourierTx(client, {
+      orderId: Number(orderId),
+      outcome: "COMPLETED",
+    });
 
     await insertStatusHistoryTx(client, {
       orderId: Number(orderId),
@@ -4165,6 +4272,12 @@ async function reviewCourierCancelRequestTx(
       reason: `courier_cancel_request:${requestReasonCode || "approved"}`,
     });
     await cancelPendingAssignmentsTx(client, Number(orderId));
+    // An approved courier-cancel request ends the delivery: release the courier
+    // (open assignment + ASSIGNED flag) or they stay busy on a cancelled order.
+    await releaseOrderCourierTx(client, {
+      orderId: Number(orderId),
+      outcome: "CANCELLED",
+    });
     await client.query(
       `INSERT INTO order_action_event
         (order_id, actor_user_id, actor_scope, action_kind, reason_code, reason_text, metadata_json)

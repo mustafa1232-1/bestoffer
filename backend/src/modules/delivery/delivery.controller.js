@@ -2,6 +2,7 @@ import * as service from "./delivery.service.js";
 import * as jobs from "./delivery-job.service.js";
 import { validateDeliveryRegister } from "./delivery.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
+import { requestDeliveryAssignmentRecovery } from "../orders/delivery-assignment.worker.js";
 
 /**
  * Purpose:
@@ -292,6 +293,8 @@ export async function groupedDelivered(req, res, next) {
       deliveryJobId: req.params.deliveryJobId,
       expectedVersion: expectedVersion(req),
     });
+    // The courier is free again — dispatch a waiting job to them right away.
+    void requestDeliveryAssignmentRecovery({ limit: 25 }).catch(() => {});
     res.json(out);
   } catch (e) {
     next(e);
