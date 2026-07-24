@@ -120,6 +120,11 @@ void runUserAppBootstrap() {
   AppFlavorContext.setCurrent(AppFlavor.user);
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    _logStartupEvent(
+      'startup_begin',
+      status: 'binding_ready',
+      duration: Duration.zero,
+    );
     installAppRuntimeErrorPresentation();
     if (!await BuildIdentityGuard.validateOrShow(BuildIdentitySpec.user)) {
       return;
@@ -143,7 +148,29 @@ void runUserAppBootstrap() {
     };
 
     if (appSupportsPushMessaging) {
-      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      try {
+        FirebaseMessaging.onBackgroundMessage(
+          firebaseMessagingBackgroundHandler,
+        );
+        _logStartupEvent(
+          'firebase_init_result',
+          status: 'background_handler_registered',
+          duration: Duration.zero,
+        );
+      } catch (error) {
+        _logStartupEvent(
+          'firebase_init_result',
+          status: 'background_handler_failed',
+          duration: Duration.zero,
+          errorType: error.runtimeType.toString(),
+        );
+      }
+    } else {
+      _logStartupEvent(
+        'firebase_init_result',
+        status: 'unsupported_platform',
+        duration: Duration.zero,
+      );
     }
     await _runAppWithOptionalSentry(
       ProviderScope(
@@ -158,6 +185,30 @@ void runUserAppBootstrap() {
       ),
     );
   }, (error, stack) => _reportFatalError('zone', error, stack));
+}
+
+void _logStartupEvent(
+  String event, {
+  required String status,
+  required Duration duration,
+  int? statusCode,
+  String? errorType,
+}) {
+  final fields = <String>[
+    'platform=$appPlatformName',
+    'status=$status',
+    'durationMs=${duration.inMilliseconds}',
+    if (statusCode != null) 'statusCode=$statusCode',
+    if (errorType != null && errorType.trim().isNotEmpty)
+      'errorType=${_sanitizeStartupLogValue(errorType)}',
+  ];
+  debugPrint('[startup][$event] ${fields.join(' ')}');
+}
+
+String _sanitizeStartupLogValue(String value) {
+  final text = value.replaceAll(RegExp(r'[\r\n\t]+'), ' ').trim();
+  if (text.length <= 160) return text;
+  return '${text.substring(0, 160)}...';
 }
 
 /// ÙŠØ±Ø³Ù„ Ø§Ù„Ø£Ø®Ø·Ø§Ø¡ Ø§Ù„Ù‚Ø§ØªÙ„Ø© Ø¥Ù„Ù‰ `debugPrint` Ø¨Ø´ÙƒÙ„ Ø®ÙÙŠÙ ÙŠÙ…ÙƒÙ† Ø§Ù„Ø§Ø¹ØªÙ…Ø§Ø¯ Ø¹Ù„ÙŠÙ‡ Ø­ØªÙ‰
@@ -401,9 +452,32 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     Future<void> future, {
     required Duration timeout,
   }) async {
+    final watch = Stopwatch()..start();
+    if (label == 'auth_bootstrap') {
+      _logStartupEvent(
+        'session_restore_begin',
+        status: 'auth_bootstrap',
+        duration: Duration.zero,
+      );
+    }
     try {
       await future.timeout(timeout);
+      if (label == 'auth_bootstrap') {
+        _logStartupEvent(
+          'session_restore_result',
+          status: 'completed',
+          duration: watch.elapsed,
+        );
+      }
     } catch (error, stack) {
+      if (label == 'auth_bootstrap') {
+        _logStartupEvent(
+          'session_restore_result',
+          status: 'timeout_or_error',
+          duration: watch.elapsed,
+          errorType: error.runtimeType.toString(),
+        );
+      }
       debugPrint('[startup][$label] $error');
       debugPrintStack(stackTrace: stack, label: '[startup][$label] stack');
     }
@@ -625,17 +699,45 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   Future<void> _ensurePushReadyAndSync(AuthState auth) async {
     if (!mounted || !auth.isAuthed || auth.user == null) return;
     final push = ref.read(pushNotificationsProvider);
-    await push.initialize();
+    final initWatch = Stopwatch()..start();
+    try {
+      await push.initialize().timeout(_bestEffortStepTimeout);
+      _logStartupEvent(
+        'push_init_result',
+        status: 'initialized',
+        duration: initWatch.elapsed,
+      );
+    } catch (error) {
+      _logStartupEvent(
+        'push_init_result',
+        status: 'ignored_timeout_or_error',
+        duration: initWatch.elapsed,
+        errorType: error.runtimeType.toString(),
+      );
+      return;
+    }
     if (!mounted) return;
     _pushTapSub ??= push.tapStream.listen(_handleNotificationTap);
 
     final userId = auth.user!.id;
     if (_pushSyncInFlight || _pushSyncedUserId == userId) return;
     _pushSyncInFlight = true;
+    final syncWatch = Stopwatch()..start();
     try {
-      await push.syncToken(userId: userId);
+      await push.syncToken(userId: userId).timeout(_bestEffortStepTimeout);
       _pushSyncedUserId = userId;
-    } catch (_) {
+      _logStartupEvent(
+        'push_init_result',
+        status: 'token_synced',
+        duration: syncWatch.elapsed,
+      );
+    } catch (error) {
+      _logStartupEvent(
+        'push_init_result',
+        status: 'sync_ignored_timeout_or_error',
+        duration: syncWatch.elapsed,
+        errorType: error.runtimeType.toString(),
+      );
       // Keep sync best-effort; lifecycle resume will retry if needed.
     } finally {
       _pushSyncInFlight = false;

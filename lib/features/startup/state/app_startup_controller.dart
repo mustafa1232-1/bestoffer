@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/constants/api.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../auth/state/auth_controller.dart';
 
@@ -76,11 +80,20 @@ class AppStartupController extends StateNotifier<AppStartupState> {
 
   final SecureStore store;
   final Dio dio;
+  final Duration serverAttemptTimeout;
+  final List<Duration> serverRetryBackoff;
+  Future<void>? _bootstrapInFlight;
+  Future<void>? _serverCheckInFlight;
 
   AppStartupController({
     required this.store,
     required this.dio,
     required bool? initialFirstLaunchDone,
+    this.serverAttemptTimeout = const Duration(seconds: 10),
+    this.serverRetryBackoff = const [
+      Duration(milliseconds: 500),
+      Duration(seconds: 1),
+    ],
   }) : super(
          initialFirstLaunchDone == true
              ? const AppStartupState(
@@ -92,35 +105,156 @@ class AppStartupController extends StateNotifier<AppStartupState> {
              : const AppStartupState.initial(),
        );
 
-  Future<void> bootstrap() async {
-    if (state.initialized) return;
-    state = state.copyWith(initialized: true);
+  // First-launch storage lives in the Keychain / SharedPreferences. On a fresh
+  // iOS install those first reads can stall; an unbounded await here used to
+  // strand the app on the "preparing" screen forever (phase never left idle, so
+  // the server check never ran and no retry was offered). Time-box the read and
+  // always fall through to the server check so the gate can never hang.
+  static const _firstLaunchReadBudget = Duration(seconds: 4);
+  static const _maxServerAttempts = 3;
 
-    final done = await _readFirstLaunchDone();
+  Future<void> bootstrap() async {
+    final existing = _bootstrapInFlight;
+    if (existing != null) return existing;
+    if (state.initialized && state.isReady) return;
+    state = state.copyWith(initialized: true);
+    final future = _bootstrap();
+    _bootstrapInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_bootstrapInFlight, future)) {
+        _bootstrapInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _bootstrap() async {
+    final startupWatch = Stopwatch()..start();
+    _logStartup(
+      'startup_begin',
+      status: state.phase.name,
+      duration: Duration.zero,
+    );
+    _logStartup(
+      'config_resolved',
+      status: 'ok',
+      duration: Duration.zero,
+      detail: 'baseUrl=${Api.baseUrl}',
+    );
+
+    var done = false;
+    try {
+      done = await _readFirstLaunchDone().timeout(
+        _firstLaunchReadBudget,
+        onTimeout: () => false,
+      );
+      _logStartup(
+        'session_restore_result',
+        status: done ? 'first_launch_done' : 'first_launch_pending',
+        duration: startupWatch.elapsed,
+      );
+    } catch (_) {
+      // Storage unreadable (e.g. Keychain error on a fresh install) — treat as a
+      // first launch and continue rather than stranding the user.
+      done = false;
+      _logStartup(
+        'session_restore_result',
+        status: 'storage_error_ignored',
+        duration: startupWatch.elapsed,
+      );
+    }
+
     if (done) {
       state = state.copyWith(phase: AppStartupPhase.ready, clearError: true);
+      _logStartup(
+        'startup_ready',
+        status: state.phase.name,
+        duration: startupWatch.elapsed,
+      );
       return;
     }
 
+    _logStartup(
+      'session_restore_begin',
+      status: 'server_gate_required',
+      duration: startupWatch.elapsed,
+    );
     await checkServerReadiness();
+    if (state.phase == AppStartupPhase.ready) {
+      _logStartup(
+        'startup_ready',
+        status: state.phase.name,
+        duration: startupWatch.elapsed,
+      );
+    } else {
+      _logStartup(
+        'startup_error',
+        status: state.phase.name,
+        duration: startupWatch.elapsed,
+        errorType: state.error,
+      );
+    }
   }
 
   Future<void> checkServerReadiness() async {
+    final existing = _serverCheckInFlight;
+    if (existing != null) return existing;
+    final future = _checkServerReadiness();
+    _serverCheckInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_serverCheckInFlight, future)) {
+        _serverCheckInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _checkServerReadiness() async {
+    for (var attempt = 1; attempt <= _maxServerAttempts; attempt++) {
+      await _checkServerReadinessAttempt(attempt);
+      if (state.phase == AppStartupPhase.ready) return;
+
+      final delayIndex = attempt - 1;
+      if (attempt < _maxServerAttempts &&
+          delayIndex < serverRetryBackoff.length) {
+        await Future<void>.delayed(serverRetryBackoff[delayIndex]);
+      }
+    }
+  }
+
+  Future<void> _checkServerReadinessAttempt(int attempt) async {
     state = state.copyWith(
       phase: AppStartupPhase.checkingServer,
       clearError: true,
       attempts: state.attempts + 1,
     );
 
+    final attemptWatch = Stopwatch()..start();
+    _logStartup(
+      'server_check_begin',
+      status: 'attempt_$attempt',
+      duration: Duration.zero,
+    );
+
     try {
-      final response = await dio.get<dynamic>(
-        '/health',
-        options: Options(
-          sendTimeout: const Duration(seconds: 8),
-          receiveTimeout: const Duration(seconds: 8),
-        ),
-      );
-      if (response.statusCode == null || response.statusCode! >= 500) {
+      final response = await dio
+          .get<dynamic>(
+            '/health',
+            options: Options(
+              sendTimeout: const Duration(seconds: 8),
+              receiveTimeout: const Duration(seconds: 8),
+              // /health is public and runs before login — skip the auth/token/
+              // signing interceptor path so a slow Keychain read cannot stall the
+              // readiness probe.
+              extra: const {'skipAuth': true},
+            ),
+          )
+          .timeout(serverAttemptTimeout);
+      if (response.statusCode == null ||
+          response.statusCode! < 200 ||
+          response.statusCode! >= 500) {
         throw DioException(
           requestOptions: response.requestOptions,
           response: response,
@@ -128,13 +262,43 @@ class AppStartupController extends StateNotifier<AppStartupState> {
         );
       }
 
+      _logStartup(
+        'server_check_success',
+        status: 'ok',
+        statusCode: response.statusCode,
+        duration: attemptWatch.elapsed,
+      );
       state = state.copyWith(phase: AppStartupPhase.ready, clearError: true);
     } on DioException catch (error) {
+      _logStartup(
+        'server_check_failure',
+        status: 'retryable',
+        statusCode: error.response?.statusCode,
+        errorType: error.type.name,
+        duration: attemptWatch.elapsed,
+      );
       state = state.copyWith(
         phase: AppStartupPhase.serverCheckFailed,
         error: _readServerError(error),
       );
-    } catch (_) {
+    } on TimeoutException {
+      _logStartup(
+        'server_check_failure',
+        status: 'timeout',
+        errorType: 'TimeoutException',
+        duration: attemptWatch.elapsed,
+      );
+      state = state.copyWith(
+        phase: AppStartupPhase.serverCheckFailed,
+        error: 'Connection timeout while contacting server.',
+      );
+    } catch (error) {
+      _logStartup(
+        'server_check_failure',
+        status: 'unknown',
+        errorType: error.runtimeType.toString(),
+        duration: attemptWatch.elapsed,
+      );
       state = state.copyWith(
         phase: AppStartupPhase.serverCheckFailed,
         error: 'Unable to connect to server.',
@@ -162,9 +326,17 @@ class AppStartupController extends StateNotifier<AppStartupState> {
       }
     }
 
-    final secureValue = await store.readBool(firstLaunchDoneStorageKey);
+    bool? secureValue;
+    try {
+      secureValue = await store
+          .readBool(firstLaunchDoneStorageKey)
+          .timeout(const Duration(seconds: 2), onTimeout: () => null);
+    } catch (_) {
+      secureValue = null;
+    }
     if (secureValue != null) {
-      await _writeFirstLaunchDone(secureValue);
+      // Best-effort mirror back; never let a slow write block startup.
+      unawaited(_writeFirstLaunchDone(secureValue));
       return secureValue;
     }
     return false;
@@ -183,15 +355,46 @@ class AppStartupController extends StateNotifier<AppStartupState> {
 
   Future<SharedPreferences?> _prefsOrNull() async {
     try {
-      return await SharedPreferences.getInstance();
+      return await SharedPreferences.getInstance().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => throw TimeoutException('prefs'),
+      );
     } catch (_) {
       return null;
     }
   }
 
+  void _logStartup(
+    String event, {
+    required String status,
+    required Duration duration,
+    int? statusCode,
+    String? errorType,
+    String? detail,
+  }) {
+    final fields = <String>[
+      'platform=${defaultTargetPlatform.name}',
+      'status=$status',
+      'durationMs=${duration.inMilliseconds}',
+      if (statusCode != null) 'statusCode=$statusCode',
+      if (errorType != null && errorType.trim().isNotEmpty)
+        'errorType=${_sanitizeLogValue(errorType)}',
+      if (detail != null && detail.trim().isNotEmpty)
+        'detail=${_sanitizeLogValue(detail)}',
+    ];
+    debugPrint('[startup][$event] ${fields.join(' ')}');
+  }
+
+  String _sanitizeLogValue(String value) {
+    final text = value.replaceAll(RegExp(r'[\r\n\t]+'), ' ').trim();
+    if (text.length <= 160) return text;
+    return '${text.substring(0, 160)}...';
+  }
+
   String _readServerError(DioException error) {
     if (error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.unknown ||
         error.type == DioExceptionType.receiveTimeout ||
         error.type == DioExceptionType.sendTimeout) {
       return 'Connection timeout while contacting server.';
