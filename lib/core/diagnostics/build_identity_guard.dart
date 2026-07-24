@@ -61,7 +61,20 @@ class BuildIdentityGuard {
     final actualPackageName = await _packageName();
     final failures = <String>[];
 
-    if (actualPackageName.isNotEmpty &&
+    // The reverse-DNS applicationId (com.maslaki.*) is the real OS package name
+    // ONLY on the shipping mobile surfaces. On desktop/web the platform package
+    // name is the product name (e.g. "Maslaki"), so it can never equal the
+    // applicationId — enforcing equality there would block local UI smoke-tests
+    // without adding any integrity value. We keep full package enforcement on
+    // Android/iOS and skip only the package check on desktop/web. The
+    // compile-time flavor/surface checks below still run on every platform.
+    final enforcesPackageIdentity =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS);
+
+    if (enforcesPackageIdentity &&
+        actualPackageName.isNotEmpty &&
         actualPackageName != spec.applicationId) {
       failures.add('package=$actualPackageName expected=${spec.applicationId}');
     }
