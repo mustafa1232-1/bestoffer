@@ -31,6 +31,10 @@ export async function listVisiblePostCandidates({
   mentionedUserId = null,
   includeCommunityScoped = true,
 }) {
+  const viewerId =
+    Number.isInteger(Number(viewerUserId)) && Number(viewerUserId) > 0
+      ? Number(viewerUserId)
+      : null;
   const normalizedKinds = normalizePostKinds(postKinds);
   const searchQuery = normalizedSearch(search);
   const r = await q(
@@ -206,7 +210,7 @@ export async function listVisiblePostCandidates({
      ORDER BY p.id DESC
      LIMIT $8`,
     [
-      Number(viewerUserId),
+      viewerId,
       beforeId == null ? null : Number(beforeId),
       authorUserId == null ? null : Number(authorUserId),
       normalizedKinds,
@@ -262,6 +266,10 @@ export async function listVisiblePostsByIds({
     ? [...new Set(postIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))]
     : [];
   if (normalizedIds.length <= 0) return [];
+  const viewerId =
+    Number.isInteger(Number(viewerUserId)) && Number(viewerUserId) > 0
+      ? Number(viewerUserId)
+      : null;
   const r = await q(
     `SELECT
        p.id,
@@ -406,7 +414,7 @@ export async function listVisiblePostsByIds({
        )
      ORDER BY p.id DESC`,
     [
-      Number(viewerUserId),
+      viewerId,
       normalizedIds,
       viewerBlockCode == null ? null : String(viewerBlockCode).trim().toUpperCase(),
       viewerCompoundCode == null ? null : String(viewerCompoundCode).trim().toUpperCase(),

@@ -9,6 +9,14 @@ class SocialApi {
 
   SocialApi(this.dio);
 
+  static final Options _publicReelReadOptions = Options(
+    extra: const <String, dynamic>{
+      'skipAuth': true,
+      'skipAuthRefresh': true,
+      'skipTerminalSessionInvalidation': true,
+    },
+  );
+
   Map<String, dynamic> _stringMap(dynamic raw, String code) {
     if (raw is! Map) {
       throw FormatException(code);
@@ -1702,6 +1710,7 @@ class SocialApi {
       '/api/feed/reels/explore',
       queryParameters: <String, dynamic>{'limit': limit, 'beforeId': beforeId}
         ..removeWhere((_, value) => value == null),
+      options: _publicReelReadOptions,
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -1942,12 +1951,16 @@ class SocialApi {
         'replayCount': replayCount,
         'context': context,
       }..removeWhere((_, value) => value == null),
+      options: _publicReelReadOptions,
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
   Future<Map<String, dynamic>> getReelById(int reelId) async {
-    final response = await dio.get('/api/feed/reels/$reelId');
+    final response = await dio.get(
+      '/api/feed/reels/$reelId',
+      options: _publicReelReadOptions,
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 

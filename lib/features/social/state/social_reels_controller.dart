@@ -8,6 +8,10 @@ import 'social_controller.dart';
 
 const Duration kSocialReelsLoadTimeout = Duration(seconds: 12);
 const String kSocialReelsLoadTimeoutCode = 'REELS_LOAD_TIMEOUT';
+const String kSocialReelsLoadNetworkCode = 'REELS_LOAD_NETWORK';
+const String kSocialReelsLoadAuthCode = 'REELS_LOAD_AUTH';
+const String kSocialReelsLoadServerCode = 'REELS_LOAD_SERVER';
+const String kSocialReelsLoadFailedCode = 'REELS_LOAD_FAILED';
 
 class SocialReelsState {
   final bool loading;
@@ -96,10 +100,18 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
       );
     } on DioException catch (e) {
       if (!mounted || generation != _loadGeneration) return;
-      state = state.copyWith(loading: false, loadingMore: false, error: '$e');
+      state = state.copyWith(
+        loading: false,
+        loadingMore: false,
+        error: _mapReelsLoadDioError(e),
+      );
     } catch (e) {
       if (!mounted || generation != _loadGeneration) return;
-      state = state.copyWith(loading: false, loadingMore: false, error: '$e');
+      state = state.copyWith(
+        loading: false,
+        loadingMore: false,
+        error: kSocialReelsLoadFailedCode,
+      );
     }
   }
 
@@ -140,6 +152,21 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
       // keep viewer responsive
     }
   }
+}
+
+String _mapReelsLoadDioError(DioException error) {
+  if (error.type == DioExceptionType.connectionError ||
+      error.type == DioExceptionType.connectionTimeout ||
+      error.type == DioExceptionType.sendTimeout ||
+      error.type == DioExceptionType.receiveTimeout) {
+    return kSocialReelsLoadNetworkCode;
+  }
+  final statusCode = error.response?.statusCode ?? 0;
+  if (statusCode == 401) return kSocialReelsLoadAuthCode;
+  if (statusCode == 502 || statusCode == 503 || statusCode >= 500) {
+    return kSocialReelsLoadServerCode;
+  }
+  return kSocialReelsLoadFailedCode;
 }
 
 List<SocialReelItem> _mergeReels(

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../auth/presentation/login_screen.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../social/models/social_models.dart';
 import '../../social/state/social_controller.dart';
@@ -20,6 +21,7 @@ import '../sharing/canonical_links.dart';
 import '../sharing/share_sheet_v3.dart';
 import '../upload/reel_map_normalizer.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../social/ui/social_share_sheet.dart';
 
 /// Riverpod-connected wrapper that feeds live reel data into
@@ -47,6 +49,11 @@ class _SocialReelsV3ConnectorState
     extends ConsumerState<SocialReelsV3Connector> {
   SocialReelItem? _pinnedInitial;
   bool _bootstrapped = false;
+
+  bool get _hasAuthenticatedUser {
+    final auth = ref.read(authControllerProvider);
+    return auth.isAuthed && auth.user != null;
+  }
 
   @override
   void initState() {
@@ -88,6 +95,10 @@ class _SocialReelsV3ConnectorState
   }
 
   Future<bool> _like(ReelV3ViewData reel, bool desiredLiked) async {
+    if (!_hasAuthenticatedUser) {
+      await _promptLoginRequired();
+      return false;
+    }
     try {
       await ref.read(socialApiProvider).toggleLike(reel.postId);
       return true;
@@ -96,6 +107,10 @@ class _SocialReelsV3ConnectorState
   }
 
   Future<void> _save(ReelV3ViewData reel) async {
+    if (!_hasAuthenticatedUser) {
+      await _promptLoginRequired();
+      return;
+    }
     try {
       await ref
           .read(socialApiProvider)
@@ -112,6 +127,10 @@ class _SocialReelsV3ConnectorState
   }
 
   Future<void> _comments(ReelV3ViewData reel) async {
+    if (!_hasAuthenticatedUser) {
+      await _promptLoginRequired();
+      return;
+    }
     final post = _postFor(reel.postId);
     if (post == null) return;
     await showSocialReelCommentsSheet(context, reelPost: post);
@@ -129,6 +148,10 @@ class _SocialReelsV3ConnectorState
       ),
       onAddToStory: () {
         Navigator.of(context).pop();
+        if (!_hasAuthenticatedUser) {
+          unawaited(_promptLoginRequired());
+          return;
+        }
         openStoryComposerV3WithReel(
           context,
           reel: SharedReelSource(
@@ -149,10 +172,18 @@ class _SocialReelsV3ConnectorState
       },
       onShareWithFriends: () {
         Navigator.of(context).pop();
+        if (!_hasAuthenticatedUser) {
+          unawaited(_promptLoginRequired());
+          return;
+        }
         unawaited(_shareWithFriends(reel));
       },
       onRepost: () {
         Navigator.of(context).pop();
+        if (!_hasAuthenticatedUser) {
+          unawaited(_promptLoginRequired());
+          return;
+        }
         unawaited(_repostReel(reel));
       },
       onExternalShare: (text) {
@@ -282,6 +313,10 @@ class _SocialReelsV3ConnectorState
               title: Text(isRtl ? 'إضافة إلى القصة' : 'Add to story'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
+                if (!_hasAuthenticatedUser) {
+                  unawaited(_promptLoginRequired());
+                  return;
+                }
                 openStoryComposerV3WithReel(
                   context,
                   reel: SharedReelSource(
@@ -388,6 +423,10 @@ class _SocialReelsV3ConnectorState
   }
 
   Future<void> _reportReel(ReelV3ViewData reel) async {
+    if (!_hasAuthenticatedUser) {
+      await _promptLoginRequired();
+      return;
+    }
     final l10n = context.l10n;
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     String reason = '';
@@ -456,6 +495,10 @@ class _SocialReelsV3ConnectorState
     ReelV3ViewData reel,
     SocialRelation? relation,
   ) async {
+    if (!_hasAuthenticatedUser) {
+      await _promptLoginRequired();
+      return;
+    }
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     try {
       if (relation?.isBlockedByMe == true) {
@@ -493,12 +536,50 @@ class _SocialReelsV3ConnectorState
     }
   }
 
-  Future<void> _createReel() => openReelComposerV3(
-    context,
-    onPublished: (_) {
-      ref.read(socialReelsControllerProvider.notifier).load(refresh: true);
-    },
-  );
+  Future<void> _createReel() async {
+    if (!_hasAuthenticatedUser) {
+      await _promptLoginRequired();
+      return;
+    }
+    await openReelComposerV3(
+      context,
+      onPublished: (_) {
+        ref.read(socialReelsControllerProvider.notifier).load(refresh: true);
+      },
+    );
+  }
+
+  Future<void> _promptLoginRequired() async {
+    if (!mounted) return;
+    final shouldLogin = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          dialogContext.lt(ar: 'تسجيل الدخول مطلوب', en: 'Sign in required'),
+        ),
+        content: Text(
+          dialogContext.lt(
+            ar: 'سجّل الدخول لاستخدام هذه الميزة.',
+            en: 'Sign in to use this feature.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(dialogContext.lt(ar: 'إلغاء', en: 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(dialogContext.lt(ar: 'تسجيل الدخول', en: 'Sign in')),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || shouldLogin != true) return;
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const LoginScreen()));
+  }
 
   void _recordView(ReelV3ViewData reel) {
     ref
@@ -526,7 +607,7 @@ class _SocialReelsV3ConnectorState
         onRetry: () => ref
             .read(socialReelsControllerProvider.notifier)
             .load(refresh: true),
-        onCreate: _createReel,
+        onCreate: _hasAuthenticatedUser ? _createReel : null,
       );
     }
 
@@ -554,10 +635,11 @@ class _ReelsErrorState extends StatelessWidget {
 
   final String errorText;
   final VoidCallback onRetry;
-  final VoidCallback onCreate;
+  final VoidCallback? onCreate;
 
   @override
   Widget build(BuildContext context) {
+    final message = _localizedReelsError(context, errorText);
     return ColoredBox(
       color: Colors.black,
       child: SafeArea(
@@ -574,7 +656,7 @@ class _ReelsErrorState extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  errorText,
+                  message,
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white70, fontSize: 16),
                 ),
@@ -586,12 +668,17 @@ class _ReelsErrorState extends StatelessWidget {
                   children: [
                     ElevatedButton(
                       onPressed: onRetry,
-                      child: const Text('Retry'),
+                      child: Text(
+                        context.lt(ar: 'إعادة المحاولة', en: 'Retry'),
+                      ),
                     ),
-                    OutlinedButton(
-                      onPressed: onCreate,
-                      child: const Text('Create reel'),
-                    ),
+                    if (onCreate != null)
+                      OutlinedButton(
+                        onPressed: onCreate,
+                        child: Text(
+                          context.lt(ar: 'إنشاء ريل', en: 'Create reel'),
+                        ),
+                      ),
                   ],
                 ),
               ],
@@ -600,5 +687,31 @@ class _ReelsErrorState extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+String _localizedReelsError(BuildContext context, String code) {
+  switch (code.trim().toUpperCase()) {
+    case kSocialReelsLoadTimeoutCode:
+    case kSocialReelsLoadServerCode:
+      return context.lt(
+        ar: 'الخدمة غير متاحة مؤقتاً. حاول مرة أخرى بعد قليل.',
+        en: 'The service is temporarily unavailable. Try again shortly.',
+      );
+    case kSocialReelsLoadNetworkCode:
+      return context.lt(
+        ar: 'لا يوجد اتصال بالإنترنت. تحقق من الشبكة وحاول مجدداً.',
+        en: 'No internet connection. Check your network and try again.',
+      );
+    case kSocialReelsLoadAuthCode:
+      return context.lt(
+        ar: 'يمكنك مشاهدة الريلز العامة. أعد المحاولة أو سجّل الدخول للتفاعل.',
+        en: 'You can watch public reels. Try again or sign in to interact.',
+      );
+    default:
+      return context.lt(
+        ar: 'تعذر تحميل الريلز الآن. حاول مرة أخرى.',
+        en: 'Unable to load reels right now. Try again.',
+      );
   }
 }

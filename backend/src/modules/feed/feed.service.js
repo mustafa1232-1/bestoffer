@@ -240,11 +240,14 @@ async function attachPostMediaRow(row) {
 }
 
 function buildTransientFeedCacheKey(prefix, viewerUserId, query = {}) {
+  const viewerKey = Number.isInteger(Number(viewerUserId)) && Number(viewerUserId) > 0
+    ? Number(viewerUserId)
+    : "guest";
   const parts = Object.entries(query || {})
     .filter(([, value]) => value !== undefined)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${JSON.stringify(value)}`);
-  return `${prefix}:${Number(viewerUserId)}:${parts.join("&")}`;
+  return `${prefix}:${viewerKey}:${parts.join("&")}`;
 }
 
 function readTransientFeedCache(key) {
@@ -2044,6 +2047,13 @@ function viewerScopeCodesFromUserRow(user) {
 }
 
 async function resolveViewerScopeCodes(viewerUserId) {
+  if (!Number.isInteger(Number(viewerUserId)) || Number(viewerUserId) <= 0) {
+    return {
+      blockCode: null,
+      compoundCode: null,
+      buildingCode: null,
+    };
+  }
   const cached = readViewerScopeCache(viewerUserId);
   if (cached) return cached;
   const viewer = await repo.findUserAddressMeta(viewerUserId);
@@ -3391,12 +3401,18 @@ export async function listExploreReels(viewerUserId, query) {
   const cacheKey = buildTransientFeedCacheKey("explore_reels", viewerUserId, query);
   const cached = readTransientFeedCache(cacheKey);
   if (cached) return cached;
+  const normalizedViewerUserId =
+    Number.isInteger(Number(viewerUserId)) && Number(viewerUserId) > 0
+      ? Number(viewerUserId)
+      : null;
   const viewerScopeCodes = await resolveViewerScopeCodes(viewerUserId);
-  const preferenceRows = await analyticsRepo.listViewerContentPreferenceSignals({
-    viewerUserId,
-  });
+  const preferenceRows = normalizedViewerUserId == null
+    ? []
+    : await analyticsRepo.listViewerContentPreferenceSignals({
+        viewerUserId: normalizedViewerUserId,
+      });
   const out = await reelsService.listExploreReels({
-    viewerUserId,
+    viewerUserId: normalizedViewerUserId,
     query,
     viewerScopeCodes,
     rankFeedRows,

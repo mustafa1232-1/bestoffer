@@ -16,6 +16,8 @@ feedRouter.post("/media/stream/webhook", c.streamWebhook);
 // (reelId="explore" -> validatePostId fails -> 400) and the Reels page could
 // never load its feed.
 feedRouter.get("/reels/:reelId(\\d+)", optionalAuth, c.getPublicReelById);
+feedRouter.get("/reels/explore", optionalAuth, c.listExploreReels);
+feedRouter.post("/reels/:reelId(\\d+)/view", optionalAuth, c.recordReelView);
 
 feedRouter.use(requireAuth);
 
@@ -33,7 +35,6 @@ feedRouter.get(
 
 feedRouter.get("/explore", c.listExplore);
 feedRouter.get("/trending", c.listTrending);
-feedRouter.get("/reels/explore", c.listExploreReels);
 feedRouter.get("/users/suggested", c.listSuggestedPeople);
 feedRouter.get("/search", c.searchSocialCatalog);
 feedRouter.get("/hashtags/trending", c.listTrendingTags);
@@ -221,7 +222,6 @@ feedRouter.get("/profiles/:userId/insights", c.getProfileInsights);
 feedRouter.get("/profiles/:userId/reels", c.listProfileReels);
 feedRouter.get("/profiles/:userId/tagged", c.listProfileTaggedPosts);
 feedRouter.post("/reels", mediaUpload.single("mediaFile"), c.createReel);
-feedRouter.post("/reels/:reelId/view", c.recordReelView);
 
 feedRouter.get("/chats/threads", c.listThreads);
 feedRouter.post("/chats/threads", c.createThread);

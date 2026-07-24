@@ -61,6 +61,8 @@ export async function listViewerContentPreferenceSignals({
   viewerUserId,
   lookbackDays = 45,
 }) {
+  const viewerId = asPositiveInt(viewerUserId);
+  if (viewerId == null) return [];
   const safeLookbackDays = Math.max(1, Math.min(180, Number(lookbackDays) || 45));
   const r = await q(
     `WITH post_engagement AS (
@@ -99,7 +101,7 @@ export async function listViewerContentPreferenceSignals({
      FROM post_engagement
      WHERE kind IS NOT NULL
      GROUP BY kind`,
-    [Number(viewerUserId), safeLookbackDays]
+    [viewerId, safeLookbackDays]
   );
   return r.rows;
 }

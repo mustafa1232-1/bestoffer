@@ -22,11 +22,45 @@ function firstMatchingRoute(router, path, method = "get") {
   return null;
 }
 
+function firstRouteLayerIndex(router, path, method = "get") {
+  return router.stack.findIndex((layer) => {
+    if (!layer.route) return false;
+    if (!layer.regexp?.test(path)) return false;
+    return layer.route.methods?.[method] === true;
+  });
+}
+
+function firstMiddlewareIndex(router, name) {
+  return router.stack.findIndex((layer) => !layer.route && layer.name === name);
+}
+
 test("feed: /reels/explore is not shadowed by /reels/:reelId", () => {
   assert.equal(
     firstMatchingRoute(feedRouter, "/reels/explore"),
     "/reels/explore",
     "GET /reels/explore must resolve to the explore handler, not the by-id route"
+  );
+});
+
+test("feed: /reels/explore is public before the authenticated feed block", () => {
+  const exploreIndex = firstRouteLayerIndex(feedRouter, "/reels/explore");
+  const authIndex = firstMiddlewareIndex(feedRouter, "requireAuth");
+  assert.notEqual(exploreIndex, -1, "GET /reels/explore must be registered");
+  assert.notEqual(authIndex, -1, "feedRouter must keep its authenticated block");
+  assert.ok(
+    exploreIndex < authIndex,
+    "GET /reels/explore must be reachable by guests before requireAuth"
+  );
+});
+
+test("feed: reel view tracking is public before the authenticated feed block", () => {
+  const viewIndex = firstRouteLayerIndex(feedRouter, "/reels/1234/view", "post");
+  const authIndex = firstMiddlewareIndex(feedRouter, "requireAuth");
+  assert.notEqual(viewIndex, -1, "POST /reels/:id/view must be registered");
+  assert.notEqual(authIndex, -1, "feedRouter must keep its authenticated block");
+  assert.ok(
+    viewIndex < authIndex,
+    "POST /reels/:id/view must not force guests into a 401 while watching"
   );
 });
 
