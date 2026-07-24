@@ -179,11 +179,33 @@ final authControllerProvider = StateNotifierProvider<AuthController, AuthState>(
 );
 
 const Duration kAuthSessionVerifyTimeout = Duration(seconds: 20);
+const Duration kAuthStorageReadTimeout = Duration(seconds: 3);
 
 class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
 
   AuthController(this.ref) : super(const AuthState());
+
+  Future<String?> _readStoredTokenOrNull(SecureStore store) async {
+    try {
+      final token = await store.readToken().timeout(kAuthStorageReadTimeout);
+      final text = token?.trim();
+      return text == null || text.isEmpty ? null : text;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> _readGuestModeOrFalse(SecureStore store) async {
+    try {
+      return await store.readGuestMode().timeout(
+        kAuthStorageReadTimeout,
+        onTimeout: () => false,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<void> bootstrap() async {
     final store = ref.read(secureStoreProvider);
@@ -192,7 +214,7 @@ class AuthController extends StateNotifier<AuthState> {
       clearValidationError: true,
       clearErrorCode: true,
     );
-    var token = await store.readToken();
+    var token = await _readStoredTokenOrNull(store);
     if (token == null || token.isEmpty) {
       late final SessionRestoreResult restore;
       try {
@@ -223,7 +245,7 @@ class AuthController extends StateNotifier<AuthState> {
         case SessionRestoreStatus.noStoredSession:
           state = state.copyWith(
             loading: false,
-            guestMode: await store.readGuestMode(),
+            guestMode: await _readGuestModeOrFalse(store),
             sessionRecoveryPending: false,
             sessionRestoreStatus: SessionRestoreStatus.noStoredSession,
             clearValidationError: true,
@@ -261,7 +283,7 @@ class AuthController extends StateNotifier<AuthState> {
           .read(authRepoProvider)
           .me()
           .timeout(kAuthSessionVerifyTimeout);
-      final latestToken = await store.readToken() ?? token;
+      final latestToken = await _readStoredTokenOrNull(store) ?? token;
       await _applyPreferredLocale(user);
       await store.saveGuestMode(false);
       SessionRecoveryCoordinator.instance.reset();
@@ -281,7 +303,7 @@ class AuthController extends StateNotifier<AuthState> {
         if (decision == SessionRecoveryDecision.staleFailure ||
             decision == SessionRecoveryDecision.recoverable ||
             decision == SessionRecoveryDecision.needsRecovery) {
-          final latestToken = await store.readToken() ?? token;
+          final latestToken = await _readStoredTokenOrNull(store) ?? token;
           state = state.copyWith(
             loading: false,
             token: latestToken,
@@ -300,7 +322,7 @@ class AuthController extends StateNotifier<AuthState> {
       }
       state = state.copyWith(
         loading: false,
-        token: await store.readToken() ?? token,
+        token: await _readStoredTokenOrNull(store) ?? token,
         guestMode: false,
         sessionRecoveryPending: true,
         error: mapAnyError(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -113,6 +114,11 @@ class _MemorySecureStore extends SecureStore {
   }
 
   String? value(String key) => _values[key];
+}
+
+class _HangingTokenSecureStore extends _MemorySecureStore {
+  @override
+  Future<String?> readToken() => Completer<String?>().future;
 }
 
 class _FakeAuthRepo implements AuthRepo {
@@ -287,6 +293,32 @@ void main() {
   setUp(() {
     SessionRecoveryCoordinator.instance.reset();
   });
+
+  test(
+    'bootstrap does not keep loading forever when secure token read hangs',
+    () async {
+      final store = _HangingTokenSecureStore();
+      final dioClient = DioClient(store);
+
+      final container = ProviderContainer(
+        overrides: [
+          secureStoreProvider.overrideWithValue(store),
+          dioClientProvider.overrideWithValue(dioClient),
+          authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(authControllerProvider.notifier);
+      await controller.bootstrap().timeout(const Duration(seconds: 8));
+
+      final state = container.read(authControllerProvider);
+      expect(state.loading, isFalse);
+      expect(state.isGuest, isFalse);
+      expect(state.sessionRestoreStatus, SessionRestoreStatus.noStoredSession);
+    },
+    timeout: const Timeout(Duration(seconds: 10)),
+  );
 
   test(
     'invalid stored token stays recoverable and does not downgrade to guest mode',
