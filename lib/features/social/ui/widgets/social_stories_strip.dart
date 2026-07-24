@@ -11,39 +11,55 @@ class SocialStoriesStrip extends StatelessWidget {
   final VoidCallback onAddStory;
   final ValueChanged<SocialStoryGroup> onOpenStoryGroup;
 
+  /// When false (guest mode) the "add story" tile and the empty-state label are
+  /// suppressed: a guest with no stories to view sees a clean, empty area with
+  /// no creation prompt.
+  final bool showAddStory;
+
   const SocialStoriesStrip({
     super.key,
     required this.loading,
     required this.stories,
     required this.onAddStory,
     required this.onOpenStoryGroup,
+    this.showAddStory = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    // Guest with nothing to show → keep the region empty and clean.
+    if (!showAddStory && stories.isEmpty && !loading) {
+      return const SizedBox.shrink();
+    }
     return SizedBox(
       height: 104,
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
-          Padding(
-            padding: const EdgeInsetsDirectional.only(end: 8),
-            child: _AddStoryCircle(onTap: onAddStory),
-          ),
+          if (showAddStory)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 8),
+              child: _AddStoryCircle(onTap: onAddStory),
+            ),
           if (loading && stories.isEmpty)
             const SizedBox(
               width: 68,
               child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
             )
           else if (stories.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 36),
-              child: Text(
-                l10n.socialStoriesStripEmpty,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            )
+            // Only signed-in users get the "no stories yet" hint; for guests the
+            // strip has already collapsed above.
+            if (showAddStory)
+              Padding(
+                padding: const EdgeInsets.only(top: 36),
+                child: Text(
+                  l10n.socialStoriesStripEmpty,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              )
+            else
+              const SizedBox.shrink()
           else
             ...stories.map(
               (group) => Padding(

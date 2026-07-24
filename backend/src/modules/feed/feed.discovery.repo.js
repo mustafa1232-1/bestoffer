@@ -425,6 +425,15 @@ export async function listVisiblePostsByIds({
 }
 
 export async function listSuggestedPeopleCandidates({ viewerUserId, limit = 36 }) {
+  // Guests have no viewer id. Normalize to 0 (a non-existent user id) instead of
+  // letting `Number(undefined)` become NaN and blow up the bigint bind param.
+  // With id 0 the `viewer` CTE is empty, so the CROSS JOIN yields an empty
+  // (there is nobody to personalize suggestions for) — the correct, privacy-safe
+  // result for a logged-out visitor.
+  const normalizedViewerId =
+    Number.isInteger(Number(viewerUserId)) && Number(viewerUserId) > 0
+      ? Number(viewerUserId)
+      : 0;
   const r = await q(
     `WITH viewer AS (
        SELECT id, block, building_number, apartment
@@ -495,7 +504,7 @@ export async function listSuggestedPeopleCandidates({ viewerUserId, limit = 36 }
        recent_posts_count DESC,
        u.id DESC
      LIMIT $2`,
-    [Number(viewerUserId), Math.max(1, Math.min(60, Number(limit) || 36))]
+    [normalizedViewerId, Math.max(1, Math.min(60, Number(limit) || 36))]
   );
   return r.rows;
 }

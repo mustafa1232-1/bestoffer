@@ -128,7 +128,12 @@ class SocialController extends StateNotifier<SocialState> {
   }
 
   bool _isAuthFailure(Object error) {
-    return error is DioException && isAuthDioError(error);
+    if (error is! DioException) return false;
+    // A 401 on a public content load means the guest hit a not-yet-public
+    // endpoint (or a signed-in session lapsed). Either way it must never surface
+    // in the feed — treat it as an empty, successful load.
+    if (error.response?.statusCode == 401) return true;
+    return isAuthDioError(error);
   }
 
   Future<int?> _uploadStreamVideoIfNeeded({
@@ -224,37 +229,25 @@ class SocialController extends StateNotifier<SocialState> {
           nextPostsCursorTouched: true,
         ),
       );
-    } on DioException catch (e) {
-      if (_isAuthFailure(e)) {
-        _safeSetState(
-          state.copyWith(
-            loadingPosts: false,
-            loadingMorePosts: false,
-            error: null,
-          ),
-        );
-        return;
-      }
+    } on DioException catch (_) {
+      // The home feed never renders a technical error. A failed load keeps any
+      // previously loaded posts and stops the spinners; recovery is retried
+      // quietly on the next pull-to-refresh or resume.
       if (silent) return;
       _safeSetState(
         state.copyWith(
           loadingPosts: false,
           loadingMorePosts: false,
-          error: mapDioError(
-            e,
-            fallback: 'تعذر تحميل منشورات مسلكي.',
-            customMessages: _socialApiMessages,
-            appendRequestId: true,
-          ),
+          error: null,
         ),
       );
-    } catch (e) {
+    } catch (_) {
       if (silent) return;
       _safeSetState(
         state.copyWith(
           loadingPosts: false,
           loadingMorePosts: false,
-          error: mapAnyError(e, fallback: 'تعذر تحميل المنشورات.'),
+          error: null,
         ),
       );
     }
@@ -288,31 +281,15 @@ class SocialController extends StateNotifier<SocialState> {
           stories: stories,
         ),
       );
-    } on DioException catch (e) {
-      if (_isAuthFailure(e)) {
-        _safeSetState(state.copyWith(loadingStories: false, error: null));
-        return;
-      }
+    } on DioException catch (_) {
+      // Stories load failures are silent: no "تعذر تحميل الستوري" text, no
+      // request id. The strip simply stays empty/collapsed until a later load
+      // succeeds.
       if (silent) return;
-      _safeSetState(
-        state.copyWith(
-          loadingStories: false,
-          error: mapDioError(
-            e,
-            fallback: 'تعذر تحميل الستوري.',
-            customMessages: _socialApiMessages,
-            appendRequestId: true,
-          ),
-        ),
-      );
-    } catch (e) {
+      _safeSetState(state.copyWith(loadingStories: false, error: null));
+    } catch (_) {
       if (silent) return;
-      _safeSetState(
-        state.copyWith(
-          loadingStories: false,
-          error: mapAnyError(e, fallback: 'تعذر تحميل الستوري.'),
-        ),
-      );
+      _safeSetState(state.copyWith(loadingStories: false, error: null));
     }
   }
 

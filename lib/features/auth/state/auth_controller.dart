@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
 
 import '../../../core/forms/backend_field_error_parser.dart'
@@ -222,16 +223,17 @@ class AuthController extends StateNotifier<AuthState> {
             .read(dioClientProvider)
             .restoreStoredSession()
             .timeout(kAuthSessionVerifyTimeout);
-      } catch (e) {
+      } catch (_) {
+        // Timeout / unexpected failure while restoring. This is NOT a terminal
+        // auth error: never surface an internal code and never clear a
+        // potentially-valid stored session. Stay silent and pending; a later
+        // launch (or silent retry) can still recover it.
         state = state.copyWith(
           loading: false,
           guestMode: false,
           sessionRecoveryPending: true,
           sessionRestoreStatus: SessionRestoreStatus.pending,
-          error: mapAnyError(
-            e,
-            fallback: 'Unable to recover session. Please try again.',
-          ),
+          error: null,
           clearValidationError: true,
           clearErrorCode: true,
         );
@@ -243,27 +245,59 @@ class AuthController extends StateNotifier<AuthState> {
           token = restore.token;
           break;
         case SessionRestoreStatus.noStoredSession:
+          // Fresh install / no stored session. A normal state, never an error
+          // and never a session-recovery attempt.
           state = state.copyWith(
             loading: false,
             guestMode: await _readGuestModeOrFalse(store),
             sessionRecoveryPending: false,
             sessionRestoreStatus: SessionRestoreStatus.noStoredSession,
+            error: null,
             clearValidationError: true,
             clearErrorCode: true,
           );
           return;
         case SessionRestoreStatus.pending:
-        case SessionRestoreStatus.reVerificationRequired:
-        case SessionRestoreStatus.accountDisabled:
-        case SessionRestoreStatus.surfaceMismatch:
-        case SessionRestoreStatus.blocked:
+          // Recoverable / temporary failure (network, 5xx). Keep the stored
+          // session untouched and stay silent — no error, no code. A later
+          // launch or silent retry can still recover it.
           state = state.copyWith(
             loading: false,
             guestMode: false,
-            sessionRecoveryPending:
-                restore.status == SessionRestoreStatus.pending,
+            sessionRecoveryPending: true,
+            sessionRestoreStatus: SessionRestoreStatus.pending,
+            error: null,
+            clearValidationError: true,
+            clearErrorCode: true,
+          );
+          return;
+        case SessionRestoreStatus.accountDisabled:
+          // A legitimate terminal reason. The device recovery bundle is kept for
+          // the re-verification flow, but the user-facing text is a CLEAN
+          // localized message — never the raw backend code.
+          state = state.copyWith(
+            loading: false,
+            guestMode: false,
+            sessionRestoreStatus: SessionRestoreStatus.accountDisabled,
+            error: _accountDisabledMessage(),
+            errorCode: restore.code,
+            clearValidationError: true,
+          );
+          return;
+        case SessionRestoreStatus.reVerificationRequired:
+        case SessionRestoreStatus.surfaceMismatch:
+        case SessionRestoreStatus.blocked:
+          // Non-recoverable stored session — this is where an invalid refresh
+          // surfaces as SESSION_RECOVERY_REQUIRED. The internal status/code are
+          // retained for the recovery flow, but NEVER shown: `error` is null so
+          // the login screen renders no developer-facing text and there is no
+          // retry loop (restore runs once per launch).
+          state = state.copyWith(
+            loading: false,
+            guestMode: false,
+            sessionRecoveryPending: false,
             sessionRestoreStatus: restore.status,
-            error: _restoreStatusMessage(restore),
+            error: null,
             errorCode: restore.code,
             clearValidationError: true,
           );
@@ -320,15 +354,15 @@ class AuthController extends StateNotifier<AuthState> {
           return;
         }
       }
+      // Non-auth failure (network / timeout) while verifying an existing token.
+      // Keep the stored session — a temporary outage must never clear it — and
+      // stay silent; recovery is retried on the next resume/launch.
       state = state.copyWith(
         loading: false,
         token: await _readStoredTokenOrNull(store) ?? token,
         guestMode: false,
         sessionRecoveryPending: true,
-        error: mapAnyError(
-          e,
-          fallback: 'Unable to verify session. Please try again.',
-        ),
+        error: null,
         clearValidationError: true,
         clearErrorCode: true,
       );
@@ -710,23 +744,15 @@ class AuthController extends StateNotifier<AuthState> {
     state = const AuthState();
   }
 
-  String _restoreStatusMessage(SessionRestoreResult restore) {
-    switch (restore.status) {
-      case SessionRestoreStatus.recovered:
-      case SessionRestoreStatus.noStoredSession:
-        return restore.message ?? '';
-      case SessionRestoreStatus.pending:
-        return restore.message ??
-            'Unable to recover session. Please try again.';
-      case SessionRestoreStatus.reVerificationRequired:
-        return restore.message ?? 'Device re-verification is required.';
-      case SessionRestoreStatus.accountDisabled:
-        return restore.message ?? 'This account is disabled.';
-      case SessionRestoreStatus.surfaceMismatch:
-        return restore.message ?? 'This account is not allowed in this app.';
-      case SessionRestoreStatus.blocked:
-        return restore.message ?? 'Session recovery is blocked.';
-    }
+  /// Clean, localized "account disabled" message. Deliberately avoids returning
+  /// any raw backend code (e.g. ACCOUNT_DISABLED / SESSION_RECOVERY_REQUIRED).
+  /// Reads the active locale from [Intl] (plugin-free) rather than a provider so
+  /// it is safe to call during early bootstrap.
+  String _accountDisabledMessage() {
+    final isArabic = Intl.getCurrentLocale().toLowerCase().startsWith('ar');
+    return isArabic
+        ? 'تم تعطيل هذا الحساب من قبل الإدارة.'
+        : 'This account has been disabled by the administration.';
   }
 
   Future<void> continueAsGuest() async {

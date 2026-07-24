@@ -198,7 +198,32 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
     }
   }
 
-  void _openProfile(SocialAuthor user) {
+  Future<void> _openComments(SocialPost post) async {
+    // The comment thread endpoint (and its composer) require a session, so gate
+    // before opening rather than surfacing a 401 inside the sheet.
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'التعليقات',
+      featureEnglish: 'comments',
+    )) {
+      return;
+    }
+    if (!mounted) return;
+    await openSocialComments(context, post: post);
+  }
+
+  Future<void> _openProfile(SocialAuthor user) async {
+    // Viewing another member's profile hits an authenticated endpoint, so gate
+    // BEFORE navigating: a guest sees the sign-in sheet instead of opening the
+    // page and hitting a 401.
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'عرض الملف الشخصي',
+      featureEnglish: 'viewing a profile',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) =>
@@ -242,7 +267,7 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
             onOpenMerchantLink: () => _openMerchant(post),
             onToggleLike: () => _toggleLike(post),
             onToggleSave: () => _toggleSave(post),
-            onOpenComments: () => openSocialComments(context, post: post),
+            onOpenComments: () => _openComments(post),
           ),
         ),
       ),
@@ -298,30 +323,12 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
                   ],
                 )
               : payload == null
+              // Clean, empty discovery area. We never render a technical error
+              // (no DioException, no status code, no request id) and no large
+              // empty-state prompt. Pull-to-refresh silently retries the load.
               ? ListView(
-                  padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
-                  children: [
-                    Icon(
-                      Icons.travel_explore_outlined,
-                      size: 54,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      state.error?.trim().isNotEmpty == true
-                          ? state.error!
-                          : context.l10n.socialExploreLoadFailed,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      onPressed: () => ref
-                          .read(socialExploreControllerProvider.notifier)
-                          .load(refresh: true),
-                      child: Text(context.l10n.socialExploreRetry),
-                    ),
-                  ],
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [SizedBox(height: 320)],
                 )
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),

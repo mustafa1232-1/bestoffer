@@ -99,7 +99,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     final authAfter = ref.read(authControllerProvider);
     if (!authAfter.isAuthed && authAfter.error != null) {
       setState(() {
-        _pinError = authAfter.error;
+        _pinError = _safeAuthMessage(authAfter.error);
       });
       return;
     }
@@ -134,31 +134,43 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       _controller.value = 0;
     }
 
+    final pad = useDesktopLayout ? 24.0 : 18.0;
+
     return Scaffold(
+      // We manage the keyboard inset manually (viewInsets padding + scroll) so
+      // the card is never force-shrunk into an overflow. See the SafeArea +
+      // LayoutBuilder + SingleChildScrollView below.
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           const _MeshBackground(),
           SafeArea(
-            child: Padding(
-              padding: EdgeInsets.all(useDesktopLayout ? 24 : 18),
-              child: useDesktopLayout
-                  ? Row(
-                      children: [
-                        const Expanded(child: _DesktopLoginShowcase()),
-                        const SizedBox(width: 24),
-                        SizedBox(
-                          width: 470,
-                          child: _buildLoginCard(
-                            context,
-                            auth: auth,
-                            settings: settings,
-                            l10n: l10n,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final viewInsetsBottom = MediaQuery.viewInsetsOf(context).bottom;
+                // Height actually visible above the keyboard. Clamped so the
+                // minHeight can never go negative on tiny screens.
+                final visibleHeight =
+                    (constraints.maxHeight - viewInsetsBottom - pad * 2)
+                        .clamp(0.0, double.infinity);
+                final content = useDesktopLayout
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const Expanded(child: _DesktopLoginShowcase()),
+                          const SizedBox(width: 24),
+                          SizedBox(
+                            width: 470,
+                            child: _buildLoginCard(
+                              context,
+                              auth: auth,
+                              settings: settings,
+                              l10n: l10n,
+                            ),
                           ),
-                        ),
-                      ],
-                    )
-                  : Center(
-                      child: ConstrainedBox(
+                        ],
+                      )
+                    : ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 430),
                         child: _buildLoginCard(
                           context,
@@ -166,8 +178,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           settings: settings,
                           l10n: l10n,
                         ),
-                      ),
-                    ),
+                      );
+                return SingleChildScrollView(
+                  // Bottom padding grows with the keyboard so the focused field
+                  // and primary button can always be scrolled into view.
+                  padding: EdgeInsets.fromLTRB(
+                    pad,
+                    pad,
+                    pad,
+                    pad + viewInsetsBottom,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: visibleHeight),
+                    child: Center(child: content),
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -263,6 +289,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                       hint: '0770xxxxxxx',
                       keyboardType: TextInputType.phone,
                       textDirection: TextDirection.ltr,
+                      textAlign: TextAlign.left,
                       errorText: _phoneError,
                       onChanged: (_) {
                         if (_phoneError == null) return;
@@ -291,15 +318,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                 ),
               ),
               const SizedBox(height: 14),
-              if (auth.error != null && _pinError != auth.error)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Text(
-                    auth.error!,
-                    style: const TextStyle(color: Colors.amber),
-                    textAlign: TextAlign.start,
-                  ),
-                ),
+              Builder(
+                builder: (context) {
+                  final message = _safeAuthMessage(auth.error);
+                  if (message == null || _pinError == message) {
+                    return const SizedBox.shrink();
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Text(
+                      message,
+                      style: const TextStyle(color: Colors.amber),
+                      textAlign: TextAlign.start,
+                    ),
+                  );
+                },
+              ),
               ElevatedButton(
                 onPressed: auth.loading ? null : () => _submitLogin(context),
                 child: auth.loading
@@ -565,6 +599,7 @@ class _Field extends StatelessWidget {
   final TextInputType keyboardType;
   final bool obscure;
   final TextDirection textDirection;
+  final TextAlign? textAlign;
   final String? errorText;
   final ValueChanged<String>? onChanged;
 
@@ -574,6 +609,7 @@ class _Field extends StatelessWidget {
     required this.hint,
     required this.keyboardType,
     required this.textDirection,
+    this.textAlign,
     this.obscure = false,
     this.errorText,
     this.onChanged,
@@ -588,6 +624,7 @@ class _Field extends StatelessWidget {
         keyboardType: keyboardType,
         obscureText: obscure,
         onChanged: onChanged,
+        textAlign: textAlign ?? TextAlign.start,
         style: const TextStyle(color: Colors.white),
         decoration: InputDecoration(
           labelText: label,
@@ -610,6 +647,18 @@ class _Field extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Guards the login UI against ever rendering a raw internal error code
+/// (e.g. `SESSION_RECOVERY_REQUIRED`, `INVALID_TOKEN`). Returns null when the
+/// value is empty or looks like a machine code, so the UI shows nothing rather
+/// than leaking developer-facing text to the user.
+String? _safeAuthMessage(String? raw) {
+  final text = raw?.trim() ?? '';
+  if (text.isEmpty) return null;
+  final looksLikeCode = RegExp(r'^[A-Z0-9]+(?:_[A-Z0-9]+)+$').hasMatch(text);
+  if (looksLikeCode) return null;
+  return text;
 }
 
 class _MeshBackground extends StatelessWidget {

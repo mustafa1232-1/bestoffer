@@ -94,8 +94,12 @@ class SocialExploreController extends StateNotifier<SocialExploreState> {
         payloadTouched: true,
         trendingHashtags: hashtags,
       );
-    } catch (e) {
-      state = state.copyWith(loading: false, error: '$e');
+    } catch (_) {
+      // Discovery never surfaces a technical error to the user. We keep any
+      // previously loaded payload and clear the loading flag; a pull-to-refresh
+      // (or the next open) retries quietly. The raw exception is intentionally
+      // NOT stored — it must never reach the UI.
+      state = state.copyWith(loading: false, error: null);
     }
   }
 

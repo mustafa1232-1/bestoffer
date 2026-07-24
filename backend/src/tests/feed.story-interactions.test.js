@@ -81,7 +81,9 @@ function registeredRoutes(router) {
 
 test("story HTTP contract exposes exact retrieval but no invented reply/reshare mutations", () => {
   const routes = registeredRoutes(feedRouter);
-  assert.ok(routes.includes("GET /stories/:storyId"));
+  // Story retrieval by id is guest-viewable and numeric-constrained so it does
+  // not swallow authenticated `/stories/*` sub-routes.
+  assert.ok(routes.includes("GET /stories/:storyId(\\d+)"));
   assert.equal(routes.includes("POST /stories/:storyId/reply"), false);
   assert.equal(routes.includes("POST /stories/:storyId/reshare"), false);
 });

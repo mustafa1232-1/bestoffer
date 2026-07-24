@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/locale_text.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../../merchants/models/merchant_model.dart';
 import '../../merchants/ui/merchant_products_screen.dart';
 import '../models/social_models.dart';
@@ -55,7 +56,15 @@ class _SocialHashtagScreenState extends ConsumerState<SocialHashtagScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = '$e';
+        // Never store the raw exception (DioException / status code / request
+        // id). Surface a clean, localized message only.
+        _error = mapAnyError(
+          e,
+          fallback: context.lt(
+            ar: 'تعذر تحميل المنشورات الآن.',
+            en: 'Could not load posts right now.',
+          ),
+        );
         _loading = false;
       });
     }

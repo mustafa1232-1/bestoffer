@@ -9,12 +9,17 @@ class SocialFeedActionStrip extends StatelessWidget {
     required this.onOpenCreateMenu,
     this.createLabel,
     this.createIcon = Icons.add_circle_outline_rounded,
+    this.showCreate = true,
   });
 
   final VoidCallback onOpenSearch;
   final VoidCallback onOpenCreateMenu;
   final String? createLabel;
   final IconData createIcon;
+
+  /// When false (guest mode) the create affordance is hidden entirely; guests
+  /// browse public content and are asked to sign in only when they act.
+  final bool showCreate;
 
   @override
   Widget build(BuildContext context) {
@@ -28,12 +33,16 @@ class SocialFeedActionStrip extends StatelessWidget {
             label: Text(l10n.socialFeedControlsSearchSocial),
           ),
         ),
-        const SizedBox(width: 10),
-        FilledButton.tonalIcon(
-          onPressed: onOpenCreateMenu,
-          icon: Icon(createIcon),
-          label: Text(createLabel ?? l10n.socialFeedControlsCreatePostOrStory),
-        ),
+        if (showCreate) ...[
+          const SizedBox(width: 10),
+          FilledButton.tonalIcon(
+            onPressed: onOpenCreateMenu,
+            icon: Icon(createIcon),
+            label: Text(
+              createLabel ?? l10n.socialFeedControlsCreatePostOrStory,
+            ),
+          ),
+        ],
       ],
     );
   }

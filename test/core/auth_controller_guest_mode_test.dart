@@ -626,6 +626,68 @@ void main() {
     },
   );
 
+  test(
+    'fresh install surfaces no session-recovery code or error to the user',
+    () async {
+      // No stored token and no device bundle => a normal first launch.
+      final store = _MemorySecureStore();
+
+      final container = ProviderContainer(
+        overrides: [
+          secureStoreProvider.overrideWithValue(store),
+          authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authControllerProvider.notifier).bootstrap();
+
+      final state = container.read(authControllerProvider);
+      expect(state.sessionRestoreStatus, SessionRestoreStatus.noStoredSession);
+      expect(state.sessionRecoveryPending, isFalse);
+      // The whole point of the fix: a fresh install never shows an internal
+      // code (e.g. SESSION_RECOVERY_REQUIRED) as a user-facing error.
+      expect(state.error, isNull);
+      expect(state.errorCode, isNull);
+    },
+  );
+
+  test(
+    'invalid recovery 401 never surfaces the raw SESSION_RECOVERY_REQUIRED code',
+    () async {
+      final store = _MemorySecureStore(
+        deviceId: 'device-1',
+        deviceSessionId: 'device-session-1',
+        deviceRecoverySecret: 'secret-1-012345678901234',
+      );
+      final adapter = _RecoveryAdapter(
+        statusCode: 401,
+        message: 'SESSION_RECOVERY_REQUIRED',
+      );
+      final dioClient = DioClient(store)
+        ..dio.httpClientAdapter = adapter
+        ..dio.options.baseUrl = 'http://127.0.0.1';
+
+      final container = ProviderContainer(
+        overrides: [
+          secureStoreProvider.overrideWithValue(store),
+          dioClientProvider.overrideWithValue(dioClient),
+          authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authControllerProvider.notifier).bootstrap();
+
+      final state = container.read(authControllerProvider);
+      // The recovery flow still tracks the status/code internally...
+      expect(state.sessionRestoreStatus, SessionRestoreStatus.blocked);
+      // ...but the user-facing error must be null: the raw backend code must
+      // never reach the login screen.
+      expect(state.error, isNull);
+    },
+  );
+
   test('manual logout clears storage after blocked recovery state', () async {
     final store = _MemorySecureStore(
       accessToken: 'token',

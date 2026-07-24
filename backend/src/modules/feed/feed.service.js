@@ -587,29 +587,35 @@ function relationAllowsPrivateAccess(relationRow, viewerUserId, ownerUserId) {
 }
 
 async function resolveProfileAccess({ viewerUserId, ownerUserId, viewer = null, owner = null }) {
+  // A guest (no/invalid viewer id) may still read PUBLIC content. We skip the
+  // viewer lookup instead of throwing USER_NOT_FOUND, and treat the guest as a
+  // logged-out viewer with no private access and no relationship. Private
+  // accounts stay hidden (hasPrivateAccess === false) exactly as for a signed
+  // in stranger.
+  const isGuestViewer =
+    !Number.isInteger(Number(viewerUserId)) || Number(viewerUserId) <= 0;
+
   const [resolvedViewer, resolvedOwner, relationRow] = await Promise.all([
-    viewer ?? repo.findUserAddressMeta(viewerUserId),
+    isGuestViewer ? Promise.resolve(null) : viewer ?? repo.findUserAddressMeta(viewerUserId),
     owner ?? repo.findUserSocialProfile(ownerUserId),
-    Number(viewerUserId) === Number(ownerUserId)
+    isGuestViewer || Number(viewerUserId) === Number(ownerUserId)
       ? Promise.resolve(null)
       : repo.getUserRelation({ userId: viewerUserId, otherUserId: ownerUserId }),
   ]);
-  if (!resolvedViewer) {
+  if (!isGuestViewer && !resolvedViewer) {
     throw new AppError("USER_NOT_FOUND", { status: 404 });
   }
   if (!resolvedOwner) {
     throw new AppError("USER_NOT_FOUND", { status: 404 });
   }
   const ownerId = Number(resolvedOwner.id || 0);
-  const isOwner = ownerId === Number(viewerUserId);
-  const viewerIsSuperAdmin = isSuperAdminUser(resolvedViewer);
+  const isOwner = !isGuestViewer && ownerId === Number(viewerUserId);
+  const viewerIsSuperAdmin = !isGuestViewer && isSuperAdminUser(resolvedViewer);
   const privateAccount =
     resolvedOwner.social_account_private === true && !isOwner && !viewerIsSuperAdmin;
-  const relationAccepted = relationAllowsPrivateAccess(
-    relationRow,
-    viewerUserId,
-    ownerId
-  );
+  const relationAccepted = isGuestViewer
+    ? false
+    : relationAllowsPrivateAccess(relationRow, viewerUserId, ownerId);
   const hasPrivateAccess = !privateAccount || relationAccepted;
   return {
     viewer: resolvedViewer,
@@ -2046,6 +2052,18 @@ function viewerScopeCodesFromUserRow(user) {
   };
 }
 
+/**
+ * Normalizes a viewer id for guest-reachable reads. Returns the positive integer
+ * id for a signed-in viewer, or `null` for a guest. Passing `null` downstream is
+ * safe (repos do `Number(null) === 0`), whereas an unauthenticated `undefined`
+ * would become `NaN` and blow up bigint bind params.
+ */
+function asOptionalViewerId(viewerUserId) {
+  return Number.isInteger(Number(viewerUserId)) && Number(viewerUserId) > 0
+    ? Number(viewerUserId)
+    : null;
+}
+
 async function resolveViewerScopeCodes(viewerUserId) {
   if (!Number.isInteger(Number(viewerUserId)) || Number(viewerUserId) <= 0) {
     return {
@@ -3346,6 +3364,7 @@ export async function listUserHighlights(viewerUserId, userId) {
 }
 
 export async function listPosts(viewerUserId, query) {
+  viewerUserId = asOptionalViewerId(viewerUserId);
   const viewerScopeCodes = await resolveViewerScopeCodes(viewerUserId);
   const normalizedKind = normalizeRequestedPostKind(query.kind);
   const rows = await listRankedVisiblePosts({
@@ -3371,6 +3390,7 @@ export async function listPosts(viewerUserId, query) {
 }
 
 export async function listExplore(viewerUserId, query) {
+  viewerUserId = asOptionalViewerId(viewerUserId);
   const cacheKey = buildTransientFeedCacheKey("explore", viewerUserId, query);
   const cached = readTransientFeedCache(cacheKey);
   if (cached) return cached;
@@ -3389,6 +3409,7 @@ export async function listExplore(viewerUserId, query) {
 }
 
 export async function listTrending(viewerUserId, query) {
+  viewerUserId = asOptionalViewerId(viewerUserId);
   const viewerScopeCodes = await resolveViewerScopeCodes(viewerUserId);
   return discoveryService.listTrending({
     viewerUserId,
@@ -3427,6 +3448,7 @@ export async function listExploreReels(viewerUserId, query) {
 }
 
 export async function listSuggestedPeople(viewerUserId, query) {
+  viewerUserId = asOptionalViewerId(viewerUserId);
   return recommendationsService.listSuggestedPeople({
     viewerUserId,
     limit: query.limit,
@@ -3434,6 +3456,7 @@ export async function listSuggestedPeople(viewerUserId, query) {
 }
 
 export async function searchSocialCatalog(viewerUserId, query) {
+  viewerUserId = asOptionalViewerId(viewerUserId);
   const viewerScopeCodes = await resolveViewerScopeCodes(viewerUserId);
   return searchService.searchSocial({
     viewerUserId,
@@ -3444,6 +3467,7 @@ export async function searchSocialCatalog(viewerUserId, query) {
 }
 
 export async function listHashtagPosts(viewerUserId, tag, query) {
+  viewerUserId = asOptionalViewerId(viewerUserId);
   const viewerScopeCodes = await resolveViewerScopeCodes(viewerUserId);
   return tagsService.listHashtagFeed({
     viewerUserId,
@@ -3549,6 +3573,7 @@ export async function recordReelView({ viewerUserId, reelId, dto }) {
 }
 
 export async function listStories(viewerUserId, query) {
+  viewerUserId = asOptionalViewerId(viewerUserId);
   const safeLimitUsers = Math.max(1, Math.min(80, Number(query.limitUsers) || 30));
   const safeMaxPerUser = Math.max(1, Math.min(20, Number(query.maxPerUser) || 8));
   const rows = await repo.listActiveStoriesRaw({
@@ -3726,6 +3751,7 @@ export async function setStoryArchivedState({
 }
 
 export async function getPostById(viewerUserId, postId) {
+  viewerUserId = asOptionalViewerId(viewerUserId);
   const viewerScopeCodes = await resolveViewerScopeCodes(viewerUserId);
   let row = await repo.findFeedPostById({
     viewerUserId,
@@ -4415,6 +4441,7 @@ export async function resolveSharedEntityForSender({
 }
 
 export async function getStoryById(viewerUserId, storyId) {
+  viewerUserId = asOptionalViewerId(viewerUserId);
   const { story } = await getStoryForViewerOrThrow({
     storyId,
     viewerUserId,

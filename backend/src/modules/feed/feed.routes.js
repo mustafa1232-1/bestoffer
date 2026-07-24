@@ -19,6 +19,36 @@ feedRouter.get("/reels/:reelId(\\d+)", optionalAuth, c.getPublicReelById);
 feedRouter.get("/reels/explore", optionalAuth, c.listExploreReels);
 feedRouter.post("/reels/:reelId(\\d+)/view", optionalAuth, c.recordReelView);
 
+// -----------------------------------------------------------------------------
+// Public read-only social content (guest-viewable).
+//
+// These are declared BEFORE `requireAuth` so a guest (no token) can browse the
+// home feed, stories, discovery, trending, hashtags, suggested people and
+// public search — exactly the surfaces the app shows without login.
+//
+// `optionalAuth` attaches the viewer when a valid token IS present, so a signed
+// in user still gets personalised fields (isLiked / isSaved / isFollowing). For
+// a guest the service receives a null viewer and returns those flags as false
+// while still applying visibility, privacy, blocking and moderation. It never
+// exposes private content. Creation and interaction routes remain under
+// `requireAuth` below. Numeric `(\\d+)` constraints keep these from swallowing
+// authenticated sub-routes such as `/posts/:postId/comments`.
+feedRouter.get("/posts", optionalAuth, c.listPosts);
+feedRouter.get("/posts/:postId(\\d+)", optionalAuth, c.getPostById);
+feedRouter.get("/stories", optionalAuth, c.listStories);
+feedRouter.get("/stories/:storyId(\\d+)", optionalAuth, c.getStoryById);
+feedRouter.get("/explore", optionalAuth, c.listExplore);
+feedRouter.get("/trending", optionalAuth, c.listTrending);
+feedRouter.get("/users/suggested", optionalAuth, c.listSuggestedPeople);
+feedRouter.get("/search", optionalAuth, c.searchSocialCatalog);
+feedRouter.get("/hashtags/trending", optionalAuth, c.listTrendingTags);
+// `/hashtags/suggest` is a compose-only helper and MUST stay authenticated, but
+// it has to be declared before the public `/hashtags/:tag` param route or that
+// route would swallow it (tag = "suggest"). We keep it here (before the param
+// route) with an explicit per-route `requireAuth`.
+feedRouter.get("/hashtags/suggest", requireAuth, c.listHashtagSuggestions);
+feedRouter.get("/hashtags/:tag", optionalAuth, c.listHashtagPosts);
+
 feedRouter.use(requireAuth);
 
 feedRouter.get("/capabilities", c.getSocialCapabilities);
@@ -33,16 +63,9 @@ feedRouter.get(
   c.getSocialMediaAssetDiagnosticsById
 );
 
-feedRouter.get("/explore", c.listExplore);
-feedRouter.get("/trending", c.listTrending);
-feedRouter.get("/users/suggested", c.listSuggestedPeople);
-feedRouter.get("/search", c.searchSocialCatalog);
-feedRouter.get("/hashtags/trending", c.listTrendingTags);
-feedRouter.get("/hashtags/suggest", c.listHashtagSuggestions);
-feedRouter.get("/hashtags/:tag", c.listHashtagPosts);
+// Compose-only helpers stay authenticated (used while writing posts/mentions).
+// `/hashtags/suggest` is declared above (before the public `/hashtags/:tag`).
 feedRouter.get("/mentions/users", c.listMentionUsers);
-feedRouter.get("/posts", c.listPosts);
-feedRouter.get("/posts/:postId", c.getPostById);
 feedRouter.get("/users/search", c.searchUsers);
 feedRouter.get("/communities/scopes/me", c.getMyCommunityScopes);
 feedRouter.get("/communities/:scopeType/:scopeCode/feed", c.listCommunityFeed);
@@ -203,10 +226,9 @@ feedRouter.patch("/posts/:postId/comments/:commentId", c.updateComment);
 feedRouter.delete("/posts/:postId/comments/:commentId", c.deleteComment);
 feedRouter.post("/posts/:postId/comments/:commentId/like", c.toggleCommentLike);
 feedRouter.post("/posts/:postId/report", c.reportPost);
-feedRouter.get("/stories", c.listStories);
+// GET /stories and GET /stories/:storyId(\d+) are declared above as public.
 feedRouter.get("/stories/archive/me", c.listMyStoryArchive);
 feedRouter.post("/stories", mediaUpload.single("mediaFile"), c.createStory);
-feedRouter.get("/stories/:storyId", c.getStoryById);
 feedRouter.post("/stories/:storyId/archive", c.archiveStory);
 feedRouter.post("/stories/:storyId/restore", c.restoreStory);
 feedRouter.post("/stories/:storyId/view", c.markStoryViewed);

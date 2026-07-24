@@ -9,6 +9,7 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
+import '../../auth/state/auth_controller.dart';
 import '../../merchants/models/merchant_model.dart';
 import '../../merchants/ui/merchant_products_screen.dart';
 import '../../notifications/ui/notifications_bell.dart';
@@ -164,6 +165,20 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
     await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => const SocialSearchScreen()));
+  }
+
+  Future<int?> _openComments(SocialPost post) async {
+    // Opening the comment thread (and its composer) needs a session; gate for
+    // guests instead of letting the thread request 401.
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'التعليقات',
+      featureEnglish: 'comments',
+    )) {
+      return null;
+    }
+    if (!mounted) return null;
+    return openSocialComments(context, post: post);
   }
 
   ({String scopeType, String scopeCode})? _resolvePrimaryCommunityScope() {
@@ -349,6 +364,7 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final state = ref.watch(socialControllerProvider);
+    final isGuest = !ref.watch(authControllerProvider).isAuthed;
     final hasPosts = state.posts.isNotEmpty;
     final primaryScope = ref.watch(basmayaScopeCodesProvider).valueOrNull;
     final hasCommunityScope =
@@ -358,13 +374,10 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
     final isReelsFilter = state.activeKind == 'reel';
     final createReelLabel = context.lt(ar: 'إنشاء ريل', en: 'Create Reel');
 
-    ref.listen<String?>(socialControllerProvider.select((s) => s.error), (
-      previous,
-      next,
-    ) {
-      if (next == null || next == previous || !mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(next)));
-    });
+    // Deliberately NO error listener here: the social feed must never surface a
+    // technical error (DioException / 401 / request id) as a snackbar or card.
+    // Content-load failures degrade silently to cached/empty content and are
+    // retried quietly by the controller.
 
     return Directionality(
       textDirection: Directionality.of(context),
@@ -379,12 +392,16 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
           leading: const MaslakiUserDrawerButton(openStartDrawer: true),
           actions: const [NotificationsBellButton()],
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          heroTag: null,
-          onPressed: _openCreateMenu,
-          icon: const Icon(Icons.add_rounded),
-          label: Text(l10n.commonCreate),
-        ),
+        // Creation entry points are hidden for guests; the screen must not look
+        // as though a guest can post directly.
+        floatingActionButton: isGuest
+            ? null
+            : FloatingActionButton.extended(
+                heroTag: null,
+                onPressed: _openCreateMenu,
+                icon: const Icon(Icons.add_rounded),
+                label: Text(l10n.commonCreate),
+              ),
         body: RefreshIndicator(
           onRefresh: _refresh,
           child: CustomScrollView(
@@ -397,6 +414,7 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
                   child: SocialFeedActionStrip(
                     onOpenSearch: _openSearch,
                     onOpenCreateMenu: _openCreateMenu,
+                    showCreate: !isGuest,
                     createLabel: isReelsFilter ? createReelLabel : null,
                     createIcon: isReelsFilter
                         ? Icons.ondemand_video_rounded
@@ -421,6 +439,7 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
                   child: SocialStoriesStrip(
                     loading: state.loadingStories,
                     stories: state.stories,
+                    showAddStory: !isGuest,
                     onAddStory: () async {
                       final posted = await showSocialStoryComposerEntrySheet(
                         context,
@@ -452,23 +471,26 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
               else if (!hasPosts)
                 SliverFillRemaining(
                   hasScrollBody: false,
-                  child: SocialFeedEmptyState(
-                    onCreate: _openCreateMenu,
-                    actionLabel: isReelsFilter ? createReelLabel : null,
-                    actionIcon: isReelsFilter
-                        ? Icons.ondemand_video_rounded
-                        : Icons.add_rounded,
-                    illustrationIcon: isReelsFilter
-                        ? Icons.ondemand_video_rounded
-                        : Icons.auto_awesome_mosaic_rounded,
-                  ),
+                  // Guests get a clean, empty content area — no large empty-state
+                  // illustration and no "start now" creation call-to-action.
+                  child: isGuest
+                      ? const SizedBox.shrink()
+                      : SocialFeedEmptyState(
+                          onCreate: _openCreateMenu,
+                          actionLabel: isReelsFilter ? createReelLabel : null,
+                          actionIcon: isReelsFilter
+                              ? Icons.ondemand_video_rounded
+                              : Icons.add_rounded,
+                          illustrationIcon: isReelsFilter
+                              ? Icons.ondemand_video_rounded
+                              : Icons.auto_awesome_mosaic_rounded,
+                        ),
                 )
               else
                 SocialFeedPostsSliver(
                   posts: state.posts,
                   loadingMore: state.loadingMorePosts,
-                  onOpenComments: (post) =>
-                      openSocialComments(context, post: post),
+                  onOpenComments: _openComments,
                   onToggleLike: (post) async {
                     if (!await requireAuthBeforeAction(
                       context,
