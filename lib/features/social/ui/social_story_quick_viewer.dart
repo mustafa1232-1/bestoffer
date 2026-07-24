@@ -680,6 +680,15 @@ class _SocialStoryQuickViewerSheetState
 
   Future<void> _openMentionProfile(int userId, String? displayLabel) async {
     if (userId <= 0) return;
+    // Opening a mentioned member's profile needs an account — gate before nav.
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'عرض الملف الشخصي',
+      featureEnglish: 'viewing a profile',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     _consumeNextTapUp = true;
     await _withOverlayPause(
       () => Navigator.of(context).push(

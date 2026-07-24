@@ -1,8 +1,8 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../social_content_navigation.dart';
 import '../social_hashtag_screen.dart';
-import '../social_profile_screen.dart';
 
 class SocialMentionHashtagText extends StatefulWidget {
   final String text;
@@ -70,13 +70,10 @@ class _SocialMentionHashtagTextState extends State<SocialMentionHashtagText> {
               widget.onOpenMention!(mentionUserId, mentionName);
               return;
             }
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => SocialProfileScreen(
-                  userId: mentionUserId,
-                  initialName: mentionName,
-                ),
-              ),
+            openSocialProfileGuarded(
+              context,
+              userId: mentionUserId,
+              initialName: mentionName,
             );
           };
         _recognizers.add(recognizer);

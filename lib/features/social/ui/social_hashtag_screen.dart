@@ -11,7 +11,6 @@ import '../../merchants/ui/merchant_products_screen.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'social_content_navigation.dart';
-import 'social_profile_screen.dart';
 import 'widgets/social_post_card_v2.dart';
 import 'widgets/social_save_sheet.dart';
 
@@ -190,13 +189,10 @@ class _SocialHashtagScreenState extends ConsumerState<SocialHashtagScreen> {
                         );
                       },
                       onOpenProfile: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => SocialProfileScreen(
-                              userId: post.userId,
-                              initialName: post.author.fullName,
-                            ),
-                          ),
+                        openSocialProfileGuarded(
+                          context,
+                          userId: post.userId,
+                          initialName: post.author.fullName,
                         );
                       },
                       onOpenMerchantLink: () => _openMerchant(post),

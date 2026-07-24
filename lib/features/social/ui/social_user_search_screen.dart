@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
@@ -10,7 +11,7 @@ import '../../../core/widgets/appbar_quick_actions.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
 import 'social_chat_thread_screen.dart';
-import 'social_profile_screen.dart';
+import 'social_content_navigation.dart';
 import 'widgets/social_identity_view.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
@@ -165,6 +166,15 @@ class _SocialUserSearchScreenState
     SocialUserSearchResult item, {
     required bool friendMode,
   }) async {
+    // Following / accepting / cancelling a relation is a protected action.
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'المتابعة',
+      featureEnglish: 'following',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final l10n = context.l10n;
     final user = item.user;
     final relation = item.relation;
@@ -249,11 +259,10 @@ class _SocialUserSearchScreenState
   }
 
   Future<void> _openProfile(SocialAuthor user) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            SocialProfileScreen(userId: user.id, initialName: user.fullName),
-      ),
+    await openSocialProfileGuarded(
+      context,
+      userId: user.id,
+      initialName: user.fullName,
     );
     if (!mounted) return;
     await _loadResults(force: true);

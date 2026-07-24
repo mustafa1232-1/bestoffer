@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../customer/ui/customer_car_listing_details_screen.dart';
 import '../../real_estate/ui/real_estate_listing_details_screen.dart';
 import '../../social_v3/state/social_reels_v3_connector.dart';
@@ -9,6 +10,34 @@ import 'social_post_details_screen.dart';
 import 'social_profile_screen.dart';
 import 'social_reel_comments_sheet.dart';
 import 'social_story_viewer_screen.dart';
+
+/// Unified, guarded entry point for opening ANOTHER member's profile.
+///
+/// Per the current decision, viewing a profile requires an account. This gate
+/// runs BEFORE navigation: a guest sees the "sign in to continue" sheet and the
+/// profile route is never pushed. Signed-in users navigate immediately.
+/// [SocialProfileScreen] also self-guards on entry as a defense-in-depth net for
+/// any path that does not route through here (notifications, deep links, ...).
+Future<void> openSocialProfileGuarded(
+  BuildContext context, {
+  required int userId,
+  String? initialName,
+}) async {
+  if (!await requireAuthBeforeAction(
+    context,
+    featureArabic: 'عرض الملف الشخصي',
+    featureEnglish: 'viewing a profile',
+  )) {
+    return;
+  }
+  if (!context.mounted) return;
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) =>
+          SocialProfileScreen(userId: userId, initialName: initialName),
+    ),
+  );
+}
 
 /// Opens the full-screen Social V3 reels experience pinned to [reelId].
 Future<void> openSocialReelsV3(BuildContext context, {required int reelId}) {
@@ -108,7 +137,18 @@ Future<int?> openSocialComments(
   BuildContext context, {
   required SocialPost post,
   String? title,
-}) {
+}) async {
+  // Single choke point for opening any comment thread. The thread endpoint and
+  // its composer require a session, so gate here for guests instead of letting
+  // the sheet fire a protected request. Signed-in users pass through instantly.
+  if (!await requireAuthBeforeAction(
+    context,
+    featureArabic: 'التعليقات',
+    featureEnglish: 'comments',
+  )) {
+    return null;
+  }
+  if (!context.mounted) return null;
   if (socialCanonicalReelIdForPost(post) != null) {
     return showSocialReelCommentsSheet(context, reelPost: post);
   }
@@ -145,13 +185,10 @@ Future<void> openSocialSharedEntity(
       await openSocialReelsV3(context, reelId: target.id);
       return;
     case 'profile':
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => SocialProfileScreen(
-            userId: target.id,
-            initialName: target.initialName,
-          ),
-        ),
+      await openSocialProfileGuarded(
+        context,
+        userId: target.id,
+        initialName: target.initialName,
       );
       return;
     case 'car_listing':

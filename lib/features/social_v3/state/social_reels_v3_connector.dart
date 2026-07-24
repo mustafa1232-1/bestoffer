@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../../auth/presentation/login_screen.dart';
+import '../../../core/auth/auth_guard.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../social/models/social_models.dart';
 import '../../social/state/social_controller.dart';
@@ -241,6 +241,13 @@ class _SocialReelsV3ConnectorState
   }
 
   Future<void> _openMore(ReelV3ViewData reel) async {
+    // The "more" menu is dominated by protected actions (report / block author /
+    // relation lookup). Gate it for guests instead of firing getUserRelation and
+    // exposing report/block controls.
+    if (!_hasAuthenticatedUser) {
+      await _promptLoginRequired();
+      return;
+    }
     final l10n = context.l10n;
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final messenger = ScaffoldMessenger.of(context);
@@ -551,34 +558,13 @@ class _SocialReelsV3ConnectorState
 
   Future<void> _promptLoginRequired() async {
     if (!mounted) return;
-    final shouldLogin = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(
-          dialogContext.lt(ar: 'تسجيل الدخول مطلوب', en: 'Sign in required'),
-        ),
-        content: Text(
-          dialogContext.lt(
-            ar: 'سجّل الدخول لاستخدام هذه الميزة.',
-            en: 'Sign in to use this feature.',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(dialogContext.lt(ar: 'إلغاء', en: 'Cancel')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(dialogContext.lt(ar: 'تسجيل الدخول', en: 'Sign in')),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || shouldLogin != true) return;
-    await Navigator.of(
+    // Use the single unified AuthActionGuard sheet so Reels prompts look and
+    // behave exactly like every other guest gate in the app.
+    await requireAuthBeforeAction(
       context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const LoginScreen()));
+      featureArabic: 'التفاعل مع الريلز',
+      featureEnglish: 'interacting with reels',
+    );
   }
 
   void _recordView(ReelV3ViewData reel) {

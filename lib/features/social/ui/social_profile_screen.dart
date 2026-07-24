@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/files/local_media_file.dart';
 import '../../../core/files/media_picker_service.dart';
 import '../../../core/i18n/app_localizations_context.dart';
@@ -12,6 +13,7 @@ import '../../../core/i18n/locale_text.dart';
 import '../../../core/media/media_cache_service.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
+import '../../auth/state/auth_controller.dart';
 import '../../paid_upgrades/state/paid_upgrades_summary_provider.dart';
 import '../../paid_upgrades/ui/paid_upgrades_home_screen.dart';
 import '../data/social_api.dart';
@@ -90,7 +92,27 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   void initState() {
     super.initState();
     _api = ref.read(socialApiProvider);
+    // Viewing another member's profile requires an account (current decision).
+    // This is the single defense-in-depth gate for EVERY profile-open path
+    // (feed, reels, stories, search, comments, notifications, deep links, ...):
+    // for a guest we load NONE of the authenticated profile endpoints — so no
+    // 401 is ever produced — and instead present the sign-in sheet and leave.
+    if (!ref.read(authControllerProvider).isAuthed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _promptGuestSignIn());
+      return;
+    }
     Future.microtask(_bootstrap);
+  }
+
+  Future<void> _promptGuestSignIn() async {
+    if (!mounted) return;
+    await requireAuthBeforeAction(
+      context,
+      featureArabic: 'عرض الملف الشخصي',
+      featureEnglish: 'viewing a profile',
+    );
+    if (!mounted) return;
+    Navigator.of(context).maybePop();
   }
 
   /// نقطة bootstrap الموحدة للشاشة عند أول فتح أو عند الحاجة لإعادة التهيئة الكاملة.
@@ -1875,6 +1897,14 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Guests never see profile content (the entry gate in initState is redirecting
+    // to sign-in). Render a clean, empty frame — no data, no error text.
+    if (!ref.watch(authControllerProvider).isAuthed) {
+      return Directionality(
+        textDirection: context.appTextDirection,
+        child: const Scaffold(body: SizedBox.shrink()),
+      );
+    }
     final l10n = context.l10n;
     final profile = _profile;
     final albums = _buildHighlightAlbums();

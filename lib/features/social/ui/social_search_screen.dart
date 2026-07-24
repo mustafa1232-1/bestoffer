@@ -11,7 +11,6 @@ import '../models/social_models.dart';
 import '../state/social_search_controller.dart';
 import 'social_content_navigation.dart';
 import 'social_hashtag_screen.dart';
-import 'social_profile_screen.dart';
 import 'widgets/social_identity_view.dart';
 import 'widgets/social_post_card_v2.dart';
 
@@ -112,13 +111,10 @@ class _SocialSearchScreenState extends ConsumerState<SocialSearchScreen> {
         ),
       ),
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => SocialProfileScreen(
-              userId: result.user.id,
-              initialName: result.user.fullName,
-            ),
-          ),
+        openSocialProfileGuarded(
+          context,
+          userId: result.user.id,
+          initialName: result.user.fullName,
         );
       },
     );

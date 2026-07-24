@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../models/social_models.dart';
 import '../social_content_navigation.dart';
-import '../social_profile_screen.dart';
 import 'social_post_card_v2.dart';
 
 class SocialFeedPostsSliver extends StatelessWidget {
@@ -65,13 +64,10 @@ class SocialFeedPostsSliver extends StatelessWidget {
               onReport: onReportPost == null ? null : () => onReportPost!(post),
               onOpenMerchantLink: onOpenMerchantLink(post),
               onOpenProfile: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => SocialProfileScreen(
-                      userId: post.author.id,
-                      initialName: post.author.fullName,
-                    ),
-                  ),
+                openSocialProfileGuarded(
+                  context,
+                  userId: post.author.id,
+                  initialName: post.author.fullName,
                 );
               },
             ),

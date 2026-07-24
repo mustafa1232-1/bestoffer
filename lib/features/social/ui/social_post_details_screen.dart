@@ -278,9 +278,37 @@ class _SocialPostDetailsScreenState
     }
   }
 
+  Future<void> _openProfile(SocialAuthor author) async {
+    // Opening another member's profile requires an account — gate before nav.
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'عرض الملف الشخصي',
+      featureEnglish: 'viewing a profile',
+    )) {
+      return;
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialProfileScreen(
+          userId: author.id,
+          initialName: author.fullName,
+        ),
+      ),
+    );
+  }
+
   Future<void> _reportPost() async {
     final post = _post;
     if (post == null || _isMine) return;
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'الإبلاغ عن المنشور',
+      featureEnglish: 'reporting a post',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final isEnglish = Localizations.localeOf(context).languageCode == 'en';
     final reasons = <({String key, String label})>[
       (key: 'spam', label: isEnglish ? 'Spam or misleading' : 'مزعج أو مضلل'),
@@ -406,16 +434,7 @@ class _SocialPostDetailsScreenState
                   children: [
                     SocialPostCardV2(
                       post: post,
-                      onOpenProfile: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => SocialProfileScreen(
-                              userId: post.author.id,
-                              initialName: post.author.fullName,
-                            ),
-                          ),
-                        );
-                      },
+                      onOpenProfile: () => _openProfile(post.author),
                       onOpenMerchantLink: _openMerchant,
                       onToggleLike: _toggleLike,
                       onToggleSave: _toggleSave,
@@ -768,6 +787,15 @@ class _SocialPostCommentsSheetState
   }
 
   Future<void> _openProfile(SocialAuthor author) async {
+    // Opening another member's profile requires an account — gate before nav.
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'عرض الملف الشخصي',
+      featureEnglish: 'viewing a profile',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SocialProfileScreen(

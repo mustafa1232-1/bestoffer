@@ -35,7 +35,10 @@ Future<bool> requireAuthBeforeAction(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'تحتاج إلى تسجيل الدخول لاستخدام هذه الميزة',
+                context.lt(
+                  ar: 'سجّل الدخول للمتابعة',
+                  en: 'Sign in to continue',
+                ),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w900,
@@ -43,7 +46,10 @@ Future<bool> requireAuthBeforeAction(
               ),
               const SizedBox(height: 6),
               Text(
-                'You need to sign in to use this feature',
+                context.lt(
+                  ar: 'تحتاج إلى تسجيل الدخول لاستخدام هذه الميزة.',
+                  en: 'You need to sign in to use this feature.',
+                ),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Theme.of(context)
@@ -86,7 +92,7 @@ Future<bool> requireAuthBeforeAction(
               OutlinedButton(
                 onPressed: () => Navigator.of(context).pop(),
                 child: Text(
-                  context.lt(ar: 'متابعة التصفح', en: 'Continue browsing'),
+                  context.lt(ar: 'إلغاء', en: 'Cancel'),
                 ),
               ),
             ],

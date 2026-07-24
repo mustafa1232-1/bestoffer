@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
-import 'social_profile_screen.dart';
+import 'social_content_navigation.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -89,6 +90,14 @@ class _SocialDiscoveryPeopleScreenState
   }
 
   Future<void> _onRelationPressed(SocialUserSearchResult item) async {
+    if (!await requireAuthBeforeAction(
+      context,
+      featureArabic: 'المتابعة',
+      featureEnglish: 'following',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     final l10n = context.l10n;
     if (_busyUserIds.contains(item.user.id) || item.relation.isAccepted) return;
     if (item.relation.isBlockedByOther) {
@@ -174,13 +183,10 @@ class _SocialDiscoveryPeopleScreenState
                 return InkWell(
                   borderRadius: BorderRadius.circular(20),
                   onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => SocialProfileScreen(
-                          userId: person.user.id,
-                          initialName: person.user.fullName,
-                        ),
-                      ),
+                    openSocialProfileGuarded(
+                      context,
+                      userId: person.user.id,
+                      initialName: person.user.fullName,
                     );
                   },
                   child: Ink(
