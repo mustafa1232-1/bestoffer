@@ -8,6 +8,7 @@ import 'package:maslaki/core/network/dio_client.dart';
 import 'package:maslaki/core/network/session_invalidation.dart';
 import 'package:maslaki/core/platform/app_flavor.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
+import 'package:maslaki/features/auth/data/auth_api.dart';
 
 class _MemorySecureStore extends SecureStore {
   _MemorySecureStore({
@@ -176,6 +177,32 @@ class _RefreshConcurrencyAdapter implements HttpClientAdapter {
       return _json(200, <String, dynamic>{'ok': true});
     }
     return _json(401, <String, dynamic>{'message': 'INVALID_TOKEN'});
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _AuthEndpointCaptureAdapter implements HttpClientAdapter {
+  final List<RequestOptions> capturedRequests = <RequestOptions>[];
+  int refreshFetchCount = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    capturedRequests.add(options);
+    if (options.path == '/api/auth/refresh') {
+      refreshFetchCount++;
+      return _json(500, <String, dynamic>{'message': 'unexpected refresh'});
+    }
+    return _json(200, <String, dynamic>{
+      'token': 'access-new',
+      'refreshToken': 'refresh-new',
+      'user': <String, dynamic>{'id': 1, 'phone': '07700000000'},
+    });
   }
 
   @override
@@ -482,4 +509,53 @@ void main() {
     expect(store.guestMode, isFalse);
     expect(SessionRecoveryCoordinator.instance.terminalInvalidated, isFalse);
   });
+
+  test(
+    'anonymous auth endpoints do not send stale bearer token or refresh',
+    () async {
+      final store = _MemorySecureStore(
+        accessToken: 'access-stale',
+        refreshToken: 'refresh-stale',
+        sessionId: 'session-stale',
+        deviceId: 'device-1',
+      );
+      final adapter = _AuthEndpointCaptureAdapter();
+      final client = DioClient(store);
+      client.dio.httpClientAdapter = adapter;
+      client.dio.options.baseUrl = 'http://127.0.0.1';
+      final api = AuthApi(client.dio);
+
+      await api.login(<String, dynamic>{'phone': '07700000000', 'pin': '1234'});
+      await api.recoverSession(<String, dynamic>{
+        'deviceSessionId': 'device-session-1',
+        'deviceRecoverySecret': 'secret-1',
+      });
+      await api.register(<String, dynamic>{
+        'fullName': 'Test User',
+        'phone': '07700000001',
+        'pin': '1234',
+      });
+      await api.registerOwner(<String, dynamic>{
+        'phone': '07700000002',
+        'pin': '1234',
+        'merchantName': 'Store',
+      });
+      await api.registerDelivery(<String, dynamic>{
+        'phone': '07700000003',
+        'pin': '1234',
+      });
+
+      expect(adapter.refreshFetchCount, 0);
+      final paths = adapter.capturedRequests.map((request) => request.path);
+      expect(paths, isNot(contains('/api/auth/refresh')));
+      for (final request in adapter.capturedRequests) {
+        expect(request.headers['Authorization'], isNull);
+        expect(request.headers.containsKey('X-Request-Signature'), isFalse);
+        expect(request.extra['skipAuth'], isTrue);
+        expect(request.extra['skipAuthRefresh'], isTrue);
+        expect(request.extra['skipSigning'], isTrue);
+        expect(request.extra['skipTerminalSessionInvalidation'], isTrue);
+      }
+    },
+  );
 }

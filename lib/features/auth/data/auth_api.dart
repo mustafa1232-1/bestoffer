@@ -9,6 +9,15 @@ class AuthApi {
 
   AuthApi(this.dio);
 
+  static final Options _anonymousAuthOptions = Options(
+    extra: const {
+      'skipAuth': true,
+      'skipSigning': true,
+      'skipAuthRefresh': true,
+      'skipTerminalSessionInvalidation': true,
+    },
+  );
+
   Future<Map<String, dynamic>> register(
     Map<String, dynamic> body, {
     LocalImageFile? imageFile,
@@ -17,7 +26,11 @@ class AuthApi {
       body,
       files: {'imageFile': imageFile},
     );
-    final response = await dio.post('/api/auth/register', data: requestData);
+    final response = await dio.post(
+      '/api/auth/register',
+      data: requestData,
+      options: _anonymousAuthOptions,
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -31,6 +44,7 @@ class AuthApi {
     final response = await dio.post(
       '/api/auth/ocr/extract-residence-card',
       data: requestData,
+      options: _anonymousAuthOptions,
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -47,12 +61,17 @@ class AuthApi {
     final response = await dio.post(
       '/api/auth/register-with-card',
       data: requestData,
+      options: _anonymousAuthOptions,
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
   Future<Map<String, dynamic>> login(Map<String, dynamic> body) async {
-    final response = await dio.post('/api/auth/login', data: body);
+    final response = await dio.post(
+      '/api/auth/login',
+      data: body,
+      options: _anonymousAuthOptions,
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -60,13 +79,7 @@ class AuthApi {
     final response = await dio.post(
       '/api/auth/session/recover',
       data: body,
-      options: Options(
-        extra: const {
-          'skipSigning': true,
-          'skipAuthRefresh': true,
-          'skipTerminalSessionInvalidation': true,
-        },
-      ),
+      options: _anonymousAuthOptions,
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -83,7 +96,11 @@ class AuthApi {
         'merchantImageFile': merchantImageFile,
       },
     );
-    final response = await dio.post('/api/owner/register', data: requestData);
+    final response = await dio.post(
+      '/api/owner/register',
+      data: requestData,
+      options: _anonymousAuthOptions,
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -102,6 +119,7 @@ class AuthApi {
     final response = await dio.post(
       '/api/taxi/captain/register',
       data: requestData,
+      options: _anonymousAuthOptions,
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
