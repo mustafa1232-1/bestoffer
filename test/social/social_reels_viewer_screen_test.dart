@@ -7,12 +7,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:maslaki/features/auth/models/user_model.dart';
+import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/social/data/social_api.dart';
 import 'package:maslaki/features/social/models/social_models.dart';
 import 'package:maslaki/features/social/state/social_controller.dart';
 import 'package:maslaki/features/social/state/social_reels_controller.dart';
 import 'package:maslaki/features/social/ui/social_reels_screen.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
+
+/// Signed-in auth so the reels error state (retry CTA) renders; guests get the
+/// clean empty surface which is covered by reels_guest_no_tech_error_test.dart.
+class _AuthedController extends AuthController {
+  _AuthedController(super.ref) {
+    state = AuthState(
+      token: 'test-token',
+      user: UserModel.fromJson(const <String, dynamic>{
+        'id': 1,
+        'full_name': 'Tester',
+        'phone': '07700000000',
+        'role': 'user',
+        'block': 'A',
+        'building_number': '1',
+        'apartment': '2',
+      }),
+    );
+  }
+
+  @override
+  Future<void> bootstrap() async {}
+}
 
 void main() {
   group('Social reels release readiness', () {
@@ -54,6 +78,7 @@ void main() {
           ProviderScope(
             overrides: [
               socialApiProvider.overrideWithValue(api),
+              authControllerProvider.overrideWith((ref) => _AuthedController(ref)),
               socialReelsControllerProvider.overrideWith((ref) {
                 controller = _FakeReelsController(
                   ref,
@@ -92,7 +117,9 @@ void main() {
           findsOneWidget,
         );
         expect(find.text('Retry'), findsOneWidget);
-        expect(find.text('Create reel'), findsNothing);
+        // A signed-in user legitimately gets the create CTA in the error state
+        // (guests never reach this state — see reels_guest_no_tech_error_test).
+        expect(find.text('Create reel'), findsOneWidget);
 
         await tester.tap(find.text('Retry'));
         await tester.pump();

@@ -50,9 +50,38 @@ class _SocialReelsV3ConnectorState
   SocialReelItem? _pinnedInitial;
   bool _bootstrapped = false;
 
+  // Bounded, silent background retry for the guest public reels surface. We
+  // never show a Retry button or an error to a guest, so a transient failure is
+  // retried quietly a small, finite number of times and then left as a clean
+  // empty area (no infinite loading, no loop).
+  static const int _kMaxGuestBackgroundRetries = 2;
+  int _guestBackgroundRetries = 0;
+  bool _guestBackgroundRetryScheduled = false;
+
   bool get _hasAuthenticatedUser {
     final auth = ref.read(authControllerProvider);
     return auth.isAuthed && auth.user != null;
+  }
+
+  void _scheduleGuestBackgroundRetry() {
+    if (_guestBackgroundRetryScheduled) return;
+    if (_guestBackgroundRetries >= _kMaxGuestBackgroundRetries) return;
+    _guestBackgroundRetryScheduled = true;
+    _guestBackgroundRetries += 1;
+    final attempt = _guestBackgroundRetries;
+    Future.delayed(Duration(seconds: 2 * attempt), () async {
+      if (!mounted) return;
+      _guestBackgroundRetryScheduled = false;
+      await ref.read(socialReelsControllerProvider.notifier).load(refresh: true);
+    });
+  }
+
+  void _logReelsLoadIssueSafely(String? code) {
+    // Technical, safe log only: a mapped error code — never a token, PII, raw
+    // response body, DioException, status code, or request id.
+    if (kDebugMode) {
+      debugPrint('[reels] guest load issue (code=${code ?? 'unknown'})');
+    }
   }
 
   @override
@@ -577,24 +606,48 @@ class _SocialReelsV3ConnectorState
   Widget build(BuildContext context) {
     final state = ref.watch(socialReelsControllerProvider);
     final reels = _buildReels(state);
+    final isGuest = !_hasAuthenticatedUser;
+    final hasError = state.error?.trim().isNotEmpty ?? false;
 
-    if (!_bootstrapped && reels.isEmpty) {
-      return const ColoredBox(
-        color: Colors.black,
-        child: Center(child: CircularProgressIndicator(color: Colors.white)),
-      );
-    }
+    // Content is available (possibly from cache): reset the guest retry budget
+    // and render it — this path is identical for guests and signed-in users.
+    if (reels.isNotEmpty) {
+      _guestBackgroundRetries = 0;
+    } else {
+      // No content yet.
+      if (!_bootstrapped) {
+        // Brief initial load only (the controller's load has a hard timeout, so
+        // this can never spin forever).
+        return const ColoredBox(
+          color: Colors.black,
+          child: Center(child: CircularProgressIndicator(color: Colors.white)),
+        );
+      }
 
-    if (_bootstrapped &&
-        reels.isEmpty &&
-        (state.error?.trim().isNotEmpty ?? false)) {
-      return _ReelsErrorState(
-        errorText: state.error!.trim(),
-        onRetry: () => ref
-            .read(socialReelsControllerProvider.notifier)
-            .load(refresh: true),
-        onCreate: _hasAuthenticatedUser ? _createReel : null,
-      );
+      if (isGuest) {
+        // Guest public reels: NEVER show an error, a "تعذر تحميل الريلز" message,
+        // a large Retry button, or a create empty-state. Leave the area clean and
+        // black. If a load actually failed, retry quietly a bounded number of
+        // times in the background (using cached content the moment it arrives).
+        if (hasError) {
+          _logReelsLoadIssueSafely(state.error);
+          _scheduleGuestBackgroundRetry();
+        }
+        return const ColoredBox(color: Colors.black);
+      }
+
+      // Signed-in users keep the actionable error state (clean localized message
+      // + retry + create) — they can meaningfully act on it.
+      if (hasError) {
+        return _ReelsErrorState(
+          errorText: state.error!.trim(),
+          onRetry: () => ref
+              .read(socialReelsControllerProvider.notifier)
+              .load(refresh: true),
+          onCreate: _createReel,
+        );
+      }
+      // Signed-in + empty + no error → fall through to the create empty-state.
     }
 
     return SocialReelsScreenV3(
@@ -605,7 +658,8 @@ class _SocialReelsV3ConnectorState
       onShare: _share,
       onMore: _openMore,
       onView: _recordView,
-      onCreate: _createReel,
+      // Creation affordance is hidden for guests (shown only to signed-in users).
+      onCreate: isGuest ? null : _createReel,
       onReachedEnd: () =>
           ref.read(socialReelsControllerProvider.notifier).loadMore(),
     );
