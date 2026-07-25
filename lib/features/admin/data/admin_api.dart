@@ -127,6 +127,20 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  /// إعدادات رقم الدعم المركزي (عرض إداري).
+  Future<Map<String, dynamic>> getSupportContact() async {
+    final response = await dio.get('/api/admin/settings/support');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// تحديث رقم الدعم المركزي (يتطلب صلاحية settings.support_phone.update).
+  Future<Map<String, dynamic>> updateSupportContact(
+    Map<String, dynamic> body,
+  ) async {
+    final response = await dio.put('/api/admin/settings/support', data: body);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<List<dynamic>> ordersPrintReport({required String period}) async {
     final response = await dio.get(
       '/api/admin/orders/print-report',

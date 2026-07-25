@@ -82,9 +82,8 @@
 **الموجود:** بذور HR (إجازات/رواتب في 036)، `accountant` module.
 **الناقص:** حضور/خروج بوقت الخادم (`Asia/Baghdad`)، إضافات/مصاريف، دورة راتب `DRAFT→...→ARCHIVED` بمراجعة ومصادقة، PDF/Excel.
 
-### المرحلة 8 — رقم الدعم المركزي 🟡
-**الموجود:** إعدادات عامة متفرقة، `SUPPORT_GUIDE.md`.
-**الناقص:** إعداد مركزي (`supportPhoneE164`...) قابل للتحديث دون تحديث التطبيق + endpoint إعدادات عام + تدقيق التغيير.
+### المرحلة 8 — رقم الدعم المركزي ✅
+**ما نُفِّذ (commit مستقل):** جدول `platform_setting` (key/value، migration 171)، وحدة `settings` بتحقق E164 وتنظيف نصوص (إزالة أحرف التحكم و`<>` لمنع الحقن)، `GET /api/settings/public` عام (مع Cache-Control) يخدم كل التطبيقات بلا تحديث، `GET/PUT /admin/settings/support` خلف `settings.support_phone.update` مع تدقيق before/after عبر سجل المرحلة 11. واجهة Flutter: `AdminSupportSettingsScreen` + مدخل في لوحة الإدارة + طرق `AdminApi`. اختبارات (3/3). **المتبقي:** استهلاك `/settings/public` في صفحات دعم التطبيقات (مع cache وfallback محلي) — الـendpoint جاهز.
 
 ### المرحلة 9 — ثلاثة ثيمات 🟡
 **الموجود:** `packages/core_design_system`، `UNIFIED_IDENTITY_AND_DESIGN_SYSTEM.md`.

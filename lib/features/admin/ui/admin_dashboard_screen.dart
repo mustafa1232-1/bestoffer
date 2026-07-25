@@ -17,6 +17,7 @@ import 'admin_audit_security_center_screen.dart';
 import 'admin_approvals_hub_screen.dart';
 import 'admin_ad_board_screen.dart';
 import 'admin_audit_log_screen.dart';
+import 'admin_support_settings_screen.dart';
 import 'command_center_screen.dart';
 import 'admin_companies_screen.dart';
 import 'admin_competitions_screen.dart';
@@ -609,6 +610,16 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSystem,
             onTap: (_) => _openPage(const AdminSectionAvailabilityScreen()),
           ),
+        AppUserDrawerItem(
+          icon: Icons.support_agent_rounded,
+          label: navText(ar: 'رقم الدعم المركزي', en: 'Central support number'),
+          subtitle: navText(
+            ar: 'رقم دعم واحد يصل كل التطبيقات دون تحديث',
+            en: 'One support number reaching all apps without an update',
+          ),
+          group: groupSystem,
+          onTap: (_) => _openPage(const AdminSupportSettingsScreen()),
+        ),
         if (canAdminOps)
           AppUserDrawerItem(
             icon: Icons.rule_folder_outlined,

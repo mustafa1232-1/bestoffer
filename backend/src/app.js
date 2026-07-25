@@ -54,6 +54,7 @@ import {
   sectionAvailabilityPublicRouter,
 } from "./modules/sections/sections.routes.js";
 import { taxiRouter } from "./modules/taxi/taxi.routes.js";
+import { settingsPublicRouter } from "./modules/settings/settings.routes.js";
 import { usersRouter } from "./modules/users/users.routes.js";
 import { requireAuth } from "./shared/middleware/auth.middleware.js";
 import { createOpsRouter } from "./ops/routes/ops.routes.js";
@@ -235,6 +236,7 @@ function mountApiSurface(prefix = "/api") {
   app.use(`${prefix}/taxi`, taxiRouter);
   app.use(`${prefix}/real-estate`, realEstateRouter);
   app.use(`${prefix}/sections`, sectionAvailabilityPublicRouter);
+  app.use(`${prefix}/settings`, settingsPublicRouter);
   app.use(`${prefix}/services/public`, servicesPublicRouter);
   app.use(`${prefix}/services/provider`, servicesProviderRouter);
   app.use(`${prefix}/services/requests`, servicesRequestsRouter);

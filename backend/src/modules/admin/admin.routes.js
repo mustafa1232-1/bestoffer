@@ -11,6 +11,7 @@ import * as ops from "./admin.ops.controller.js";
 import * as rbac from "../security/permissions.controller.js";
 import * as auditCtrl from "../security/audit.controller.js";
 import * as monitoring from "./monitoring.controller.js";
+import * as settings from "../settings/settings.controller.js";
 
 export const adminRouter = Router();
 
@@ -94,6 +95,18 @@ adminRouter.get(
   "/monitoring/taxi/rides",
   requirePermission("taxi.rides.read"),
   monitoring.taxiRides
+);
+
+// إعدادات الدعم المركزية (المرحلة 8).
+adminRouter.get(
+  "/settings/support",
+  requirePermission("settings.support_phone.update"),
+  settings.getSupport
+);
+adminRouter.put(
+  "/settings/support",
+  requirePermission("settings.support_phone.update"),
+  settings.updateSupport
 );
 
 // إدارة الصلاحيات الدقيقة (RBAC).
