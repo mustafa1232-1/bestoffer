@@ -188,6 +188,73 @@ class AdminApi {
     }
   }
 
+  Future<Map<String, dynamic>> updateMerchantProfile({
+    required int merchantId,
+    String? name,
+    String? phone,
+    String? description,
+    String? type,
+    String? activityType,
+    String? storeDepartment,
+    String? discoverySubcategory,
+    List<String>? discoverySubcategories,
+    bool? discoverySelectAll,
+  }) async {
+    final response = await dio.patch(
+      '/api/admin/merchants/$merchantId/profile',
+      data: {
+        'name': name,
+        'phone': phone,
+        'description': description,
+        'type': type,
+        'activityType': activityType,
+        'storeDepartment': storeDepartment,
+        'discoverySubcategory': discoverySubcategory,
+        'discoverySubcategories': discoverySubcategories,
+        'discoverySelectAll': discoverySelectAll,
+      }..removeWhere((_, value) => value == null),
+    );
+    return _safeMapResponse(response.data);
+  }
+
+  Future<List<dynamic>> adminStoreActivities() async {
+    final response = await dio.get('/api/admin/store-activities');
+    final data = response.data;
+    if (data is Map && data['items'] is List) {
+      return List<dynamic>.from(data['items'] as List);
+    }
+    if (data is List) return List<dynamic>.from(data);
+    return const <dynamic>[];
+  }
+
+  Future<Map<String, dynamic>> upsertStoreActivity({
+    required String activityType,
+    required String baseType,
+    required String displayNameAr,
+    required String displayNameEn,
+    bool hasDiscoverySubcategories = false,
+    bool supportsChat = false,
+    bool supportsAttachments = false,
+    bool supportsPharmacyWorkflow = false,
+    bool isActive = true,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/store-activities',
+      data: {
+        'activityType': activityType,
+        'baseType': baseType,
+        'displayNameAr': displayNameAr,
+        'displayNameEn': displayNameEn,
+        'hasDiscoverySubcategories': hasDiscoverySubcategories,
+        'supportsChat': supportsChat,
+        'supportsAttachments': supportsAttachments,
+        'supportsPharmacyWorkflow': supportsPharmacyWorkflow,
+        'isActive': isActive,
+      },
+    );
+    return _safeMapResponse(response.data);
+  }
+
   Future<void> approveMerchant(
     int merchantId, {
     Map<String, dynamic>? body,
@@ -527,11 +594,7 @@ class AdminApi {
   }) async {
     final response = await dio.get(
       '/api/admin/services/reports',
-      queryParameters: {
-        'status': status,
-        'limit': limit,
-        'offset': offset,
-      },
+      queryParameters: {'status': status, 'limit': limit, 'offset': offset},
     );
     return _safeMapResponse(response.data);
   }
@@ -1243,7 +1306,11 @@ class AdminApi {
         return <String, dynamic>{
           ...normalized,
           'items': List<dynamic>.from(normalized['data'] as List),
-          'total': _toInt(normalized['total'] ?? normalized['count'] ?? normalized['itemsCount']),
+          'total': _toInt(
+            normalized['total'] ??
+                normalized['count'] ??
+                normalized['itemsCount'],
+          ),
         };
       }
       return normalized;
@@ -1260,7 +1327,11 @@ class AdminApi {
         return <String, dynamic>{
           ...normalized,
           'items': List<dynamic>.from(normalized['data'] as List),
-          'total': _toInt(normalized['total'] ?? normalized['count'] ?? normalized['itemsCount']),
+          'total': _toInt(
+            normalized['total'] ??
+                normalized['count'] ??
+                normalized['itemsCount'],
+          ),
         };
       }
       return normalized;

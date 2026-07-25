@@ -62,7 +62,12 @@ export async function listManagedMerchants() {
        m.id,
        m.name,
        m.type,
+       m.activity_type,
+       m.store_department,
+       m.discovery_subcategory,
+       m.discovery_select_all,
        m.phone,
+       m.description,
        m.is_open,
        m.is_approved,
        m.is_disabled,
@@ -83,6 +88,171 @@ export async function listManagedMerchants() {
      ORDER BY m.id DESC`
   );
   return r.rows;
+}
+
+export async function updateManagedMerchantProfile({
+  merchantId,
+  name,
+  type,
+  activityType,
+  department,
+  discoverySubcategory,
+  discoverySubcategories,
+  discoverySelectAll,
+  description,
+  phone,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const currentResult = await client.query(
+      `SELECT *
+       FROM merchant
+       WHERE id = $1
+       FOR UPDATE`,
+      [Number(merchantId)]
+    );
+    const current = currentResult.rows[0] || null;
+    if (!current) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    const nextDiscoveryCodes = Array.isArray(discoverySubcategories)
+      ? discoverySubcategories
+      : null;
+    const nextDiscoverySubcategory =
+      discoverySubcategory !== undefined && discoverySubcategory !== null
+        ? discoverySubcategory
+        : nextDiscoveryCodes && nextDiscoveryCodes.length > 0
+          ? nextDiscoveryCodes[0]
+          : current.discovery_subcategory;
+    const nextDiscoverySelectAll =
+      typeof discoverySelectAll === "boolean"
+        ? discoverySelectAll
+        : current.discovery_select_all === true;
+
+    const updatedResult = await client.query(
+      `UPDATE merchant
+       SET name = COALESCE($2, name),
+           type = COALESCE($3, type),
+           activity_type = COALESCE($4, activity_type),
+           store_department = $5,
+           discovery_subcategory = $6,
+           discovery_select_all = $7,
+           description = COALESCE($8, description),
+           phone = COALESCE($9, phone),
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [
+        Number(merchantId),
+        name ?? null,
+        type ?? null,
+        activityType ?? null,
+        department === undefined ? current.store_department : department,
+        nextDiscoverySubcategory ?? null,
+        nextDiscoverySelectAll,
+        description ?? null,
+        phone ?? null,
+      ]
+    );
+
+    if (nextDiscoveryCodes) {
+      await client.query(
+        `DELETE FROM merchant_discovery_subcategory
+         WHERE merchant_id = $1`,
+        [Number(merchantId)]
+      );
+      if (nextDiscoveryCodes.length > 0) {
+        await client.query(
+          `INSERT INTO merchant_discovery_subcategory (merchant_id, discovery_code)
+           SELECT $1::bigint, code
+           FROM UNNEST($2::text[]) AS t(code)
+           ON CONFLICT (merchant_id, discovery_code) DO NOTHING`,
+          [Number(merchantId), nextDiscoveryCodes]
+        );
+      }
+    }
+
+    await client.query("COMMIT");
+    return updatedResult.rows[0] || null;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listAdminStoreActivities() {
+  const r = await q(
+    `SELECT
+       activity_type,
+       base_type::text AS base_type,
+       display_name_en,
+       display_name_ar,
+       has_discovery_subcategories,
+       supports_chat,
+       supports_attachments,
+       supports_pharmacy_workflow,
+       internal_category_mode,
+       default_service_flags_json,
+       default_badges_json,
+       is_active
+     FROM store_activity_definition
+     ORDER BY is_active DESC, display_name_ar ASC, display_name_en ASC`
+  );
+  return r.rows;
+}
+
+export async function upsertStoreActivityDefinition(payload) {
+  const r = await q(
+    `INSERT INTO store_activity_definition (
+       activity_type,
+       base_type,
+       display_name_en,
+       display_name_ar,
+       has_discovery_subcategories,
+       supports_chat,
+       supports_attachments,
+       supports_pharmacy_workflow,
+       internal_category_mode,
+       default_service_flags_json,
+       default_badges_json,
+       is_active
+     )
+     VALUES ($1,$2::merchant_type,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12)
+     ON CONFLICT (activity_type) DO UPDATE
+       SET base_type = EXCLUDED.base_type,
+           display_name_en = EXCLUDED.display_name_en,
+           display_name_ar = EXCLUDED.display_name_ar,
+           has_discovery_subcategories = EXCLUDED.has_discovery_subcategories,
+           supports_chat = EXCLUDED.supports_chat,
+           supports_attachments = EXCLUDED.supports_attachments,
+           supports_pharmacy_workflow = EXCLUDED.supports_pharmacy_workflow,
+           internal_category_mode = EXCLUDED.internal_category_mode,
+           default_service_flags_json = EXCLUDED.default_service_flags_json,
+           default_badges_json = EXCLUDED.default_badges_json,
+           is_active = EXCLUDED.is_active
+     RETURNING *`,
+    [
+      payload.activityType,
+      payload.baseType || "market",
+      payload.displayNameEn,
+      payload.displayNameAr,
+      payload.hasDiscoverySubcategories === true,
+      payload.supportsChat === true,
+      payload.supportsAttachments === true,
+      payload.supportsPharmacyWorkflow === true,
+      payload.internalCategoryMode || "merchant_defined_with_templates",
+      JSON.stringify(payload.defaultServiceFlags || {}),
+      JSON.stringify(Array.isArray(payload.defaultBadges) ? payload.defaultBadges : []),
+      payload.isActive !== false,
+    ]
+  );
+  return r.rows[0] || null;
 }
 
 export async function insertAdminAuditEvent(payload) {
@@ -476,7 +646,21 @@ export async function getDeliveryUserProfileById(deliveryUserId) {
 
 export async function getMerchantById(merchantId) {
   const r = await q(
-    `SELECT id, name, type, is_approved, is_disabled
+    `SELECT
+       id,
+       name,
+       type,
+       activity_type,
+       store_department,
+       discovery_subcategory,
+       discovery_select_all,
+       description,
+       phone,
+       is_open,
+       is_approved,
+       is_disabled,
+       owner_user_id,
+       created_at
      FROM merchant
      WHERE id = $1
      LIMIT 1`,

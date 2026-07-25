@@ -251,10 +251,7 @@ class AdminController extends StateNotifier<AdminState> {
           Future.value(const <dynamic>[]),
         _safeMap(
           () => api.listPendingServiceOfferings(limit: 120, offset: 0),
-          fallback: const <String, dynamic>{
-            'items': <dynamic>[],
-            'total': 0,
-          },
+          fallback: const <String, dynamic>{'items': <dynamic>[], 'total': 0},
         ),
         if (isAdmin)
           _safeList(() => api.pendingTaxiCaptainProfileEditRequests())
@@ -322,9 +319,10 @@ class AdminController extends StateNotifier<AdminState> {
           .toList(growable: false);
       final pendingServiceOfferingsRaw = _toMapList(_asMap(results[7])['items'])
           .where((row) {
-            final status = '${row['moderationStatus'] ?? row['moderation_status'] ?? ''}'
-                .trim()
-                .toLowerCase();
+            final status =
+                '${row['moderationStatus'] ?? row['moderation_status'] ?? ''}'
+                    .trim()
+                    .toLowerCase();
             return status == 'pending' || status == 'changes_requested';
           })
           .toList(growable: false);
@@ -881,6 +879,107 @@ class AdminController extends StateNotifier<AdminState> {
     }
   }
 
+  Future<bool> updateMerchantProfile({
+    required int merchantId,
+    String? name,
+    String? phone,
+    String? description,
+    String? type,
+    String? activityType,
+    String? storeDepartment,
+    String? discoverySubcategory,
+    List<String>? discoverySubcategories,
+    bool? discoverySelectAll,
+  }) async {
+    state = state.copyWith(saving: true, error: null, success: null);
+    try {
+      await ref
+          .read(adminApiProvider)
+          .updateMerchantProfile(
+            merchantId: merchantId,
+            name: name,
+            phone: phone,
+            description: description,
+            type: type,
+            activityType: activityType,
+            storeDepartment: storeDepartment,
+            discoverySubcategory: discoverySubcategory,
+            discoverySubcategories: discoverySubcategories,
+            discoverySelectAll: discoverySelectAll,
+          );
+      await bootstrap();
+      state = state.copyWith(
+        saving: false,
+        success: _adminText('merchant_profile_update_success'),
+      );
+      return true;
+    } on DioException catch (e) {
+      state = state.copyWith(saving: false, error: _mapError(e));
+      return false;
+    } catch (_) {
+      state = state.copyWith(
+        saving: false,
+        error: _adminText('merchant_profile_update_failed'),
+      );
+      return false;
+    }
+  }
+
+  Future<List<dynamic>> adminStoreActivities() async {
+    try {
+      return await ref.read(adminApiProvider).adminStoreActivities();
+    } on DioException catch (e) {
+      state = state.copyWith(error: _mapError(e));
+      return const <dynamic>[];
+    } catch (_) {
+      state = state.copyWith(error: _adminText('store_activity_load_failed'));
+      return const <dynamic>[];
+    }
+  }
+
+  Future<bool> upsertStoreActivity({
+    required String activityType,
+    required String baseType,
+    required String displayNameAr,
+    required String displayNameEn,
+    bool hasDiscoverySubcategories = false,
+    bool supportsChat = false,
+    bool supportsAttachments = false,
+    bool supportsPharmacyWorkflow = false,
+    bool isActive = true,
+  }) async {
+    state = state.copyWith(saving: true, error: null, success: null);
+    try {
+      await ref
+          .read(adminApiProvider)
+          .upsertStoreActivity(
+            activityType: activityType,
+            baseType: baseType,
+            displayNameAr: displayNameAr,
+            displayNameEn: displayNameEn,
+            hasDiscoverySubcategories: hasDiscoverySubcategories,
+            supportsChat: supportsChat,
+            supportsAttachments: supportsAttachments,
+            supportsPharmacyWorkflow: supportsPharmacyWorkflow,
+            isActive: isActive,
+          );
+      state = state.copyWith(
+        saving: false,
+        success: _adminText('store_activity_update_success'),
+      );
+      return true;
+    } on DioException catch (e) {
+      state = state.copyWith(saving: false, error: _mapError(e));
+      return false;
+    } catch (_) {
+      state = state.copyWith(
+        saving: false,
+        error: _adminText('store_activity_update_failed'),
+      );
+      return false;
+    }
+  }
+
   Future<bool> markPaymentRequestReceivedV2(
     int paymentRequestId, {
     String? reviewNote,
@@ -1315,6 +1414,18 @@ class AdminController extends StateNotifier<AdminState> {
           return l10n.adminMerchantReceivablesDetailsLoadFailed;
         case 'merchant_billing_update_failed':
           return l10n.adminMerchantBillingSaveFailed;
+        case 'merchant_profile_update_failed':
+          return l10n.localeName == 'ar'
+              ? 'تعذر تحديث بيانات المتجر.'
+              : 'Could not update merchant profile.';
+        case 'store_activity_load_failed':
+          return l10n.localeName == 'ar'
+              ? 'تعذر تحميل أقسام السوق.'
+              : 'Could not load marketplace sections.';
+        case 'store_activity_update_failed':
+          return l10n.localeName == 'ar'
+              ? 'تعذر حفظ قسم السوق.'
+              : 'Could not save marketplace section.';
         case 'payment_received_approve_failed':
           return l10n.adminPaymentReceivedApproveFailed;
         case 'payment_reject_failed':
@@ -1367,6 +1478,14 @@ class AdminController extends StateNotifier<AdminState> {
           return l10n.adminTaxiProfileEditRejectSuccess;
         case 'merchant_billing_update_success':
           return l10n.adminMerchantBillingSaveSuccess;
+        case 'merchant_profile_update_success':
+          return l10n.localeName == 'ar'
+              ? 'تم تحديث بيانات المتجر.'
+              : 'Merchant profile updated.';
+        case 'store_activity_update_success':
+          return l10n.localeName == 'ar'
+              ? 'تم حفظ قسم السوق.'
+              : 'Marketplace section saved.';
         case 'payment_received_approve_success':
           return l10n.adminPaymentReceivedApproveSuccess;
         case 'payment_reject_success':

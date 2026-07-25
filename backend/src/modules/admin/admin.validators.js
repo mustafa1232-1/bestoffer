@@ -120,6 +120,175 @@ export function validateToggleMerchantDisabled(body) {
   return { ok: errors.length === 0, errors };
 }
 
+function normalizeOptionalTrimmed(value) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  return text.length ? text : null;
+}
+
+function normalizeCode(value) {
+  const text = normalizeOptionalTrimmed(value);
+  if (!text) return null;
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function parseOptionalBoolean(value) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return value;
+}
+
+export function validateAdminMerchantProfilePatch(body) {
+  const errors = [];
+  const name = normalizeOptionalTrimmed(body?.name);
+  const phone = normalizeOptionalTrimmed(body?.phone);
+  const description = normalizeOptionalTrimmed(body?.description);
+  const activityType = normalizeCode(body?.activityType ?? body?.activity_type);
+  const type = normalizeOptionalTrimmed(body?.type)?.toLowerCase() || null;
+  const department =
+    normalizeOptionalTrimmed(body?.department ?? body?.storeDepartment) || null;
+  const discoverySubcategory = normalizeCode(
+    body?.discoverySubcategory ?? body?.discovery_subcategory
+  );
+  const discoverySelectAll = parseOptionalBoolean(
+    body?.discoverySelectAll ?? body?.discovery_select_all
+  );
+
+  let discoverySubcategories = body?.discoverySubcategories ?? body?.discovery_subcategories;
+  if (typeof discoverySubcategories === "string") {
+    try {
+      discoverySubcategories = JSON.parse(discoverySubcategories);
+    } catch (_) {
+      discoverySubcategories = discoverySubcategories
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+
+  const normalizedDiscoverySubcategories = Array.isArray(discoverySubcategories)
+    ? discoverySubcategories.map(normalizeCode).filter(Boolean)
+    : null;
+
+  if (body?.name !== undefined && !isNonEmptyString(name, 150)) errors.push("name");
+  if (body?.phone !== undefined && !isOptionalString(phone, 20)) errors.push("phone");
+  if (body?.description !== undefined && !isOptionalString(description, 1000)) {
+    errors.push("description");
+  }
+  if (type != null && !["restaurant", "market"].includes(type)) errors.push("type");
+  if (activityType != null && activityType.length > 80) errors.push("activityType");
+  if (department != null && department.length > 40) errors.push("department");
+  if (discoverySubcategory != null && discoverySubcategory.length > 120) {
+    errors.push("discoverySubcategory");
+  }
+  if (discoverySelectAll !== null && typeof discoverySelectAll !== "boolean") {
+    errors.push("discoverySelectAll");
+  }
+  if (
+    normalizedDiscoverySubcategories != null &&
+    normalizedDiscoverySubcategories.some((item) => item.length > 120)
+  ) {
+    errors.push("discoverySubcategories");
+  }
+
+  const hasAny =
+    name != null ||
+    phone != null ||
+    description != null ||
+    type != null ||
+    activityType != null ||
+    department != null ||
+    discoverySubcategory != null ||
+    normalizedDiscoverySubcategories != null ||
+    discoverySelectAll != null;
+  if (!hasAny) errors.push("body");
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      name,
+      phone,
+      description,
+      type,
+      activityType,
+      department,
+      discoverySubcategory,
+      discoverySubcategories: normalizedDiscoverySubcategories,
+      discoverySelectAll,
+    },
+  };
+}
+
+export function validateStoreActivityUpsert(body, { requireCode = true } = {}) {
+  const errors = [];
+  const activityType = normalizeCode(body?.activityType ?? body?.activity_type);
+  const baseType = normalizeOptionalTrimmed(body?.baseType ?? body?.base_type)?.toLowerCase();
+  const displayNameEn = normalizeOptionalTrimmed(
+    body?.displayNameEn ?? body?.display_name_en
+  );
+  const displayNameAr = normalizeOptionalTrimmed(
+    body?.displayNameAr ?? body?.display_name_ar
+  );
+  const hasDiscoverySubcategories = parseOptionalBoolean(
+    body?.hasDiscoverySubcategories ?? body?.has_discovery_subcategories
+  );
+  const supportsChat = parseOptionalBoolean(body?.supportsChat ?? body?.supports_chat);
+  const supportsAttachments = parseOptionalBoolean(
+    body?.supportsAttachments ?? body?.supports_attachments
+  );
+  const supportsPharmacyWorkflow = parseOptionalBoolean(
+    body?.supportsPharmacyWorkflow ?? body?.supports_pharmacy_workflow
+  );
+  const isActive = parseOptionalBoolean(body?.isActive ?? body?.is_active);
+
+  if (requireCode && !isNonEmptyString(activityType, 80)) errors.push("activityType");
+  if (activityType != null && !isNonEmptyString(activityType, 80)) {
+    errors.push("activityType");
+  }
+  if (baseType != null && !["restaurant", "market"].includes(baseType)) {
+    errors.push("baseType");
+  }
+  if (!isNonEmptyString(displayNameAr, 120)) errors.push("displayNameAr");
+  if (!isNonEmptyString(displayNameEn, 120)) errors.push("displayNameEn");
+  for (const [field, value] of [
+    ["hasDiscoverySubcategories", hasDiscoverySubcategories],
+    ["supportsChat", supportsChat],
+    ["supportsAttachments", supportsAttachments],
+    ["supportsPharmacyWorkflow", supportsPharmacyWorkflow],
+    ["isActive", isActive],
+  ]) {
+    if (value !== null && typeof value !== "boolean") errors.push(field);
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      activityType,
+      baseType: baseType || "market",
+      displayNameEn,
+      displayNameAr,
+      hasDiscoverySubcategories: hasDiscoverySubcategories === true,
+      supportsChat: supportsChat === true,
+      supportsAttachments: supportsAttachments === true,
+      supportsPharmacyWorkflow: supportsPharmacyWorkflow === true,
+      internalCategoryMode:
+        normalizeOptionalTrimmed(
+          body?.internalCategoryMode ?? body?.internal_category_mode
+        ) || "merchant_defined_with_templates",
+      isActive: isActive !== false,
+    },
+  };
+}
+
 export function validateListSocialUsersQuery(query) {
   const errors = [];
   const search = String(query?.search || "").trim();

@@ -31,6 +31,7 @@ adminRouter.get("/orders/print-report", c.printOrdersReport);
 adminRouter.get("/orders/overview", c.adminOrdersOverview);
 adminRouter.get("/orders/overview/:merchantId", c.adminMerchantOrdersOverview);
 adminRouter.get("/merchants", c.merchants);
+adminRouter.get("/store-activities", requireAdmin, c.storeActivities);
 adminRouter.get("/merchants/pending", c.pendingMerchants);
 adminRouter.get("/delivery/pending", c.pendingDeliveryAccounts);
 adminRouter.get("/taxi-captains/pending", c.pendingTaxiCaptainAccounts);
@@ -207,10 +208,21 @@ adminRouter.post(
   requireAdmin,
   c.revokeSocialRestriction
 );
+adminRouter.post("/store-activities", requireAdmin, c.upsertStoreActivity);
 adminRouter.patch(
   "/social-users/:userId/account-status",
   requireAdmin,
   c.setSocialUserAccountStatus
+);
+adminRouter.patch(
+  "/store-activities/:activityType",
+  requireAdmin,
+  c.upsertStoreActivity
+);
+adminRouter.patch(
+  "/merchants/:merchantId/profile",
+  requireAdmin,
+  c.updateMerchantProfile
 );
 adminRouter.patch(
   "/residence-change-requests/:requestId/approve",

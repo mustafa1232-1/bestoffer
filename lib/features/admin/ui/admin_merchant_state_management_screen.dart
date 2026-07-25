@@ -1,7 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../merchants/models/store_activity_model.dart';
 import '../models/managed_merchant_model.dart';
 import '../state/admin_controller.dart';
 import 'admin_merchant_billing_profile_screen.dart';
@@ -44,11 +45,356 @@ class _AdminMerchantStateManagementScreenState
       out = out.where((item) {
         return item.name.toLowerCase().contains(q) ||
             item.type.toLowerCase().contains(q) ||
+            (item.activityType ?? '').toLowerCase().contains(q) ||
             (item.phone ?? '').toLowerCase().contains(q) ||
             (item.ownerFullName ?? '').toLowerCase().contains(q);
       });
     }
     return out.toList(growable: false);
+  }
+
+  String _t(BuildContext context, {required String ar, required String en}) {
+    Localizations.localeOf(context);
+    return en.isNotEmpty ? en : ar;
+  }
+
+  Future<List<StoreActivityModel>> _loadStoreActivities() async {
+    final raw = await ref
+        .read(adminControllerProvider.notifier)
+        .adminStoreActivities();
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) =>
+              StoreActivityModel.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<void> _openStoreActivityEditor() async {
+    final codeCtrl = TextEditingController();
+    final arCtrl = TextEditingController();
+    final enCtrl = TextEditingController();
+    var baseType = 'market';
+    var isActive = true;
+    var saving = false;
+
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> submit() async {
+              final code = codeCtrl.text.trim();
+              final ar = arCtrl.text.trim();
+              final en = enCtrl.text.trim();
+              if (code.isEmpty || ar.isEmpty || en.isEmpty) return;
+              setSheetState(() => saving = true);
+              final saved = await ref
+                  .read(adminControllerProvider.notifier)
+                  .upsertStoreActivity(
+                    activityType: code,
+                    baseType: baseType,
+                    displayNameAr: ar,
+                    displayNameEn: en,
+                    isActive: isActive,
+                  );
+              if (!context.mounted) return;
+              setSheetState(() => saving = false);
+              if (saved) Navigator.of(context).pop(true);
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _t(
+                      context,
+                      ar: 'Add marketplace section',
+                      en: 'Add marketplace section',
+                    ),
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: codeCtrl,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'activityType',
+                      hintText: 'example: toys',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: arCtrl,
+                    textInputAction: TextInputAction.next,
+                    decoration: InputDecoration(
+                      labelText: _t(
+                        context,
+                        ar: 'Arabic name',
+                        en: 'Arabic name',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: enCtrl,
+                    textInputAction: TextInputAction.next,
+                    decoration: InputDecoration(
+                      labelText: _t(
+                        context,
+                        ar: 'English name',
+                        en: 'English name',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: baseType,
+                    decoration: InputDecoration(
+                      labelText: _t(
+                        context,
+                        ar: 'Surface type',
+                        en: 'Surface type',
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'market', child: Text('market')),
+                      DropdownMenuItem(
+                        value: 'restaurant',
+                        child: Text('restaurant'),
+                      ),
+                    ],
+                    onChanged: saving
+                        ? null
+                        : (value) =>
+                              setSheetState(() => baseType = value ?? 'market'),
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: isActive,
+                    onChanged: saving
+                        ? null
+                        : (value) => setSheetState(() => isActive = value),
+                    title: Text(_t(context, ar: 'Active', en: 'Active')),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: saving ? null : submit,
+                    icon: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_rounded),
+                    label: Text(
+                      _t(context, ar: 'Save section', en: 'Save section'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    codeCtrl.dispose();
+    arCtrl.dispose();
+    enCtrl.dispose();
+
+    if (ok == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _t(
+              context,
+              ar: 'Section saved and will appear when creating a store.',
+              en: 'Section saved and will appear when creating a store.',
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openMerchantProfileEditor(ManagedMerchantModel merchant) async {
+    final activities = await _loadStoreActivities();
+    if (!mounted) return;
+
+    final nameCtrl = TextEditingController(text: merchant.name);
+    final phoneCtrl = TextEditingController(text: merchant.phone ?? '');
+    final descCtrl = TextEditingController(text: merchant.description ?? '');
+    var selectedActivity =
+        activities.any((item) => item.activityType == merchant.activityType)
+        ? merchant.activityType
+        : (activities.isNotEmpty ? activities.first.activityType : null);
+    var saving = false;
+
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            StoreActivityModel? selected;
+            for (final item in activities) {
+              if (item.activityType == selectedActivity) {
+                selected = item;
+                break;
+              }
+            }
+
+            Future<void> submit() async {
+              if (nameCtrl.text.trim().isEmpty || selected == null) return;
+              setSheetState(() => saving = true);
+              final saved = await ref
+                  .read(adminControllerProvider.notifier)
+                  .updateMerchantProfile(
+                    merchantId: merchant.id,
+                    name: nameCtrl.text.trim(),
+                    phone: phoneCtrl.text.trim().isEmpty
+                        ? null
+                        : phoneCtrl.text.trim(),
+                    description: descCtrl.text.trim().isEmpty
+                        ? null
+                        : descCtrl.text.trim(),
+                    type: selected.baseType,
+                    activityType: selected.activityType,
+                    storeDepartment: merchant.storeDepartment,
+                    discoverySubcategory: merchant.discoverySubcategory,
+                    discoverySelectAll: merchant.discoverySelectAll,
+                  );
+              if (!context.mounted) return;
+              setSheetState(() => saving = false);
+              if (saved) Navigator.of(context).pop(true);
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _t(context, ar: 'Edit merchant', en: 'Edit merchant'),
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: nameCtrl,
+                    textInputAction: TextInputAction.next,
+                    decoration: InputDecoration(
+                      labelText: _t(
+                        context,
+                        ar: 'Store name',
+                        en: 'Store name',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: phoneCtrl,
+                    textInputAction: TextInputAction.next,
+                    keyboardType: TextInputType.phone,
+                    decoration: InputDecoration(
+                      labelText: _t(
+                        context,
+                        ar: 'Store phone',
+                        en: 'Store phone',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedActivity,
+                    decoration: InputDecoration(
+                      labelText: _t(
+                        context,
+                        ar: 'Marketplace section',
+                        en: 'Marketplace section',
+                      ),
+                    ),
+                    items: activities
+                        .map(
+                          (item) => DropdownMenuItem(
+                            value: item.activityType,
+                            child: Text(
+                              item.localizedLabel(
+                                Localizations.localeOf(context).languageCode ==
+                                    'ar',
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: saving
+                        ? null
+                        : (value) =>
+                              setSheetState(() => selectedActivity = value),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: descCtrl,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: _t(
+                        context,
+                        ar: 'Description',
+                        en: 'Description',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: saving ? null : submit,
+                    icon: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_rounded),
+                    label: Text(
+                      _t(context, ar: 'Save changes', en: 'Save changes'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    nameCtrl.dispose();
+    phoneCtrl.dispose();
+    descCtrl.dispose();
+
+    if (ok == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _t(context, ar: 'Merchant updated.', en: 'Merchant updated.'),
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -62,7 +408,17 @@ class _AdminMerchantStateManagementScreenState
         title: Text(l10n.adminMerchantStateManagementTitle),
         actions: [
           IconButton(
-            onPressed: () => ref.read(adminControllerProvider.notifier).bootstrap(),
+            tooltip: _t(
+              context,
+              ar: 'Add marketplace section',
+              en: 'Add marketplace section',
+            ),
+            onPressed: _openStoreActivityEditor,
+            icon: const Icon(Icons.add_business_rounded),
+          ),
+          IconButton(
+            onPressed: () =>
+                ref.read(adminControllerProvider.notifier).bootstrap(),
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -112,9 +468,7 @@ class _AdminMerchantStateManagementScreenState
             if (items.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 28),
-                child: Center(
-                  child: Text(l10n.adminMerchantStateNoMatches),
-                ),
+                child: Center(child: Text(l10n.adminMerchantStateNoMatches)),
               )
             else
               ...items.map(
@@ -142,7 +496,19 @@ class _AdminMerchantStateManagementScreenState
                                   Text(
                                     l10n.adminMerchantStateTypeLine(item.type),
                                   ),
-                                  if ((item.ownerFullName ?? '').trim().isNotEmpty)
+                                  if ((item.activityType ?? '')
+                                      .trim()
+                                      .isNotEmpty)
+                                    Text(
+                                      _t(
+                                        context,
+                                        ar: 'Marketplace section: ${item.activityType}',
+                                        en: 'Marketplace section: ${item.activityType}',
+                                      ),
+                                    ),
+                                  if ((item.ownerFullName ?? '')
+                                      .trim()
+                                      .isNotEmpty)
                                     Text(
                                       l10n.adminMerchantStateOwnerLine(
                                         item.ownerFullName!,
@@ -157,7 +523,9 @@ class _AdminMerchantStateManagementScreenState
                                   ? null
                                   : (value) {
                                       ref
-                                          .read(adminControllerProvider.notifier)
+                                          .read(
+                                            adminControllerProvider.notifier,
+                                          )
                                           .toggleMerchantDisabled(
                                             merchantId: item.id,
                                             isDisabled: !value,
@@ -198,22 +566,41 @@ class _AdminMerchantStateManagementScreenState
                           ],
                         ),
                         const SizedBox(height: 12),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => AdminMerchantBillingProfileScreen(
-                                    merchantId: item.id,
-                                    merchantName: item.name,
-                                  ),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: state.saving
+                                  ? null
+                                  : () => _openMerchantProfileEditor(item),
+                              icon: const Icon(Icons.edit_rounded),
+                              label: Text(
+                                _t(
+                                  context,
+                                  ar: 'Edit merchant',
+                                  en: 'Edit merchant',
                                 ),
-                              );
-                            },
-                            icon: const Icon(Icons.tune_rounded),
-                            label: Text(l10n.adminMerchantStateBillingProfile),
-                          ),
+                              ),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        AdminMerchantBillingProfileScreen(
+                                          merchantId: item.id,
+                                          merchantName: item.name,
+                                        ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.tune_rounded),
+                              label: Text(
+                                l10n.adminMerchantStateBillingProfile,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -264,7 +651,10 @@ class _StatusPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         color: color.withValues(alpha: 0.12),
       ),
-      child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+      child: Text(
+        label,
+        style: TextStyle(color: color, fontWeight: FontWeight.w700),
+      ),
     );
   }
 }

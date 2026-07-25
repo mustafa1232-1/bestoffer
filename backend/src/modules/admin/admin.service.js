@@ -15,6 +15,12 @@ import * as commerceRepo from "../commerce/commerce.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
 import * as taxiService from "../taxi/taxi.service.js";
 import * as adminRepo from "./admin.repo.js";
+import {
+  listActivityRegistry,
+  requireActivityConfig,
+  requireValidDiscoverySelection,
+} from "../merchants/store-activity.registry.js";
+import { resolveStoreDepartmentForWrite } from "../merchants/store-department.logic.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import { env } from "../../config/env.js";
 
@@ -362,7 +368,12 @@ function mapManagedMerchant(m) {
     id: m.id,
     name: m.name,
     type: m.type,
+    activityType: m.activity_type || null,
+    storeDepartment: m.store_department || null,
+    discoverySubcategory: m.discovery_subcategory || null,
+    discoverySelectAll: m.discovery_select_all === true,
     phone: m.phone,
+    description: m.description || null,
     isOpen: m.is_open,
     isApproved: m.is_approved,
     isDisabled: m.is_disabled,
@@ -377,6 +388,147 @@ function mapManagedMerchant(m) {
 export async function listMerchants() {
   const rows = await adminRepo.listManagedMerchants();
   return rows.map(mapManagedMerchant);
+}
+
+function mapStoreActivity(row = {}) {
+  return {
+    activityType: row.activity_type || row.activityType || null,
+    baseType: row.base_type || row.baseType || "market",
+    displayNameEn: row.display_name_en || row.displayNameEn || "",
+    displayNameAr: row.display_name_ar || row.displayNameAr || "",
+    hasDiscoverySubcategories:
+      row.has_discovery_subcategories === true ||
+      row.hasDiscoverySubcategories === true,
+    supportsChat: row.supports_chat === true || row.supportsChat === true,
+    supportsAttachments:
+      row.supports_attachments === true || row.supportsAttachments === true,
+    supportsPharmacyWorkflow:
+      row.supports_pharmacy_workflow === true ||
+      row.supportsPharmacyWorkflow === true,
+    internalCategoryMode:
+      row.internal_category_mode ||
+      row.internalCategoryMode ||
+      "merchant_defined_with_templates",
+    isActive: row.is_active !== false && row.isActive !== false,
+  };
+}
+
+export async function listStoreActivitiesForAdmin() {
+  const rows = await listActivityRegistry({ includeInactive: true });
+  return { items: rows.map(mapStoreActivity) };
+}
+
+export async function upsertStoreActivityForAdmin(payload, actor = {}) {
+  const row = await adminRepo.upsertStoreActivityDefinition(payload);
+  await logAdminAudit({
+    actor,
+    actionKey: "admin.store_activity.upserted",
+    summary: `Store activity ${payload.activityType} saved by admin`,
+    targetType: "store_activity_definition",
+    targetId: null,
+    targetLabel: payload.activityType,
+    metadata: {
+      activityType: payload.activityType,
+      baseType: payload.baseType,
+      displayNameAr: payload.displayNameAr,
+      displayNameEn: payload.displayNameEn,
+      isActive: payload.isActive !== false,
+    },
+  });
+  return { item: mapStoreActivity(row) };
+}
+
+export async function updateManagedMerchantProfile(merchantId, patch, actor = {}) {
+  const safeMerchantId = Number(merchantId);
+  if (!Number.isInteger(safeMerchantId) || safeMerchantId <= 0) {
+    const err = new Error("MERCHANT_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+
+  const current = await adminRepo.getMerchantById(safeMerchantId);
+  if (!current) {
+    const err = new Error("MERCHANT_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+
+  const nextActivityType = patch.activityType || current.activity_type;
+  const activityConfig = await requireActivityConfig(nextActivityType);
+  const nextType = patch.type || activityConfig.baseType || current.type;
+  if (String(activityConfig.baseType || "").trim() !== String(nextType || "").trim()) {
+    const err = new Error("VALIDATION_ERROR");
+    err.status = 400;
+    err.details = { fields: { type: "INVALID_ACTIVITY_BASE_TYPE" } };
+    throw err;
+  }
+
+  const storeDepartment = resolveStoreDepartmentForWrite({
+    activityType: activityConfig.activityType,
+    department:
+      patch.department === undefined ? current.store_department : patch.department,
+  });
+
+  const activityChanged =
+    patch.activityType &&
+    String(patch.activityType).trim().toLowerCase() !==
+      String(current.activity_type || "").trim().toLowerCase();
+  const shouldClearDiscovery =
+    activityChanged && activityConfig.hasDiscoverySubcategories !== true;
+  const requestedDiscoverySubcategory = shouldClearDiscovery
+    ? null
+    : patch.discoverySubcategory === undefined
+      ? current.discovery_subcategory
+      : patch.discoverySubcategory;
+  const requestedDiscoverySubcategories = shouldClearDiscovery
+    ? []
+    : patch.discoverySubcategories === null ||
+        patch.discoverySubcategories === undefined
+      ? undefined
+      : patch.discoverySubcategories;
+  const requestedDiscoverySelectAll = shouldClearDiscovery
+    ? false
+    : patch.discoverySelectAll === null || patch.discoverySelectAll === undefined
+      ? current.discovery_select_all === true
+      : patch.discoverySelectAll === true;
+  const discoverySelection = await requireValidDiscoverySelection(
+    activityConfig.activityType,
+    {
+      discoverySubcategory: requestedDiscoverySubcategory,
+      discoverySubcategories: requestedDiscoverySubcategories,
+      discoverySelectAll: requestedDiscoverySelectAll,
+    }
+  );
+
+  const updated = await adminRepo.updateManagedMerchantProfile({
+    merchantId: safeMerchantId,
+    name: patch.name,
+    type: nextType,
+    activityType: activityConfig.activityType,
+    department: storeDepartment,
+    discoverySubcategory: discoverySelection.legacyDiscoverySubcategory,
+    discoverySubcategories: discoverySelection.discoverySubcategories,
+    discoverySelectAll: discoverySelection.discoverySelectAll,
+    description: patch.description,
+    phone: patch.phone,
+  });
+
+  await logAdminAudit({
+    actor,
+    actionKey: "admin.merchant.profile.updated",
+    summary: `Merchant ${updated?.name || safeMerchantId} profile updated by admin`,
+    targetType: "merchant",
+    targetId: safeMerchantId,
+    targetLabel: updated?.name || current.name,
+    metadata: {
+      previousName: current.name,
+      nextName: updated?.name,
+      previousActivityType: current.activity_type,
+      nextActivityType: updated?.activity_type,
+    },
+  });
+
+  return { merchant: mapManagedMerchant(updated) };
 }
 
 export async function toggleMerchantDisabled(merchantId, isDisabled, adminUserId) {

@@ -13,6 +13,8 @@ import {
   validateResidenceChangeReview,
   validateSocialUserAccountStatusPatch,
   validateSocialCapabilityRestrictionCreate,
+  validateAdminMerchantProfilePatch,
+  validateStoreActivityUpsert,
   validateTaxiCaptainCashPaymentApprove,
   validateTaxiCaptainDiscount,
   validateTaxiCaptainProfileEditReview,
@@ -144,6 +146,55 @@ export async function merchants(req, res, next) {
   try {
     const out = await service.listMerchants();
     res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function updateMerchantProfile(req, res, next) {
+  try {
+    const v = validateAdminMerchantProfilePatch(req.body || {});
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+    const out = await service.updateManagedMerchantProfile(
+      req.params.merchantId,
+      v.value,
+      {
+        userId: req.userId,
+        userRole: req.userRole,
+      }
+    );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function storeActivities(req, res, next) {
+  try {
+    const out = await service.listStoreActivitiesForAdmin();
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function upsertStoreActivity(req, res, next) {
+  try {
+    const body = {
+      ...req.body,
+      activityType: req.params.activityType || req.body?.activityType,
+    };
+    const v = validateStoreActivityUpsert(body, { requireCode: true });
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+    const out = await service.upsertStoreActivityForAdmin(v.value, {
+      userId: req.userId,
+      userRole: req.userRole,
+    });
+    res.status(req.method === "POST" ? 201 : 200).json(out);
   } catch (e) {
     next(e);
   }
