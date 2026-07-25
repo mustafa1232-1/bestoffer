@@ -17,6 +17,7 @@ import 'admin_audit_security_center_screen.dart';
 import 'admin_approvals_hub_screen.dart';
 import 'admin_ad_board_screen.dart';
 import 'admin_audit_log_screen.dart';
+import 'command_center_screen.dart';
 import 'admin_companies_screen.dart';
 import 'admin_competitions_screen.dart';
 import 'admin_crash_error_center_screen.dart';
@@ -444,6 +445,16 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         en: 'Search admin navigation',
       ),
       items: [
+        AppUserDrawerItem(
+          icon: Icons.dashboard_customize_rounded,
+          label: navText(ar: 'لوحة المتابعة', en: 'Command center'),
+          subtitle: navText(
+            ar: 'متابعة تشغيلية موحدة حسب صلاحياتك',
+            en: 'Unified operational monitoring by your permissions',
+          ),
+          group: groupHome,
+          onTap: (_) => _openPage(const CommandCenterScreen()),
+        ),
         if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.space_dashboard_rounded,

@@ -90,6 +90,43 @@ class AdminApi {
     }
   }
 
+  /// لوحة المتابعة الموحدة: البطاقات حسب صلاحيات الموظف + عدّادات فورية.
+  Future<Map<String, dynamic>> monitoringOverview() async {
+    final response = await dio.get('/api/admin/monitoring/overview');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// قائمة الرحلات المُصفّحة خادمياً للوحة المتابعة.
+  Future<Map<String, dynamic>> monitoringTaxiRides({
+    String? status,
+    String? from,
+    String? to,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final queryParameters = <String, dynamic>{
+      'limit': limit,
+      'offset': offset,
+    };
+    if (status != null && status.trim().isNotEmpty) {
+      queryParameters['status'] = status.trim();
+    }
+    if (from != null && from.trim().isNotEmpty) queryParameters['from'] = from;
+    if (to != null && to.trim().isNotEmpty) queryParameters['to'] = to;
+
+    final response = await dio.get(
+      '/api/admin/monitoring/taxi/rides',
+      queryParameters: queryParameters,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// الصلاحيات الفعّالة للموظف الحالي (لبناء القائمة). الفرض دائماً في الخادم.
+  Future<Map<String, dynamic>> myPermissions() async {
+    final response = await dio.get('/api/admin/me/permissions');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<List<dynamic>> ordersPrintReport({required String period}) async {
     final response = await dio.get(
       '/api/admin/orders/print-report',
