@@ -2875,6 +2875,8 @@ class _ActivityDiscoveryRail extends StatelessWidget {
         return Icons.devices_other_rounded;
       case 'beauty':
         return Icons.spa_rounded;
+      case 'smoking_supplies':
+        return Icons.smoking_rooms_rounded;
       default:
         return Icons.storefront_rounded;
     }

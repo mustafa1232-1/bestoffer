@@ -274,6 +274,20 @@ const BUILTIN_ACTIVITY_REGISTRY = Object.freeze([
     defaultBadges: [],
     isActive: true,
   },
+  {
+    activityType: "smoking_supplies",
+    baseType: "market",
+    displayNameEn: "Smoking Supplies",
+    displayNameAr: "مستلزمات التدخين",
+    hasDiscoverySubcategories: true,
+    supportsChat: false,
+    supportsAttachments: false,
+    supportsPharmacyWorkflow: false,
+    internalCategoryMode: "merchant_defined_with_templates",
+    defaultServiceFlags: {},
+    defaultBadges: [],
+    isActive: true,
+  },
 ]);
 
 const BUILTIN_DISCOVERY_OPTIONS = Object.freeze({
@@ -325,6 +339,12 @@ const BUILTIN_DISCOVERY_OPTIONS = Object.freeze({
     { code: "makeup", labelEn: "Makeup", labelAr: "مكياج", orderIndex: 3 },
     { code: "perfumes", labelEn: "Perfumes", labelAr: "عطور", orderIndex: 4 },
     { code: "mens_care", labelEn: "Men Care", labelAr: "عناية رجالية", orderIndex: 5 },
+  ],
+  smoking_supplies: [
+    { code: "cigarettes", labelEn: "Cigarettes", labelAr: "سكائر", orderIndex: 1 },
+    { code: "hookahs_accessories", labelEn: "Hookahs & Accessories", labelAr: "أراكيل وملحقاتها", orderIndex: 2 },
+    { code: "electronic_hookahs", labelEn: "Electronic Hookahs", labelAr: "أراكيل إلكترونية", orderIndex: 3 },
+    { code: "vapes", labelEn: "Vapes", labelAr: "فيبات", orderIndex: 4 },
   ],
 });
 

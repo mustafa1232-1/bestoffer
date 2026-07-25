@@ -20,6 +20,13 @@ test("validateCreateMerchant accepts a body with explicit activityType", () => {
   assert.equal(result.ok, true, JSON.stringify(result.errors));
 });
 
+test("validateCreateMerchant accepts smoking supplies as an explicit market activity", () => {
+  const result = validateCreateMerchant(
+    baseCreateBody({ activityType: "smoking_supplies", type: "market" })
+  );
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+});
+
 test("validateCreateMerchant rejects missing type", () => {
   const body = baseCreateBody();
   delete body.type;
@@ -71,4 +78,5 @@ test("normalizeActivityType keeps fashion aliases on the fashion_clothing surfac
   assert.equal(normalizeActivityType("fashion"), "fashion_clothing");
   assert.equal(normalizeActivityType("women_fashion"), "fashion_clothing");
   assert.equal(normalizeActivityType("men_fashion"), "fashion_clothing");
+  assert.equal(normalizeActivityType("smoking_supplies"), "smoking_supplies");
 });
