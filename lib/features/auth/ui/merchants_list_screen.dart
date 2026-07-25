@@ -2873,7 +2873,15 @@ class _ActivityDiscoveryRail extends StatelessWidget {
         return Icons.handyman_rounded;
       case 'electronics':
         return Icons.devices_other_rounded;
+      case 'electronics_mobile':
+        return Icons.devices_other_rounded;
+      case 'furnishings':
+        return Icons.chair_rounded;
+      case 'dietary_supplements':
+        return Icons.health_and_safety_rounded;
       case 'beauty':
+        return Icons.spa_rounded;
+      case 'personal_care_beauty':
         return Icons.spa_rounded;
       case 'smoking_supplies':
         return Icons.smoking_rooms_rounded;

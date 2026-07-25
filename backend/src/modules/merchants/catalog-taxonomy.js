@@ -49,6 +49,9 @@ const ALLOWED_CATALOG_TYPES_BY_ACTIVITY = Object.freeze({
   meat_poultry: ["grocery"],
   seafood: ["grocery"],
   home_kitchen: ["furniture", "electronics"],
+  furnishings: ["furniture"],
+  dietary_supplements: ["generic"],
+  smoking_supplies: ["generic"],
 });
 
 function asText(value) {

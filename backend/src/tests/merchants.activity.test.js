@@ -27,6 +27,15 @@ test("validateCreateMerchant accepts smoking supplies as an explicit market acti
   assert.equal(result.ok, true, JSON.stringify(result.errors));
 });
 
+test("validateCreateMerchant accepts furnishings and dietary supplements market activities", () => {
+  for (const activityType of ["furnishings", "dietary_supplements"]) {
+    const result = validateCreateMerchant(
+      baseCreateBody({ activityType, type: "market" })
+    );
+    assert.equal(result.ok, true, `${activityType}: ${JSON.stringify(result.errors)}`);
+  }
+});
+
 test("validateCreateMerchant rejects missing type", () => {
   const body = baseCreateBody();
   delete body.type;
@@ -79,4 +88,6 @@ test("normalizeActivityType keeps fashion aliases on the fashion_clothing surfac
   assert.equal(normalizeActivityType("women_fashion"), "fashion_clothing");
   assert.equal(normalizeActivityType("men_fashion"), "fashion_clothing");
   assert.equal(normalizeActivityType("smoking_supplies"), "smoking_supplies");
+  assert.equal(normalizeActivityType("furnishings"), "furnishings");
+  assert.equal(normalizeActivityType("dietary_supplements"), "dietary_supplements");
 });
