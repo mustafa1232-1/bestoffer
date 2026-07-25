@@ -58,9 +58,10 @@
 
 **الشاشات المتأثرة:** `taxi_live_tracking_screen.dart`, `map_page.dart`, شاشات الكابتن (`taxi_pages.dart`) — إظهار/تعطيل أزرار الإلغاء حسب الحالة + حوار سبب الإلغاء + زر الطوارئ.
 
-### المرحلة 2 — أساس صلاحيات RBAC 🟡
-**الموجود:** أدوار عبر `req.userRole` + `super_admin` flag، middlewares (`requireAdmin/requireBackoffice/requireRoles/requireHr/...`)، جدولا `role_permission_override` (sql/085) و`workspace_employee_permissions` (sql/125)، سكربتات فحص مصفوفة الصلاحيات (`permissions:check`, `qa:role-matrix:bootstrap`).
-**الناقص:** مفاتيح صلاحية دقيقة (`taxi.rides.emergency_cancel`, `payroll.release`...) بنطاق (own/assigned/department/all)، فحص لكل endpoint بدل الدور فقط، إبطال الجلسة عند تغيير الصلاحية، Maker→Approver للعمليات الحساسة.
+### المرحلة 2 — أساس صلاحيات RBAC ✅ (أساس منفّذ)
+**الموجود سابقاً:** أدوار عبر `req.userRole` + `super_admin` flag، middlewares، جدول `role_permission_override` (sql/085) كجدول إعدادات (بلا فرض runtime).
+**ما نُفِّذ (commit مستقل):** كتالوج مفاتيح صلاحيات دقيقة كامل + قوالب أدوار (`permissions.catalog.js`)، حسم صلاحيات فعّالة **بقراءة حيّة لكل طلب** (لا صلاحيات في التوكن) يجمع: قالب الدور + `role_permission_override` + منح فردية بنطاق وتاريخ انتهاء، `requirePermission(key,{scope})` deny-by-default، جدولا `admin_user_permission` و`admin_permission_change_log` + `app_user.permission_version/admin_role_key` (migration 169)، endpoints إدارة (`/admin/rbac/*`, `/admin/me/permissions`)، وربط `taxi.rides.emergency_cancel` + `taxi.rides.read` على مسارات الطوارئ. اختبارات: كتالوج (6/6) + مصفوفة تفويض DB (8/8).
+**المتبقي/لاحقاً:** إبطال التوكن عبر `pv` (حالياً الضمان بالقراءة الحيّة — لا صلاحيات قديمة في التوكن)؛ Maker→Approver للعمليات الحساسة؛ توسيع `requireBackoffice` لأدوار الموظفين غير-admin (يعتمد على نموذج موظفي المرحلة 6)؛ إنشاء أدوار مخصّصة عبر واجهة.
 
 ### المرحلة 3 — لوحة المتابعة الموحدة 🟡
 **الموجود:** `admin.ops.controller/repo`، `SUPER_ADMIN_DRAWER_INVENTORY.md`، عدّادات متفرقة.

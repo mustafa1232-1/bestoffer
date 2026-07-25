@@ -4,9 +4,11 @@ import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireAdmin } from "../../shared/middleware/admin.middleware.js";
 import { requireBackoffice } from "../../shared/middleware/backoffice.middleware.js";
 import { requireSuperAdmin } from "../../shared/middleware/super-admin.middleware.js";
+import { requirePermission } from "../../shared/middleware/permission.middleware.js";
 import { imageUpload } from "../../shared/utils/upload.js";
 import * as taxiAdmin from "../taxi/taxi.admin.controller.js";
 import * as ops from "./admin.ops.controller.js";
+import * as rbac from "../security/permissions.controller.js";
 
 export const adminRouter = Router();
 
@@ -68,17 +70,49 @@ adminRouter.get(
 );
 adminRouter.get("/taxi/contests", requireAdmin, taxiAdmin.listContests);
 adminRouter.get("/taxi/complaints", requireAdmin, taxiAdmin.listComplaints);
-// حالات الطوارئ على الرحلات + الإلغاء الطارئ (سيُشدَّد لاحقاً بمفتاح
-// taxi.rides.emergency_cancel في المرحلة 2 على أساس RBAC الدقيق).
+// حالات الطوارئ على الرحلات + الإلغاء الطارئ — RBAC دقيق (المرحلة 2).
 adminRouter.get(
   "/taxi/rides/emergencies",
-  requireAdmin,
+  requirePermission("taxi.rides.read"),
   taxiAdmin.listRideEmergencies
 );
 adminRouter.post(
   "/taxi/rides/:rideId/emergency-cancel",
-  requireAdmin,
+  requirePermission("taxi.rides.emergency_cancel"),
   taxiAdmin.emergencyCancelRide
+);
+
+// إدارة الصلاحيات الدقيقة (RBAC).
+adminRouter.get("/me/permissions", rbac.getMyPermissions);
+adminRouter.get(
+  "/rbac/catalog",
+  requirePermission("employees.permissions.manage"),
+  rbac.getCatalog
+);
+adminRouter.get(
+  "/rbac/change-log",
+  requirePermission("audit.read"),
+  rbac.getChangeLog
+);
+adminRouter.get(
+  "/rbac/users/:userId/permissions",
+  requirePermission("employees.permissions.manage"),
+  rbac.getUserPermissions
+);
+adminRouter.post(
+  "/rbac/users/:userId/permissions",
+  requirePermission("employees.permissions.manage"),
+  rbac.upsertUserPermission
+);
+adminRouter.delete(
+  "/rbac/users/:userId/permissions/:permissionKey",
+  requirePermission("employees.permissions.manage"),
+  rbac.clearUserPermission
+);
+adminRouter.post(
+  "/rbac/users/:userId/role",
+  requirePermission("employees.permissions.manage"),
+  rbac.assignAdminRole
 );
 adminRouter.get("/taxi/kpi/overview", requireAdmin, taxiAdmin.kpiOverview);
 adminRouter.get("/taxi/reports", requireAdmin, taxiAdmin.reports);
