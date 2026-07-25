@@ -27,6 +27,7 @@ import '../../settings/ui/pages/settings_account_screen.dart';
 import '../../settings/ui/pages/settings_support_screen.dart';
 import '../../tracking/tracking_map_utils.dart';
 import '../data/taxi_api.dart';
+import 'taxi_cancel_reason_sheet.dart';
 import 'taxi_captain_competitions_screen.dart';
 import 'taxi_captain_notifications_screen.dart';
 
@@ -1181,6 +1182,71 @@ class _TaxiCaptainDashboardScreenState
       if (action == 'start') await _api.startRide(rideId);
       if (action == 'complete') await _api.completeRide(rideId);
       await _tick(full: true);
+    } on DioException catch (e) {
+      _snack(_err(e));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// إلغاء الكابتن للرحلة — مسموح فقط قبل التوجه إلى الزبون (captain_assigned).
+  Future<void> _cancelAssignedRide() async {
+    final rideId = _asInt(_ride?['id']);
+    if (rideId == null || _sending) return;
+    final reason = await showTaxiCancelReasonSheet(context, isCaptain: true);
+    if (reason == null || !mounted) return;
+    setState(() => _sending = true);
+    try {
+      await _api.cancelRideByCaptain(
+        rideId,
+        reasonCode: reason.code,
+        reasonText: reason.text,
+      );
+      await _tick(full: true);
+      if (mounted) _snack(_t('تم إلغاء الرحلة.', 'Ride cancelled.'));
+    } on DioException catch (e) {
+      _snack(_err(e));
+      await _tick(full: true);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// مخرج السلامة للكابتن بعد التوجه — ينشئ تذكرة عاجلة دون إلغاء الرحلة.
+  Future<void> _raiseCaptainEmergency() async {
+    final rideId = _asInt(_ride?['id']);
+    if (rideId == null || _sending) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(_t('مساعدة / حالة طارئة', 'Help / Emergency')),
+          content: Text(
+            _t(
+              'سيتم فتح تذكرة عاجلة وإبلاغ الدعم فوراً. لن تُلغى الرحلة تلقائياً؛ سيتواصل معك فريق مسلكي.',
+              'An urgent ticket will be opened and support notified immediately. The ride is not auto-cancelled; the Maslaki team will contact you.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(_t('تراجع', 'Back')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(_t('إرسال طلب المساعدة', 'Send help request')),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _sending = true);
+    try {
+      await _api.raiseRideEmergency(rideId);
+      if (mounted) {
+        _snack(_t('تم إرسال طلب المساعدة للدعم.', 'Help request sent to support.'));
+      }
     } on DioException catch (e) {
       _snack(_err(e));
     } finally {
@@ -2851,11 +2917,19 @@ class _TaxiCaptainDashboardScreenState
           ),
         ],
         const SizedBox(height: 12),
-        if (status == 'captain_assigned')
+        if (status == 'captain_assigned') ...[
           FilledButton(
             onPressed: _sending ? null : () => _advance('arrive'),
             child: Text(_t('التوجّه إلى الزبون', 'Head to customer')),
           ),
+          const SizedBox(height: 8),
+          // قبل التوجه فقط يمكن للكابتن الإلغاء؛ بعده يُقفل ويظهر مخرج الطوارئ.
+          OutlinedButton.icon(
+            onPressed: _sending ? null : _cancelAssignedRide,
+            icon: const Icon(Icons.close_rounded),
+            label: Text(_t('إلغاء الرحلة', 'Cancel ride')),
+          ),
+        ],
         if (status == 'captain_arriving')
           FilledButton(
             onPressed: _sending ? null : () => _advance('start'),
@@ -2866,6 +2940,18 @@ class _TaxiCaptainDashboardScreenState
             onPressed: _sending ? null : () => _advance('complete'),
             child: Text(_t('إنهاء الرحلة', 'End ride')),
           ),
+        if (status == 'captain_arriving' || status == 'ride_started') ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _sending ? null : _raiseCaptainEmergency,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              side: const BorderSide(color: Colors.red),
+            ),
+            icon: const Icon(Icons.sos_rounded),
+            label: Text(_t('مساعدة / حالة طارئة', 'Help / Emergency')),
+          ),
+        ],
       ],
     );
   }

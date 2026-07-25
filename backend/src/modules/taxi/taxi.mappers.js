@@ -1,3 +1,5 @@
+import { isTaxiCancellationLocked } from "./taxi.cancellation.js";
+
 function toNumberOrNull(value) {
   if (value == null) return null;
   const text = String(value).trim();
@@ -111,6 +113,13 @@ function normalizeRide(row) {
     startedAt: row.started_at,
     completedAt: row.completed_at,
     cancelledAt: row.cancelled_at,
+    cancelledByRole: row.cancelled_by_role || null,
+    cancelledByUserId: toIntOrNull(row.cancelled_by_user_id),
+    cancelReasonCode: row.cancel_reason_code || null,
+    cancelReasonText: row.cancel_reason_text || null,
+    cancelPreviousStatus: row.cancel_previous_status || null,
+    cancelIsEmergency: row.cancel_is_emergency === true,
+    cancellationLocked: isTaxiCancellationLocked(row.status),
     captainRating: toIntOrNull(row.captain_rating),
     captainReview: row.captain_review || null,
     captainRatedAt: row.captain_rated_at || null,

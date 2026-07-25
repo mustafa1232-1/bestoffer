@@ -1,4 +1,5 @@
 import * as loyaltyService from "./taxi.loyalty.service.js";
+import * as service from "./taxi.service.js";
 import {
   validateCaptainGiftBody,
   validateCaptainStatusBody,
@@ -11,6 +12,7 @@ import {
   validateReportQuery,
 } from "./taxi.admin.validators.js";
 import { validateEntityId } from "./taxi.loyalty.validators.js";
+import { validateEmergencyCancel } from "./taxi.validators.js";
 
 function badRequest(res, fields) {
   return res.status(400).json({
@@ -181,6 +183,37 @@ export async function reviewComplaint(req, res, next) {
       v.value
     );
     return res.json({ item });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listRideEmergencies(req, res, next) {
+  try {
+    const status =
+      typeof req.query?.status === "string" && req.query.status.trim()
+        ? req.query.status.trim()
+        : null;
+    const items = await service.listRideEmergencies({ status });
+    return res.json({ items });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function emergencyCancelRide(req, res, next) {
+  try {
+    const rideId = requireEntityId(req, res, "rideId", "rideId");
+    if (!rideId) return;
+    const v = validateEmergencyCancel(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const ride = await service.adminEmergencyCancelRide({
+      adminUserId: req.userId,
+      rideId,
+      reasonText: v.value.reasonText,
+      secondApproverUserId: v.value.secondApproverUserId,
+    });
+    return res.json({ ride });
   } catch (error) {
     return next(error);
   }

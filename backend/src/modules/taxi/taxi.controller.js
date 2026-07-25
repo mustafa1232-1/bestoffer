@@ -28,6 +28,8 @@ import {
   validateNearbyQuery,
   validateRideId,
   validateRaiseRideFare,
+  validateCancelReason,
+  validateRideEmergency,
 } from "./taxi.validators.js";
 
 /**
@@ -216,12 +218,59 @@ export async function cancelRide(req, res, next) {
     const rideId = requireRideId(req, res);
     if (!rideId) return;
 
+    const v = validateCancelReason(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
     const out = await service.cancelRide({
       customerUserId: req.userId,
       rideId,
+      reasonCode: v.value.reasonCode,
+      reasonText: v.value.reasonText,
     });
 
     return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function cancelRideByCaptain(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateCancelReason(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.cancelRideByCaptain({
+      captainUserId: req.userId,
+      rideId,
+      reasonCode: v.value.reasonCode,
+      reasonText: v.value.reasonText,
+    });
+
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function raiseRideEmergency(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+
+    const v = validateRideEmergency(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+
+    const out = await service.raiseRideEmergency({
+      userId: req.userId,
+      rideId,
+      category: v.value.category,
+      message: v.value.message,
+    });
+
+    return res.status(201).json(out);
   } catch (error) {
     return next(error);
   }

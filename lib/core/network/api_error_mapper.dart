@@ -262,6 +262,18 @@ String? _messageForCode(AppLocalizations l10n, String code) {
       return l10n.apiTaxiRideNotCompleted;
     case 'TAXI_RIDE_CAPTAIN_NOT_FOUND':
       return l10n.apiTaxiRideCaptainNotFound;
+    case 'TAXI_CANCELLATION_LOCKED':
+      return l10n.localeName.startsWith('ar')
+          ? 'لا يمكن إلغاء الرحلة بعد توجه الكابتن إليك. إذا كان لديك حالة طارئة استخدم زر المساعدة.'
+          : 'The ride can no longer be cancelled after the captain has set off. Use the help button for emergencies.';
+    case 'TAXI_RIDE_ALREADY_CLOSED':
+      return l10n.localeName.startsWith('ar')
+          ? 'هذه الرحلة منتهية بالفعل.'
+          : 'This ride is already closed.';
+    case 'TAXI_RIDE_NOT_ASSIGNED_TO_CAPTAIN':
+      return l10n.localeName.startsWith('ar')
+          ? 'هذه الرحلة غير مسندة إليك.'
+          : 'This ride is not assigned to you.';
     case 'PROPERTY_SELLER_SUBSCRIPTION_REQUIRED':
       return l10n.apiPropertySellerRequired;
     case 'REAL_ESTATE_LISTING_NOT_FOUND':

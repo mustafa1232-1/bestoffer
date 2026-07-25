@@ -338,8 +338,54 @@ class TaxiApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> cancelRide(int rideId) async {
-    final response = await dio.post('/api/taxi/rides/$rideId/cancel');
+  /// إلغاء الرحلة من جهة الزبون. سبب الإلغاء إلزامي في الخادم.
+  Future<Map<String, dynamic>> cancelRide(
+    int rideId, {
+    required String reasonCode,
+    String? reasonText,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/cancel',
+      data: {
+        'reasonCode': reasonCode,
+        if (reasonText != null && reasonText.trim().isNotEmpty)
+          'reasonText': reasonText.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// إلغاء الرحلة من جهة الكابتن (مسموح فقط قبل التوجه إلى الزبون).
+  Future<Map<String, dynamic>> cancelRideByCaptain(
+    int rideId, {
+    required String reasonCode,
+    String? reasonText,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/captain/cancel',
+      data: {
+        'reasonCode': reasonCode,
+        if (reasonText != null && reasonText.trim().isNotEmpty)
+          'reasonText': reasonText.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// يفتح حالة طارئة/طلب مساعدة على الرحلة (لا يلغيها؛ ينشئ تذكرة عاجلة).
+  Future<Map<String, dynamic>> raiseRideEmergency(
+    int rideId, {
+    String category = 'safety',
+    String? message,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/emergency',
+      data: {
+        'category': category,
+        if (message != null && message.trim().isNotEmpty)
+          'message': message.trim(),
+      },
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 

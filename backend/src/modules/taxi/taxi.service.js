@@ -3388,15 +3388,33 @@ export async function counterOfferCurrentBid({
   };
 }
 
-export async function cancelRide({ customerUserId, rideId }) {
+export async function cancelRide({
+  customerUserId,
+  rideId,
+  reasonCode = null,
+  reasonText = null,
+}) {
   const result = await repo.cancelRide({
     rideId,
     customerUserId,
+    reasonCode,
+    reasonText,
   });
+
+  if (result.code === "ALREADY_CANCELLED") {
+    // idempotent: الرحلة ملغاة أصلاً — لا نكرر الأحداث أو الإشعارات.
+    return result.ride;
+  }
 
   if (result.code !== "OK") {
     if (result.code === "RIDE_NOT_FOUND") {
       throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+    }
+    if (result.code === "TAXI_CANCELLATION_LOCKED") {
+      throw new AppError("TAXI_CANCELLATION_LOCKED", {
+        status: 409,
+        details: { currentStatus: result.currentStatus },
+      });
     }
     throw new AppError("TAXI_RIDE_ALREADY_CLOSED", { status: 409 });
   }
@@ -3406,7 +3424,12 @@ export async function cancelRide({ customerUserId, rideId }) {
     actorUserId: customerUserId,
     eventType: "ride_canceled",
     message: "تم إلغاء الطلب من قبل الزبون.",
-    payload: null,
+    payload: {
+      cancelledByRole: "customer",
+      reasonCode: reasonCode || null,
+      reasonText: reasonText || null,
+      previousStatus: result.previousStatus || null,
+    },
   });
 
   await emitRideUpdate(result.ride, "ride_canceled");
@@ -3444,6 +3467,271 @@ export async function cancelRide({ customerUserId, rideId }) {
   }
 
   return result.ride;
+}
+
+export async function cancelRideByCaptain({
+  captainUserId,
+  rideId,
+  reasonCode = null,
+  reasonText = null,
+}) {
+  const result = await repo.cancelRideByCaptain({
+    rideId,
+    captainUserId,
+    reasonCode,
+    reasonText,
+  });
+
+  if (result.code === "ALREADY_CANCELLED") {
+    return result.ride;
+  }
+
+  if (result.code !== "OK") {
+    if (result.code === "RIDE_NOT_FOUND") {
+      throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+    }
+    if (result.code === "RIDE_NOT_ASSIGNED_TO_CAPTAIN") {
+      throw new AppError("TAXI_RIDE_NOT_ASSIGNED_TO_CAPTAIN", { status: 403 });
+    }
+    if (result.code === "TAXI_CANCELLATION_LOCKED") {
+      throw new AppError("TAXI_CANCELLATION_LOCKED", {
+        status: 409,
+        details: { currentStatus: result.currentStatus },
+      });
+    }
+    throw new AppError("TAXI_RIDE_ALREADY_CLOSED", { status: 409 });
+  }
+
+  await repo.createRideEvent({
+    rideRequestId: result.ride.id,
+    actorUserId: captainUserId,
+    eventType: "ride_canceled",
+    message: "تم إلغاء الطلب من قبل الكابتن.",
+    payload: {
+      cancelledByRole: "captain",
+      reasonCode: reasonCode || null,
+      reasonText: reasonText || null,
+      previousStatus: result.previousStatus || null,
+    },
+  });
+
+  await emitRideUpdate(result.ride, "ride_canceled");
+
+  const payload = {
+    eventType: "ride_canceled",
+    rideId: result.ride.id,
+    ride: buildCompactRidePayload(result.ride),
+    assignment: buildTaxiAssignmentPayload(result.ride),
+    customerUserId: result.ride.customerUserId,
+    captainId: captainUserId,
+    cancelledByRole: "captain",
+  };
+  emitTaxiRealtimeEvents(result.ride.customerUserId, ["taxi_ride_canceled"], payload);
+  emitTaxiRealtimeEvents(captainUserId, ["taxi_ride_canceled"], payload);
+
+  queueNotification({
+    userId: result.ride.customerUserId,
+    type: "taxi.ride.canceled",
+    title: "تم إلغاء الرحلة",
+    body: "قام الكابتن بإلغاء الرحلة قبل التوجه إليك. يمكنك طلب رحلة جديدة.",
+    payload: {
+      rideId: result.ride.id,
+      customerUserId: result.ride.customerUserId,
+      captainId: captainUserId,
+      target: "taxi_ride_canceled",
+    },
+  });
+
+  return result.ride;
+}
+
+export async function raiseRideEmergency({
+  userId,
+  rideId,
+  category = "safety",
+  message = null,
+}) {
+  const ride = await repo.getRideById(rideId);
+  if (!ride) {
+    throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+  }
+
+  const isCustomer = Number(ride.customerUserId) === Number(userId);
+  const isCaptain =
+    ride.assignedCaptainUserId != null &&
+    Number(ride.assignedCaptainUserId) === Number(userId);
+
+  if (!isCustomer && !isCaptain) {
+    throw new AppError("TAXI_RIDE_FORBIDDEN", { status: 403 });
+  }
+
+  const reportedByRole = isCaptain ? "captain" : "customer";
+
+  const result = await repo.createRideEmergency({
+    rideId,
+    reportedByUserId: userId,
+    reportedByRole,
+    category,
+    message,
+  });
+
+  if (result.code !== "OK") {
+    if (result.code === "RIDE_NOT_FOUND") {
+      throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+    }
+    throw new AppError("TAXI_RIDE_ALREADY_CLOSED", { status: 409 });
+  }
+
+  const emergency = result.emergency;
+
+  // idempotent: تذكرة مفتوحة سابقاً لنفس المُبلِّغ — لا نكرر الأحداث/الإشعارات.
+  if (!result.alreadyOpen) {
+    await repo.createRideEvent({
+      rideRequestId: Number(ride.id),
+      actorUserId: userId,
+      eventType: "ride_emergency_raised",
+      message: "تم فتح حالة طارئة/طلب مساعدة على الرحلة.",
+      payload: {
+        emergencyId: Number(emergency.id),
+        reportedByRole,
+        category,
+        rideStatusAtReport: emergency.ride_status_at_report,
+      },
+    });
+
+    const alertPayload = {
+      eventType: "taxi_ride_emergency",
+      rideId: Number(ride.id),
+      emergencyId: Number(emergency.id),
+      reportedByRole,
+      category,
+      status: emergency.status,
+      customerUserId: Number(ride.customerUserId),
+      captainId: ride.assignedCaptainUserId
+        ? Number(ride.assignedCaptainUserId)
+        : null,
+      rideStatusAtReport: emergency.ride_status_at_report,
+    };
+
+    // للطرفين: تأكيد استلام الطلب.
+    emitTaxiRealtimeEvents(Number(ride.customerUserId), ["taxi_ride_emergency"], alertPayload);
+    if (ride.assignedCaptainUserId) {
+      emitTaxiRealtimeEvents(Number(ride.assignedCaptainUserId), ["taxi_ride_emergency"], alertPayload);
+    }
+
+    // للكول سنتر/المشرفين المخوّلين: تنبيه عاجل + إشعار.
+    try {
+      const recipients = await repo.listTaxiEmergencyRecipients();
+      for (const adminId of recipients) {
+        emitTaxiRealtimeEvents(adminId, ["taxi_ride_emergency"], alertPayload);
+      }
+      queueNotifications(
+        recipients.map((adminId) => ({
+          userId: adminId,
+          type: "taxi.ride.emergency",
+          title: "حالة طارئة على رحلة تاكسي",
+          body: "تم فتح تذكرة طوارئ عاجلة تحتاج تدخلاً فورياً.",
+          payload: {
+            rideId: Number(ride.id),
+            emergencyId: Number(emergency.id),
+            target: "taxi_ride_emergency",
+          },
+        }))
+      );
+    } catch (error) {
+      console.warn(
+        "[taxi] emergency admin fan-out failed",
+        error?.message || error
+      );
+    }
+  }
+
+  return {
+    emergencyId: Number(emergency.id),
+    rideId: Number(ride.id),
+    status: emergency.status,
+    alreadyOpen: result.alreadyOpen === true,
+  };
+}
+
+export async function adminEmergencyCancelRide({
+  adminUserId,
+  rideId,
+  reasonText,
+  secondApproverUserId = null,
+}) {
+  const result = await repo.adminEmergencyCancelRide({
+    rideId,
+    adminUserId,
+    reasonText,
+    secondApproverUserId,
+  });
+
+  if (result.code === "ALREADY_CANCELLED") {
+    return result.ride;
+  }
+
+  if (result.code !== "OK") {
+    if (result.code === "RIDE_NOT_FOUND") {
+      throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+    }
+    throw new AppError("TAXI_RIDE_ALREADY_CLOSED", { status: 409 });
+  }
+
+  await repo.createRideEvent({
+    rideRequestId: result.ride.id,
+    actorUserId: adminUserId,
+    eventType: "ride_emergency_cancelled",
+    message: "تم تنفيذ إلغاء طارئ للرحلة من قبل موظف مخوّل.",
+    payload: {
+      cancelledByRole: "admin",
+      reasonCode: "emergency",
+      reasonText: reasonText || null,
+      previousStatus: result.previousStatus || null,
+      secondApproverUserId: secondApproverUserId || null,
+    },
+  });
+
+  await emitRideUpdate(result.ride, "ride_canceled");
+
+  const payload = {
+    eventType: "ride_canceled",
+    rideId: result.ride.id,
+    ride: buildCompactRidePayload(result.ride),
+    assignment: buildTaxiAssignmentPayload(result.ride),
+    customerUserId: result.ride.customerUserId,
+    captainId: result.ride.assignedCaptainUserId || null,
+    cancelledByRole: "admin",
+    emergency: true,
+  };
+  emitTaxiRealtimeEvents(result.ride.customerUserId, ["taxi_ride_canceled"], payload);
+  if (result.ride.assignedCaptainUserId) {
+    emitTaxiRealtimeEvents(result.ride.assignedCaptainUserId, ["taxi_ride_canceled"], payload);
+  }
+
+  queueNotifications(
+    [
+      result.ride.customerUserId,
+      result.ride.assignedCaptainUserId,
+    ]
+      .filter((id) => id != null)
+      .map((id) => ({
+        userId: Number(id),
+        type: "taxi.ride.canceled",
+        title: "تم إلغاء الرحلة من قبل الدعم",
+        body: "تم إلغاء الرحلة لأسباب تتعلق بالسلامة. يرجى التواصل مع دعم مسلكي عند الحاجة.",
+        payload: {
+          rideId: result.ride.id,
+          target: "taxi_ride_canceled",
+        },
+      }))
+  );
+
+  return result.ride;
+}
+
+export async function listRideEmergencies({ status = null, limit = 100 } = {}) {
+  return repo.listRideEmergencies({ status, limit });
 }
 
 export async function rateRideByCustomer({

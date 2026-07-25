@@ -7,6 +7,7 @@ import 'package:maslaki/features/taxi/data/taxi_api.dart';
 import 'package:maslaki/features/taxi/data/taxi_route_service.dart';
 import 'package:maslaki/features/taxi/domain/taxi_assignment_contract.dart';
 import 'package:maslaki/features/taxi/domain/taxi_fare_policy.dart';
+import 'package:maslaki/features/taxi/ui/taxi_cancel_reason_sheet.dart';
 import 'package:maslaki/features/taxi/ui/taxi_share_ride_friends_sheet.dart';
 import 'package:maslaki/features/tracking/ui/taxi_live_tracking_screen.dart';
 import 'package:maslaki/core/forms/form_error_banner.dart';
@@ -76,6 +77,7 @@ class MapPage extends ConsumerStatefulWidget {
 
 class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   static const LatLng _bismayahCenter = LatLng(33.3128, 44.3615);
+  static const String _iraqViewbox = '38.79,37.39,48.58,29.06';
   static const double _initialZoom = 15;
   static const double _collapsedSheetExtent = 0.18;
   static const double _halfSheetExtent = 0.46;
@@ -96,6 +98,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final TaxiApi _taxiApi;
   late final TaxiRouteService _routeService;
+  late final Dio _placeSearchDio;
 
   StreamSubscription<TaxiLiveEvent>? _streamSub;
   Timer? _reconnectTimer;
@@ -164,6 +167,16 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _taxiApi = ref.read(taxiApiProvider);
     _routeService = ref.read(taxiRouteServiceProvider);
+    _placeSearchDio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 8),
+        receiveTimeout: const Duration(seconds: 8),
+        headers: {
+          'User-Agent': 'MaslakiTaxi/1.0 (support@maslaki.app)',
+          'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
+        },
+      ),
+    );
     if (widget.skipInitialBootstrap) {
       _loading = false;
     }
@@ -252,6 +265,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     _noteController.dispose();
     _couponCodeController.dispose();
     _rideComposerScroll.dispose();
+    _placeSearchDio.close(force: true);
     super.dispose();
   }
 
@@ -1165,14 +1179,14 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
 
   void _onPickupSearchChanged(String query) {
     _pickupSearchDebounce?.cancel();
-    _pickupSearchDebounce = Timer(const Duration(milliseconds: 380), () {
+    _pickupSearchDebounce = Timer(const Duration(milliseconds: 650), () {
       _searchPlaces(query, forPickup: true);
     });
   }
 
   void _onDropoffSearchChanged(String query) {
     _dropoffSearchDebounce?.cancel();
-    _dropoffSearchDebounce = Timer(const Duration(milliseconds: 380), () {
+    _dropoffSearchDebounce = Timer(const Duration(milliseconds: 650), () {
       _searchPlaces(query, forPickup: false);
     });
   }
@@ -1193,6 +1207,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       return;
     }
 
+    final searchToken = query;
     setState(() {
       if (forPickup) {
         _isSearchingPickup = true;
@@ -1202,49 +1217,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     });
 
     try {
-      final response =
-          await Dio(
-            BaseOptions(
-              connectTimeout: const Duration(seconds: 8),
-              receiveTimeout: const Duration(seconds: 8),
-              headers: {
-                'User-Agent': 'MaslakiTaxi/1.0 (support@maslaki.app)',
-                'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
-              },
-            ),
-          ).get(
-            'https://nominatim.openstreetmap.org/search',
-            queryParameters: {
-              'format': 'jsonv2',
-              'addressdetails': 1,
-              'dedupe': 1,
-              'polygon_geojson': 0,
-              'countrycodes': 'iq',
-              'bounded': 1,
-              'viewbox': '44.62,33.48,44.15,33.10',
-              'limit': 10,
-              'q': query,
-            },
-          );
-
-      final list = response.data is List ? response.data as List : const [];
-      final items = list
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .map((item) {
-            final lat = double.tryParse('${item['lat'] ?? ''}');
-            final lon = double.tryParse('${item['lon'] ?? ''}');
-            final label = '${item['display_name'] ?? ''}'.trim();
-            if (lat == null || lon == null || label.isEmpty) return null;
-            return _PlaceSuggestion(
-              latitude: lat,
-              longitude: lon,
-              title: _shortPlaceLabel(label),
-              fullAddress: label,
-            );
-          })
-          .whereType<_PlaceSuggestion>()
-          .toList();
+      final items = await _fetchTaxiPlaceSuggestions(query);
 
       if (!mounted) return;
       final stillSameQuery =
@@ -1252,7 +1225,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                   ? _pickupSearchController.text
                   : _dropoffSearchController.text)
               .trim();
-      if (stillSameQuery != query) return;
+      if (stillSameQuery != searchToken) return;
 
       setState(() {
         if (forPickup) {
@@ -1275,6 +1248,271 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
         }
       });
     }
+  }
+
+  Future<List<_PlaceSuggestion>> _fetchTaxiPlaceSuggestions(
+    String query,
+  ) async {
+    final suggestions = <_PlaceSuggestion>[];
+    final seen = <String>{};
+
+    void addSuggestion(_PlaceSuggestion suggestion) {
+      final key =
+          '${suggestion.latitude.toStringAsFixed(5)},'
+          '${suggestion.longitude.toStringAsFixed(5)}:'
+          '${suggestion.title.toLowerCase()}';
+      if (seen.add(key)) {
+        suggestions.add(suggestion);
+      }
+    }
+
+    for (final plan in _buildNominatimPlans(query)) {
+      final List<_PlaceSuggestion> results;
+      try {
+        results = await _fetchNominatimSuggestions(plan);
+      } catch (_) {
+        continue;
+      }
+      for (final result in results) {
+        addSuggestion(result);
+        if (suggestions.length >= 16) return suggestions;
+      }
+      if (suggestions.length >= 8) return suggestions;
+    }
+
+    if (query.length >= 3) {
+      final osmResults = await _fetchOverpassSuggestions(query);
+      for (final result in osmResults) {
+        addSuggestion(result);
+        if (suggestions.length >= 16) break;
+      }
+    }
+
+    return suggestions;
+  }
+
+  List<_NominatimSearchPlan> _buildNominatimPlans(String query) {
+    final variants = <String>[];
+    void add(String value) {
+      final cleaned = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+      if (cleaned.isNotEmpty &&
+          !variants.any(
+            (item) => item.toLowerCase() == cleaned.toLowerCase(),
+          )) {
+        variants.add(cleaned);
+      }
+    }
+
+    add(query);
+    add('$query العراق');
+    add('$query Iraq');
+    add('العراق $query');
+
+    final normalized = query.toLowerCase();
+    if (_containsAny(normalized, const ['كلية', 'جامعة', 'معهد'])) {
+      add('$query university Iraq');
+      add('$query college Iraq');
+    }
+    if (_containsAny(normalized, const ['مدرسة', 'اعدادية', 'إعدادية'])) {
+      add('$query school Iraq');
+    }
+    if (_containsAny(normalized, const ['جامع', 'مسجد', 'حسينية'])) {
+      add('$query mosque Iraq');
+    }
+    if (_containsAny(normalized, const ['شارع', 'طريق', 'جسر', 'تقاطع'])) {
+      add('$query street Iraq');
+      add('$query road Iraq');
+    }
+    if (_containsAny(normalized, const ['منطقة', 'حي', 'محلة', 'ناحية'])) {
+      add('$query neighbourhood Iraq');
+      add('$query neighborhood Iraq');
+    }
+    if (_containsAny(normalized, const ['مستشفى', 'عيادة', 'مركز صحي'])) {
+      add('$query hospital Iraq');
+    }
+    if (_containsAny(normalized, const ['مول', 'سوق', 'مطعم', 'كافيه'])) {
+      add('$query mall Iraq');
+      add('$query restaurant Iraq');
+    }
+
+    final plans = <_NominatimSearchPlan>[];
+    final bias = _myLocation ?? _pickupPoint ?? _bismayahCenter;
+    plans.add(
+      _NominatimSearchPlan(
+        query: query,
+        viewbox: _viewboxAround(bias, 0.45),
+        bounded: false,
+        limit: 12,
+      ),
+    );
+    for (final variant in variants) {
+      plans.add(
+        _NominatimSearchPlan(
+          query: variant,
+          viewbox: _iraqViewbox,
+          bounded: false,
+          limit: 12,
+        ),
+      );
+    }
+    plans.add(
+      _NominatimSearchPlan(
+        query: query,
+        viewbox: _iraqViewbox,
+        bounded: true,
+        limit: 16,
+      ),
+    );
+    return plans;
+  }
+
+  Future<List<_PlaceSuggestion>> _fetchNominatimSuggestions(
+    _NominatimSearchPlan plan,
+  ) async {
+    final response = await _placeSearchDio.get(
+      'https://nominatim.openstreetmap.org/search',
+      queryParameters: {
+        'format': 'jsonv2',
+        'addressdetails': 1,
+        'extratags': 1,
+        'namedetails': 1,
+        'dedupe': 1,
+        'polygon_geojson': 0,
+        'countrycodes': 'iq',
+        'bounded': plan.bounded ? 1 : 0,
+        'viewbox': plan.viewbox,
+        'limit': plan.limit,
+        'q': plan.query,
+      },
+    );
+
+    final list = response.data is List ? response.data as List : const [];
+    return list
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .map(_placeSuggestionFromNominatim)
+        .whereType<_PlaceSuggestion>()
+        .toList();
+  }
+
+  _PlaceSuggestion? _placeSuggestionFromNominatim(Map<String, dynamic> item) {
+    final lat = double.tryParse('${item['lat'] ?? ''}');
+    final lon = double.tryParse('${item['lon'] ?? ''}');
+    final label = '${item['display_name'] ?? ''}'.trim();
+    if (lat == null || lon == null || label.isEmpty) return null;
+    final namedetails = item['namedetails'] is Map
+        ? Map<String, dynamic>.from(item['namedetails'] as Map)
+        : const <String, dynamic>{};
+    final preferredName =
+        _string(namedetails['name:ar']) ??
+        _string(namedetails['name']) ??
+        _string(item['name']);
+    return _PlaceSuggestion(
+      latitude: lat,
+      longitude: lon,
+      title: preferredName?.trim().isNotEmpty == true
+          ? preferredName!.trim()
+          : _shortPlaceLabel(label),
+      fullAddress: label,
+      kind: _string(item['type']) ?? _string(item['class']),
+    );
+  }
+
+  Future<List<_PlaceSuggestion>> _fetchOverpassSuggestions(String query) async {
+    final escaped = _escapeOverpassRegex(query.trim());
+    if (escaped.isEmpty) return const [];
+    final data =
+        '''
+[out:json][timeout:8];
+area["ISO3166-1"="IQ"][admin_level=2]->.searchArea;
+(
+  node["name"~"$escaped",i](area.searchArea);
+  way["name"~"$escaped",i](area.searchArea);
+  relation["name"~"$escaped",i](area.searchArea);
+  node["name:ar"~"$escaped",i](area.searchArea);
+  way["name:ar"~"$escaped",i](area.searchArea);
+  relation["name:ar"~"$escaped",i](area.searchArea);
+  node["alt_name"~"$escaped",i](area.searchArea);
+  way["alt_name"~"$escaped",i](area.searchArea);
+  relation["alt_name"~"$escaped",i](area.searchArea);
+);
+out center 20;
+''';
+    try {
+      final response = await _placeSearchDio.get(
+        'https://overpass-api.de/api/interpreter',
+        queryParameters: {'data': data},
+      );
+      final raw = response.data;
+      final elements = raw is Map ? raw['elements'] : null;
+      if (elements is! List) return const [];
+      return elements
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .map(_placeSuggestionFromOverpass)
+          .whereType<_PlaceSuggestion>()
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  _PlaceSuggestion? _placeSuggestionFromOverpass(Map<String, dynamic> item) {
+    final lat = _readDouble(item['lat'] ?? item['center']?['lat']);
+    final lon = _readDouble(item['lon'] ?? item['center']?['lon']);
+    if (lat == null || lon == null) return null;
+    final tags = item['tags'] is Map
+        ? Map<String, dynamic>.from(item['tags'] as Map)
+        : const <String, dynamic>{};
+    final name =
+        _string(tags['name:ar']) ??
+        _string(tags['name']) ??
+        _string(tags['official_name']) ??
+        _string(tags['alt_name']);
+    if (name == null || name.trim().isEmpty) return null;
+    final kind =
+        _string(tags['amenity']) ??
+        _string(tags['shop']) ??
+        _string(tags['tourism']) ??
+        _string(tags['highway']) ??
+        _string(tags['place']) ??
+        _string(tags['building']);
+    final city =
+        _string(tags['addr:city']) ??
+        _string(tags['addr:district']) ??
+        _string(tags['addr:suburb']) ??
+        _string(tags['addr:neighbourhood']);
+    return _PlaceSuggestion(
+      latitude: lat,
+      longitude: lon,
+      title: name.trim(),
+      fullAddress: [
+        name.trim(),
+        if (city != null && city.trim().isNotEmpty) city.trim(),
+        if (kind != null && kind.trim().isNotEmpty) kind.trim(),
+        'Iraq',
+      ].join(' - '),
+      kind: kind,
+    );
+  }
+
+  bool _containsAny(String input, List<String> needles) {
+    return needles.any((needle) => input.contains(needle.toLowerCase()));
+  }
+
+  String _escapeOverpassRegex(String input) {
+    return input.replaceAllMapped(
+      RegExp(r'([\\.^$|?*+()[\]{}"])'),
+      (match) => '\\${match.group(1)}',
+    );
+  }
+
+  String _viewboxAround(LatLng center, double delta) {
+    final west = (center.longitude - delta).clamp(38.5, 49.0);
+    final east = (center.longitude + delta).clamp(38.5, 49.0);
+    final north = (center.latitude + delta).clamp(28.5, 38.0);
+    final south = (center.latitude - delta).clamp(28.5, 38.0);
+    return '$west,$north,$east,$south';
   }
 
   String _shortPlaceLabel(String input) {
@@ -2204,13 +2442,20 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     if (rideId == null) return;
     final l10n = context.l10n;
 
+    final reason = await showTaxiCancelReasonSheet(context, isCaptain: false);
+    if (reason == null || !mounted) return;
+
     setState(() {
       _submitting = true;
       _error = null;
     });
 
     try {
-      await _taxiApi.cancelRide(rideId);
+      await _taxiApi.cancelRide(
+        rideId,
+        reasonCode: reason.code,
+        reasonText: reason.text,
+      );
       await _loadCurrentRide(silent: true);
       _captainPoint = null;
       _routePoints = const [];
@@ -2222,9 +2467,75 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       setState(() {
         _error = _extractApiError(e);
       });
+      // نعيد التحميل ليعكس القفل الحقيقي إن تغيّرت الحالة على الخادم.
+      await _loadCurrentRide(silent: true);
     } catch (_) {
       setState(() {
         _error = l10n.mapPageRideCancelFailed;
+      });
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _raiseRideEmergency() async {
+    final rideId = _readInt(_ride?['id']);
+    if (rideId == null || _submitting) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(
+            context.lt(ar: 'مساعدة / حالة طارئة', en: 'Help / Emergency'),
+          ),
+          content: Text(
+            context.lt(
+              ar: 'سيتم فتح تذكرة عاجلة وإبلاغ الدعم فوراً. لن تُلغى الرحلة تلقائياً؛ سيتواصل معك فريق مسلكي.',
+              en: 'An urgent ticket will be opened and support notified immediately. The ride is not auto-cancelled; the Maslaki team will contact you.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(context.lt(ar: 'تراجع', en: 'Back')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(
+                context.lt(ar: 'إرسال طلب المساعدة', en: 'Send help request'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    try {
+      await _taxiApi.raiseRideEmergency(rideId);
+      if (!mounted) return;
+      _showMessage(
+        context.lt(
+          ar: 'تم إرسال طلب المساعدة. سيتواصل معك الدعم قريباً.',
+          en: 'Help request sent. Support will contact you shortly.',
+        ),
+      );
+    } on DioException catch (e) {
+      setState(() {
+        _error = _extractApiError(e);
+      });
+    } catch (_) {
+      setState(() {
+        _error = context.lt(
+          ar: 'تعذر إرسال طلب المساعدة حالياً.',
+          en: 'Unable to send the help request right now.',
+        );
       });
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -2958,13 +3269,17 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     Map<String, dynamic>? captain, {
     Map<String, dynamic>? vehicle,
   }) {
-    final digits =
-        _string(captain?['plateDigits']) ??
-        _string(vehicle?['vehiclePlateDigits']) ??
-        _string(vehicle?['plateDigits']) ??
+    final plateNumber =
         _string(captain?['plateNumber']) ??
         _string(vehicle?['vehiclePlate']) ??
-        _string(vehicle?['plate']);
+        _string(vehicle?['plate']) ??
+        _string(vehicle?['vehicleNumber']);
+    final digits = _cleanPlateDigits(
+      _string(captain?['plateDigits']) ??
+          _string(vehicle?['vehiclePlateDigits']) ??
+          _string(vehicle?['plateDigits']),
+      fallback: plateNumber,
+    );
     if (digits == null || digits.trim().isEmpty) return null;
     return _IraqiPlateBadge(
       city:
@@ -2975,12 +3290,30 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
           _string(captain?['plateCategory']) ??
           _string(vehicle?['vehiclePlateCategory']) ??
           _string(vehicle?['plateCategory']),
-      letter:
-          _string(captain?['plateLetter']) ??
-          _string(vehicle?['vehiclePlateLetter']) ??
-          _string(vehicle?['plateLetter']),
+      letter: _cleanPlateLetter(
+        _string(captain?['plateLetter']) ??
+            _string(vehicle?['vehiclePlateLetter']) ??
+            _string(vehicle?['plateLetter']),
+        fallback: plateNumber,
+      ),
       digits: digits,
     );
+  }
+
+  String? _cleanPlateDigits(String? value, {String? fallback}) {
+    final raw = (value?.trim().isNotEmpty == true ? value : fallback)?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    final digits = RegExp(
+      r'[0-9\u0660-\u0669]+',
+    ).allMatches(raw).map((match) => match.group(0)).join();
+    return digits.isEmpty ? raw : digits;
+  }
+
+  String? _cleanPlateLetter(String? value, {String? fallback}) {
+    final raw = (value?.trim().isNotEmpty == true ? value : fallback)?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    final match = RegExp(r'[A-Za-z\u0600-\u06FF]').firstMatch(raw);
+    return (match?.group(0) ?? raw.substring(0, 1)).trim();
   }
 
   Widget _buildTaxiOfferCard(
@@ -3115,7 +3448,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                       const SizedBox(height: 4),
                       Text(
                         captainRating != null && captainRating > 0
-                            ? '${captainRating.toStringAsFixed(1)} • $ridesCount'
+                            ? '${captainRating.toStringAsFixed(1)} - $ridesCount'
                             : _t('لا يوجد تقييم بعد', 'No rating yet'),
                         style: const TextStyle(fontSize: 12),
                       ),
@@ -3129,7 +3462,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                             ]
                             .whereType<String>()
                             .where((v) => v.isNotEmpty)
-                            .join(' • '),
+                            .join(' - '),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 12),
@@ -3753,8 +4086,16 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
         _readInt(ride?['finalFare']) ??
         _readInt(ride?['agreedFareIqd']) ??
         _readInt(ride?['proposedFareIqd']);
-    final canCancel =
-        rideStatus == 'captain_assigned' || rideStatus == 'captain_arriving';
+    // القفل مصدره الخادم: بعد توجه الكابتن (captain_arriving) يصبح
+    // cancellationLocked = true فيُمنع الإلغاء العادي ويظهر مخرج الطوارئ بدلاً منه.
+    final rideLocked = ride?['cancellationLocked'] == true;
+    final canCancel = !rideLocked &&
+        (rideStatus == 'searching' ||
+            rideStatus == 'price_raise_required' ||
+            rideStatus == 'captain_assigned');
+    final canRaiseEmergency = rideLocked ||
+        rideStatus == 'captain_arriving' ||
+        rideStatus == 'ride_started';
     final scheme = Theme.of(context).colorScheme;
     final canPop = Navigator.of(context).canPop();
 
@@ -3852,6 +4193,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                     rideStatus,
                     rideFare,
                     canCancel,
+                    canRaiseEmergency,
                   ),
                 ),
               ),
@@ -4175,6 +4517,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     String? rideStatus,
     int? rideFare,
     bool canCancel,
+    bool canRaiseEmergency,
   ) {
     final l10n = context.l10n;
     final nonAvailable = context.lt(ar: 'غير متوفر', en: 'Not available');
@@ -4509,7 +4852,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                                         ]
                                         .whereType<String>()
                                         .where((value) => value.isNotEmpty)
-                                        .join(' • '),
+                                        .join(' - '),
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w800,
                                       fontSize: 13,
@@ -4523,14 +4866,15 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                                         ]
                                         .whereType<String>()
                                         .where((value) => value.isNotEmpty)
-                                        .join(' • '),
+                                        .join(' - '),
                                     style: const TextStyle(fontSize: 12),
                                   ),
-                                  if (_buildIraqiTaxiPlate(
-                                        captain,
-                                        vehicle: vehicle,
-                                      ) !=
-                                      null) ...[
+                                  if (captain == null &&
+                                      _buildIraqiTaxiPlate(
+                                            captain,
+                                            vehicle: vehicle,
+                                          ) !=
+                                          null) ...[
                                     const SizedBox(height: 6),
                                     _buildIraqiTaxiPlate(
                                       captain,
@@ -4870,6 +5214,24 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                             _submitting
                                 ? l10n.mapPageRideCancelling
                                 : l10n.mapPageRideCancelAction,
+                          ),
+                        ),
+                      )
+                    else if (canRaiseEmergency)
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _submitting ? null : _raiseRideEmergency,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                          ),
+                          icon: const Icon(Icons.sos_rounded),
+                          label: Text(
+                            context.lt(
+                              ar: 'مساعدة / حالة طارئة',
+                              en: 'Help / Emergency',
+                            ),
                           ),
                         ),
                       ),
@@ -6072,18 +6434,15 @@ class _IraqiPlateBadge extends StatelessWidget {
     final cleanLetter = (letter ?? '').trim();
     final cleanCity = (city ?? '').trim();
     final cleanCategory = (category ?? '').trim();
-    final bottom = [
-      cleanCity,
-      cleanCategory,
-    ].where((value) => value.isNotEmpty).join(' ');
+    final displayDigits = cleanDigits.split('').join(' ');
 
     return Container(
-      width: 132,
-      height: 64,
+      width: 168,
+      height: 78,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: Colors.black87, width: 1.3),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.black, width: 1.5),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.12),
@@ -6096,63 +6455,126 @@ class _IraqiPlateBadge extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 24,
+            width: 28,
             color: Colors.white,
             alignment: Alignment.center,
-            child: const RotatedBox(
-              quarterTurns: 3,
-              child: Text(
-                'IRAQ',
-                style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const RotatedBox(
+                  quarterTurns: 3,
+                  child: Text(
+                    'IRAQ',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 4),
+                Icon(Icons.crop_square, color: Colors.blue.shade700, size: 8),
+              ],
             ),
           ),
-          Container(width: 1.2, color: Colors.black87),
+          Container(width: 1.4, color: Colors.black),
           Expanded(
             child: Column(
               children: [
                 Expanded(
-                  child: Center(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        [
-                          if (cleanLetter.isNotEmpty) cleanLetter,
-                          cleanDigits,
-                        ].join('  '),
-                        textDirection: TextDirection.ltr,
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 23,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 7),
+                    child: Row(
+                      textDirection: TextDirection.ltr,
+                      children: [
+                        SizedBox(
+                          width: 34,
+                          child: Center(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                cleanLetter.isEmpty ? '-' : cleanLetter,
+                                maxLines: 1,
+                                textDirection: TextDirection.rtl,
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontSize: 27,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0,
+                                  height: 1,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        Expanded(
+                          child: Center(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                displayDigits,
+                                maxLines: 1,
+                                textDirection: TextDirection.ltr,
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0,
+                                  height: 1,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                Container(height: 1.2, color: Colors.black87),
+                Container(height: 1.4, color: Colors.black),
                 SizedBox(
-                  height: 21,
-                  child: Center(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        bottom.isEmpty ? cleanCity : bottom,
-                        maxLines: 1,
-                        textDirection: TextDirection.rtl,
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0,
+                  height: 27,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      textDirection: TextDirection.rtl,
+                      children: [
+                        Expanded(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              cleanCity,
+                              maxLines: 1,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              cleanCategory,
+                              maxLines: 1,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -6170,12 +6592,28 @@ class _PlaceSuggestion {
   final double longitude;
   final String title;
   final String fullAddress;
+  final String? kind;
 
   const _PlaceSuggestion({
     required this.latitude,
     required this.longitude,
     required this.title,
     required this.fullAddress,
+    this.kind,
+  });
+}
+
+class _NominatimSearchPlan {
+  final String query;
+  final String viewbox;
+  final bool bounded;
+  final int limit;
+
+  const _NominatimSearchPlan({
+    required this.query,
+    required this.viewbox,
+    required this.bounded,
+    required this.limit,
   });
 }
 
@@ -6284,6 +6722,16 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
   late final TextEditingController _queryController = TextEditingController(
     text: widget.initialQuery,
   );
+  late final Dio _searchDio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 8),
+      receiveTimeout: const Duration(seconds: 8),
+      headers: {
+        'User-Agent': 'MaslakiTaxi/1.0 (support@maslaki.app)',
+        'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
+      },
+    ),
+  );
   Timer? _debounce;
   bool _loading = false;
   String? _error;
@@ -6301,12 +6749,13 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
   void dispose() {
     _debounce?.cancel();
     _queryController.dispose();
+    _searchDio.close(force: true);
     super.dispose();
   }
 
   void _onQueryChanged(String value) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () {
+    _debounce = Timer(const Duration(milliseconds: 650), () {
       _search(value.trim());
     });
   }
@@ -6326,58 +6775,7 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
       _error = null;
     });
     try {
-      final response =
-          await Dio(
-            BaseOptions(
-              connectTimeout: const Duration(seconds: 8),
-              receiveTimeout: const Duration(seconds: 8),
-              headers: {
-                'User-Agent': 'MaslakiTaxi/1.0',
-                'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
-              },
-            ),
-          ).get(
-            'https://nominatim.openstreetmap.org/search',
-            queryParameters: {
-              'format': 'jsonv2',
-              'addressdetails': 1,
-              'dedupe': 1,
-              'polygon_geojson': 0,
-              'countrycodes': 'iq',
-              'bounded': 1,
-              'viewbox': '44.62,33.48,44.15,33.10',
-              'limit': 12,
-              'q': query,
-            },
-          );
-      final raw = response.data is List ? response.data as List : const [];
-      final items = raw
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .map((item) {
-            final lat = double.tryParse('${item['lat'] ?? ''}');
-            final lng = double.tryParse('${item['lon'] ?? ''}');
-            final address = '${item['display_name'] ?? ''}'.trim();
-            if (lat == null || lng == null || address.isEmpty) return null;
-            final parts = address
-                .split(',')
-                .map((e) => e.trim())
-                .where((e) => e.isNotEmpty)
-                .toList();
-            final title = parts.isEmpty
-                ? address
-                : (parts.length == 1
-                      ? parts.first
-                      : '${parts[0]} - ${parts[1]}');
-            return _TaxiLocationSearchResult(
-              latitude: lat,
-              longitude: lng,
-              title: title,
-              address: address,
-            );
-          })
-          .whereType<_TaxiLocationSearchResult>()
-          .toList(growable: false);
+      final items = await _fetchResults(query);
 
       if (!mounted) return;
       if (_queryController.text.trim() != query) return;
@@ -6392,6 +6790,121 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
         _error = context.l10n.errorsServerFailure;
       });
     }
+  }
+
+  Future<List<_TaxiLocationSearchResult>> _fetchResults(String query) async {
+    final results = <_TaxiLocationSearchResult>[];
+    final seen = <String>{};
+    for (final variant in _queryVariants(query)) {
+      final Response<dynamic> response;
+      try {
+        response = await _searchDio.get(
+          'https://nominatim.openstreetmap.org/search',
+          queryParameters: {
+            'format': 'jsonv2',
+            'addressdetails': 1,
+            'extratags': 1,
+            'namedetails': 1,
+            'dedupe': 1,
+            'polygon_geojson': 0,
+            'countrycodes': 'iq',
+            'bounded': 0,
+            'viewbox': '38.79,37.39,48.58,29.06',
+            'limit': 12,
+            'q': variant,
+          },
+        );
+      } catch (_) {
+        continue;
+      }
+      final raw = response.data is List ? response.data as List : const [];
+      for (final result
+          in raw
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .map(_resultFromNominatim)
+              .whereType<_TaxiLocationSearchResult>()) {
+        final key =
+            '${result.latitude.toStringAsFixed(5)},'
+            '${result.longitude.toStringAsFixed(5)}:'
+            '${result.title.toLowerCase()}';
+        if (seen.add(key)) {
+          results.add(result);
+          if (results.length >= 16) return results;
+        }
+      }
+      if (results.length >= 8) return results;
+    }
+    return results;
+  }
+
+  List<String> _queryVariants(String query) {
+    final variants = <String>[];
+    void add(String value) {
+      final cleaned = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+      if (cleaned.isNotEmpty &&
+          !variants.any(
+            (item) => item.toLowerCase() == cleaned.toLowerCase(),
+          )) {
+        variants.add(cleaned);
+      }
+    }
+
+    add(query);
+    add('$query العراق');
+    add('$query Iraq');
+    final normalized = query.toLowerCase();
+    if (normalized.contains('كلية') || normalized.contains('جامعة')) {
+      add('$query university Iraq');
+      add('$query college Iraq');
+    }
+    if (normalized.contains('مدرسة') || normalized.contains('إعدادية')) {
+      add('$query school Iraq');
+    }
+    if (normalized.contains('جامع') || normalized.contains('مسجد')) {
+      add('$query mosque Iraq');
+    }
+    if (normalized.contains('شارع') || normalized.contains('طريق')) {
+      add('$query street Iraq');
+      add('$query road Iraq');
+    }
+    if (normalized.contains('منطقة') || normalized.contains('حي')) {
+      add('$query neighborhood Iraq');
+    }
+    return variants;
+  }
+
+  _TaxiLocationSearchResult? _resultFromNominatim(Map<String, dynamic> item) {
+    final lat = double.tryParse('${item['lat'] ?? ''}');
+    final lng = double.tryParse('${item['lon'] ?? ''}');
+    final address = '${item['display_name'] ?? ''}'.trim();
+    if (lat == null || lng == null || address.isEmpty) return null;
+    final namedetails = item['namedetails'] is Map
+        ? Map<String, dynamic>.from(item['namedetails'] as Map)
+        : const <String, dynamic>{};
+    final preferredName =
+        <dynamic>[namedetails['name:ar'], namedetails['name'], item['name']]
+            .map((value) => '${value ?? ''}'.trim())
+            .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+    return _TaxiLocationSearchResult(
+      latitude: lat,
+      longitude: lng,
+      title: preferredName.isNotEmpty
+          ? preferredName
+          : _shortAddressTitle(address),
+      address: address,
+    );
+  }
+
+  String _shortAddressTitle(String address) {
+    final parts = address
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return address;
+    if (parts.length == 1) return parts.first;
+    return '${parts[0]} - ${parts[1]}';
   }
 
   @override

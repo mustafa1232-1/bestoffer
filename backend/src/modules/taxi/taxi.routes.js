@@ -35,6 +35,8 @@ taxiRouter.post("/rides/:rideId/raise-fare", requireCustomer, c.raiseRideFare);
 taxiRouter.get("/captains/nearby", requireCustomer, c.listNearbyCaptains);
 taxiRouter.get("/rides/:rideId", c.getRideDetails);
 taxiRouter.post("/rides/:rideId/cancel", requireCustomer, c.cancelRide);
+// مخرج الطوارئ متاح للطرفين (زبون/كابتن) — التحقق من كونه طرفاً يتم في الـservice.
+taxiRouter.post("/rides/:rideId/emergency", c.raiseRideEmergency);
 taxiRouter.post("/rides/:rideId/rate", requireCustomer, c.rateRide);
 taxiRouter.post(
   "/rides/:rideId/bids/current/reject",
@@ -166,6 +168,7 @@ taxiRouter.post(
   c.acceptCustomerFare
 );
 taxiRouter.post("/rides/:rideId/decline", requireTaxiCaptain, c.declineRideByCaptain);
+taxiRouter.post("/rides/:rideId/captain/cancel", requireTaxiCaptain, c.cancelRideByCaptain);
 taxiRouter.post("/rides/:rideId/arrive", requireTaxiCaptain, c.markArrived);
 taxiRouter.post("/rides/:rideId/start", requireTaxiCaptain, c.startRide);
 taxiRouter.post("/rides/:rideId/complete", requireTaxiCaptain, c.completeRide);

@@ -68,6 +68,18 @@ adminRouter.get(
 );
 adminRouter.get("/taxi/contests", requireAdmin, taxiAdmin.listContests);
 adminRouter.get("/taxi/complaints", requireAdmin, taxiAdmin.listComplaints);
+// حالات الطوارئ على الرحلات + الإلغاء الطارئ (سيُشدَّد لاحقاً بمفتاح
+// taxi.rides.emergency_cancel في المرحلة 2 على أساس RBAC الدقيق).
+adminRouter.get(
+  "/taxi/rides/emergencies",
+  requireAdmin,
+  taxiAdmin.listRideEmergencies
+);
+adminRouter.post(
+  "/taxi/rides/:rideId/emergency-cancel",
+  requireAdmin,
+  taxiAdmin.emergencyCancelRide
+);
 adminRouter.get("/taxi/kpi/overview", requireAdmin, taxiAdmin.kpiOverview);
 adminRouter.get("/taxi/reports", requireAdmin, taxiAdmin.reports);
 adminRouter.get("/ops/alerts", requireAdmin, ops.listOpsAlerts);

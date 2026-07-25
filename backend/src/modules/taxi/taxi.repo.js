@@ -15,6 +15,10 @@ import {
   toIntOrNull,
   toNumberOrNull,
 } from "./taxi.mappers.js";
+import {
+  evaluateTaxiCancellation,
+  TAXI_TERMINAL_STATUSES,
+} from "./taxi.cancellation.js";
 
 const ACTIVE_RIDE_STATUSES = [
   "price_raise_required",
@@ -1165,7 +1169,12 @@ export async function counterOfferCurrentRideBidByCustomer({
   }
 }
 
-export async function cancelRide({ rideId, customerUserId }) {
+export async function cancelRide({
+  rideId,
+  customerUserId,
+  reasonCode = null,
+  reasonText = null,
+}) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1185,9 +1194,28 @@ export async function cancelRide({ rideId, customerUserId }) {
       return { code: "RIDE_NOT_FOUND" };
     }
 
-    if (["completed", "cancelled", "expired"].includes(ride.status)) {
+    const decision = evaluateTaxiCancellation({
+      status: ride.status,
+      actorRole: "customer",
+    });
+
+    if (decision.outcome === "already_closed") {
+      // إعادة إرسال إلغاء لرحلة ملغاة مسبقاً = idempotent no-op.
+      if (ride.status === "cancelled") {
+        const full = await queryRideById(client, rideId);
+        await client.query("COMMIT");
+        return { code: "ALREADY_CANCELLED", ride: full };
+      }
       await client.query("ROLLBACK");
-      return { code: "RIDE_ALREADY_CLOSED" };
+      return { code: "RIDE_ALREADY_CLOSED", currentStatus: ride.status };
+    }
+
+    if (decision.outcome !== "allowed") {
+      await client.query("ROLLBACK");
+      return {
+        code: decision.code || "TAXI_CANCELLATION_LOCKED",
+        currentStatus: ride.status,
+      };
     }
 
     await client.query(
@@ -1195,9 +1223,21 @@ export async function cancelRide({ rideId, customerUserId }) {
        SET status = 'cancelled',
            current_bid_id = NULL,
            cancelled_at = NOW(),
-           updated_at = NOW()
+           updated_at = NOW(),
+           cancelled_by_role = 'customer',
+           cancelled_by_user_id = $2,
+           cancel_reason_code = $3,
+           cancel_reason_text = $4,
+           cancel_previous_status = $5,
+           cancel_is_emergency = FALSE
        WHERE id = $1`,
-      [Number(rideId)]
+      [
+        Number(rideId),
+        Number(customerUserId),
+        reasonCode,
+        reasonText,
+        ride.status,
+      ]
     );
 
     await client.query(
@@ -1212,13 +1252,329 @@ export async function cancelRide({ rideId, customerUserId }) {
     const full = await queryRideById(client, rideId);
 
     await client.query("COMMIT");
-    return { code: "OK", ride: full };
+    return { code: "OK", ride: full, previousStatus: ride.status };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
   } finally {
     client.release();
   }
+}
+
+export async function cancelRideByCaptain({
+  rideId,
+  captainUserId,
+  reasonCode = null,
+  reasonText = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const lock = await client.query(
+      `SELECT *
+       FROM taxi_ride_request
+       WHERE id = $1
+       FOR UPDATE`,
+      [Number(rideId)]
+    );
+
+    const ride = lock.rows[0];
+    if (!ride) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_FOUND" };
+    }
+
+    if (Number(ride.assigned_captain_user_id) !== Number(captainUserId)) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_ASSIGNED_TO_CAPTAIN" };
+    }
+
+    const decision = evaluateTaxiCancellation({
+      status: ride.status,
+      actorRole: "captain",
+    });
+
+    if (decision.outcome === "already_closed") {
+      if (ride.status === "cancelled") {
+        const full = await queryRideById(client, rideId);
+        await client.query("COMMIT");
+        return { code: "ALREADY_CANCELLED", ride: full };
+      }
+      await client.query("ROLLBACK");
+      return { code: "RIDE_ALREADY_CLOSED", currentStatus: ride.status };
+    }
+
+    if (decision.outcome !== "allowed") {
+      await client.query("ROLLBACK");
+      return {
+        code: decision.code || "TAXI_CANCELLATION_LOCKED",
+        currentStatus: ride.status,
+      };
+    }
+
+    await client.query(
+      `UPDATE taxi_ride_request
+       SET status = 'cancelled',
+           current_bid_id = NULL,
+           cancelled_at = NOW(),
+           updated_at = NOW(),
+           cancelled_by_role = 'captain',
+           cancelled_by_user_id = $2,
+           cancel_reason_code = $3,
+           cancel_reason_text = $4,
+           cancel_previous_status = $5,
+           cancel_is_emergency = FALSE
+       WHERE id = $1`,
+      [
+        Number(rideId),
+        Number(captainUserId),
+        reasonCode,
+        reasonText,
+        ride.status,
+      ]
+    );
+
+    await client.query(
+      `UPDATE taxi_ride_bid
+       SET status = 'expired',
+           updated_at = NOW()
+       WHERE ride_request_id = $1
+         AND status = 'active'`,
+      [Number(rideId)]
+    );
+
+    const full = await queryRideById(client, rideId);
+
+    await client.query("COMMIT");
+    return { code: "OK", ride: full, previousStatus: ride.status };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createRideEmergency({
+  rideId,
+  reportedByUserId,
+  reportedByRole,
+  category = "safety",
+  message = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const lock = await client.query(
+      `SELECT *
+       FROM taxi_ride_request
+       WHERE id = $1
+       FOR UPDATE`,
+      [Number(rideId)]
+    );
+
+    const ride = lock.rows[0];
+    if (!ride) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_FOUND" };
+    }
+
+    if (TAXI_TERMINAL_STATUSES.includes(String(ride.status))) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_ALREADY_CLOSED", currentStatus: ride.status };
+    }
+
+    // Idempotency: أعِد استخدام تذكرة طوارئ مفتوحة لنفس الرحلة/المُبلِّغ إن وُجدت.
+    const existing = await client.query(
+      `SELECT *
+       FROM taxi_ride_emergency
+       WHERE ride_request_id = $1
+         AND reported_by_user_id = $2
+         AND status IN ('open', 'acknowledged')
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [Number(rideId), Number(reportedByUserId)]
+    );
+
+    if (existing.rows[0]) {
+      await client.query("COMMIT");
+      return {
+        code: "OK",
+        emergency: existing.rows[0],
+        ride,
+        alreadyOpen: true,
+      };
+    }
+
+    const inserted = await client.query(
+      `INSERT INTO taxi_ride_emergency
+         (ride_request_id, reported_by_user_id, reported_by_role,
+          ride_status_at_report, category, message)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [
+        Number(rideId),
+        Number(reportedByUserId),
+        reportedByRole,
+        ride.status,
+        category,
+        message,
+      ]
+    );
+
+    await client.query("COMMIT");
+    return {
+      code: "OK",
+      emergency: inserted.rows[0],
+      ride,
+      alreadyOpen: false,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function adminEmergencyCancelRide({
+  rideId,
+  adminUserId,
+  reasonText,
+  secondApproverUserId = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const lock = await client.query(
+      `SELECT *
+       FROM taxi_ride_request
+       WHERE id = $1
+       FOR UPDATE`,
+      [Number(rideId)]
+    );
+
+    const ride = lock.rows[0];
+    if (!ride) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_NOT_FOUND" };
+    }
+
+    if (["completed", "expired"].includes(String(ride.status))) {
+      await client.query("ROLLBACK");
+      return { code: "RIDE_ALREADY_CLOSED", currentStatus: ride.status };
+    }
+
+    if (ride.status === "cancelled") {
+      const full = await queryRideById(client, rideId);
+      await client.query("COMMIT");
+      return { code: "ALREADY_CANCELLED", ride: full };
+    }
+
+    await client.query(
+      `UPDATE taxi_ride_request
+       SET status = 'cancelled',
+           current_bid_id = NULL,
+           cancelled_at = NOW(),
+           updated_at = NOW(),
+           cancelled_by_role = 'admin',
+           cancelled_by_user_id = $2,
+           cancel_reason_code = 'emergency',
+           cancel_reason_text = $3,
+           cancel_previous_status = $4,
+           cancel_is_emergency = TRUE
+       WHERE id = $1`,
+      [Number(rideId), Number(adminUserId), reasonText, ride.status]
+    );
+
+    await client.query(
+      `UPDATE taxi_ride_bid
+       SET status = 'expired',
+           updated_at = NOW()
+       WHERE ride_request_id = $1
+         AND status = 'active'`,
+      [Number(rideId)]
+    );
+
+    await client.query(
+      `UPDATE taxi_ride_emergency
+       SET status = 'cancelled_ride',
+           resolution = 'emergency_cancel',
+           resolution_note = $2,
+           resolved_by_user_id = $3,
+           resolved_at = NOW(),
+           second_approver_user_id = COALESCE($4, second_approver_user_id),
+           second_approved_at = CASE
+             WHEN $4 IS NOT NULL THEN NOW()
+             ELSE second_approved_at
+           END,
+           updated_at = NOW()
+       WHERE ride_request_id = $1
+         AND status IN ('open', 'acknowledged')`,
+      [
+        Number(rideId),
+        reasonText,
+        Number(adminUserId),
+        secondApproverUserId ? Number(secondApproverUserId) : null,
+      ]
+    );
+
+    const full = await queryRideById(client, rideId);
+
+    await client.query("COMMIT");
+    return { code: "OK", ride: full, previousStatus: ride.status };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listTaxiEmergencyRecipients({ limit = 50 } = {}) {
+  const r = await q(
+    `SELECT id
+     FROM app_user
+     WHERE (is_super_admin = TRUE OR role = 'admin')
+       AND COALESCE(is_account_disabled, FALSE) = FALSE
+     ORDER BY is_super_admin DESC, id ASC
+     LIMIT $1`,
+    [Number(limit)]
+  );
+  return r.rows.map((row) => Number(row.id));
+}
+
+export async function listRideEmergencies({
+  status = null,
+  limit = 100,
+} = {}) {
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 100));
+  const params = [];
+  let where = "";
+  if (status) {
+    params.push(String(status));
+    where = `WHERE e.status = $${params.length}`;
+  }
+  params.push(safeLimit);
+  const r = await q(
+    `SELECT
+       e.*,
+       r.customer_user_id,
+       r.assigned_captain_user_id,
+       r.status AS ride_status
+     FROM taxi_ride_emergency e
+     JOIN taxi_ride_request r ON r.id = e.ride_request_id
+     ${where}
+     ORDER BY
+       CASE e.status WHEN 'open' THEN 0 WHEN 'acknowledged' THEN 1 ELSE 2 END,
+       e.created_at DESC
+     LIMIT $${params.length}`,
+    params
+  );
+  return r.rows;
 }
 
 export async function rateCompletedRideByCustomer({

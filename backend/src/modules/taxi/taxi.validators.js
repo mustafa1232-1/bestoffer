@@ -597,3 +597,110 @@ export function validateRideCallStateQuery(query) {
     },
   };
 }
+
+/**
+ * سبب الإلغاء إلزامي (المرحلة 1): يجب اختيار reasonCode. عند اختيار "other"
+ * يصبح reasonText إلزامياً. لا نفرض قائمة أكواد صلبة في الخادم حتى يبقى التطبيق
+ * حراً في تصنيفاته، لكن نضمن اختيار سبب فعلي.
+ */
+export function validateCancelReason(body) {
+  const errors = {};
+  const reasonCode =
+    typeof body?.reasonCode === "string" ? body.reasonCode.trim() : "";
+  const reasonText =
+    typeof body?.reasonText === "string" ? body.reasonText.trim() : "";
+
+  if (!reasonCode) {
+    errors.reasonCode = "SELECT_OPTION";
+  } else if (reasonCode.length > 64) {
+    errors.reasonCode = "TOO_LONG";
+  }
+
+  if (reasonText.length > 500) {
+    errors.reasonText = "TOO_LONG";
+  }
+
+  if (reasonCode.toLowerCase() === "other" && !reasonText) {
+    errors.reasonText = "REQUIRED";
+  }
+
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: {
+      reasonCode: reasonCode || null,
+      reasonText: reasonText || null,
+    },
+  };
+}
+
+/**
+ * فتح حالة طارئة/طلب مساعدة على الرحلة. category اختياري (افتراضي safety)
+ * والرسالة اختيارية.
+ */
+export function validateRideEmergency(body) {
+  const errors = {};
+  const category =
+    typeof body?.category === "string" && body.category.trim()
+      ? body.category.trim()
+      : "safety";
+  const message =
+    typeof body?.message === "string" ? body.message.trim() : "";
+
+  if (category.length > 48) {
+    errors.category = "TOO_LONG";
+  }
+  if (message.length > 1000) {
+    errors.message = "TOO_LONG";
+  }
+
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: {
+      category,
+      message: message || null,
+    },
+  };
+}
+
+/**
+ * إلغاء طارئ إداري: السبب إلزامي، ودعم اختياري لمُوافِق ثانٍ.
+ */
+export function validateEmergencyCancel(body) {
+  const errors = {};
+  const reasonText =
+    typeof body?.reasonText === "string" ? body.reasonText.trim() : "";
+  const secondApproverUserId =
+    body?.secondApproverUserId === undefined ||
+    body?.secondApproverUserId === null ||
+    body?.secondApproverUserId === ""
+      ? null
+      : toInt(body.secondApproverUserId);
+
+  if (!reasonText) {
+    errors.reasonText = "REQUIRED";
+  } else if (reasonText.length < 3) {
+    errors.reasonText = "TOO_SHORT";
+  } else if (reasonText.length > 1000) {
+    errors.reasonText = "TOO_LONG";
+  }
+
+  if (
+    body?.secondApproverUserId !== undefined &&
+    body?.secondApproverUserId !== null &&
+    body?.secondApproverUserId !== "" &&
+    (secondApproverUserId == null || secondApproverUserId <= 0)
+  ) {
+    errors.secondApproverUserId = "INVALID";
+  }
+
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: {
+      reasonText: reasonText || null,
+      secondApproverUserId,
+    },
+  };
+}
