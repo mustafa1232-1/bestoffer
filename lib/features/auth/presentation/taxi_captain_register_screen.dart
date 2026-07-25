@@ -14,6 +14,7 @@ import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/widgets/image_picker_field.dart';
+import '../data/auth_api.dart';
 import '../state/auth_controller.dart';
 import 'widgets/basmaya_address_selector.dart';
 
@@ -40,8 +41,19 @@ class _TaxiCaptainRegisterScreenState
   final carYearCtrl = TextEditingController();
   final carColorCtrl = TextEditingController();
   final plateNumberCtrl = TextEditingController();
+  final plateLetterCtrl = TextEditingController();
 
   String vehicleType = 'sedan';
+  List<_TaxiVehicleMake> _vehicleMakes = const [];
+  List<int> _vehicleYears = const [];
+  List<String> _plateGovernorates = const [];
+  List<String> _plateCategories = const [];
+  _TaxiVehicleMake? _selectedMake;
+  _TaxiVehicleModel? _selectedModel;
+  String? _selectedPlateGovernorate;
+  String? _selectedPlateCategory;
+  bool _vehicleCatalogLoading = false;
+  bool _vehicleCatalogFailed = false;
   LocalImageFile? profileImageFile;
   LocalImageFile? carImageFile;
   bool analyticsConsentAccepted = false;
@@ -60,8 +72,18 @@ class _TaxiCaptainRegisterScreenState
     carYearCtrl.dispose();
     carColorCtrl.dispose();
     plateNumberCtrl.dispose();
+    plateLetterCtrl.dispose();
     _scrollCoordinator.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _vehicleYears = _defaultVehicleYears();
+    _plateGovernorates = _defaultPlateGovernorates;
+    _plateCategories = _defaultPlateCategories;
+    _loadVehicleCatalog();
   }
 
   String? _errorOf(String key) => _fieldErrors[key];
@@ -112,6 +134,12 @@ class _TaxiCaptainRegisterScreenState
         return l10n.taxiCaptainCarColorLabel;
       case 'plateNumber':
         return l10n.taxiCaptainPlateLabel;
+      case 'plateGovernorate':
+        return 'مدينة اللوحة';
+      case 'plateCategory':
+        return 'نوع اللوحة';
+      case 'plateLetter':
+        return 'حرف اللوحة';
       case 'profileImageUrl':
         return l10n.taxiCaptainProfileImageTitle;
       case 'carImageUrl':
@@ -165,6 +193,15 @@ class _TaxiCaptainRegisterScreenState
     if (plateNumberCtrl.text.trim().isEmpty) {
       nextErrors['plateNumber'] = context.l10n.taxiCaptainPlateRequired;
     }
+    if ((_selectedPlateGovernorate ?? '').trim().isEmpty) {
+      nextErrors['plateGovernorate'] = 'اختر مدينة اللوحة.';
+    }
+    if ((_selectedPlateCategory ?? '').trim().isEmpty) {
+      nextErrors['plateCategory'] = 'اختر نوع اللوحة.';
+    }
+    if (plateLetterCtrl.text.trim().isEmpty) {
+      nextErrors['plateLetter'] = 'أدخل حرف اللوحة.';
+    }
 
     final currentYear = DateTime.now().year + 1;
     final carYear = int.tryParse(carYearCtrl.text.trim());
@@ -190,7 +227,8 @@ class _TaxiCaptainRegisterScreenState
         ..addAll(nextErrors);
       _addressError = nextAddressError;
       _consentError = nextConsentError;
-      _formError = nextErrors.isEmpty &&
+      _formError =
+          nextErrors.isEmpty &&
               nextAddressError == null &&
               nextConsentError == null
           ? null
@@ -202,7 +240,8 @@ class _TaxiCaptainRegisterScreenState
   }
 
   Future<void> _focusFirstError() async {
-    final hasAddressError = _errorOf('block') != null ||
+    final hasAddressError =
+        _errorOf('block') != null ||
         _errorOf('buildingNumber') != null ||
         _errorOf('apartment') != null ||
         _addressError != null;
@@ -216,12 +255,203 @@ class _TaxiCaptainRegisterScreenState
       if (_errorOf('carModel') != null) 'carModel',
       if (_errorOf('carYear') != null) 'carYear',
       if (_errorOf('carColor') != null) 'carColor',
+      if (_errorOf('plateGovernorate') != null) 'plateGovernorate',
+      if (_errorOf('plateCategory') != null) 'plateCategory',
+      if (_errorOf('plateLetter') != null) 'plateLetter',
       if (_errorOf('plateNumber') != null) 'plateNumber',
       if (_errorOf('profileImageUrl') != null) 'profileImageUrl',
       if (_errorOf('carImageUrl') != null) 'carImageUrl',
       if (_consentError != null) 'analyticsConsentAccepted',
     ];
     await _scrollCoordinator.focusFirstError(ordered);
+  }
+
+  List<int> _defaultVehicleYears() {
+    final currentYear = DateTime.now().year + 1;
+    return [for (var year = currentYear; year >= 1990; year--) year];
+  }
+
+  _TaxiVehicleMake? _findMakeById(int id) {
+    for (final make in _vehicleMakes) {
+      if (make.id == id) return make;
+    }
+    return null;
+  }
+
+  _TaxiVehicleMake? _findMakeByName(String name) {
+    final normalized = name.trim().toLowerCase();
+    for (final make in _vehicleMakes) {
+      if (make.name.toLowerCase() == normalized) return make;
+    }
+    return null;
+  }
+
+  _TaxiVehicleModel? _findModelByName(_TaxiVehicleMake make, String name) {
+    final normalized = name.trim().toLowerCase();
+    for (final model in make.models) {
+      if (model.name.toLowerCase() == normalized) return model;
+    }
+    return null;
+  }
+
+  Future<void> _loadVehicleCatalog() async {
+    if (mounted) {
+      setState(() {
+        _vehicleCatalogLoading = true;
+        _vehicleCatalogFailed = false;
+      });
+    }
+    try {
+      final api = AuthApi(ref.read(dioClientProvider).dio);
+      final payload = await api.listTaxiVehicleCatalog();
+      final rawMakes = List<dynamic>.from(
+        payload['makes'] as List? ?? const [],
+      );
+      final rawYears = List<dynamic>.from(
+        payload['years'] as List? ?? const [],
+      );
+      final rawGovernorates = List<dynamic>.from(
+        payload['plateGovernorates'] as List? ?? const [],
+      );
+      final rawCategories = List<dynamic>.from(
+        payload['plateCategories'] as List? ?? const [],
+      );
+      if (!mounted) return;
+      setState(() {
+        _vehicleMakes = rawMakes
+            .map((entry) => _TaxiVehicleMake.fromJson(entry))
+            .where((entry) => entry.name.isNotEmpty)
+            .toList();
+        _vehicleYears = rawYears
+            .map((entry) => int.tryParse('$entry'))
+            .whereType<int>()
+            .toList();
+        if (_vehicleYears.isEmpty) _vehicleYears = _defaultVehicleYears();
+        _plateGovernorates = rawGovernorates
+            .map((entry) => '$entry'.trim())
+            .where((entry) => entry.isNotEmpty)
+            .toList();
+        if (_plateGovernorates.isEmpty) {
+          _plateGovernorates = _defaultPlateGovernorates;
+        }
+        _plateCategories = rawCategories
+            .map((entry) => '$entry'.trim())
+            .where((entry) => entry.isNotEmpty)
+            .toList();
+        if (_plateCategories.isEmpty) {
+          _plateCategories = _defaultPlateCategories;
+        }
+        _vehicleCatalogLoading = false;
+        _vehicleCatalogFailed = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _vehicleCatalogLoading = false;
+        _vehicleCatalogFailed = true;
+      });
+    }
+  }
+
+  Future<String?> _showTextInputDialog({
+    required String title,
+    required String label,
+  }) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(labelText: label),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(context.l10n.commonCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              Navigator.of(dialogContext).pop(value.isEmpty ? null : value);
+            },
+            child: Text(context.l10n.commonSave),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result?.trim();
+  }
+
+  Future<void> _addVehicleMake() async {
+    final name = await _showTextInputDialog(
+      title: 'إضافة شركة مصنعة',
+      label: 'اسم الشركة',
+    );
+    if (name == null || name.isEmpty) return;
+    try {
+      final api = AuthApi(ref.read(dioClientProvider).dio);
+      await api.createTaxiVehicleMake(name);
+      await _loadVehicleCatalog();
+      final selected = _findMakeByName(name);
+      if (!mounted) return;
+      setState(() {
+        _selectedMake = selected;
+        _selectedModel = null;
+        carMakeCtrl.text = selected?.name ?? name;
+        carModelCtrl.clear();
+        _fieldErrors.remove('carMake');
+        _formError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _formError = mapAnyError(error, fallback: 'تعذر إضافة الشركة.');
+      });
+    }
+  }
+
+  Future<void> _addVehicleModel() async {
+    final make = _selectedMake;
+    if (make == null) {
+      setState(() {
+        _fieldErrors['carMake'] = 'اختر الشركة أولاً.';
+        _formError = context.l10n.validationReviewRequiredFields;
+      });
+      await _focusFirstError();
+      return;
+    }
+    final name = await _showTextInputDialog(
+      title: 'إضافة موديل',
+      label: 'اسم الموديل',
+    );
+    if (name == null || name.isEmpty) return;
+    try {
+      final api = AuthApi(ref.read(dioClientProvider).dio);
+      await api.createTaxiVehicleModel(makeId: make.id, name: name);
+      await _loadVehicleCatalog();
+      final refreshedMake = _findMakeById(make.id);
+      final selectedModel = refreshedMake == null
+          ? null
+          : _findModelByName(refreshedMake, name);
+      if (!mounted) return;
+      setState(() {
+        _selectedMake = refreshedMake ?? make;
+        _selectedModel = selectedModel;
+        carMakeCtrl.text = _selectedMake?.name ?? make.name;
+        carModelCtrl.text = selectedModel?.name ?? name;
+        _fieldErrors.remove('carModel');
+        _formError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _formError = mapAnyError(error, fallback: 'تعذر إضافة الموديل.');
+      });
+    }
   }
 
   Future<bool> _applyBackendErrors(AuthState auth) async {
@@ -447,7 +677,9 @@ class _TaxiCaptainRegisterScreenState
                                 items: [
                                   DropdownMenuItem(
                                     value: 'sedan',
-                                    child: Text(l10n.taxiCaptainVehicleTypeSedan),
+                                    child: Text(
+                                      l10n.taxiCaptainVehicleTypeSedan,
+                                    ),
                                   ),
                                   DropdownMenuItem(
                                     value: 'suv',
@@ -484,38 +716,188 @@ class _TaxiCaptainRegisterScreenState
                               ),
                             ),
                             const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: buildField(
-                                    field: 'carMake',
-                                    controller: carMakeCtrl,
-                                    label: l10n.taxiCaptainCarMakeLabel,
-                                    hint: 'Toyota',
+                            if (_vehicleCatalogLoading)
+                              const LinearProgressIndicator(minHeight: 2),
+                            if (_vehicleCatalogLoading)
+                              const SizedBox(height: 8),
+                            if (_vehicleCatalogFailed || _vehicleMakes.isEmpty)
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: buildField(
+                                      field: 'carMake',
+                                      controller: carMakeCtrl,
+                                      label: l10n.taxiCaptainCarMakeLabel,
+                                      hint: 'Toyota',
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: buildField(
-                                    field: 'carModel',
-                                    controller: carModelCtrl,
-                                    label: l10n.taxiCaptainCarModelLabel,
-                                    hint: 'Corolla',
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: buildField(
+                                      field: 'carModel',
+                                      controller: carModelCtrl,
+                                      label: l10n.taxiCaptainCarModelLabel,
+                                      hint: 'Corolla',
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
+                                ],
+                              )
+                            else ...[
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _scrollCoordinator.anchor(
+                                      'carMake',
+                                      DropdownButtonFormField<int>(
+                                        key: ValueKey(
+                                          'make-${_selectedMake?.id ?? 0}',
+                                        ),
+                                        initialValue: _selectedMake?.id,
+                                        isExpanded: true,
+                                        items: _vehicleMakes
+                                            .map(
+                                              (make) => DropdownMenuItem<int>(
+                                                value: make.id,
+                                                child: Text(
+                                                  make.name,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            )
+                                            .toList(),
+                                        onChanged: (value) {
+                                          final make = value == null
+                                              ? null
+                                              : _findMakeById(value);
+                                          setState(() {
+                                            _selectedMake = make;
+                                            _selectedModel = null;
+                                            carMakeCtrl.text = make?.name ?? '';
+                                            carModelCtrl.clear();
+                                            _fieldErrors.remove('carMake');
+                                            _fieldErrors.remove('carModel');
+                                            _formError = null;
+                                          });
+                                        },
+                                        decoration: InputDecoration(
+                                          labelText:
+                                              l10n.taxiCaptainCarMakeLabel,
+                                          errorText: _errorOf('carMake'),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  IconButton.filledTonal(
+                                    onPressed: _addVehicleMake,
+                                    tooltip: 'إضافة شركة',
+                                    icon: const Icon(Icons.add_rounded),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _scrollCoordinator.anchor(
+                                      'carModel',
+                                      DropdownButtonFormField<int>(
+                                        key: ValueKey(
+                                          'model-${_selectedMake?.id ?? 0}-${_selectedModel?.id ?? 0}',
+                                        ),
+                                        initialValue: _selectedModel?.id,
+                                        isExpanded: true,
+                                        items:
+                                            (_selectedMake?.models ?? const [])
+                                                .map(
+                                                  (model) =>
+                                                      DropdownMenuItem<int>(
+                                                        value: model.id,
+                                                        child: Text(
+                                                          model.name,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        ),
+                                                      ),
+                                                )
+                                                .toList(),
+                                        onChanged: _selectedMake == null
+                                            ? null
+                                            : (value) {
+                                                _TaxiVehicleModel? model;
+                                                if (value != null) {
+                                                  for (final entry
+                                                      in _selectedMake!
+                                                          .models) {
+                                                    if (entry.id == value) {
+                                                      model = entry;
+                                                      break;
+                                                    }
+                                                  }
+                                                }
+                                                setState(() {
+                                                  _selectedModel = model;
+                                                  carModelCtrl.text =
+                                                      model?.name ?? '';
+                                                  _fieldErrors.remove(
+                                                    'carModel',
+                                                  );
+                                                  _formError = null;
+                                                });
+                                              },
+                                        decoration: InputDecoration(
+                                          labelText:
+                                              l10n.taxiCaptainCarModelLabel,
+                                          errorText: _errorOf('carModel'),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  IconButton.filledTonal(
+                                    onPressed: _addVehicleModel,
+                                    tooltip: 'إضافة موديل',
+                                    icon: const Icon(Icons.add_road_rounded),
+                                  ),
+                                ],
+                              ),
+                            ],
                             const SizedBox(height: 10),
                             Row(
                               children: [
                                 Expanded(
-                                  child: buildField(
-                                    field: 'carYear',
-                                    controller: carYearCtrl,
-                                    label: l10n.taxiCaptainCarYearLabel,
-                                    hint: '2020',
-                                    keyboardType: TextInputType.number,
-                                    textDirection: TextDirection.ltr,
+                                  child: _scrollCoordinator.anchor(
+                                    'carYear',
+                                    DropdownButtonFormField<int>(
+                                      key: ValueKey(
+                                        'year-${carYearCtrl.text.trim()}',
+                                      ),
+                                      initialValue: int.tryParse(
+                                        carYearCtrl.text.trim(),
+                                      ),
+                                      isExpanded: true,
+                                      items: _vehicleYears
+                                          .map(
+                                            (year) => DropdownMenuItem<int>(
+                                              value: year,
+                                              child: Text('$year'),
+                                            ),
+                                          )
+                                          .toList(),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          carYearCtrl.text =
+                                              value?.toString() ?? '';
+                                          _fieldErrors.remove('carYear');
+                                          _formError = null;
+                                        });
+                                      },
+                                      decoration: InputDecoration(
+                                        labelText: l10n.taxiCaptainCarYearLabel,
+                                        errorText: _errorOf('carYear'),
+                                      ),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -530,11 +912,105 @@ class _TaxiCaptainRegisterScreenState
                               ],
                             ),
                             const SizedBox(height: 10),
-                            buildField(
-                              field: 'plateNumber',
-                              controller: plateNumberCtrl,
-                              label: l10n.taxiCaptainPlateLabel,
-                              hint: l10n.taxiCaptainPlateHint,
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _scrollCoordinator.anchor(
+                                    'plateGovernorate',
+                                    DropdownButtonFormField<String>(
+                                      key: ValueKey(
+                                        'plate-city-${_selectedPlateGovernorate ?? ''}',
+                                      ),
+                                      initialValue: _selectedPlateGovernorate,
+                                      isExpanded: true,
+                                      items: _plateGovernorates
+                                          .map(
+                                            (name) => DropdownMenuItem<String>(
+                                              value: name,
+                                              child: Text(
+                                                name,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _selectedPlateGovernorate = value;
+                                          _fieldErrors.remove(
+                                            'plateGovernorate',
+                                          );
+                                          _formError = null;
+                                        });
+                                      },
+                                      decoration: InputDecoration(
+                                        labelText: 'مدينة اللوحة',
+                                        errorText: _errorOf('plateGovernorate'),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _scrollCoordinator.anchor(
+                                    'plateCategory',
+                                    DropdownButtonFormField<String>(
+                                      key: ValueKey(
+                                        'plate-category-${_selectedPlateCategory ?? ''}',
+                                      ),
+                                      initialValue: _selectedPlateCategory,
+                                      isExpanded: true,
+                                      items: _plateCategories
+                                          .map(
+                                            (name) => DropdownMenuItem<String>(
+                                              value: name,
+                                              child: Text(
+                                                name,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _selectedPlateCategory = value;
+                                          _fieldErrors.remove('plateCategory');
+                                          _formError = null;
+                                        });
+                                      },
+                                      decoration: InputDecoration(
+                                        labelText: 'نوع اللوحة',
+                                        errorText: _errorOf('plateCategory'),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: buildField(
+                                    field: 'plateLetter',
+                                    controller: plateLetterCtrl,
+                                    label: 'حرف اللوحة',
+                                    hint: 'S',
+                                    textDirection: TextDirection.ltr,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: buildField(
+                                    field: 'plateNumber',
+                                    controller: plateNumberCtrl,
+                                    label: l10n.taxiCaptainPlateLabel,
+                                    hint: '10346',
+                                    keyboardType: TextInputType.number,
+                                    textDirection: TextDirection.ltr,
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 10),
                             _scrollCoordinator.anchor(
@@ -556,10 +1032,10 @@ class _TaxiCaptainRegisterScreenState
                                 onClear: profileImageFile == null
                                     ? null
                                     : () => setState(() {
-                                          profileImageFile = null;
-                                          _fieldErrors.remove('profileImageUrl');
-                                          _formError = null;
-                                        }),
+                                        profileImageFile = null;
+                                        _fieldErrors.remove('profileImageUrl');
+                                        _formError = null;
+                                      }),
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -582,10 +1058,10 @@ class _TaxiCaptainRegisterScreenState
                                 onClear: carImageFile == null
                                     ? null
                                     : () => setState(() {
-                                          carImageFile = null;
-                                          _fieldErrors.remove('carImageUrl');
-                                          _formError = null;
-                                        }),
+                                        carImageFile = null;
+                                        _fieldErrors.remove('carImageUrl');
+                                        _formError = null;
+                                      }),
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -641,6 +1117,14 @@ class _TaxiCaptainRegisterScreenState
                                                 'carColor': carColorCtrl.text,
                                                 'plateNumber':
                                                     plateNumberCtrl.text,
+                                                'plateGovernorate':
+                                                    _selectedPlateGovernorate,
+                                                'plateCategory':
+                                                    _selectedPlateCategory,
+                                                'plateLetter':
+                                                    plateLetterCtrl.text,
+                                                'plateDigits':
+                                                    plateNumberCtrl.text,
                                                 'analyticsConsentAccepted':
                                                     true,
                                                 'analyticsConsentVersion':
@@ -655,8 +1139,8 @@ class _TaxiCaptainRegisterScreenState
                                         setState(() {
                                           _formError = mapAnyError(
                                             error,
-                                            fallback: l10n
-                                                .taxiCaptainCreateFailed,
+                                            fallback:
+                                                l10n.taxiCaptainCreateFailed,
                                           );
                                         });
                                         return;
@@ -664,8 +1148,9 @@ class _TaxiCaptainRegisterScreenState
 
                                       if (!mounted) return;
                                       if (!created) {
-                                        final next =
-                                            ref.read(authControllerProvider);
+                                        final next = ref.read(
+                                          authControllerProvider,
+                                        );
                                         if (await _applyBackendErrors(next)) {
                                           return;
                                         }
@@ -739,7 +1224,10 @@ class _TaxiCaptainRegisterScreenState
               children: [
                 Text(
                   l10n.taxiCaptainConsentInfoTitle,
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Text(l10n.taxiCaptainConsentInfoBody1),
@@ -750,6 +1238,88 @@ class _TaxiCaptainRegisterScreenState
           ),
         ),
       ),
+    );
+  }
+}
+
+const List<String> _defaultPlateGovernorates = [
+  'بغداد',
+  'البصرة',
+  'نينوى',
+  'أربيل',
+  'السليمانية',
+  'دهوك',
+  'كركوك',
+  'ديالى',
+  'الأنبار',
+  'بابل',
+  'كربلاء',
+  'النجف',
+  'واسط',
+  'القادسية',
+  'المثنى',
+  'ذي قار',
+  'ميسان',
+  'صلاح الدين',
+];
+
+const List<String> _defaultPlateCategories = [
+  'خصوصي',
+  'أجرة',
+  'حمل',
+  'حكومي',
+  'زراعي',
+  'إنشائية',
+  'فحص مؤقت',
+];
+
+class _TaxiVehicleMake {
+  final int id;
+  final String name;
+  final List<_TaxiVehicleModel> models;
+
+  const _TaxiVehicleMake({
+    required this.id,
+    required this.name,
+    required this.models,
+  });
+
+  factory _TaxiVehicleMake.fromJson(Object? input) {
+    final json = input is Map ? Map<String, dynamic>.from(input) : const {};
+    final id = int.tryParse('${json['id'] ?? 0}') ?? 0;
+    final models = List<dynamic>.from(json['models'] as List? ?? const [])
+        .map((entry) => _TaxiVehicleModel.fromJson(entry, fallbackMakeId: id))
+        .where((entry) => entry.name.isNotEmpty)
+        .toList();
+    return _TaxiVehicleMake(
+      id: id,
+      name: '${json['name'] ?? ''}'.trim(),
+      models: models,
+    );
+  }
+}
+
+class _TaxiVehicleModel {
+  final int id;
+  final int makeId;
+  final String name;
+
+  const _TaxiVehicleModel({
+    required this.id,
+    required this.makeId,
+    required this.name,
+  });
+
+  factory _TaxiVehicleModel.fromJson(
+    Object? input, {
+    required int fallbackMakeId,
+  }) {
+    final json = input is Map ? Map<String, dynamic>.from(input) : const {};
+    return _TaxiVehicleModel(
+      id: int.tryParse('${json['id'] ?? 0}') ?? 0,
+      makeId:
+          int.tryParse('${json['makeId'] ?? fallbackMakeId}') ?? fallbackMakeId,
+      name: '${json['name'] ?? ''}'.trim(),
     );
   }
 }

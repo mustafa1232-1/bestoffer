@@ -2954,6 +2954,35 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
     return seconds;
   }
 
+  Widget? _buildIraqiTaxiPlate(
+    Map<String, dynamic>? captain, {
+    Map<String, dynamic>? vehicle,
+  }) {
+    final digits =
+        _string(captain?['plateDigits']) ??
+        _string(vehicle?['vehiclePlateDigits']) ??
+        _string(vehicle?['plateDigits']) ??
+        _string(captain?['plateNumber']) ??
+        _string(vehicle?['vehiclePlate']) ??
+        _string(vehicle?['plate']);
+    if (digits == null || digits.trim().isEmpty) return null;
+    return _IraqiPlateBadge(
+      city:
+          _string(captain?['plateGovernorate']) ??
+          _string(vehicle?['vehiclePlateGovernorate']) ??
+          _string(vehicle?['plateGovernorate']),
+      category:
+          _string(captain?['plateCategory']) ??
+          _string(vehicle?['vehiclePlateCategory']) ??
+          _string(vehicle?['plateCategory']),
+      letter:
+          _string(captain?['plateLetter']) ??
+          _string(vehicle?['vehiclePlateLetter']) ??
+          _string(vehicle?['plateLetter']),
+      digits: digits,
+    );
+  }
+
   Widget _buildTaxiOfferCard(
     Map<String, dynamic> offer, {
     required String nonAvailable,
@@ -3110,11 +3139,13 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                           '${_t('لون السيارة', 'Car color')}: ${_string(captain?['carColor'])}',
                           style: const TextStyle(fontSize: 12),
                         ),
-                      if (_string(captain?['plateNumber']) != null)
-                        Text(
-                          '${_t('اللوحة', 'Plate')}: ${_string(captain?['plateNumber'])}',
-                          style: const TextStyle(fontSize: 12),
+                      if (_buildIraqiTaxiPlate(captain) != null) ...[
+                        const SizedBox(height: 6),
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: _buildIraqiTaxiPlate(captain)!,
                         ),
+                      ],
                     ],
                   ),
                 ),
@@ -4410,13 +4441,17 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                                         ),
                                       ],
                                     ),
-                                  if (_string(captain['plateNumber']) != null)
-                                    Text(
-                                      l10n.mapPageCaptainPlateLabel(
-                                        _string(captain['plateNumber'])!,
-                                      ),
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
+                                  if (_buildIraqiTaxiPlate(
+                                        captain,
+                                        vehicle: vehicle,
+                                      ) !=
+                                      null) ...[
+                                    const SizedBox(height: 6),
+                                    _buildIraqiTaxiPlate(
+                                      captain,
+                                      vehicle: vehicle,
+                                    )!,
+                                  ],
                                 ],
                               ),
                             ),
@@ -4485,13 +4520,23 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                                     [
                                           _string(vehicle['vehicleColor']),
                                           _string(vehicle['vehicleType']),
-                                          _string(vehicle['vehiclePlate']),
                                         ]
                                         .whereType<String>()
                                         .where((value) => value.isNotEmpty)
                                         .join(' • '),
                                     style: const TextStyle(fontSize: 12),
                                   ),
+                                  if (_buildIraqiTaxiPlate(
+                                        captain,
+                                        vehicle: vehicle,
+                                      ) !=
+                                      null) ...[
+                                    const SizedBox(height: 6),
+                                    _buildIraqiTaxiPlate(
+                                      captain,
+                                      vehicle: vehicle,
+                                    )!,
+                                  ],
                                 ],
                               ),
                             ),
@@ -6003,6 +6048,118 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
             onTap: () => _selectPlaceSuggestion(place, forPickup: forPickup),
           );
         },
+      ),
+    );
+  }
+}
+
+class _IraqiPlateBadge extends StatelessWidget {
+  final String? city;
+  final String? category;
+  final String? letter;
+  final String digits;
+
+  const _IraqiPlateBadge({
+    required this.city,
+    required this.category,
+    required this.letter,
+    required this.digits,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanDigits = digits.trim();
+    final cleanLetter = (letter ?? '').trim();
+    final cleanCity = (city ?? '').trim();
+    final cleanCategory = (category ?? '').trim();
+    final bottom = [
+      cleanCity,
+      cleanCategory,
+    ].where((value) => value.isNotEmpty).join(' ');
+
+    return Container(
+      width: 132,
+      height: 64,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: Colors.black87, width: 1.3),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        children: [
+          Container(
+            width: 24,
+            color: Colors.white,
+            alignment: Alignment.center,
+            child: const RotatedBox(
+              quarterTurns: 3,
+              child: Text(
+                'IRAQ',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0,
+                ),
+              ),
+            ),
+          ),
+          Container(width: 1.2, color: Colors.black87),
+          Expanded(
+            child: Column(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        [
+                          if (cleanLetter.isNotEmpty) cleanLetter,
+                          cleanDigits,
+                        ].join('  '),
+                        textDirection: TextDirection.ltr,
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 23,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Container(height: 1.2, color: Colors.black87),
+                SizedBox(
+                  height: 21,
+                  child: Center(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        bottom.isEmpty ? cleanCity : bottom,
+                        maxLines: 1,
+                        textDirection: TextDirection.rtl,
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

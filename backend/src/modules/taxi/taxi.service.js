@@ -103,6 +103,10 @@ export async function registerCaptain(dto) {
       carYear: dto.carYear,
       carColor: dto.carColor,
       plateNumber: dto.plateNumber,
+      plateGovernorate: dto.plateGovernorate,
+      plateCategory: dto.plateCategory,
+      plateLetter: dto.plateLetter,
+      plateDigits: dto.plateDigits,
     });
   } catch (error) {
     if (user?.id) {
@@ -136,6 +140,89 @@ export async function registerCaptain(dto) {
       taxiAccountApproved: false,
     },
   };
+}
+
+const IRAQ_PLATE_GOVERNORATES = [
+  "بغداد",
+  "البصرة",
+  "نينوى",
+  "أربيل",
+  "السليمانية",
+  "دهوك",
+  "كركوك",
+  "ديالى",
+  "الأنبار",
+  "بابل",
+  "كربلاء",
+  "النجف",
+  "واسط",
+  "القادسية",
+  "المثنى",
+  "ذي قار",
+  "ميسان",
+  "صلاح الدين",
+];
+
+const IRAQ_PLATE_CATEGORIES = [
+  "خصوصي",
+  "أجرة",
+  "حمل",
+  "حكومي",
+  "زراعي",
+  "إنشائية",
+  "فحص مؤقت",
+];
+
+function normalizeCatalogLabel(value, max = 120) {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, max);
+}
+
+export async function listVehicleCatalog() {
+  const currentYear = new Date().getFullYear() + 1;
+  const years = [];
+  for (let year = currentYear; year >= 1990; year -= 1) years.push(year);
+  const makes = await repo.listVehicleCatalog();
+  return {
+    makes,
+    years,
+    plateGovernorates: IRAQ_PLATE_GOVERNORATES,
+    plateCategories: IRAQ_PLATE_CATEGORIES,
+  };
+}
+
+export async function createVehicleMake({ name, userId = null }) {
+  const label = normalizeCatalogLabel(name);
+  if (label.length < 2) {
+    throw new AppError("VALIDATION_ERROR", {
+      status: 400,
+      details: { fields: ["name"] },
+    });
+  }
+  const make = await repo.createVehicleMake({ name: label, userId });
+  return { make };
+}
+
+export async function createVehicleModel({ makeId, makeName = null, name, userId = null }) {
+  const label = normalizeCatalogLabel(name);
+  if (label.length < 1) {
+    throw new AppError("VALIDATION_ERROR", {
+      status: 400,
+      details: { fields: ["name"] },
+    });
+  }
+  const model = await repo.createVehicleModel({
+    makeId,
+    makeName: normalizeCatalogLabel(makeName),
+    name: label,
+    userId,
+  });
+  if (!model) {
+    throw new AppError("VALIDATION_ERROR", {
+      status: 400,
+      details: { fields: ["makeId"] },
+    });
+  }
+  return { model };
 }
 
 function addDays(dateInput, days) {
@@ -544,9 +631,20 @@ function buildTaxiAssignmentPayload(ride, { latestLocation = null } = {}) {
     vehicleType: normalizeTaxiLabel(captain?.vehicleType ?? ride.vehicleType) || null,
     vehiclePlate:
       normalizeTaxiLabel(captain?.plateNumber ?? ride.vehiclePlate) || null,
+    vehiclePlateGovernorate:
+      normalizeTaxiLabel(captain?.plateGovernorate ?? ride.vehiclePlateGovernorate) ||
+      null,
+    vehiclePlateCategory:
+      normalizeTaxiLabel(captain?.plateCategory ?? ride.vehiclePlateCategory) ||
+      null,
+    vehiclePlateLetter:
+      normalizeTaxiLabel(captain?.plateLetter ?? ride.vehiclePlateLetter) || null,
+    vehiclePlateDigits:
+      normalizeTaxiLabel(captain?.plateDigits ?? ride.vehiclePlateDigits) || null,
     vehicleNumber:
       normalizeTaxiLabel(
-        captain?.plateNumber ??
+        captain?.plateDigits ??
+          captain?.plateNumber ??
           ride.vehicleNumber ??
           captain?.vehicleNumber ??
           ride.vehiclePlate
@@ -625,6 +723,10 @@ function buildTaxiRideCompatView(ride, { latestLocation = null } = {}) {
           carColor: vehicle.vehicleColor,
           vehicleType: vehicle.vehicleType,
           plateNumber: vehicle.vehiclePlate,
+          plateGovernorate: vehicle.vehiclePlateGovernorate,
+          plateCategory: vehicle.vehiclePlateCategory,
+          plateLetter: vehicle.vehiclePlateLetter,
+          plateDigits: vehicle.vehiclePlateDigits,
           carImageUrl: vehicle.vehicleImage,
           vehicle: {
             ...vehicle,
@@ -635,6 +737,10 @@ function buildTaxiRideCompatView(ride, { latestLocation = null } = {}) {
             color: vehicle.vehicleColor,
             type: vehicle.vehicleType,
             plate: vehicle.vehiclePlate,
+            plateGovernorate: vehicle.vehiclePlateGovernorate,
+            plateCategory: vehicle.vehiclePlateCategory,
+            plateLetter: vehicle.vehiclePlateLetter,
+            plateDigits: vehicle.vehiclePlateDigits,
             number: vehicle.vehicleNumber,
             imageUrl: vehicle.vehicleImage,
           },
@@ -650,6 +756,10 @@ function buildTaxiRideCompatView(ride, { latestLocation = null } = {}) {
           color: vehicle.vehicleColor,
           type: vehicle.vehicleType,
           plate: vehicle.vehiclePlate,
+          plateGovernorate: vehicle.vehiclePlateGovernorate,
+          plateCategory: vehicle.vehiclePlateCategory,
+          plateLetter: vehicle.vehiclePlateLetter,
+          plateDigits: vehicle.vehiclePlateDigits,
           number: vehicle.vehicleNumber,
           imageUrl: vehicle.vehicleImage,
         }
@@ -1440,6 +1550,10 @@ function mapCaptainProfile(row) {
     carYear: row.car_year == null ? null : Number(row.car_year),
     carColor: row.car_color || null,
     plateNumber: row.plate_number || null,
+    plateGovernorate: row.plate_governorate || null,
+    plateCategory: row.plate_category || null,
+    plateLetter: row.plate_letter || null,
+    plateDigits: row.plate_digits || null,
     isActive: row.is_active === true,
     ratingAvg: row.rating_avg == null ? 0 : Number(row.rating_avg),
     ridesCount: row.rides_count == null ? 0 : Number(row.rides_count),
@@ -1482,6 +1596,10 @@ function sanitizeCaptainProfileEditChanges(input = {}) {
     "carYear",
     "carColor",
     "plateNumber",
+    "plateGovernorate",
+    "plateCategory",
+    "plateLetter",
+    "plateDigits",
     "profileImageUrl",
     "carImageUrl",
   ]);
@@ -1526,6 +1644,10 @@ function mapCaptainProfileEditRequest(row) {
     carYear: row?.car_year == null ? null : Number(row.car_year),
     carColor: row?.car_color || null,
     plateNumber: row?.plate_number || null,
+    plateGovernorate: row?.plate_governorate || null,
+    plateCategory: row?.plate_category || null,
+    plateLetter: row?.plate_letter || null,
+    plateDigits: row?.plate_digits || null,
   };
 
   return {
@@ -4023,6 +4145,10 @@ export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
       carModel: row.car_model || null,
       carYear: row.car_year == null ? null : Number(row.car_year),
       plateNumber: row.plate_number || null,
+      plateGovernorate: row.plate_governorate || null,
+      plateCategory: row.plate_category || null,
+      plateLetter: row.plate_letter || null,
+      plateDigits: row.plate_digits || null,
       cashPaymentRequestedAt: row.cash_payment_requested_at || null,
       subscription,
     };

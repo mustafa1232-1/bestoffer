@@ -11,6 +11,9 @@ export const taxiRouter = Router();
 
 taxiRouter.get("/public/track/:token", c.publicTrack);
 taxiRouter.get("/public/track/:token/stream", c.publicTrackStream);
+taxiRouter.get("/vehicle-catalog", c.listVehicleCatalog);
+taxiRouter.post("/vehicle-catalog/makes", c.createVehicleMake);
+taxiRouter.post("/vehicle-catalog/models", c.createVehicleModel);
 taxiRouter.post(
   "/captain/register",
   imageUpload.fields([

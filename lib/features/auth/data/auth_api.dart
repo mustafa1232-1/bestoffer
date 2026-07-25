@@ -124,6 +124,35 @@ class AuthApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> listTaxiVehicleCatalog() async {
+    final response = await dio.get(
+      '/api/taxi/vehicle-catalog',
+      options: _anonymousAuthOptions,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> createTaxiVehicleMake(String name) async {
+    final response = await dio.post(
+      '/api/taxi/vehicle-catalog/makes',
+      data: {'name': name.trim()},
+      options: _anonymousAuthOptions,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> createTaxiVehicleModel({
+    required int makeId,
+    required String name,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/vehicle-catalog/models',
+      data: {'makeId': makeId, 'name': name.trim()},
+      options: _anonymousAuthOptions,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> me() async {
     try {
       final response = await dio.get('/api/users/me');

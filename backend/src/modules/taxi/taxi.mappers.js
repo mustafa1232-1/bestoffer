@@ -156,6 +156,10 @@ function normalizeRide(row) {
           carYear: toIntOrNull(row.captain_car_year),
           carColor: row.captain_car_color || null,
           plateNumber: row.captain_plate_number || null,
+          plateGovernorate: row.captain_plate_governorate || null,
+          plateCategory: row.captain_plate_category || null,
+          plateLetter: row.captain_plate_letter || null,
+          plateDigits: row.captain_plate_digits || null,
           ratingAvg: toNumberOrNull(row.captain_rating_avg),
           ridesCount: toIntOrNull(row.captain_rides_count) || 0,
         }
@@ -192,6 +196,10 @@ function normalizeBid(row) {
           carYear: toIntOrNull(row.captain_car_year),
           carColor: row.captain_car_color || null,
           plateNumber: row.captain_plate_number || null,
+          plateGovernorate: row.captain_plate_governorate || null,
+          plateCategory: row.captain_plate_category || null,
+          plateLetter: row.captain_plate_letter || null,
+          plateDigits: row.captain_plate_digits || null,
           ratingAvg: toNumberOrNull(row.captain_rating_avg),
           ridesCount: toIntOrNull(row.captain_rides_count) || 0,
         }

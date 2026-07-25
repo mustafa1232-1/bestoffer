@@ -48,6 +48,10 @@ const RIDE_SELECT = `
     cp.car_year AS captain_car_year,
     cp.car_color AS captain_car_color,
     cp.plate_number AS captain_plate_number,
+    cp.plate_governorate AS captain_plate_governorate,
+    cp.plate_category AS captain_plate_category,
+    cp.plate_letter AS captain_plate_letter,
+    cp.plate_digits AS captain_plate_digits,
     cp.rating_avg AS captain_rating_avg,
     cp.rides_count AS captain_rides_count
   FROM taxi_ride_request r
@@ -71,6 +75,99 @@ function distanceSql(latExpr, lngExpr, latParam, lngParam) {
       )
     )
   )`;
+}
+
+function normalizeCatalogName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+export async function listVehicleCatalog() {
+  const r = await q(
+    `SELECT
+       m.id AS make_id,
+       m.name AS make_name,
+       mo.id AS model_id,
+       mo.name AS model_name
+     FROM taxi_vehicle_make m
+     LEFT JOIN taxi_vehicle_model mo
+       ON mo.make_id = m.id
+      AND mo.is_active = TRUE
+     WHERE m.is_active = TRUE
+     ORDER BY m.name ASC, mo.name ASC`
+  );
+
+  const makesById = new Map();
+  for (const row of r.rows) {
+    const makeId = Number(row.make_id);
+    if (!makesById.has(makeId)) {
+      makesById.set(makeId, {
+        id: makeId,
+        name: row.make_name,
+        models: [],
+      });
+    }
+    if (row.model_id != null) {
+      makesById.get(makeId).models.push({
+        id: Number(row.model_id),
+        makeId,
+        name: row.model_name,
+      });
+    }
+  }
+  return [...makesById.values()];
+}
+
+export async function createVehicleMake({ name, userId = null }) {
+  const label = String(name || "").trim().replace(/\s+/g, " ").slice(0, 120);
+  const normalized = normalizeCatalogName(label);
+  if (!label || !normalized) return null;
+  const r = await q(
+    `INSERT INTO taxi_vehicle_make
+       (name, normalized_name, is_active, created_by_user_id, created_at, updated_at)
+     VALUES ($1, $2, TRUE, $3, NOW(), NOW())
+     ON CONFLICT (normalized_name) DO UPDATE
+       SET name = EXCLUDED.name,
+           is_active = TRUE,
+           updated_at = NOW()
+     RETURNING id, name`,
+    [label, normalized, userId == null ? null : Number(userId)]
+  );
+  return r.rows[0] ? { id: Number(r.rows[0].id), name: r.rows[0].name } : null;
+}
+
+export async function createVehicleModel({ makeId, makeName = null, name, userId = null }) {
+  let safeMakeId = Number(makeId);
+  if ((!Number.isInteger(safeMakeId) || safeMakeId <= 0) && makeName) {
+    const make = await createVehicleMake({ name: makeName, userId });
+    safeMakeId = Number(make?.id);
+  }
+  if (!Number.isInteger(safeMakeId) || safeMakeId <= 0) return null;
+
+  const label = String(name || "").trim().replace(/\s+/g, " ").slice(0, 120);
+  const normalized = normalizeCatalogName(label);
+  if (!label || !normalized) return null;
+
+  const r = await q(
+    `INSERT INTO taxi_vehicle_model
+       (make_id, name, normalized_name, is_active, created_by_user_id, created_at, updated_at)
+     VALUES ($1, $2, $3, TRUE, $4, NOW(), NOW())
+     ON CONFLICT (make_id, normalized_name) DO UPDATE
+       SET name = EXCLUDED.name,
+           is_active = TRUE,
+           updated_at = NOW()
+     RETURNING id, make_id, name`,
+    [safeMakeId, label, normalized, userId == null ? null : Number(userId)]
+  );
+  return r.rows[0]
+    ? {
+        id: Number(r.rows[0].id),
+        makeId: Number(r.rows[0].make_id),
+        name: r.rows[0].name,
+      }
+    : null;
 }
 
 async function queryRideById(client, rideId, queryOptions = null) {
@@ -415,6 +512,10 @@ export async function listRideBids(rideId) {
        cp.car_year AS captain_car_year,
        cp.car_color AS captain_car_color,
        cp.plate_number AS captain_plate_number,
+       cp.plate_governorate AS captain_plate_governorate,
+       cp.plate_category AS captain_plate_category,
+       cp.plate_letter AS captain_plate_letter,
+       cp.plate_digits AS captain_plate_digits,
        cp.rating_avg AS captain_rating_avg,
        cp.rides_count AS captain_rides_count,
        CASE
@@ -580,6 +681,10 @@ export async function getRideCurrentBid(rideId) {
        cp.car_year AS captain_car_year,
        cp.car_color AS captain_car_color,
        cp.plate_number AS captain_plate_number,
+       cp.plate_governorate AS captain_plate_governorate,
+       cp.plate_category AS captain_plate_category,
+       cp.plate_letter AS captain_plate_letter,
+       cp.plate_digits AS captain_plate_digits,
        cp.rating_avg AS captain_rating_avg,
        cp.rides_count AS captain_rides_count,
        CASE
@@ -689,6 +794,10 @@ export async function upsertRideBid({
        cp.car_year AS captain_car_year,
        cp.car_color AS captain_car_color,
        cp.plate_number AS captain_plate_number,
+       cp.plate_governorate AS captain_plate_governorate,
+       cp.plate_category AS captain_plate_category,
+       cp.plate_letter AS captain_plate_letter,
+       cp.plate_digits AS captain_plate_digits,
        cp.rating_avg AS captain_rating_avg,
        cp.rides_count AS captain_rides_count,
        CASE
@@ -1877,6 +1986,10 @@ export async function listNearbyOpenRidesForCaptain(captainUserId, { radiusM = 1
        cp.car_year AS captain_car_year,
        cp.car_color AS captain_car_color,
        cp.plate_number AS captain_plate_number,
+       cp.plate_governorate AS captain_plate_governorate,
+       cp.plate_category AS captain_plate_category,
+       cp.plate_letter AS captain_plate_letter,
+       cp.plate_digits AS captain_plate_digits,
        cp.rating_avg AS captain_rating_avg,
        cp.rides_count AS captain_rides_count,
        ${distanceExpr} AS distance_m,
@@ -2523,6 +2636,10 @@ export async function getCaptainProfile(captainUserId) {
        p.car_year,
        p.car_color,
        p.plate_number,
+       p.plate_governorate,
+       p.plate_category,
+       p.plate_letter,
+       p.plate_digits,
        p.is_active,
        p.rating_avg,
        p.rides_count
@@ -2559,7 +2676,13 @@ export async function createPendingCaptainProfile({
   carYear,
   carColor = null,
   plateNumber,
+  plateGovernorate = null,
+  plateCategory = null,
+  plateLetter = null,
+  plateDigits = null,
 }) {
+  const normalizedPlateDigits =
+    String(plateDigits || plateNumber || "").replace(/[^\d]/g, "").slice(0, 20) || null;
   const result = await q(
     `INSERT INTO taxi_captain_profile
       (
@@ -2572,13 +2695,17 @@ export async function createPendingCaptainProfile({
         car_year,
         car_color,
         plate_number,
+        plate_governorate,
+        plate_category,
+        plate_letter,
+        plate_digits,
         is_active,
         rating_avg,
         rides_count,
         created_at,
         updated_at
       )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,0,0,NOW(),NOW())
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,TRUE,0,0,NOW(),NOW())
      ON CONFLICT (user_id)
      DO UPDATE SET
        profile_image_url = COALESCE(EXCLUDED.profile_image_url, taxi_captain_profile.profile_image_url),
@@ -2589,6 +2716,10 @@ export async function createPendingCaptainProfile({
        car_year = EXCLUDED.car_year,
        car_color = EXCLUDED.car_color,
        plate_number = EXCLUDED.plate_number,
+       plate_governorate = EXCLUDED.plate_governorate,
+       plate_category = EXCLUDED.plate_category,
+       plate_letter = EXCLUDED.plate_letter,
+       plate_digits = EXCLUDED.plate_digits,
        is_active = TRUE,
        updated_at = NOW()
      RETURNING *`,
@@ -2602,6 +2733,10 @@ export async function createPendingCaptainProfile({
       Number.isFinite(Number(carYear)) ? Number(carYear) : new Date().getFullYear(),
       carColor ? String(carColor).trim() : null,
       String(plateNumber || "").trim(),
+      plateGovernorate ? String(plateGovernorate).trim().slice(0, 80) : null,
+      plateCategory ? String(plateCategory).trim().slice(0, 40) : null,
+      plateLetter ? String(plateLetter).trim().slice(0, 8) : null,
+      normalizedPlateDigits,
     ]
   );
   return result.rows[0] || null;
@@ -2660,7 +2795,11 @@ export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
        p.car_make,
        p.car_model,
        p.car_year,
-       p.plate_number
+       p.plate_number,
+       p.plate_governorate,
+       p.plate_category,
+       p.plate_letter,
+       p.plate_digits
      FROM taxi_captain_subscription s
      JOIN app_user u
        ON u.id = s.captain_user_id
@@ -2805,6 +2944,10 @@ export async function getPublicTrackByToken(token) {
       cp.car_year AS captain_car_year,
       cp.car_color AS captain_car_color,
       cp.plate_number AS captain_plate_number,
+      cp.plate_governorate AS captain_plate_governorate,
+      cp.plate_category AS captain_plate_category,
+      cp.plate_letter AS captain_plate_letter,
+      cp.plate_digits AS captain_plate_digits,
       cp.rating_avg AS captain_rating_avg,
       cp.rides_count AS captain_rides_count,
       loc.latitude AS last_latitude,
@@ -2982,7 +3125,11 @@ export async function listPendingCaptainProfileEditRequests({ limit = 100 } = {}
        p.car_model,
        p.car_year,
        p.car_color,
-       p.plate_number
+       p.plate_number,
+       p.plate_governorate,
+       p.plate_category,
+       p.plate_letter,
+       p.plate_digits
      FROM taxi_captain_profile_edit_request req
      JOIN app_user u
        ON u.id = req.captain_user_id
@@ -3021,7 +3168,11 @@ export async function reviewCaptainProfileEditRequestByAdmin({
          p.car_model,
          p.car_year,
          p.car_color,
-         p.plate_number
+         p.plate_number,
+         p.plate_governorate,
+         p.plate_category,
+         p.plate_letter,
+         p.plate_digits
        FROM taxi_captain_profile_edit_request req
        JOIN app_user u
          ON u.id = req.captain_user_id
@@ -3101,6 +3252,13 @@ export async function reviewCaptainProfileEditRequestByAdmin({
       pushProfileChange("carModel", "car_model");
       pushProfileChange("carColor", "car_color");
       pushProfileChange("plateNumber", "plate_number");
+      pushProfileChange("plateGovernorate", "plate_governorate");
+      pushProfileChange("plateCategory", "plate_category");
+      pushProfileChange("plateLetter", "plate_letter");
+      pushProfileChange("plateDigits", "plate_digits", (value) => {
+        const digits = String(value || "").replace(/[^\d]/g, "").slice(0, 20);
+        return digits || null;
+      });
       pushProfileChange("carYear", "car_year", (value) => {
         const n = Number(value);
         if (!Number.isInteger(n) || n < 1950 || n > 2100) return null;
@@ -3150,7 +3308,11 @@ export async function reviewCaptainProfileEditRequestByAdmin({
          p.car_model,
          p.car_year,
          p.car_color,
-         p.plate_number
+         p.plate_number,
+         p.plate_governorate,
+         p.plate_category,
+         p.plate_letter,
+         p.plate_digits
        FROM app_user u
        LEFT JOIN taxi_captain_profile p
          ON p.user_id = u.id

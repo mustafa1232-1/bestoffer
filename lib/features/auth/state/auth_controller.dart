@@ -623,6 +623,10 @@ class AuthController extends StateNotifier<AuthState> {
             carModel: dto['carModel']!.trim(),
             carYear: int.parse('${dto['carYear']}'),
             plateNumber: dto['plateNumber']!.trim(),
+            plateGovernorate: dto['plateGovernorate']?.toString(),
+            plateCategory: dto['plateCategory']?.toString(),
+            plateLetter: dto['plateLetter']?.toString(),
+            plateDigits: dto['plateDigits']?.toString(),
             carColor: dto['carColor']?.toString(),
             analyticsConsentAccepted: dto['analyticsConsentAccepted'] == true,
             analyticsConsentVersion:

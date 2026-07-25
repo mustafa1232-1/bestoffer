@@ -31,6 +31,10 @@ export function validateDeliveryRegister(body) {
   if (!isNonEmptyString(body.vehicleType, 60)) errors.push("vehicleType");
   if (!isOptionalString(body.carColor, 40)) errors.push("carColor");
   if (!isNonEmptyString(body.plateNumber, 40)) errors.push("plateNumber");
+  if (!isOptionalString(body.plateGovernorate, 80)) errors.push("plateGovernorate");
+  if (!isOptionalString(body.plateCategory, 40)) errors.push("plateCategory");
+  if (!isOptionalString(body.plateLetter, 8)) errors.push("plateLetter");
+  if (!isOptionalString(body.plateDigits, 20)) errors.push("plateDigits");
   if (!isExplicitTrue(body.analyticsConsentAccepted)) errors.push("analyticsConsentAccepted");
   if (!isOptionalString(body.analyticsConsentVersion, 32)) errors.push("analyticsConsentVersion");
 

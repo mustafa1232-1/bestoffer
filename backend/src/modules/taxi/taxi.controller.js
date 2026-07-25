@@ -69,6 +69,41 @@ function validateShareTokenParam(token) {
   return { ok: true, value };
 }
 
+export async function listVehicleCatalog(req, res, next) {
+  try {
+    const out = await service.listVehicleCatalog();
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function createVehicleMake(req, res, next) {
+  try {
+    const out = await service.createVehicleMake({
+      name: req.body?.name,
+      userId: req.userId || null,
+    });
+    return res.status(201).json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function createVehicleModel(req, res, next) {
+  try {
+    const out = await service.createVehicleModel({
+      makeId: req.body?.makeId,
+      makeName: req.body?.makeName,
+      name: req.body?.name,
+      userId: req.userId || null,
+    });
+    return res.status(201).json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function registerCaptain(req, res, next) {
   try {
     const files = req.files || {};

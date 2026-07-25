@@ -118,6 +118,10 @@ Map<String, dynamic>? _assignmentFromRide(
               'vehicleType': _string(captain['vehicleType']),
               'vehiclePlate': _string(captain['plateNumber']),
               'vehicleNumber': _string(captain['plateNumber']),
+              'vehiclePlateGovernorate': _string(captain['plateGovernorate']),
+              'vehiclePlateCategory': _string(captain['plateCategory']),
+              'vehiclePlateLetter': _string(captain['plateLetter']),
+              'vehiclePlateDigits': _string(captain['plateDigits']),
               'vehicleImage': _string(captain['carImageUrl']),
             });
 
@@ -219,6 +223,18 @@ Map<String, dynamic>? _assignmentFromRide(
             'vehicleType': _string(vehicle['vehicleType'] ?? vehicle['type']),
             'vehiclePlate': _string(
               vehicle['vehiclePlate'] ?? vehicle['plate'],
+            ),
+            'vehiclePlateGovernorate': _string(
+              vehicle['vehiclePlateGovernorate'] ?? vehicle['plateGovernorate'],
+            ),
+            'vehiclePlateCategory': _string(
+              vehicle['vehiclePlateCategory'] ?? vehicle['plateCategory'],
+            ),
+            'vehiclePlateLetter': _string(
+              vehicle['vehiclePlateLetter'] ?? vehicle['plateLetter'],
+            ),
+            'vehiclePlateDigits': _string(
+              vehicle['vehiclePlateDigits'] ?? vehicle['plateDigits'],
             ),
             'vehicleNumber': _string(
               vehicle['vehicleNumber'] ?? vehicle['number'],
@@ -344,6 +360,14 @@ Map<String, dynamic>? taxiRideViewFromEnvelope(dynamic raw) {
         vehicleFromAssignment['vehicleColor'] ?? vehicleFromAssignment['color'];
     mergedCaptain['plateNumber'] ??=
         vehicleFromAssignment['vehiclePlate'] ?? vehicleFromAssignment['plate'];
+    mergedCaptain['plateGovernorate'] ??=
+        vehicleFromAssignment['vehiclePlateGovernorate'];
+    mergedCaptain['plateCategory'] ??=
+        vehicleFromAssignment['vehiclePlateCategory'];
+    mergedCaptain['plateLetter'] ??=
+        vehicleFromAssignment['vehiclePlateLetter'];
+    mergedCaptain['plateDigits'] ??=
+        vehicleFromAssignment['vehiclePlateDigits'];
     mergedCaptain['carImageUrl'] ??=
         vehicleFromAssignment['vehicleImage'] ??
         vehicleFromAssignment['imageUrl'];
@@ -409,6 +433,10 @@ Map<String, dynamic>? taxiRideViewFromEnvelope(dynamic raw) {
   output['vehicleColor'] = mergedVehicle?['vehicleColor'];
   output['vehicleType'] = mergedVehicle?['vehicleType'];
   output['vehiclePlate'] = mergedVehicle?['vehiclePlate'];
+  output['vehiclePlateGovernorate'] = mergedVehicle?['vehiclePlateGovernorate'];
+  output['vehiclePlateCategory'] = mergedVehicle?['vehiclePlateCategory'];
+  output['vehiclePlateLetter'] = mergedVehicle?['vehiclePlateLetter'];
+  output['vehiclePlateDigits'] = mergedVehicle?['vehiclePlateDigits'];
   output['vehicleNumber'] = mergedVehicle?['vehicleNumber'];
   output['vehicleImage'] = mergedVehicle?['vehicleImage'];
   output['pickupAddress'] = output['pickupAddress'] ?? pick?['label'];
