@@ -36,6 +36,15 @@ test("validateCreateMerchant accepts furnishings and dietary supplements market 
   }
 });
 
+test("validateCreateMerchant accepts phone maintenance and phones technology market activities", () => {
+  for (const activityType of ["phone_maintenance", "phones_technology"]) {
+    const result = validateCreateMerchant(
+      baseCreateBody({ activityType, type: "market" })
+    );
+    assert.equal(result.ok, true, `${activityType}: ${JSON.stringify(result.errors)}`);
+  }
+});
+
 test("validateCreateMerchant rejects missing type", () => {
   const body = baseCreateBody();
   delete body.type;
@@ -90,4 +99,6 @@ test("normalizeActivityType keeps fashion aliases on the fashion_clothing surfac
   assert.equal(normalizeActivityType("smoking_supplies"), "smoking_supplies");
   assert.equal(normalizeActivityType("furnishings"), "furnishings");
   assert.equal(normalizeActivityType("dietary_supplements"), "dietary_supplements");
+  assert.equal(normalizeActivityType("phone_maintenance"), "phone_maintenance");
+  assert.equal(normalizeActivityType("phones_technology"), "phones_technology");
 });

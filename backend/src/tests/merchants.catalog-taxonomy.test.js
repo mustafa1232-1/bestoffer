@@ -60,6 +60,8 @@ test("default catalog type follows the store activity taxonomy", () => {
   assert.equal(getDefaultCatalogTypeForActivity("furnishings"), "furniture");
   assert.equal(getDefaultCatalogTypeForActivity("dietary_supplements"), "generic");
   assert.equal(getDefaultCatalogTypeForActivity("smoking_supplies"), "generic");
+  assert.equal(getDefaultCatalogTypeForActivity("phone_maintenance"), "electronics");
+  assert.equal(getDefaultCatalogTypeForActivity("phones_technology"), "electronics");
 });
 
 test("pharmacy accepts generic catalog categories", () => {

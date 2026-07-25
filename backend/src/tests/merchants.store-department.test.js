@@ -21,6 +21,8 @@ test("only fashion/clothing activity requires a department", () => {
   assert.equal(activityRequiresDepartment("smoking_supplies"), false);
   assert.equal(activityRequiresDepartment("furnishings"), false);
   assert.equal(activityRequiresDepartment("dietary_supplements"), false);
+  assert.equal(activityRequiresDepartment("phone_maintenance"), false);
+  assert.equal(activityRequiresDepartment("phones_technology"), false);
 });
 
 test("fashion store creation without a department is rejected", () => {
@@ -64,6 +66,8 @@ test("restaurant / non-fashion stores do NOT require a department", () => {
   assert.equal(resolveStoreDepartmentForWrite({ activityType: "smoking_supplies", department: undefined }), null);
   assert.equal(resolveStoreDepartmentForWrite({ activityType: "furnishings", department: undefined }), null);
   assert.equal(resolveStoreDepartmentForWrite({ activityType: "dietary_supplements", department: undefined }), null);
+  assert.equal(resolveStoreDepartmentForWrite({ activityType: "phone_maintenance", department: undefined }), null);
+  assert.equal(resolveStoreDepartmentForWrite({ activityType: "phones_technology", department: undefined }), null);
 });
 
 test("customer section matching: men/women only, unisex in both, needs_review/null hidden", () => {

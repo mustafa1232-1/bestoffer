@@ -43,6 +43,8 @@ const ALLOWED_CATALOG_TYPES_BY_ACTIVITY = Object.freeze({
   pharmacy: ["generic"],
   fashion_clothing: ["clothes"],
   electronics_mobile: ["electronics"],
+  phone_maintenance: ["electronics"],
+  phones_technology: ["electronics"],
   electrical_lighting: ["electronics"],
   supermarket: ["grocery"],
   fruits_vegetables: ["grocery"],
