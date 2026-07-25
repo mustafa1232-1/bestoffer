@@ -22,21 +22,10 @@ class MainActivity : FlutterActivity() {
     private val rfcommUuid: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     private val iposServicePackage = "com.iposprinter.iposprinterservice"
 
-    // Android 15 (API 35) enforces edge-to-edge for apps targeting SDK 35.
-    // `WindowCompat.setDecorFitsSystemWindows(window, false)` is the modern,
-    // non-deprecated AndroidX core API that opts the window into edge-to-edge
-    // layout; it is the exact mechanism `enableEdgeToEdge()` uses internally, but
-    // (unlike that ComponentActivity-only extension) it works with the framework
-    // `android.app.Activity` that Flutter's `FlutterActivity` extends. Doing it
-    // here makes the same edge-to-edge behaviour apply consistently on Android 14
-    // and below too — what Google Play's "edge-to-edge may not display for all
-    // users" notice asks for — without calling the deprecated
-    // Window.setStatusBarColor / setNavigationBarColor APIs. Flutter then reads
-    // the resulting system-bar insets and exposes them via MediaQuery, so the
-    // existing SafeArea widgets keep content clear of the status/navigation bars.
+    // Use the AndroidX helper so every flavor follows the Android 15 edge-to-edge path.
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowCompat.enableEdgeToEdge(window)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
