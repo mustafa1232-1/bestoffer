@@ -3690,3 +3690,106 @@ export async function reviewCaptainProfileEditRequestByAdmin({
     client.release();
   }
 }
+
+// ---- المرحلة 3: لوحة المتابعة (عدّادات + قائمة رحلات مُصفّحة خادمياً) ----
+
+export async function getTaxiMonitoringCounters() {
+  const r = await q(
+    `SELECT
+       COUNT(*) FILTER (
+         WHERE status IN ('captain_assigned','captain_arriving','ride_started')
+       )::int AS active,
+       COUNT(*) FILTER (
+         WHERE status IN ('searching','price_raise_required')
+       )::int AS searching,
+       COUNT(*) FILTER (
+         WHERE status = 'cancelled'
+           AND (cancelled_at AT TIME ZONE 'Asia/Baghdad')::date
+             = (NOW() AT TIME ZONE 'Asia/Baghdad')::date
+       )::int AS cancelled_today,
+       COUNT(*) FILTER (
+         WHERE status = 'completed'
+           AND (completed_at AT TIME ZONE 'Asia/Baghdad')::date
+             = (NOW() AT TIME ZONE 'Asia/Baghdad')::date
+       )::int AS completed_today
+     FROM taxi_ride_request`
+  );
+  const emergencies = await q(
+    `SELECT COUNT(*)::int AS open_emergencies
+     FROM taxi_ride_emergency
+     WHERE status IN ('open','acknowledged')`
+  );
+  const row = r.rows[0] || {};
+  return {
+    active: Number(row.active || 0),
+    searching: Number(row.searching || 0),
+    cancelledToday: Number(row.cancelled_today || 0),
+    completedToday: Number(row.completed_today || 0),
+    openEmergencies: Number(emergencies.rows[0]?.open_emergencies || 0),
+  };
+}
+
+export async function listRidesForMonitoring({
+  status = null,
+  from = null,
+  to = null,
+  limit = 25,
+  offset = 0,
+} = {}) {
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const conds = [];
+  const params = [];
+
+  if (status) {
+    params.push(String(status));
+    conds.push(`r.status = $${params.length}`);
+  }
+  if (from) {
+    params.push(from);
+    conds.push(`r.created_at >= $${params.length}`);
+  }
+  if (to) {
+    params.push(to);
+    conds.push(`r.created_at <= $${params.length}`);
+  }
+  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+
+  const countRes = await q(
+    `SELECT COUNT(*)::int AS total FROM taxi_ride_request r ${where}`,
+    params
+  );
+
+  params.push(safeLimit);
+  params.push(safeOffset);
+  const rows = await q(
+    `SELECT
+       r.id, r.status, r.customer_user_id, r.assigned_captain_user_id,
+       r.pickup_label, r.dropoff_label,
+       r.proposed_fare_iqd, r.agreed_fare_iqd,
+       r.cancelled_by_role, r.cancel_reason_code, r.cancel_reason_text,
+       r.cancel_previous_status, r.cancel_is_emergency,
+       r.created_at, r.accepted_at, r.captain_arriving_at, r.started_at,
+       r.completed_at, r.cancelled_at,
+       cu.full_name AS customer_name,
+       ca.full_name AS captain_name,
+       EXISTS (
+         SELECT 1 FROM taxi_ride_emergency e
+         WHERE e.ride_request_id = r.id AND e.status IN ('open','acknowledged')
+       ) AS has_open_emergency
+     FROM taxi_ride_request r
+     LEFT JOIN app_user cu ON cu.id = r.customer_user_id
+     LEFT JOIN app_user ca ON ca.id = r.assigned_captain_user_id
+     ${where}
+     ORDER BY r.created_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+
+  return {
+    total: Number(countRes.rows[0]?.total || 0),
+    limit: safeLimit,
+    offset: safeOffset,
+    items: rows.rows,
+  };
+}

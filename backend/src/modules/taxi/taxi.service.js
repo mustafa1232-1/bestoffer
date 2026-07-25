@@ -4443,3 +4443,13 @@ export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
   });
 }
 
+
+// ---- المرحلة 3: لوحة المتابعة (تفويض إلى repo) ----
+
+export async function getTaxiMonitoringCounters() {
+  return repo.getTaxiMonitoringCounters();
+}
+
+export async function listRidesForMonitoring(query = {}) {
+  return repo.listRidesForMonitoring(query);
+}

@@ -9,6 +9,7 @@ import { imageUpload } from "../../shared/utils/upload.js";
 import * as taxiAdmin from "../taxi/taxi.admin.controller.js";
 import * as ops from "./admin.ops.controller.js";
 import * as rbac from "../security/permissions.controller.js";
+import * as monitoring from "./monitoring.controller.js";
 
 export const adminRouter = Router();
 
@@ -80,6 +81,18 @@ adminRouter.post(
   "/taxi/rides/:rideId/emergency-cancel",
   requirePermission("taxi.rides.emergency_cancel"),
   taxiAdmin.emergencyCancelRide
+);
+
+// لوحة المتابعة الموحدة (المرحلة 3) — البطاقات حسب الصلاحيات + قوائم مُصفّحة.
+adminRouter.get(
+  "/monitoring/overview",
+  requirePermission("dashboard.command_center.view"),
+  monitoring.overview
+);
+adminRouter.get(
+  "/monitoring/taxi/rides",
+  requirePermission("taxi.rides.read"),
+  monitoring.taxiRides
 );
 
 // إدارة الصلاحيات الدقيقة (RBAC).
