@@ -5,6 +5,7 @@
  */
 
 import * as service from "./permissions.service.js";
+import { recordAudit, auditContextFromReq } from "./audit.service.js";
 import {
   PERMISSION_KEYS,
   PERMISSION_SCOPES,
@@ -54,6 +55,14 @@ export async function getUserPermissions(req, res, next) {
     const userId = parseUserId(req, res);
     if (!userId) return;
     const out = await service.listUserPermissions(userId);
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "employees.permissions.read",
+      summary: `عرض صلاحيات الموظف #${userId}`,
+      targetType: "app_user",
+      targetId: userId,
+      permissionKey: "employees.permissions.manage",
+    });
     return res.json(out);
   } catch (error) {
     return next(error);

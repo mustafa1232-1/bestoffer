@@ -13,6 +13,7 @@ import {
 } from "./taxi.admin.validators.js";
 import { validateEntityId } from "./taxi.loyalty.validators.js";
 import { validateEmergencyCancel } from "./taxi.validators.js";
+import { recordAudit, auditContextFromReq } from "../security/audit.service.js";
 
 function badRequest(res, fields) {
   return res.status(400).json({
@@ -212,6 +213,17 @@ export async function emergencyCancelRide(req, res, next) {
       rideId,
       reasonText: v.value.reasonText,
       secondApproverUserId: v.value.secondApproverUserId,
+    });
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "taxi.rides.emergency_cancel",
+      summary: `إلغاء طارئ للرحلة #${rideId}`,
+      targetType: "taxi_ride",
+      targetId: rideId,
+      permissionKey: "taxi.rides.emergency_cancel",
+      reason: v.value.reasonText,
+      after: { status: ride?.status, cancelIsEmergency: ride?.cancelIsEmergency },
+      metadata: { secondApproverUserId: v.value.secondApproverUserId || null },
     });
     return res.json({ ride });
   } catch (error) {

@@ -9,6 +9,7 @@ import { imageUpload } from "../../shared/utils/upload.js";
 import * as taxiAdmin from "../taxi/taxi.admin.controller.js";
 import * as ops from "./admin.ops.controller.js";
 import * as rbac from "../security/permissions.controller.js";
+import * as auditCtrl from "../security/audit.controller.js";
 import * as monitoring from "./monitoring.controller.js";
 
 export const adminRouter = Router();
@@ -106,6 +107,11 @@ adminRouter.get(
   "/rbac/change-log",
   requirePermission("audit.read"),
   rbac.getChangeLog
+);
+adminRouter.get(
+  "/audit/events",
+  requirePermission("audit.read"),
+  auditCtrl.listAuditEvents
 );
 adminRouter.get(
   "/rbac/users/:userId/permissions",

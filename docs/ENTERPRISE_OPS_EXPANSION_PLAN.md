@@ -91,9 +91,8 @@
 **الناقص:** 3 ثيمات (الأصلي/الشفق/المرجاني) عبر semantic tokens + `ThemeExtension`، حفظ/مزامنة الاختيار، preview، Golden tests.
 
 ### المرحلة 10 — أدلة الاستخدام لكل تطبيق 🔴 (versioned + scope-aware).
-### المرحلة 11 — سجل التدقيق والخصوصية 🟡
-**الموجود:** `activity-audit.middleware.js`، `security` module، سياسات (`SAFE_ACTION_POLICY.md`).
-**الناقص:** Audit Log موحّد غير قابل للتعديل يشمل قبل/بعد وقراءات حساسة + بحث + تنبيهات + سياسة احتفاظ.
+### المرحلة 11 — سجل التدقيق والخصوصية ✅ (أساس منفّذ)
+**ما نُفِّذ (commit مستقل):** توحيد على جدول `admin_audit_event` (بلا جدول موازٍ) — migration 170 يضيف `reason/result/permission_key/ip_address/session_id/ticket_id/before_json/after_json` + فهارس بحث. `recordAudit(...)` best-effort مع **إخفاء الحقول الحساسة** (pin/password/token/secret/card/iban...) في before/after، `auditContextFromReq`, و`searchAuditEvents` (بحث بالفاعل/المورد/الفعل/التاريخ + pagination). endpoint `GET /admin/audit/events` خلف `audit.read` (وقراءته تُسجَّل). ربط تسجيل الأفعال الحساسة: الإلغاء الطارئ للتاكسي، قراءة صلاحيات موظف. اختبارات (3/3). **المتبقي:** ربط بقية القراءات الحساسة (محادثات/سير/رواتب/مواقع حية) مع مراحلها، تنبيهات النشاط المشبوه، سياسة الاحتفاظ.
 ### المرحلة 12 — الاختبارات والأمان: Authorization Matrix آلية موسّعة.
 ### المرحلة 13 — الترحيل والنشر: forward-only + feature flags + Railway بعد إثبات الاختبارات.
 
