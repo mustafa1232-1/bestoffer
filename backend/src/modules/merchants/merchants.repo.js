@@ -12,6 +12,39 @@ const MERCHANT_BROWSE_VERSION_TTL = 7 * 24 * 60 * 60; // 7 days
 const MERCHANT_BROWSE_VERSION_KEY = "merchant:browse:ver";
 const MERCHANT_BROWSE_SCHEMA_VERSION = "3";
 
+const FALLBACK_INTERNAL_CATEGORY_TEMPLATES = Object.freeze({
+  smoking_supplies: Object.freeze([
+    { name: "Cigarettes", order_index: 10, icon: "smoking_rooms", catalog_type: "smoking" },
+    { name: "Hookahs & Accessories", order_index: 20, icon: "local_bar", catalog_type: "hookah" },
+    { name: "Electronic Hookahs", order_index: 30, icon: "electrical_services", catalog_type: "hookah" },
+    { name: "Vapes", order_index: 40, icon: "vape_free", catalog_type: "vapes" },
+  ]),
+  furnishings: Object.freeze([
+    { name: "Sofas & Seating", order_index: 10, icon: "chair", catalog_type: "furniture" },
+    { name: "Beds & Mattresses", order_index: 20, icon: "bed", catalog_type: "furniture" },
+    { name: "Carpets & Curtains", order_index: 30, icon: "texture", catalog_type: "furniture" },
+    { name: "Tables & Storage", order_index: 40, icon: "table_bar", catalog_type: "furniture" },
+  ]),
+  dietary_supplements: Object.freeze([
+    { name: "Vitamins", order_index: 10, icon: "spa", catalog_type: "supplements" },
+    { name: "Protein & Fitness", order_index: 20, icon: "fitness_center", catalog_type: "supplements" },
+    { name: "Minerals", order_index: 30, icon: "medication", catalog_type: "supplements" },
+    { name: "Wellness Supplements", order_index: 40, icon: "health_and_safety", catalog_type: "supplements" },
+  ]),
+  phone_maintenance: Object.freeze([
+    { name: "Screen Repair", order_index: 10, icon: "phone_android", catalog_type: "electronics" },
+    { name: "Battery Replacement", order_index: 20, icon: "battery_charging_full", catalog_type: "electronics" },
+    { name: "Software Services", order_index: 30, icon: "settings_applications", catalog_type: "electronics" },
+    { name: "Accessory Repair", order_index: 40, icon: "build", catalog_type: "electronics" },
+  ]),
+  phones_technology: Object.freeze([
+    { name: "Smartphones", order_index: 10, icon: "phone_android", catalog_type: "electronics" },
+    { name: "Phone Accessories", order_index: 20, icon: "headphones", catalog_type: "electronics" },
+    { name: "Tablets", order_index: 30, icon: "tablet_mac", catalog_type: "electronics" },
+    { name: "Gadgets", order_index: 40, icon: "devices_other", catalog_type: "electronics" },
+  ]),
+});
+
 function merchantCatalogVersionKey(merchantId) {
   return `merchant:catalog:ver:${Number(merchantId)}`;
 }
@@ -1413,8 +1446,11 @@ export async function ensureMerchantDefaultInternalCategories(merchantId) {
      LIMIT 1`,
     [Number(merchantId)]
   );
+  const activityType = String(merchantResult.rows[0]?.activity_type || "")
+    .trim()
+    .toLowerCase();
   const defaultCatalogType = getDefaultCatalogTypeForActivity(
-    merchantResult.rows[0]?.activity_type
+    activityType
   );
   await q(
     `WITH target AS (
@@ -1456,5 +1492,55 @@ export async function ensureMerchantDefaultInternalCategories(merchantId) {
       AND tpl.is_active = TRUE
      ON CONFLICT (merchant_id, name) DO NOTHING`,
     [Number(merchantId), defaultCatalogType]
+  );
+
+  const fallbackTemplates = FALLBACK_INTERNAL_CATEGORY_TEMPLATES[activityType] || [];
+  if (fallbackTemplates.length === 0) return;
+
+  await q(
+    `WITH has_categories AS (
+       SELECT EXISTS (
+         SELECT 1
+         FROM merchant_category c
+         WHERE c.merchant_id = $1
+       ) AS has_any
+     ),
+     fallback_template AS (
+       SELECT
+         name,
+         order_index,
+         icon,
+         catalog_type
+       FROM jsonb_to_recordset($2::jsonb) AS tpl(
+         name text,
+         order_index integer,
+         icon text,
+         catalog_type text
+       )
+     )
+     INSERT INTO merchant_category
+       (
+         merchant_id,
+         name,
+         sort_order,
+         order_index,
+         icon,
+         is_active,
+         source,
+         catalog_type
+       )
+     SELECT
+       $1,
+       tpl.name,
+       tpl.order_index,
+       tpl.order_index,
+       tpl.icon,
+       TRUE,
+       'template',
+       COALESCE(NULLIF(tpl.catalog_type, ''), $3)
+     FROM fallback_template tpl
+     JOIN has_categories hc ON hc.has_any = FALSE
+     ON CONFLICT (merchant_id, name) DO NOTHING`,
+    [Number(merchantId), JSON.stringify(fallbackTemplates), defaultCatalogType]
   );
 }

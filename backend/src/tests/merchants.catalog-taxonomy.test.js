@@ -64,6 +64,40 @@ test("default catalog type follows the store activity taxonomy", () => {
   assert.equal(getDefaultCatalogTypeForActivity("phones_technology"), "electronics");
 });
 
+test("smoking supplies allows dedicated vape and hookah catalog sections", () => {
+  assert.deepEqual(getAllowedCatalogTypesForActivity("smoking_supplies"), [
+    "generic",
+    "smoking",
+    "vapes",
+    "hookah",
+  ]);
+  assert.equal(isCatalogTypeAllowedForActivity("smoking_supplies", "vapes"), true);
+  assert.equal(isCatalogTypeAllowedForActivity("smoking_supplies", "hookah"), true);
+  assert.equal(isCatalogTypeAllowedForActivity("smoking_supplies", "clothes"), false);
+  assert.equal(isCatalogTypeAllowedForActivity("smoking_supplies", "vape"), true);
+
+  const filtered = filterCategoriesForActivity(
+    [
+      { id: 1, name: "Vapes", catalogType: "vapes" },
+      { id: 2, name: "Hookahs", catalogType: "hookah" },
+      { id: 3, name: "Shoes", catalogType: "clothes" },
+    ],
+    "smoking_supplies"
+  );
+  assert.deepEqual(filtered.map((item) => item.id), [1, 2]);
+});
+
+test("dietary supplements accepts supplement-specific catalog sections", () => {
+  assert.deepEqual(getAllowedCatalogTypesForActivity("dietary_supplements"), [
+    "generic",
+    "supplements",
+  ]);
+  assert.equal(
+    isCatalogTypeAllowedForActivity("dietary_supplements", "supplements"),
+    true
+  );
+});
+
 test("pharmacy accepts generic catalog categories", () => {
   assert.deepEqual(getAllowedCatalogTypesForActivity("pharmacy"), ["generic"]);
   assert.equal(isCatalogTypeAllowedForActivity("pharmacy", "generic"), true);

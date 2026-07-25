@@ -38,6 +38,9 @@ test("normalizes rich clothing attributes and concrete variant stock", () => {
 
 test("owner contracts accept catalog type, stock, and rich arrays", () => {
   assert.equal(validateOwnerCategoryCreate({ name: "cloths", catalogType: "clothes" }).ok, true);
+  assert.equal(validateOwnerCategoryCreate({ name: "Vapes", catalogType: "vapes" }).ok, true);
+  assert.equal(validateOwnerCategoryCreate({ name: "Hookahs", catalogType: "hookah" }).ok, true);
+  assert.equal(validateOwnerCategoryCreate({ name: "Protein", catalogType: "supplements" }).ok, true);
   assert.equal(validateOwnerCategoryCreate({ name: "x", catalogType: "unknown" }).ok, false);
   assert.equal(validateOwnerProductCreate({
     name: "تيشيرت",

@@ -5,6 +5,10 @@ const KNOWN_CATALOG_TYPES = Object.freeze([
   "electronics",
   "restaurant",
   "grocery",
+  "smoking",
+  "vapes",
+  "hookah",
+  "supplements",
 ]);
 
 const CATALOG_TYPE_ALIASES = Object.freeze({
@@ -32,6 +36,24 @@ const CATALOG_TYPE_ALIASES = Object.freeze({
   grocery: "grocery",
   groceries: "grocery",
   supermarket: "grocery",
+  smoking: "smoking",
+  tobacco: "smoking",
+  cigarettes: "smoking",
+  cigarette: "smoking",
+  smoking_supplies: "smoking",
+  vape: "vapes",
+  vapes: "vapes",
+  "e-cigarettes": "vapes",
+  ecigarettes: "vapes",
+  hookah: "hookah",
+  hookahs: "hookah",
+  shisha: "hookah",
+  arakil: "hookah",
+  arakeel: "hookah",
+  supplements: "supplements",
+  dietary_supplements: "supplements",
+  vitamins: "supplements",
+  protein: "supplements",
   "بقالة": "grocery",
   "مواد غذائية": "grocery",
 });
@@ -52,8 +74,8 @@ const ALLOWED_CATALOG_TYPES_BY_ACTIVITY = Object.freeze({
   seafood: ["grocery"],
   home_kitchen: ["furniture", "electronics"],
   furnishings: ["furniture"],
-  dietary_supplements: ["generic"],
-  smoking_supplies: ["generic"],
+  dietary_supplements: ["generic", "supplements"],
+  smoking_supplies: ["generic", "smoking", "vapes", "hookah"],
 });
 
 function asText(value) {

@@ -540,7 +540,18 @@ export function validateOwnerMarkOrderItemUnavailable(body) {
 
 export function validateOwnerCategoryCreate(body) {
   const errors = [];
-  const catalogTypes = ["generic", "clothes", "furniture", "electronics", "restaurant", "grocery"];
+  const catalogTypes = [
+    "generic",
+    "clothes",
+    "furniture",
+    "electronics",
+    "restaurant",
+    "grocery",
+    "smoking",
+    "vapes",
+    "hookah",
+    "supplements",
+  ];
 
   if (!isNonEmptyString(body.name, 120)) errors.push("name");
   if (body.sortOrder !== undefined && !Number.isInteger(Number(body.sortOrder))) errors.push("sortOrder");
@@ -551,7 +562,18 @@ export function validateOwnerCategoryCreate(body) {
 
 export function validateOwnerCategoryUpdate(body) {
   const errors = [];
-  const catalogTypes = ["generic", "clothes", "furniture", "electronics", "restaurant", "grocery"];
+  const catalogTypes = [
+    "generic",
+    "clothes",
+    "furniture",
+    "electronics",
+    "restaurant",
+    "grocery",
+    "smoking",
+    "vapes",
+    "hookah",
+    "supplements",
+  ];
   const hasAnyField = body.name !== undefined || body.sortOrder !== undefined || body.catalogType !== undefined;
 
   if (!hasAnyField) errors.push("empty_update");
