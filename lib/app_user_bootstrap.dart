@@ -1021,8 +1021,6 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
                   ? _homeForAuth(auth)
                   : auth.isGuest
                   ? const MaslakiUserShell()
-                  : (auth.token?.trim().isNotEmpty ?? false)
-                  ? const AppFirstLaunchScreen()
                   : const LoginScreen()),
       AppStartupPhase.idle ||
       AppStartupPhase.checkingServer ||

@@ -455,7 +455,7 @@ class _DesktopLoginShowcase extends StatelessWidget {
             title: l10n.authDesktopFeatureWorkspaceTitle,
             subtitle: l10n.authDesktopFeatureWorkspaceBody,
           ),
-          const Spacer(),
+          const SizedBox(height: 24),
           Wrap(
             spacing: 10,
             runSpacing: 10,

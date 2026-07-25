@@ -13,6 +13,7 @@ import 'package:maslaki/core/theme/theme_preset.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
 import 'package:maslaki/features/admin/ui/admin_dashboard_screen.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
+import 'package:maslaki/features/auth/presentation/login_screen.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/customer/ui/customer_home_selector_screen.dart';
 import 'package:maslaki/features/customer/ui/maslaki_user_shell.dart';
@@ -318,7 +319,7 @@ void main() {
     },
   );
 
-  testWidgets('token without verified user stays on the loading gate', (
+  testWidgets('stale token without verified user opens login, not startup gate', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -354,7 +355,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
-    expect(find.byType(AppFirstLaunchScreen), findsOneWidget);
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.byType(AppFirstLaunchScreen), findsNothing);
     expect(find.byType(MaslakiUserShell), findsNothing);
     expect(find.byType(CustomerHomeSelectorScreen), findsNothing);
   });
