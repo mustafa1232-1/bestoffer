@@ -1,39 +1,3 @@
-ALTER TABLE taxi_captain_profile
-  ADD COLUMN IF NOT EXISTS plate_governorate VARCHAR(80),
-  ADD COLUMN IF NOT EXISTS plate_category VARCHAR(40),
-  ADD COLUMN IF NOT EXISTS plate_letter VARCHAR(8),
-  ADD COLUMN IF NOT EXISTS plate_digits VARCHAR(20);
-
-UPDATE taxi_captain_profile
-SET plate_digits = NULLIF(REGEXP_REPLACE(COALESCE(plate_number, ''), '[^0-9]', '', 'g'), '')
-WHERE plate_digits IS NULL
-  AND plate_number IS NOT NULL;
-
-CREATE TABLE IF NOT EXISTS taxi_vehicle_make (
-  id BIGSERIAL PRIMARY KEY,
-  name VARCHAR(120) NOT NULL,
-  normalized_name VARCHAR(120) NOT NULL UNIQUE,
-  is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS taxi_vehicle_model (
-  id BIGSERIAL PRIMARY KEY,
-  make_id BIGINT NOT NULL REFERENCES taxi_vehicle_make(id) ON DELETE CASCADE,
-  name VARCHAR(120) NOT NULL,
-  normalized_name VARCHAR(120) NOT NULL,
-  is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (make_id, normalized_name)
-);
-
-CREATE INDEX IF NOT EXISTS idx_taxi_vehicle_model_make_active
-  ON taxi_vehicle_model (make_id, is_active, name);
-
 WITH seed(make_name, models) AS (
   VALUES
     ('Toyota', ARRAY['Corolla','Camry','Avalon','Yaris','Prius','RAV4','Highlander','Land Cruiser','Prado','Hilux','Fortuner','Coaster','Hiace','Crown']::text[]),
@@ -79,20 +43,7 @@ WITH seed(make_name, models) AS (
     ('Opel', ARRAY['Astra','Insignia','Corsa','Mokka']::text[]),
     ('Tesla', ARRAY['Model 3','Model Y','Model S','Model X']::text[])
 ),
-upsert_makes AS (
-  INSERT INTO taxi_vehicle_make (name, normalized_name, is_active)
-  SELECT make_name, LOWER(REGEXP_REPLACE(TRIM(make_name), '\s+', ' ', 'g')), TRUE
-  FROM seed
-  ON CONFLICT (normalized_name) DO UPDATE
-    SET name = EXCLUDED.name,
-        is_active = TRUE,
-        updated_at = NOW()
-  RETURNING id, normalized_name
-),
 all_makes AS (
-  SELECT id, normalized_name
-  FROM upsert_makes
-  UNION
   SELECT id, normalized_name
   FROM taxi_vehicle_make
   WHERE normalized_name IN (
