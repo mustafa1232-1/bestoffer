@@ -122,7 +122,9 @@ export function getDefaultCatalogTypeForActivity(activityType) {
 export function isCatalogTypeAllowedForActivity(activityType, catalogType) {
   const normalizedCatalogType = normalizeCatalogType(catalogType, null);
   if (!normalizedCatalogType) return false;
-  return getAllowedCatalogTypesForActivity(activityType).includes(normalizedCatalogType);
+  const allowed = getAllowedCatalogTypesForActivity(activityType);
+  if (allowed.length === 0) return normalizedCatalogType === "generic";
+  return allowed.includes(normalizedCatalogType);
 }
 
 export function filterCategoriesForActivity(categories, activityType) {

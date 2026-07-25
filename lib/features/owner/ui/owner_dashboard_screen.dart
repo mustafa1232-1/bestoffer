@@ -1053,8 +1053,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                         ImagePickerField(
                           title: 'شعار المتجر',
                           selectedFile: logoImageFile,
-                          existingImageUrl:
-                              (logoImageUrl ?? '').trim().isEmpty
+                          existingImageUrl: (logoImageUrl ?? '').trim().isEmpty
                               ? null
                               : logoImageUrl!.trim(),
                           onPick: () async {
@@ -1075,8 +1074,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                         ImagePickerField(
                           title: 'صورة الغلاف',
                           selectedFile: coverImageFile,
-                          existingImageUrl:
-                              (coverImageUrl ?? '').trim().isEmpty
+                          existingImageUrl: (coverImageUrl ?? '').trim().isEmpty
                               ? null
                               : coverImageUrl!.trim(),
                           onPick: () async {
@@ -1342,6 +1340,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                           name: data.name,
                                           sortOrder: data.sortOrder,
                                           catalogType: data.catalogType,
+                                          publishGlobally: data.publishGlobally,
                                         );
                                   },
                             icon: const Icon(Icons.add),
@@ -1715,11 +1714,12 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                 en: 'The first available courier will be assigned automatically while you prepare the order.',
               ),
               visibleWhenNoAssignment: true,
-              onCall: (order.deliveryAssignment?.driver?.phone ??
-                          order.deliveryPhone)
-                      ?.trim()
-                      .isNotEmpty ==
-                  true
+              onCall:
+                  (order.deliveryAssignment?.driver?.phone ??
+                              order.deliveryPhone)
+                          ?.trim()
+                          .isNotEmpty ==
+                      true
                   ? () async {
                       final phone =
                           (order.deliveryAssignment?.driver?.phone ??
@@ -3084,6 +3084,7 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
   late final TextEditingController nameCtrl;
   late final TextEditingController sortCtrl;
   late String catalogType;
+  late bool publishGlobally;
 
   @override
   void initState() {
@@ -3095,9 +3096,11 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
     final allowedTypes = allowedCatalogTypesForActivity(
       widget.merchantActivityType,
     );
-    catalogType =
-        widget.category?.catalogType ??
-        (allowedTypes.isEmpty ? 'generic' : allowedTypes.first);
+    final catalogTypeOptions = allowedTypes.isEmpty
+        ? const <String>['generic']
+        : allowedTypes;
+    catalogType = widget.category?.catalogType ?? catalogTypeOptions.first;
+    publishGlobally = widget.category == null;
   }
 
   @override
@@ -3113,10 +3116,16 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
     final allowedTypes = allowedCatalogTypesForActivity(
       widget.merchantActivityType,
     );
-    final currentIsAllowed = isCatalogTypeAllowedForActivity(
-      widget.merchantActivityType,
-      catalogType,
-    );
+    final catalogTypeOptions = allowedTypes.isEmpty
+        ? const <String>['generic']
+        : allowedTypes;
+    final currentIsAllowed =
+        isCatalogTypeAllowedForActivity(
+          widget.merchantActivityType,
+          catalogType,
+        ) ||
+        (allowedTypes.isEmpty &&
+            normalizeCatalogType(catalogType) == 'generic');
     return Padding(
       padding: EdgeInsets.only(
         left: 14,
@@ -3142,7 +3151,7 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
             DropdownButtonFormField<String>(
               initialValue: currentIsAllowed ? catalogType : null,
               decoration: const InputDecoration(labelText: 'نوع كاتالوج القسم'),
-              items: allowedTypes
+              items: catalogTypeOptions
                   .map(
                     (type) => DropdownMenuItem(
                       value: type,
@@ -3151,9 +3160,7 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
                   )
                   .toList(),
               onChanged: (value) => setState(
-                () => catalogType =
-                    value ??
-                    (allowedTypes.isEmpty ? 'generic' : allowedTypes.first),
+                () => catalogType = value ?? catalogTypeOptions.first,
               ),
             ),
             if (!currentIsAllowed)
@@ -3167,6 +3174,16 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
+                ),
+              ),
+            if (!isEdit)
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: publishGlobally,
+                onChanged: (value) => setState(() => publishGlobally = value),
+                title: const Text('إظهاره لكل المتاجر من نفس النشاط'),
+                subtitle: const Text(
+                  'سيصبح هذا الكاتالوگ قالباً عاماً ويمكن للأدمن تعديله أو حذفه لاحقاً.',
                 ),
               ),
             const SizedBox(height: 10),
@@ -3186,10 +3203,14 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
                     );
                     return;
                   }
-                  if (!isCatalogTypeAllowedForActivity(
-                    widget.merchantActivityType,
-                    catalogType,
-                  )) {
+                  final canSaveCatalogType =
+                      isCatalogTypeAllowedForActivity(
+                        widget.merchantActivityType,
+                        catalogType,
+                      ) ||
+                      (allowedTypes.isEmpty &&
+                          normalizeCatalogType(catalogType) == 'generic');
+                  if (!canSaveCatalogType) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
@@ -3205,6 +3226,7 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
                       name: nameCtrl.text,
                       sortOrder: int.tryParse(sortCtrl.text.trim()) ?? 0,
                       catalogType: catalogType,
+                      publishGlobally: publishGlobally,
                     ),
                   );
                 },
@@ -3222,11 +3244,13 @@ class _CategoryFormData {
   final String name;
   final int sortOrder;
   final String catalogType;
+  final bool publishGlobally;
 
   const _CategoryFormData({
     required this.name,
     required this.sortOrder,
     required this.catalogType,
+    this.publishGlobally = false,
   });
 }
 

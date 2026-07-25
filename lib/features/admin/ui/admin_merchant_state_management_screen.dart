@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../merchants/models/store_activity_model.dart';
+import '../../merchants/utils/catalog_taxonomy.dart';
 import '../models/managed_merchant_model.dart';
 import '../state/admin_controller.dart';
 import 'admin_merchant_billing_profile_screen.dart';
@@ -228,6 +229,339 @@ class _AdminMerchantStateManagementScreenState
     }
   }
 
+  Future<void> _openCatalogTemplateManager() async {
+    final activities = await _loadStoreActivities();
+    if (!mounted || activities.isEmpty) return;
+    var selectedActivity = activities.first.activityType;
+    var templates = <Map<String, dynamic>>[];
+    var loading = true;
+
+    Future<List<Map<String, dynamic>>> loadTemplates(
+      String activityType,
+    ) async {
+      final raw = await ref
+          .read(adminControllerProvider.notifier)
+          .adminStoreCatalogTemplates(activityType);
+      return raw
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> reload() async {
+              setSheetState(() => loading = true);
+              templates = await loadTemplates(selectedActivity);
+              if (!context.mounted) return;
+              setSheetState(() => loading = false);
+            }
+
+            Future<void> editTemplate([Map<String, dynamic>? template]) async {
+              final saved = await _openCatalogTemplateEditor(
+                activityType: selectedActivity,
+                template: template,
+              );
+              if (saved == true) await reload();
+            }
+
+            if (loading && templates.isEmpty) {
+              Future.microtask(reload);
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.78,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'إدارة كاتالوگ الأقسام',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'إضافة كاتالوگ',
+                            onPressed: () => editTemplate(),
+                            icon: const Icon(Icons.add_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedActivity,
+                        decoration: const InputDecoration(
+                          labelText: 'قسم السوق',
+                        ),
+                        items: activities
+                            .map(
+                              (item) => DropdownMenuItem(
+                                value: item.activityType,
+                                child: Text(item.localizedLabel(true)),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) async {
+                          selectedActivity = value ?? selectedActivity;
+                          templates = const <Map<String, dynamic>>[];
+                          await reload();
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: loading
+                            ? const Center(child: CircularProgressIndicator())
+                            : templates.isEmpty
+                            ? const Center(
+                                child: Text('لا توجد قوالب كاتالوگ.'),
+                              )
+                            : ListView.separated(
+                                itemCount: templates.length,
+                                separatorBuilder: (context, index) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final item = templates[index];
+                                  final id =
+                                      int.tryParse('${item['id'] ?? ''}') ?? 0;
+                                  final isActive = item['isActive'] != false;
+                                  return ListTile(
+                                    leading: Icon(
+                                      isActive
+                                          ? Icons.category_rounded
+                                          : Icons.visibility_off_rounded,
+                                    ),
+                                    title: Text(
+                                      '${item['nameAr'] ?? item['nameEn'] ?? ''}',
+                                    ),
+                                    subtitle: Text(
+                                      '${item['code'] ?? ''} • ${catalogTypeLabel('${item['catalogType'] ?? 'generic'}')}',
+                                    ),
+                                    trailing: Wrap(
+                                      spacing: 4,
+                                      children: [
+                                        IconButton(
+                                          tooltip: 'تعديل',
+                                          onPressed: () => editTemplate(item),
+                                          icon: const Icon(Icons.edit_rounded),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'حذف',
+                                          onPressed: id <= 0
+                                              ? null
+                                              : () async {
+                                                  final ok = await ref
+                                                      .read(
+                                                        adminControllerProvider
+                                                            .notifier,
+                                                      )
+                                                      .deleteStoreCatalogTemplate(
+                                                        id,
+                                                      );
+                                                  if (ok) await reload();
+                                                },
+                                          icon: const Icon(
+                                            Icons.delete_outline_rounded,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<bool?> _openCatalogTemplateEditor({
+    required String activityType,
+    Map<String, dynamic>? template,
+  }) async {
+    final isEdit = template != null;
+    final codeCtrl = TextEditingController(text: '${template?['code'] ?? ''}');
+    final arCtrl = TextEditingController(text: '${template?['nameAr'] ?? ''}');
+    final enCtrl = TextEditingController(text: '${template?['nameEn'] ?? ''}');
+    final iconCtrl = TextEditingController(text: '${template?['icon'] ?? ''}');
+    final orderCtrl = TextEditingController(
+      text: '${template?['orderIndex'] ?? 0}',
+    );
+    final allowedTypes = allowedCatalogTypesForActivity(activityType);
+    final catalogTypeOptions = allowedTypes.isEmpty
+        ? const <String>['generic']
+        : allowedTypes;
+    var catalogType = normalizeCatalogType(
+      '${template?['catalogType'] ?? ''}',
+      fallback: catalogTypeOptions.first,
+    );
+    if (!catalogTypeOptions.contains(catalogType)) {
+      catalogType = catalogTypeOptions.first;
+    }
+    var isActive = template?['isActive'] != false;
+    var saving = false;
+
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> submit() async {
+              final code = codeCtrl.text.trim();
+              final ar = arCtrl.text.trim();
+              final en = enCtrl.text.trim();
+              if (code.isEmpty || ar.isEmpty || en.isEmpty) return;
+              setSheetState(() => saving = true);
+              final notifier = ref.read(adminControllerProvider.notifier);
+              final saved = isEdit
+                  ? await notifier.updateStoreCatalogTemplate(
+                      templateId: int.parse('${template['id']}'),
+                      code: code,
+                      nameAr: ar,
+                      nameEn: en,
+                      catalogType: catalogType,
+                      icon: iconCtrl.text.trim().isEmpty
+                          ? null
+                          : iconCtrl.text.trim(),
+                      orderIndex: int.tryParse(orderCtrl.text.trim()) ?? 0,
+                      isActive: isActive,
+                    )
+                  : await notifier.upsertStoreCatalogTemplate(
+                      activityType: activityType,
+                      code: code,
+                      nameAr: ar,
+                      nameEn: en,
+                      catalogType: catalogType,
+                      icon: iconCtrl.text.trim().isEmpty
+                          ? null
+                          : iconCtrl.text.trim(),
+                      orderIndex: int.tryParse(orderCtrl.text.trim()) ?? 0,
+                      isActive: isActive,
+                    );
+              if (!context.mounted) return;
+              setSheetState(() => saving = false);
+              if (saved) Navigator.of(context).pop(true);
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      isEdit ? 'تعديل كاتالوگ' : 'إضافة كاتالوگ',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: codeCtrl,
+                      decoration: const InputDecoration(labelText: 'code'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: arCtrl,
+                      decoration: const InputDecoration(labelText: 'الاسم'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: enCtrl,
+                      decoration: const InputDecoration(labelText: 'English'),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      initialValue: catalogType,
+                      decoration: const InputDecoration(
+                        labelText: 'نوع الكاتالوگ',
+                      ),
+                      items: catalogTypeOptions
+                          .map(
+                            (type) => DropdownMenuItem(
+                              value: type,
+                              child: Text(catalogTypeLabel(type)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: saving
+                          ? null
+                          : (value) => setSheetState(
+                              () => catalogType = value ?? catalogType,
+                            ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: iconCtrl,
+                      decoration: const InputDecoration(labelText: 'icon'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: orderCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'الترتيب'),
+                    ),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: isActive,
+                      onChanged: saving
+                          ? null
+                          : (value) => setSheetState(() => isActive = value),
+                      title: const Text('فعّال'),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: saving ? null : submit,
+                      icon: saving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save_rounded),
+                      label: const Text('حفظ'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    codeCtrl.dispose();
+    arCtrl.dispose();
+    enCtrl.dispose();
+    iconCtrl.dispose();
+    orderCtrl.dispose();
+    return result;
+  }
+
   Future<void> _openMerchantProfileEditor(ManagedMerchantModel merchant) async {
     final activities = await _loadStoreActivities();
     if (!mounted) return;
@@ -415,6 +749,11 @@ class _AdminMerchantStateManagementScreenState
             ),
             onPressed: _openStoreActivityEditor,
             icon: const Icon(Icons.add_business_rounded),
+          ),
+          IconButton(
+            tooltip: 'إدارة كاتالوگ الأقسام',
+            onPressed: _openCatalogTemplateManager,
+            icon: const Icon(Icons.category_rounded),
           ),
           IconButton(
             onPressed: () =>

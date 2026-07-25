@@ -255,6 +255,72 @@ class AdminApi {
     return _safeMapResponse(response.data);
   }
 
+  Future<List<dynamic>> adminStoreCatalogTemplates(String activityType) async {
+    final response = await dio.get(
+      '/api/admin/store-activities/$activityType/catalog-templates',
+    );
+    final data = response.data;
+    if (data is Map && data['items'] is List) {
+      return List<dynamic>.from(data['items'] as List);
+    }
+    if (data is List) return List<dynamic>.from(data);
+    return const <dynamic>[];
+  }
+
+  Future<Map<String, dynamic>> upsertStoreCatalogTemplate({
+    required String activityType,
+    required String code,
+    required String nameAr,
+    required String nameEn,
+    required String catalogType,
+    String? icon,
+    int orderIndex = 0,
+    bool isActive = true,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/store-activities/$activityType/catalog-templates',
+      data: {
+        'code': code,
+        'nameAr': nameAr,
+        'nameEn': nameEn,
+        'catalogType': catalogType,
+        'icon': icon,
+        'orderIndex': orderIndex,
+        'isActive': isActive,
+      },
+    );
+    return _safeMapResponse(response.data);
+  }
+
+  Future<Map<String, dynamic>> updateStoreCatalogTemplate({
+    required int templateId,
+    required String code,
+    required String nameAr,
+    required String nameEn,
+    required String catalogType,
+    String? icon,
+    required int orderIndex,
+    required bool isActive,
+  }) async {
+    final response = await dio.patch(
+      '/api/admin/store-catalog-templates/$templateId',
+      data: {
+        'code': code,
+        'nameAr': nameAr,
+        'nameEn': nameEn,
+        'catalogType': catalogType,
+        'icon': icon,
+        'orderIndex': orderIndex,
+        'isActive': isActive,
+      },
+    );
+    return _safeMapResponse(response.data);
+  }
+
+  Future<void> deleteStoreCatalogTemplate(int templateId) async {
+    await dio.delete('/api/admin/store-catalog-templates/$templateId');
+  }
+
   Future<void> approveMerchant(
     int merchantId, {
     Map<String, dynamic>? body,

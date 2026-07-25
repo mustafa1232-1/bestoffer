@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   validateAdminMerchantProfilePatch,
   validateStoreActivityUpsert,
+  validateStoreCatalogTemplatePatch,
+  validateStoreCatalogTemplateUpsert,
 } from "../modules/admin/admin.validators.js";
 
 test("admin merchant profile patch accepts single-field store name edit", () => {
@@ -46,4 +48,27 @@ test("store activity upsert rejects unsupported base type", () => {
 
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("baseType"));
+});
+
+test("store catalog template upsert normalizes code and accepts catalog type", () => {
+  const result = validateStoreCatalogTemplateUpsert({
+    activityType: "smoking_supplies",
+    code: "Vapes",
+    nameAr: "Vapes",
+    nameEn: "Vapes",
+    catalogType: "vapes",
+    orderIndex: 40,
+    isActive: true,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.value.code, "vapes");
+  assert.equal(result.value.catalogType, "vapes");
+});
+
+test("store catalog template patch rejects empty body", () => {
+  const result = validateStoreCatalogTemplatePatch({});
+
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("body"));
 });

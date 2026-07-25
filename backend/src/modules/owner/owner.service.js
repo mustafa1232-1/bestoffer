@@ -22,7 +22,11 @@ import {
   computeMerchantOfferState,
 } from "./merchant-offers.logic.js";
 import { hasPermission } from "../../shared/workspaces/employee-permissions.js";
-import { invalidateMerchantCatalogCache } from "../merchants/merchants.repo.js";
+import {
+  applyStoreActivityInternalTemplateToMerchants,
+  invalidateMerchantCatalogCache,
+  upsertStoreActivityInternalTemplate,
+} from "../merchants/merchants.repo.js";
 import {
   hasRichProductInput,
   normalizeRichProductPayload,
@@ -39,6 +43,7 @@ import {
 } from "../merchants/store-activity.registry.js";
 import {
   inferCatalogTypeFromName,
+  getAllowedCatalogTypesForActivity,
   isCatalogTypeAllowedForActivity,
   normalizeCatalogType,
   resolveCategoryCatalogType,
@@ -511,9 +516,30 @@ function throwCategoryScopeError(field) {
 }
 
 function assertCategoryCatalogScope(activityType, catalogType, field = "catalogType") {
-  if (!isCatalogTypeAllowedForActivity(activityType, catalogType)) {
+  const allowedCatalogTypes = getAllowedCatalogTypesForActivity(activityType);
+  const isAllowed =
+    allowedCatalogTypes.length > 0
+      ? isCatalogTypeAllowedForActivity(activityType, catalogType)
+      : normalizeCatalogType(catalogType, null) === "generic";
+  if (!isAllowed) {
     throwCategoryScopeError(field);
   }
+}
+
+function buildCatalogTemplateCode(name, catalogType) {
+  const normalized = String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (normalized) return normalized.slice(0, 120);
+  const digest = crypto
+    .createHash("sha1")
+    .update(`${catalogType || "generic"}:${String(name || "").trim()}`)
+    .digest("hex")
+    .slice(0, 10);
+  return `custom_${catalogType || "generic"}_${digest}`.slice(0, 120);
 }
 
 // eslint-disable-next-line no-unused-vars
@@ -1383,6 +1409,29 @@ export async function createOwnerCategory(ownerUserId, dto) {
     throw err;
   }
   await invalidateMerchantCatalogCache(created.merchant_id);
+
+  if (dto.publishGlobally === true) {
+    const template = await upsertStoreActivityInternalTemplate({
+      activityType: merchantActivityType,
+      code: buildCatalogTemplateCode(dto.name, resolvedCatalogType),
+      nameEn: dto.name.trim(),
+      nameAr: dto.name.trim(),
+      icon: null,
+      orderIndex: Number(dto.sortOrder ?? 0),
+      catalogType: resolvedCatalogType,
+      isActive: true,
+    });
+    if (template?.id) {
+      const appliedMerchantIds = await applyStoreActivityInternalTemplateToMerchants(
+        template.id
+      );
+      await Promise.all(
+        appliedMerchantIds.map((merchantId) =>
+          invalidateMerchantCatalogCache(merchantId)
+        )
+      );
+    }
+  }
 
   return mapCategory(created);
 }

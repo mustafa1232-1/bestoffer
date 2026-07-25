@@ -111,7 +111,9 @@ bool isCatalogTypeAllowedForActivity(
 ) {
   final normalizedType = normalizeCatalogType(catalogType, fallback: '');
   if (normalizedType.isEmpty) return false;
-  return allowedCatalogTypesForActivity(activityType).contains(normalizedType);
+  final allowed = allowedCatalogTypesForActivity(activityType);
+  if (allowed.isEmpty) return normalizedType == 'generic';
+  return allowed.contains(normalizedType);
 }
 
 List<ProductCategoryModel> filterCategoriesForActivity(

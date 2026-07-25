@@ -15,11 +15,17 @@ import * as commerceRepo from "../commerce/commerce.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
 import * as taxiService from "../taxi/taxi.service.js";
 import * as adminRepo from "./admin.repo.js";
+import * as merchantsRepo from "../merchants/merchants.repo.js";
 import {
   listActivityRegistry,
   requireActivityConfig,
   requireValidDiscoverySelection,
 } from "../merchants/store-activity.registry.js";
+import {
+  getAllowedCatalogTypesForActivity,
+  isCatalogTypeAllowedForActivity,
+  normalizeCatalogType,
+} from "../merchants/catalog-taxonomy.js";
 import { resolveStoreDepartmentForWrite } from "../merchants/store-department.logic.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import { env } from "../../config/env.js";
@@ -413,6 +419,22 @@ function mapStoreActivity(row = {}) {
   };
 }
 
+function mapStoreCatalogTemplate(row = {}) {
+  return {
+    id: Number(row.id || 0) || null,
+    activityType: row.activity_type || row.activityType || null,
+    code: row.code || "",
+    nameEn: row.name_en || row.nameEn || "",
+    nameAr: row.name_ar || row.nameAr || "",
+    icon: row.icon || null,
+    orderIndex: Number(row.order_index ?? row.orderIndex ?? 0) || 0,
+    catalogType: row.catalog_type || row.catalogType || "generic",
+    isActive: row.is_active !== false && row.isActive !== false,
+    createdAt: row.created_at || row.createdAt || null,
+    updatedAt: row.updated_at || row.updatedAt || null,
+  };
+}
+
 export async function listStoreActivitiesForAdmin() {
   const rows = await listActivityRegistry({ includeInactive: true });
   return { items: rows.map(mapStoreActivity) };
@@ -436,6 +458,147 @@ export async function upsertStoreActivityForAdmin(payload, actor = {}) {
     },
   });
   return { item: mapStoreActivity(row) };
+}
+
+function assertTemplateCatalogScope(activityType, catalogType) {
+  const normalizedCatalogType = normalizeCatalogType(catalogType, null);
+  const allowedCatalogTypes = getAllowedCatalogTypesForActivity(activityType);
+  if (
+    !normalizedCatalogType ||
+    (
+      allowedCatalogTypes.length > 0
+        ? !isCatalogTypeAllowedForActivity(activityType, normalizedCatalogType)
+        : normalizedCatalogType !== "generic"
+    )
+  ) {
+    const err = new Error("VALIDATION_ERROR");
+    err.status = 400;
+    err.details = { fields: { catalogType: "INVALID_FOR_ACTIVITY" } };
+    throw err;
+  }
+  return normalizedCatalogType;
+}
+
+export async function listStoreCatalogTemplatesForAdmin(activityType) {
+  const activityConfig = await requireActivityConfig(activityType);
+  const rows = await merchantsRepo.listStoreActivityInternalTemplates(
+    activityConfig.activityType,
+    { includeInactive: true }
+  );
+  return { items: rows.map(mapStoreCatalogTemplate) };
+}
+
+export async function upsertStoreCatalogTemplateForAdmin(payload, actor = {}) {
+  const activityConfig = await requireActivityConfig(payload.activityType);
+  const catalogType = assertTemplateCatalogScope(
+    activityConfig.activityType,
+    payload.catalogType
+  );
+  const row = await merchantsRepo.upsertStoreActivityInternalTemplate({
+    ...payload,
+    activityType: activityConfig.activityType,
+    catalogType,
+  });
+  const appliedMerchantIds =
+    row?.is_active === false
+      ? []
+      : await merchantsRepo.applyStoreActivityInternalTemplateToMerchants(row.id);
+  await Promise.all(
+    appliedMerchantIds.map((merchantId) =>
+      merchantsRepo.invalidateMerchantCatalogCache(merchantId)
+    )
+  );
+  await logAdminAudit({
+    actor,
+    actionKey: "admin.store_catalog_template.upserted",
+    summary: `Catalog template ${payload.code} saved for ${activityConfig.activityType}`,
+    targetType: "store_activity_internal_category_template",
+    targetId: row?.id || null,
+    targetLabel: payload.code,
+    metadata: {
+      activityType: activityConfig.activityType,
+      code: payload.code,
+      catalogType,
+      appliedMerchantCount: appliedMerchantIds.length,
+      isActive: payload.isActive !== false,
+    },
+  });
+  return {
+    item: mapStoreCatalogTemplate(row),
+    appliedMerchantCount: appliedMerchantIds.length,
+  };
+}
+
+export async function updateStoreCatalogTemplateForAdmin(templateId, patch, actor = {}) {
+  const current = await merchantsRepo.updateStoreActivityInternalTemplate(
+    templateId,
+    {}
+  );
+  if (!current) {
+    const err = new Error("CATALOG_TEMPLATE_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+  const nextActivityType = current.activity_type;
+  if (patch.catalogType !== undefined) {
+    patch.catalogType = assertTemplateCatalogScope(
+      nextActivityType,
+      patch.catalogType
+    );
+  }
+  const row = await merchantsRepo.updateStoreActivityInternalTemplate(
+    templateId,
+    patch
+  );
+  const appliedMerchantIds =
+    row?.is_active === false
+      ? []
+      : await merchantsRepo.applyStoreActivityInternalTemplateToMerchants(row.id);
+  await Promise.all(
+    appliedMerchantIds.map((merchantId) =>
+      merchantsRepo.invalidateMerchantCatalogCache(merchantId)
+    )
+  );
+  await logAdminAudit({
+    actor,
+    actionKey: "admin.store_catalog_template.updated",
+    summary: `Catalog template ${row?.code || templateId} updated`,
+    targetType: "store_activity_internal_category_template",
+    targetId: row?.id || Number(templateId),
+    targetLabel: row?.code || null,
+    metadata: {
+      activityType: row?.activity_type || nextActivityType,
+      catalogType: row?.catalog_type || null,
+      appliedMerchantCount: appliedMerchantIds.length,
+    },
+  });
+  return {
+    item: mapStoreCatalogTemplate(row),
+    appliedMerchantCount: appliedMerchantIds.length,
+  };
+}
+
+export async function deleteStoreCatalogTemplateForAdmin(templateId, actor = {}) {
+  const row = await merchantsRepo.deactivateStoreActivityInternalTemplate(templateId);
+  if (!row) {
+    const err = new Error("CATALOG_TEMPLATE_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+  await logAdminAudit({
+    actor,
+    actionKey: "admin.store_catalog_template.deleted",
+    summary: `Catalog template ${row.code} disabled`,
+    targetType: "store_activity_internal_category_template",
+    targetId: row.id,
+    targetLabel: row.code,
+    metadata: {
+      activityType: row.activity_type,
+      code: row.code,
+      softDelete: true,
+    },
+  });
+  return { item: mapStoreCatalogTemplate(row) };
 }
 
 export async function updateManagedMerchantProfile(merchantId, patch, actor = {}) {

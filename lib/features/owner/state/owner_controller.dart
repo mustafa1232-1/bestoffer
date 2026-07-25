@@ -204,7 +204,9 @@ class OwnerController extends StateNotifier<OwnerState> {
     _recoveryResyncInFlight = true;
     startLiveOrders();
     unawaited(
-      bootstrap(force: true).whenComplete(() => _recoveryResyncInFlight = false),
+      bootstrap(
+        force: true,
+      ).whenComplete(() => _recoveryResyncInFlight = false),
     );
   }
 
@@ -485,23 +487,30 @@ class OwnerController extends StateNotifier<OwnerState> {
     state = state.copyWith(savingMerchant: true, error: null);
 
     try {
-      final response = await ref.read(ownerApiProvider).updateMerchant({
-        'name': name.trim(),
-        'type': type,
-        'description': description.trim(),
-        'phone': phone.trim(),
-        'imageUrl': imageUrl.trim(),
-        'tagline': tagline?.trim(),
-        'workingHours': workingHours?.trim(),
-        'serviceAreaNote': serviceAreaNote?.trim(),
-        if (logoUrl != null) 'logoUrl': logoUrl.trim(),
-        if (coverImageUrl != null) 'coverImageUrl': coverImageUrl.trim(),
-        'deliveryEtaMinMinutes': ?deliveryEtaMinMinutes,
-        'deliveryEtaMaxMinutes': ?deliveryEtaMaxMinutes,
-        'deliveryFee': ?deliveryFee,
-        'minimumOrder': ?minimumOrder,
-        'isOpen': isOpen,
-      }, imageFile: imageFile, logoFile: logoFile, coverFile: coverFile);
+      final response = await ref
+          .read(ownerApiProvider)
+          .updateMerchant(
+            {
+              'name': name.trim(),
+              'type': type,
+              'description': description.trim(),
+              'phone': phone.trim(),
+              'imageUrl': imageUrl.trim(),
+              'tagline': tagline?.trim(),
+              'workingHours': workingHours?.trim(),
+              'serviceAreaNote': serviceAreaNote?.trim(),
+              if (logoUrl != null) 'logoUrl': logoUrl.trim(),
+              if (coverImageUrl != null) 'coverImageUrl': coverImageUrl.trim(),
+              'deliveryEtaMinMinutes': ?deliveryEtaMinMinutes,
+              'deliveryEtaMaxMinutes': ?deliveryEtaMaxMinutes,
+              'deliveryFee': ?deliveryFee,
+              'minimumOrder': ?minimumOrder,
+              'isOpen': isOpen,
+            },
+            imageFile: imageFile,
+            logoFile: logoFile,
+            coverFile: coverFile,
+          );
 
       final merchant = OwnerMerchantModel.fromJson(
         Map<String, dynamic>.from(response['merchant'] as Map),
@@ -837,6 +846,7 @@ class OwnerController extends StateNotifier<OwnerState> {
     required String name,
     required int sortOrder,
     required String catalogType,
+    bool publishGlobally = false,
   }) async {
     state = state.copyWith(savingProduct: true, error: null);
     try {
@@ -844,6 +854,7 @@ class OwnerController extends StateNotifier<OwnerState> {
         'name': name.trim(),
         'sortOrder': sortOrder,
         'catalogType': catalogType,
+        'publishGlobally': publishGlobally,
       });
       await _reloadCategories();
       state = state.copyWith(savingProduct: false);

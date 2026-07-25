@@ -1417,7 +1417,10 @@ export async function listStoreActivityDiscoveryOptions(activityType) {
   return r.rows;
 }
 
-export async function listStoreActivityInternalTemplates(activityType) {
+export async function listStoreActivityInternalTemplates(
+  activityType,
+  { includeInactive = false } = {}
+) {
   const r = await q(
     `SELECT
        id,
@@ -1427,15 +1430,164 @@ export async function listStoreActivityInternalTemplates(activityType) {
        name_ar,
        icon,
        order_index,
+       catalog_type,
        is_active,
        metadata_json
      FROM store_activity_internal_category_template
      WHERE activity_type = $1
-       AND is_active = TRUE
+       AND ($2::boolean = TRUE OR is_active = TRUE)
      ORDER BY order_index ASC, id ASC`,
-    [String(activityType || "").trim()]
+    [String(activityType || "").trim(), includeInactive === true]
   );
   return r.rows;
+}
+
+export async function upsertStoreActivityInternalTemplate({
+  activityType,
+  code,
+  nameEn,
+  nameAr,
+  icon = null,
+  orderIndex = 0,
+  catalogType = "generic",
+  isActive = true,
+} = {}) {
+  const r = await q(
+    `INSERT INTO store_activity_internal_category_template (
+       activity_type,
+       code,
+       name_en,
+       name_ar,
+       icon,
+       order_index,
+       catalog_type,
+       is_active,
+       metadata_json
+     )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'{}'::jsonb)
+     ON CONFLICT (activity_type, code) DO UPDATE
+       SET name_en = EXCLUDED.name_en,
+           name_ar = EXCLUDED.name_ar,
+           icon = EXCLUDED.icon,
+           order_index = EXCLUDED.order_index,
+           catalog_type = EXCLUDED.catalog_type,
+           is_active = EXCLUDED.is_active,
+           updated_at = NOW()
+     RETURNING *`,
+    [
+      String(activityType || "").trim(),
+      String(code || "").trim(),
+      String(nameEn || "").trim(),
+      String(nameAr || "").trim(),
+      icon ? String(icon).trim() : null,
+      Number(orderIndex) || 0,
+      String(catalogType || "generic").trim(),
+      isActive !== false,
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function updateStoreActivityInternalTemplate(templateId, patch = {}) {
+  const map = {
+    code: "code",
+    nameEn: "name_en",
+    nameAr: "name_ar",
+    icon: "icon",
+    orderIndex: "order_index",
+    catalogType: "catalog_type",
+    isActive: "is_active",
+  };
+  const values = [];
+  const sets = [];
+  let idx = 1;
+  for (const [key, column] of Object.entries(map)) {
+    if (patch[key] !== undefined) {
+      values.push(patch[key]);
+      sets.push(`${column}=$${idx++}`);
+    }
+  }
+  if (sets.length === 0) {
+    const current = await q(
+      `SELECT *
+       FROM store_activity_internal_category_template
+       WHERE id = $1
+       LIMIT 1`,
+      [Number(templateId)]
+    );
+    return current.rows[0] || null;
+  }
+  values.push(Number(templateId));
+  const r = await q(
+    `UPDATE store_activity_internal_category_template
+     SET ${sets.join(", ")},
+         updated_at = NOW()
+     WHERE id = $${idx}
+     RETURNING *`,
+    values
+  );
+  return r.rows[0] || null;
+}
+
+export async function deactivateStoreActivityInternalTemplate(templateId) {
+  const r = await q(
+    `UPDATE store_activity_internal_category_template
+     SET is_active = FALSE,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [Number(templateId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function applyStoreActivityInternalTemplateToMerchants(templateId) {
+  const r = await q(
+    `WITH tpl AS (
+       SELECT *
+       FROM store_activity_internal_category_template
+       WHERE id = $1
+         AND is_active = TRUE
+       LIMIT 1
+     ),
+     target_merchants AS (
+       SELECT m.id AS merchant_id
+       FROM merchant m
+       JOIN tpl ON tpl.activity_type = m.activity_type
+     )
+     INSERT INTO merchant_category
+       (
+         merchant_id,
+         name,
+         sort_order,
+         order_index,
+         icon,
+         is_active,
+         source,
+         catalog_type
+       )
+     SELECT
+       tm.merchant_id,
+       tpl.name_ar,
+       tpl.order_index,
+       tpl.order_index,
+       tpl.icon,
+       TRUE,
+       'template',
+       COALESCE(NULLIF(tpl.catalog_type, ''), 'generic')
+     FROM target_merchants tm
+     CROSS JOIN tpl
+     WHERE NOT EXISTS (
+       SELECT 1
+       FROM merchant_category c
+       WHERE c.merchant_id = tm.merchant_id
+         AND LOWER(TRIM(c.name)) = LOWER(TRIM(tpl.name_ar))
+     )
+     ON CONFLICT (merchant_id, name) DO NOTHING
+     RETURNING merchant_id`,
+    [Number(templateId)]
+  );
+  return r.rows.map((row) => Number(row.merchant_id)).filter(Boolean);
 }
 
 export async function ensureMerchantDefaultInternalCategories(merchantId) {
@@ -1484,7 +1636,7 @@ export async function ensureMerchantDefaultInternalCategories(merchantId) {
        tpl.icon,
        TRUE,
        'template',
-       $2
+       COALESCE(NULLIF(tpl.catalog_type, ''), $2)
      FROM target t
      JOIN has_categories hc ON hc.has_any = FALSE
      JOIN store_activity_internal_category_template tpl

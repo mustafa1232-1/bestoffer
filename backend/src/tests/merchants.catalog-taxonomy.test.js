@@ -98,6 +98,12 @@ test("dietary supplements accepts supplement-specific catalog sections", () => {
   );
 });
 
+test("custom marketplace activities accept generic catalog sections", () => {
+  assert.deepEqual(getAllowedCatalogTypesForActivity("custom_market"), []);
+  assert.equal(isCatalogTypeAllowedForActivity("custom_market", "generic"), true);
+  assert.equal(isCatalogTypeAllowedForActivity("custom_market", "vapes"), false);
+});
+
 test("pharmacy accepts generic catalog categories", () => {
   assert.deepEqual(getAllowedCatalogTypesForActivity("pharmacy"), ["generic"]);
   assert.equal(isCatalogTypeAllowedForActivity("pharmacy", "generic"), true);

@@ -15,6 +15,8 @@ import {
   validateSocialCapabilityRestrictionCreate,
   validateAdminMerchantProfilePatch,
   validateStoreActivityUpsert,
+  validateStoreCatalogTemplatePatch,
+  validateStoreCatalogTemplateUpsert,
   validateTaxiCaptainCashPaymentApprove,
   validateTaxiCaptainDiscount,
   validateTaxiCaptainProfileEditReview,
@@ -195,6 +197,72 @@ export async function upsertStoreActivity(req, res, next) {
       userRole: req.userRole,
     });
     res.status(req.method === "POST" ? 201 : 200).json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function storeCatalogTemplates(req, res, next) {
+  try {
+    const out = await service.listStoreCatalogTemplatesForAdmin(
+      req.params.activityType
+    );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function upsertStoreCatalogTemplate(req, res, next) {
+  try {
+    const body = {
+      ...req.body,
+      activityType: req.params.activityType || req.body?.activityType,
+    };
+    const v = validateStoreCatalogTemplateUpsert(body, { requireCode: true });
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+    const out = await service.upsertStoreCatalogTemplateForAdmin(v.value, {
+      userId: req.userId,
+      userRole: req.userRole,
+    });
+    res.status(201).json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function updateStoreCatalogTemplate(req, res, next) {
+  try {
+    const v = validateStoreCatalogTemplatePatch(req.body || {});
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+    const out = await service.updateStoreCatalogTemplateForAdmin(
+      req.params.templateId,
+      v.value,
+      {
+        userId: req.userId,
+        userRole: req.userRole,
+      }
+    );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function deleteStoreCatalogTemplate(req, res, next) {
+  try {
+    const out = await service.deleteStoreCatalogTemplateForAdmin(
+      req.params.templateId,
+      {
+        userId: req.userId,
+        userRole: req.userRole,
+      }
+    );
+    res.json(out);
   } catch (e) {
     next(e);
   }

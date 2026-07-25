@@ -556,6 +556,13 @@ export function validateOwnerCategoryCreate(body) {
   if (!isNonEmptyString(body.name, 120)) errors.push("name");
   if (body.sortOrder !== undefined && !Number.isInteger(Number(body.sortOrder))) errors.push("sortOrder");
   if (body.catalogType !== undefined && !catalogTypes.includes(body.catalogType)) errors.push("catalogType");
+  if (
+    body.publishGlobally !== undefined &&
+    body.publishGlobally !== null &&
+    typeof body.publishGlobally !== "boolean"
+  ) {
+    errors.push("publishGlobally");
+  }
 
   return { ok: errors.length === 0, errors };
 }

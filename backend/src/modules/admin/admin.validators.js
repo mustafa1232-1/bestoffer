@@ -289,6 +289,83 @@ export function validateStoreActivityUpsert(body, { requireCode = true } = {}) {
   };
 }
 
+export function validateStoreCatalogTemplateUpsert(body, { requireCode = true } = {}) {
+  const errors = [];
+  const activityType = normalizeCode(body?.activityType ?? body?.activity_type);
+  const code = normalizeCode(body?.code);
+  const nameEn = normalizeOptionalTrimmed(body?.nameEn ?? body?.name_en);
+  const nameAr = normalizeOptionalTrimmed(body?.nameAr ?? body?.name_ar);
+  const icon = normalizeOptionalTrimmed(body?.icon);
+  const catalogType = normalizeCode(body?.catalogType ?? body?.catalog_type) || "generic";
+  const orderIndexRaw = body?.orderIndex ?? body?.order_index;
+  const orderIndex =
+    orderIndexRaw === undefined || orderIndexRaw === null || orderIndexRaw === ""
+      ? 0
+      : Number(orderIndexRaw);
+  const isActive = parseOptionalBoolean(body?.isActive ?? body?.is_active);
+
+  if (requireCode && !isNonEmptyString(code, 120)) errors.push("code");
+  if (activityType != null && !isNonEmptyString(activityType, 80)) {
+    errors.push("activityType");
+  }
+  if (!isNonEmptyString(nameAr, 160)) errors.push("nameAr");
+  if (!isNonEmptyString(nameEn, 160)) errors.push("nameEn");
+  if (icon != null && icon.length > 80) errors.push("icon");
+  if (!Number.isInteger(orderIndex)) errors.push("orderIndex");
+  if (!isNonEmptyString(catalogType, 40)) errors.push("catalogType");
+  if (isActive !== null && typeof isActive !== "boolean") errors.push("isActive");
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      activityType,
+      code,
+      nameEn,
+      nameAr,
+      icon,
+      catalogType,
+      orderIndex: Number.isInteger(orderIndex) ? orderIndex : 0,
+      isActive: isActive !== false,
+    },
+  };
+}
+
+export function validateStoreCatalogTemplatePatch(body) {
+  const errors = [];
+  const value = {};
+  if (body?.code !== undefined) {
+    value.code = normalizeCode(body.code);
+    if (!isNonEmptyString(value.code, 120)) errors.push("code");
+  }
+  if (body?.nameEn !== undefined || body?.name_en !== undefined) {
+    value.nameEn = normalizeOptionalTrimmed(body.nameEn ?? body.name_en);
+    if (!isNonEmptyString(value.nameEn, 160)) errors.push("nameEn");
+  }
+  if (body?.nameAr !== undefined || body?.name_ar !== undefined) {
+    value.nameAr = normalizeOptionalTrimmed(body.nameAr ?? body.name_ar);
+    if (!isNonEmptyString(value.nameAr, 160)) errors.push("nameAr");
+  }
+  if (body?.icon !== undefined) {
+    value.icon = normalizeOptionalTrimmed(body.icon);
+    if (value.icon != null && value.icon.length > 80) errors.push("icon");
+  }
+  if (body?.catalogType !== undefined || body?.catalog_type !== undefined) {
+    value.catalogType = normalizeCode(body.catalogType ?? body.catalog_type) || "generic";
+    if (!isNonEmptyString(value.catalogType, 40)) errors.push("catalogType");
+  }
+  if (body?.orderIndex !== undefined || body?.order_index !== undefined) {
+    value.orderIndex = Number(body.orderIndex ?? body.order_index);
+    if (!Number.isInteger(value.orderIndex)) errors.push("orderIndex");
+  }
+  if (body?.isActive !== undefined || body?.is_active !== undefined) {
+    value.isActive = parseOptionalBoolean(body.isActive ?? body.is_active);
+    if (typeof value.isActive !== "boolean") errors.push("isActive");
+  }
+  if (Object.keys(value).length === 0) errors.push("body");
+  return { ok: errors.length === 0, errors, value };
+}
+
 export function validateListSocialUsersQuery(query) {
   const errors = [];
   const search = String(query?.search || "").trim();

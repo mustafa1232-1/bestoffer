@@ -980,6 +980,123 @@ class AdminController extends StateNotifier<AdminState> {
     }
   }
 
+  Future<List<dynamic>> adminStoreCatalogTemplates(String activityType) async {
+    try {
+      return await ref
+          .read(adminApiProvider)
+          .adminStoreCatalogTemplates(activityType);
+    } on DioException catch (e) {
+      state = state.copyWith(error: _mapError(e));
+      return const <dynamic>[];
+    } catch (_) {
+      state = state.copyWith(error: _adminText('store_activity_load_failed'));
+      return const <dynamic>[];
+    }
+  }
+
+  Future<bool> upsertStoreCatalogTemplate({
+    required String activityType,
+    required String code,
+    required String nameAr,
+    required String nameEn,
+    required String catalogType,
+    String? icon,
+    int orderIndex = 0,
+    bool isActive = true,
+  }) async {
+    state = state.copyWith(saving: true, error: null, success: null);
+    try {
+      await ref
+          .read(adminApiProvider)
+          .upsertStoreCatalogTemplate(
+            activityType: activityType,
+            code: code,
+            nameAr: nameAr,
+            nameEn: nameEn,
+            catalogType: catalogType,
+            icon: icon,
+            orderIndex: orderIndex,
+            isActive: isActive,
+          );
+      state = state.copyWith(
+        saving: false,
+        success: _adminText('store_activity_update_success'),
+      );
+      return true;
+    } on DioException catch (e) {
+      state = state.copyWith(saving: false, error: _mapError(e));
+      return false;
+    } catch (_) {
+      state = state.copyWith(
+        saving: false,
+        error: _adminText('store_activity_update_failed'),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> updateStoreCatalogTemplate({
+    required int templateId,
+    required String code,
+    required String nameAr,
+    required String nameEn,
+    required String catalogType,
+    String? icon,
+    required int orderIndex,
+    required bool isActive,
+  }) async {
+    state = state.copyWith(saving: true, error: null, success: null);
+    try {
+      await ref
+          .read(adminApiProvider)
+          .updateStoreCatalogTemplate(
+            templateId: templateId,
+            code: code,
+            nameAr: nameAr,
+            nameEn: nameEn,
+            catalogType: catalogType,
+            icon: icon,
+            orderIndex: orderIndex,
+            isActive: isActive,
+          );
+      state = state.copyWith(
+        saving: false,
+        success: _adminText('store_activity_update_success'),
+      );
+      return true;
+    } on DioException catch (e) {
+      state = state.copyWith(saving: false, error: _mapError(e));
+      return false;
+    } catch (_) {
+      state = state.copyWith(
+        saving: false,
+        error: _adminText('store_activity_update_failed'),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> deleteStoreCatalogTemplate(int templateId) async {
+    state = state.copyWith(saving: true, error: null, success: null);
+    try {
+      await ref.read(adminApiProvider).deleteStoreCatalogTemplate(templateId);
+      state = state.copyWith(
+        saving: false,
+        success: _adminText('store_activity_update_success'),
+      );
+      return true;
+    } on DioException catch (e) {
+      state = state.copyWith(saving: false, error: _mapError(e));
+      return false;
+    } catch (_) {
+      state = state.copyWith(
+        saving: false,
+        error: _adminText('store_activity_update_failed'),
+      );
+      return false;
+    }
+  }
+
   Future<bool> markPaymentRequestReceivedV2(
     int paymentRequestId, {
     String? reviewNote,

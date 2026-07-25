@@ -32,6 +32,11 @@ adminRouter.get("/orders/overview", c.adminOrdersOverview);
 adminRouter.get("/orders/overview/:merchantId", c.adminMerchantOrdersOverview);
 adminRouter.get("/merchants", c.merchants);
 adminRouter.get("/store-activities", requireAdmin, c.storeActivities);
+adminRouter.get(
+  "/store-activities/:activityType/catalog-templates",
+  requireAdmin,
+  c.storeCatalogTemplates
+);
 adminRouter.get("/merchants/pending", c.pendingMerchants);
 adminRouter.get("/delivery/pending", c.pendingDeliveryAccounts);
 adminRouter.get("/taxi-captains/pending", c.pendingTaxiCaptainAccounts);
@@ -209,10 +214,25 @@ adminRouter.post(
   c.revokeSocialRestriction
 );
 adminRouter.post("/store-activities", requireAdmin, c.upsertStoreActivity);
+adminRouter.post(
+  "/store-activities/:activityType/catalog-templates",
+  requireAdmin,
+  c.upsertStoreCatalogTemplate
+);
 adminRouter.patch(
   "/social-users/:userId/account-status",
   requireAdmin,
   c.setSocialUserAccountStatus
+);
+adminRouter.patch(
+  "/store-catalog-templates/:templateId",
+  requireAdmin,
+  c.updateStoreCatalogTemplate
+);
+adminRouter.delete(
+  "/store-catalog-templates/:templateId",
+  requireAdmin,
+  c.deleteStoreCatalogTemplate
 );
 adminRouter.patch(
   "/store-activities/:activityType",
