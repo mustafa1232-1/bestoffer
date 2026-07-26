@@ -73,7 +73,10 @@
 **الموجود:** شكاوى تاكسي (`taxi_captain_complaint` + loyalty)، شكاوى متفرقة في وحدات أخرى.
 **الناقص:** نظام تذاكر موحّد polymorphic (`entityType/entityId`)، حالات SLA، تصعيد، محادثة دعم، فصل الملاحظة الداخلية عن رسالة المستخدم، Order Revision/Amendment.
 
-### المرحلة 5 — تقييم الموظفين 🔴 (يعتمد على 4 و6).
+### المرحلة 5 — تقييم الموظفين ✅
+**ما نُفِّذ (commit مستقل):** migration 180 (`company_employee_review` لملاحظة المشرف + اعتراض الموظف). مقاييس **محسوبة من التذاكر والحضور** (لا تعتمد على العدد وحده): مستلمة/محلولة/مفتوحة/معاد فتحها، متوسط أول رد ووقت الحل، **نسبة تجاوز SLA**، **متوسط تقييم المستخدم** (جودة) + أيام الحضور والساعات. endpoints `/admin/evaluation/employees[/:userId]` + `POST .../review`، واعتراض الموظف عبر `/api/staff/reviews/:period/objection`. **تقييم المستخدم الأصلي يُقرأ فقط ولا يُعدَّل.** اختبارات (2/2). 
+
+> ⚠️ **دين تقني (يجب معالجته قبل النشر):** migration 172 عُدِّل بعد تطبيقه (أضاف جداول assignment/links/attachments/internal notes داخل نفس الملف)، لذا أي قاعدة طبّقت 172 القديم لن تحصل على الجداول الجديدة (المُشغِّل يتتبع بالاسم). الحل: migration جديد (181+) يعيد `CREATE TABLE IF NOT EXISTS` لتلك الجداول. عولج مؤقتاً في QA بإعادة تطبيق 172 (idempotent).
 ### المرحلة 6 — إدارة الموظفين ✅ (موظفو الشركة + عزل المجتمع)
 **ما نُفِّذ (commit مستقل):** وحدة `employees` لموظفي مسلكي (منفصلة عن HR المتاجر `merchant_*`): `company_employee_profile` + تصنيفات الأقسام (delivery/customer_service/hr/monitoring/accounting/marketing/management/tech) + `company_salary_contract` بتاريخ سريان (لا يُستبدل القديم) — migration 178. **عزل هوية الموظف عن المجتمع في Backend**: `app_user.is_internal_staff` + فلترة في استعلامات اكتشاف/بحث المجتمع (`feed.discovery.repo`, `feed.repo`). endpoints `/admin/employees*` خلف `employees.read/create/update` وراتب خلف `employees.salary.read/update` مع تدقيق. اختبارات (3/3 — منها إثبات إخفاء الموظف من بحث المجتمع). **المتبقي:** ملف موظف موحّد أعمق (يجمع التذاكر/الحضور/الأداء) يتكامل مع 5 و7.
 

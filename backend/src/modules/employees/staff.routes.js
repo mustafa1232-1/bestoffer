@@ -19,3 +19,5 @@ staffRouter.get("/expenses/mine", staff.myExpenses);
 
 staffRouter.get("/payslips/mine", staff.myPayslips);
 staffRouter.post("/payslips/:runId/acknowledge", staff.acknowledgePayslip);
+
+staffRouter.post("/reviews/:period/objection", staff.objectToReview);

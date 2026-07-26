@@ -15,6 +15,7 @@ import * as settings from "../settings/settings.controller.js";
 import * as support from "../support/support.controller.js";
 import * as employees from "../employees/employees.controller.js";
 import * as hradmin from "../employees/hradmin.controller.js";
+import * as evaluation from "../employees/evaluation.controller.js";
 import * as orderRevisions from "../orders/order-revisions.controller.js";
 
 export const adminRouter = Router();
@@ -389,6 +390,23 @@ adminRouter.post(
   "/payroll/runs/:runId/archive",
   requirePermission("payroll.review"),
   hradmin.archiveRun
+);
+
+// تقييم الموظفين (المرحلة 5) — مقاييس محسوبة من التذاكر والحضور.
+adminRouter.get(
+  "/evaluation/employees",
+  requirePermission("employees.read"),
+  evaluation.listEvaluation
+);
+adminRouter.get(
+  "/evaluation/employees/:userId",
+  requirePermission("employees.read"),
+  evaluation.getEvaluation
+);
+adminRouter.post(
+  "/evaluation/employees/:userId/review",
+  requirePermission("employees.update"),
+  evaluation.upsertReview
 );
 
 // إدارة الصلاحيات الدقيقة (RBAC).

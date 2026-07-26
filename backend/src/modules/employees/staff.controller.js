@@ -7,6 +7,7 @@
 import { AppError } from "../../shared/utils/errors.js";
 import * as attendance from "./attendance.repo.js";
 import * as payroll from "./payroll.repo.js";
+import * as evaluation from "./evaluation.repo.js";
 import { getEmployeeByUserId } from "./employees.repo.js";
 
 const EXPENSE_CATEGORIES = ["food", "transport", "communication", "work_task", "other"];
@@ -113,6 +114,29 @@ export async function myPayslips(req, res, next) {
     await assertEmployee(req.userId);
     const rows = await payroll.listItemsForEmployee({ employeeUserId: req.userId });
     return res.json({ items: rows });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function objectToReview(req, res, next) {
+  try {
+    await assertEmployee(req.userId);
+    const p = String(req.params?.period || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(p)) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: ["period"] });
+    }
+    const text = typeof req.body?.objectionText === "string" ? req.body.objectionText.trim() : "";
+    if (!text) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: ["objectionText"] });
+    }
+    const result = await evaluation.addObjection({
+      employeeUserId: req.userId,
+      period: p,
+      objectionText: text,
+    });
+    if (result.code !== "OK") throw new AppError("REVIEW_NOT_FOUND", { status: 404 });
+    return res.json({ review: result.review });
   } catch (error) {
     return next(error);
   }
