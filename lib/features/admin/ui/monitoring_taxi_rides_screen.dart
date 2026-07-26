@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/locale_text.dart';
 import '../state/admin_controller.dart';
+import 'monitoring_detail_screen.dart';
 
 /// قائمة الرحلات المُصفّحة خادمياً (المرحلة 3) — deep link من بطاقة التاكسي.
 class MonitoringTaxiRidesScreen extends ConsumerStatefulWidget {
@@ -45,7 +46,9 @@ class _MonitoringTaxiRidesScreenState
       _error = null;
     });
     try {
-      final data = await ref.read(adminApiProvider).monitoringTaxiRides(
+      final data = await ref
+          .read(adminApiProvider)
+          .monitoringTaxiRides(
             status: _status,
             limit: _pageSize,
             offset: _offset,
@@ -131,22 +134,39 @@ class _MonitoringTaxiRidesScreenState
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _items.isEmpty
-                    ? MaslakiEmptyState(
-                        icon: Icons.local_taxi_outlined,
-                        title: context.lt(ar: 'لا توجد رحلات', en: 'No rides'),
-                        body: context.lt(
-                          ar: 'لا توجد رحلات مطابقة للفلتر الحالي.',
-                          en: 'No rides match the current filter.',
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.all(MaslakiSpacing.md),
-                        itemCount: _items.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(height: MaslakiSpacing.sm),
-                        itemBuilder: (context, index) =>
-                            _RideTile(ride: _items[index]),
-                      ),
+                ? MaslakiEmptyState(
+                    icon: Icons.local_taxi_outlined,
+                    title: context.lt(ar: 'لا توجد رحلات', en: 'No rides'),
+                    body: context.lt(
+                      ar: 'لا توجد رحلات مطابقة للفلتر الحالي.',
+                      en: 'No rides match the current filter.',
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(MaslakiSpacing.md),
+                    itemCount: _items.length,
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(height: MaslakiSpacing.sm),
+                    itemBuilder: (context, index) {
+                      final ride = _items[index];
+                      final id = _toInt(ride['id']);
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: id <= 0
+                            ? null
+                            : () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => MonitoringDetailScreen(
+                                          mode: MonitoringDetailMode.taxiRide,
+                                          id: id,
+                                          title: 'Ride #$id',
+                                        ),
+                                ),
+                              ),
+                        child: _RideTile(ride: ride),
+                      );
+                    },
+                  ),
           ),
           _Pager(
             offset: _offset,
@@ -155,8 +175,9 @@ class _MonitoringTaxiRidesScreenState
             loading: _loading,
             onPrev: _offset > 0
                 ? () {
-                    setState(() => _offset =
-                        (_offset - _pageSize).clamp(0, _offset));
+                    setState(
+                      () => _offset = (_offset - _pageSize).clamp(0, _offset),
+                    );
                     _load();
                   }
                 : null,
@@ -189,6 +210,12 @@ class _MonitoringTaxiRidesScreenState
       default:
         return status;
     }
+  }
+
+  int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse('${value ?? ''}') ?? 0;
   }
 }
 

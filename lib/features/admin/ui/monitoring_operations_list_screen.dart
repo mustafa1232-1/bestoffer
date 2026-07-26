@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/locale_text.dart';
 import '../state/admin_controller.dart';
+import 'monitoring_detail_screen.dart';
 
 enum MonitoringOperationsMode {
   orders,
@@ -174,6 +175,59 @@ class _MonitoringOperationsListScreenState
       _offset = 0;
     });
     _load();
+  }
+
+  void _openDetail(Map<String, dynamic> item) {
+    final id = _detailId(item);
+    if (id == null || id <= 0) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MonitoringDetailScreen(
+          mode: _detailMode,
+          id: id,
+          title: _detailTitle(item, id),
+        ),
+      ),
+    );
+  }
+
+  MonitoringDetailMode get _detailMode {
+    return switch (widget.mode) {
+      MonitoringOperationsMode.delivery => MonitoringDetailMode.deliveryCourier,
+      MonitoringOperationsMode.services => MonitoringDetailMode.serviceRequest,
+      MonitoringOperationsMode.realEstate =>
+        MonitoringDetailMode.realEstateListing,
+      MonitoringOperationsMode.cars => MonitoringDetailMode.carListing,
+      MonitoringOperationsMode.jobs => MonitoringDetailMode.job,
+      MonitoringOperationsMode.community => MonitoringDetailMode.communityUser,
+      MonitoringOperationsMode.orders => MonitoringDetailMode.order,
+    };
+  }
+
+  int? _detailId(Map<String, dynamic> item) {
+    final value = widget.mode == MonitoringOperationsMode.delivery
+        ? item['user_id']
+        : item['id'];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse('${value ?? ''}');
+  }
+
+  String _detailTitle(Map<String, dynamic> item, int id) {
+    final rawTitle = switch (widget.mode) {
+      MonitoringOperationsMode.delivery => item['full_name'],
+      MonitoringOperationsMode.services =>
+        item['offering_name'] ?? item['request_code'],
+      MonitoringOperationsMode.realEstate => item['title'],
+      MonitoringOperationsMode.cars =>
+        '${item['brand'] ?? ''} ${item['model'] ?? ''}',
+      MonitoringOperationsMode.jobs => item['title'],
+      MonitoringOperationsMode.community =>
+        item['full_name'] ?? item['username'],
+      MonitoringOperationsMode.orders => null,
+    };
+    final title = '${rawTitle ?? ''}'.trim();
+    return title.isNotEmpty ? title : '${_title(context)} #$id';
   }
 
   String _title(BuildContext context) {
@@ -351,7 +405,7 @@ class _MonitoringOperationsListScreenState
                           const SizedBox(height: MaslakiSpacing.sm),
                       itemBuilder: (context, index) {
                         final item = _items[index];
-                        return switch (widget.mode) {
+                        final child = switch (widget.mode) {
                           MonitoringOperationsMode.delivery => _CourierTile(
                             item: item,
                           ),
@@ -369,6 +423,11 @@ class _MonitoringOperationsListScreenState
                             item: item,
                           ),
                         };
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _openDetail(item),
+                          child: child,
+                        );
                       },
                     ),
                   ),

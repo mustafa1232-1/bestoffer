@@ -260,6 +260,160 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> monitoringTaxiRideDetail(
+    int rideId, {
+    bool includeLive = false,
+    bool includeMessages = false,
+    String? reason,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/taxi/rides/$rideId',
+      queryParameters: {
+        if (includeLive) 'includeLive': true,
+        if (includeMessages) 'includeMessages': true,
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringOrderDetail(
+    int orderId, {
+    bool includePhone = false,
+    String? reason,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/orders/$orderId',
+      queryParameters: {
+        if (includePhone) 'includePhone': true,
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringDeliveryCourierDetail(
+    int courierId, {
+    bool includePhone = false,
+    String? reason,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/delivery/couriers/$courierId',
+      queryParameters: {
+        if (includePhone) 'includePhone': true,
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringServiceRequestDetail(
+    int requestId, {
+    bool includeMessages = false,
+    String? reason,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/services/requests/$requestId',
+      queryParameters: {
+        if (includeMessages) 'includeMessages': true,
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringRealEstateListingDetail(
+    int listingId, {
+    bool includeContact = false,
+    String? reason,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/real-estate/listings/$listingId',
+      queryParameters: {
+        if (includeContact) 'includeContact': true,
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringCarListingDetail(
+    int listingId, {
+    bool includeContact = false,
+    String? reason,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/cars/listings/$listingId',
+      queryParameters: {
+        if (includeContact) 'includeContact': true,
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringJobDetail(int jobId) async {
+    final response = await dio.get('/api/admin/monitoring/jobs/$jobId');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringJobApplications(
+    int jobId, {
+    String? status,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/jobs/$jobId/applications',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringJobApplicationDetail(
+    int applicationId,
+  ) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/jobs/applications/$applicationId',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringCommunityUserDetail(int userId) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/community/users/$userId',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringCommunityUserContent(
+    int userId, {
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/community/users/$userId/content',
+      queryParameters: {'limit': limit, 'offset': offset},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringCommunityUserReports(
+    int userId, {
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/community/users/$userId/reports',
+      queryParameters: {'limit': limit, 'offset': offset},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> myPermissions() async {
     final response = await dio.get('/api/admin/me/permissions');
     return Map<String, dynamic>.from(response.data as Map);
