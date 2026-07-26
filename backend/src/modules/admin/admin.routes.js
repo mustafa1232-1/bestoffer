@@ -14,6 +14,7 @@ import * as monitoring from "./monitoring.controller.js";
 import * as settings from "../settings/settings.controller.js";
 import * as support from "../support/support.controller.js";
 import * as employees from "../employees/employees.controller.js";
+import * as hradmin from "../employees/hradmin.controller.js";
 import * as orderRevisions from "../orders/order-revisions.controller.js";
 
 export const adminRouter = Router();
@@ -334,6 +335,60 @@ adminRouter.put(
   "/employees/:userId/salary",
   requirePermission("employees.salary.update"),
   employees.updateSalary
+);
+
+// الحضور والمصاريف (المرحلة 7).
+adminRouter.get("/attendance", requirePermission("attendance.read"), hradmin.listAttendance);
+adminRouter.post(
+  "/attendance/:attendanceId/correct",
+  requirePermission("attendance.approve"),
+  hradmin.correctAttendance
+);
+adminRouter.get("/expenses", requirePermission("attendance.read"), hradmin.listExpenses);
+adminRouter.post(
+  "/expenses/:expenseId/review",
+  requirePermission("attendance.approve"),
+  hradmin.reviewExpense
+);
+
+// دورة الرواتب (المرحلة 7) — صلاحية مستقلة لكل مرحلة.
+adminRouter.get("/payroll/runs", requirePermission("employees.salary.read"), hradmin.listRuns);
+adminRouter.post("/payroll/runs", requirePermission("payroll.prepare"), hradmin.createRun);
+adminRouter.get("/payroll/runs/:runId", requirePermission("employees.salary.read"), hradmin.getRun);
+adminRouter.post(
+  "/payroll/runs/:runId/calculate",
+  requirePermission("payroll.prepare"),
+  hradmin.calculateRun
+);
+adminRouter.post(
+  "/payroll/runs/:runId/submit",
+  requirePermission("payroll.review"),
+  hradmin.submitRunForReview
+);
+adminRouter.post(
+  "/payroll/runs/:runId/approve",
+  requirePermission("payroll.approve"),
+  hradmin.approveRun
+);
+adminRouter.post(
+  "/payroll/runs/:runId/release",
+  requirePermission("payroll.release"),
+  hradmin.releaseRun
+);
+adminRouter.post(
+  "/payroll/runs/:runId/mark-paid",
+  requirePermission("payroll.mark_paid"),
+  hradmin.markRunPaid
+);
+adminRouter.post(
+  "/payroll/runs/:runId/acknowledge",
+  requirePermission("payroll.review"),
+  hradmin.acknowledgeRun
+);
+adminRouter.post(
+  "/payroll/runs/:runId/archive",
+  requirePermission("payroll.review"),
+  hradmin.archiveRun
 );
 
 // إدارة الصلاحيات الدقيقة (RBAC).

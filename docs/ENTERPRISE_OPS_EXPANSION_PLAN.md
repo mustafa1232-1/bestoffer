@@ -81,7 +81,8 @@
 **الموجود:** وحدة `hr` كاملة (controller/repo/service/routes/validators)، migration `036_hr_leave_and_salary_actions.sql`.
 **الناقص:** تصنيفات وظائف، فصل هوية الموظف الإدارية عن الاجتماعية (`isInternalStaff` + إخفاء backend)، ملف موظف موحّد.
 
-### المرحلة 7 — الحضور والرواتب 🟡
+### المرحلة 7 — الحضور والرواتب ✅ (لموظفي الشركة)
+**ما نُفِّذ (commit مستقل):** migration 179. **حضور** بوقت الخادم (Asia/Baghdad) مع فهرس فريد جزئي يمنع جلستين مفتوحتين + لا خروج بلا حضور + تصحيح إداري بسبب. **مصاريف/إضافات** (طعام/نقل/اتصال/مهمة) بحالات submitted→approved/rejected→included_in_payroll. **دورة رواتب** كاملة `DRAFT→CALCULATED→UNDER_REVIEW→APPROVED→RELEASED→PAID→ACKNOWLEDGED→ARCHIVED` (state machine + منع التعديل بعد الأرشفة) مع الحساب من الراتب الأساسي + المصاريف المعتمدة، **مبدأ المُراجِع الثاني** (لا يوافق مَن قدّم)، وأختام الفاعل لكل مرحلة. خدمة ذاتية للموظف (`/api/staff/*`) + إدارة (`/admin/attendance|expenses|payroll/*`) بصلاحية مستقلة لكل مرحلة (payroll.prepare/review/approve/release/mark_paid). اختبارات: 3 نقية + 2 DB (منها منع الحضور المزدوج ومبدأ فصل المهام). **المتبقي:** PDF/Excel لكشف الراتب (البيانات جاهزة عبر الـendpoints)؛ الورديات/العطل التفصيلية؛ مراجعة الضرائب العراقية مع محاسب (configurable).
 **الموجود:** بذور HR (إجازات/رواتب في 036)، `accountant` module.
 **الناقص:** حضور/خروج بوقت الخادم (`Asia/Baghdad`)، إضافات/مصاريف، دورة راتب `DRAFT→...→ARCHIVED` بمراجعة ومصادقة، PDF/Excel.
 
