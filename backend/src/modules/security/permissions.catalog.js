@@ -23,6 +23,9 @@ export const PERMISSION_KEYS = Object.freeze([
   "orders.read",
   "orders.modify",
   "orders.cancel",
+  "orders.revisions.create",
+  "orders.revisions.submit",
+  "orders.revisions.apply",
   "orders.refund",
   "orders.messages.read",
 
@@ -130,6 +133,9 @@ export const ROLE_TEMPLATES = Object.freeze({
     "orders.read",
     "orders.modify",
     "orders.cancel",
+    "orders.revisions.create",
+    "orders.revisions.submit",
+    "orders.revisions.apply",
     "services.read",
     "real_estate.read",
     "cars.read",
@@ -158,6 +164,8 @@ export const ROLE_TEMPLATES = Object.freeze({
   order_monitoring: [
     "dashboard.command_center.view",
     "orders.read",
+    "orders.revisions.create",
+    "orders.revisions.submit",
     "orders.messages.read",
     "support.tickets.read",
   ],
@@ -165,6 +173,8 @@ export const ROLE_TEMPLATES = Object.freeze({
   delivery_monitoring: [
     "dashboard.command_center.view",
     "orders.read",
+    "orders.revisions.create",
+    "orders.revisions.submit",
     "support.tickets.read",
   ],
 
@@ -192,6 +202,8 @@ export const ROLE_TEMPLATES = Object.freeze({
     "support.tickets.resolve",
     "taxi.rides.read",
     "orders.read",
+    "orders.revisions.create",
+    "orders.revisions.submit",
   ],
 
   call_center_supervisor: [
@@ -206,6 +218,9 @@ export const ROLE_TEMPLATES = Object.freeze({
     "taxi.rides.track_live",
     "taxi.rides.emergency_cancel",
     "orders.read",
+    "orders.revisions.create",
+    "orders.revisions.submit",
+    "orders.revisions.apply",
     "reports.export",
   ],
 

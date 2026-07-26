@@ -13,6 +13,7 @@ import * as auditCtrl from "../security/audit.controller.js";
 import * as monitoring from "./monitoring.controller.js";
 import * as settings from "../settings/settings.controller.js";
 import * as support from "../support/support.controller.js";
+import * as orderRevisions from "../orders/order-revisions.controller.js";
 
 export const adminRouter = Router();
 
@@ -121,6 +122,16 @@ adminRouter.get(
   requirePermission("support.tickets.read"),
   support.adminGetTicket
 );
+adminRouter.get(
+  "/support/tickets/:ticketId/order-revisions",
+  requirePermission("orders.read"),
+  orderRevisions.adminListForTicket
+);
+adminRouter.post(
+  "/support/tickets/:ticketId/order-revisions",
+  requirePermission("orders.revisions.create"),
+  orderRevisions.adminCreateFromTicket
+);
 adminRouter.post(
   "/support/tickets/:ticketId/assign",
   requirePermission("support.tickets.assign"),
@@ -155,6 +166,26 @@ adminRouter.post(
   "/support/tickets/:ticketId/escalate",
   requirePermission("support.tickets.escalate"),
   support.adminEscalate
+);
+adminRouter.get(
+  "/orders/:orderId/revisions/:revisionId",
+  requirePermission("orders.read"),
+  orderRevisions.adminGetRevision
+);
+adminRouter.patch(
+  "/orders/:orderId/revisions/:revisionId",
+  requirePermission("orders.modify"),
+  orderRevisions.adminPatchRevision
+);
+adminRouter.post(
+  "/orders/:orderId/revisions/:revisionId/submit",
+  requirePermission("orders.revisions.submit"),
+  orderRevisions.adminSubmitRevision
+);
+adminRouter.post(
+  "/orders/:orderId/revisions/:revisionId/apply",
+  requirePermission("orders.revisions.apply"),
+  orderRevisions.adminApplyRevision
 );
 
 // إدارة الصلاحيات الدقيقة (RBAC).

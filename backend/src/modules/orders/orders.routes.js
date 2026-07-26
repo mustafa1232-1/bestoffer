@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as c from "./orders.controller.js";
+import * as revisions from "./order-revisions.controller.js";
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireCustomer } from "../../shared/middleware/customer.middleware.js";
 import { imageUpload } from "../../shared/utils/upload.js";
@@ -47,6 +48,16 @@ ordersRouter.post(
   "/:orderId/confirm-delivered",
   requireCustomer,
   c.confirmDelivered
+);
+ordersRouter.post(
+  "/:orderId/revisions/:revisionId/customer-approve",
+  requireCustomer,
+  revisions.customerApprove
+);
+ordersRouter.post(
+  "/:orderId/revisions/:revisionId/reject",
+  requireCustomer,
+  revisions.rejectRevision
 );
 ordersRouter.post("/:orderId/rate-delivery", requireCustomer, c.rateDelivery);
 ordersRouter.post("/:orderId/rate-merchant", requireCustomer, c.rateMerchant);

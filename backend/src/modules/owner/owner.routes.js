@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as c from "./owner.controller.js";
+import * as revisions from "../orders/order-revisions.controller.js";
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireOwner } from "../../shared/middleware/owner.middleware.js";
 import { requireSignedRequest } from "../../shared/middleware/request-signing.middleware.js";
@@ -75,6 +76,14 @@ ownerRouter.get("/orders/history", c.listOrderHistory);
 ownerRouter.patch("/orders/:orderId/status", c.updateOrderStatus);
 ownerRouter.patch("/orders/:orderId/assign-delivery", c.assignDelivery);
 ownerRouter.patch("/orders/:orderId/items/:productId/unavailable", c.markOrderItemUnavailable);
+ownerRouter.post(
+  "/orders/:orderId/revisions/:revisionId/merchant-approve",
+  revisions.merchantApprove
+);
+ownerRouter.post(
+  "/orders/:orderId/revisions/:revisionId/reject",
+  revisions.rejectRevision
+);
 ownerRouter.get("/analytics", c.analytics);
 ownerRouter.get("/orders/print-report", c.printOrdersReport);
 ownerRouter.get("/settlements/summary", c.settlementSummary);
