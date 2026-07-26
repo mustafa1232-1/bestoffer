@@ -19,6 +19,7 @@ import 'admin_ad_board_screen.dart';
 import 'admin_audit_log_screen.dart';
 import 'admin_support_settings_screen.dart';
 import 'command_center_screen.dart';
+import '../../guides/ui/app_guide_screen.dart';
 import 'admin_companies_screen.dart';
 import 'admin_competitions_screen.dart';
 import 'admin_crash_error_center_screen.dart';
@@ -656,6 +657,16 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           ),
           group: groupOrders,
           onTap: (_) => _openPage(const AdminSupportTicketsScreen()),
+        ),
+        AppUserDrawerItem(
+          icon: Icons.menu_book_rounded,
+          label: navText(ar: 'دليل الاستخدام', en: 'Usage guide'),
+          subtitle: navText(
+            ar: 'دليل الإدارة حسب صلاحياتك',
+            en: 'Admin guide filtered by your permissions',
+          ),
+          group: groupSystem,
+          onTap: (_) => _openPage(const AppGuideScreen(appScope: 'admin')),
         ),
         AppUserDrawerItem(
           icon: Icons.support_agent_rounded,

@@ -565,6 +565,15 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  /// دليل الاستخدام حسب نطاق التطبيق (scope-aware؛ يُصفّى حسب صلاحيات الموظف).
+  Future<Map<String, dynamic>> fetchGuide(String appScope) async {
+    final response = await dio.get(
+      '/api/guides',
+      queryParameters: {'appScope': appScope},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   /// إعدادات رقم الدعم المركزي (عرض إداري).
   Future<Map<String, dynamic>> getSupportContact() async {
     final response = await dio.get('/api/admin/settings/support');

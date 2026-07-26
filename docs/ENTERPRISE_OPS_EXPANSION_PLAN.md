@@ -97,7 +97,8 @@
 **الموجود:** `packages/core_design_system`، `UNIFIED_IDENTITY_AND_DESIGN_SYSTEM.md`.
 **الناقص:** 3 ثيمات (الأصلي/الشفق/المرجاني) عبر semantic tokens + `ThemeExtension`، حفظ/مزامنة الاختيار، preview، Golden tests.
 
-### المرحلة 10 — أدلة الاستخدام لكل تطبيق 🔴 (versioned + scope-aware).
+### المرحلة 10 — أدلة الاستخدام لكل تطبيق ✅
+**ما نُفِّذ (commit مستقل):** migration 182 (`app_guide_section` versioned + scope-aware + بذور محتوى حقيقي لكل تطبيق). `GET /api/guides?appScope=` (optionalAuth): يعيد أقسام النطاق فقط، وفي نطاق الإدارة **يُصفّي الأقسام حسب صلاحيات الموظف** (لا يعرض خطوة لمسار غير متاح)؛ خارج الإدارة لا يكشف الأقسام المقيّدة. إدارة المحتوى `GET/POST /admin/guides` خلف `settings.guides.manage` مع تدقيق. واجهة Flutter: `AppGuideScreen` قابلة لإعادة الاستخدام (بحث + طيّ الأقسام) + مدخل في تطبيق الإدارة بنطاق admin. اختبارات (4/4 — منها إخفاء/إظهار قسم حسب المنح). **المتبقي:** ربط الشاشة في التطبيقات الأربعة الأخرى بنطاقها، وcache دون اتصال بعد أول تحميل، وdeep links للشاشات.
 ### المرحلة 11 — سجل التدقيق والخصوصية ✅ (أساس منفّذ)
 **ما نُفِّذ (commit مستقل):** توحيد على جدول `admin_audit_event` (بلا جدول موازٍ) — migration 170 يضيف `reason/result/permission_key/ip_address/session_id/ticket_id/before_json/after_json` + فهارس بحث. `recordAudit(...)` best-effort مع **إخفاء الحقول الحساسة** (pin/password/token/secret/card/iban...) في before/after، `auditContextFromReq`, و`searchAuditEvents` (بحث بالفاعل/المورد/الفعل/التاريخ + pagination). endpoint `GET /admin/audit/events` خلف `audit.read` (وقراءته تُسجَّل). ربط تسجيل الأفعال الحساسة: الإلغاء الطارئ للتاكسي، قراءة صلاحيات موظف. اختبارات (3/3). **المتبقي:** ربط بقية القراءات الحساسة (محادثات/سير/رواتب/مواقع حية) مع مراحلها، تنبيهات النشاط المشبوه، سياسة الاحتفاظ.
 ### المرحلة 12 — الاختبارات والأمان: Authorization Matrix آلية موسّعة.

@@ -16,6 +16,7 @@ import * as support from "../support/support.controller.js";
 import * as employees from "../employees/employees.controller.js";
 import * as hradmin from "../employees/hradmin.controller.js";
 import * as evaluation from "../employees/evaluation.controller.js";
+import * as guides from "../guides/guides.controller.js";
 import * as orderRevisions from "../orders/order-revisions.controller.js";
 
 export const adminRouter = Router();
@@ -407,6 +408,18 @@ adminRouter.post(
   "/evaluation/employees/:userId/review",
   requirePermission("employees.update"),
   evaluation.upsertReview
+);
+
+// إدارة أدلة الاستخدام (المرحلة 10).
+adminRouter.get(
+  "/guides",
+  requirePermission("settings.guides.manage"),
+  guides.adminListSections
+);
+adminRouter.post(
+  "/guides",
+  requirePermission("settings.guides.manage"),
+  guides.upsertSection
 );
 
 // إدارة الصلاحيات الدقيقة (RBAC).
