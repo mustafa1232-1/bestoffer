@@ -168,6 +168,18 @@ class _MonitoringCard extends StatelessWidget {
         return const MonitoringOperationsListScreen(
           mode: MonitoringOperationsMode.delivery,
         );
+      case 'services':
+        return const MonitoringOperationsListScreen(
+          mode: MonitoringOperationsMode.services,
+        );
+      case 'real_estate':
+        return const MonitoringOperationsListScreen(
+          mode: MonitoringOperationsMode.realEstate,
+        );
+      case 'cars':
+        return const MonitoringOperationsListScreen(
+          mode: MonitoringOperationsMode.cars,
+        );
       default:
         return null;
     }
@@ -176,7 +188,9 @@ class _MonitoringCard extends StatelessWidget {
   bool _isAlertCounter(String key) {
     return key == 'openEmergencies' ||
         key == 'cancelledToday' ||
-        key == 'needsAttention';
+        key == 'needsAttention' ||
+        key == 'delayed' ||
+        key == 'openTickets';
   }
 
   String _counterLabel(BuildContext context, String key) {
@@ -191,6 +205,20 @@ class _MonitoringCard extends StatelessWidget {
         return context.lt(ar: 'مكتملة اليوم', en: 'Completed today');
       case 'openEmergencies':
         return context.lt(ar: 'طوارئ مفتوحة', en: 'Open emergencies');
+      case 'delayed':
+        return context.lt(ar: 'متأخرة', en: 'Delayed');
+      case 'needsAttention':
+        return context.lt(ar: 'تحتاج تدخلاً', en: 'Needs attention');
+      case 'openTickets':
+        return context.lt(ar: 'تذاكر مفتوحة', en: 'Open tickets');
+      case 'available':
+        return context.lt(ar: 'متاحون', en: 'Available');
+      case 'onlineFresh':
+        return context.lt(ar: 'متصل حديثاً', en: 'Fresh online');
+      case 'pendingNoDriver':
+        return context.lt(ar: 'بلا دلفري', en: 'No courier');
+      case 'deliveriesToday':
+        return context.lt(ar: 'توصيلات اليوم', en: 'Deliveries today');
       default:
         return key;
     }

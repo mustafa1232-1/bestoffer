@@ -108,6 +108,21 @@ adminRouter.get(
   requirePermission("orders.read"),
   monitoring.deliveryCouriers
 );
+adminRouter.get(
+  "/monitoring/services/requests",
+  requirePermission("services.read"),
+  monitoring.serviceRequests
+);
+adminRouter.get(
+  "/monitoring/real-estate/listings",
+  requirePermission("real_estate.read"),
+  monitoring.realEstateListings
+);
+adminRouter.get(
+  "/monitoring/cars/listings",
+  requirePermission("cars.read"),
+  monitoring.carListings
+);
 
 // إعدادات الدعم المركزية (المرحلة 8).
 adminRouter.get(

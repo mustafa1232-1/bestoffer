@@ -162,6 +162,66 @@ class AdminApi {
   }
 
   /// الصلاحيات الفعّالة للموظف الحالي (لبناء القائمة). الفرض دائماً في الخادم.
+  Future<Map<String, dynamic>> monitoringServiceRequests({
+    String? status,
+    String? search,
+    String? region,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/services/requests',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+        if ((region ?? '').trim().isNotEmpty) 'region': region!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringRealEstateListings({
+    String? status,
+    String? search,
+    String? region,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/real-estate/listings',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+        if ((region ?? '').trim().isNotEmpty) 'region': region!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringCarListings({
+    String? status,
+    String? search,
+    String? region,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/cars/listings',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+        if ((region ?? '').trim().isNotEmpty) 'region': region!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> myPermissions() async {
     final response = await dio.get('/api/admin/me/permissions');
     return Map<String, dynamic>.from(response.data as Map);

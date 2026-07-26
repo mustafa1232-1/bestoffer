@@ -36,9 +36,30 @@ const CARD_DEFS = [
     detailPath: "/admin/monitoring/delivery/couriers",
     counters: () => monitoringRepo.getDeliveryMonitoringCounters(),
   },
-  { key: "services", title: "متابعة الخدمات", permission: "services.read", wired: false },
-  { key: "real_estate", title: "متابعة العقارات", permission: "real_estate.read", wired: false },
-  { key: "cars", title: "متابعة السيارات", permission: "cars.read", wired: false },
+  {
+    key: "services",
+    title: "متابعة الخدمات",
+    permission: "services.read",
+    wired: true,
+    detailPath: "/admin/monitoring/services/requests",
+    counters: () => monitoringRepo.getServiceMonitoringCounters(),
+  },
+  {
+    key: "real_estate",
+    title: "متابعة العقارات",
+    permission: "real_estate.read",
+    wired: true,
+    detailPath: "/admin/monitoring/real-estate/listings",
+    counters: () => monitoringRepo.getRealEstateMonitoringCounters(),
+  },
+  {
+    key: "cars",
+    title: "متابعة السيارات",
+    permission: "cars.read",
+    wired: true,
+    detailPath: "/admin/monitoring/cars/listings",
+    counters: () => monitoringRepo.getCarMonitoringCounters(),
+  },
   { key: "jobs", title: "متابعة الوظائف", permission: "jobs.read", wired: false },
   { key: "community", title: "متابعة المجتمع", permission: "community.users.read", wired: false },
   { key: "tickets", title: "الشكاوى والتذاكر", permission: "support.tickets.read", wired: false },
@@ -158,6 +179,9 @@ function readListQuery(req) {
   const deliveryUserId = req.query?.deliveryUserId
     ? Number(req.query.deliveryUserId)
     : null;
+  const providerUserId = req.query?.providerUserId
+    ? Number(req.query.providerUserId)
+    : null;
 
   return {
     status,
@@ -171,6 +195,7 @@ function readListQuery(req) {
     merchantId,
     userId,
     deliveryUserId,
+    providerUserId,
   };
 }
 
@@ -219,6 +244,90 @@ export async function deliveryCouriers(req, res, next) {
       permissionKey: "orders.read",
     });
     const out = await monitoringRepo.listCouriersForMonitoring({
+      ...query,
+      from: query.from ? query.from.toISOString() : null,
+      to: query.to ? query.to.toISOString() : null,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function serviceRequests(req, res, next) {
+  try {
+    const query = readListQuery(req);
+    if (!validateListDates(query, res)) return;
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "monitoring.services.requests.read",
+      summary: "عرض متابعة طلبات الخدمات",
+      targetType: "service_requests",
+      metadata: {
+        status: query.status,
+        region: query.region,
+        limit: query.limit,
+        offset: query.offset,
+      },
+      permissionKey: "services.read",
+    });
+    const out = await monitoringRepo.listServiceRequestsForMonitoring({
+      ...query,
+      from: query.from ? query.from.toISOString() : null,
+      to: query.to ? query.to.toISOString() : null,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function realEstateListings(req, res, next) {
+  try {
+    const query = readListQuery(req);
+    if (!validateListDates(query, res)) return;
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "monitoring.real_estate.listings.read",
+      summary: "عرض متابعة إعلانات العقارات",
+      targetType: "real_estate_listing",
+      metadata: {
+        status: query.status,
+        region: query.region,
+        limit: query.limit,
+        offset: query.offset,
+      },
+      permissionKey: "real_estate.read",
+    });
+    const out = await monitoringRepo.listRealEstateListingsForMonitoring({
+      ...query,
+      from: query.from ? query.from.toISOString() : null,
+      to: query.to ? query.to.toISOString() : null,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function carListings(req, res, next) {
+  try {
+    const query = readListQuery(req);
+    if (!validateListDates(query, res)) return;
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "monitoring.cars.listings.read",
+      summary: "عرض متابعة إعلانات السيارات",
+      targetType: "car_listing",
+      metadata: {
+        status: query.status,
+        region: query.region,
+        limit: query.limit,
+        offset: query.offset,
+      },
+      permissionKey: "cars.read",
+    });
+    const out = await monitoringRepo.listCarListingsForMonitoring({
       ...query,
       from: query.from ? query.from.toISOString() : null,
       to: query.to ? query.to.toISOString() : null,

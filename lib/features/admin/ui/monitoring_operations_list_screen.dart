@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../state/admin_controller.dart';
 
-enum MonitoringOperationsMode { orders, delivery }
+enum MonitoringOperationsMode { orders, delivery, services, realEstate, cars }
 
 class MonitoringOperationsListScreen extends ConsumerStatefulWidget {
   const MonitoringOperationsListScreen({super.key, required this.mode});
@@ -30,20 +30,48 @@ class _MonitoringOperationsListScreenState
   List<Map<String, dynamic>> _items = const [];
 
   List<String> get _statuses {
-    if (widget.mode == MonitoringOperationsMode.delivery) {
-      return const ['fresh_online', 'online', 'offline', 'busy'];
+    switch (widget.mode) {
+      case MonitoringOperationsMode.delivery:
+        return const ['fresh_online', 'online', 'offline', 'busy'];
+      case MonitoringOperationsMode.services:
+        return const [
+          'pending',
+          'awaiting_provider',
+          'accepted',
+          'scheduled',
+          'in_progress',
+          'completed',
+          'cancelled',
+        ];
+      case MonitoringOperationsMode.realEstate:
+        return const [
+          'pending_admin_review',
+          'active',
+          'sold',
+          'rented',
+          'archived',
+          'hidden_due_subscription_expiry',
+        ];
+      case MonitoringOperationsMode.cars:
+        return const [
+          'active',
+          'sold',
+          'archived',
+          'hidden_due_subscription_expiry',
+        ];
+      case MonitoringOperationsMode.orders:
+        return const [
+          'pending',
+          'accepted_by_store',
+          'preparing',
+          'ready_for_delivery',
+          'courier_requested',
+          'courier_assigned',
+          'on_the_way',
+          'completed',
+          'cancelled',
+        ];
     }
-    return const [
-      'pending',
-      'accepted_by_store',
-      'preparing',
-      'ready_for_delivery',
-      'courier_requested',
-      'courier_assigned',
-      'on_the_way',
-      'completed',
-      'cancelled',
-    ];
   }
 
   @override
@@ -59,19 +87,41 @@ class _MonitoringOperationsListScreenState
     });
     try {
       final api = ref.read(adminApiProvider);
-      final data = widget.mode == MonitoringOperationsMode.delivery
-          ? await api.monitoringDeliveryCouriers(
-              status: _status,
-              search: _search,
-              limit: _pageSize,
-              offset: _offset,
-            )
-          : await api.monitoringOrders(
-              status: _status,
-              search: _search,
-              limit: _pageSize,
-              offset: _offset,
-            );
+      final data = switch (widget.mode) {
+        MonitoringOperationsMode.delivery =>
+          await api.monitoringDeliveryCouriers(
+            status: _status,
+            search: _search,
+            limit: _pageSize,
+            offset: _offset,
+          ),
+        MonitoringOperationsMode.services =>
+          await api.monitoringServiceRequests(
+            status: _status,
+            search: _search,
+            limit: _pageSize,
+            offset: _offset,
+          ),
+        MonitoringOperationsMode.realEstate =>
+          await api.monitoringRealEstateListings(
+            status: _status,
+            search: _search,
+            limit: _pageSize,
+            offset: _offset,
+          ),
+        MonitoringOperationsMode.cars => await api.monitoringCarListings(
+          status: _status,
+          search: _search,
+          limit: _pageSize,
+          offset: _offset,
+        ),
+        MonitoringOperationsMode.orders => await api.monitoringOrders(
+          status: _status,
+          search: _search,
+          limit: _pageSize,
+          offset: _offset,
+        ),
+      };
       final items = ((data['items'] as List?) ?? const [])
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList(growable: false);
@@ -102,6 +152,15 @@ class _MonitoringOperationsListScreenState
   }
 
   String _title(BuildContext context) {
+    if (widget.mode == MonitoringOperationsMode.services) {
+      return context.lt(ar: 'متابعة الخدمات', en: 'Services monitoring');
+    }
+    if (widget.mode == MonitoringOperationsMode.realEstate) {
+      return context.lt(ar: 'متابعة العقارات', en: 'Real estate monitoring');
+    }
+    if (widget.mode == MonitoringOperationsMode.cars) {
+      return context.lt(ar: 'متابعة السيارات', en: 'Cars monitoring');
+    }
     return widget.mode == MonitoringOperationsMode.delivery
         ? context.lt(ar: 'متابعة الدلفري', en: 'Delivery monitoring')
         : context.lt(ar: 'متابعة الطلبات', en: 'Orders monitoring');
@@ -128,6 +187,26 @@ class _MonitoringOperationsListScreenState
         return context.lt(ar: 'مكتمل', en: 'Completed');
       case 'cancelled':
         return context.lt(ar: 'ملغى', en: 'Cancelled');
+      case 'pending_admin_review':
+        return context.lt(ar: 'بانتظار المراجعة', en: 'Pending review');
+      case 'hidden_due_subscription_expiry':
+        return context.lt(ar: 'مخفي', en: 'Hidden');
+      case 'active':
+        return context.lt(ar: 'نشط', en: 'Active');
+      case 'sold':
+        return context.lt(ar: 'مباع', en: 'Sold');
+      case 'rented':
+        return context.lt(ar: 'مؤجر', en: 'Rented');
+      case 'archived':
+        return context.lt(ar: 'مؤرشف', en: 'Archived');
+      case 'awaiting_provider':
+        return context.lt(ar: 'بانتظار مقدم الخدمة', en: 'Awaiting provider');
+      case 'accepted':
+        return context.lt(ar: 'مقبول', en: 'Accepted');
+      case 'scheduled':
+        return context.lt(ar: 'مجدول', en: 'Scheduled');
+      case 'in_progress':
+        return context.lt(ar: 'قيد التنفيذ', en: 'In progress');
       default:
         return status;
     }
@@ -227,9 +306,20 @@ class _MonitoringOperationsListScreenState
                           const SizedBox(height: MaslakiSpacing.sm),
                       itemBuilder: (context, index) {
                         final item = _items[index];
-                        return widget.mode == MonitoringOperationsMode.delivery
-                            ? _CourierTile(item: item)
-                            : _OrderTile(item: item);
+                        return switch (widget.mode) {
+                          MonitoringOperationsMode.delivery => _CourierTile(
+                            item: item,
+                          ),
+                          MonitoringOperationsMode.services => _ServiceTile(
+                            item: item,
+                          ),
+                          MonitoringOperationsMode.realEstate =>
+                            _RealEstateTile(item: item),
+                          MonitoringOperationsMode.cars => _CarTile(item: item),
+                          MonitoringOperationsMode.orders => _OrderTile(
+                            item: item,
+                          ),
+                        };
                       },
                     ),
                   ),
@@ -326,6 +416,116 @@ class _CourierTile extends StatelessWidget {
         ),
         isThreeLine: true,
       ),
+    );
+  }
+}
+
+class _ServiceTile extends StatelessWidget {
+  const _ServiceTile({required this.item});
+
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaslakiCard(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.handyman_rounded),
+        title: Text(
+          '${item['offering_name'] ?? item['request_code'] ?? item['id']}',
+        ),
+        subtitle: Text(
+          '${item['status'] ?? '-'} • ${item['provider_name'] ?? '-'}\n'
+          '${context.lt(ar: 'الزبون', en: 'Customer')}: ${item['customer_name'] ?? '-'} • '
+          '${context.lt(ar: 'المنطقة', en: 'Area')}: ${item['city'] ?? item['area'] ?? '-'}',
+        ),
+        trailing: _TicketBadge(
+          active:
+              item['has_open_ticket'] == true ||
+              item['has_open_report'] == true,
+          value: '${item['booking_total_iqd'] ?? item['final_price'] ?? 0}',
+        ),
+        isThreeLine: true,
+      ),
+    );
+  }
+}
+
+class _RealEstateTile extends StatelessWidget {
+  const _RealEstateTile({required this.item});
+
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaslakiCard(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.apartment_rounded),
+        title: Text('${item['title'] ?? item['id']}'),
+        subtitle: Text(
+          '${item['status'] ?? '-'} • ${item['purpose'] ?? '-'} • ${item['city'] ?? '-'}\n'
+          '${context.lt(ar: 'المعلن', en: 'Owner')}: ${item['owner_name'] ?? '-'} • '
+          '${context.lt(ar: 'الصور', en: 'Media')}: ${item['media_count'] ?? 0} • '
+          '${context.lt(ar: 'الحفظ', en: 'Saved')}: ${item['saved_count'] ?? 0}',
+        ),
+        trailing: _TicketBadge(
+          active: item['has_open_ticket'] == true,
+          value: '${item['price'] ?? 0}',
+        ),
+        isThreeLine: true,
+      ),
+    );
+  }
+}
+
+class _CarTile extends StatelessWidget {
+  const _CarTile({required this.item});
+
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaslakiCard(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.directions_car_filled_rounded),
+        title: Text('${item['brand'] ?? '-'} ${item['model'] ?? ''}'),
+        subtitle: Text(
+          '${item['status'] ?? '-'} • ${item['model_year'] ?? '-'} • ${item['city'] ?? '-'}\n'
+          '${context.lt(ar: 'المعلن', en: 'Owner')}: ${item['owner_name'] ?? '-'} • '
+          '${context.lt(ar: 'الصور', en: 'Media')}: ${item['media_count'] ?? 0} • '
+          '${item['condition'] ?? '-'}',
+        ),
+        trailing: _TicketBadge(
+          active: item['has_open_ticket'] == true,
+          value: '${item['price'] ?? 0}',
+        ),
+        isThreeLine: true,
+      ),
+    );
+  }
+}
+
+class _TicketBadge extends StatelessWidget {
+  const _TicketBadge({required this.active, required this.value});
+
+  final bool active;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(value),
+        if (active)
+          Icon(
+            Icons.support_agent_rounded,
+            color: Theme.of(context).colorScheme.error,
+            size: 18,
+          ),
+      ],
     );
   }
 }

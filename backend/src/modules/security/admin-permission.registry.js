@@ -38,6 +38,9 @@ export const ADMIN_ENDPOINT_PERMISSION_REGISTRY = Object.freeze([
   { method: "GET", path: "/api/admin/monitoring/taxi/rides", permission: "taxi.rides.read" },
   { method: "GET", path: "/api/admin/monitoring/orders", permission: "orders.read" },
   { method: "GET", path: "/api/admin/monitoring/delivery/couriers", permission: "orders.read" },
+  { method: "GET", path: "/api/admin/monitoring/services/requests", permission: "services.read" },
+  { method: "GET", path: "/api/admin/monitoring/real-estate/listings", permission: "real_estate.read" },
+  { method: "GET", path: "/api/admin/monitoring/cars/listings", permission: "cars.read" },
 ]);
 
 export function assertAdminPermissionRegistryValid() {

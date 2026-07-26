@@ -23,6 +23,12 @@ const userIds = [];
 const rideIds = [];
 const merchantIds = [];
 const orderIds = [];
+const serviceRequestIds = [];
+const serviceOfferingIds = [];
+const serviceProviderIds = [];
+const serviceCategoryIds = [];
+const realEstateListingIds = [];
+const carListingIds = [];
 
 async function makeUser(role) {
   const user = await createUser({
@@ -116,7 +122,144 @@ async function makeOrder({
   return id;
 }
 
+async function makeServiceCategory() {
+  const r = await q(
+    `INSERT INTO service_categories (level, name, sort_order)
+     VALUES (1, $1, 999)
+     RETURNING id`,
+    [`MON Services ${suffix()}`]
+  );
+  const id = Number(r.rows[0].id);
+  serviceCategoryIds.push(id);
+  return id;
+}
+
+async function makeServiceProvider({ userId, categoryId }) {
+  const r = await q(
+    `INSERT INTO service_provider_profiles
+       (user_id, business_name, main_category_id, phone, city, booking_policy,
+        provider_approval_status)
+     VALUES ($1,$2,$3,$4,'Baghdad','approval_required','approved')
+     RETURNING id`,
+    [userId, `MON Provider ${suffix()}`, categoryId, makePhone()]
+  );
+  const id = Number(r.rows[0].id);
+  serviceProviderIds.push(id);
+  return id;
+}
+
+async function makeServiceOffering({ providerId, categoryId }) {
+  const r = await q(
+    `INSERT INTO service_offerings
+       (provider_id, main_category_id, name, execution_mode, moderation_status)
+     VALUES ($1,$2,$3,'home','approved')
+     RETURNING id`,
+    [providerId, categoryId, `MON Offering ${suffix()}`]
+  );
+  const id = Number(r.rows[0].id);
+  serviceOfferingIds.push(id);
+  return id;
+}
+
+async function makeServiceRequest({
+  customerId,
+  providerId,
+  offeringId,
+  status = "pending",
+}) {
+  const r = await q(
+    `INSERT INTO service_requests
+       (request_code, customer_user_id, provider_id, offering_id, status,
+        requested_execution_mode, city, area, final_price, completed_at)
+     VALUES ($1,$2,$3,$4,$5::varchar,'home','Baghdad','Karrada',25000,
+        CASE WHEN $5::text IN ('completed','COMPLETED') THEN NOW() ELSE NULL END)
+     RETURNING id`,
+    [`MON-${suffix()}`, customerId, providerId, offeringId, status]
+  );
+  const id = Number(r.rows[0].id);
+  serviceRequestIds.push(id);
+  return id;
+}
+
+async function makeRealEstateListing({ ownerId, status = "active" }) {
+  const r = await q(
+    `INSERT INTO real_estate_listing
+       (owner_user_id, purpose, status, title, description, area_sqm, phone,
+        price, city, block, sold_at, rented_at, archived_at)
+     VALUES ($1,'sale',$2::varchar,$3,'MON description',120,$4,90000000,'Baghdad','A',
+        CASE WHEN $2::text = 'sold' THEN NOW() ELSE NULL END,
+        CASE WHEN $2::text = 'rented' THEN NOW() ELSE NULL END,
+        CASE WHEN $2::text = 'archived' THEN NOW() ELSE NULL END)
+     RETURNING id`,
+    [ownerId, status, `MON Estate ${suffix()}`, makePhone()]
+  );
+  const id = Number(r.rows[0].id);
+  realEstateListingIds.push(id);
+  return id;
+}
+
+async function makeCarListing({ ownerId, status = "active" }) {
+  const r = await q(
+    `INSERT INTO car_listing
+       (owner_user_id, status, title, brand, model, model_year, condition,
+        price, city, phone, sold_at, archived_at)
+     VALUES ($1,$2::varchar,$3,'Hyundai','Elantra',2023,'used',25000000,'Baghdad',$4,
+        CASE WHEN $2::text = 'sold' THEN NOW() ELSE NULL END,
+        CASE WHEN $2::text = 'archived' THEN NOW() ELSE NULL END)
+     RETURNING id`,
+    [ownerId, status, `MON Car ${suffix()}`, makePhone()]
+  );
+  const id = Number(r.rows[0].id);
+  carListingIds.push(id);
+  return id;
+}
+
 test.after(async () => {
+  if (serviceRequestIds.length) {
+    await q(`DELETE FROM service_reports WHERE target_type = 'request' AND target_id = ANY($1::bigint[])`, [
+      serviceRequestIds,
+    ]);
+    await q(`DELETE FROM service_request_attachments WHERE request_id = ANY($1::bigint[])`, [
+      serviceRequestIds,
+    ]);
+    await q(`DELETE FROM service_requests WHERE id = ANY($1::bigint[])`, [
+      serviceRequestIds,
+    ]);
+  }
+  if (serviceOfferingIds.length) {
+    await q(`DELETE FROM service_offerings WHERE id = ANY($1::bigint[])`, [
+      serviceOfferingIds,
+    ]);
+  }
+  if (serviceProviderIds.length) {
+    await q(`DELETE FROM service_provider_profiles WHERE id = ANY($1::bigint[])`, [
+      serviceProviderIds,
+    ]);
+  }
+  if (serviceCategoryIds.length) {
+    await q(`DELETE FROM service_categories WHERE id = ANY($1::bigint[])`, [
+      serviceCategoryIds,
+    ]);
+  }
+  if (realEstateListingIds.length) {
+    await q(`DELETE FROM real_estate_listing_media WHERE listing_id = ANY($1::bigint[])`, [
+      realEstateListingIds,
+    ]);
+    await q(`DELETE FROM real_estate_saved_listing WHERE listing_id = ANY($1::bigint[])`, [
+      realEstateListingIds,
+    ]);
+    await q(`DELETE FROM real_estate_listing WHERE id = ANY($1::bigint[])`, [
+      realEstateListingIds,
+    ]);
+  }
+  if (carListingIds.length) {
+    await q(`DELETE FROM car_listing_media WHERE listing_id = ANY($1::bigint[])`, [
+      carListingIds,
+    ]);
+    await q(`DELETE FROM car_listing WHERE id = ANY($1::bigint[])`, [
+      carListingIds,
+    ]);
+  }
   if (orderIds.length) {
     await q(`DELETE FROM courier_assignment WHERE order_id = ANY($1::bigint[])`, [
       orderIds,
@@ -319,4 +462,86 @@ test("delivery monitoring counters and courier list use presence freshness", asy
   assert.equal(page.limit, 10);
   assert.ok(page.total >= 1);
   assert.ok(page.items.some((item) => Number(item.user_id) === courierId));
+});
+
+test("services and marketplace monitoring use real rows", async () => {
+  const serviceBefore = await monitoringRepo.getServiceMonitoringCounters();
+  const estateBefore = await monitoringRepo.getRealEstateMonitoringCounters();
+  const carBefore = await monitoringRepo.getCarMonitoringCounters();
+
+  const customerId = await makeUser("user");
+  const providerUserId = await makeUser("service_provider");
+  const ownerId = await makeUser("user");
+
+  const categoryId = await makeServiceCategory();
+  const providerId = await makeServiceProvider({
+    userId: providerUserId,
+    categoryId,
+  });
+  const offeringId = await makeServiceOffering({ providerId, categoryId });
+  await makeServiceRequest({
+    customerId,
+    providerId,
+    offeringId,
+    status: "pending",
+  });
+  await makeServiceRequest({
+    customerId,
+    providerId,
+    offeringId,
+    status: "completed",
+  });
+
+  await makeRealEstateListing({ ownerId, status: "active" });
+  await makeRealEstateListing({ ownerId, status: "sold" });
+  await makeCarListing({ ownerId, status: "active" });
+  await makeCarListing({ ownerId, status: "sold" });
+
+  const serviceAfter = await monitoringRepo.getServiceMonitoringCounters();
+  const estateAfter = await monitoringRepo.getRealEstateMonitoringCounters();
+  const carAfter = await monitoringRepo.getCarMonitoringCounters();
+
+  assert.ok(serviceAfter.active - serviceBefore.active >= 1, "active service request counted");
+  assert.ok(
+    serviceAfter.completedToday - serviceBefore.completedToday >= 1,
+    "completed service request counted"
+  );
+  assert.ok(estateAfter.active - estateBefore.active >= 1, "active real estate counted");
+  assert.ok(
+    estateAfter.completedToday - estateBefore.completedToday >= 1,
+    "sold real estate counted"
+  );
+  assert.ok(carAfter.active - carBefore.active >= 1, "active car counted");
+  assert.ok(carAfter.completedToday - carBefore.completedToday >= 1, "sold car counted");
+
+  const servicePage = await monitoringRepo.listServiceRequestsForMonitoring({
+    status: "pending",
+    search: "MON",
+    limit: 5,
+    offset: 0,
+  });
+  assert.equal(servicePage.limit, 5);
+  assert.ok(servicePage.total >= 1);
+  assert.ok(servicePage.items.every((item) => item.status === "pending"));
+  assert.ok(!("phone" in servicePage.items[0]), "service DTO does not expose phone");
+
+  const estatePage = await monitoringRepo.listRealEstateListingsForMonitoring({
+    status: "active",
+    search: "MON Estate",
+    limit: 5,
+    offset: 0,
+  });
+  assert.ok(estatePage.total >= 1);
+  assert.ok(estatePage.items.every((item) => item.status === "active"));
+  assert.ok(!("phone" in estatePage.items[0]), "real estate DTO does not expose phone");
+
+  const carPage = await monitoringRepo.listCarListingsForMonitoring({
+    status: "active",
+    search: "Hyundai",
+    limit: 5,
+    offset: 0,
+  });
+  assert.ok(carPage.total >= 1);
+  assert.ok(carPage.items.every((item) => item.status === "active"));
+  assert.ok(!("phone" in carPage.items[0]), "car DTO does not expose phone");
 });
