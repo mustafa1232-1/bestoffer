@@ -13,6 +13,7 @@ import '../../coupons/ui/coupon_management_screen.dart';
 import '../../orders/models/order_model.dart';
 import '../../orders/ui/widgets/order_item_widgets.dart';
 import '../../orders/ui/widgets/order_delivery_assignment_card.dart';
+import '../../orders/ui/widgets/order_revision_widgets.dart';
 import '../printing/receipt_printer_service.dart';
 import '../printing/ui/receipt_preview_dialog.dart';
 import '../state/owner_controller.dart';
@@ -90,22 +91,21 @@ class _StoreOwnerOrdersScreenState
 
   Future<void> _openOwnerWorkspaceTab(OwnerDashboardTab tab) async {
     await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => OwnerDashboardScreen(initialTab: tab),
-      ),
+      MaterialPageRoute(builder: (_) => OwnerDashboardScreen(initialTab: tab)),
     );
   }
 
   Future<void> _openOffersWorkspace() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const StoreOwnerOffersScreen()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const StoreOwnerOffersScreen()));
   }
 
   Future<void> _openCouponsWorkspace() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => const CouponManagementScreen(mode: CouponManagerMode.owner),
+        builder: (_) =>
+            const CouponManagementScreen(mode: CouponManagerMode.owner),
       ),
     );
   }
@@ -476,10 +476,7 @@ class _StoreOwnerOrdersScreenState
                 label: 'التقييم',
                 value: '${data['score'] ?? '-'} / 100',
               ),
-              _ReliabilityRow(
-                label: 'الحالة',
-                value: '${data['tier'] ?? '-'}',
-              ),
+              _ReliabilityRow(label: 'الحالة', value: '${data['tier'] ?? '-'}'),
               _ReliabilityRow(
                 label: 'طلبات مكتملة',
                 value: '${stats['completedOrders'] ?? 0}',
@@ -520,9 +517,7 @@ class _StoreOwnerOrdersScreenState
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(
-          content: Text('تعذر تحميل موثوقية العميل: $e'),
-        ),
+        SnackBar(content: Text('تعذر تحميل موثوقية العميل: $e')),
       );
     }
   }
@@ -558,7 +553,8 @@ class _StoreOwnerOrdersScreenState
                         (review['customerOrderContext'] as Map?) ??
                             const <String, dynamic>{},
                       );
-                      final stars = int.tryParse('${review['rating'] ?? 0}') ?? 0;
+                      final stars =
+                          int.tryParse('${review['rating'] ?? 0}') ?? 0;
                       return Card(
                         margin: const EdgeInsets.only(bottom: 10),
                         child: Padding(
@@ -578,7 +574,10 @@ class _StoreOwnerOrdersScreenState
                                 '${'⭐' * stars}  •  طلب #${review['orderId'] ?? '-'}',
                                 textDirection: TextDirection.rtl,
                               ),
-                              if ((review['reviewText']?.toString().trim().isNotEmpty ??
+                              if ((review['reviewText']
+                                      ?.toString()
+                                      .trim()
+                                      .isNotEmpty ??
                                   false)) ...[
                                 const SizedBox(height: 6),
                                 Text(
@@ -1021,11 +1020,12 @@ class _StoreOwnerOrdersScreenState
                 en: 'The first available courier will be assigned automatically while you prepare the order.',
               ),
               visibleWhenNoAssignment: true,
-              onCall: (order.deliveryAssignment?.driver?.phone ??
-                          order.deliveryPhone)
-                      ?.trim()
-                      .isNotEmpty ==
-                  true
+              onCall:
+                  (order.deliveryAssignment?.driver?.phone ??
+                              order.deliveryPhone)
+                          ?.trim()
+                          .isNotEmpty ==
+                      true
                   ? () async {
                       final phone =
                           (order.deliveryAssignment?.driver?.phone ??
@@ -1044,7 +1044,9 @@ class _StoreOwnerOrdersScreenState
               'راجع المنتجات والمواصفات قبل الموافقة',
               textDirection: TextDirection.rtl,
               style: TextStyle(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.86),
+                color: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: 0.86),
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1052,11 +1054,42 @@ class _StoreOwnerOrdersScreenState
             OrderItemsSummaryList(
               items: order.presentationItems,
               compact: false,
-              groupByStore: order.presentationItems
-                      .map((item) => '${item.storeId ?? item.storeName ?? 'store'}')
+              groupByStore:
+                  order.presentationItems
+                      .map(
+                        (item) =>
+                            '${item.storeId ?? item.storeName ?? 'store'}',
+                      )
                       .toSet()
                       .length >
                   1,
+            ),
+            const SizedBox(height: 10),
+            OrderRevisionPanel(
+              title: 'تعديل مقترح على الطلب',
+              emptyText: 'لا توجد تعديلات مقترحة على هذا الطلب.',
+              loadRevisions: () =>
+                  ref.read(ownerApiProvider).listOrderRevisions(order.id),
+              canApprove: (revision) => revision.isWaitingForMerchant,
+              canReject: (revision) => revision.isWaitingForMerchant,
+              onApprove: (revision) async {
+                await ref
+                    .read(ownerApiProvider)
+                    .approveOrderRevision(
+                      orderId: order.id,
+                      revisionId: revision.id,
+                    );
+                await controller.refreshOrders();
+              },
+              onReject: (revision) async {
+                await ref
+                    .read(ownerApiProvider)
+                    .rejectOrderRevision(
+                      orderId: order.id,
+                      revisionId: revision.id,
+                    );
+                await controller.refreshOrders();
+              },
             ),
             const Divider(height: 20),
             Row(
@@ -1129,9 +1162,10 @@ class _StoreOwnerOrdersScreenState
                       onPressed: state.savingOrder
                           ? null
                           : () async {
-                              final allow = await _confirmReliabilityWarningIfNeeded(
-                                order,
-                              );
+                              final allow =
+                                  await _confirmReliabilityWarningIfNeeded(
+                                    order,
+                                  );
                               if (!allow || !mounted) return;
                               // Delivery is auto-assigned by the backend the
                               // moment preparation starts; the store no longer
@@ -1293,12 +1327,7 @@ class _ReliabilityRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         children: [
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.left,
-            ),
-          ),
+          Expanded(child: Text(value, textAlign: TextAlign.left)),
           Expanded(
             child: Text(
               label,

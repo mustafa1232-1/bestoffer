@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as c from "./delivery.controller.js";
+import * as revisions from "../orders/order-revisions.controller.js";
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireDeliveryAgent } from "../../shared/middleware/delivery-agent.middleware.js";
 
@@ -24,6 +25,7 @@ deliveryRouter.get("/orders/:orderId(\\d+)", c.orderDetail);
 deliveryRouter.use(requireDeliveryAgent);
 deliveryRouter.get("/orders/current", c.currentOrders);
 deliveryRouter.get("/orders/history", c.history);
+deliveryRouter.get("/orders/:orderId(\\d+)/revisions", revisions.listForDelivery);
 deliveryRouter.patch("/orders/:orderId/claim", c.claimOrder);
 deliveryRouter.patch("/orders/:orderId/start", c.startOrder);
 deliveryRouter.patch("/orders/:orderId/arrived", c.markArrived);

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/files/local_image_file.dart';
+import '../../orders/models/order_revision_model.dart';
 
 class AdminApi {
   final Dio dio;
@@ -139,6 +140,95 @@ class AdminApi {
   ) async {
     final response = await dio.put('/api/admin/settings/support', data: body);
     return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> supportTickets({
+    String? status,
+    String? domain,
+    String? search,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/support/tickets',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+        if ((domain ?? '').trim().isNotEmpty) 'domain': domain!.trim(),
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> supportTicketDetails(int ticketId) async {
+    final response = await dio.get('/api/admin/support/tickets/$ticketId');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> supportTicketOrderContext(int ticketId) async {
+    final response = await dio.get(
+      '/api/admin/support/tickets/$ticketId/order-context',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<OrderRevisionBundle> createOrderRevisionFromTicket({
+    required int ticketId,
+    required int orderId,
+    required String reason,
+    required List<Map<String, dynamic>> items,
+    String? note,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/support/tickets/$ticketId/order-revisions',
+      data: {
+        'orderId': orderId,
+        'reason': reason,
+        'items': items,
+        if ((note ?? '').trim().isNotEmpty) 'note': note!.trim(),
+      },
+    );
+    return OrderRevisionBundle.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<OrderRevisionBundle> patchOrderRevision({
+    required int orderId,
+    required int revisionId,
+    required String reason,
+    required List<Map<String, dynamic>> items,
+    String? note,
+  }) async {
+    final response = await dio.patch(
+      '/api/admin/orders/$orderId/revisions/$revisionId',
+      data: {
+        'reason': reason,
+        'items': items,
+        if ((note ?? '').trim().isNotEmpty) 'note': note!.trim(),
+      },
+    );
+    return OrderRevisionBundle.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<OrderRevisionBundle> submitOrderRevision({
+    required int orderId,
+    required int revisionId,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/orders/$orderId/revisions/$revisionId/submit',
+    );
+    return OrderRevisionBundle.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<OrderRevisionBundle> applyOrderRevision({
+    required int orderId,
+    required int revisionId,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/orders/$orderId/revisions/$revisionId/apply',
+    );
+    return OrderRevisionBundle.fromJson(Map<String, dynamic>.from(response.data as Map));
   }
 
   Future<List<dynamic>> ordersPrintReport({required String period}) async {

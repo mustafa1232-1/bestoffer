@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import '../../../core/files/local_image_file.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../models/product_review_model.dart';
+import '../models/order_revision_model.dart';
 import '../../notifications/data/notifications_api.dart';
 
 class OrderActionReasonOption {
@@ -320,6 +321,47 @@ class OrdersApi {
     await dio.post(
       '/api/orders/$orderId/rate-merchant',
       data: {'rating': rating, 'review': review},
+    );
+  }
+
+  Future<List<OrderRevisionModel>> listOrderRevisions(int orderId) async {
+    final response = await dio.get('/api/orders/$orderId/revisions');
+    final data = Map<String, dynamic>.from(response.data as Map? ?? const {});
+    final items = List<dynamic>.from(data['items'] as List? ?? const []);
+    return items
+        .whereType<Map>()
+        .map(
+          (entry) =>
+              OrderRevisionModel.fromJson(Map<String, dynamic>.from(entry)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<OrderRevisionBundle> approveOrderRevision({
+    required int orderId,
+    required int revisionId,
+    String? note,
+  }) async {
+    final response = await dio.post(
+      '/api/orders/$orderId/revisions/$revisionId/customer-approve',
+      data: {'note': note},
+    );
+    return OrderRevisionBundle.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<OrderRevisionBundle> rejectOrderRevision({
+    required int orderId,
+    required int revisionId,
+    String? note,
+  }) async {
+    final response = await dio.post(
+      '/api/orders/$orderId/revisions/$revisionId/reject',
+      data: {'note': note},
+    );
+    return OrderRevisionBundle.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
     );
   }
 

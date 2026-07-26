@@ -26,6 +26,7 @@ export function requirePermission(permissionKey, { scope = "own" } = {}) {
       // مسار سريع: Super Admin يتجاوز الفحص التفصيلي.
       if (req.userIsSuperAdmin === true || req.authUserIsSuperAdmin === true) {
         req.permissionScope = "all";
+        req.permissionScopes = { ...(req.permissionScopes || {}), [permissionKey]: "all" };
         return next();
       }
 
@@ -41,6 +42,10 @@ export function requirePermission(permissionKey, { scope = "own" } = {}) {
 
       // يتاح للـhandler لتصفية البيانات حسب النطاق (own/assigned/department/all).
       req.permissionScope = result.scope || "all";
+      req.permissionScopes = {
+        ...(req.permissionScopes || {}),
+        [permissionKey]: result.scope || "all",
+      };
       req.effectivePermissions = result.effective || null;
       return next();
     } catch (error) {
@@ -63,12 +68,17 @@ export function requireAnyPermission(permissionKeys = [], { scope = "own" } = {}
       }
       if (req.userIsSuperAdmin === true || req.authUserIsSuperAdmin === true) {
         req.permissionScope = "all";
+        req.permissionScopes = { ...(req.permissionScopes || {}), any: "all" };
         return next();
       }
       for (const key of keys) {
         const result = await checkPermission(userId, key, scope);
         if (result.allowed) {
           req.permissionScope = result.scope || "all";
+          req.permissionScopes = {
+            ...(req.permissionScopes || {}),
+            [key]: result.scope || "all",
+          };
           req.effectivePermissions = result.effective || null;
           return next();
         }

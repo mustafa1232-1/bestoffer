@@ -13,6 +13,7 @@ import '../../orders/ui/order_chat_screen.dart';
 import '../../tracking/ui/delivery_live_tracking_screen.dart';
 import '../state/delivery_controller.dart';
 import '../../orders/ui/widgets/order_item_widgets.dart';
+import '../../orders/ui/widgets/order_revision_widgets.dart';
 
 class DeliveryOrderDetailScreen extends ConsumerStatefulWidget {
   const DeliveryOrderDetailScreen({super.key, required this.orderId});
@@ -379,10 +380,9 @@ class _DeliveryOrderDetailScreenState
     final orderStatus = _string(_orderMap['orderState']);
     final courierState = _string(_orderMap['courierState']);
     final paymentMethod =
-        _string(_invoice['paymentMethodOther']) ?? _string(_invoice['paymentMethod']);
-    final isCashPayment = (paymentMethod ?? '')
-        .toLowerCase()
-        .contains('cash');
+        _string(_invoice['paymentMethodOther']) ??
+        _string(_invoice['paymentMethod']);
+    final isCashPayment = (paymentMethod ?? '').toLowerCase().contains('cash');
 
     return Scaffold(
       appBar: AppBar(
@@ -482,8 +482,13 @@ class _DeliveryOrderDetailScreenState
                         ),
                         if (order.hasExplicitDeliveryAssignment) ...[
                           _InfoRow(
-                            label: context.lt(ar: 'حالة التعيين', en: 'Assignment'),
-                            value: switch ((order.deliveryAssignment?.assignmentStatus ??
+                            label: context.lt(
+                              ar: 'حالة التعيين',
+                              en: 'Assignment',
+                            ),
+                            value: switch ((order
+                                        .deliveryAssignment
+                                        ?.assignmentStatus ??
                                     order.deliveryAssignmentStatus ??
                                     '')
                                 .trim()
@@ -504,25 +509,28 @@ class _DeliveryOrderDetailScreenState
                                 ar: 'ملغي',
                                 en: 'Cancelled',
                               ),
-                              _ => order.deliveryAssignment?.assignmentStatus ??
-                                  order.deliveryAssignmentStatus ??
-                                  context.lt(ar: 'غير محدد', en: 'Unknown'),
+                              _ =>
+                                order.deliveryAssignment?.assignmentStatus ??
+                                    order.deliveryAssignmentStatus ??
+                                    context.lt(ar: 'غير محدد', en: 'Unknown'),
                             },
                             multiline: true,
                           ),
                         ],
                         if ((order.note ?? '').trim().isNotEmpty)
-                        _InfoRow(
-                          label: context.lt(
-                            ar: 'ملاحظة الطلب',
-                            en: 'Order note',
+                          _InfoRow(
+                            label: context.lt(
+                              ar: 'ملاحظة الطلب',
+                              en: 'Order note',
+                            ),
+                            value: order.note!,
+                            multiline: true,
                           ),
-                          value: order.note!,
-                          multiline: true,
-                        ),
                         _InfoRow(
                           label: context.lt(ar: 'الدفع', en: 'Payment'),
-                          value: paymentMethod ?? context.lt(ar: 'غير محدد', en: 'Not set'),
+                          value:
+                              paymentMethod ??
+                              context.lt(ar: 'غير محدد', en: 'Not set'),
                         ),
                       ],
                     ),
@@ -539,8 +547,9 @@ class _DeliveryOrderDetailScreenState
                           ),
                           textDirection: TextDirection.rtl,
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary
-                                .withValues(alpha: 0.86),
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.86),
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -550,7 +559,9 @@ class _DeliveryOrderDetailScreenState
                           children: [
                             for (final item in items.take(3))
                               Padding(
-                                padding: const EdgeInsetsDirectional.only(end: 8),
+                                padding: const EdgeInsetsDirectional.only(
+                                  end: 8,
+                                ),
                                 child: OrderItemThumbnail(
                                   imageUrl: item.displayImageUrl,
                                   activityType: item.activityType,
@@ -584,7 +595,16 @@ class _DeliveryOrderDetailScreenState
                           items: items,
                           compact: true,
                           groupByStore:
-                              items.map((item) => item.storeId ?? item.storeName ?? 'store').toSet().length > 1,
+                              items
+                                  .map(
+                                    (item) =>
+                                        item.storeId ??
+                                        item.storeName ??
+                                        'store',
+                                  )
+                                  .toSet()
+                                  .length >
+                              1,
                         ),
                         if (isCashPayment) ...[
                           const SizedBox(height: 6),
@@ -610,6 +630,20 @@ class _DeliveryOrderDetailScreenState
                       ],
                     ),
                   ),
+                  OrderRevisionPanel(
+                    title: context.lt(
+                      ar: 'تحديثات الطلب النهائية',
+                      en: 'Final order updates',
+                    ),
+                    emptyText: context.lt(
+                      ar: 'لا توجد تعديلات مطبقة على هذا الطلب.',
+                      en: 'No applied revisions for this order.',
+                    ),
+                    loadRevisions: () => ref
+                        .read(deliveryApiProvider)
+                        .listOrderRevisions(order.id),
+                  ),
+                  const SizedBox(height: 12),
                   _SectionCard(
                     title: context.lt(ar: 'أدوات سريعة', en: 'Quick actions'),
                     child: Wrap(
@@ -654,14 +688,23 @@ class _DeliveryOrderDetailScreenState
                     child: OrderInvoiceSection(
                       items: items,
                       groupByStore:
-                          items.map((item) => item.storeId ?? item.storeName ?? 'store').toSet().length > 1,
+                          items
+                              .map(
+                                (item) =>
+                                    item.storeId ?? item.storeName ?? 'store',
+                              )
+                              .toSet()
+                              .length >
+                          1,
                       orderNumber: '#${order.id}',
                       orderTime: order.createdAt,
                       paymentMethod: paymentMethod,
                       subtotal: _money(_invoice['subtotal']),
                       serviceFee: _money(_invoice['serviceFee']),
                       deliveryFee: _money(_invoice['deliveryFee']),
-                      couponDiscountTotal: _money(_invoice['couponDiscountTotal']),
+                      couponDiscountTotal: _money(
+                        _invoice['couponDiscountTotal'],
+                      ),
                       totalAmount: _money(_invoice['totalAmount']),
                       helperText: context.lt(
                         ar: 'راجع المنتجات والمواصفات قبل الموافقة',

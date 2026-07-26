@@ -212,6 +212,43 @@ String? _messageForCode(AppLocalizations l10n, String code) {
       return l10n.apiDeliveryDriverTypeChangeBlockedByActiveOrders;
     case 'ORDER_ALREADY_ASSIGNED':
       return l10n.apiOrderAlreadyAssigned;
+    case 'ORDER_REVISION_CONFLICT':
+      return l10n.localeName.startsWith('ar')
+          ? 'تغيّر الطلب أثناء مراجعة التعديل. حدّث التفاصيل ثم أعد المحاولة.'
+          : 'The order changed while this revision was pending. Refresh and try again.';
+    case 'ORDER_REVISION_EXPIRED':
+      return l10n.localeName.startsWith('ar')
+          ? 'انتهت مهلة الموافقة على تعديل الطلب.'
+          : 'This order revision approval has expired.';
+    case 'ORDER_REVISION_NOT_APPROVABLE':
+    case 'ORDER_REVISION_APPROVAL_INVALID_STATE':
+    case 'ORDER_REVISION_APPROVAL_NOT_PENDING':
+    case 'ORDER_REVISION_ORDER_NOT_EDITABLE':
+      return l10n.localeName.startsWith('ar')
+          ? 'لا يمكن اتخاذ هذا الإجراء على تعديل الطلب حالياً.'
+          : 'This order revision cannot be changed right now.';
+    case 'ORDER_REVISION_ALREADY_OPEN':
+      return l10n.localeName.startsWith('ar')
+          ? 'يوجد تعديل مفتوح لهذا الطلب. أكمله أو ألغِه قبل إنشاء تعديل جديد.'
+          : 'This order already has an open revision. Finish or cancel it before creating another one.';
+    case 'SUPPORT_TICKET_ORDER_LINK_REQUIRED':
+      return l10n.localeName.startsWith('ar')
+          ? 'اربط التذكرة بطلب أولاً قبل اقتراح تعديل.'
+          : 'Link this ticket to an order before proposing a revision.';
+    case 'ORDER_REVISION_INVENTORY_CHANGED':
+    case 'PRODUCT_OUT_OF_STOCK':
+      return l10n.localeName.startsWith('ar')
+          ? 'تغيّر المخزون أو لم تعد الكمية متاحة. حدّث المقترح.'
+          : 'Inventory changed or the requested quantity is unavailable.';
+    case 'ORDER_REVISION_ALREADY_APPLIED':
+      return l10n.localeName.startsWith('ar')
+          ? 'تم تطبيق هذا التعديل مسبقاً.'
+          : 'This order revision was already applied.';
+    case 'ORDER_REVISION_FORBIDDEN':
+    case 'ORDER_REVISION_APPROVAL_FORBIDDEN':
+      return l10n.localeName.startsWith('ar')
+          ? 'لا تملك صلاحية الوصول إلى تعديل هذا الطلب.'
+          : 'You do not have permission to access this order revision.';
     case 'ASSIGNMENT_NOT_AVAILABLE':
       return l10n.apiAssignmentNotAvailable;
     case 'ANALYTICS_CONSENT_REQUIRED':

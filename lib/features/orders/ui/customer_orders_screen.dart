@@ -1,4 +1,4 @@
-﻿// ignore_for_file: prefer_const_constructors
+// ignore_for_file: prefer_const_constructors
 
 import 'dart:async';
 import 'dart:math' as math;
@@ -21,6 +21,7 @@ import '../state/orders_controller.dart';
 import 'order_chat_screen.dart';
 import 'widgets/order_delivery_assignment_card.dart';
 import 'widgets/order_item_widgets.dart';
+import 'widgets/order_revision_widgets.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -410,7 +411,8 @@ class _OrderCard extends StatelessWidget {
                 // show the status-timeline screen instead, which renders
                 // instantly from the already-loaded order.
                 const inTransit = {'on_the_way', 'arrived'};
-                final showLiveMap = inTransit.contains(order.status) &&
+                final showLiveMap =
+                    inTransit.contains(order.status) &&
                     order.customerConfirmedAt == null;
                 return showLiveMap
                     ? DeliveryLiveTrackingScreen(orderId: order.id)
@@ -657,8 +659,7 @@ class _OrderTrackingDetailsScreenState
                     ),
                     helperText: context.lt(
                       ar: 'يمكنك متابعة تجهيز الطلب حتى يتم التعيين.',
-                      en:
-                          'You can continue preparing the order while assignment is pending.',
+                      en: 'You can continue preparing the order while assignment is pending.',
                     ),
                     visibleWhenNoAssignment: true,
                     onCall: deliveryContactPhone?.isNotEmpty == true
@@ -697,6 +698,37 @@ class _OrderTrackingDetailsScreenState
             ],
             const SizedBox(height: 12),
             _OrderItemsSection(order: order),
+            const SizedBox(height: 12),
+            OrderRevisionPanel(
+              title: 'تعديلات الطلب المقترحة',
+              emptyText: 'لا توجد تعديلات مقترحة على هذا الطلب.',
+              loadRevisions: () =>
+                  ref.read(ordersApiProvider).listOrderRevisions(order.id),
+              canApprove: (revision) => revision.isWaitingForCustomer,
+              canReject: (revision) => revision.isWaitingForCustomer,
+              onApprove: (revision) async {
+                await ref
+                    .read(ordersApiProvider)
+                    .approveOrderRevision(
+                      orderId: order.id,
+                      revisionId: revision.id,
+                    );
+                await ref
+                    .read(ordersControllerProvider.notifier)
+                    .loadMyOrders();
+              },
+              onReject: (revision) async {
+                await ref
+                    .read(ordersApiProvider)
+                    .rejectOrderRevision(
+                      orderId: order.id,
+                      revisionId: revision.id,
+                    );
+                await ref
+                    .read(ordersControllerProvider.notifier)
+                    .loadMyOrders();
+              },
+            ),
             const SizedBox(height: 12),
             _OrderInvoiceSection(order: order),
             const SizedBox(height: 12),
@@ -1612,7 +1644,8 @@ class _OrderItemsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = order.presentationItems;
-    final groupByStore = items
+    final groupByStore =
+        items
             .map((item) => '${item.storeId ?? item.storeName ?? 'store'}')
             .toSet()
             .length >
@@ -1637,7 +1670,9 @@ class _OrderItemsSection extends StatelessWidget {
             'راجع المنتجات والمواصفات قبل الموافقة',
             textDirection: TextDirection.rtl,
             style: TextStyle(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.86),
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.86),
               fontWeight: FontWeight.w700,
               fontSize: 12,
             ),
@@ -1662,7 +1697,8 @@ class _OrderInvoiceSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = order.presentationItems;
-    final groupByStore = items
+    final groupByStore =
+        items
             .map((item) => '${item.storeId ?? item.storeName ?? 'store'}')
             .toSet()
             .length >

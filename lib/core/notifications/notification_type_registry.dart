@@ -38,6 +38,43 @@ class NotificationTypeRegistry {
       );
     }
 
+    if (normalizedType.startsWith('order.revision.')) {
+      if (normalizedRole == 'owner' || normalizedRole == 'merchant') {
+        return const NotificationRouteSpec(
+          targetModule: 'merchant',
+          targetScreen: 'order_revision',
+          fallbackScreen: 'merchant_notifications',
+          allowedRoleScopes: {'owner', 'merchant'},
+          expectedPayloadKeys: {'orderId', 'revisionId'},
+        );
+      }
+      if (normalizedRole == 'delivery' || normalizedRole == 'courier') {
+        return const NotificationRouteSpec(
+          targetModule: 'courier',
+          targetScreen: 'order_revision',
+          fallbackScreen: 'courier_notifications',
+          allowedRoleScopes: {'delivery', 'courier'},
+          expectedPayloadKeys: {'orderId', 'revisionId'},
+        );
+      }
+      if (normalizedRole == 'admin' || normalizedRole == 'agent') {
+        return const NotificationRouteSpec(
+          targetModule: 'admin',
+          targetScreen: 'order_revision',
+          fallbackScreen: 'admin_requests_inbox',
+          allowedRoleScopes: {'admin', 'deputy_admin'},
+          expectedPayloadKeys: {'orderId', 'revisionId', 'ticketId'},
+        );
+      }
+      return const NotificationRouteSpec(
+        targetModule: 'customer',
+        targetScreen: 'order_revision',
+        fallbackScreen: 'customer_notifications',
+        allowedRoleScopes: {'user', 'customer'},
+        expectedPayloadKeys: {'orderId', 'revisionId'},
+      );
+    }
+
     if (normalizedType == 'delivery_order_ready_for_pickup' ||
         normalizedType == 'delivery_order_assigned' ||
         normalizedType.startsWith('courier.') ||

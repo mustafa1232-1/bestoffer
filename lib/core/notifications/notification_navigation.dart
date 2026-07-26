@@ -327,16 +327,16 @@ class NotificationNavigation {
       }
       return 'pharmacy_conversation';
     }
-      if (normalizedType.startsWith('services.')) {
-        if (normalizedType.contains('provider.status')) {
-          return 'services_provider_workspace';
-        }
-        if (normalizedType.contains('provider.pending_approval')) {
-          return 'admin_services_providers_pending';
-        }
-        if (normalizedType.contains('offering.pending_review')) {
-          return 'admin_services_offerings_pending';
-        }
+    if (normalizedType.startsWith('services.')) {
+      if (normalizedType.contains('provider.status')) {
+        return 'services_provider_workspace';
+      }
+      if (normalizedType.contains('provider.pending_approval')) {
+        return 'admin_services_providers_pending';
+      }
+      if (normalizedType.contains('offering.pending_review')) {
+        return 'admin_services_offerings_pending';
+      }
       if (normalizedType.contains('request')) {
         return 'service_request_details';
       }
@@ -940,8 +940,9 @@ class NotificationNavigation {
       }
       if (target == 'services_provider_workspace') {
         return MaterialPageRoute(
-          builder: (_) =>
-              const ServiceProviderShell(child: ServiceProviderWorkspaceScreen()),
+          builder: (_) => const ServiceProviderShell(
+            child: ServiceProviderWorkspaceScreen(),
+          ),
         );
       }
       if (target == 'services_provider_requests' ||
@@ -1148,7 +1149,9 @@ class NotificationNavigation {
       if (target == 'admin_competitions') {
         return MaterialPageRoute(builder: (_) => const AdminCompetitionsPage());
       }
-      if (target == 'admin_support' || target == 'admin_complaints') {
+      if (target == 'admin_support' ||
+          target == 'admin_complaints' ||
+          target == 'order_revision') {
         return MaterialPageRoute(
           builder: (_) => const AdminSupportOrComplaintsPage(),
         );
@@ -1318,7 +1321,9 @@ class NotificationNavigation {
           builder: (_) => const MerchantOrdersCurrentPage(),
         );
       }
-      if ((target == 'merchant_order_details' || target == 'order_tracking') &&
+      if ((target == 'merchant_order_details' ||
+              target == 'order_tracking' ||
+              target == 'order_revision') &&
           orderId != null &&
           orderId > 0) {
         return MaterialPageRoute(
@@ -1492,6 +1497,7 @@ class NotificationNavigation {
         return MaterialPageRoute(builder: (_) => const CourierSettingsPage());
       }
       if (target == 'order_tracking' ||
+          target == 'order_revision' ||
           targetModule == 'courier' ||
           target.startsWith('courier_')) {
         if (!hasOrderId) {

@@ -1,4 +1,5 @@
 import * as service from "./order-revisions.service.js";
+import * as supportService from "../support/support.service.js";
 import {
   validateCreateOrderRevision,
   validatePatchOrderRevision,
@@ -27,10 +28,33 @@ function audit(req, { actionKey, orderId, revisionId, summary, metadata = null }
   });
 }
 
+async function assertAdminCanReadTicket(req, ticketId) {
+  await supportService.getTicketForViewer({
+    ticketId,
+    viewer: {
+      userId: req.userId,
+      isAgent: true,
+      canReadInternal: true,
+      permissionScope:
+        req.permissionScopes?.["support.tickets.read"] ||
+        req.permissionScope ||
+        "assigned",
+      team: req.query?.team || null,
+    },
+  });
+}
+
+async function assertAdminCanReadRevisionTicket(req, { orderId, revisionId }) {
+  const current = await service.getRevisionDetails({ orderId, revisionId });
+  await assertAdminCanReadTicket(req, current.revision.support_ticket_id);
+  return current;
+}
+
 export async function adminCreateFromTicket(req, res, next) {
   try {
     const ticketId = idParam(req, "ticketId");
     if (!ticketId) return badRequest(res, ["ticketId"]);
+    await assertAdminCanReadTicket(req, ticketId);
     const v = validateCreateOrderRevision(req.body || {});
     if (!v.ok) return badRequest(res, v.errors);
     if (!v.value.orderId) return badRequest(res, ["orderId"]);
@@ -56,7 +80,20 @@ export async function adminListForTicket(req, res, next) {
   try {
     const ticketId = idParam(req, "ticketId");
     if (!ticketId) return badRequest(res, ["ticketId"]);
+    await assertAdminCanReadTicket(req, ticketId);
     const out = await service.listRevisionsForTicket(ticketId);
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminOrderContextForTicket(req, res, next) {
+  try {
+    const ticketId = idParam(req, "ticketId");
+    if (!ticketId) return badRequest(res, ["ticketId"]);
+    await assertAdminCanReadTicket(req, ticketId);
+    const out = await service.getOrderRevisionContextForTicket(ticketId);
     return res.json(out);
   } catch (error) {
     return next(error);
@@ -68,7 +105,7 @@ export async function adminGetRevision(req, res, next) {
     const orderId = idParam(req, "orderId");
     const revisionId = idParam(req, "revisionId");
     if (!orderId || !revisionId) return badRequest(res, ["orderId", "revisionId"]);
-    const out = await service.getRevisionDetails({ orderId, revisionId });
+    const out = await assertAdminCanReadRevisionTicket(req, { orderId, revisionId });
     return res.json(out);
   } catch (error) {
     return next(error);
@@ -80,6 +117,7 @@ export async function adminPatchRevision(req, res, next) {
     const orderId = idParam(req, "orderId");
     const revisionId = idParam(req, "revisionId");
     if (!orderId || !revisionId) return badRequest(res, ["orderId", "revisionId"]);
+    await assertAdminCanReadRevisionTicket(req, { orderId, revisionId });
     const v = validatePatchOrderRevision(req.body || {});
     if (!v.ok) return badRequest(res, v.errors);
     const out = await service.patchRevision({
@@ -106,6 +144,7 @@ export async function adminSubmitRevision(req, res, next) {
     const orderId = idParam(req, "orderId");
     const revisionId = idParam(req, "revisionId");
     if (!orderId || !revisionId) return badRequest(res, ["orderId", "revisionId"]);
+    await assertAdminCanReadRevisionTicket(req, { orderId, revisionId });
     const out = await service.submitRevision({
       orderId,
       revisionId,
@@ -129,6 +168,7 @@ export async function adminApplyRevision(req, res, next) {
     const orderId = idParam(req, "orderId");
     const revisionId = idParam(req, "revisionId");
     if (!orderId || !revisionId) return badRequest(res, ["orderId", "revisionId"]);
+    await assertAdminCanReadRevisionTicket(req, { orderId, revisionId });
     const out = await service.applyRevision({
       orderId,
       revisionId,
@@ -153,11 +193,27 @@ export async function customerApprove(req, res, next) {
     const revisionId = idParam(req, "revisionId");
     if (!orderId || !revisionId) return badRequest(res, ["orderId", "revisionId"]);
     const v = validateRevisionDecision(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
     const out = await service.customerApprove({
       orderId,
       revisionId,
       userId: req.userId,
       note: v.value.note,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listForCustomer(req, res, next) {
+  try {
+    const orderId = idParam(req, "orderId");
+    if (!orderId) return badRequest(res, ["orderId"]);
+    const out = await service.listRevisionsForOrderViewer({
+      orderId,
+      viewerUserId: req.userId,
+      viewerRole: "customer",
     });
     return res.json(out);
   } catch (error) {
@@ -171,11 +227,42 @@ export async function merchantApprove(req, res, next) {
     const revisionId = idParam(req, "revisionId");
     if (!orderId || !revisionId) return badRequest(res, ["orderId", "revisionId"]);
     const v = validateRevisionDecision(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
     const out = await service.merchantApprove({
       orderId,
       revisionId,
       ownerUserId: req.userId,
       note: v.value.note,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listForMerchant(req, res, next) {
+  try {
+    const orderId = idParam(req, "orderId");
+    if (!orderId) return badRequest(res, ["orderId"]);
+    const out = await service.listRevisionsForOrderViewer({
+      orderId,
+      viewerUserId: req.userId,
+      viewerRole: "owner",
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listForDelivery(req, res, next) {
+  try {
+    const orderId = idParam(req, "orderId");
+    if (!orderId) return badRequest(res, ["orderId"]);
+    const out = await service.listRevisionsForOrderViewer({
+      orderId,
+      viewerUserId: req.userId,
+      viewerRole: "delivery",
     });
     return res.json(out);
   } catch (error) {
@@ -189,6 +276,7 @@ export async function rejectRevision(req, res, next) {
     const revisionId = idParam(req, "revisionId");
     if (!orderId || !revisionId) return badRequest(res, ["orderId", "revisionId"]);
     const v = validateRevisionDecision(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
     const out = await service.rejectRevision({
       orderId,
       revisionId,

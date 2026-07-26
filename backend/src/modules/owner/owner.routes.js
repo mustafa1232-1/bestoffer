@@ -76,6 +76,10 @@ ownerRouter.get("/orders/history", c.listOrderHistory);
 ownerRouter.patch("/orders/:orderId/status", c.updateOrderStatus);
 ownerRouter.patch("/orders/:orderId/assign-delivery", c.assignDelivery);
 ownerRouter.patch("/orders/:orderId/items/:productId/unavailable", c.markOrderItemUnavailable);
+ownerRouter.get(
+  "/orders/:orderId/revisions",
+  revisions.listForMerchant
+);
 ownerRouter.post(
   "/orders/:orderId/revisions/:revisionId/merchant-approve",
   revisions.merchantApprove

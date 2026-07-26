@@ -42,6 +42,7 @@ import 'admin_social_reports_screen.dart';
 import 'admin_social_restrictions_screen.dart';
 import 'admin_social_users_screen.dart';
 import 'admin_section_availability_screen.dart';
+import 'admin_support_tickets_screen.dart';
 import 'admin_taxi_captain_requests_screen.dart';
 import 'admin_taxi_cash_payments_screen.dart';
 import 'admin_taxi_governance_screen.dart';
@@ -165,11 +166,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     final api = ref.read(adminApiProvider);
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
-        return await api.adminFinancialKpis(
-          period: period,
-          from: from,
-          to: to,
-        );
+        return await api.adminFinancialKpis(period: period, from: from, to: to);
       } on DioException catch (error) {
         if (attempt == 0 && _isTransientSummaryError(error)) {
           await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -610,6 +607,16 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSystem,
             onTap: (_) => _openPage(const AdminSectionAvailabilityScreen()),
           ),
+        AppUserDrawerItem(
+          icon: Icons.support_agent_rounded,
+          label: navText(ar: 'تذاكر الدعم', en: 'Support tickets'),
+          subtitle: navText(
+            ar: 'متابعة الشكاوى وتعديل الطلبات المرتبطة',
+            en: 'Handle complaints and linked order amendments',
+          ),
+          group: groupOrders,
+          onTap: (_) => _openPage(const AdminSupportTicketsScreen()),
+        ),
         AppUserDrawerItem(
           icon: Icons.support_agent_rounded,
           label: navText(ar: 'رقم الدعم المركزي', en: 'Central support number'),

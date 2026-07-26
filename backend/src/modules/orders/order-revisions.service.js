@@ -62,6 +62,37 @@ function queueRealtime(userId, event, payload) {
   });
 }
 
+function notificationSurfaceForRole(role) {
+  const normalized = normalizeRole(role);
+  if (normalized === "owner" || normalized === "merchant") return "store";
+  if (normalized === "delivery" || normalized === "courier") return "delivery";
+  if (normalized === "admin" || normalized === "agent" || normalized === "deputy_admin") return "admin";
+  return "user";
+}
+
+function notifyUser({ userId, role, type, title, body, revision, order = null, extra = {} }) {
+  if (!userId) return;
+  const payload = {
+    ...publicRevisionPayload(revision),
+    target: "order_revision",
+    targetModule: role === "delivery" || role === "courier" ? "courier" : "orders",
+    roleScope: role,
+    appSurface: notificationSurfaceForRole(role),
+    merchantId: order?.merchant_id == null ? undefined : Number(order.merchant_id),
+    ...extra,
+  };
+  queueNotification({
+    userId: Number(userId),
+    type,
+    title,
+    body,
+    orderId: Number(revision.order_id),
+    merchantId: order?.merchant_id == null ? undefined : Number(order.merchant_id),
+    payload,
+  });
+  queueRealtime(Number(userId), "order_revision", payload);
+}
+
 function publicRevisionPayload(revision) {
   return {
     revisionId: Number(revision.id),
@@ -69,6 +100,8 @@ function publicRevisionPayload(revision) {
     supportTicketId: Number(revision.support_ticket_id),
     status: revision.status,
     priceDifference: toMoney(revision.price_difference),
+    target: "order_revision",
+    targetModule: "orders",
   };
 }
 
@@ -815,6 +848,7 @@ export async function createRevisionFromSupportTicket({
       metadata: { approvalsRequired: draft.approvalsRequired },
     });
     await client.query("COMMIT");
+    notifyRevisionCreated(revision);
     return getRevisionDetails({ orderId: order.id, revisionId: revision.id });
   } catch (error) {
     await client.query("ROLLBACK");
@@ -833,6 +867,148 @@ export async function listRevisionsForTicket(ticketId) {
     [Number(ticketId)]
   );
   return { items: result.rows };
+}
+
+function revisionListStatusFilterForViewer(viewerRole) {
+  const role = normalizeRole(viewerRole);
+  if (role === "delivery" || role === "courier") {
+    return ["APPLIED"];
+  }
+  return [
+    "DRAFT",
+    "AWAITING_CUSTOMER",
+    "AWAITING_MERCHANT",
+    "AWAITING_BOTH",
+    "APPROVED",
+    "APPLIED",
+    "REJECTED",
+    "FAILED",
+    "EXPIRED",
+  ];
+}
+
+async function assertOrderRevisionViewerTx(client, { orderId, viewerUserId, viewerRole }) {
+  const order = await loadOrderForRevisionTx(client, orderId, { lock: false });
+  const role = normalizeRole(viewerRole);
+  const userId = Number(viewerUserId);
+  if (role === "customer" || role === "user") {
+    if (Number(order.customer_user_id) !== userId) {
+      throw new AppError("ORDER_REVISION_FORBIDDEN", { status: 403 });
+    }
+    return order;
+  }
+  if (role === "owner" || role === "merchant") {
+    if (Number(order.owner_user_id) !== userId) {
+      throw new AppError("ORDER_REVISION_FORBIDDEN", { status: 403 });
+    }
+    return order;
+  }
+  if (role === "delivery" || role === "courier") {
+    if (Number(order.delivery_user_id) !== userId) {
+      throw new AppError("ORDER_REVISION_FORBIDDEN", { status: 403 });
+    }
+    return order;
+  }
+  throw new AppError("ORDER_REVISION_FORBIDDEN", { status: 403 });
+}
+
+export async function listRevisionsForOrderViewer({
+  orderId,
+  viewerUserId,
+  viewerRole,
+}) {
+  const client = await pool.connect();
+  try {
+    const order = await assertOrderRevisionViewerTx(client, {
+      orderId,
+      viewerUserId,
+      viewerRole,
+    });
+    const statuses = revisionListStatusFilterForViewer(viewerRole);
+    const revisions = await client.query(
+      `SELECT *
+       FROM order_revision
+       WHERE order_id = $1
+         AND status = ANY($2::varchar[])
+       ORDER BY created_at DESC, id DESC`,
+      [Number(order.id), statuses]
+    );
+    return {
+      orderId: Number(order.id),
+      items: revisions.rows,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function getOrderRevisionContextForTicket(ticketId) {
+  const result = await q(
+    `WITH linked AS (
+       SELECT entity_id::bigint AS order_id
+       FROM support_ticket
+       WHERE id = $1
+         AND entity_type = 'order'
+         AND entity_id IS NOT NULL
+       UNION
+       SELECT entity_id::bigint AS order_id
+       FROM support_ticket_link
+       WHERE ticket_id = $1
+         AND entity_type = 'order'
+     )
+     SELECT
+       o.*,
+       o.status::text AS status_text,
+       m.name AS merchant_name,
+       m.owner_user_id,
+       cu.full_name AS customer_name,
+       cu.phone AS customer_phone,
+       du.full_name AS delivery_name,
+       du.phone AS delivery_phone
+     FROM linked l
+     JOIN customer_order o ON o.id = l.order_id
+     JOIN merchant m ON m.id = o.merchant_id
+     LEFT JOIN app_user cu ON cu.id = o.customer_user_id
+     LEFT JOIN app_user du ON du.id = o.delivery_user_id
+     ORDER BY o.id DESC
+     LIMIT 1`,
+    [Number(ticketId)]
+  );
+  const order = result.rows[0] || null;
+  if (!order) {
+    return {
+      ticketId: Number(ticketId),
+      order: null,
+      items: [],
+      invoice: null,
+      revisions: [],
+    };
+  }
+  const [items, invoice, revisions] = await Promise.all([
+    q(`SELECT * FROM order_item WHERE order_id=$1 ORDER BY id ASC`, [Number(order.id)]),
+    q(
+      `SELECT *
+       FROM merchant_receivable_invoice
+       WHERE order_id=$1
+       ORDER BY id DESC
+       LIMIT 1`,
+      [Number(order.id)]
+    ),
+    q(
+      `SELECT *
+       FROM order_revision
+       WHERE order_id=$1
+       ORDER BY created_at DESC, id DESC`,
+      [Number(order.id)]
+    ),
+  ]);
+  return {
+    ticketId: Number(ticketId),
+    order,
+    items: items.rows,
+    invoice: invoice.rows[0] || null,
+    revisions: revisions.rows,
+  };
 }
 
 export async function getRevisionDetails({ orderId, revisionId }) {
@@ -1424,6 +1600,7 @@ export async function applyRevision({ orderId, revisionId, actorUserId, actorRol
            AND status='APPLYING'`,
         [Number(revisionId), String(error?.message || error).slice(0, 500)]
       ).catch(() => {});
+      notifyRevisionFailed({ orderId, revisionId, actorUserId, error });
     }
     throw error;
   } finally {
@@ -1431,46 +1608,146 @@ export async function applyRevision({ orderId, revisionId, actorUserId, actorRol
   }
 }
 
-function notifyRevisionSubmitted(revision) {
-  const payload = publicRevisionPayload(revision);
-  queueNotification({
-    userId: Number(revision.created_by_user_id),
-    type: "order.revision.submitted",
-    title: "Order revision submitted",
-    body: `Order #${revision.order_id} revision is awaiting approval.`,
-    orderId: Number(revision.order_id),
-    payload,
+async function loadNotificationOrder(orderId) {
+  const result = await q(
+    `SELECT o.id, o.customer_user_id, o.delivery_user_id, o.merchant_id, m.owner_user_id
+     FROM customer_order o
+     JOIN merchant m ON m.id = o.merchant_id
+     WHERE o.id=$1
+     LIMIT 1`,
+    [Number(orderId)]
+  );
+  return result.rows[0] || null;
+}
+
+function notifyRevisionCreated(revision) {
+  notifyUser({
+    userId: revision.created_by_user_id,
+    role: "admin",
+    type: "order.revision.created",
+    title: "Order revision draft created",
+    body: `Order #${revision.order_id} revision draft is ready.`,
+    revision,
   });
+}
+
+function notifyRevisionSubmitted(revision) {
+  loadNotificationOrder(revision.order_id)
+    .then((order) => {
+      const required = asArray(revision.approvals_required_json);
+      notifyUser({
+        userId: revision.created_by_user_id,
+        role: "admin",
+        type: "order.revision.submitted",
+        title: "Order revision submitted",
+        body: `Order #${revision.order_id} revision is awaiting approval.`,
+        revision,
+        order,
+        extra: { approvalsRequired: required },
+      });
+      if (required.includes("CUSTOMER")) {
+        notifyUser({
+          userId: order?.customer_user_id,
+          role: "customer",
+          type: "order.revision.awaiting_customer",
+          title: "Order update needs your approval",
+          body: `Review the proposed change for order #${revision.order_id}.`,
+          revision,
+          order,
+          extra: { approvalType: "CUSTOMER" },
+        });
+      }
+      if (required.includes("MERCHANT")) {
+        notifyUser({
+          userId: order?.owner_user_id,
+          role: "owner",
+          type: "order.revision.awaiting_merchant",
+          title: "Order update needs store approval",
+          body: `Review the proposed change for order #${revision.order_id}.`,
+          revision,
+          order,
+          extra: { approvalType: "MERCHANT" },
+        });
+      }
+    })
+    .catch((error) => {
+      console.warn("[order-revisions] submitted notification failed", error?.message || error);
+    });
 }
 
 function notifyRevisionDecision(revision, approvalType, decision) {
-  const payload = { ...publicRevisionPayload(revision), approvalType, decision };
-  queueNotification({
-    userId: Number(revision.created_by_user_id),
-    type: "order.revision.decision",
-    title: "Order revision decision",
-    body: `Order #${revision.order_id}: ${approvalType} ${decision.toLowerCase()}.`,
-    orderId: Number(revision.order_id),
-    payload,
-  });
-  queueRealtime(Number(revision.created_by_user_id), "order_revision", payload);
+  loadNotificationOrder(revision.order_id)
+    .then((order) => {
+      const type = decision === "REJECTED"
+        ? "order.revision.rejected"
+        : `order.revision.${approvalType.toLowerCase()}_approved`;
+      notifyUser({
+        userId: revision.created_by_user_id,
+        role: "admin",
+        type,
+        title: "Order revision decision",
+        body: `Order #${revision.order_id}: ${approvalType} ${decision.toLowerCase()}.`,
+        revision,
+        order,
+        extra: { approvalType, decision },
+      });
+      const otherUserId = approvalType === "CUSTOMER"
+        ? order?.owner_user_id
+        : order?.customer_user_id;
+      const otherRole = approvalType === "CUSTOMER" ? "owner" : "customer";
+      notifyUser({
+        userId: otherUserId,
+        role: otherRole,
+        type,
+        title: "Order revision decision",
+        body: `Order #${revision.order_id}: ${approvalType} ${decision.toLowerCase()}.`,
+        revision,
+        order,
+        extra: { approvalType, decision },
+      });
+    })
+    .catch((error) => {
+      console.warn("[order-revisions] decision notification failed", error?.message || error);
+    });
 }
 
 function notifyRevisionApplied(revision, order) {
-  const payload = publicRevisionPayload(revision);
-  for (const userId of [order.customer_user_id, order.owner_user_id, order.delivery_user_id]) {
-    if (!userId) continue;
-    queueNotification({
-      userId: Number(userId),
+  for (const recipient of [
+    { userId: order.customer_user_id, role: "customer" },
+    { userId: order.owner_user_id, role: "owner" },
+    { userId: order.delivery_user_id, role: "delivery" },
+    { userId: revision.created_by_user_id, role: "admin" },
+  ]) {
+    notifyUser({
+      userId: recipient.userId,
+      role: recipient.role,
       type: "order.revision.applied",
       title: "Order updated",
       body: `Order #${revision.order_id} was updated by support.`,
-      orderId: Number(revision.order_id),
-      merchantId: Number(order.merchant_id),
-      payload,
+      revision,
+      order,
     });
-    queueRealtime(Number(userId), "order_revision", payload);
   }
+}
+
+function notifyRevisionFailed({ orderId, revisionId, actorUserId, error }) {
+  const revision = {
+    id: Number(revisionId),
+    order_id: Number(orderId),
+    support_ticket_id: null,
+    status: "FAILED",
+    price_difference: 0,
+    created_by_user_id: actorUserId,
+  };
+  notifyUser({
+    userId: actorUserId,
+    role: "admin",
+    type: "order.revision.failed",
+    title: "Order revision failed",
+    body: `Order #${orderId} revision could not be applied.`,
+    revision,
+    extra: { failureReason: String(error?.message || error).slice(0, 160) },
+  });
 }
 
 export const __orderRevisionTestables = Object.freeze({

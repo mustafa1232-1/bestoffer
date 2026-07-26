@@ -49,6 +49,11 @@ ordersRouter.post(
   requireCustomer,
   c.confirmDelivered
 );
+ordersRouter.get(
+  "/:orderId/revisions",
+  requireCustomer,
+  revisions.listForCustomer
+);
 ordersRouter.post(
   "/:orderId/revisions/:revisionId/customer-approve",
   requireCustomer,

@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 
+import '../../orders/models/order_revision_model.dart';
+
 class DeliveryOrderActionReason {
   final String reasonCode;
   final String label;
@@ -76,6 +78,19 @@ class DeliveryApi {
   Future<Map<String, dynamic>> orderDetailV2(int orderId) async {
     final response = await dio.get('/api/delivery/orders/$orderId');
     return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<OrderRevisionModel>> listOrderRevisions(int orderId) async {
+    final response = await dio.get('/api/delivery/orders/$orderId/revisions');
+    final data = Map<String, dynamic>.from(response.data as Map? ?? const {});
+    final items = List<dynamic>.from(data['items'] as List? ?? const []);
+    return items
+        .whereType<Map>()
+        .map(
+          (entry) =>
+              OrderRevisionModel.fromJson(Map<String, dynamic>.from(entry)),
+        )
+        .toList(growable: false);
   }
 
   /// Canonical courier earnings report: today/month totals, completed counts,

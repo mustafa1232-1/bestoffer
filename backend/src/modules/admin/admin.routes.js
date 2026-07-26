@@ -124,11 +124,20 @@ adminRouter.get(
 );
 adminRouter.get(
   "/support/tickets/:ticketId/order-revisions",
+  requirePermission("support.tickets.read"),
   requirePermission("orders.read"),
   orderRevisions.adminListForTicket
 );
+adminRouter.get(
+  "/support/tickets/:ticketId/order-context",
+  requirePermission("support.tickets.read"),
+  requirePermission("orders.read"),
+  orderRevisions.adminOrderContextForTicket
+);
 adminRouter.post(
   "/support/tickets/:ticketId/order-revisions",
+  requirePermission("support.tickets.read"),
+  requirePermission("orders.read"),
   requirePermission("orders.revisions.create"),
   orderRevisions.adminCreateFromTicket
 );
@@ -174,16 +183,22 @@ adminRouter.get(
 );
 adminRouter.patch(
   "/orders/:orderId/revisions/:revisionId",
+  requirePermission("support.tickets.read"),
+  requirePermission("orders.read"),
   requirePermission("orders.modify"),
   orderRevisions.adminPatchRevision
 );
 adminRouter.post(
   "/orders/:orderId/revisions/:revisionId/submit",
+  requirePermission("support.tickets.read"),
+  requirePermission("orders.read"),
   requirePermission("orders.revisions.submit"),
   orderRevisions.adminSubmitRevision
 );
 adminRouter.post(
   "/orders/:orderId/revisions/:revisionId/apply",
+  requirePermission("support.tickets.read"),
+  requirePermission("orders.read"),
   requirePermission("orders.revisions.apply"),
   orderRevisions.adminApplyRevision
 );

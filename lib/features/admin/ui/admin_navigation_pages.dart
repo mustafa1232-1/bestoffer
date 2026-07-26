@@ -20,7 +20,7 @@ import 'admin_notification_center_screen.dart';
 import 'admin_notifications_operations_screen.dart';
 import 'admin_permissions_matrix_screen.dart';
 import 'admin_receivables_screen.dart';
-import 'admin_social_reports_screen.dart';
+import 'admin_support_tickets_screen.dart';
 import 'admin_taxi_captain_requests_screen.dart';
 import 'admin_taxi_cash_payments_screen.dart';
 import '../../ai_dev_support/screens/ai_dev_support_dashboard_screen.dart';
@@ -93,7 +93,7 @@ class AdminSupportOrComplaintsPage extends StatelessWidget {
   const AdminSupportOrComplaintsPage({super.key});
 
   @override
-  Widget build(BuildContext context) => const AdminSocialReportsScreen();
+  Widget build(BuildContext context) => const AdminSupportTicketsScreen();
 }
 
 class AdminSettingsPage extends StatelessWidget {

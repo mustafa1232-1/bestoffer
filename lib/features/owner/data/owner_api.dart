@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../../../core/files/local_image_file.dart';
+import '../../orders/models/order_revision_model.dart';
 
 class OwnerApi {
   final Dio dio;
@@ -320,6 +321,47 @@ class OwnerApi {
       '/api/owner/orders/$orderId/items/$productId/unavailable',
     );
     return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<OrderRevisionModel>> listOrderRevisions(int orderId) async {
+    final response = await dio.get('/api/owner/orders/$orderId/revisions');
+    final data = Map<String, dynamic>.from(response.data as Map? ?? const {});
+    final items = List<dynamic>.from(data['items'] as List? ?? const []);
+    return items
+        .whereType<Map>()
+        .map(
+          (entry) =>
+              OrderRevisionModel.fromJson(Map<String, dynamic>.from(entry)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<OrderRevisionBundle> approveOrderRevision({
+    required int orderId,
+    required int revisionId,
+    String? note,
+  }) async {
+    final response = await dio.post(
+      '/api/owner/orders/$orderId/revisions/$revisionId/merchant-approve',
+      data: {'note': note},
+    );
+    return OrderRevisionBundle.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<OrderRevisionBundle> rejectOrderRevision({
+    required int orderId,
+    required int revisionId,
+    String? note,
+  }) async {
+    final response = await dio.post(
+      '/api/owner/orders/$orderId/revisions/$revisionId/reject',
+      data: {'note': note},
+    );
+    return OrderRevisionBundle.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
   }
 
   Future<Map<String, dynamic>> analytics() async {
