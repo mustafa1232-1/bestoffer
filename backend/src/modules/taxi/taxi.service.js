@@ -41,7 +41,9 @@ function assertValidBasmayaAddress(address) {
   return validation.normalized;
 }
 
-export async function registerCaptain(dto) {
+// إنشاء حساب كابتن تكسي (بدون إشعار المعتمدين) — يُعاد استخدامه في التسجيل
+// الذاتي وفي إنشاء الحساب من قبل الإدمن (مع اعتماد تلقائي).
+export async function createCaptainAccount(dto) {
   const address = assertValidBasmayaAddress({
     block: dto.block,
     buildingNumber: dto.buildingNumber,
@@ -115,13 +117,19 @@ export async function registerCaptain(dto) {
     throw error;
   }
 
+  return user;
+}
+
+export async function registerCaptain(dto) {
+  const user = await createCaptainAccount(dto);
+
   const approvers = await deliveryRepo.listDeliveryApproverUserIds();
   await createManyNotifications(
     approvers.map((approverId) => ({
       userId: Number(approverId),
       type: "admin_taxi_captain_pending_approval",
       title: "Taxi captain account pending approval",
-      body: `New taxi captain request: ${fullName} (${phone})`,
+      body: `New taxi captain request: ${user.full_name} (${user.phone})`,
       payload: {
         captainUserId: Number(user.id),
       },

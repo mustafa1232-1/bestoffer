@@ -536,6 +536,25 @@ adminRouter.get(
 );
 
 adminRouter.post("/users", requireAdmin, imageUpload.single("imageFile"), c.createUser);
+// إنشاء حساب متجر كامل من قبل الإدمن (اعتماد تلقائي + شروط مالية inline).
+adminRouter.post(
+  "/accounts/store",
+  requireAdmin,
+  requirePermission("merchants.approve"),
+  imageUpload.single("merchantImageFile"),
+  c.createStoreAccount
+);
+// إنشاء حساب كابتن تكسي من قبل الإدمن (اعتماد تلقائي).
+adminRouter.post(
+  "/accounts/taxi-captain",
+  requireAdmin,
+  requirePermission("taxi.captains.approve"),
+  imageUpload.fields([
+    { name: "profileImageFile", maxCount: 1 },
+    { name: "carImageFile", maxCount: 1 },
+  ]),
+  c.createTaxiCaptainAccount
+);
 adminRouter.post(
   "/ad-board/items",
   requireAdmin,

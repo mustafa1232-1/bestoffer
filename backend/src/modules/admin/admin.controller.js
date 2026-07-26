@@ -2,6 +2,8 @@ import * as service from "./admin.service.js";
 import {
   validateAdBoardCreate,
   validateAdBoardUpdate,
+  validateAdminCreateStore,
+  validateAdminCreateTaxiCaptain,
   validateAdminCreateUser,
   validateApproveSettlement,
   validateDeliveryDriverProfilePatch,
@@ -46,6 +48,80 @@ export async function createUser(req, res, next) {
       isSuperAdmin: req.userIsSuperAdmin === true,
     });
     res.status(201).json({ user });
+  } catch (e) {
+    next(e);
+  }
+}
+
+// إنشاء حساب متجر كامل من قبل الإدمن (اعتماد تلقائي + شروط مالية inline).
+export async function createStoreAccount(req, res, next) {
+  try {
+    const body = {
+      ...req.body,
+      merchantImageUrl:
+        buildUploadedFileUrl(req, req.file) || req.body?.merchantImageUrl,
+    };
+
+    const v = validateAdminCreateStore(body);
+    if (!v.ok) {
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    // تُطبَّق قيم افتراضية معقولة للشروط المالية غير المُدخَلة.
+    const terms = validateMerchantFinancialApprovalTerms(
+      req.body?.financialTerms || {}
+    );
+    if (!terms.ok) {
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: terms.errors });
+    }
+
+    const out = await service.createStoreAccountByAdmin(
+      { ...body, financialTerms: terms.data },
+      {
+        id: req.userId,
+        role: req.userRole,
+        isSuperAdmin: req.userIsSuperAdmin === true,
+      }
+    );
+    res.status(201).json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+// إنشاء حساب كابتن تكسي من قبل الإدمن (اعتماد تلقائي).
+export async function createTaxiCaptainAccount(req, res, next) {
+  try {
+    const files = req.files || {};
+    const profileImageUrl =
+      buildUploadedFileUrl(req, files.profileImageFile?.[0]) ||
+      req.body?.profileImageUrl;
+    const carImageUrl =
+      buildUploadedFileUrl(req, files.carImageFile?.[0]) ||
+      req.body?.carImageUrl;
+    const body = {
+      ...req.body,
+      profileImageUrl,
+      carImageUrl,
+    };
+
+    const v = validateAdminCreateTaxiCaptain(body);
+    if (!v.ok) {
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const out = await service.createTaxiCaptainAccountByAdmin(body, {
+      id: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin === true,
+    });
+    res.status(201).json(out);
   } catch (e) {
     next(e);
   }

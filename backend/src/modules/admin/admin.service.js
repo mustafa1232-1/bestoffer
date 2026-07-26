@@ -14,6 +14,7 @@ import * as behaviorService from "../behavior/behavior.service.js";
 import * as commerceRepo from "../commerce/commerce.repo.js";
 import * as ordersRepo from "../orders/orders.repo.js";
 import * as taxiService from "../taxi/taxi.service.js";
+import * as ownerService from "../owner/owner.service.js";
 import * as adminRepo from "./admin.repo.js";
 import * as merchantsRepo from "../merchants/merchants.repo.js";
 import {
@@ -263,6 +264,124 @@ export async function createManagedUser(dto, actor = {}) {
     merchantId: staffMerchantId,
     merchantName: merchant?.name || null,
     driverType: requestedDriverType,
+  };
+}
+
+// ===== إنشاء حسابات من قبل الإدمن مع اعتماد تلقائي (بدون خطوة موافقة) =====
+
+// إنشاء حساب متجر كامل (صاحب متجر + متجر) مع الشروط المالية inline واعتماده فوراً.
+// يعيد استخدام منطق التسجيل الذاتي لصاحب المتجر ثم يرسل الشروط المالية ويعتمدها
+// تلقائياً — فيصبح المتجر مفعّلاً دون انتظار موافقة المالك.
+export async function createStoreAccountByAdmin(dto, actor = {}) {
+  const adminUserId = toActorUserId(actor);
+  const out = await ownerService.createOwnerAccountWithMerchant({
+    ...dto,
+    analyticsConsentAccepted: true,
+    analyticsConsentVersion: "admin_created_v1",
+  });
+  const merchantId = Number(out.merchant.id);
+  const ownerUserId = Number(out.merchant.owner_user_id);
+
+  // الشروط المالية inline: تُرسَل ثم تُعتمَد تلقائياً (لا انتظار موافقة المالك).
+  const financialTerms =
+    dto.financialTerms && typeof dto.financialTerms === "object"
+      ? dto.financialTerms
+      : {};
+  await commerceRepo.submitMerchantFinancialTermsForApproval({
+    adminUserId,
+    merchantId,
+    patch: financialTerms,
+  });
+  const accepted = await commerceRepo.acceptMerchantFinancialTermsByOwner({
+    ownerUserId,
+  });
+
+  const merchant = await adminRepo.getMerchantById(merchantId);
+  // الصف المُحدَّث بعد الاعتماد هو مصدر الحقيقة لحالة الاعتماد.
+  const approvedMerchant = accepted?.merchant || null;
+
+  await logAdminAudit({
+    actor,
+    actionKey: "admin.account.store_created",
+    summary:
+      `أنشأ الإدمن حساب متجر ` +
+      (merchant?.name || out.merchant.name || `#${merchantId}`) +
+      ` واعتمده مباشرةً`,
+    targetType: "merchant",
+    targetId: merchantId,
+    targetLabel: merchant?.name || out.merchant.name || null,
+    metadata: {
+      ownerUserId,
+      activityType:
+        merchant?.activity_type || out.merchant.activity_type || null,
+      autoApproved: true,
+      financialTerms,
+    },
+  });
+
+  return {
+    user: {
+      id: ownerUserId,
+      fullName: out.user.full_name,
+      phone: out.user.phone,
+      role: out.user.role,
+    },
+    merchant: {
+      id: merchantId,
+      name: merchant?.name || out.merchant.name || null,
+      activityType: merchant?.activity_type || null,
+      isApproved:
+        approvedMerchant?.is_approved === true || merchant?.is_approved === true,
+      approvalStatus: approvedMerchant?.approval_status || null,
+    },
+  };
+}
+
+// إنشاء حساب كابتن تكسي واعتماده فوراً (بدون انتظار موافقة).
+export async function createTaxiCaptainAccountByAdmin(dto, actor = {}) {
+  const adminUserId = toActorUserId(actor);
+  const user = await taxiService.createCaptainAccount({
+    ...dto,
+    analyticsConsentAccepted: true,
+    analyticsConsentVersion: "admin_created_v1",
+  });
+  const captainUserId = Number(user.id);
+
+  const approved = await adminRepo.approveTaxiCaptainAccount(
+    captainUserId,
+    adminUserId
+  );
+
+  await logAdminAudit({
+    actor,
+    actionKey: "admin.account.taxi_captain_created",
+    summary: `أنشأ الإدمن حساب كابتن تكسي ${user.full_name} واعتمده مباشرةً`,
+    targetType: "user",
+    targetId: captainUserId,
+    targetLabel: user.full_name,
+    metadata: {
+      phone: user.phone,
+      role: "taxi_captain",
+      autoApproved: true,
+    },
+  });
+
+  await createManyNotifications([
+    {
+      userId: captainUserId,
+      type: "taxi_captain_account_approved",
+      title: "تم إنشاء حسابك واعتماده",
+      body: "أنشأت الإدارة حساب كابتن تكسي لك وتم اعتماده. يمكنك تسجيل الدخول الآن.",
+      payload: { captainUserId },
+    },
+  ]);
+
+  return {
+    id: captainUserId,
+    fullName: user.full_name,
+    phone: user.phone,
+    role: user.role,
+    taxiAccountApproved: approved != null,
   };
 }
 

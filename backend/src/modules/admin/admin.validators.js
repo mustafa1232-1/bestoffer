@@ -66,6 +66,44 @@ export function validateAdminCreateUser(body) {
   return { ok: errors.length === 0, errors };
 }
 
+// إنشاء متجر من قبل الإدمن: حقول صاحب المتجر + المتجر الأساسية. باقي التحقق
+// (القسم الفرعي/الشروط المالية) يتم في الخدمة/التحقق المخصص للشروط المالية.
+export function validateAdminCreateStore(body = {}) {
+  const errors = [];
+  if (!isNonEmptyString(body.phone, 20)) errors.push("phone");
+  const pinStr = String(body.pin || "");
+  if (!/^\d{4,8}$/.test(pinStr)) errors.push("pin");
+  if (!isNonEmptyString(body.merchantName, 160)) errors.push("merchantName");
+  if (!isNonEmptyString(body.merchantActivityType, 60)) {
+    errors.push("merchantActivityType");
+  }
+  if (!isNonEmptyString(body.merchantDescription, 2000)) {
+    errors.push("merchantDescription");
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+// إنشاء حساب كابتن تكسي من قبل الإدمن.
+export function validateAdminCreateTaxiCaptain(body = {}) {
+  const errors = [];
+  if (!isNonEmptyString(body.fullName, 120)) errors.push("fullName");
+  if (!isNonEmptyString(body.phone, 20)) errors.push("phone");
+  const pinStr = String(body.pin || "");
+  if (!/^\d{4,8}$/.test(pinStr)) errors.push("pin");
+  if (!isNonEmptyString(body.block, 20)) errors.push("block");
+  if (!isNonEmptyString(body.buildingNumber, 20)) errors.push("buildingNumber");
+  if (!isNonEmptyString(body.apartment, 20)) errors.push("apartment");
+  if (!isNonEmptyString(body.vehicleType, 40)) errors.push("vehicleType");
+  if (!isNonEmptyString(body.carMake, 60)) errors.push("carMake");
+  if (!isNonEmptyString(body.carModel, 60)) errors.push("carModel");
+  if (!isNonEmptyString(body.plateNumber, 40)) errors.push("plateNumber");
+  const carYear = Number(body.carYear);
+  if (!Number.isInteger(carYear) || carYear < 1970 || carYear > 2100) {
+    errors.push("carYear");
+  }
+  return { ok: errors.length === 0, errors };
+}
+
 export function validateDeliveryDriverProfilePatch(body) {
   const errors = [];
   const driverType = String(body?.driverType || "").trim().toLowerCase();

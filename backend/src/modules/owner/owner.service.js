@@ -749,7 +749,10 @@ async function issueOwnerSession(user, deviceContext = {}) {
  * - `ANALYTICS_CONSENT_REQUIRED`
  * - `MERCHANT_SERVICE_AREA_NOTE_REQUIRED`
  */
-export async function registerOwner(dto, deviceContext = {}) {
+// إنشاء حساب صاحب متجر + المتجر المرتبط به (بدون إصدار جلسة). يُعاد استخدامه
+// في التسجيل الذاتي (registerOwner) وفي إنشاء الحساب من قبل الإدمن حيث تُضاف
+// الشروط المالية ويُعتمد المتجر مباشرةً.
+export async function createOwnerAccountWithMerchant(dto) {
   const phone = normalizePhone(dto.phone);
   const pin = normalizePin(dto.pin);
   const address = resolveOwnerAddress(dto);
@@ -888,6 +891,12 @@ export async function registerOwner(dto, deviceContext = {}) {
         chatQualityReviewConsent: true,
       }),
   });
+
+  return out;
+}
+
+export async function registerOwner(dto, deviceContext = {}) {
+  const out = await createOwnerAccountWithMerchant(dto);
 
   const session = await issueOwnerSession(out.user, deviceContext);
 
