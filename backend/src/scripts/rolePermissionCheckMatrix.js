@@ -3,11 +3,17 @@
 import "dotenv/config";
 
 import assert from "node:assert/strict";
+import { randomInt } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { q } from "../config/db.js";
 import { env } from "../config/env.js";
+import { hashPin } from "../shared/utils/hash.js";
+import { cleanupLoadArtifactsByRunTag } from "../shared/utils/testArtifactCleanup.js";
+import { assertSafeE2EDatabaseTarget } from "./e2eDbSafety.js";
 import {
+  buildPhone,
   createActor,
   buildRunTag,
   readId,
@@ -176,6 +182,21 @@ function normalizeMatrixAccount(entry) {
   };
 }
 
+function defaultLoginPathForAccount(account) {
+  const role = readString(account?.role).toLowerCase();
+  const authRole = readString(account?.authRole).toLowerCase();
+  const companyRole = readString(account?.companyRole).toLowerCase();
+  const appFlavor = readString(account?.appFlavor).toLowerCase();
+  const portalRole = role || authRole;
+  if (
+    portalRole === "company_portal" ||
+    (appFlavor === "company" && companyRole && portalRole !== "admin")
+  ) {
+    return "/api/company/auth/login";
+  }
+  return "/api/auth/login";
+}
+
 async function loadMatrixAccounts(filePath) {
   try {
     const raw = await fs.readFile(filePath, "utf8");
@@ -261,9 +282,7 @@ async function loginAccount(baseUrl, account) {
   const role = readString(account.role).toLowerCase();
   const label = readString(account.label || role || "account");
   const appFlavor = readString(account.appFlavor || "user").toLowerCase();
-  const loginPath =
-    readString(account.loginPath) ||
-    (appFlavor === "company" ? "/api/company/auth/login" : "/api/auth/login");
+  const loginPath = readString(account.loginPath) || defaultLoginPathForAccount(account);
   const phone = readString(account.phone);
   const pin = readString(account.pin);
   if (!phone || !pin) {
@@ -345,25 +364,35 @@ function isAllowedRole(check, session) {
 
 function buildFallbackAccounts() {
   const out = [];
+  const allowDevAdminFallback = ["1", "true", "yes", "on"].includes(
+    readString(process.env.PERMISSIONS_CHECK_ALLOW_DEV_ADMIN_FALLBACK).toLowerCase()
+  );
   for (const roleConfig of ROLE_CONFIG) {
     const phone = String(
       process.env[roleConfig.phoneEnv] ||
-        (roleConfig.fallbackPhoneEnv ? process.env[roleConfig.fallbackPhoneEnv] : "") ||
+        (allowDevAdminFallback && roleConfig.fallbackPhoneEnv
+          ? process.env[roleConfig.fallbackPhoneEnv]
+          : "") ||
         roleConfig.fallbackPhone ||
         ""
     ).trim();
     const pin = String(
       process.env[roleConfig.pinEnv] ||
-        (roleConfig.fallbackPinEnv ? process.env[roleConfig.fallbackPinEnv] : "") ||
+        (allowDevAdminFallback && roleConfig.fallbackPinEnv
+          ? process.env[roleConfig.fallbackPinEnv]
+          : "") ||
         roleConfig.fallbackPin ||
         ""
     ).trim();
-    if (!phone || !pin) continue;
+    const normalizedPhone = phone.replace(/[^\d]/g, "");
+    if (!/^\d{8,20}$/.test(normalizedPhone) || !/^\d{4,8}$/.test(pin)) {
+      continue;
+    }
     out.push({
       label: roleConfig.label,
       role: roleConfig.role,
       appFlavor: roleConfig.appFlavor,
-      phone,
+      phone: normalizedPhone,
       pin,
       isSuperAdmin: roleConfig.role === "super_admin",
     });
@@ -378,114 +407,325 @@ function pickAccounts(matrixAccounts, fallbackAccounts) {
   return fallbackAccounts;
 }
 
+function isLocalBaseUrl(baseUrl) {
+  try {
+    const parsed = new URL(baseUrl);
+    return /^(127\.0\.0\.1|localhost)$/i.test(parsed.hostname);
+  } catch (_) {
+    return false;
+  }
+}
+
+async function insertPermissionCheckUser({
+  runTag,
+  label,
+  role,
+  phonePrefix,
+  pin,
+  isSuperAdmin = false,
+}) {
+  const phone = buildPhone(phonePrefix, randomInt(10000000, 99999999));
+  const pinHash = await hashPin(pin);
+  const username = `pc${label.replace(/[^a-z0-9]/gi, "").toLowerCase()}${randomInt(
+    100000,
+    999999
+  )}`.slice(0, 24);
+  const r = await q(
+    `INSERT INTO app_user
+       (full_name, username, phone, pin_hash, block, building_number, apartment,
+        role, analytics_consent_granted, analytics_consent_version,
+        analytics_consent_granted_at, is_super_admin,
+        delivery_account_approved, taxi_account_approved)
+     VALUES
+       ($1,$2,$3,$4,'QA','1','1',$5,TRUE,'permissions_check_fixture_v1',
+        NOW(),$6,TRUE,TRUE)
+     RETURNING id`,
+    [
+      `Permissions ${label} ${runTag}`,
+      username,
+      phone,
+      pinHash,
+      role,
+      isSuperAdmin === true,
+    ]
+  );
+  return {
+    label,
+    role: isSuperAdmin ? "super_admin" : role,
+    appFlavor:
+      role === "owner"
+        ? "store"
+        : role === "delivery"
+          ? "delivery"
+          : role === "admin"
+            ? "company"
+            : "user",
+    loginPath: "/api/auth/login",
+    phone,
+    pin,
+    userId: readId(r.rows[0]),
+    isSuperAdmin: isSuperAdmin === true,
+  };
+}
+
+async function insertPermissionCheckMerchant({ runTag, ownerUserId, phone }) {
+  await q(
+    `INSERT INTO merchant
+       (name, type, description, phone, is_open, is_disabled, owner_user_id,
+        is_approved, approval_status, activity_type, discovery_select_all,
+        tagline, working_hours, service_area_note, supports_chat,
+        supports_attachments, supports_pharmacy_workflow)
+     VALUES
+       ($1,'restaurant',$2,$3,TRUE,FALSE,$4,TRUE,'approved','restaurant',
+        TRUE,$5,'09:00-21:00',$6,TRUE,TRUE,FALSE)`,
+    [
+      `Permissions Store ${runTag}`,
+      `Permissions fixture merchant ${runTag}`,
+      phone,
+      Number(ownerUserId),
+      `Permissions tagline ${runTag}`,
+      `Permissions service area ${runTag}`,
+    ]
+  );
+}
+
+async function createLocalMatrixAccounts(baseUrl) {
+  if (!isLocalBaseUrl(baseUrl)) {
+    return null;
+  }
+
+  assertSafeE2EDatabaseTarget({
+    scriptName: "permissions-check",
+    databaseUrl: env.databaseUrl,
+    allowProductionOverride: process.env.ALLOW_PERMISSIONS_CHECK_PROD_OVERRIDE,
+  });
+
+  const runTag = buildRunTag("permissions-check");
+  const pin = String(randomInt(1000, 9999));
+  const currentSuperAdmins = await q(
+    `SELECT id FROM app_user WHERE is_super_admin = TRUE`
+  );
+  const demotedSuperAdminIds = currentSuperAdmins.rows
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  if (demotedSuperAdminIds.length > 0) {
+    await q(`UPDATE app_user SET is_super_admin = FALSE WHERE id = ANY($1::bigint[])`, [
+      demotedSuperAdminIds,
+    ]);
+  }
+
+  try {
+    const user = await insertPermissionCheckUser({
+      runTag,
+      label: "user",
+      role: "user",
+      phonePrefix: "079",
+      pin,
+    });
+    const owner = await insertPermissionCheckUser({
+      runTag,
+      label: "owner",
+      role: "owner",
+      phonePrefix: "078",
+      pin,
+    });
+    const delivery = await insertPermissionCheckUser({
+      runTag,
+      label: "delivery",
+      role: "delivery",
+      phonePrefix: "077",
+      pin,
+    });
+    const admin = await insertPermissionCheckUser({
+      runTag,
+      label: "admin",
+      role: "admin",
+      phonePrefix: "076",
+      pin,
+    });
+    const superAdmin = await insertPermissionCheckUser({
+      runTag,
+      label: "super_admin",
+      role: "admin",
+      phonePrefix: "075",
+      pin,
+      isSuperAdmin: true,
+    });
+    await insertPermissionCheckMerchant({
+      runTag,
+      ownerUserId: owner.userId,
+      phone: owner.phone,
+    });
+
+    return {
+      runTag,
+      accounts: [user, owner, delivery, admin, superAdmin],
+      demotedSuperAdminIds,
+    };
+  } catch (error) {
+    await cleanupLocalMatrixFixture({ runTag, demotedSuperAdminIds }).catch(() => null);
+    throw error;
+  }
+}
+
+async function cleanupLocalMatrixFixture(fixture) {
+  if (!fixture?.runTag) return;
+  const tempUserIds = Array.isArray(fixture.accounts)
+    ? fixture.accounts
+        .map((account) => Number(account.userId))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    : [];
+  if (tempUserIds.length > 0) {
+    await q(`UPDATE app_user SET is_super_admin = FALSE WHERE id = ANY($1::bigint[])`, [
+      tempUserIds,
+    ]).catch(() => null);
+  }
+  await cleanupLoadArtifactsByRunTag(fixture.runTag);
+  const restoreIds = Array.isArray(fixture.demotedSuperAdminIds)
+    ? fixture.demotedSuperAdminIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    : [];
+  if (restoreIds.length > 0) {
+    await q(`UPDATE app_user SET is_super_admin = TRUE WHERE id = ANY($1::bigint[])`, [
+      restoreIds,
+    ]);
+  }
+}
+
 async function run() {
   const baseUrl = readString(DEFAULT_BASE_URL).replace(/\/+$/, "");
   const matrixFile = readString(
     process.env.QA_ROLE_MATRIX_FILE || DEFAULT_MATRIX_FILE
   );
+  let localFixture = null;
 
   console.log(`[permissions] base_url=${baseUrl}`);
   console.log(`[permissions] matrix_file=${matrixFile}`);
 
-  const matrix = await loadMatrixAccounts(matrixFile);
-  const fallbackAccounts = buildFallbackAccounts();
-  const accounts = pickAccounts(matrix.accounts, fallbackAccounts);
-
-  if (matrix.exists) {
-    console.log(
-      `[permissions] loaded_matrix_accounts=${matrix.accounts.length} created_at=${matrix.createdAt || "(unknown)"} run_tag=${matrix.runTag || "(unknown)"}`
+  try {
+    const matrix = await loadMatrixAccounts(matrixFile);
+    const useEnvAccounts = ["1", "true", "yes", "on"].includes(
+      readString(process.env.PERMISSIONS_CHECK_USE_ENV_ACCOUNTS).toLowerCase()
     );
-  } else {
-    console.log(
-      `[permissions] matrix file missing, falling back to env credentials where available`
-    );
-  }
+    const fallbackAccounts =
+      matrix.exists || !isLocalBaseUrl(baseUrl) || useEnvAccounts
+        ? buildFallbackAccounts()
+        : [];
+    let accounts = pickAccounts(matrix.accounts, fallbackAccounts);
 
-  if (accounts.length === 0) {
-    console.error("[permissions] no QA accounts available.");
-    console.error(
-      "[permissions] bootstrap qa-role-matrix.json or export ROLE_* / SUPER_ADMIN_* credentials before rerunning."
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const sessions = [];
-  for (const account of accounts) {
-    try {
-      const session = await loginAccount(baseUrl, account);
-      sessions.push(session);
+    if (matrix.exists) {
       console.log(
-        `[permissions] login ok label=${account.label} role=${session.permissionsRole} authRole=${session.authRole} super=${session.isSuperAdmin} companyId=${session.companyId || "n/a"}`
+        `[permissions] loaded_matrix_accounts=${matrix.accounts.length} created_at=${matrix.createdAt || "(unknown)"} run_tag=${matrix.runTag || "(unknown)"}`
       );
-    } catch (error) {
+    } else {
+      console.log(
+        `[permissions] matrix file missing, falling back to env credentials where available`
+      );
+    }
+
+    if (accounts.length === 0) {
+      localFixture = await createLocalMatrixAccounts(baseUrl);
+      if (localFixture?.accounts?.length) {
+        accounts = localFixture.accounts;
+        console.log(
+          `[permissions] generated_local_fixture run_tag=${localFixture.runTag} accounts=${accounts.length}`
+        );
+      }
+    }
+
+    if (accounts.length === 0) {
+      console.error("[permissions] no QA accounts available.");
       console.error(
-        `[permissions] LOGIN_FAILED label=${account.label} role=${account.role} error=${String(
-          error?.message || error
-        )}`
+        "[permissions] bootstrap qa-role-matrix.json or export ROLE_* / SUPER_ADMIN_* credentials before rerunning."
       );
       process.exitCode = 1;
       return;
     }
-  }
 
-  let total = 0;
-  let failures = 0;
-  let skipped = 0;
+    const sessions = [];
+    for (const account of accounts) {
+      try {
+        const session = await loginAccount(baseUrl, account);
+        sessions.push(session);
+        console.log(
+          `[permissions] login ok label=${account.label} role=${session.permissionsRole} authRole=${session.authRole} super=${session.isSuperAdmin} companyId=${session.companyId || "n/a"}`
+        );
+      } catch (error) {
+        console.error(
+          `[permissions] LOGIN_FAILED label=${account.label} role=${account.role} error=${String(
+            error?.message || error
+          )}`
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
 
-  for (const session of sessions) {
-    for (const check of CHECKS) {
-      total += 1;
-      const allowed = isAllowedRole(check, session);
-      const expectedStatuses = allowed ? [200] : FORBIDDEN_STATUSES;
-      const requestPath =
-        check.method === "GET"
-          ? appendCacheBust(check.path, `${session.label || session.authRole}-${check.id}`)
-          : check.path;
+    let total = 0;
+    let failures = 0;
+    let skipped = 0;
 
-      if (!allowed && check.allowedRoles.length > 0) {
-        const deniedResponse = await requestJson(baseUrl, session, check.method, requestPath);
-        const ok = expectedStatuses.includes(deniedResponse.status);
+    for (const session of sessions) {
+      for (const check of CHECKS) {
+        total += 1;
+        const allowed = isAllowedRole(check, session);
+        const expectedStatuses = allowed ? [200] : FORBIDDEN_STATUSES;
+        const requestPath =
+          check.method === "GET"
+            ? appendCacheBust(check.path, `${session.label || session.authRole}-${check.id}`)
+            : check.path;
+
+        if (!allowed && check.allowedRoles.length > 0) {
+          const deniedResponse = await requestJson(baseUrl, session, check.method, requestPath);
+          const ok = expectedStatuses.includes(deniedResponse.status);
+          if (!ok) failures += 1;
+          console.log(
+            `[${ok ? "PASS" : "FAIL"}] label=${session.label} role=${session.permissionsRole} check=${check.id} expect=deny status=${deniedResponse.status}`
+          );
+          if (!ok) {
+            console.log(
+              `[details] expected=${expectedStatuses.join(",")} body=${JSON.stringify(deniedResponse.data)}`
+            );
+          }
+          continue;
+        }
+
+        if (!allowed) {
+          skipped += 1;
+          console.log(
+            `[SKIP] label=${session.label} role=${session.permissionsRole} check=${check.id} reason=not-applicable`
+          );
+          continue;
+        }
+
+        const response = await requestJson(baseUrl, session, check.method, requestPath, {
+          companyId: session.companyId,
+        });
+        const ok = expectedStatuses.includes(response.status);
         if (!ok) failures += 1;
         console.log(
-          `[${ok ? "PASS" : "FAIL"}] label=${session.label} role=${session.permissionsRole} check=${check.id} expect=deny status=${deniedResponse.status}`
+          `[${ok ? "PASS" : "FAIL"}] label=${session.label} role=${session.permissionsRole} check=${check.id} expect=allow status=${response.status}`
         );
         if (!ok) {
           console.log(
-            `[details] expected=${expectedStatuses.join(",")} body=${JSON.stringify(deniedResponse.data)}`
+            `[details] expected=${expectedStatuses.join(",")} body=${JSON.stringify(response.data)}`
           );
         }
-        continue;
-      }
-
-      if (!allowed) {
-        skipped += 1;
-        console.log(
-          `[SKIP] label=${session.label} role=${session.permissionsRole} check=${check.id} reason=not-applicable`
-        );
-        continue;
-      }
-
-      const response = await requestJson(baseUrl, session, check.method, requestPath, {
-        companyId: session.companyId,
-      });
-      const ok = expectedStatuses.includes(response.status);
-      if (!ok) failures += 1;
-      console.log(
-        `[${ok ? "PASS" : "FAIL"}] label=${session.label} role=${session.permissionsRole} check=${check.id} expect=allow status=${response.status}`
-      );
-      if (!ok) {
-        console.log(
-          `[details] expected=${expectedStatuses.join(",")} body=${JSON.stringify(response.data)}`
-        );
       }
     }
-  }
 
-  console.log(
-    `[permissions] completed total=${total} failures=${failures} skipped=${skipped} passed=${total - failures - skipped}`
-  );
-  process.exitCode = failures > 0 ? 1 : 0;
+    console.log(
+      `[permissions] completed total=${total} failures=${failures} skipped=${skipped} passed=${total - failures - skipped}`
+    );
+    process.exitCode = failures > 0 ? 1 : 0;
+  } finally {
+    if (localFixture) {
+      await cleanupLocalMatrixFixture(localFixture);
+      console.log(`[permissions] cleaned_local_fixture run_tag=${localFixture.runTag}`);
+    }
+  }
 }
 
 run().catch((error) => {

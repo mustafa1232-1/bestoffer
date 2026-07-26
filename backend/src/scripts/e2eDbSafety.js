@@ -59,11 +59,14 @@ export function isProductionLikeDatabaseTarget(
   return (
     host.includes("production") ||
     host.includes("-prod") ||
+    host.includes("railway") ||
+    host.endsWith(".rlwy.net") ||
     host.startsWith("prod.") ||
     host.endsWith(".railway.app") ||
     host.endsWith(".railway.internal") ||
     databaseName.includes("production") ||
     databaseName.includes("-prod") ||
+    databaseName === "railway" ||
     databaseName.startsWith("prod")
   );
 }

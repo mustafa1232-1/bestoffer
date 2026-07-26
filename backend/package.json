@@ -17,7 +17,7 @@
     "security:check": "node src/scripts/securitySelfCheck.js",
     "security:runtime:check": "node src/scripts/securityRuntimeCheck.js",
     "qa:role-matrix:bootstrap": "node src/scripts/qaRoleMatrixBootstrap.js",
-    "permissions:check": "node src/scripts/rolePermissionCheckMatrix.js",
+    "permissions:check": "node src/scripts/runRolePermissionCheckMatrix.js",
     "flow:check": "node --env-file=.env.test src/scripts/flowIntegrityCheck.js",
     "audit:store-category-separation": "node src/scripts/auditStoreCategorySeparation.js",
     "e2e:order:check:local": "node --env-file=.env.test src/scripts/orderE2ECheck.js",

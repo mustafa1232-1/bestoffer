@@ -463,6 +463,7 @@ async function main() {
     label: "admin",
     role: "admin",
     appFlavor: "company",
+    loginPath: "/api/auth/login",
     phone: adminPhone,
     pin: "1234",
     userId: adminLogin.actor.userId,
