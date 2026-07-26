@@ -1,3 +1,4 @@
+export * from "./monitoring.taxi.repo.js";
 export * from "./monitoring.orders.repo.js";
 export * from "./monitoring.delivery.repo.js";
 export * from "./monitoring.services.repo.js";

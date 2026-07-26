@@ -196,3 +196,120 @@ export async function listJobsForMonitoring({
     items: rows.rows,
   };
 }
+
+export async function getJobMonitoringDetail(jobId) {
+  const id = Number(jobId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const jobRes = await q(
+    `SELECT jp.*, u.full_name AS publisher_name
+     FROM job_post jp
+     JOIN app_user u ON u.id = jp.created_by_user_id
+     WHERE jp.id = $1
+     LIMIT 1`,
+    [id]
+  );
+  const job = jobRes.rows[0] || null;
+  if (!job) return null;
+  const stats = await q(
+    `SELECT
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE status = 'submitted')::int AS submitted,
+       COUNT(*) FILTER (WHERE status = 'shortlisted')::int AS shortlisted,
+       COUNT(*) FILTER (WHERE status = 'rejected')::int AS rejected,
+       COUNT(*) FILTER (WHERE status = 'hired')::int AS hired,
+       COUNT(*) FILTER (WHERE resume_url IS NOT NULL AND resume_url <> '')::int AS with_cv
+     FROM job_application
+     WHERE job_id = $1`,
+    [id]
+  );
+  return { job, applicationStats: stats.rows[0] || {} };
+}
+
+export async function listJobApplicationsForMonitoring({
+  jobId,
+  status = null,
+  limit = 25,
+  offset = 0,
+} = {}) {
+  const id = Number(jobId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const page = safeLimitOffset({ limit, offset });
+  const params = [id];
+  const conds = ["ja.job_id = $1"];
+  if (status) {
+    params.push(String(status));
+    conds.push(`ja.status = $${params.length}`);
+  }
+  const where = `WHERE ${conds.join(" AND ")}`;
+  const countRes = await q(
+    `SELECT COUNT(*)::int AS total FROM job_application ja ${where}`,
+    params
+  );
+  params.push(page.limit, page.offset);
+  const rows = await q(
+    `SELECT
+       ja.id,
+       ja.job_id,
+       ja.applicant_user_id,
+       ja.full_name,
+       ja.phone,
+       ja.message,
+       ja.expected_salary,
+       ja.status,
+       ja.created_at,
+       ja.updated_at,
+       (ja.resume_url IS NOT NULL AND ja.resume_url <> '') AS has_cv
+     FROM job_application ja
+     ${where}
+     ORDER BY ja.created_at DESC, ja.id DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+  return {
+    total: Number(countRes.rows[0]?.total || 0),
+    limit: page.limit,
+    offset: page.offset,
+    items: rows.rows,
+  };
+}
+
+export async function getJobApplicationMonitoringDetail(applicationId) {
+  const id = Number(applicationId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const r = await q(
+    `SELECT
+       ja.id,
+       ja.job_id,
+       jp.title AS job_title,
+       ja.applicant_user_id,
+       ja.full_name,
+       ja.phone,
+       ja.message,
+       ja.expected_salary,
+       ja.status,
+       ja.created_at,
+       ja.updated_at,
+       (ja.resume_url IS NOT NULL AND ja.resume_url <> '') AS has_cv
+     FROM job_application ja
+     JOIN job_post jp ON jp.id = ja.job_id
+     WHERE ja.id = $1
+     LIMIT 1`,
+    [id]
+  );
+  return r.rows[0] || null;
+}
+
+export async function getJobApplicationCvForMonitoring(applicationId) {
+  const id = Number(applicationId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const r = await q(
+    `SELECT id, job_id, full_name, resume_url
+     FROM job_application
+     WHERE id = $1
+     LIMIT 1`,
+    [id]
+  );
+  const row = r.rows[0] || null;
+  if (!row || !row.resume_url) return row ? { ...row, resume_url: null } : null;
+  return row;
+}

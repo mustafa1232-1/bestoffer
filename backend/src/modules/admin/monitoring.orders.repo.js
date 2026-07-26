@@ -195,3 +195,82 @@ export async function listOrdersForMonitoring({
     items: rows.rows,
   };
 }
+
+export async function getOrderMonitoringDetail(orderId, { includePhone = false } = {}) {
+  const id = Number(orderId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  const orderRes = await q(
+    `SELECT
+       o.*,
+       m.name AS merchant_name,
+       m.phone AS merchant_phone,
+       du.full_name AS delivery_name,
+       du.phone AS delivery_phone
+     FROM customer_order o
+     LEFT JOIN merchant m ON m.id = o.merchant_id
+     LEFT JOIN app_user du ON du.id = o.delivery_user_id
+     WHERE o.id = $1
+     LIMIT 1`,
+    [id]
+  );
+  const order = orderRes.rows[0] || null;
+  if (!order) return null;
+
+  if (!includePhone) {
+    order.customer_phone = null;
+    order.merchant_phone = null;
+    order.delivery_phone = null;
+  }
+
+  const items = await q(
+    `SELECT
+       oi.*,
+       p.name AS product_name,
+       p.image_url AS product_image_url
+     FROM order_item oi
+     LEFT JOIN product p ON p.id = oi.product_id
+     WHERE oi.order_id = $1
+     ORDER BY oi.id ASC`,
+    [id]
+  );
+
+  const jobs = await q(
+    `SELECT *
+     FROM delivery_job
+     WHERE primary_order_id = $1
+     ORDER BY created_at DESC, id DESC
+     LIMIT 20`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+
+  const assignments = await q(
+    `SELECT ca.*
+     FROM courier_assignment ca
+     WHERE ca.order_id = $1
+        OR ca.delivery_job_id IN (
+          SELECT id FROM delivery_job WHERE primary_order_id = $1
+        )
+     ORDER BY ca.requested_at DESC, ca.id DESC
+     LIMIT 50`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+
+  const tickets = await q(
+    `SELECT id, status, priority, subject, created_at, updated_at
+     FROM support_ticket
+     WHERE entity_id::text = $1::text
+       AND (entity_type IN ('order','customer_order') OR domain = 'ORDERS')
+     ORDER BY created_at DESC, id DESC
+     LIMIT 50`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+
+  return {
+    order,
+    items: items.rows,
+    deliveryJobs: jobs.rows,
+    courierAssignments: assignments.rows,
+    tickets: tickets.rows,
+  };
+}

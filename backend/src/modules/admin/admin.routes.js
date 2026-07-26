@@ -99,9 +99,19 @@ adminRouter.get(
   monitoring.taxiRides
 );
 adminRouter.get(
+  "/monitoring/taxi/rides/:rideId",
+  requirePermission("taxi.rides.read"),
+  monitoring.taxiRideDetail
+);
+adminRouter.get(
   "/monitoring/orders",
   requirePermission("orders.read"),
   monitoring.orders
+);
+adminRouter.get(
+  "/monitoring/orders/:orderId",
+  requirePermission("orders.read"),
+  monitoring.orderDetail
 );
 adminRouter.get(
   "/monitoring/delivery/couriers",
@@ -109,9 +119,19 @@ adminRouter.get(
   monitoring.deliveryCouriers
 );
 adminRouter.get(
+  "/monitoring/delivery/couriers/:courierId",
+  requirePermission("orders.read"),
+  monitoring.deliveryCourierDetail
+);
+adminRouter.get(
   "/monitoring/services/requests",
   requirePermission("services.read"),
   monitoring.serviceRequests
+);
+adminRouter.get(
+  "/monitoring/services/requests/:requestId",
+  requirePermission("services.read"),
+  monitoring.serviceRequestDetail
 );
 adminRouter.get(
   "/monitoring/real-estate/listings",
@@ -119,9 +139,19 @@ adminRouter.get(
   monitoring.realEstateListings
 );
 adminRouter.get(
+  "/monitoring/real-estate/listings/:listingId",
+  requirePermission("real_estate.read"),
+  monitoring.realEstateListingDetail
+);
+adminRouter.get(
   "/monitoring/cars/listings",
   requirePermission("cars.read"),
   monitoring.carListings
+);
+adminRouter.get(
+  "/monitoring/cars/listings/:listingId",
+  requirePermission("cars.read"),
+  monitoring.carListingDetail
 );
 adminRouter.get(
   "/monitoring/jobs",
@@ -129,9 +159,44 @@ adminRouter.get(
   monitoring.jobs
 );
 adminRouter.get(
+  "/monitoring/jobs/:jobId",
+  requirePermission("jobs.read"),
+  monitoring.jobDetail
+);
+adminRouter.get(
+  "/monitoring/jobs/:jobId/applications",
+  requirePermission("jobs.applications.read"),
+  monitoring.jobApplications
+);
+adminRouter.get(
+  "/monitoring/jobs/applications/:applicationId",
+  requirePermission("jobs.applications.read"),
+  monitoring.jobApplicationDetail
+);
+adminRouter.get(
+  "/monitoring/jobs/applications/:applicationId/cv",
+  requirePermission("jobs.cv.download"),
+  monitoring.jobApplicationCv
+);
+adminRouter.get(
   "/monitoring/community/users",
   requirePermission("community.users.read"),
   monitoring.communityUsers
+);
+adminRouter.get(
+  "/monitoring/community/users/:userId",
+  requirePermission("community.users.read"),
+  monitoring.communityUserDetail
+);
+adminRouter.get(
+  "/monitoring/community/users/:userId/content",
+  requirePermission("community.posts.read"),
+  monitoring.communityUserContent
+);
+adminRouter.get(
+  "/monitoring/community/users/:userId/reports",
+  requirePermission("community.posts.read"),
+  monitoring.communityUserReports
 );
 
 // إعدادات الدعم المركزية (المرحلة 8).

@@ -357,3 +357,66 @@ export async function listCarListingsForMonitoring({
     items: rows.rows,
   };
 }
+
+export async function getRealEstateListingMonitoringDetail(
+  listingId,
+  { includeContact = false } = {}
+) {
+  const id = Number(listingId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const listingRes = await q(
+    `SELECT l.*, u.full_name AS owner_name, u.phone AS owner_phone
+     FROM real_estate_listing l
+     JOIN app_user u ON u.id = l.owner_user_id
+     WHERE l.id = $1
+     LIMIT 1`,
+    [id]
+  );
+  const listing = listingRes.rows[0] || null;
+  if (!listing) return null;
+  if (!includeContact) listing.owner_phone = null;
+
+  const media = await q(
+    `SELECT id, image_url, sort_order, created_at
+     FROM real_estate_listing_media
+     WHERE listing_id = $1
+     ORDER BY sort_order ASC, id ASC`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+  const history = await q(
+    `SELECT status, note, actor_user_id, created_at
+     FROM real_estate_listing_status_history
+     WHERE listing_id = $1
+     ORDER BY created_at ASC, id ASC`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+  return { listing, media: media.rows, history: history.rows };
+}
+
+export async function getCarListingMonitoringDetail(
+  listingId,
+  { includeContact = false } = {}
+) {
+  const id = Number(listingId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const listingRes = await q(
+    `SELECT l.*, u.full_name AS owner_name, u.phone AS owner_phone
+     FROM car_listing l
+     JOIN app_user u ON u.id = l.owner_user_id
+     WHERE l.id = $1
+     LIMIT 1`,
+    [id]
+  );
+  const listing = listingRes.rows[0] || null;
+  if (!listing) return null;
+  if (!includeContact) listing.owner_phone = null;
+
+  const media = await q(
+    `SELECT id, image_url, sort_order, created_at
+     FROM car_listing_media
+     WHERE listing_id = $1
+     ORDER BY sort_order ASC, id ASC`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+  return { listing, media: media.rows };
+}

@@ -191,3 +191,112 @@ export async function listCommunityUsersForMonitoring({
     items: rows.rows,
   };
 }
+
+export async function getCommunityUserMonitoringDetail(userId) {
+  const id = Number(userId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const userRes = await q(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.username,
+       u.role::text AS role,
+       u.image_url,
+       u.created_at,
+       u.updated_at,
+       COALESCE(u.social_violation_strikes, 0)::int AS social_violation_strikes,
+       COALESCE(u.social_visibility_tier, 'normal') AS social_visibility_tier,
+       COUNT(DISTINCT sp.id) FILTER (WHERE sp.post_kind NOT IN ('reel','merchant_review'))::int AS post_count,
+       COUNT(DISTINCT sp.id) FILTER (WHERE sp.post_kind = 'image')::int AS photo_count,
+       COUNT(DISTINCT sp.id) FILTER (WHERE sp.post_kind = 'reel')::int AS reel_count,
+       COUNT(DISTINCT ss.id)::int AS story_count,
+       COUNT(DISTINCT pc.id)::int AS comment_count
+     FROM app_user u
+     LEFT JOIN social_post sp ON sp.user_id = u.id AND sp.is_deleted = FALSE
+     LEFT JOIN social_story ss ON ss.user_id = u.id AND ss.is_deleted = FALSE
+     LEFT JOIN social_post_comment pc ON pc.user_id = u.id AND pc.is_deleted = FALSE
+     WHERE u.id = $1
+       AND u.role::text <> ALL($2)
+     GROUP BY u.id
+     LIMIT 1`,
+    [id, INTERNAL_COMMUNITY_ROLES]
+  );
+  const user = userRes.rows[0] || null;
+  if (!user) return null;
+
+  const restrictions = await q(
+    `SELECT id, capability_key, reason, starts_at, ends_at, revoked_at, created_at
+     FROM social_capability_restriction
+     WHERE user_id = $1
+     ORDER BY created_at DESC, id DESC
+     LIMIT 50`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+
+  return { user, restrictions: restrictions.rows };
+}
+
+export async function listCommunityUserContentForMonitoring(
+  userId,
+  { limit = 25, offset = 0 } = {}
+) {
+  const id = Number(userId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const page = safeLimitOffset({ limit, offset });
+  const posts = await q(
+    `SELECT id, post_kind, caption, moderation_status, created_at, updated_at
+     FROM social_post
+     WHERE user_id = $1
+       AND is_deleted = FALSE
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2 OFFSET $3`,
+    [id, page.limit, page.offset]
+  ).catch(() => ({ rows: [] }));
+  const stories = await q(
+    `SELECT id, media_kind, caption, moderation_status, expires_at, created_at, updated_at
+     FROM social_story
+     WHERE user_id = $1
+       AND is_deleted = FALSE
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2 OFFSET $3`,
+    [id, page.limit, page.offset]
+  ).catch(() => ({ rows: [] }));
+  return {
+    limit: page.limit,
+    offset: page.offset,
+    posts: posts.rows,
+    stories: stories.rows,
+  };
+}
+
+export async function listCommunityUserReportsForMonitoring(
+  userId,
+  { limit = 25, offset = 0 } = {}
+) {
+  const id = Number(userId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const page = safeLimitOffset({ limit, offset });
+  const userReports = await q(
+    `SELECT id, reporter_user_id, reason, details, created_at
+     FROM social_user_report
+     WHERE reported_user_id = $1
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2 OFFSET $3`,
+    [id, page.limit, page.offset]
+  ).catch(() => ({ rows: [] }));
+  const postReports = await q(
+    `SELECT r.id, r.post_id, r.reporter_user_id, r.reason, r.details, r.created_at
+     FROM social_post_report r
+     JOIN social_post p ON p.id = r.post_id
+     WHERE p.user_id = $1
+     ORDER BY r.created_at DESC, r.id DESC
+     LIMIT $2 OFFSET $3`,
+    [id, page.limit, page.offset]
+  ).catch(() => ({ rows: [] }));
+  return {
+    limit: page.limit,
+    offset: page.offset,
+    userReports: userReports.rows,
+    postReports: postReports.rows,
+  };
+}

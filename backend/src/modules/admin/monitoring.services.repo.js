@@ -211,3 +211,68 @@ export async function listServiceRequestsForMonitoring({
     items: rows.rows,
   };
 }
+
+export async function getServiceRequestMonitoringDetail(
+  requestId,
+  { includeMessages = false } = {}
+) {
+  const id = Number(requestId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  const requestRes = await q(
+    `SELECT
+       sr.*,
+       cu.full_name AS customer_name,
+       spp.user_id AS provider_user_id,
+       spp.business_name AS provider_name,
+       so.name AS offering_name,
+       sc.name AS main_category_name
+     FROM service_requests sr
+     JOIN app_user cu ON cu.id = sr.customer_user_id
+     JOIN service_provider_profiles spp ON spp.id = sr.provider_id
+     JOIN service_offerings so ON so.id = sr.offering_id
+     LEFT JOIN service_categories sc ON sc.id = so.main_category_id
+     WHERE sr.id = $1
+     LIMIT 1`,
+    [id]
+  );
+  const request = requestRes.rows[0] || null;
+  if (!request) return null;
+
+  const attachments = await q(
+    `SELECT id, file_url, file_name, mime_type, created_at
+     FROM service_request_attachments
+     WHERE request_id = $1
+     ORDER BY created_at ASC, id ASC`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+
+  const history = await q(
+    `SELECT status, note, actor_user_id, created_at
+     FROM service_request_status_history
+     WHERE request_id = $1
+     ORDER BY created_at ASC, id ASC`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+
+  let messages = null;
+  if (includeMessages) {
+    messages = await q(
+      `SELECT id, sender_user_id, sender_role, message_text, created_at
+       FROM service_request_messages
+       WHERE request_id = $1
+       ORDER BY created_at ASC, id ASC
+       LIMIT 300`,
+      [id]
+    )
+      .then((res) => res.rows)
+      .catch(() => []);
+  }
+
+  return {
+    request,
+    attachments: attachments.rows,
+    history: history.rows,
+    messages,
+  };
+}

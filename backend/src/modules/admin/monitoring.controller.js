@@ -6,6 +6,8 @@
  * البطاقات غير الموصولة بعد تُعلَّم available:false (لا أرقام وهمية).
  */
 
+import { Readable } from "node:stream";
+
 import * as taxiService from "../taxi/taxi.service.js";
 import * as monitoringRepo from "./monitoring.repo.js";
 import { resolveEffectivePermissions } from "../security/permissions.service.js";
@@ -99,6 +101,54 @@ function hasPermission(effective, key) {
   return effective.permissions instanceof Map && effective.permissions.has(key);
 }
 
+function truthy(value) {
+  return ["1", "true", "yes", "on"].includes(
+    String(value || "").trim().toLowerCase()
+  );
+}
+
+function readReason(req) {
+  return String(req.query?.reason || req.body?.reason || "").trim().slice(0, 1000);
+}
+
+async function ensureSensitivePermission(req, res, permissionKey) {
+  const effective = await resolveEffectivePermissions(req.userId);
+  if (!hasPermission(effective, permissionKey)) {
+    res.status(403).json({ message: "FORBIDDEN_PERMISSION", permission: permissionKey });
+    return false;
+  }
+  return true;
+}
+
+function ensureReason(req, res) {
+  const reason = readReason(req);
+  if (reason.length < 8) {
+    res.status(400).json({ message: "SENSITIVE_ACCESS_REASON_REQUIRED" });
+    return null;
+  }
+  return reason;
+}
+
+async function auditSensitiveRead(req, {
+  actionKey,
+  targetType,
+  targetId,
+  permissionKey,
+  reason,
+  metadata = null,
+}) {
+  await recordAudit({
+    ...auditContextFromReq(req),
+    actionKey,
+    summary: "sensitive monitoring detail read",
+    targetType,
+    targetId,
+    metadata,
+    reason,
+    permissionKey,
+  });
+}
+
 export async function overview(req, res, next) {
   try {
     const effective = await resolveEffectivePermissions(req.userId);
@@ -182,6 +232,55 @@ export async function taxiRides(req, res, next) {
   }
 }
 
+export async function taxiRideDetail(req, res, next) {
+  try {
+    const rideId = Number(req.params.rideId);
+    const includeLive = truthy(req.query?.includeLive);
+    const includeMessages = truthy(req.query?.includeMessages);
+    let reason = null;
+
+    if (includeLive) {
+      if (!(await ensureSensitivePermission(req, res, "taxi.rides.track_live"))) return;
+      reason = ensureReason(req, res);
+      if (!reason) return;
+    }
+    if (includeMessages) {
+      if (!(await ensureSensitivePermission(req, res, "taxi.rides.messages.read"))) return;
+      reason = reason || ensureReason(req, res);
+      if (!reason) return;
+    }
+
+    const out = await monitoringRepo.getTaxiRideMonitoringDetail(rideId, {
+      includeLive,
+      includeMessages,
+    });
+    if (!out) return res.status(404).json({ message: "RIDE_NOT_FOUND" });
+
+    if (includeLive) {
+      await auditSensitiveRead(req, {
+        actionKey: "monitoring.taxi.rides.live.read",
+        targetType: "taxi_ride_request",
+        targetId: rideId,
+        permissionKey: "taxi.rides.track_live",
+        reason,
+      });
+    }
+    if (includeMessages) {
+      await auditSensitiveRead(req, {
+        actionKey: "monitoring.taxi.rides.messages.read",
+        targetType: "taxi_ride_request",
+        targetId: rideId,
+        permissionKey: "taxi.rides.messages.read",
+        reason,
+        metadata: { messageCount: Array.isArray(out.messages) ? out.messages.length : 0 },
+      });
+    }
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 function readListQuery(req) {
   const status =
     typeof req.query?.status === "string" && req.query.status.trim()
@@ -255,6 +354,33 @@ export async function orders(req, res, next) {
   }
 }
 
+export async function orderDetail(req, res, next) {
+  try {
+    const orderId = Number(req.params.orderId);
+    const includePhone = truthy(req.query?.includePhone);
+    let reason = null;
+    if (includePhone) {
+      if (!(await ensureSensitivePermission(req, res, "orders.customer_phone.read"))) return;
+      reason = ensureReason(req, res);
+      if (!reason) return;
+    }
+    const out = await monitoringRepo.getOrderMonitoringDetail(orderId, { includePhone });
+    if (!out) return res.status(404).json({ message: "ORDER_NOT_FOUND" });
+    if (includePhone) {
+      await auditSensitiveRead(req, {
+        actionKey: "monitoring.orders.phone.read",
+        targetType: "customer_order",
+        targetId: orderId,
+        permissionKey: "orders.customer_phone.read",
+        reason,
+      });
+    }
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function deliveryCouriers(req, res, next) {
   try {
     const query = readListQuery(req);
@@ -277,6 +403,35 @@ export async function deliveryCouriers(req, res, next) {
       from: query.from ? query.from.toISOString() : null,
       to: query.to ? query.to.toISOString() : null,
     });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function deliveryCourierDetail(req, res, next) {
+  try {
+    const courierId = Number(req.params.courierId);
+    const includePhone = truthy(req.query?.includePhone);
+    let reason = null;
+    if (includePhone) {
+      if (!(await ensureSensitivePermission(req, res, "delivery.couriers.phone.read"))) return;
+      reason = ensureReason(req, res);
+      if (!reason) return;
+    }
+    const out = await monitoringRepo.getDeliveryCourierMonitoringDetail(courierId, {
+      includePhone,
+    });
+    if (!out) return res.status(404).json({ message: "COURIER_NOT_FOUND" });
+    if (includePhone) {
+      await auditSensitiveRead(req, {
+        actionKey: "monitoring.delivery.couriers.phone.read",
+        targetType: "courier_profile",
+        targetId: courierId,
+        permissionKey: "delivery.couriers.phone.read",
+        reason,
+      });
+    }
     return res.json(out);
   } catch (error) {
     return next(error);
@@ -311,6 +466,35 @@ export async function serviceRequests(req, res, next) {
   }
 }
 
+export async function serviceRequestDetail(req, res, next) {
+  try {
+    const requestId = Number(req.params.requestId);
+    const includeMessages = truthy(req.query?.includeMessages);
+    let reason = null;
+    if (includeMessages) {
+      if (!(await ensureSensitivePermission(req, res, "services.messages.case_bound_read"))) return;
+      reason = ensureReason(req, res);
+      if (!reason) return;
+    }
+    const out = await monitoringRepo.getServiceRequestMonitoringDetail(requestId, {
+      includeMessages,
+    });
+    if (!out) return res.status(404).json({ message: "SERVICE_REQUEST_NOT_FOUND" });
+    if (includeMessages) {
+      await auditSensitiveRead(req, {
+        actionKey: "monitoring.services.requests.messages.read",
+        targetType: "service_requests",
+        targetId: requestId,
+        permissionKey: "services.messages.case_bound_read",
+        reason,
+      });
+    }
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function realEstateListings(req, res, next) {
   try {
     const query = readListQuery(req);
@@ -333,6 +517,35 @@ export async function realEstateListings(req, res, next) {
       from: query.from ? query.from.toISOString() : null,
       to: query.to ? query.to.toISOString() : null,
     });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function realEstateListingDetail(req, res, next) {
+  try {
+    const listingId = Number(req.params.listingId);
+    const includeContact = truthy(req.query?.includeContact);
+    let reason = null;
+    if (includeContact) {
+      if (!(await ensureSensitivePermission(req, res, "real_estate.contact.read"))) return;
+      reason = ensureReason(req, res);
+      if (!reason) return;
+    }
+    const out = await monitoringRepo.getRealEstateListingMonitoringDetail(listingId, {
+      includeContact,
+    });
+    if (!out) return res.status(404).json({ message: "REAL_ESTATE_LISTING_NOT_FOUND" });
+    if (includeContact) {
+      await auditSensitiveRead(req, {
+        actionKey: "monitoring.real_estate.contact.read",
+        targetType: "real_estate_listing",
+        targetId: listingId,
+        permissionKey: "real_estate.contact.read",
+        reason,
+      });
+    }
     return res.json(out);
   } catch (error) {
     return next(error);
@@ -367,6 +580,35 @@ export async function carListings(req, res, next) {
   }
 }
 
+export async function carListingDetail(req, res, next) {
+  try {
+    const listingId = Number(req.params.listingId);
+    const includeContact = truthy(req.query?.includeContact);
+    let reason = null;
+    if (includeContact) {
+      if (!(await ensureSensitivePermission(req, res, "cars.contact.read"))) return;
+      reason = ensureReason(req, res);
+      if (!reason) return;
+    }
+    const out = await monitoringRepo.getCarListingMonitoringDetail(listingId, {
+      includeContact,
+    });
+    if (!out) return res.status(404).json({ message: "CAR_LISTING_NOT_FOUND" });
+    if (includeContact) {
+      await auditSensitiveRead(req, {
+        actionKey: "monitoring.cars.contact.read",
+        targetType: "car_listing",
+        targetId: listingId,
+        permissionKey: "cars.contact.read",
+        reason,
+      });
+    }
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function jobs(req, res, next) {
   try {
     const query = readListQuery(req);
@@ -395,6 +637,88 @@ export async function jobs(req, res, next) {
   }
 }
 
+export async function jobDetail(req, res, next) {
+  try {
+    const out = await monitoringRepo.getJobMonitoringDetail(req.params.jobId);
+    if (!out) return res.status(404).json({ message: "JOB_NOT_FOUND" });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function jobApplications(req, res, next) {
+  try {
+    const out = await monitoringRepo.listJobApplicationsForMonitoring({
+      jobId: req.params.jobId,
+      status: req.query?.status || null,
+      limit: req.query?.limit ? Number(req.query.limit) : 25,
+      offset: req.query?.offset ? Number(req.query.offset) : 0,
+    });
+    if (!out) return res.status(404).json({ message: "JOB_NOT_FOUND" });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function jobApplicationDetail(req, res, next) {
+  try {
+    const out = await monitoringRepo.getJobApplicationMonitoringDetail(
+      req.params.applicationId
+    );
+    if (!out) return res.status(404).json({ message: "JOB_APPLICATION_NOT_FOUND" });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function jobApplicationCv(req, res, next) {
+  try {
+    const reason = ensureReason(req, res);
+    if (!reason) return;
+    const out = await monitoringRepo.getJobApplicationCvForMonitoring(
+      req.params.applicationId
+    );
+    if (!out) return res.status(404).json({ message: "JOB_APPLICATION_NOT_FOUND" });
+    if (!out.resume_url) return res.status(404).json({ message: "JOB_APPLICATION_CV_NOT_FOUND" });
+
+    await auditSensitiveRead(req, {
+      actionKey: "monitoring.jobs.cv.download",
+      targetType: "job_application",
+      targetId: req.params.applicationId,
+      permissionKey: "jobs.cv.download",
+      reason,
+      metadata: { jobId: out.job_id },
+    });
+
+    const upstream = await fetch(out.resume_url, {
+      headers: { "User-Agent": "maslaki-admin-cv-proxy/1" },
+    });
+    if (!upstream.ok || !upstream.body) {
+      return res.status(502).json({ message: "CV_FETCH_FAILED" });
+    }
+    const size = Number(upstream.headers.get("content-length") || 0);
+    if (size > 10 * 1024 * 1024) {
+      return res.status(413).json({ message: "CV_TOO_LARGE" });
+    }
+    const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+    const safeName = String(out.full_name || "cv")
+      .replace(/[^a-zA-Z0-9._-]+/g, "_")
+      .slice(0, 80);
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${safeName || "cv"}-${out.id}.bin"`
+    );
+    return Readable.fromWeb(upstream.body).pipe(res);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function communityUsers(req, res, next) {
   try {
     const query = readListQuery(req);
@@ -416,6 +740,48 @@ export async function communityUsers(req, res, next) {
       from: query.from ? query.from.toISOString() : null,
       to: query.to ? query.to.toISOString() : null,
     });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function communityUserDetail(req, res, next) {
+  try {
+    const out = await monitoringRepo.getCommunityUserMonitoringDetail(req.params.userId);
+    if (!out) return res.status(404).json({ message: "COMMUNITY_USER_NOT_FOUND" });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function communityUserContent(req, res, next) {
+  try {
+    const out = await monitoringRepo.listCommunityUserContentForMonitoring(
+      req.params.userId,
+      {
+        limit: req.query?.limit ? Number(req.query.limit) : 25,
+        offset: req.query?.offset ? Number(req.query.offset) : 0,
+      }
+    );
+    if (!out) return res.status(404).json({ message: "COMMUNITY_USER_NOT_FOUND" });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function communityUserReports(req, res, next) {
+  try {
+    const out = await monitoringRepo.listCommunityUserReportsForMonitoring(
+      req.params.userId,
+      {
+        limit: req.query?.limit ? Number(req.query.limit) : 25,
+        offset: req.query?.offset ? Number(req.query.offset) : 0,
+      }
+    );
+    if (!out) return res.status(404).json({ message: "COMMUNITY_USER_NOT_FOUND" });
     return res.json(out);
   } catch (error) {
     return next(error);

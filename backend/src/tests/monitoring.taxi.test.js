@@ -826,3 +826,107 @@ test("ticket and ops alert monitoring counters use real rows", async () => {
     "acknowledged alert counted"
   );
 });
+
+test("monitoring detail repos hide sensitive fields until explicitly requested", async () => {
+  const customerId = await makeUser("user");
+  const captainId = await makeUser("taxi_captain");
+  const courierId = await makeUser("delivery");
+  const ownerId = await makeUser("user");
+  const publisherId = await makeUser("user");
+  const applicantId = await makeUser("user");
+  const reporterId = await makeUser("user");
+
+  const rideId = await makeRide({
+    customerId,
+    captainId,
+    status: "captain_arriving",
+  });
+  await q(
+    `INSERT INTO taxi_ride_location_log
+       (ride_request_id, captain_user_id, latitude, longitude, created_at)
+     VALUES ($1,$2,33.31,44.36,NOW())`,
+    [rideId, captainId]
+  );
+  await q(
+    `INSERT INTO taxi_ride_chat_message
+       (ride_request_id, sender_user_id, sender_role, message_text)
+     VALUES ($1,$2,'customer','hello captain')`,
+    [rideId, customerId]
+  );
+  const rideBasic = await monitoringRepo.getTaxiRideMonitoringDetail(rideId);
+  assert.equal(rideBasic.liveLocation, null);
+  assert.equal(rideBasic.messages, null);
+  const rideSensitive = await monitoringRepo.getTaxiRideMonitoringDetail(rideId, {
+    includeLive: true,
+    includeMessages: true,
+  });
+  assert.ok(rideSensitive.liveLocation);
+  assert.equal(rideSensitive.messages.length, 1);
+
+  const merchantId = await makeMerchant();
+  const orderId = await makeOrder({
+    merchantId,
+    customerId,
+    deliveryUserId: courierId,
+    status: "preparing",
+  });
+  const orderHidden = await monitoringRepo.getOrderMonitoringDetail(orderId);
+  assert.equal(orderHidden.order.customer_phone, null);
+  assert.equal(orderHidden.order.delivery_phone, null);
+  const orderRevealed = await monitoringRepo.getOrderMonitoringDetail(orderId, {
+    includePhone: true,
+  });
+  assert.ok(orderRevealed.order.customer_phone);
+  assert.ok(orderRevealed.items.length >= 1);
+
+  await q(
+    `INSERT INTO courier_profile
+       (user_id, availability_status, coverage_block, vehicle_type, active_status)
+     VALUES ($1, 'online', 'A', 'bike', TRUE)
+     ON CONFLICT (user_id) DO UPDATE
+       SET availability_status='online', coverage_block='A', active_status=TRUE`,
+    [courierId]
+  );
+  const courierHidden = await monitoringRepo.getDeliveryCourierMonitoringDetail(courierId);
+  assert.equal(courierHidden.profile.phone, null);
+  const courierRevealed = await monitoringRepo.getDeliveryCourierMonitoringDetail(
+    courierId,
+    { includePhone: true }
+  );
+  assert.ok(courierRevealed.profile.phone);
+
+  const estateId = await makeRealEstateListing({ ownerId, status: "active" });
+  const carId = await makeCarListing({ ownerId, status: "active" });
+  const estateHidden = await monitoringRepo.getRealEstateListingMonitoringDetail(estateId);
+  const carHidden = await monitoringRepo.getCarListingMonitoringDetail(carId);
+  assert.equal(estateHidden.listing.owner_phone, null);
+  assert.equal(carHidden.listing.owner_phone, null);
+  const estateRevealed = await monitoringRepo.getRealEstateListingMonitoringDetail(
+    estateId,
+    { includeContact: true }
+  );
+  assert.ok(estateRevealed.listing.owner_phone);
+
+  const jobId = await makeJobPost({ publisherId, status: "active" });
+  const applicationId = await makeJobApplication({ jobId, applicantId });
+  const jobDetail = await monitoringRepo.getJobMonitoringDetail(jobId);
+  assert.ok(jobDetail.applicationStats.with_cv >= 1);
+  const applicationDetail =
+    await monitoringRepo.getJobApplicationMonitoringDetail(applicationId);
+  assert.equal(applicationDetail.has_cv, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(applicationDetail, "resume_url"), false);
+  const cvDetail = await monitoringRepo.getJobApplicationCvForMonitoring(applicationId);
+  assert.ok(cvDetail.resume_url);
+
+  await makeSocialPost({ userId: ownerId, postKind: "reel" });
+  await makeSocialStory({ userId: ownerId });
+  await makeSocialUserReport({ reportedUserId: ownerId, reporterUserId: reporterId });
+  const communityDetail = await monitoringRepo.getCommunityUserMonitoringDetail(ownerId);
+  assert.ok(communityDetail.user.reel_count >= 1);
+  const communityContent =
+    await monitoringRepo.listCommunityUserContentForMonitoring(ownerId);
+  assert.ok(communityContent.posts.length >= 1);
+  const communityReports =
+    await monitoringRepo.listCommunityUserReportsForMonitoring(ownerId);
+  assert.ok(communityReports.userReports.length >= 1);
+});

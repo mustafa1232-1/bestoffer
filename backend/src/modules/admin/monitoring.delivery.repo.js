@@ -210,3 +210,70 @@ export async function listCouriersForMonitoring({
     items: rows.rows,
   };
 }
+
+export async function getDeliveryCourierMonitoringDetail(
+  courierId,
+  { includePhone = false } = {}
+) {
+  const id = Number(courierId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  const profileRes = await q(
+    `SELECT
+       cp.*,
+       u.full_name,
+       u.phone,
+       u.image_url,
+       u.delivery_account_approved,
+       p.is_online,
+       p.latitude,
+       p.longitude,
+       p.updated_at AS presence_updated_at
+     FROM courier_profile cp
+     JOIN app_user u ON u.id = cp.user_id
+     LEFT JOIN courier_presence p ON p.courier_user_id = cp.user_id
+     WHERE cp.user_id = $1
+     LIMIT 1`,
+    [id]
+  );
+  const profile = profileRes.rows[0] || null;
+  if (!profile) return null;
+  if (!includePhone) profile.phone = null;
+
+  const activeAssignments = await q(
+    `SELECT ca.*
+     FROM courier_assignment ca
+     WHERE ca.courier_user_id = $1
+       AND ca.ended_at IS NULL
+       AND ca.status IN ('assigned','accepted')
+     ORDER BY ca.requested_at DESC, ca.id DESC
+     LIMIT 20`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+
+  const jobs = await q(
+    `SELECT *
+     FROM delivery_job
+     WHERE delivery_user_id = $1
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 50`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+
+  const recentOrders = await q(
+    `SELECT id, status::text AS status, merchant_id, customer_user_id,
+            total_amount, delivered_at, completed_at, updated_at
+     FROM customer_order
+     WHERE delivery_user_id = $1
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 50`,
+    [id]
+  );
+
+  return {
+    profile,
+    activeAssignments: activeAssignments.rows,
+    jobs: jobs.rows,
+    recentOrders: recentOrders.rows,
+  };
+}
