@@ -103,7 +103,8 @@
 **ما نُفِّذ (commit مستقل):** توحيد على جدول `admin_audit_event` (بلا جدول موازٍ) — migration 170 يضيف `reason/result/permission_key/ip_address/session_id/ticket_id/before_json/after_json` + فهارس بحث. `recordAudit(...)` best-effort مع **إخفاء الحقول الحساسة** (pin/password/token/secret/card/iban...) في before/after، `auditContextFromReq`, و`searchAuditEvents` (بحث بالفاعل/المورد/الفعل/التاريخ + pagination). endpoint `GET /admin/audit/events` خلف `audit.read` (وقراءته تُسجَّل). ربط تسجيل الأفعال الحساسة: الإلغاء الطارئ للتاكسي، قراءة صلاحيات موظف. اختبارات (3/3). **المتبقي:** ربط بقية القراءات الحساسة (محادثات/سير/رواتب/مواقع حية) مع مراحلها، تنبيهات النشاط المشبوه، سياسة الاحتفاظ.
 ### المرحلة 12 — الاختبارات والأمان ✅ (مصفوفة تفويض آلية)
 **ما نُفِّذ (commit مستقل):** `authorization-matrix.middleware.test.js` يشغّل الـmiddleware الحقيقي `requirePermission` عبر مصفوفة تمثيلية لكل مفاتيح الصلاحيات الإدارية ويؤكد: المنع افتراضياً لكل مسار، أن منح صلاحية واحدة يفتح مسارها فقط، فرض النطاق (department لا يفي بـ all)، تجاوز Super Admin، ورفض غير المصادَق بـ401. إلى جانب `permissions.authorization-matrix` (خدمة، 8/8) + `permissions.catalog` (6/6) + اختبارات مسارات الصلاحيات من العمل الموازي. **المتبقي:** توسعة المصفوفة لتغطية كل endpoint فرداً عبر HTTP فعلي (contract tests)، واختبارات الحِمل لقوائم الإدارة.
-### المرحلة 13 — الترحيل والنشر: forward-only + feature flags + Railway بعد إثبات الاختبارات.
+### المرحلة 13 — الترحيل والنشر ✅ (دليل تشغيلي)
+**ما نُفِّذ:** [docs/OPS_EXPANSION_DEPLOYMENT_RUNBOOK.md](OPS_EXPANSION_DEPLOYMENT_RUNBOOK.md) — جدول الـmigrations 168–182 (forward-only/idempotent)، تنبيه hygiene وتصحيح 181، دفعات الاختبار قبل النشر، تسلسل النشر (Backend أولاً)، feature flags عبر الصلاحيات، rollback دون فقدان بيانات، وبوابات Production/Railway/المتاجر. **المتبقي:** تنفيذ النشر الفعلي بعد اختبار الجهاز والموافقة البشرية.
 
 ---
 
