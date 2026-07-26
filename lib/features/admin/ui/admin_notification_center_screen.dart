@@ -61,8 +61,22 @@ class _AdminNotificationCenterScreenState
     required int alertId,
     required String nextStatus,
   }) async {
+    final reason = await _promptReason(
+      title: nextStatus == 'resolved'
+          ? context.l10n.adminOpsActionResolve
+          : context.l10n.adminOpsActionAcknowledge,
+    );
+    if (reason == null) return;
     try {
-      await ref.read(adminApiProvider).ackOpsAlert(alertId, status: nextStatus);
+      if (nextStatus == 'resolved') {
+        await ref
+            .read(adminApiProvider)
+            .resolveOpsAlert(alertId, reason: reason);
+      } else {
+        await ref
+            .read(adminApiProvider)
+            .ackOpsAlert(alertId, status: nextStatus, reason: reason);
+      }
       if (!mounted) return;
       await _load();
     } catch (e) {
@@ -78,6 +92,123 @@ class _AdminNotificationCenterScreenState
         ),
       );
     }
+  }
+
+  Future<void> _assignAlert({required int alertId}) async {
+    final draft = await _promptAssignment();
+    if (draft == null) return;
+    try {
+      await ref
+          .read(adminApiProvider)
+          .assignOpsAlert(
+            alertId,
+            assigneeUserId: draft.assigneeUserId,
+            reason: draft.reason,
+          );
+      if (!mounted) return;
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapAnyError(
+              e,
+              fallback: context.l10n.adminOpsNotificationCenterAckFailed,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<String?> _promptReason({required String title}) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          minLines: 3,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            labelText: 'Reason',
+            hintText: 'Case number or operational reason',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(context.l10n.commonCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final reason = controller.text.trim();
+              if (reason.length < 8) return;
+              Navigator.of(context).pop(reason);
+            },
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
+  Future<_AlertAssignmentDraft?> _promptAssignment() async {
+    final assigneeCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    final result = await showDialog<_AlertAssignmentDraft>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Assign alert'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: assigneeCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Assignee user ID'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonCtrl,
+              minLines: 3,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                labelText: 'Reason',
+                hintText: 'Case number or operational reason',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(context.l10n.commonCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final assigneeId = int.tryParse(assigneeCtrl.text.trim()) ?? 0;
+              final reason = reasonCtrl.text.trim();
+              if (assigneeId <= 0 || reason.length < 8) return;
+              Navigator.of(context).pop(
+                _AlertAssignmentDraft(
+                  assigneeUserId: assigneeId,
+                  reason: reason,
+                ),
+              );
+            },
+            child: const Text('Assign'),
+          ),
+        ],
+      ),
+    );
+    assigneeCtrl.dispose();
+    reasonCtrl.dispose();
+    return result;
   }
 
   Color _severityColor(ColorScheme scheme, String value) {
@@ -227,6 +358,9 @@ class _AdminNotificationCenterScreenState
                         final details = item['details'] is Map
                             ? item['details'] as Map
                             : null;
+                        final timeline = item['timeline'] is List
+                            ? List<dynamic>.from(item['timeline'] as List)
+                            : const <dynamic>[];
 
                         return Card(
                           margin: const EdgeInsets.symmetric(vertical: 6),
@@ -292,12 +426,39 @@ class _AdminNotificationCenterScreenState
                                         ),
                                   ),
                                 ],
+                                if (timeline.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    timeline
+                                        .take(2)
+                                        .map((e) {
+                                          final row = e is Map ? e : const {};
+                                          return '${row['to_status'] ?? '-'}: ${row['note'] ?? ''}';
+                                        })
+                                        .join('\n'),
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                  ),
+                                ],
                                 if (status == 'open' ||
                                     status == 'acknowledged') ...[
                                   const SizedBox(height: 10),
                                   Wrap(
                                     spacing: 8,
                                     children: [
+                                      OutlinedButton.icon(
+                                        onPressed: () => _assignAlert(
+                                          alertId:
+                                              (item['id'] as num?)?.toInt() ??
+                                              0,
+                                        ),
+                                        icon: const Icon(
+                                          Icons.person_add_alt_1_rounded,
+                                        ),
+                                        label: const Text('Assign'),
+                                      ),
                                       OutlinedButton.icon(
                                         onPressed: () => _ackAlert(
                                           alertId:
@@ -381,4 +542,14 @@ class _FilterChipDropdown extends StatelessWidget {
       ),
     );
   }
+}
+
+class _AlertAssignmentDraft {
+  const _AlertAssignmentDraft({
+    required this.assigneeUserId,
+    required this.reason,
+  });
+
+  final int assigneeUserId;
+  final String reason;
 }

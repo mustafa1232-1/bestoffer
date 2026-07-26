@@ -38,10 +38,12 @@ export async function acknowledgeOpsAlert(req, res, next) {
     if (!["acknowledged", "resolved", "ignored"].includes(status)) {
       return badRequest(res, ["status"]);
     }
+    const reason = String(req.body?.reason || req.body?.note || "").trim();
+    if (reason.length < 8) return badRequest(res, ["reason"]);
     const item = await repo.acknowledgeOpsAlert({
       alertId,
       actorUserId: req.userId,
-      note: req.body?.note || null,
+      note: reason,
       toStatus: status,
     });
     if (!item) {
@@ -51,6 +53,34 @@ export async function acknowledgeOpsAlert(req, res, next) {
   } catch (error) {
     return next(error);
   }
+}
+
+export async function assignOpsAlert(req, res, next) {
+  try {
+    const alertId = toInt(req.params?.alertId, 0);
+    const assigneeUserId = toInt(req.body?.assigneeUserId, 0);
+    const reason = String(req.body?.reason || "").trim();
+    if (alertId <= 0) return badRequest(res, ["alertId"]);
+    if (assigneeUserId <= 0) return badRequest(res, ["assigneeUserId"]);
+    if (reason.length < 8) return badRequest(res, ["reason"]);
+    const item = await repo.assignOpsAlert({
+      alertId,
+      actorUserId: req.userId,
+      assigneeUserId,
+      reason,
+    });
+    if (!item) {
+      return res.status(404).json({ message: "ALERT_NOT_FOUND" });
+    }
+    return res.json({ item });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function resolveOpsAlert(req, res, next) {
+  req.body = { ...req.body, status: "resolved" };
+  return acknowledgeOpsAlert(req, res, next);
 }
 
 export async function notificationOperationsOverview(req, res, next) {

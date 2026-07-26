@@ -66,7 +66,27 @@ export async function listOpsAlerts({
        a.created_at,
        a.updated_at,
        au.full_name AS affected_user_name,
-       ack.full_name AS acked_by_name
+       ack.full_name AS acked_by_name,
+       COALESCE(
+         (
+           SELECT jsonb_agg(
+             jsonb_build_object(
+               'id', aa.id,
+               'actor_user_id', aa.actor_user_id,
+               'actor_name', actor.full_name,
+               'from_status', aa.from_status,
+               'to_status', aa.to_status,
+               'note', aa.note,
+               'created_at', aa.created_at
+             )
+             ORDER BY aa.created_at DESC, aa.id DESC
+           )
+           FROM ops_alert_ack aa
+           LEFT JOIN app_user actor ON actor.id = aa.actor_user_id
+           WHERE aa.alert_id = a.id
+         ),
+         '[]'::jsonb
+       ) AS timeline
      FROM ops_alert a
      LEFT JOIN app_user au ON au.id = a.affected_user_id
      LEFT JOIN app_user ack ON ack.id = a.acked_by_user_id
@@ -133,6 +153,69 @@ export async function acknowledgeOpsAlert({
       (alert_id, actor_user_id, from_status, to_status, note)
      VALUES ($1, $2, $3, $4, $5)`,
     [safeAlertId, safeActorId, previousStatus, normalizedStatus, note]
+  );
+  return row;
+}
+
+export async function assignOpsAlert({
+  alertId,
+  actorUserId,
+  assigneeUserId,
+  reason,
+}) {
+  const safeAlertId = toInt(alertId, 0);
+  const safeActorId = toInt(actorUserId, 0);
+  const safeAssigneeId = toInt(assigneeUserId, 0);
+  const safeReason = normalizeCrashText(reason, 500);
+  if (
+    safeAlertId <= 0 ||
+    safeActorId <= 0 ||
+    safeAssigneeId <= 0 ||
+    safeReason.length < 8
+  ) {
+    return null;
+  }
+
+  const before = await q(`SELECT status FROM ops_alert WHERE id = $1`, [
+    safeAlertId,
+  ]);
+  const previousStatus = before.rows[0]?.status;
+  if (!previousStatus) return null;
+
+  const updateResult = await q(
+    `UPDATE ops_alert
+     SET status = CASE WHEN status = 'open' THEN 'acknowledged' ELSE status END,
+         acked_by_user_id = COALESCE(acked_by_user_id, $2),
+         acked_at = COALESCE(acked_at, NOW()),
+         details = jsonb_set(
+           COALESCE(details, '{}'::jsonb),
+           '{ops_assignment}',
+           jsonb_build_object(
+             'assignee_user_id', $3::bigint,
+             'assigned_by_user_id', $2::bigint,
+             'reason', $4::text,
+             'assigned_at', NOW()
+           ),
+           true
+         ),
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [safeAlertId, safeActorId, safeAssigneeId, safeReason]
+  );
+  const row = updateResult.rows[0] || null;
+  if (!row) return null;
+
+  await q(
+    `INSERT INTO ops_alert_ack
+      (alert_id, actor_user_id, from_status, to_status, note)
+     VALUES ($1, $2, $3, 'assigned', $4)`,
+    [
+      safeAlertId,
+      safeActorId,
+      previousStatus,
+      `assigned_to=${safeAssigneeId}; reason=${safeReason}`,
+    ]
   );
   return row;
 }

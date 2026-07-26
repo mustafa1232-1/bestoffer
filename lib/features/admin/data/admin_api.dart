@@ -2323,10 +2323,38 @@ class AdminApi {
     int alertId, {
     String status = 'acknowledged',
     String? note,
+    String? reason,
   }) async {
     final response = await dio.post(
       '/api/admin/ops/alerts/$alertId/ack',
-      data: {'status': status, 'note': note},
+      data: {
+        'status': status,
+        if ((note ?? '').trim().isNotEmpty) 'note': note!.trim(),
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return _safeMapResponse(response.data);
+  }
+
+  Future<Map<String, dynamic>> assignOpsAlert(
+    int alertId, {
+    required int assigneeUserId,
+    required String reason,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/ops/alerts/$alertId/assign',
+      data: {'assigneeUserId': assigneeUserId, 'reason': reason},
+    );
+    return _safeMapResponse(response.data);
+  }
+
+  Future<Map<String, dynamic>> resolveOpsAlert(
+    int alertId, {
+    required String reason,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/ops/alerts/$alertId/resolve',
+      data: {'reason': reason},
     );
     return _safeMapResponse(response.data);
   }

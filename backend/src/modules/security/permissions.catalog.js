@@ -56,6 +56,11 @@ export const PERMISSION_KEYS = Object.freeze([
   "support.tickets.escalate",
   "support.sla.manage",
 
+  "ops.alerts.read",
+  "ops.alerts.acknowledge",
+  "ops.alerts.assign",
+  "ops.alerts.resolve",
+
   "employees.read",
   "employees.create",
   "employees.update",
@@ -152,6 +157,10 @@ export const ROLE_TEMPLATES = Object.freeze({
     "support.tickets.reply",
     "support.tickets.resolve",
     "support.sla.manage",
+    "ops.alerts.read",
+    "ops.alerts.acknowledge",
+    "ops.alerts.assign",
+    "ops.alerts.resolve",
     "employees.read",
     "attendance.read",
     "audit.read",
@@ -164,6 +173,8 @@ export const ROLE_TEMPLATES = Object.freeze({
     "taxi.rides.track_live",
     "taxi.rides.history",
     "support.tickets.read",
+    "ops.alerts.read",
+    "ops.alerts.acknowledge",
   ],
 
   order_monitoring: [
@@ -173,6 +184,7 @@ export const ROLE_TEMPLATES = Object.freeze({
     "orders.revisions.submit",
     "orders.messages.read",
     "support.tickets.read",
+    "ops.alerts.read",
   ],
 
   delivery_monitoring: [
@@ -181,6 +193,7 @@ export const ROLE_TEMPLATES = Object.freeze({
     "orders.revisions.create",
     "orders.revisions.submit",
     "support.tickets.read",
+    "ops.alerts.read",
   ],
 
   service_monitoring: [
@@ -190,6 +203,7 @@ export const ROLE_TEMPLATES = Object.freeze({
     "cars.read",
     "jobs.read",
     "support.tickets.read",
+    "ops.alerts.read",
   ],
 
   community_moderator: [
@@ -198,6 +212,7 @@ export const ROLE_TEMPLATES = Object.freeze({
     "community.moderate",
     "community.users.read",
     "support.tickets.read",
+    "ops.alerts.read",
   ],
 
   call_center_agent: [
@@ -205,6 +220,8 @@ export const ROLE_TEMPLATES = Object.freeze({
     "support.tickets.read",
     "support.tickets.reply",
     "support.tickets.resolve",
+    "ops.alerts.read",
+    "ops.alerts.acknowledge",
     "taxi.rides.read",
     "orders.read",
     "orders.revisions.create",
@@ -219,6 +236,10 @@ export const ROLE_TEMPLATES = Object.freeze({
     "support.tickets.resolve",
     "support.tickets.escalate",
     "support.sla.manage",
+    "ops.alerts.read",
+    "ops.alerts.acknowledge",
+    "ops.alerts.assign",
+    "ops.alerts.resolve",
     "taxi.rides.read",
     "taxi.rides.track_live",
     "taxi.rides.emergency_cancel",
@@ -264,6 +285,10 @@ export const ROLE_TEMPLATES = Object.freeze({
     "support.tickets.resolve",
     "support.tickets.escalate",
     "support.sla.manage",
+    "ops.alerts.read",
+    "ops.alerts.acknowledge",
+    "ops.alerts.assign",
+    "ops.alerts.resolve",
   ],
 });
 

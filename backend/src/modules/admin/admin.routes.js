@@ -367,7 +367,11 @@ adminRouter.post(
 );
 adminRouter.get("/taxi/kpi/overview", requireAdmin, taxiAdmin.kpiOverview);
 adminRouter.get("/taxi/reports", requireAdmin, taxiAdmin.reports);
-adminRouter.get("/ops/alerts", requireAdmin, ops.listOpsAlerts);
+adminRouter.get(
+  "/ops/alerts",
+  requirePermission("ops.alerts.read"),
+  ops.listOpsAlerts
+);
 adminRouter.get(
   "/ops/notifications/overview",
   requireAdmin,
@@ -468,7 +472,21 @@ adminRouter.post(
   requireSuperAdmin,
   ops.cleanupTestArtifacts
 );
-adminRouter.post("/ops/alerts/:alertId/ack", requireAdmin, ops.acknowledgeOpsAlert);
+adminRouter.post(
+  "/ops/alerts/:alertId/ack",
+  requirePermission("ops.alerts.acknowledge"),
+  ops.acknowledgeOpsAlert
+);
+adminRouter.post(
+  "/ops/alerts/:alertId/assign",
+  requirePermission("ops.alerts.assign"),
+  ops.assignOpsAlert
+);
+adminRouter.post(
+  "/ops/alerts/:alertId/resolve",
+  requirePermission("ops.alerts.resolve"),
+  ops.resolveOpsAlert
+);
 adminRouter.post(
   "/taxi/captains/:captainUserId/gifts",
   requireAdmin,
