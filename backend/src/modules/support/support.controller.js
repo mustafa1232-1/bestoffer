@@ -1,4 +1,5 @@
 import * as service from "./support.service.js";
+import * as repo from "./support.repo.js";
 import { recordAudit, auditContextFromReq } from "../security/audit.service.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 import {
@@ -199,6 +200,23 @@ export async function adminGetTicket(req, res, next) {
       targetId: id,
     });
     return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminLinkSuggestions(req, res, next) {
+  try {
+    const id = ticketId(req, res);
+    if (!id) return;
+    const ticket = await repo.getTicketById(id);
+    if (!ticket) {
+      return res.status(404).json({ message: "TICKET_NOT_FOUND" });
+    }
+    const suggestions = await repo.listLinkSuggestionsForUser(ticket.user_id, {
+      limit: req.query?.limit ? Number(req.query.limit) : 5,
+    });
+    return res.json(suggestions);
   } catch (error) {
     return next(error);
   }

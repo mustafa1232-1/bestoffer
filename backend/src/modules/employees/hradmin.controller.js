@@ -193,8 +193,53 @@ export const approveRun = (req, res, next) =>
   doTransition(req, res, next, "APPROVED", "payroll.approve");
 export const releaseRun = (req, res, next) =>
   doTransition(req, res, next, "RELEASED", "payroll.release");
-export const markRunPaid = (req, res, next) =>
-  doTransition(req, res, next, "PAID", "payroll.mark_paid");
+const PAYMENT_METHODS = ["cash", "bank_transfer", "wallet", "card", "other"];
+
+export async function markRunPaid(req, res, next) {
+  try {
+    const runId = Number(req.params?.runId);
+    const paymentMethod = String(req.body?.paymentMethod || "").trim();
+    if (!PAYMENT_METHODS.includes(paymentMethod)) {
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: ["paymentMethod"] });
+    }
+    const paymentReference =
+      typeof req.body?.paymentReference === "string"
+        ? req.body.paymentReference.trim() || null
+        : null;
+    const result = await payroll.transitionRun({
+      runId,
+      toStatus: "PAID",
+      actorUserId: req.userId,
+      requireDistinctApprover: true,
+      paymentMethod,
+      paymentReference,
+    });
+    if (result.code === "RUN_NOT_FOUND") {
+      throw new AppError("PAYROLL_RUN_NOT_FOUND", { status: 404 });
+    }
+    if (result.code !== "OK") {
+      throw new AppError("PAYROLL_INVALID_TRANSITION", {
+        status: 409,
+        details: { currentStatus: result.currentStatus },
+      });
+    }
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "payroll.mark_paid",
+      summary: `تسديد دورة الراتب #${runId} عبر ${paymentMethod}`,
+      targetType: "company_payroll_run",
+      targetId: runId,
+      permissionKey: "payroll.mark_paid",
+      before: { status: result.previousStatus },
+      after: { status: "PAID", paymentMethod, paymentReference },
+    });
+    return res.json({ run: result.run });
+  } catch (error) {
+    return next(error);
+  }
+}
 export const acknowledgeRun = (req, res, next) =>
   doTransition(req, res, next, "ACKNOWLEDGED", "payroll.review");
 export const archiveRun = (req, res, next) =>

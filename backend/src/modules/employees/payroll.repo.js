@@ -137,6 +137,7 @@ const STATUS_STAMP = {
  */
 export async function transitionRun({
   runId, toStatus, actorUserId, requireDistinctApprover = false,
+  paymentMethod = null, paymentReference = null,
 }) {
   const client = await pool.connect();
   try {
@@ -173,6 +174,14 @@ export async function transitionRun({
     }
     if (stamp?.at) sets.push(`${stamp.at} = NOW()`);
 
+    // طريقة الدفع تُسجَّل عند وضع الدورة PAID.
+    if (toStatus === "PAID" && paymentMethod) {
+      params.push(String(paymentMethod));
+      sets.push(`payment_method = $${params.length}`);
+      params.push(paymentReference ? String(paymentReference) : null);
+      sets.push(`payment_reference = $${params.length}`);
+    }
+
     const upd = await client.query(
       `UPDATE company_payroll_run SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
       params
@@ -201,7 +210,8 @@ export async function acknowledgeItem({ runId, employeeUserId }) {
 
 export async function listItemsForEmployee({ employeeUserId, limit = 24 }) {
   const r = await q(
-    `SELECT i.*, r.period_month, r.status AS run_status
+    `SELECT i.*, r.period_month, r.status AS run_status,
+            r.payment_method, r.payment_reference, r.paid_at
      FROM company_payroll_item i JOIN company_payroll_run r ON r.id = i.run_id
      WHERE i.employee_user_id = $1
        AND r.status IN ('RELEASED','PAID','ACKNOWLEDGED','ARCHIVED')

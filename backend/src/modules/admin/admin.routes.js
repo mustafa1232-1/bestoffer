@@ -260,6 +260,11 @@ adminRouter.post(
   requirePermission("support.tickets.reply"),
   support.adminReply
 );
+adminRouter.get(
+  "/support/tickets/:ticketId/link-suggestions",
+  requirePermission("support.tickets.read"),
+  support.adminLinkSuggestions
+);
 adminRouter.post(
   "/support/tickets/:ticketId/link",
   requirePermission("support.tickets.assign"),

@@ -241,6 +241,12 @@ class _AdminSupportTicketDetailsScreenState
                 ),
               ],
               const SizedBox(height: 12),
+              if (_can('support.tickets.assign'))
+                _LinkSuggestionsSection(
+                  ticketId: widget.ticketId,
+                  onLinked: () async => _refresh(),
+                ),
+              const SizedBox(height: 12),
               _LinkedOrderSection(contextData: data.orderContext),
               const SizedBox(height: 12),
               OrderRevisionPanel(
@@ -876,6 +882,123 @@ class _SupportComposerState extends ConsumerState<_SupportComposer> {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// اقتراح ربط: أحدث طلبات/رحلات صاحب التذكرة، مع زر ربط بعد التأكد.
+class _LinkSuggestionsSection extends ConsumerStatefulWidget {
+  final int ticketId;
+  final Future<void> Function() onLinked;
+  const _LinkSuggestionsSection({required this.ticketId, required this.onLinked});
+
+  @override
+  ConsumerState<_LinkSuggestionsSection> createState() =>
+      _LinkSuggestionsSectionState();
+}
+
+class _LinkSuggestionsSectionState
+    extends ConsumerState<_LinkSuggestionsSection> {
+  bool _loading = false;
+  bool _loaded = false;
+  String? _error;
+  List<Map<String, dynamic>> _items = const [];
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data =
+          await ref.read(adminApiProvider).supportTicketLinkSuggestions(widget.ticketId);
+      final orders = ((data['orders'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map));
+      final rides = ((data['rides'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map));
+      setState(() {
+        _items = [...orders, ...rides];
+        _loaded = true;
+      });
+    } catch (e) {
+      setState(() => _error = e is DioException
+          ? mapDioError(e, fallback: 'تعذّر تحميل الاقتراحات.')
+          : 'تعذّر تحميل الاقتراحات.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _link(Map<String, dynamic> item) async {
+    setState(() => _loading = true);
+    try {
+      await ref.read(adminApiProvider).linkSupportTicketEntity(
+            widget.ticketId,
+            entityType: '${item['entityType']}',
+            entityId: parseInt(item['entityId']),
+            label: '${item['label'] ?? ''}',
+            reason: 'linked from suggestions',
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم الربط بنجاح.')),
+        );
+      }
+      await widget.onLinked();
+    } catch (e) {
+      setState(() => _error = e is DioException
+          ? mapDioError(e, fallback: 'تعذّر الربط.')
+          : 'تعذّر الربط.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      title: 'ربط بطلب/رحلة',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          if (!_loaded)
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.link_rounded),
+              label: const Text('اقترح طلبات/رحلات صاحب التذكرة'),
+            )
+          else if (_items.isEmpty)
+            const Text('لا توجد طلبات أو رحلات حديثة لصاحب التذكرة.')
+          else
+            ..._items.map(
+              (item) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: Icon(
+                  item['entityType'] == 'ride'
+                      ? Icons.local_taxi_rounded
+                      : Icons.receipt_long_rounded,
+                ),
+                title: Text('${item['label'] ?? ''}'),
+                subtitle: Text(
+                  '${item['status'] ?? ''} ${item['route'] ?? ''}'.trim(),
+                ),
+                trailing: TextButton(
+                  onPressed: _loading ? null : () => _link(item),
+                  child: const Text('ربط'),
+                ),
+              ),
+            ),
         ],
       ),
     );

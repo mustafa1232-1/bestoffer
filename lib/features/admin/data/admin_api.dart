@@ -620,6 +620,34 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  /// يقترح أحدث طلبات/رحلات صاحب التذكرة لربطها.
+  Future<Map<String, dynamic>> supportTicketLinkSuggestions(int ticketId) async {
+    final response = await dio.get(
+      '/api/admin/support/tickets/$ticketId/link-suggestions',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// يربط عنصراً (طلب/رحلة/…) بالتذكرة بعد تأكيد الموظف.
+  Future<Map<String, dynamic>> linkSupportTicketEntity(
+    int ticketId, {
+    required String entityType,
+    required int entityId,
+    String? label,
+    String? reason,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/support/tickets/$ticketId/link',
+      data: {
+        'entityType': entityType,
+        'entityId': entityId,
+        if ((label ?? '').trim().isNotEmpty) 'label': label!.trim(),
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   /// يرفع صورة/ملف لمحادثة الدعم ويعيد بيانات المرفق لإرفاقها برسالة.
   Future<Map<String, dynamic>> uploadSupportAttachment(
     LocalImageFile file, {

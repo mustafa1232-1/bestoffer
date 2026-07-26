@@ -673,3 +673,42 @@ export async function transitionStatus({
     client.release();
   }
 }
+
+// اقتراح عناصر لربطها بتذكرة عامة: أحدث طلبات ورحلات صاحب التذكرة.
+export async function listLinkSuggestionsForUser(userId, { limit = 5 } = {}) {
+  const safeLimit = Math.max(1, Math.min(20, Number(limit) || 5));
+  const orders = await q(
+    `SELECT id, status::text AS status, total_amount, created_at
+     FROM customer_order
+     WHERE customer_user_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [Number(userId), safeLimit]
+  );
+  const rides = await q(
+    `SELECT id, status, pickup_label, dropoff_label, created_at
+     FROM taxi_ride_request
+     WHERE customer_user_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [Number(userId), safeLimit]
+  );
+  return {
+    orders: orders.rows.map((o) => ({
+      entityType: "order",
+      entityId: Number(o.id),
+      label: `طلب #${o.id}`,
+      status: o.status,
+      total: o.total_amount,
+      createdAt: o.created_at,
+    })),
+    rides: rides.rows.map((r) => ({
+      entityType: "ride",
+      entityId: Number(r.id),
+      label: `رحلة #${r.id}`,
+      status: r.status,
+      route: [r.pickup_label, r.dropoff_label].filter(Boolean).join(" → "),
+      createdAt: r.created_at,
+    })),
+  };
+}
