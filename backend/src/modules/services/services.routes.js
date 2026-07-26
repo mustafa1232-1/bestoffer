@@ -41,6 +41,7 @@ servicesProviderRouter.post(
   ]),
   c.registerProvider
 );
+servicesProviderRouter.post('/application/status', c.getProviderSubscriptionStatus);
 servicesProviderRouter.post('/subscription/status', c.getProviderSubscriptionStatus);
 servicesProviderRouter.post(
   '/subscription/requests/:requestId/respond-offer',

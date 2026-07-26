@@ -58,7 +58,7 @@ import { settingsPublicRouter } from "./modules/settings/settings.routes.js";
 import { supportRouter } from "./modules/support/support.routes.js";
 import { staffRouter } from "./modules/employees/staff.routes.js";
 import { guidesRouter } from "./modules/guides/guides.routes.js";
-import { usersRouter } from "./modules/users/users.routes.js";
+import { accountRouter, usersRouter } from "./modules/users/users.routes.js";
 import { requireAuth } from "./shared/middleware/auth.middleware.js";
 import { createOpsRouter } from "./ops/routes/ops.routes.js";
 import { createOpsWebhooksRouter } from "./ops/routes/opsWebhooks.routes.js";
@@ -225,6 +225,7 @@ function registerPublicCatalogRoutes(prefix = "/api") {
 function mountApiSurface(prefix = "/api") {
   app.use(`${prefix}/auth`, authRouter);
   app.use(`${prefix}/users`, usersRouter);
+  app.use(`${prefix}/account`, accountRouter);
   app.use(`${prefix}/admin`, adminRouter);
   app.use(`${prefix}/merchants`, merchantsRouter);
   app.use(`${prefix}/owner`, ownerRouter);

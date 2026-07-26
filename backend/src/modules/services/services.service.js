@@ -28,7 +28,17 @@ function normalizeDigits(value) {
 }
 
 function normalizePhone(value) {
-  return normalizeDigits(value).replace(/[^\d]/g, '');
+  const digits = normalizeDigits(value).replace(/[^\d]/g, '');
+  if (digits.startsWith('00964') && digits.length >= 14) {
+    return `0${digits.slice(5)}`;
+  }
+  if (digits.startsWith('964') && digits.length >= 13) {
+    return `0${digits.slice(3)}`;
+  }
+  if (digits.startsWith('7') && digits.length === 10) {
+    return `0${digits}`;
+  }
+  return digits;
 }
 
 function normalizePin(value) {
@@ -45,21 +55,6 @@ function toActorUserId(actor) {
     throw new AppError('UNAUTHORIZED', { status: 401 });
   }
   return id;
-}
-
-function mapUserForResponse(user) {
-  if (!user) return null;
-  return {
-    id: Number(user.id),
-    fullName: user.full_name || user.fullName || '',
-    phone: user.phone || '',
-    role: user.role || 'user',
-    isSuperAdmin: user.is_super_admin === true || user.isSuperAdmin === true,
-    block: user.block || '',
-    buildingNumber: user.building_number || user.buildingNumber || '',
-    apartment: user.apartment || '',
-    imageUrl: user.image_url || user.imageUrl || null,
-  };
 }
 
 function mapProviderEmployeeProfileRow(row) {
@@ -123,83 +118,105 @@ function mapProviderEmployeeActivityLog(row) {
   };
 }
 
-function generateSubscriptionRequestCode() {
-  const timePart = Date.now().toString(36).toUpperCase();
-  const randomPart = Math.floor(1000 + Math.random() * 9000)
-    .toString()
-    .padStart(4, '0');
-  return `SRV-${timePart}-${randomPart}`;
-}
+const FREE_PROVIDER_APPLICATION_STATES = new Set([
+  'not_submitted',
+  'draft',
+  'submitted',
+  'under_review',
+  'approved',
+  'rejected',
+  'suspended',
+]);
 
-function mapProviderSubscriptionProgress(request) {
-  if (!request) return null;
-  const status = String(request.status || 'pending_offer').toLowerCase();
-  const activeOffer = request.activeOffer || null;
-  let nextAction = 'wait_admin_offer';
-  let canLogin = false;
-  let requiresProviderAction = false;
+const LEGACY_PROVIDER_PAYMENT_STATES = new Set([
+  'pending_offer',
+  'offer_sent',
+  'offer_accepted',
+  'offer_rejected',
+  'payment_pending_confirmation',
+  'payment_confirmed',
+  'account_created',
+  'cancelled',
+]);
 
-  if (status === 'offer_sent') {
-    nextAction = 'provider_review_offer';
-    requiresProviderAction = activeOffer?.status === 'pending_provider';
-  } else if (status === 'offer_accepted') {
-    nextAction = 'wait_admin_cash_confirmation';
-  } else if (status === 'payment_pending_confirmation') {
-    nextAction = 'wait_admin_cash_confirmation';
-  } else if (status === 'payment_confirmed') {
-    nextAction = 'wait_account_creation';
-  } else if (status === 'account_created') {
-    nextAction = 'login_available';
-    canLogin = true;
-  } else if (status === 'offer_rejected') {
-    nextAction = 'wait_admin_new_offer';
-  } else if (status === 'rejected' || status === 'cancelled') {
-    nextAction = 'request_closed';
+function normalizeProviderApplicationState(value) {
+  const status = String(value || '').trim().toLowerCase();
+  switch (status) {
+    case 'pending':
+    case 'pending_review':
+    case 'submitted':
+    case 'under_review':
+      return 'under_review';
+    case 'approved':
+      return 'approved';
+    case 'rejected':
+      return 'rejected';
+    case 'suspended':
+      return 'suspended';
+    case 'draft':
+      return 'draft';
+    case 'not_submitted':
+      return 'not_submitted';
+    default:
+      return LEGACY_PROVIDER_PAYMENT_STATES.has(status)
+        ? 'under_review'
+        : 'under_review';
   }
-
-  return {
-    request,
-    status,
-    activeOffer,
-    requiresProviderAction,
-    nextAction,
-    canLogin,
-  };
 }
 
-function buildProviderProfileDtoFromSubscriptionRow(row) {
+function mapFreeProviderApplicationProgress({
+  provider = null,
+  submitted = false,
+  reusedExistingApplication = false,
+  legacyRequest = null,
+}) {
+  const legacyStatus = legacyRequest
+    ? String(legacyRequest.status || '').trim().toLowerCase()
+    : '';
+  const hasLegacyPaymentState = LEGACY_PROVIDER_PAYMENT_STATES.has(legacyStatus);
+  const status = provider
+    ? normalizeProviderApplicationState(provider.providerApprovalStatus)
+    : submitted
+      ? 'submitted'
+      : normalizeProviderApplicationState(legacyStatus || 'not_submitted');
+  const normalizedStatus = FREE_PROVIDER_APPLICATION_STATES.has(status)
+    ? status
+    : 'under_review';
+  const nextAction =
+    normalizedStatus === 'approved'
+      ? 'login_available'
+      : normalizedStatus === 'rejected'
+        ? 'review_rejection_reason'
+        : normalizedStatus === 'suspended'
+          ? 'contact_support'
+          : 'wait_admin_review';
+
   return {
-    businessName: row.business_name,
-    mainCategoryId: row.main_category_id == null ? null : Number(row.main_category_id),
-    bio: row.bio || null,
-    phone: row.phone,
-    whatsappPhone: row.whatsapp_phone || null,
-    city: row.city,
-    area: row.area || null,
-    addressLine: row.address_line || null,
-    servesAtHome: row.serves_at_home === true,
-    servesAtShop: row.serves_at_shop === true,
-    servesRemote: row.serves_remote === true,
-    hasEmergencyService: row.has_emergency_service === true,
-    bookingPolicy: row.booking_policy || 'approval_required',
-    pricingMode: row.pricing_mode || 'mixed',
-    yearsExperience:
-      row.years_experience == null ? null : Number(row.years_experience),
-    hasTeam: row.has_team === true,
-    teamSize: row.team_size == null ? null : Number(row.team_size),
-    acceptsCash: row.accepts_cash !== false,
-    acceptsElectronic: row.accepts_electronic === true,
-    averageResponseMinutes:
-      row.average_response_minutes == null
-        ? null
-        : Number(row.average_response_minutes),
-    available247: row.is_available_24_7 === true,
-    providerGender: row.provider_gender || null,
-    languages: Array.isArray(row.languages_json) ? row.languages_json : [],
-    areas: Array.isArray(row.areas_json) ? row.areas_json : [],
-    availabilityRules: Array.isArray(row.availability_rules_json)
-      ? row.availability_rules_json
-      : [],
+    application: provider
+      ? {
+          id: provider.id,
+          applicationCode: `SP-${provider.id}`,
+          businessName: provider.businessName || '',
+          phone: provider.phone || '',
+          providerApprovalStatus: provider.providerApprovalStatus || 'pending',
+          approvalNote: provider.approvalNote || null,
+        }
+      : legacyRequest
+        ? {
+            id: legacyRequest.id,
+            applicationCode: legacyRequest.requestCode || '',
+            businessName: legacyRequest.businessName || '',
+            phone: legacyRequest.phone || '',
+            legacyStatus,
+            approvalNote: legacyRequest.statusNote || null,
+          }
+        : null,
+    status: normalizedStatus,
+    nextAction,
+    canLogin: normalizedStatus === 'approved',
+    requiresProviderAction: false,
+    reusedExistingApplication,
+    compatibilityWarning: hasLegacyPaymentState,
   };
 }
 
@@ -376,8 +393,21 @@ async function resolveProviderAccess({ userId, userRole }) {
   };
 }
 
+function assertProviderApproved(provider) {
+  const status = normalizeProviderApplicationState(
+    provider?.providerApprovalStatus
+  );
+  if (status !== 'approved') {
+    throw new AppError('SERVICE_PROVIDER_APPLICATION_UNDER_REVIEW', {
+      status: 403,
+      details: { status },
+    });
+  }
+}
+
 async function ensureProviderPermission(actor, permission) {
   const access = await resolveProviderAccess(actor);
+  assertProviderApproved(access.provider);
   if (access.isOwner) return access;
   if (!hasPermission(access.employeeProfile?.permissions || [], permission)) {
     throw new AppError('FORBIDDEN_SERVICE_PROVIDER_PERMISSION', { status: 403 });
@@ -402,12 +432,6 @@ export async function registerServiceProvider(dto, assets = {}, _deviceContext =
     });
   }
 
-  const exists = await findUserByPhone(phone);
-  if (exists) {
-    throw new AppError('PHONE_EXISTS', { status: 409 });
-  }
-
-  const pinHash = await hashPin(pin);
   const fullName = String(dto.fullName || dto.businessName || '').trim();
   if (!fullName) {
     throw new AppError('VALIDATION_ERROR', {
@@ -416,44 +440,78 @@ export async function registerServiceProvider(dto, assets = {}, _deviceContext =
     });
   }
 
-  const requestResult = await repo.createProviderSubscriptionRequest({
-    dto: {
-      ...dto,
-      phone,
-      businessName: dto.businessName || fullName,
+  const existingUser = await findUserByPhone(phone);
+  let user = existingUser || null;
+  if (existingUser) {
+    if (String(existingUser.role || '').toLowerCase() !== 'service_provider') {
+      throw new AppError('PHONE_EXISTS', { status: 409 });
+    }
+    const pinVerification = await verifyPinDetailed(pin, existingUser.pin_hash || '');
+    if (!pinVerification.ok) {
+      throw new AppError('INVALID_CREDENTIALS', { status: 401 });
+    }
+  } else {
+    const pinHash = await hashPin(pin);
+    user = await runWithGeneratedAppUserUsername({
       fullName,
-    },
-    assets,
-    pinHash,
-    requestCode: generateSubscriptionRequestCode(),
-  });
-  const progress = mapProviderSubscriptionProgress(requestResult.request);
-  if (!progress) {
-    throw new AppError('SERVICE_PROVIDER_SUBSCRIPTION_CREATE_FAILED', {
-      status: 500,
+      phone,
+      async execute(username) {
+        return createUser({
+          fullName,
+          username,
+          phone,
+          pinHash,
+          block: 'A1',
+          buildingNumber: 'A101',
+          apartment: '101',
+          imageUrl: assets.logoUrl || null,
+          role: 'service_provider',
+          analyticsConsentGranted: true,
+          analyticsConsentVersion: 'analytics_v1',
+          analyticsConsentGrantedAt: new Date().toISOString(),
+        });
+      },
     });
   }
 
-  if (!requestResult.conflict) {
+  let provider = await repo.getProviderProfileByUserId(user.id);
+  const reusedExistingApplication = !!provider;
+  if (!provider) {
+    provider = await repo.createProviderProfile({
+      userId: user.id,
+      dto: {
+        ...dto,
+        phone,
+        businessName: dto.businessName || fullName,
+      },
+      assets,
+      moderation: {
+        approvalStatus: 'pending',
+        approvalNote: 'Submitted for free provider review',
+      },
+    });
+  }
+
+  if (!reusedExistingApplication) {
     await notifyBackoffice((adminUserId) => ({
       userId: adminUserId,
-      type: 'services.provider.subscription.request_submitted',
-      title: 'طلب اشتراك مقدم خدمة جديد',
-      body: `${progress.request.businessName || fullName} أرسل طلب اشتراك جديد.`,
+      type: 'services.provider.application.submitted',
+      title: 'طلب تسجيل مقدم خدمة جديد',
+      body: `${provider.businessName || fullName} أرسل طلب تسجيل مجاني للمراجعة.`,
       payload: {
-        target: 'admin_services_subscription_requests',
+        target: 'admin_services_pending_providers',
         targetModule: 'admin',
-        requestId: progress.request.id,
-        requestCode: progress.request.requestCode,
+        providerId: provider.id,
         requiresAction: true,
       },
     }));
   }
 
-  return {
-    ...progress,
-    reusedActiveRequest: requestResult.conflict === true,
-  };
+  return mapFreeProviderApplicationProgress({
+    provider,
+    submitted: !reusedExistingApplication,
+    reusedExistingApplication,
+  });
 }
 
 export async function getProviderSubscriptionStatus({ phone, pin }) {
@@ -466,11 +524,34 @@ export async function getProviderSubscriptionStatus({ phone, pin }) {
     });
   }
 
+  const user = await findUserByPhone(normalizedPhone);
+  if (user) {
+    if (String(user.role || '').toLowerCase() !== 'service_provider') {
+      throw new AppError('SERVICE_PROVIDER_APPLICATION_NOT_FOUND', {
+        status: 404,
+      });
+    }
+    const pinVerification = await verifyPinDetailed(
+      normalizedPin,
+      user.pin_hash || ''
+    );
+    if (!pinVerification.ok) {
+      throw new AppError('INVALID_CREDENTIALS', { status: 401 });
+    }
+    const provider = await repo.getProviderProfileByUserId(user.id);
+    if (!provider) {
+      throw new AppError('SERVICE_PROVIDER_APPLICATION_NOT_FOUND', {
+        status: 404,
+      });
+    }
+    return mapFreeProviderApplicationProgress({ provider });
+  }
+
   const authRow = await repo.getProviderSubscriptionRequestAuthByPhone(
     normalizedPhone
   );
   if (!authRow) {
-    throw new AppError('SERVICE_PROVIDER_SUBSCRIPTION_REQUEST_NOT_FOUND', {
+    throw new AppError('SERVICE_PROVIDER_APPLICATION_NOT_FOUND', {
       status: 404,
     });
   }
@@ -495,94 +576,21 @@ export async function getProviderSubscriptionStatus({ phone, pin }) {
       status: 404,
     });
   }
-  return mapProviderSubscriptionProgress(request);
+  return mapFreeProviderApplicationProgress({ legacyRequest: request });
 }
 
 export async function respondProviderSubscriptionOffer({
   requestId,
   dto,
 }) {
-  const rid = Number(requestId);
-  if (!Number.isInteger(rid) || rid <= 0) {
-    throw new AppError('VALIDATION_ERROR', {
-      status: 400,
-      details: { fields: ['requestId'] },
-    });
-  }
-
-  const normalizedPhone = normalizePhone(dto.phone);
-  const normalizedPin = normalizePin(dto.pin);
-  if (!normalizedPhone || !normalizedPin) {
-    throw new AppError('VALIDATION_ERROR', {
-      status: 400,
-      details: { fields: ['phone', 'pin'] },
-    });
-  }
-
-  const authRow = await repo.getProviderSubscriptionRequestForProvisioning(rid);
-  if (!authRow) {
-    throw new AppError('SERVICE_PROVIDER_SUBSCRIPTION_REQUEST_NOT_FOUND', {
-      status: 404,
-    });
-  }
-  if (String(authRow.phone || '') !== normalizedPhone) {
-    throw new AppError('INVALID_CREDENTIALS', { status: 401 });
-  }
-  const pinVerification = await verifyPinDetailed(
-    normalizedPin,
-    authRow.pin_hash || ''
-  );
-  if (!pinVerification.ok) {
-    throw new AppError('INVALID_CREDENTIALS', { status: 401 });
-  }
-  if (pinVerification.needsUpgrade) {
-    await repo.updateProviderSubscriptionRequestPinHash(
-      authRow.id,
-      await hashPin(normalizedPin)
-    ).catch(() => null);
-  }
-
-  const responded = await repo.providerRespondToSubscriptionOffer({
-    requestId: rid,
-    phone: normalizedPhone,
-    action: dto.action,
-    note: dto.note || null,
-    offerId: dto.offerId || null,
+  throw new AppError('SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED', {
+    status: 410,
   });
-  if (!responded) {
-    throw new AppError('SERVICE_PROVIDER_SUBSCRIPTION_REQUEST_NOT_FOUND', {
-      status: 404,
-    });
-  }
-  if (responded.error) {
-    throw new AppError(responded.error, { status: 400 });
-  }
-
-  if (responded.status === 'offer_accepted') {
-    await notifyBackoffice((adminUserId) => ({
-      userId: adminUserId,
-      type: 'services.provider.subscription.offer_accepted',
-      title: 'تم قبول عرض اشتراك مقدم الخدمة',
-      body: `${responded.businessName || responded.fullName || 'مقدم خدمة'} وافق على العرض.`,
-      payload: {
-        target: 'admin_services_subscription_requests',
-        targetModule: 'admin',
-        requestId: responded.id,
-        requestCode: responded.requestCode,
-        requiresAction: true,
-      },
-    }));
-  }
-
-  return mapProviderSubscriptionProgress(responded);
 }
 
 export async function listProviderSubscriptionRequestsForAdmin({ query }) {
-  return repo.listProviderSubscriptionRequestsForAdmin({
-    status: query.subscriptionRequestStatus || null,
-    limit: query.limit || 60,
-    offset: query.offset || 0,
-    search: query.search || null,
+  throw new AppError('SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED', {
+    status: 410,
   });
 }
 
@@ -591,20 +599,9 @@ export async function adminSendProviderSubscriptionOffer({
   dto,
   adminUserId,
 }) {
-  const result = await repo.adminSendProviderSubscriptionOffer({
-    requestId,
-    adminUserId,
-    dto,
+  throw new AppError('SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED', {
+    status: 410,
   });
-  if (!result) {
-    throw new AppError('SERVICE_PROVIDER_SUBSCRIPTION_REQUEST_NOT_FOUND', {
-      status: 404,
-    });
-  }
-  if (result.error) {
-    throw new AppError(result.error, { status: 400 });
-  }
-  return mapProviderSubscriptionProgress(result);
 }
 
 export async function adminRejectProviderSubscriptionRequest({
@@ -612,20 +609,9 @@ export async function adminRejectProviderSubscriptionRequest({
   dto,
   adminUserId,
 }) {
-  const result = await repo.adminRejectProviderSubscriptionRequest({
-    requestId,
-    adminUserId,
-    note: dto.note || null,
+  throw new AppError('SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED', {
+    status: 410,
   });
-  if (!result) {
-    throw new AppError('SERVICE_PROVIDER_SUBSCRIPTION_REQUEST_NOT_FOUND', {
-      status: 404,
-    });
-  }
-  if (result.error) {
-    throw new AppError(result.error, { status: 400 });
-  }
-  return mapProviderSubscriptionProgress(result);
 }
 
 export async function adminConfirmProviderSubscriptionCashPayment({
@@ -633,102 +619,9 @@ export async function adminConfirmProviderSubscriptionCashPayment({
   dto,
   adminUserId,
 }) {
-  const requestRow = await repo.getProviderSubscriptionRequestForProvisioning(
-    requestId
-  );
-  if (!requestRow) {
-    throw new AppError('SERVICE_PROVIDER_SUBSCRIPTION_REQUEST_NOT_FOUND', {
-      status: 404,
-    });
-  }
-  if (requestRow.account_created_user_id) {
-    const existing = await repo.getProviderSubscriptionRequestById(
-      Number(requestRow.id)
-    );
-    return mapProviderSubscriptionProgress(existing);
-  }
-  if (!['offer_accepted', 'payment_pending_confirmation', 'payment_confirmed'].includes(String(requestRow.status || ''))) {
-    throw new AppError('SERVICE_PROVIDER_SUBSCRIPTION_REQUEST_NOT_READY', {
-      status: 400,
-    });
-  }
-
-  const phone = String(requestRow.phone || '').trim();
-  const existingUser = await findUserByPhone(phone);
-  let user = existingUser || null;
-  if (existingUser && String(existingUser.role || '').toLowerCase() !== 'service_provider') {
-    throw new AppError('PHONE_EXISTS', { status: 409 });
-  }
-
-  if (!user) {
-    user = await runWithGeneratedAppUserUsername({
-      fullName: requestRow.full_name,
-      phone,
-      async execute(username) {
-        return createUser({
-          fullName: requestRow.full_name,
-          username,
-          phone,
-          pinHash: requestRow.pin_hash,
-          block: 'A1',
-          buildingNumber: 'A101',
-          apartment: '101',
-          imageUrl: requestRow.logo_url || null,
-          role: 'service_provider',
-          analyticsConsentGranted: true,
-          analyticsConsentVersion: 'analytics_v1',
-          analyticsConsentGrantedAt: new Date().toISOString(),
-        });
-      },
-    });
-  }
-
-  const existingProfile = await repo.getProviderProfileByUserId(user.id);
-  if (!existingProfile) {
-    await repo.createProviderProfile({
-      userId: user.id,
-      dto: buildProviderProfileDtoFromSubscriptionRow(requestRow),
-      assets: {
-        logoUrl: requestRow.logo_url || null,
-        coverImageUrl: requestRow.cover_image_url || null,
-      },
-      moderation: {
-        approvalStatus: 'approved',
-        approvalNote: dto.note || 'Cash subscription confirmed by admin',
-        approvedByUserId: adminUserId,
-        approvedAt: new Date().toISOString(),
-      },
-    });
-  }
-
-  const request = await repo.markProviderSubscriptionAccountCreated({
-    requestId,
-    adminUserId,
-    accountCreatedUserId: Number(user.id),
-    note: dto.note || null,
+  throw new AppError('SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED', {
+    status: 410,
   });
-  if (!request) {
-    throw new AppError('SERVICE_PROVIDER_SUBSCRIPTION_REQUEST_NOT_FOUND', {
-      status: 404,
-    });
-  }
-
-  await createNotification({
-    userId: Number(user.id),
-    type: 'services.provider.subscription.account_created',
-    title: 'تم تفعيل حسابك كمقدم خدمة',
-    body: 'تم تأكيد الاستلام النقدي ويمكنك الآن تسجيل الدخول وإدارة خدماتك.',
-    payload: {
-      target: 'login',
-      targetModule: 'customer',
-      requiresAction: false,
-    },
-  }).catch(() => {});
-
-  return {
-    ...mapProviderSubscriptionProgress(request),
-    user: mapUserForResponse(user),
-  };
 }
 
 export async function listPublicCategories({ q = '' } = {}) {
@@ -787,6 +680,7 @@ export async function getPublicOffering(offeringId, viewerUserId = null) {
 
 export async function getProviderWorkspace({ userId, userRole }) {
   const access = await resolveProviderAccess({ userId, userRole });
+  assertProviderApproved(access.provider);
   const workspace = await repo.listProviderWorkspace(userId);
   if (!workspace) {
     throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });

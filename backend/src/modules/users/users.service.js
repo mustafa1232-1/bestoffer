@@ -1,4 +1,5 @@
 import { AppError } from "../../shared/utils/errors.js";
+import { hashPin } from "../../shared/utils/hash.js";
 import * as feedService from "../feed/feed.service.js";
 import * as repo from "./users.repo.js";
 
@@ -57,19 +58,36 @@ export async function updateMyProfile(userId, dto) {
   return withLegacyUserAlias(profile);
 }
 
-export async function deleteMyAccount(userId, { note = null } = {}) {
+export async function deleteMyAccount(
+  userId,
+  { note = null } = {},
+  { authSessionId = null } = {}
+) {
+  if (!Number.isInteger(Number(authSessionId)) || Number(authSessionId) <= 0) {
+    throw new AppError("RECENT_AUTH_REQUIRED", { status: 401 });
+  }
   const me = await repo.findMyAccountMeta(Number(userId));
   if (!me) throw new AppError("USER_NOT_FOUND", { status: 404 });
   if (me.is_super_admin === true) {
     throw new AppError("SUPER_ADMIN_SELF_DISABLE_NOT_ALLOWED", { status: 403 });
   }
 
-  await repo.disableMyAccount({
+  const result = await repo.deleteMyAccountData({
     userId: Number(userId),
-    note: note || "حساب معطل بطلب المستخدم",
+    note: note || "Account permanently deleted by user request",
+    anonymizedPinHash: await hashPin(
+      `deleted:${Number(userId)}:${Date.now()}:${Math.random()}`
+    ),
   });
-  await repo.revokeAllMySessions(Number(userId), "account_self_disabled");
-  return { success: true };
+  if (!result) throw new AppError("USER_NOT_FOUND", { status: 404 });
+
+  await repo.revokeAllMySessions(Number(userId), "account_deleted");
+  return {
+    success: true,
+    status: result.alreadyDeleted ? "already_deleted" : "deleted",
+    sessionsRevoked: Number(result.sessionsRevoked || 0),
+    pushTokensInvalidated: Number(result.pushTokensInvalidated || 0),
+  };
 }
 
 export async function getMySessions(userId, currentSessionId = null) {

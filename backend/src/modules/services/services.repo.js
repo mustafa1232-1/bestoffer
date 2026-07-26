@@ -5185,10 +5185,10 @@ export async function adminUpdateProviderStatus({
   const r = await q(
     `UPDATE service_provider_profiles
      SET
-       provider_approval_status = $2,
+       provider_approval_status = $2::varchar,
        approval_note = $3,
        approved_by_user_id = $4,
-       approved_at = CASE WHEN $2 = 'approved' THEN NOW() ELSE approved_at END,
+       approved_at = CASE WHEN $2::text = 'approved' THEN NOW() ELSE approved_at END,
        updated_at = NOW()
      WHERE id = $1
      RETURNING id`,

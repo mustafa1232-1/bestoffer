@@ -41,6 +41,7 @@
     "verify:release:local": "npm test && npm run flow:check",
     "realtime:runtime:check": "node src/scripts/realtimeRuntimeCheck.js",
     "verify:release:runtime": "node src/scripts/verifyReleaseRuntime.js",
+    "verify:review-accounts": "node src/scripts/validateProductionReviewAccounts.js",
     "guard:text": "node src/scripts/textEncodingGuard.js",
     "verify:backend": "npm run security:check && npm run flow:check && npm run e2e:order:check && npm run e2e:taxi:check && npm run e2e:community:check && npm run e2e:services:check && npm run e2e:jobs:check && npm run e2e:real-estate:check && npm run e2e:cars:check && npm run e2e:pharmacy:check",
     "load:fixtures:seed": "node src/scripts/seedLoadFixtures.js",

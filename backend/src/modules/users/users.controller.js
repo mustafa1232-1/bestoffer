@@ -43,7 +43,9 @@ export async function deleteMyAccount(req, res, next) {
   try {
     const validation = validateDeleteMyAccount(req.body || {});
     if (!validation.ok) return badRequest(res, validation.errors);
-    const out = await service.deleteMyAccount(req.userId, validation.value);
+    const out = await service.deleteMyAccount(req.userId, validation.value, {
+      authSessionId: req.authSessionId || null,
+    });
     return res.json(out);
   } catch (error) {
     return next(error);
