@@ -119,6 +119,48 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> monitoringOrders({
+    String? status,
+    String? search,
+    String? from,
+    String? to,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/orders',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+        if ((from ?? '').trim().isNotEmpty) 'from': from!.trim(),
+        if ((to ?? '').trim().isNotEmpty) 'to': to!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringDeliveryCouriers({
+    String? status,
+    String? search,
+    String? region,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/delivery/couriers',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+        if ((region ?? '').trim().isNotEmpty) 'region': region!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   /// الصلاحيات الفعّالة للموظف الحالي (لبناء القائمة). الفرض دائماً في الخادم.
   Future<Map<String, dynamic>> myPermissions() async {
     final response = await dio.get('/api/admin/me/permissions');

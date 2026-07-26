@@ -9,6 +9,7 @@
 import * as taxiService from "../taxi/taxi.service.js";
 import * as monitoringRepo from "./monitoring.repo.js";
 import { resolveEffectivePermissions } from "../security/permissions.service.js";
+import { recordAudit, auditContextFromReq } from "../security/audit.service.js";
 
 const CARD_DEFS = [
   {
@@ -24,8 +25,16 @@ const CARD_DEFS = [
     title: "متابعة الطلبات",
     permission: "orders.read",
     wired: true,
-    detailPath: null,
+    detailPath: "/admin/monitoring/orders",
     counters: () => monitoringRepo.getOrderMonitoringCounters(),
+  },
+  {
+    key: "delivery",
+    title: "متابعة الدلفري",
+    permission: "orders.read",
+    wired: true,
+    detailPath: "/admin/monitoring/delivery/couriers",
+    counters: () => monitoringRepo.getDeliveryMonitoringCounters(),
   },
   { key: "services", title: "متابعة الخدمات", permission: "services.read", wired: false },
   { key: "real_estate", title: "متابعة العقارات", permission: "real_estate.read", wired: false },
@@ -116,6 +125,103 @@ export async function taxiRides(req, res, next) {
       to: to ? to.toISOString() : null,
       limit,
       offset,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+function readListQuery(req) {
+  const status =
+    typeof req.query?.status === "string" && req.query.status.trim()
+      ? req.query.status.trim()
+      : null;
+  const search =
+    typeof req.query?.search === "string" && req.query.search.trim()
+      ? req.query.search.trim()
+      : "";
+  const region =
+    typeof req.query?.region === "string" && req.query.region.trim()
+      ? req.query.region.trim()
+      : null;
+  const sort =
+    typeof req.query?.sort === "string" && req.query.sort.trim()
+      ? req.query.sort.trim()
+      : undefined;
+  const from = req.query?.from ? new Date(req.query.from) : null;
+  const to = req.query?.to ? new Date(req.query.to) : null;
+  const limit = req.query?.limit ? Number(req.query.limit) : 25;
+  const offset = req.query?.offset ? Number(req.query.offset) : 0;
+  const merchantId = req.query?.merchantId ? Number(req.query.merchantId) : null;
+  const userId = req.query?.userId ? Number(req.query.userId) : null;
+  const deliveryUserId = req.query?.deliveryUserId
+    ? Number(req.query.deliveryUserId)
+    : null;
+
+  return {
+    status,
+    search,
+    region,
+    sort,
+    from,
+    to,
+    limit,
+    offset,
+    merchantId,
+    userId,
+    deliveryUserId,
+  };
+}
+
+function validateListDates(query, res) {
+  if (query.from && Number.isNaN(query.from.getTime())) {
+    res.status(400).json({ message: "VALIDATION_ERROR", fields: ["from"] });
+    return false;
+  }
+  if (query.to && Number.isNaN(query.to.getTime())) {
+    res.status(400).json({ message: "VALIDATION_ERROR", fields: ["to"] });
+    return false;
+  }
+  return true;
+}
+
+export async function orders(req, res, next) {
+  try {
+    const query = readListQuery(req);
+    if (!validateListDates(query, res)) return;
+    const out = await monitoringRepo.listOrdersForMonitoring({
+      ...query,
+      from: query.from ? query.from.toISOString() : null,
+      to: query.to ? query.to.toISOString() : null,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function deliveryCouriers(req, res, next) {
+  try {
+    const query = readListQuery(req);
+    if (!validateListDates(query, res)) return;
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "monitoring.delivery.couriers.read",
+      summary: "عرض متابعة الدلفري",
+      targetType: "courier_profile",
+      metadata: {
+        status: query.status,
+        region: query.region,
+        limit: query.limit,
+        offset: query.offset,
+      },
+      permissionKey: "orders.read",
+    });
+    const out = await monitoringRepo.listCouriersForMonitoring({
+      ...query,
+      from: query.from ? query.from.toISOString() : null,
+      to: query.to ? query.to.toISOString() : null,
     });
     return res.json(out);
   } catch (error) {

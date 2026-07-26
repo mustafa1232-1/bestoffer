@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/locale_text.dart';
 import '../state/admin_controller.dart';
+import 'monitoring_operations_list_screen.dart';
 import 'monitoring_taxi_rides_screen.dart';
 
 /// لوحة المتابعة الموحدة (المرحلة 3). تعرض البطاقات التشغيلية حسب صلاحيات
@@ -11,8 +12,8 @@ import 'monitoring_taxi_rides_screen.dart';
 /// الصفحة عرض فقط.
 final commandCenterOverviewProvider =
     FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-  return ref.read(adminApiProvider).monitoringOverview();
-});
+      return ref.read(adminApiProvider).monitoringOverview();
+    });
 
 class CommandCenterScreen extends ConsumerWidget {
   const CommandCenterScreen({super.key});
@@ -52,7 +53,8 @@ class CommandCenterScreen extends ConsumerWidget {
             );
           }
           return RefreshIndicator(
-            onRefresh: () async => ref.invalidate(commandCenterOverviewProvider),
+            onRefresh: () async =>
+                ref.invalidate(commandCenterOverviewProvider),
             child: ListView(
               padding: const EdgeInsets.all(MaslakiSpacing.md),
               children: [
@@ -84,8 +86,9 @@ class _MonitoringCard extends StatelessWidget {
     final counters = card['counters'] is Map
         ? Map<String, dynamic>.from(card['counters'] as Map)
         : null;
+    final key = '${card['key'] ?? ''}';
     final detailPath = card['detailPath'];
-    final isTaxi = card['key'] == 'taxi';
+    final detailsPage = _detailsPageForKey(key);
 
     return MaslakiCard(
       child: Column(
@@ -99,14 +102,12 @@ class _MonitoringCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
-              if (isTaxi && detailPath != null)
+              if (detailsPage != null && detailPath != null)
                 TextButton.icon(
                   onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const MonitoringTaxiRidesScreen(),
-                      ),
-                    );
+                    Navigator.of(
+                      context,
+                    ).push(MaterialPageRoute(builder: (_) => detailsPage));
                   },
                   icon: const Icon(Icons.open_in_new_rounded, size: 18),
                   label: Text(context.lt(ar: 'التفاصيل', en: 'Details')),
@@ -139,7 +140,8 @@ class _MonitoringCard extends StatelessWidget {
                   _CounterChip(
                     label: _counterLabel(context, entry.key),
                     value: '${entry.value}',
-                    highlight: _isAlertCounter(entry.key) &&
+                    highlight:
+                        _isAlertCounter(entry.key) &&
                         (int.tryParse('${entry.value}') ?? 0) > 0,
                   ),
               ],
@@ -152,6 +154,23 @@ class _MonitoringCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget? _detailsPageForKey(String key) {
+    switch (key) {
+      case 'taxi':
+        return const MonitoringTaxiRidesScreen();
+      case 'orders':
+        return const MonitoringOperationsListScreen(
+          mode: MonitoringOperationsMode.orders,
+        );
+      case 'delivery':
+        return const MonitoringOperationsListScreen(
+          mode: MonitoringOperationsMode.delivery,
+        );
+      default:
+        return null;
+    }
   }
 
   bool _isAlertCounter(String key) {
@@ -202,7 +221,9 @@ class _CounterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final bg = highlight ? scheme.errorContainer : scheme.surfaceContainerHighest;
+    final bg = highlight
+        ? scheme.errorContainer
+        : scheme.surfaceContainerHighest;
     final fg = highlight ? scheme.onErrorContainer : scheme.onSurface;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -216,10 +237,10 @@ class _CounterChip extends StatelessWidget {
         children: [
           Text(
             value,
-            style: Theme.of(context)
-                .textTheme
-                .titleLarge
-                ?.copyWith(color: fg, fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: fg,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           Text(
             label,

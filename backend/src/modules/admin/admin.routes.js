@@ -98,6 +98,16 @@ adminRouter.get(
   requirePermission("taxi.rides.read"),
   monitoring.taxiRides
 );
+adminRouter.get(
+  "/monitoring/orders",
+  requirePermission("orders.read"),
+  monitoring.orders
+);
+adminRouter.get(
+  "/monitoring/delivery/couriers",
+  requirePermission("orders.read"),
+  monitoring.deliveryCouriers
+);
 
 // إعدادات الدعم المركزية (المرحلة 8).
 adminRouter.get(
