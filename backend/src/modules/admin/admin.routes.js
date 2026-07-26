@@ -13,6 +13,7 @@ import * as auditCtrl from "../security/audit.controller.js";
 import * as monitoring from "./monitoring.controller.js";
 import * as settings from "../settings/settings.controller.js";
 import * as support from "../support/support.controller.js";
+import * as employees from "../employees/employees.controller.js";
 import * as orderRevisions from "../orders/order-revisions.controller.js";
 
 export const adminRouter = Router();
@@ -301,6 +302,38 @@ adminRouter.post(
   requirePermission("orders.read"),
   requirePermission("orders.revisions.apply"),
   orderRevisions.adminApplyRevision
+);
+
+// إدارة موظفي الشركة (المرحلة 6).
+adminRouter.get(
+  "/employees",
+  requirePermission("employees.read"),
+  employees.listEmployees
+);
+adminRouter.get(
+  "/employees/:userId",
+  requirePermission("employees.read"),
+  employees.getEmployee
+);
+adminRouter.post(
+  "/employees",
+  requirePermission("employees.create"),
+  employees.saveEmployee
+);
+adminRouter.put(
+  "/employees/:userId",
+  requirePermission("employees.update"),
+  employees.saveEmployee
+);
+adminRouter.get(
+  "/employees/:userId/salary",
+  requirePermission("employees.salary.read"),
+  employees.getSalary
+);
+adminRouter.put(
+  "/employees/:userId/salary",
+  requirePermission("employees.salary.update"),
+  employees.updateSalary
 );
 
 // إدارة الصلاحيات الدقيقة (RBAC).

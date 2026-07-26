@@ -487,6 +487,7 @@ export async function listSuggestedPeopleCandidates({ viewerUserId, limit = 36 }
       AND rel.user_b_id = GREATEST($1::bigint, u.id)
      WHERE u.id <> $1
        AND COALESCE(u.is_account_disabled, FALSE) = FALSE
+       AND COALESCE(u.is_internal_staff, FALSE) = FALSE
        AND COALESCE(rel.status, '') NOT IN ('accepted', 'blocked')
      ORDER BY
        CASE WHEN u.building_number = v.building_number AND u.block = v.block THEN 0 ELSE 1 END ASC,

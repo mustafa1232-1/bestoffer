@@ -2736,6 +2736,7 @@ export async function listUsersForSearch({ viewerUserId, search = "", limit = 60
       AND rel.user_b_id = GREATEST($1::bigint, u.id)
      WHERE u.id <> $1
        AND COALESCE(u.is_account_disabled, FALSE) = FALSE
+       AND COALESCE(u.is_internal_staff, FALSE) = FALSE
        AND (
          $2::text = ''
          OR LOWER(COALESCE(u.username, '')) LIKE LOWER('%' || $2 || '%')
@@ -2811,6 +2812,7 @@ export async function listUsersForCommunityScopeSearch({
       AND rm.user_id = u.id
      WHERE (${scopeExpr}) = $1::text
        AND COALESCE(u.is_account_disabled, FALSE) = FALSE
+       AND COALESCE(u.is_internal_staff, FALSE) = FALSE
        AND (
          $2::text = ''
          OR u.full_name ILIKE ('%' || $2 || '%')

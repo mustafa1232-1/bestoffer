@@ -74,7 +74,10 @@
 **الناقص:** نظام تذاكر موحّد polymorphic (`entityType/entityId`)، حالات SLA، تصعيد، محادثة دعم، فصل الملاحظة الداخلية عن رسالة المستخدم، Order Revision/Amendment.
 
 ### المرحلة 5 — تقييم الموظفين 🔴 (يعتمد على 4 و6).
-### المرحلة 6 — إدارة الموظفين 🟡
+### المرحلة 6 — إدارة الموظفين ✅ (موظفو الشركة + عزل المجتمع)
+**ما نُفِّذ (commit مستقل):** وحدة `employees` لموظفي مسلكي (منفصلة عن HR المتاجر `merchant_*`): `company_employee_profile` + تصنيفات الأقسام (delivery/customer_service/hr/monitoring/accounting/marketing/management/tech) + `company_salary_contract` بتاريخ سريان (لا يُستبدل القديم) — migration 178. **عزل هوية الموظف عن المجتمع في Backend**: `app_user.is_internal_staff` + فلترة في استعلامات اكتشاف/بحث المجتمع (`feed.discovery.repo`, `feed.repo`). endpoints `/admin/employees*` خلف `employees.read/create/update` وراتب خلف `employees.salary.read/update` مع تدقيق. اختبارات (3/3 — منها إثبات إخفاء الموظف من بحث المجتمع). **المتبقي:** ملف موظف موحّد أعمق (يجمع التذاكر/الحضور/الأداء) يتكامل مع 5 و7.
+
+### المرحلة 6-قديم (مرجع) 🟡
 **الموجود:** وحدة `hr` كاملة (controller/repo/service/routes/validators)، migration `036_hr_leave_and_salary_actions.sql`.
 **الناقص:** تصنيفات وظائف، فصل هوية الموظف الإدارية عن الاجتماعية (`isInternalStaff` + إخفاء backend)، ملف موظف موحّد.
 
