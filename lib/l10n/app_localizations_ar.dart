@@ -12892,7 +12892,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get authLoginFailedGeneric =>
-      'تعذر تسجيل الدخول. تحقق من رقم الهاتف والرمز السري.';
+      'تعذر تسجيل الدخول. تحقق من رقم الهاتف والرمز وحاول مرة أخرى.';
 
   @override
   String get authLogoutOtherDevicesFailed =>
@@ -14813,21 +14813,31 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settingsPrivacyPolicyHint => 'كيف نجمع بياناتك ونستخدمها ونحميها';
 
   @override
-  String get settingsDeleteAccount => 'حذف حسابي';
+  String get settingsDeleteAccount => 'حذف الحساب نهائياً';
 
   @override
   String get settingsDeleteAccountHint =>
-      'حذف حسابك وبياناتك المرتبطة نهائيًا.';
+      'سيؤدي حذف الحساب إلى إلغاء إمكانية الوصول وإزالة بياناتك الشخصية التي لا يلزم الاحتفاظ بها قانونياً. لا يمكن التراجع عن هذه العملية بعد اكتمالها.';
 
   @override
-  String get settingsDeleteAccountConfirmTitle => 'حذف الحساب؟';
+  String get settingsDeleteAccountConfirmTitle => 'حذف الحساب نهائياً';
 
   @override
   String get settingsDeleteAccountConfirmBody =>
-      'سيتم حذف حسابك وبياناتك المرتبطة نهائيًا، ولا يمكن التراجع عن هذا الإجراء.';
+      'سيؤدي حذف الحساب إلى إلغاء إمكانية الوصول وإزالة بياناتك الشخصية التي لا يلزم الاحتفاظ بها قانونياً. لا يمكن التراجع عن هذه العملية بعد اكتمالها.';
 
   @override
-  String get settingsDeleteAccountConfirmAction => 'حذف';
+  String get settingsDeleteAccountConfirmAction => 'متابعة';
+
+  @override
+  String get settingsDeleteAccountFinalConfirmTitle => 'تأكيد نهائي';
+
+  @override
+  String get settingsDeleteAccountFinalConfirmBody =>
+      'هذه العملية دائمة. سيتم إلغاء جلساتك وإزالة ملفك العام.';
+
+  @override
+  String get settingsDeleteAccountFinalConfirmAction => 'أفهم ذلك، احذف حسابي';
 
   @override
   String get settingsDeleteAccountFailed => 'تعذّر حذف الحساب. حاول مجددًا.';

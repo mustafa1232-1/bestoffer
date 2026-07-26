@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../../../core/files/local_image_file.dart';
@@ -438,7 +440,8 @@ class AdminApi {
       queryParameters: {
         'limit': limit,
         'offset': offset,
-        if ((department ?? '').trim().isNotEmpty) 'department': department!.trim(),
+        if ((department ?? '').trim().isNotEmpty)
+          'department': department!.trim(),
         if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
         if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
       },
@@ -452,7 +455,9 @@ class AdminApi {
   }
 
   /// بحث عن مستخدمين لإضافتهم كموظفين (بالاسم/الهاتف).
-  Future<List<Map<String, dynamic>>> lookupUsersForEmployee(String query) async {
+  Future<List<Map<String, dynamic>>> lookupUsersForEmployee(
+    String query,
+  ) async {
     final response = await dio.get(
       '/api/admin/employees/lookup-users',
       queryParameters: {'q': query},
@@ -501,7 +506,10 @@ class AdminApi {
 
   // ---------- الحضور والمصاريف ----------
 
-  Future<Map<String, dynamic>> listAttendance({int? userId, int limit = 50}) async {
+  Future<Map<String, dynamic>> listAttendance({
+    int? userId,
+    int limit = 50,
+  }) async {
     final response = await dio.get(
       '/api/admin/attendance',
       queryParameters: {
@@ -512,7 +520,10 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> listExpenses({String? status, int limit = 100}) async {
+  Future<Map<String, dynamic>> listExpenses({
+    String? status,
+    int limit = 100,
+  }) async {
     final response = await dio.get(
       '/api/admin/expenses',
       queryParameters: {
@@ -523,7 +534,10 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> reviewExpense(int expenseId, String status) async {
+  Future<Map<String, dynamic>> reviewExpense(
+    int expenseId,
+    String status,
+  ) async {
     final response = await dio.post(
       '/api/admin/expenses/$expenseId/review',
       data: {'status': status},
@@ -566,7 +580,10 @@ class AdminApi {
   }
 
   /// action: submit | approve | release | acknowledge | archive
-  Future<Map<String, dynamic>> payrollRunAction(int runId, String action) async {
+  Future<Map<String, dynamic>> payrollRunAction(
+    int runId,
+    String action,
+  ) async {
     final response = await dio.post('/api/admin/payroll/runs/$runId/$action');
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -1768,6 +1785,52 @@ class AdminApi {
             'imageFile': await imageFile.toMultipartFile(),
           });
     final response = await dio.post('/api/admin/users', data: data);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> createStoreAccount(
+    Map<String, dynamic> body, {
+    LocalImageFile? merchantImageFile,
+  }) async {
+    final data = merchantImageFile == null
+        ? body
+        : FormData.fromMap({
+            ...body,
+            if (body['financialTerms'] is Map)
+              'financialTerms': jsonEncode(body['financialTerms']),
+            if (body['merchantServiceFlags'] is Map)
+              'merchantServiceFlags': jsonEncode(body['merchantServiceFlags']),
+            if (body['merchantBadges'] is List)
+              'merchantBadges': jsonEncode(body['merchantBadges']),
+            if (body['merchantDiscoverySubcategories'] is List)
+              'merchantDiscoverySubcategories': jsonEncode(
+                body['merchantDiscoverySubcategories'],
+              ),
+            'merchantImageFile': await merchantImageFile.toMultipartFile(),
+          });
+    final response = await dio.post('/api/admin/accounts/store', data: data);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> createTaxiCaptainAccount(
+    Map<String, dynamic> body, {
+    LocalImageFile? profileImageFile,
+    LocalImageFile? carImageFile,
+  }) async {
+    final hasFile = profileImageFile != null || carImageFile != null;
+    final data = hasFile
+        ? FormData.fromMap({
+            ...body,
+            if (profileImageFile != null)
+              'profileImageFile': await profileImageFile.toMultipartFile(),
+            if (carImageFile != null)
+              'carImageFile': await carImageFile.toMultipartFile(),
+          })
+        : body;
+    final response = await dio.post(
+      '/api/admin/accounts/taxi-captain',
+      data: data,
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 

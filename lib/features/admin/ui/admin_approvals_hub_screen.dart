@@ -10,7 +10,7 @@ import 'admin_merchant_approvals_screen.dart';
 import 'admin_receivables_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_services_hub_screen.dart';
-import 'admin_service_provider_subscription_requests_screen.dart';
+import 'admin_service_provider_applications_screen.dart';
 import 'admin_taxi_captain_requests_screen.dart';
 import 'admin_taxi_cash_payments_screen.dart';
 
@@ -87,7 +87,7 @@ class AdminApprovalsHubScreen extends ConsumerWidget {
                 await Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) =>
-                        const AdminServiceProviderSubscriptionRequestsScreen(),
+                        const AdminServiceProviderApplicationsScreen(),
                   ),
                 );
               },
@@ -179,9 +179,9 @@ class AdminApprovalsHubScreen extends ConsumerWidget {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const AdminTaxiCashPaymentsScreen(),
-                ),
-              );
-            },
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 12),
             _ApprovalHubTile(
@@ -202,12 +202,12 @@ class AdminApprovalsHubScreen extends ConsumerWidget {
               icon: Icons.home_repair_service_outlined,
               title: 'اشتراكات أصحاب الخدمة',
               subtitle: 'تسعير الاشتراك، الموافقة، وتأكيد الاستلام النقدي',
-              count: state.pendingServiceProviderSubscriptionRequests.length,
+              count: state.pendingServiceProviderApplications.length,
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) =>
-                        const AdminServiceProviderSubscriptionRequestsScreen(),
+                        const AdminServiceProviderApplicationsScreen(),
                   ),
                 );
               },

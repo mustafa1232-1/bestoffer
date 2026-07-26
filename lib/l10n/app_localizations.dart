@@ -4629,13 +4629,13 @@ abstract class AppLocalizations {
   /// No description provided for @authLogin.
   ///
   /// In en, this message translates to:
-  /// **'Login'**
+  /// **'Sign In'**
   String get authLogin;
 
   /// No description provided for @authCreateUserAccount.
   ///
   /// In en, this message translates to:
-  /// **'Create user account'**
+  /// **'Create customer account'**
   String get authCreateUserAccount;
 
   /// No description provided for @authCreateOwnerAccount.
@@ -23688,7 +23688,7 @@ abstract class AppLocalizations {
   /// No description provided for @authLoginFailedGeneric.
   ///
   /// In en, this message translates to:
-  /// **'Unable to sign in. Check your phone number and PIN.'**
+  /// **'Unable to sign in. Check your phone number and PIN, then try again.'**
   String get authLoginFailedGeneric;
 
   /// No description provided for @authLogoutOtherDevicesFailed.
@@ -27222,32 +27222,50 @@ abstract class AppLocalizations {
   /// No description provided for @settingsDeleteAccount.
   ///
   /// In en, this message translates to:
-  /// **'Delete my account'**
+  /// **'Delete Account Permanently'**
   String get settingsDeleteAccount;
 
   /// No description provided for @settingsDeleteAccountHint.
   ///
   /// In en, this message translates to:
-  /// **'Permanently delete your account and associated data.'**
+  /// **'Deleting your account will revoke access and remove personal data that we are not legally required to retain. This action cannot be reversed after completion.'**
   String get settingsDeleteAccountHint;
 
   /// No description provided for @settingsDeleteAccountConfirmTitle.
   ///
   /// In en, this message translates to:
-  /// **'Delete account?'**
+  /// **'Delete Account Permanently'**
   String get settingsDeleteAccountConfirmTitle;
 
   /// No description provided for @settingsDeleteAccountConfirmBody.
   ///
   /// In en, this message translates to:
-  /// **'This permanently deletes your account and associated data. This action cannot be undone.'**
+  /// **'Deleting your account will revoke access and remove personal data that we are not legally required to retain. This action cannot be reversed after completion.'**
   String get settingsDeleteAccountConfirmBody;
 
   /// No description provided for @settingsDeleteAccountConfirmAction.
   ///
   /// In en, this message translates to:
-  /// **'Delete'**
+  /// **'Continue'**
   String get settingsDeleteAccountConfirmAction;
+
+  /// No description provided for @settingsDeleteAccountFinalConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Final confirmation'**
+  String get settingsDeleteAccountFinalConfirmTitle;
+
+  /// No description provided for @settingsDeleteAccountFinalConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This is permanent. Your sessions will be revoked and your public profile will be removed.'**
+  String get settingsDeleteAccountFinalConfirmBody;
+
+  /// No description provided for @settingsDeleteAccountFinalConfirmAction.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand, delete my account'**
+  String get settingsDeleteAccountFinalConfirmAction;
 
   /// No description provided for @settingsDeleteAccountFailed.
   ///

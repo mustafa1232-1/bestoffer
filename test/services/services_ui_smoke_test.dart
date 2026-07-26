@@ -190,7 +190,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('اشتراك صاحب خدمة'), findsOneWidget);
+      expect(find.text('التسجيل كمقدم خدمة'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

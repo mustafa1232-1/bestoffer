@@ -500,12 +500,12 @@ class CustomerAccountHubScreen extends ConsumerWidget {
                   if (!auth.isServiceProvider) ...[
                     MaslakiListRowCard(
                       title: context.lt(
-                        ar: 'اشتراك صاحب خدمة',
-                        en: 'Service provider subscription',
+                        ar: 'تسجيل مقدم خدمة',
+                        en: 'Service provider registration',
                       ),
                       subtitle: context.lt(
-                        ar: 'فعّل نشاطك الخدمي وابدأ استقبال الطلبات',
-                        en: 'Activate your service activity and start receiving requests',
+                        ar: 'التسجيل والتفعيل مجانيان. أرسل طلبك للمراجعة وابدأ بعد الموافقة.',
+                        en: 'Registration and activation are free. Submit for review and start after approval.',
                       ),
                       leadingIcon: Icons.storefront_outlined,
                       onTap: () =>

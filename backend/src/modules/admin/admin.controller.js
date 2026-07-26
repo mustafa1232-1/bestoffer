@@ -30,6 +30,26 @@ import {
 } from "../commerce/commerce.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 
+function parseOptionalJson(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return undefined;
+  try {
+    return JSON.parse(value);
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function parseOptionalBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  const lowered = value.trim().toLowerCase();
+  if (lowered === "true") return true;
+  if (lowered === "false") return false;
+  return undefined;
+}
+
 export async function createUser(req, res, next) {
   try {
     const body = {
@@ -39,7 +59,9 @@ export async function createUser(req, res, next) {
 
     const v = validateAdminCreateUser(body);
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
     const user = await service.createManagedUser(body, {
@@ -56,8 +78,40 @@ export async function createUser(req, res, next) {
 // إنشاء حساب متجر كامل من قبل الإدمن (اعتماد تلقائي + شروط مالية inline).
 export async function createStoreAccount(req, res, next) {
   try {
+    const financialTerms = parseOptionalJson(req.body?.financialTerms);
+    const serviceFlags = parseOptionalJson(req.body?.merchantServiceFlags);
+    const badges = parseOptionalJson(req.body?.merchantBadges);
+    const discoverySubcategories = parseOptionalJson(
+      req.body?.merchantDiscoverySubcategories,
+    );
     const body = {
       ...req.body,
+      financialTerms:
+        financialTerms && typeof financialTerms === "object"
+          ? financialTerms
+          : req.body?.financialTerms,
+      merchantServiceFlags:
+        serviceFlags &&
+        typeof serviceFlags === "object" &&
+        !Array.isArray(serviceFlags)
+          ? serviceFlags
+          : req.body?.merchantServiceFlags,
+      merchantBadges: Array.isArray(badges) ? badges : req.body?.merchantBadges,
+      merchantDiscoverySubcategories: Array.isArray(discoverySubcategories)
+        ? discoverySubcategories
+        : req.body?.merchantDiscoverySubcategories,
+      merchantDiscoverySelectAll: parseOptionalBoolean(
+        req.body?.merchantDiscoverySelectAll,
+      ),
+      merchantSupportsChat: parseOptionalBoolean(
+        req.body?.merchantSupportsChat,
+      ),
+      merchantSupportsAttachments: parseOptionalBoolean(
+        req.body?.merchantSupportsAttachments,
+      ),
+      merchantSupportsPharmacyWorkflow: parseOptionalBoolean(
+        req.body?.merchantSupportsPharmacyWorkflow,
+      ),
       merchantImageUrl:
         buildUploadedFileUrl(req, req.file) || req.body?.merchantImageUrl,
     };
@@ -71,7 +125,7 @@ export async function createStoreAccount(req, res, next) {
 
     // تُطبَّق قيم افتراضية معقولة للشروط المالية غير المُدخَلة.
     const terms = validateMerchantFinancialApprovalTerms(
-      req.body?.financialTerms || {}
+      body.financialTerms || {},
     );
     if (!terms.ok) {
       return res
@@ -85,7 +139,7 @@ export async function createStoreAccount(req, res, next) {
         id: req.userId,
         role: req.userRole,
         isSuperAdmin: req.userIsSuperAdmin === true,
-      }
+      },
     );
     res.status(201).json(out);
   } catch (e) {
@@ -174,7 +228,9 @@ export async function customerInsightsList(req, res, next) {
 
 export async function customerInsightDetails(req, res, next) {
   try {
-    const out = await service.getCustomerInsightDetails(req.params.customerUserId);
+    const out = await service.getCustomerInsightDetails(
+      req.params.customerUserId,
+    );
     res.json(out);
   } catch (e) {
     next(e);
@@ -203,7 +259,7 @@ export async function adminMerchantOrdersOverview(req, res, next) {
   try {
     const out = await service.getAdminMerchantOrdersOverview(
       req.params.merchantId,
-      req.query || {}
+      req.query || {},
     );
     res.json(out);
   } catch (e) {
@@ -233,7 +289,9 @@ export async function updateMerchantProfile(req, res, next) {
   try {
     const v = validateAdminMerchantProfilePatch(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.updateManagedMerchantProfile(
       req.params.merchantId,
@@ -241,7 +299,7 @@ export async function updateMerchantProfile(req, res, next) {
       {
         userId: req.userId,
         userRole: req.userRole,
-      }
+      },
     );
     res.json(out);
   } catch (e) {
@@ -266,7 +324,9 @@ export async function upsertStoreActivity(req, res, next) {
     };
     const v = validateStoreActivityUpsert(body, { requireCode: true });
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.upsertStoreActivityForAdmin(v.value, {
       userId: req.userId,
@@ -281,7 +341,7 @@ export async function upsertStoreActivity(req, res, next) {
 export async function storeCatalogTemplates(req, res, next) {
   try {
     const out = await service.listStoreCatalogTemplatesForAdmin(
-      req.params.activityType
+      req.params.activityType,
     );
     res.json(out);
   } catch (e) {
@@ -297,7 +357,9 @@ export async function upsertStoreCatalogTemplate(req, res, next) {
     };
     const v = validateStoreCatalogTemplateUpsert(body, { requireCode: true });
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.upsertStoreCatalogTemplateForAdmin(v.value, {
       userId: req.userId,
@@ -313,7 +375,9 @@ export async function updateStoreCatalogTemplate(req, res, next) {
   try {
     const v = validateStoreCatalogTemplatePatch(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.updateStoreCatalogTemplateForAdmin(
       req.params.templateId,
@@ -321,7 +385,7 @@ export async function updateStoreCatalogTemplate(req, res, next) {
       {
         userId: req.userId,
         userRole: req.userRole,
-      }
+      },
     );
     res.json(out);
   } catch (e) {
@@ -336,7 +400,7 @@ export async function deleteStoreCatalogTemplate(req, res, next) {
       {
         userId: req.userId,
         userRole: req.userRole,
-      }
+      },
     );
     res.json(out);
   } catch (e) {
@@ -348,12 +412,18 @@ export async function approveMerchant(req, res, next) {
   try {
     const v = validateMerchantFinancialApprovalTerms(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
-    await service.approveMerchant(req.params.merchantId, {
-      userId: req.userId,
-      userRole: req.userRole,
-    }, v.data);
+    await service.approveMerchant(
+      req.params.merchantId,
+      {
+        userId: req.userId,
+        userRole: req.userRole,
+      },
+      v.data,
+    );
     res.status(204).send();
   } catch (e) {
     next(e);
@@ -394,7 +464,7 @@ export async function approveDeliveryAccount(req, res, next) {
       {
         userId: req.userId,
         userRole: req.userRole,
-      }
+      },
     );
     res.json(out);
   } catch (e) {
@@ -409,7 +479,7 @@ export async function approveTaxiCaptainAccount(req, res, next) {
       {
         userId: req.userId,
         userRole: req.userRole,
-      }
+      },
     );
     res.json(out);
   } catch (e) {
@@ -421,7 +491,9 @@ export async function updateDeliveryDriverProfile(req, res, next) {
   try {
     const v = validateDeliveryDriverProfilePatch(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
     const out = await service.updateDeliveryDriverProfile({
@@ -443,7 +515,9 @@ export async function approveSettlement(req, res, next) {
   try {
     const v = validateApproveSettlement(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
     await service.approveSettlement(
@@ -452,7 +526,7 @@ export async function approveSettlement(req, res, next) {
         userId: req.userId,
         userRole: req.userRole,
       },
-      req.body?.adminNote
+      req.body?.adminNote,
     );
     res.status(204).send();
   } catch (e) {
@@ -464,7 +538,9 @@ export async function toggleMerchantDisabled(req, res, next) {
   try {
     const v = validateToggleMerchantDisabled(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
     const out = await service.toggleMerchantDisabled(
@@ -473,7 +549,7 @@ export async function toggleMerchantDisabled(req, res, next) {
       {
         userId: req.userId,
         userRole: req.userRole,
-      }
+      },
     );
     res.json(out);
   } catch (e) {
@@ -483,7 +559,9 @@ export async function toggleMerchantDisabled(req, res, next) {
 
 export async function pendingTaxiCaptainCashPayments(req, res, next) {
   try {
-    const out = await service.listPendingTaxiCaptainCashPayments(req.query || {});
+    const out = await service.listPendingTaxiCaptainCashPayments(
+      req.query || {},
+    );
     res.json(out);
   } catch (e) {
     next(e);
@@ -494,7 +572,9 @@ export async function confirmTaxiCaptainCashPayment(req, res, next) {
   try {
     const v = validateTaxiCaptainCashPaymentApprove(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
     const out = await service.confirmTaxiCaptainCashPayment({
@@ -515,7 +595,9 @@ export async function setTaxiCaptainDiscount(req, res, next) {
   try {
     const v = validateTaxiCaptainDiscount(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
     const out = await service.setTaxiCaptainDiscount({
@@ -534,7 +616,9 @@ export async function setTaxiCaptainDiscount(req, res, next) {
 
 export async function pendingTaxiCaptainProfileEditRequests(req, res, next) {
   try {
-    const out = await service.listPendingTaxiCaptainProfileEditRequests(req.query || {});
+    const out = await service.listPendingTaxiCaptainProfileEditRequests(
+      req.query || {},
+    );
     res.json(out);
   } catch (e) {
     next(e);
@@ -545,7 +629,9 @@ export async function approveTaxiCaptainProfileEditRequest(req, res, next) {
   try {
     const v = validateTaxiCaptainProfileEditReview(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
     const out = await service.approveTaxiCaptainProfileEditRequest({
@@ -566,7 +652,9 @@ export async function rejectTaxiCaptainProfileEditRequest(req, res, next) {
   try {
     const v = validateTaxiCaptainProfileEditReview(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
     const out = await service.rejectTaxiCaptainProfileEditRequest({
@@ -587,7 +675,9 @@ export async function socialPostReports(req, res, next) {
   try {
     const v = validateListSocialReportsQuery(req.query || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.listSocialPostReports(v.value);
     res.json(out);
@@ -600,7 +690,9 @@ export async function socialUserReports(req, res, next) {
   try {
     const v = validateListSocialReportsQuery(req.query || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.listSocialUserReports(v.value);
     res.json(out);
@@ -613,7 +705,9 @@ export async function socialStoryReports(req, res, next) {
   try {
     const v = validateListSocialStoryReportsQuery(req.query || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.listSocialStoryReports(v.value);
     res.json(out);
@@ -626,7 +720,9 @@ export async function reviewSocialPostReport(req, res, next) {
   try {
     const v = validatePostReportReview(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.reviewSocialPostReport({
       postId: req.params.postId,
@@ -647,7 +743,9 @@ export async function reviewSocialStoryReport(req, res, next) {
   try {
     const v = validatePostReportReview(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.reviewSocialStoryReport({
       storyId: req.params.storyId,
@@ -698,7 +796,9 @@ export async function residenceChangeRequests(req, res, next) {
   try {
     const v = validateListResidenceChangeRequestsQuery(req.query || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.listResidenceChangeRequests(v.value);
     res.json(out);
@@ -711,7 +811,9 @@ export async function profileCoreChangeRequests(req, res, next) {
   try {
     const v = validateListResidenceChangeRequestsQuery(req.query || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.listProfileCoreChangeRequests(v.value);
     res.json(out);
@@ -724,7 +826,9 @@ export async function approveResidenceChangeRequest(req, res, next) {
   try {
     const v = validateResidenceChangeReview(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.approveResidenceChangeRequest({
       requestId: req.params.requestId,
@@ -744,7 +848,9 @@ export async function rejectResidenceChangeRequest(req, res, next) {
   try {
     const v = validateResidenceChangeReview(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.rejectResidenceChangeRequest({
       requestId: req.params.requestId,
@@ -764,7 +870,9 @@ export async function approveProfileCoreChangeRequest(req, res, next) {
   try {
     const v = validateResidenceChangeReview(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.approveProfileCoreChangeRequest({
       requestId: req.params.requestId,
@@ -784,7 +892,9 @@ export async function rejectProfileCoreChangeRequest(req, res, next) {
   try {
     const v = validateResidenceChangeReview(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.rejectProfileCoreChangeRequest({
       requestId: req.params.requestId,
@@ -803,7 +913,7 @@ export async function rejectProfileCoreChangeRequest(req, res, next) {
 export async function socialRestrictionsForUser(req, res, next) {
   try {
     const out = await service.listSocialCapabilityRestrictionsForUser(
-      req.params.userId
+      req.params.userId,
     );
     res.json(out);
   } catch (e) {
@@ -815,7 +925,9 @@ export async function socialUsersForModeration(req, res, next) {
   try {
     const v = validateListSocialUsersQuery(req.query || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.listSocialUsersForModeration(v.value);
     res.json(out);
@@ -828,7 +940,9 @@ export async function setSocialUserAccountStatus(req, res, next) {
   try {
     const body = validateSocialUserAccountStatusPatch(req.body || {});
     if (!body.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: body.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: body.errors });
     }
     const out = await service.setSocialUserAccountStatus({
       targetUserId: req.params.userId,
@@ -849,7 +963,9 @@ export async function createSocialRestriction(req, res, next) {
   try {
     const v = validateSocialCapabilityRestrictionCreate(req.body || {});
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
     const out = await service.createSocialCapabilityRestriction({
       userId: req.params.userId,
@@ -897,7 +1013,9 @@ export async function createAdBoardItem(req, res, next) {
     };
     const v = validateAdBoardCreate(body);
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
     const out = await service.createAdBoardItem(v.value, {
@@ -918,17 +1036,15 @@ export async function updateAdBoardItem(req, res, next) {
     };
     const v = validateAdBoardUpdate(body);
     if (!v.ok) {
-      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+      return res
+        .status(400)
+        .json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
-    const out = await service.updateAdBoardItem(
-      req.params.itemId,
-      v.value,
-      {
-        userId: req.userId,
-        userRole: req.userRole,
-      }
-    );
+    const out = await service.updateAdBoardItem(req.params.itemId, v.value, {
+      userId: req.userId,
+      userRole: req.userRole,
+    });
     res.json(out);
   } catch (e) {
     next(e);
@@ -941,7 +1057,7 @@ export async function adBoardMerchantProducts(req, res, next) {
       req.params.merchantId,
       {
         limit: Number(req.query?.limit || 300),
-      }
+      },
     );
     res.json(out);
   } catch (e) {

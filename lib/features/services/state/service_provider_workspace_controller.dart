@@ -109,7 +109,7 @@ class ServiceProviderWorkspaceController
     try {
       final rows = await ref
           .read(servicesApiProvider)
-          .listProviderRequests(status: status, limit: 40, offset: 0);
+          .listProviderRequests(status: status, limit: 100, offset: 0);
       state = state.copyWith(
         loadingRequests: false,
         requests: rows.map(ServiceRequestModel.fromJson).toList(),

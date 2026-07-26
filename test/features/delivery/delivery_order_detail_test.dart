@@ -9,6 +9,7 @@ import 'package:maslaki/features/delivery/ui/courier_pages.dart';
 import 'package:maslaki/features/delivery/ui/delivery_dashboard_screen.dart';
 import 'package:maslaki/features/delivery/ui/delivery_order_detail_screen.dart';
 import 'package:maslaki/features/orders/models/order_model.dart';
+import 'package:maslaki/features/orders/models/order_revision_model.dart';
 import 'package:maslaki/features/orders/ui/widgets/order_item_widgets.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
 
@@ -21,6 +22,11 @@ class _FakeDeliveryApi extends DeliveryApi {
 
   @override
   Future<Map<String, dynamic>> orderDetailV2(int orderId) async => detail;
+
+  @override
+  Future<List<OrderRevisionModel>> listOrderRevisions(int orderId) async {
+    return const <OrderRevisionModel>[];
+  }
 }
 
 Map<String, dynamic> _cannedDetail() {

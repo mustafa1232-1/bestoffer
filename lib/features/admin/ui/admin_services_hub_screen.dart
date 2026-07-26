@@ -11,7 +11,7 @@ import '../../auth/state/auth_controller.dart';
 import 'admin_approvals_hub_screen.dart';
 import 'admin_dashboard_screen.dart';
 import '../state/admin_controller.dart';
-import 'admin_service_provider_subscription_requests_screen.dart';
+import 'admin_service_provider_applications_screen.dart';
 
 const _servicesRecoveryMessage = 'جارٍ استعادة الجلسة وتحديث البيانات...';
 const _servicesPermissionDeniedMessage =
@@ -501,8 +501,7 @@ class _AdminServicesHubScreenState
           onTap: (_) async {
             await Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) =>
-                    const AdminServiceProviderSubscriptionRequestsScreen(),
+                builder: (_) => const AdminServiceProviderApplicationsScreen(),
               ),
             );
           },
@@ -570,7 +569,7 @@ class _AdminServicesHubScreenState
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) =>
-                          const AdminServiceProviderSubscriptionRequestsScreen(),
+                          const AdminServiceProviderApplicationsScreen(),
                     ),
                   );
                 },

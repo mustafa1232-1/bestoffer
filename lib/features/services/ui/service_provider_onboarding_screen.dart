@@ -12,6 +12,7 @@ import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
 import '../../../core/widgets/image_picker_field.dart';
+import '../../auth/domain/auth_input_normalizer.dart';
 import '../data/services_api.dart';
 import '../models/service_models.dart';
 
@@ -46,14 +47,13 @@ class _ServiceProviderOnboardingScreenState
   bool _addingCategory = false;
   bool _submitting = false;
   bool _checkingStatus = false;
-  bool _respondingOffer = false;
   bool _servesAtHome = true;
   bool _servesAtShop = false;
   bool _servesRemote = false;
   bool _hasEmergency = false;
   bool _hasTeam = false;
   bool _acceptsCash = true;
-  bool _acceptsElectronic = false;
+  final bool _acceptsElectronic = false;
   bool _available247 = false;
   String _bookingPolicy = 'approval_required';
   String _pricingMode = 'mixed';
@@ -61,7 +61,11 @@ class _ServiceProviderOnboardingScreenState
   String? _error;
   LocalImageFile? _logoFile;
   LocalImageFile? _coverFile;
-  ServiceProviderSubscriptionProgressModel? _progress;
+  ServiceProviderApplicationProgressModel? _progress;
+
+  bool get _isArabic => Localizations.localeOf(context).languageCode == 'ar';
+
+  String _t({required String ar, required String en}) => _isArabic ? ar : en;
 
   @override
   void initState() {
@@ -86,20 +90,6 @@ class _ServiceProviderOnboardingScreenState
     _categorySearchCtrl.dispose();
     _newCategoryCtrl.dispose();
     super.dispose();
-  }
-
-  String _normalizeInput(String value) {
-    final sb = StringBuffer();
-    for (final rune in value.runes) {
-      if (rune >= 0x0660 && rune <= 0x0669) {
-        sb.writeCharCode(0x30 + (rune - 0x0660));
-      } else if (rune >= 0x06F0 && rune <= 0x06F9) {
-        sb.writeCharCode(0x30 + (rune - 0x06F0));
-      } else {
-        sb.writeCharCode(rune);
-      }
-    }
-    return sb.toString().trim();
   }
 
   Future<void> _loadCategories() async {
@@ -226,6 +216,14 @@ class _ServiceProviderOnboardingScreenState
       setState(() => _error = 'يرجى تعبئة الحقول الأساسية.');
       return;
     }
+    if (!isPlausibleIraqiAuthPhone(_phoneCtrl.text)) {
+      setState(() => _error = 'رقم الهاتف غير مكتمل.');
+      return;
+    }
+    if (!RegExp(r'^[0-9]{4,8}$').hasMatch(normalizeAuthPin(_pinCtrl.text))) {
+      setState(() => _error = 'يجب أن يتكون الرمز السري من 4 إلى 8 أرقام.');
+      return;
+    }
     if (!(_servesAtHome || _servesAtShop || _servesRemote)) {
       setState(() => _error = 'اختر نمط تنفيذ خدمة واحد على الأقل.');
       return;
@@ -239,11 +237,11 @@ class _ServiceProviderOnboardingScreenState
     try {
       final raw = await ref
           .read(servicesApiProvider)
-          .createProviderSubscriptionRequest(
+          .createProviderApplication(
             {
               'fullName': _fullNameCtrl.text.trim(),
-              'phone': _normalizeInput(_phoneCtrl.text),
-              'pin': _normalizeInput(_pinCtrl.text),
+              'phone': normalizeIraqiPhoneForAuth(_phoneCtrl.text),
+              'pin': normalizeAuthPin(_pinCtrl.text),
               'businessName': _businessNameCtrl.text.trim().isEmpty
                   ? _fullNameCtrl.text.trim()
                   : _businessNameCtrl.text.trim(),
@@ -255,7 +253,7 @@ class _ServiceProviderOnboardingScreenState
                 'addressLine': _addressCtrl.text.trim(),
               if (_bioCtrl.text.trim().isNotEmpty) 'bio': _bioCtrl.text.trim(),
               if (_whatsappCtrl.text.trim().isNotEmpty)
-                'whatsappPhone': _normalizeInput(_whatsappCtrl.text),
+                'whatsappPhone': normalizeIraqiPhoneForAuth(_whatsappCtrl.text),
               'servesAtHome': _servesAtHome,
               'servesAtShop': _servesAtShop,
               'servesRemote': _servesRemote,
@@ -282,10 +280,17 @@ class _ServiceProviderOnboardingScreenState
           );
       if (!mounted) return;
       setState(() {
-        _progress = ServiceProviderSubscriptionProgressModel.fromJson(raw);
+        _progress = ServiceProviderApplicationProgressModel.fromJson(raw);
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال طلب الاشتراك بنجاح.')),
+        SnackBar(
+          content: Text(
+            _t(
+              ar: 'تم إنشاء حساب مقدم الخدمة وتفعيله. يمكنك تسجيل الدخول الآن.',
+              en: 'Your service provider account is active. You can sign in now.',
+            ),
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -295,10 +300,10 @@ class _ServiceProviderOnboardingScreenState
     }
   }
 
-  Future<void> _checkSubscriptionStatus() async {
+  Future<void> _checkApplicationStatus() async {
     if (_checkingStatus) return;
-    final phone = _normalizeInput(_phoneCtrl.text);
-    final pin = _normalizeInput(_pinCtrl.text);
+    final phone = normalizeIraqiPhoneForAuth(_phoneCtrl.text);
+    final pin = normalizeAuthPin(_pinCtrl.text);
     if (phone.isEmpty || pin.isEmpty) {
       setState(() => _error = 'أدخل رقم الهاتف و PIN للتحقق من الحالة.');
       return;
@@ -311,109 +316,72 @@ class _ServiceProviderOnboardingScreenState
     try {
       final raw = await ref
           .read(servicesApiProvider)
-          .getProviderSubscriptionStatus(phone: phone, pin: pin);
+          .getProviderApplicationStatus(phone: phone, pin: pin);
       if (!mounted) return;
       setState(() {
-        _progress = ServiceProviderSubscriptionProgressModel.fromJson(raw);
+        _progress = ServiceProviderApplicationProgressModel.fromJson(raw);
       });
     } catch (e) {
       if (!mounted) return;
       setState(
-        () => _error = mapAnyError(e, fallback: 'تعذر جلب حالة الاشتراك.'),
+        () => _error = mapAnyError(e, fallback: 'تعذر جلب حالة طلب التسجيل.'),
       );
     } finally {
       if (mounted) setState(() => _checkingStatus = false);
     }
   }
 
-  Future<void> _respondOffer(String action) async {
-    final progress = _progress;
-    if (progress == null || _respondingOffer) return;
-    final phone = _normalizeInput(_phoneCtrl.text);
-    final pin = _normalizeInput(_pinCtrl.text);
-    if (phone.isEmpty || pin.isEmpty) {
-      setState(() => _error = 'أدخل رقم الهاتف و PIN للرد على العرض.');
-      return;
-    }
-
-    setState(() {
-      _respondingOffer = true;
-      _error = null;
-    });
-    try {
-      final raw = await ref
-          .read(servicesApiProvider)
-          .respondProviderSubscriptionOffer(
-            requestId: progress.requestId,
-            phone: phone,
-            pin: pin,
-            action: action,
-            offerId: progress.activeOffer?.id,
-          );
-      if (!mounted) return;
-      setState(() {
-        _progress = ServiceProviderSubscriptionProgressModel.fromJson(raw);
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            action == 'accept'
-                ? 'تم قبول العرض. بانتظار تأكيد الاستلام النقدي.'
-                : 'تم رفض العرض. بانتظار عرض جديد.',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = mapAnyError(e, fallback: 'تعذر إرسال الرد.'));
-    } finally {
-      if (mounted) setState(() => _respondingOffer = false);
-    }
-  }
-
   String _statusLabel(String status) {
-    switch (status) {
-      case 'pending_offer':
-        return 'بانتظار عرض الأدمن';
-      case 'offer_sent':
-        return 'تم إرسال عرض سعر';
-      case 'offer_accepted':
-        return 'العرض مقبول';
-      case 'offer_rejected':
-        return 'العرض مرفوض';
-      case 'payment_pending_confirmation':
-        return 'بانتظار تأكيد الاستلام';
-      case 'payment_confirmed':
-        return 'تم تأكيد الدفع';
-      case 'account_created':
-        return 'تم إنشاء الحساب';
+    switch (status.trim().toLowerCase()) {
+      case 'submitted':
+        return _t(ar: 'تم إنشاء الحساب', en: 'Account created');
+      case 'under_review':
+        return _t(ar: 'جاري التفعيل', en: 'Activation in progress');
+      case 'approved':
+        return _t(
+          ar: 'حساب مقدم الخدمة مفعل',
+          en: 'Service provider account active',
+        );
       case 'rejected':
-        return 'تم رفض الطلب';
-      case 'cancelled':
-        return 'تم إلغاء الطلب';
+        return _t(ar: 'تعذر قبول الحساب', en: 'Account could not be accepted');
+      case 'suspended':
+        return _t(ar: 'تم تقييد الحساب', en: 'Account suspended');
+      case 'draft':
+        return _t(ar: 'مسودة حساب', en: 'Draft account');
+      case 'not_submitted':
+        return _t(ar: 'لم يتم إنشاء الحساب بعد', en: 'Account not created yet');
       default:
-        return status;
+        return _t(ar: 'حالة الحساب', en: 'Account status');
     }
   }
 
   String _statusHint(String nextAction) {
-    switch (nextAction) {
-      case 'wait_admin_offer':
-        return 'الخطوة التالية: انتظار تحديد سعر الاشتراك من الأدمن.';
-      case 'provider_review_offer':
-        return 'الخطوة التالية: راجع العرض ثم وافق أو ارفض.';
-      case 'wait_admin_cash_confirmation':
-        return 'الخطوة التالية: دفع نقدي خارج التطبيق ثم انتظار التأكيد.';
-      case 'wait_account_creation':
-        return 'الخطوة التالية: جاري إنشاء الحساب.';
+    switch (nextAction.trim().toLowerCase()) {
       case 'login_available':
-        return 'الخطوة التالية: يمكنك تسجيل الدخول الآن.';
-      case 'wait_admin_new_offer':
-        return 'الخطوة التالية: انتظار عرض جديد من الأدمن.';
-      case 'request_closed':
-        return 'الطلب مغلق.';
+        return _t(
+          ar: 'يمكنك تسجيل الدخول الآن وإدارة خدماتك.',
+          en: 'You can sign in now and manage your services.',
+        );
+      case 'review_rejection_reason':
+        return _t(
+          ar: 'راجع السبب، عدل البيانات، ثم أعد الإرسال.',
+          en: 'Review the reason, update the details, then submit again.',
+        );
+      case 'contact_support':
+        return _t(
+          ar: 'تواصل مع الدعم لمعرفة سبب التقييد.',
+          en: 'Contact support to understand the restriction reason.',
+        );
+      case 'wait_admin_review':
+        return _t(
+          ar: 'سيتم تفعيل الحساب مباشرة والتسجيل مجاني. يستقطع مسلكي 10% فقط من كل حجز مكتمل، والدفع نقداً عبر المكتب حالياً.',
+          en: 'The account is activated immediately and registration is free. Maslaki deducts only 10% from each completed booking, with cash handled through the office for now.',
+        );
       default:
-        return '';
+        return _t(
+          ar: 'حساب مقدم الخدمة جاهز عند اكتمال البيانات.',
+          en: 'The service provider account is ready when details are complete.',
+        );
     }
   }
 
@@ -421,7 +389,10 @@ class _ServiceProviderOnboardingScreenState
   Widget build(BuildContext context) {
     final servicesSection = ref
         .watch(sectionAvailabilityControllerProvider)
-        .entryFor(AppSectionKeys.services, displayName: 'الخدمات');
+        .entryFor(
+          AppSectionKeys.services,
+          displayName: _t(ar: 'الخدمات', en: 'Services'),
+        );
     if (servicesSection.isBlocked) {
       return SectionUnavailableScreen(entry: servicesSection);
     }
@@ -429,7 +400,11 @@ class _ServiceProviderOnboardingScreenState
     final visibleRoots = _visibleRootCategories();
     final progress = _progress;
     return Scaffold(
-      appBar: AppBar(title: const Text('اشتراك صاحب خدمة')),
+      appBar: AppBar(
+        title: Text(
+          _t(ar: 'التسجيل كمقدم خدمة', en: 'Service provider account'),
+        ),
+      ),
       body: Stack(
         children: [
           const SizedBox.expand(),
@@ -466,19 +441,14 @@ class _ServiceProviderOnboardingScreenState
                                 ),
                               ),
                             if (progress != null)
-                              _SubscriptionProgressCard(
+                              _ApplicationProgressCard(
                                 progress: progress,
                                 statusLabel: _statusLabel(progress.status),
                                 statusHint: _statusHint(progress.nextAction),
-                                onAccept: progress.requiresProviderAction
-                                    ? () => _respondOffer('accept')
-                                    : null,
-                                onReject: progress.requiresProviderAction
-                                    ? () => _respondOffer('reject')
-                                    : null,
-                                responding: _respondingOffer,
                               ),
                             const SizedBox(height: 8),
+                            _ProviderTermsCard(isArabic: _isArabic),
+                            const SizedBox(height: 12),
                             Row(
                               children: [
                                 Expanded(
@@ -810,10 +780,14 @@ class _ServiceProviderOnboardingScreenState
                                       setState(() => _acceptsCash = v),
                                 ),
                                 FilterChip(
-                                  label: const Text('دفع إلكتروني'),
-                                  selected: _acceptsElectronic,
-                                  onSelected: (v) =>
-                                      setState(() => _acceptsElectronic = v),
+                                  label: Text(
+                                    _t(
+                                      ar: 'دفع إلكتروني (قريباً)',
+                                      en: 'Electronic payment (later)',
+                                    ),
+                                  ),
+                                  selected: false,
+                                  onSelected: null,
                                 ),
                                 FilterChip(
                                   label: const Text('متاح 24/7'),
@@ -902,12 +876,17 @@ class _ServiceProviderOnboardingScreenState
                                       : const Icon(
                                           Icons.verified_user_outlined,
                                         ),
-                                  label: const Text('إرسال طلب الاشتراك'),
+                                  label: Text(
+                                    _t(
+                                      ar: 'إنشاء الحساب وتفعيله',
+                                      en: 'Create and activate account',
+                                    ),
+                                  ),
                                 ),
                                 OutlinedButton.icon(
                                   onPressed: _checkingStatus
                                       ? null
-                                      : _checkSubscriptionStatus,
+                                      : _checkApplicationStatus,
                                   icon: _checkingStatus
                                       ? const SizedBox(
                                           width: 16,
@@ -922,9 +901,12 @@ class _ServiceProviderOnboardingScreenState
                               ],
                             ),
                             const SizedBox(height: 8),
-                            const Text(
-                              'ملاحظة: العنوان التفصيلي اختياري. الاشتراك يتم بتسعير خاص من الأدمن، والاستلام نقدي خارج التطبيق.',
-                              style: TextStyle(fontSize: 12),
+                            Text(
+                              _t(
+                                ar: 'التسجيل كمقدم خدمة مجاني. عند اكتمال حجز خدمة عبر التطبيق يتم احتساب عمولة 10% لمسلكي. الدفع حالياً نقداً عبر المكتب، ويستلم صاحب الخدمة صافي المبلغ بعد انتهاء الخدمة.',
+                                en: 'Service provider registration is free. For each completed booking, Maslaki records a 10% commission. Payment is currently cash through the office, and the provider receives the net amount after the service is completed.',
+                              ),
+                              style: const TextStyle(fontSize: 12),
                             ),
                           ],
                         ),
@@ -941,21 +923,15 @@ class _ServiceProviderOnboardingScreenState
   }
 }
 
-class _SubscriptionProgressCard extends StatelessWidget {
-  final ServiceProviderSubscriptionProgressModel progress;
+class _ApplicationProgressCard extends StatelessWidget {
+  final ServiceProviderApplicationProgressModel progress;
   final String statusLabel;
   final String statusHint;
-  final VoidCallback? onAccept;
-  final VoidCallback? onReject;
-  final bool responding;
 
-  const _SubscriptionProgressCard({
+  const _ApplicationProgressCard({
     required this.progress,
     required this.statusLabel,
     required this.statusHint,
-    required this.onAccept,
-    required this.onReject,
-    required this.responding,
   });
 
   @override
@@ -971,56 +947,126 @@ class _SubscriptionProgressCard extends StatelessWidget {
               'حالة الطلب: $statusLabel',
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 6),
-            Text('رقم الطلب: ${progress.requestCode}'),
+            if (progress.applicationCode.trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('رقم الطلب: ${progress.applicationCode}'),
+            ],
             const SizedBox(height: 4),
             Text(statusHint),
-            if (progress.activeOffer != null) ...[
-              const Divider(height: 20),
-              Text(
-                'عرض الأدمن: ${progress.activeOffer!.amount?.toStringAsFixed(0) ?? '-'} ${progress.activeOffer!.currency}',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              if ((progress.activeOffer!.title ?? '').trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(progress.activeOffer!.title!),
-                ),
-              if ((progress.activeOffer!.description ?? '').trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(progress.activeOffer!.description!),
-                ),
-              if (progress.activeOffer!.validUntil != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    'صالح لغاية: ${progress.activeOffer!.validUntil}',
-                  ),
-                ),
+            if ((progress.approvalNote ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(progress.approvalNote!),
             ],
-            if (onAccept != null && onReject != null) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  FilledButton.icon(
-                    onPressed: responding ? null : onAccept,
-                    icon: const Icon(Icons.check_circle_outline),
-                    label: const Text('موافقة على العرض'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: responding ? null : onReject,
-                    icon: const Icon(Icons.close_rounded),
-                    label: const Text('رفض العرض'),
-                  ),
-                ],
+            if (progress.compatibilityWarning) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'تم العثور على حالة قديمة من الخادم. السياسة الحالية تطبق عليك أيضاً: التسجيل مجاني، وعمولة مسلكي 10% فقط من كل حجز مكتمل.',
+                style: TextStyle(fontWeight: FontWeight.w600),
               ),
             ],
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ProviderTermsCard extends StatelessWidget {
+  const _ProviderTermsCard({required this.isArabic});
+
+  final bool isArabic;
+
+  String _t({required String ar, required String en}) => isArabic ? ar : en;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      color: scheme.primaryContainer.withValues(alpha: 0.32),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.handyman_outlined, color: scheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _t(
+                      ar: 'ما هو حساب مقدم الخدمة؟',
+                      en: 'What is a service provider account?',
+                    ),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _t(
+                ar: 'هذا الحساب يسمح لك بنشر خدماتك واستقبال حجوزات الزبائن وإدارة الطلبات من داخل مسلكي. التسجيل مجاني، وتحتسب عمولة 10% للتطبيق فقط عند اكتمال الحجز.',
+                en: 'This account lets you publish services and manage customer bookings inside Maslaki. Registration is free, and the app commission is only 10% when a booking is completed.',
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _InfoChip(
+                  icon: Icons.verified_outlined,
+                  text: _t(ar: 'تفعيل مباشر', en: 'Instant activation'),
+                ),
+                _InfoChip(
+                  icon: Icons.payments_outlined,
+                  text: _t(ar: 'التسجيل مجاني', en: 'Free registration'),
+                ),
+                _InfoChip(
+                  icon: Icons.percent_rounded,
+                  text: _t(
+                    ar: 'عمولة 10% للحجز المكتمل',
+                    en: '10% per completed booking',
+                  ),
+                ),
+                _InfoChip(
+                  icon: Icons.money_rounded,
+                  text: _t(
+                    ar: 'الدفع نقداً عبر المكتب',
+                    en: 'Cash through the office',
+                  ),
+                ),
+                _InfoChip(
+                  icon: Icons.credit_card_off_outlined,
+                  text: _t(
+                    ar: 'الدفع الإلكتروني لاحقاً',
+                    en: 'Electronic payment later',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      avatar: Icon(icon, size: 18),
+      label: Text(text),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 }

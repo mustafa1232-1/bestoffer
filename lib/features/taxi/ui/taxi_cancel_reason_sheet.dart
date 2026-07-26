@@ -21,16 +21,28 @@ const List<_ReasonOption> _customerReasons = [
   _ReasonOption('changed_mind', 'غيّرت رأيي', 'Changed my mind'),
   _ReasonOption('long_wait', 'الانتظار طال', 'Waiting too long'),
   _ReasonOption('found_alternative', 'وجدت وسيلة أخرى', 'Found another ride'),
-  _ReasonOption('wrong_pickup', 'موقع الالتقاط غير صحيح', 'Wrong pickup location'),
+  _ReasonOption(
+    'wrong_pickup',
+    'موقع الالتقاط غير صحيح',
+    'Wrong pickup location',
+  ),
   _ReasonOption('price_high', 'الأجرة مرتفعة', 'Fare is too high'),
   _ReasonOption('other', 'سبب آخر', 'Other reason'),
 ];
 
 const List<_ReasonOption> _captainReasons = [
-  _ReasonOption('customer_unreachable', 'تعذّر التواصل مع الزبون', 'Cannot reach the customer'),
+  _ReasonOption(
+    'customer_unreachable',
+    'تعذّر التواصل مع الزبون',
+    'Cannot reach the customer',
+  ),
   _ReasonOption('too_far', 'المسافة بعيدة', 'Pickup is too far'),
   _ReasonOption('vehicle_issue', 'مشكلة في المركبة', 'Vehicle issue'),
-  _ReasonOption('wrong_info', 'معلومات الرحلة غير صحيحة', 'Incorrect ride details'),
+  _ReasonOption(
+    'wrong_info',
+    'معلومات الرحلة غير صحيحة',
+    'Incorrect ride details',
+  ),
   _ReasonOption('other', 'سبب آخر', 'Other reason'),
 ];
 
@@ -81,10 +93,7 @@ class _TaxiCancelReasonSheetState extends State<_TaxiCancelReasonSheet> {
     if (!_canSubmit) return;
     final text = _otherController.text.trim();
     Navigator.of(context).pop(
-      TaxiCancelReason(
-        code: _selectedCode!,
-        text: text.isEmpty ? null : text,
-      ),
+      TaxiCancelReason(code: _selectedCode!, text: text.isEmpty ? null : text),
     );
   }
 
@@ -115,14 +124,21 @@ class _TaxiCancelReasonSheetState extends State<_TaxiCancelReasonSheet> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),
-          for (final option in _options)
-            RadioListTile<String>(
-              contentPadding: EdgeInsets.zero,
-              value: option.code,
-              groupValue: _selectedCode,
-              onChanged: (value) => setState(() => _selectedCode = value),
-              title: Text(context.lt(ar: option.ar, en: option.en)),
+          RadioGroup<String>(
+            groupValue: _selectedCode,
+            onChanged: (value) => setState(() => _selectedCode = value),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final option in _options)
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    value: option.code,
+                    title: Text(context.lt(ar: option.ar, en: option.en)),
+                  ),
+              ],
             ),
+          ),
           if (_selectedCode == 'other')
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),

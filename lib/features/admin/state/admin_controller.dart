@@ -43,7 +43,7 @@ class AdminState {
   final List<PendingDeliveryAccountModel> pendingTaxiCaptainAccounts;
   final List<PendingSettlementModel> pendingSettlements;
   final List<PendingTaxiCashPaymentModel> pendingTaxiCashPayments;
-  final List<Map<String, dynamic>> pendingServiceProviderSubscriptionRequests;
+  final List<Map<String, dynamic>> pendingServiceProviderApplications;
   final List<Map<String, dynamic>> pendingServiceOfferings;
   final List<PendingTaxiProfileEditRequestModel> pendingTaxiProfileEditRequests;
   final List<ManagedMerchantModel> managedMerchants;
@@ -102,7 +102,7 @@ class AdminState {
     this.pendingTaxiCaptainAccounts = const [],
     this.pendingSettlements = const [],
     this.pendingTaxiCashPayments = const [],
-    this.pendingServiceProviderSubscriptionRequests = const [],
+    this.pendingServiceProviderApplications = const [],
     this.pendingServiceOfferings = const [],
     this.pendingTaxiProfileEditRequests = const [],
     this.managedMerchants = const [],
@@ -135,7 +135,7 @@ class AdminState {
     List<PendingDeliveryAccountModel>? pendingTaxiCaptainAccounts,
     List<PendingSettlementModel>? pendingSettlements,
     List<PendingTaxiCashPaymentModel>? pendingTaxiCashPayments,
-    List<Map<String, dynamic>>? pendingServiceProviderSubscriptionRequests,
+    List<Map<String, dynamic>>? pendingServiceProviderApplications,
     List<Map<String, dynamic>>? pendingServiceOfferings,
     List<PendingTaxiProfileEditRequestModel>? pendingTaxiProfileEditRequests,
     List<ManagedMerchantModel>? managedMerchants,
@@ -170,9 +170,9 @@ class AdminState {
       pendingSettlements: pendingSettlements ?? this.pendingSettlements,
       pendingTaxiCashPayments:
           pendingTaxiCashPayments ?? this.pendingTaxiCashPayments,
-      pendingServiceProviderSubscriptionRequests:
-          pendingServiceProviderSubscriptionRequests ??
-          this.pendingServiceProviderSubscriptionRequests,
+      pendingServiceProviderApplications:
+          pendingServiceProviderApplications ??
+          this.pendingServiceProviderApplications,
       pendingServiceOfferings:
           pendingServiceOfferings ?? this.pendingServiceOfferings,
       pendingTaxiProfileEditRequests:
@@ -246,7 +246,14 @@ class AdminController extends StateNotifier<AdminState> {
         else
           Future.value(const <dynamic>[]),
         if (isAdmin)
-          _safeList(() => api.serviceProviderSubscriptionRequests(limit: 120))
+          _safeMap(
+            () => api.listPendingServiceProviders(
+              providerStatus: 'pending',
+              limit: 120,
+              offset: 0,
+            ),
+            fallback: const <String, dynamic>{'items': <dynamic>[], 'total': 0},
+          )
         else
           Future.value(const <dynamic>[]),
         _safeMap(
@@ -309,14 +316,16 @@ class AdminController extends StateNotifier<AdminState> {
       final pendingTaxiRaw = _asList(results[3]);
       final pendingSettlementsRaw = _asList(results[4]);
       final pendingTaxiCashRaw = _asList(results[5]);
-      final pendingServiceSubscriptionsRaw = _toMapList(results[6])
-          .where((row) {
-            final status = '${row['status'] ?? ''}'.trim().toLowerCase();
-            return status != 'account_created' &&
-                status != 'rejected' &&
-                status != 'cancelled';
-          })
-          .toList(growable: false);
+      final pendingServiceApplicationsRaw =
+          _toMapList(_asMap(results[6])['items'])
+              .where((row) {
+                final status =
+                    '${row['providerApprovalStatus'] ?? row['status'] ?? ''}'
+                        .trim()
+                        .toLowerCase();
+                return status == 'pending' || status == 'under_review';
+              })
+              .toList(growable: false);
       final pendingServiceOfferingsRaw = _toMapList(_asMap(results[7])['items'])
           .where((row) {
             final status =
@@ -390,8 +399,7 @@ class AdminController extends StateNotifier<AdminState> {
         pendingTaxiCashPayments: pendingTaxiCashRaw
             .map((e) => PendingTaxiCashPaymentModel.fromJson(_asMap(e)))
             .toList(growable: false),
-        pendingServiceProviderSubscriptionRequests:
-            pendingServiceSubscriptionsRaw,
+        pendingServiceProviderApplications: pendingServiceApplicationsRaw,
         pendingServiceOfferings: pendingServiceOfferingsRaw,
         pendingTaxiProfileEditRequests: pendingTaxiProfileEditRaw
             .map((e) => PendingTaxiProfileEditRequestModel.fromJson(_asMap(e)))
@@ -446,6 +454,59 @@ class AdminController extends StateNotifier<AdminState> {
       state = state.copyWith(
         saving: false,
         error: _adminText('create_user_failed'),
+      );
+    }
+  }
+
+  Future<void> createStoreAccount(
+    Map<String, dynamic> dto, {
+    LocalImageFile? merchantImageFile,
+  }) async {
+    state = state.copyWith(saving: true, error: null, success: null);
+    try {
+      await ref
+          .read(adminApiProvider)
+          .createStoreAccount(dto, merchantImageFile: merchantImageFile);
+      await bootstrap();
+      state = state.copyWith(
+        saving: false,
+        success: _adminText('create_store_success'),
+      );
+    } on DioException catch (e) {
+      state = state.copyWith(saving: false, error: _mapError(e));
+    } catch (_) {
+      state = state.copyWith(
+        saving: false,
+        error: _adminText('create_store_failed'),
+      );
+    }
+  }
+
+  Future<void> createTaxiCaptainAccount(
+    Map<String, dynamic> dto, {
+    LocalImageFile? profileImageFile,
+    LocalImageFile? carImageFile,
+  }) async {
+    state = state.copyWith(saving: true, error: null, success: null);
+    try {
+      await ref
+          .read(adminApiProvider)
+          .createTaxiCaptainAccount(
+            dto,
+            profileImageFile: profileImageFile,
+            carImageFile: carImageFile,
+          );
+      await bootstrap();
+      state = state.copyWith(
+        saving: false,
+        success: _adminText('create_taxi_captain_success'),
+      );
+    } on DioException catch (e) {
+      state = state.copyWith(saving: false, error: _mapError(e));
+    } catch (_) {
+      state = state.copyWith(
+        saving: false,
+        error: _adminText('create_taxi_captain_failed'),
       );
     }
   }

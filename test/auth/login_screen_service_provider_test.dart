@@ -12,8 +12,8 @@ import 'package:maslaki/l10n/app_localizations.dart';
 
 class _FakeSettingsController extends AppSettingsController {
   _FakeSettingsController() : super(SecureStore(), storageScope: 'test') {
-    state = const AppSettingsState(
-      locale: Locale('en'),
+    state = AppSettingsState.initial().copyWith(
+      locale: const Locale('en'),
       animationsEnabled: false,
       weatherEffectsEnabled: false,
       themePreset: AppThemePreset.midnightBlue,

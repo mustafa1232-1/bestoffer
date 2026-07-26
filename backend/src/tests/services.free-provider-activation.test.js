@@ -213,7 +213,7 @@ test("free provider application requires moderation approval and legacy payment 
       [providerId]
     );
     assert.equal(db.rows[0]?.provider_approval_status, "approved");
-    assert.match(String(db.rows[0]?.approval_note || ""), /no payment/i);
+    assert.match(String(db.rows[0]?.approval_note || ""), /10% commission/i);
   } finally {
     await stopLocalServer(server);
     await cleanupUsers([providerUserId, Number(admin.id)]);

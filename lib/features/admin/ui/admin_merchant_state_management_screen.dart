@@ -617,9 +617,12 @@ class _AdminMerchantStateManagementScreenState
                     type: selected.baseType,
                     activityType: selected.activityType,
                     storeDepartment: merchant.storeDepartment,
-                    discoverySubcategory: hasOptions ? selectedSubcategory : null,
-                    discoverySelectAll:
-                        hasOptions ? (selectedSubcategory == null) : false,
+                    discoverySubcategory: hasOptions
+                        ? selectedSubcategory
+                        : null,
+                    discoverySelectAll: hasOptions
+                        ? (selectedSubcategory == null)
+                        : false,
                   );
               if (!context.mounted) return;
               setSheetState(() => saving = false);
@@ -669,43 +672,29 @@ class _AdminMerchantStateManagementScreenState
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    _t(context, ar: 'Edit merchant', en: 'Edit merchant'),
+                    'تعديل بيانات المتجر والقسم',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: nameCtrl,
                     textInputAction: TextInputAction.next,
-                    decoration: InputDecoration(
-                      labelText: _t(
-                        context,
-                        ar: 'Store name',
-                        en: 'Store name',
-                      ),
-                    ),
+                    decoration: const InputDecoration(labelText: 'اسم المتجر'),
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: phoneCtrl,
                     textInputAction: TextInputAction.next,
                     keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      labelText: _t(
-                        context,
-                        ar: 'Store phone',
-                        en: 'Store phone',
-                      ),
-                    ),
+                    decoration: const InputDecoration(labelText: 'هاتف المتجر'),
                   ),
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     initialValue: selectedActivity,
-                    decoration: InputDecoration(
-                      labelText: _t(
-                        context,
-                        ar: 'Marketplace section',
-                        en: 'Marketplace section',
-                      ),
+                    decoration: const InputDecoration(
+                      labelText: 'قسم السوق',
+                      helperText:
+                          'تغيير هذا الحقل ينقل المتجر إلى القسم الصحيح في السوق والفلاتر.',
                     ),
                     items: activities
                         .map(
@@ -753,9 +742,7 @@ class _AdminMerchantStateManagementScreenState
                       items: [
                         DropdownMenuItem<String?>(
                           value: null,
-                          child: Text(
-                            _t(context, ar: 'كل الأقسام', en: 'All'),
-                          ),
+                          child: Text(_t(context, ar: 'كل الأقسام', en: 'All')),
                         ),
                         ...discoveryOptions.map((opt) {
                           final isAr =
@@ -899,6 +886,25 @@ class _AdminMerchantStateManagementScreenState
               ],
             ),
             const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline_rounded),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'من هنا يمكن للأدمن تعديل اسم المتجر ورقمه ووصفه وقسمه. إذا ظهر متجر في قسم خاطئ، افتح تعديل المتجر واختر قسم السوق والقسم الفرعي الصحيح. زر الإضافة في الأعلى ينشئ قسم سوق جديد يظهر لاحقاً لمن ينشئ متجر.',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             if (items.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 28),
@@ -940,6 +946,14 @@ class _AdminMerchantStateManagementScreenState
                                         en: 'Marketplace section: ${item.activityType}',
                                       ),
                                     ),
+                                  if ((item.discoverySubcategory ?? '')
+                                      .trim()
+                                      .isNotEmpty)
+                                    Text(
+                                      'القسم الفرعي: ${item.discoverySubcategory}',
+                                    )
+                                  else if (item.discoverySelectAll)
+                                    const Text('القسم الفرعي: كل الأقسام'),
                                   if ((item.ownerFullName ?? '')
                                       .trim()
                                       .isNotEmpty)
@@ -1009,13 +1023,7 @@ class _AdminMerchantStateManagementScreenState
                                   ? null
                                   : () => _openMerchantProfileEditor(item),
                               icon: const Icon(Icons.edit_rounded),
-                              label: Text(
-                                _t(
-                                  context,
-                                  ar: 'Edit merchant',
-                                  en: 'Edit merchant',
-                                ),
-                              ),
+                              label: const Text('تعديل بيانات المتجر والقسم'),
                             ),
                             OutlinedButton.icon(
                               onPressed: () {

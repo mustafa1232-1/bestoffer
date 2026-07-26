@@ -3,6 +3,7 @@ import 'package:maslaki/core/storage/secure_storage.dart';
 import '../../../core/files/local_image_file.dart';
 
 import '../domain/auth_repo.dart';
+import '../domain/auth_input_normalizer.dart';
 import '../models/user_model.dart';
 import 'auth_api.dart';
 
@@ -24,8 +25,8 @@ class AuthRepoImpl implements AuthRepo {
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? imageFile,
   }) async {
-    final normalizedPhone = _normalizeInput(phone);
-    final normalizedPin = _normalizeInput(pin);
+    final normalizedPhone = normalizeIraqiPhoneForAuth(phone);
+    final normalizedPin = normalizeAuthPin(pin);
 
     final data = await api.register({
       'fullName': fullName,
@@ -92,9 +93,9 @@ class AuthRepoImpl implements AuthRepo {
     LocalImageFile? ownerImageFile,
     LocalImageFile? merchantImageFile,
   }) async {
-    final normalizedPhone = _normalizeInput(phone);
-    final normalizedPin = _normalizeInput(pin);
-    final normalizedMerchantPhone = _normalizeInput(merchantPhone);
+    final normalizedPhone = normalizeIraqiPhoneForAuth(phone);
+    final normalizedPin = normalizeAuthPin(pin);
+    final normalizedMerchantPhone = normalizeIraqiPhoneForAuth(merchantPhone);
     final payload = <String, dynamic>{
       'phone': normalizedPhone,
       'pin': normalizedPin,
@@ -187,8 +188,8 @@ class AuthRepoImpl implements AuthRepo {
     LocalImageFile? profileImageFile,
     LocalImageFile? carImageFile,
   }) async {
-    final normalizedPhone = _normalizeInput(phone);
-    final normalizedPin = _normalizeInput(pin);
+    final normalizedPhone = normalizeIraqiPhoneForAuth(phone);
+    final normalizedPin = normalizeAuthPin(pin);
 
     await api.registerDelivery(
       {
@@ -218,8 +219,8 @@ class AuthRepoImpl implements AuthRepo {
 
   @override
   Future<UserModel> login({required String phone, required String pin}) async {
-    final normalizedPhone = _normalizeInput(phone);
-    final normalizedPin = _normalizeInput(pin);
+    final normalizedPhone = normalizeIraqiPhoneForAuth(phone);
+    final normalizedPin = normalizeAuthPin(pin);
 
     final data = await api.login({
       'phone': normalizedPhone,
@@ -257,13 +258,13 @@ class AuthRepoImpl implements AuthRepo {
     String? newPhone,
     String? newPin,
   }) async {
-    final body = <String, dynamic>{'currentPin': _normalizeInput(currentPin)};
+    final body = <String, dynamic>{'currentPin': normalizeAuthPin(currentPin)};
 
     if (newPhone != null && newPhone.trim().isNotEmpty) {
-      body['newPhone'] = _normalizeInput(newPhone);
+      body['newPhone'] = normalizeIraqiPhoneForAuth(newPhone);
     }
     if (newPin != null && newPin.trim().isNotEmpty) {
-      body['newPin'] = _normalizeInput(newPin);
+      body['newPin'] = normalizeAuthPin(newPin);
     }
 
     final data = await api.updateAccount(body);
@@ -337,22 +338,4 @@ UserModel _readUser(Map<String, dynamic> payload) {
     return UserModel.fromJson(Map<String, dynamic>.from(rawUser));
   }
   throw const FormatException('INVALID_USER_PAYLOAD');
-}
-
-String _normalizeInput(String value) => _normalizeArabicDigits(value).trim();
-
-String _normalizeArabicDigits(String value) {
-  final out = StringBuffer();
-  for (final rune in value.runes) {
-    if (rune >= 0x0660 && rune <= 0x0669) {
-      out.writeCharCode(0x30 + (rune - 0x0660));
-      continue;
-    }
-    if (rune >= 0x06F0 && rune <= 0x06F9) {
-      out.writeCharCode(0x30 + (rune - 0x06F0));
-      continue;
-    }
-    out.writeCharCode(rune);
-  }
-  return out.toString();
 }

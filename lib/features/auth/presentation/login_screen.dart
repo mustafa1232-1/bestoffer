@@ -15,6 +15,7 @@ import '../../../core/widgets/maslaki_brand_mark.dart';
 import '../../../core/widgets/maslaki_wordmark.dart';
 import '../../settings/ui/settings_screen.dart';
 import '../../services/ui/service_provider_onboarding_screen.dart';
+import '../domain/auth_input_normalizer.dart';
 import '../state/auth_controller.dart';
 import 'register_screen.dart';
 
@@ -34,6 +35,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   late final AnimationController _controller;
   String? _phoneError;
   String? _pinError;
+  bool _loginInFlight = false;
 
   @override
   void initState() {
@@ -54,12 +56,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   /// يتحقق من صحة الهاتف قبل إرسال الطلب إلى الخادم لتقليل round-trips.
   String? _validatePhone(BuildContext context, String value) {
-    final normalized = value.trim();
+    final normalized = normalizeIraqiPhoneForAuth(value);
     if (normalized.isEmpty) {
       return context.l10n.authPhoneRequired;
     }
-    final digitsOnly = normalized.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digitsOnly.length < 10) {
+    if (!isPlausibleIraqiAuthPhone(normalized)) {
       return context.l10n.authPhoneIncomplete;
     }
     return null;
@@ -67,7 +68,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   /// يتحقق من صيغة PIN المتوقعة من النظام قبل login.
   String? _validatePin(BuildContext context, String value) {
-    final normalized = value.trim();
+    final normalized = normalizeAuthPin(value);
     if (normalized.isEmpty) {
       return context.l10n.authPinRequired;
     }
@@ -80,6 +81,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   /// ينفذ login ثم يطبق guard إضافي لمسار owner-only إذا كانت الشاشة مستخدمة
   /// داخل تطبيق أو تدفق مقصور على أصحاب المتاجر.
   Future<void> _submitLogin(BuildContext context) async {
+    if (_loginInFlight) return;
     final messenger = ScaffoldMessenger.of(context);
     final l10n = context.l10n;
     FocusScope.of(context).unfocus();
@@ -91,9 +93,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     });
     if (phoneError != null || pinError != null) return;
 
-    await ref
-        .read(authControllerProvider.notifier)
-        .login(phoneCtrl.text, pinCtrl.text);
+    setState(() => _loginInFlight = true);
+    try {
+      await ref
+          .read(authControllerProvider.notifier)
+          .login(phoneCtrl.text, pinCtrl.text);
+    } finally {
+      if (mounted) setState(() => _loginInFlight = false);
+    }
 
     if (!mounted) return;
     final authAfter = ref.read(authControllerProvider);
@@ -147,12 +154,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final viewInsetsBottom = MediaQuery.viewInsetsOf(context).bottom;
+                final viewInsetsBottom = MediaQuery.viewInsetsOf(
+                  context,
+                ).bottom;
                 // Height actually visible above the keyboard. Clamped so the
                 // minHeight can never go negative on tiny screens.
                 final visibleHeight =
-                    (constraints.maxHeight - viewInsetsBottom - pad * 2)
-                        .clamp(0.0, double.infinity);
+                    (constraints.maxHeight - viewInsetsBottom - pad * 2).clamp(
+                      0.0,
+                      double.infinity,
+                    );
                 final content = useDesktopLayout
                     ? Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
@@ -335,8 +346,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                 },
               ),
               ElevatedButton(
-                onPressed: auth.loading ? null : () => _submitLogin(context),
-                child: auth.loading
+                onPressed: auth.loading || _loginInFlight
+                    ? null
+                    : () => _submitLogin(context),
+                child: auth.loading || _loginInFlight
                     ? const SizedBox(
                         height: 18,
                         width: 18,
@@ -368,7 +381,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
               ),
               const SizedBox(height: 6),
               FilledButton.icon(
-                onPressed: auth.loading
+                onPressed: auth.loading || _loginInFlight
                     ? null
                     : () async {
                         await ref

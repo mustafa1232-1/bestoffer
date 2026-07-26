@@ -1643,6 +1643,49 @@ export async function createProviderProfile({
   }
 }
 
+export async function normalizeProviderFreeCommissionPolicyByUserId({
+  userId,
+  approvalNote,
+}) {
+  const uid = toInt(userId);
+  if (!uid) return null;
+  await q(
+    `UPDATE service_provider_profiles
+     SET
+       provider_approval_status = CASE
+         WHEN provider_approval_status IN (
+           'pending',
+           'pending_review',
+           'submitted',
+           'under_review',
+           'draft',
+           'not_submitted'
+         )
+         THEN 'approved'
+         ELSE provider_approval_status
+       END,
+       approval_note = $2,
+       accepts_cash = TRUE,
+       accepts_electronic = FALSE,
+       approved_at = CASE
+         WHEN provider_approval_status IN (
+           'pending',
+           'pending_review',
+           'submitted',
+           'under_review',
+           'draft',
+           'not_submitted'
+         )
+         THEN COALESCE(approved_at, NOW())
+         ELSE approved_at
+       END,
+       updated_at = NOW()
+     WHERE user_id = $1`,
+    [uid, approvalNote || null]
+  );
+  return getProviderProfileByUserId(uid);
+}
+
 export async function updateProviderProfile({ userId, dto, assets = {} }) {
   const client = await pool.connect();
   try {

@@ -200,7 +200,7 @@ class _ServicesMarketplaceScreenState
             ),
           if (auth.isServiceProvider)
             IconButton(
-              tooltip: 'متابعة الاشتراك',
+              tooltip: 'متابعة الحساب',
               onPressed: _openProviderOnboarding,
               icon: const Icon(Icons.verified_user_outlined),
             ),
@@ -264,7 +264,7 @@ class _ServicesMarketplaceScreenState
                             MaslakiPrimaryButton(
                               onPressed: _openProviderOnboarding,
                               icon: Icons.verified_user_outlined,
-                              label: 'متابعة الاشتراك',
+                              label: 'متابعة الحساب',
                             ),
                         ],
                       ),
@@ -314,7 +314,7 @@ class _ServicesMarketplaceScreenState
                               child: MaslakiPrimaryButton(
                                 onPressed: _openProviderOnboarding,
                                 icon: Icons.verified_user_outlined,
-                                label: 'متابعة الاشتراك',
+                                label: 'متابعة الحساب',
                               ),
                             ),
                           ],

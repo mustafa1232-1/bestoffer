@@ -154,9 +154,26 @@ class _SettingsAccountScreenState extends ConsumerState<SettingsAccountScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    final ok = await ref
-        .read(authControllerProvider.notifier)
-        .deleteAccount();
+    final finalConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.settingsDeleteAccountFinalConfirmTitle),
+        content: Text(l10n.settingsDeleteAccountFinalConfirmBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: scheme.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l10n.settingsDeleteAccountFinalConfirmAction),
+          ),
+        ],
+      ),
+    );
+    if (finalConfirmed != true || !mounted) return;
+    final ok = await ref.read(authControllerProvider.notifier).deleteAccount();
     if (!mounted) return;
     if (ok) {
       // Session cleared → the router redirects to login. Leave the settings stack.

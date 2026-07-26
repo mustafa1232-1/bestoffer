@@ -454,6 +454,183 @@ class _TaxiCaptainRegisterScreenState
     }
   }
 
+  Future<T?> _showCatalogPicker<T>({
+    required String title,
+    required List<T> items,
+    required String Function(T item) labelOf,
+    required bool Function(T item) isSelected,
+    required String emptyText,
+  }) async {
+    return showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF12263A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetContext) {
+        var query = '';
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final filtered = query.trim().isEmpty
+                ? items
+                : items
+                      .where(
+                        (item) => labelOf(
+                          item,
+                        ).toLowerCase().contains(query.trim().toLowerCase()),
+                      )
+                      .toList(growable: false);
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 12,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.72,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        autofocus: true,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          hintText: 'بحث',
+                          hintStyle: TextStyle(
+                            color: Colors.white.withOpacity(0.55),
+                          ),
+                        ),
+                        onChanged: (value) =>
+                            setSheetState(() => query = value),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? Center(
+                                child: Text(
+                                  emptyText,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.7),
+                                  ),
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: filtered.length,
+                                separatorBuilder: (context, index) => Divider(
+                                  height: 1,
+                                  color: Colors.white.withOpacity(0.08),
+                                ),
+                                itemBuilder: (context, index) {
+                                  final item = filtered[index];
+                                  final selected = isSelected(item);
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(
+                                      labelOf(item),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    trailing: selected
+                                        ? Icon(
+                                            Icons.check_circle_rounded,
+                                            color: Colors.amber.shade300,
+                                          )
+                                        : const Icon(
+                                            Icons.chevron_right_rounded,
+                                            color: Colors.white54,
+                                          ),
+                                    onTap: () =>
+                                        Navigator.of(sheetContext).pop(item),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _selectVehicleMake() async {
+    final make = await _showCatalogPicker<_TaxiVehicleMake>(
+      title: context.l10n.taxiCaptainCarMakeLabel,
+      items: _vehicleMakes,
+      labelOf: (item) => item.name,
+      isSelected: (item) => item.id == _selectedMake?.id,
+      emptyText: 'لا توجد شركات مطابقة.',
+    );
+    if (make == null || !mounted) return;
+    setState(() {
+      _selectedMake = make;
+      _selectedModel = null;
+      carMakeCtrl.text = make.name;
+      carModelCtrl.clear();
+      _fieldErrors.remove('carMake');
+      _fieldErrors.remove('carModel');
+      _formError = null;
+    });
+  }
+
+  Future<void> _selectVehicleModel() async {
+    final make = _selectedMake;
+    if (make == null) {
+      setState(() {
+        _fieldErrors['carMake'] = 'اختر الشركة أولاً.';
+        _formError = context.l10n.validationReviewRequiredFields;
+      });
+      await _focusFirstError();
+      return;
+    }
+    final model = await _showCatalogPicker<_TaxiVehicleModel>(
+      title: context.l10n.taxiCaptainCarModelLabel,
+      items: make.models,
+      labelOf: (item) => item.name,
+      isSelected: (item) => item.id == _selectedModel?.id,
+      emptyText: 'لا توجد موديلات لهذه الشركة.',
+    );
+    if (model == null || !mounted) return;
+    setState(() {
+      _selectedModel = model;
+      carModelCtrl.text = model.name;
+      _fieldErrors.remove('carModel');
+      _formError = null;
+    });
+  }
+
   Future<bool> _applyBackendErrors(AuthState auth) async {
     final parsed = auth.validationError ?? const ParsedBackendFieldErrors();
     final fieldCodes = <String, String?>{...parsed.fieldCodes};
@@ -748,43 +925,12 @@ class _TaxiCaptainRegisterScreenState
                                   Expanded(
                                     child: _scrollCoordinator.anchor(
                                       'carMake',
-                                      DropdownButtonFormField<int>(
-                                        key: ValueKey(
-                                          'make-${_selectedMake?.id ?? 0}',
-                                        ),
-                                        initialValue: _selectedMake?.id,
-                                        isExpanded: true,
-                                        items: _vehicleMakes
-                                            .map(
-                                              (make) => DropdownMenuItem<int>(
-                                                value: make.id,
-                                                child: Text(
-                                                  make.name,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                            )
-                                            .toList(),
-                                        onChanged: (value) {
-                                          final make = value == null
-                                              ? null
-                                              : _findMakeById(value);
-                                          setState(() {
-                                            _selectedMake = make;
-                                            _selectedModel = null;
-                                            carMakeCtrl.text = make?.name ?? '';
-                                            carModelCtrl.clear();
-                                            _fieldErrors.remove('carMake');
-                                            _fieldErrors.remove('carModel');
-                                            _formError = null;
-                                          });
-                                        },
-                                        decoration: InputDecoration(
-                                          labelText:
-                                              l10n.taxiCaptainCarMakeLabel,
-                                          errorText: _errorOf('carMake'),
-                                        ),
+                                      _CatalogListField(
+                                        label: l10n.taxiCaptainCarMakeLabel,
+                                        value: _selectedMake?.name,
+                                        hint: 'اختر الشركة',
+                                        errorText: _errorOf('carMake'),
+                                        onTap: _selectVehicleMake,
                                       ),
                                     ),
                                   ),
@@ -802,55 +948,15 @@ class _TaxiCaptainRegisterScreenState
                                   Expanded(
                                     child: _scrollCoordinator.anchor(
                                       'carModel',
-                                      DropdownButtonFormField<int>(
-                                        key: ValueKey(
-                                          'model-${_selectedMake?.id ?? 0}-${_selectedModel?.id ?? 0}',
-                                        ),
-                                        initialValue: _selectedModel?.id,
-                                        isExpanded: true,
-                                        items:
-                                            (_selectedMake?.models ?? const [])
-                                                .map(
-                                                  (model) =>
-                                                      DropdownMenuItem<int>(
-                                                        value: model.id,
-                                                        child: Text(
-                                                          model.name,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                        ),
-                                                      ),
-                                                )
-                                                .toList(),
-                                        onChanged: _selectedMake == null
-                                            ? null
-                                            : (value) {
-                                                _TaxiVehicleModel? model;
-                                                if (value != null) {
-                                                  for (final entry
-                                                      in _selectedMake!
-                                                          .models) {
-                                                    if (entry.id == value) {
-                                                      model = entry;
-                                                      break;
-                                                    }
-                                                  }
-                                                }
-                                                setState(() {
-                                                  _selectedModel = model;
-                                                  carModelCtrl.text =
-                                                      model?.name ?? '';
-                                                  _fieldErrors.remove(
-                                                    'carModel',
-                                                  );
-                                                  _formError = null;
-                                                });
-                                              },
-                                        decoration: InputDecoration(
-                                          labelText:
-                                              l10n.taxiCaptainCarModelLabel,
-                                          errorText: _errorOf('carModel'),
-                                        ),
+                                      _CatalogListField(
+                                        label: l10n.taxiCaptainCarModelLabel,
+                                        value: _selectedModel?.name,
+                                        hint: _selectedMake == null
+                                            ? 'اختر الشركة أولاً'
+                                            : 'اختر الموديل',
+                                        errorText: _errorOf('carModel'),
+                                        enabled: _selectedMake != null,
+                                        onTap: _selectVehicleModel,
                                       ),
                                     ),
                                   ),
@@ -1442,6 +1548,66 @@ class _Field extends StatelessWidget {
         hintText: hint,
         hintStyle: TextStyle(color: Colors.white.withOpacity(0.55)),
         labelStyle: TextStyle(color: Colors.white.withOpacity(0.85)),
+      ),
+    );
+  }
+}
+
+class _CatalogListField extends StatelessWidget {
+  final String label;
+  final String? value;
+  final String hint;
+  final String? errorText;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  const _CatalogListField({
+    required this.label,
+    required this.value,
+    required this.hint,
+    required this.onTap,
+    this.errorText,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasValue = (value ?? '').trim().isNotEmpty;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: enabled ? onTap : null,
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          errorText: errorText,
+          enabled: enabled,
+          suffixIcon: Icon(
+            Icons.format_list_bulleted_rounded,
+            color: enabled ? Colors.white70 : Colors.white38,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                hasValue ? value!.trim() : hint,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: hasValue
+                      ? Colors.white
+                      : Colors.white.withOpacity(enabled ? 0.55 : 0.35),
+                  fontWeight: hasValue ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: enabled ? Colors.amber.shade300 : Colors.white38,
+            ),
+          ],
+        ),
       ),
     );
   }

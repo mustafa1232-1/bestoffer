@@ -18,6 +18,46 @@ import 'service_provider_onboarding_screen.dart';
 import 'service_offering_details_screen.dart';
 import 'service_request_details_screen.dart';
 
+const double _servicePlatformCommissionRate = 0.10;
+
+bool _isCompletedServiceRequest(ServiceRequestModel request) {
+  final status = request.status.trim().toLowerCase();
+  final bookingStatus = request.bookingStatus?.trim().toLowerCase();
+  return status == 'completed' || bookingStatus == 'completed';
+}
+
+double _serviceRequestGrossAmount(ServiceRequestModel request) {
+  final candidates = <double?>[
+    request.bookingTotalIqd,
+    request.finalPrice,
+    request.bookingSubtotalIqd,
+    if (request.quotes.isNotEmpty) request.quotes.first.amount,
+    if (request.quotes.isNotEmpty) request.quotes.first.minAmount,
+  ];
+  for (final value in candidates) {
+    if (value != null && value > 0) return value;
+  }
+  return 0;
+}
+
+double _servicePlatformCommission(double amount) {
+  if (amount <= 0) return 0;
+  return amount * _servicePlatformCommissionRate;
+}
+
+String _formatIqd(num value) {
+  final rounded = value.round().toString();
+  final buffer = StringBuffer();
+  for (var i = 0; i < rounded.length; i++) {
+    final remaining = rounded.length - i;
+    buffer.write(rounded[i]);
+    if (remaining > 1 && remaining % 3 == 1) {
+      buffer.write(',');
+    }
+  }
+  return '${buffer.toString()} IQD';
+}
+
 class ServiceProviderWorkspaceScreen extends ConsumerWidget {
   const ServiceProviderWorkspaceScreen({super.key});
 
@@ -144,9 +184,7 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                     children: [
                       const Row(
                         mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Icon(Icons.info_outline_rounded),
-                        ],
+                        children: [Icon(Icons.info_outline_rounded)],
                       ),
                       const SizedBox(height: 8),
                       const Text(
@@ -159,7 +197,7 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'افتح شاشة الاشتراك لمراجعة عرض الأدمن أو متابعة إنشاء ملف مقدم الخدمة.',
+                        'افتح شاشة التسجيل المجاني لإرسال طلبك أو متابعة مراجعته.',
                         textAlign: TextAlign.end,
                       ),
                       const SizedBox(height: 12),
@@ -178,7 +216,7 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                               );
                             },
                             icon: const Icon(Icons.verified_user_outlined),
-                            label: const Text('فتح شاشة الاشتراك'),
+                            label: const Text('فتح التسجيل المجاني'),
                           ),
                           OutlinedButton.icon(
                             onPressed: () {
@@ -215,6 +253,8 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
               _workspaceHeader(workspace),
               const SizedBox(height: 12),
               _requestCounts(workspace),
+              const SizedBox(height: 12),
+              _serviceFinancialReport(state.requests),
               const SizedBox(height: 12),
               _offeringsSection(
                 context,
@@ -364,6 +404,153 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
         color: Colors.black.withValues(alpha: 0.06),
       ),
       child: Text('$label: $count'),
+    );
+  }
+
+  Widget _serviceFinancialReport(List<ServiceRequestModel> requests) {
+    final completedRequests = requests
+        .where(_isCompletedServiceRequest)
+        .toList(growable: false);
+    final gross = completedRequests.fold<double>(
+      0,
+      (sum, request) => sum + _serviceRequestGrossAmount(request),
+    );
+    final commission = _servicePlatformCommission(gross);
+    final net = gross - commission;
+    final latestRows = completedRequests.take(6).toList(growable: false);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.receipt_long_rounded),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'تقرير الحجوزات المكتملة',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'التسجيل مجاني. عمولة مسلكي 10% من كل حجز مكتمل، والدفع نقداً عبر المكتب ثم يسلم صافي المبلغ لصاحب الخدمة بعد انتهاء الخدمة.',
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _financeTile(
+                  title: 'الحجوزات المكتملة',
+                  value: '${completedRequests.length}',
+                  icon: Icons.task_alt_rounded,
+                ),
+                _financeTile(
+                  title: 'إجمالي قيمة الحجوزات',
+                  value: _formatIqd(gross),
+                  icon: Icons.payments_outlined,
+                ),
+                _financeTile(
+                  title: 'استقطاع مسلكي 10%',
+                  value: _formatIqd(commission),
+                  icon: Icons.percent_rounded,
+                ),
+                _financeTile(
+                  title: 'صافي مقدم الخدمة',
+                  value: _formatIqd(net),
+                  icon: Icons.account_balance_wallet_outlined,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (latestRows.isEmpty)
+              const Text(
+                'لا توجد حجوزات مكتملة بعد. سيظهر هنا مجموع الحجوزات والعمولة تلقائياً بعد إكمال أول خدمة.',
+              )
+            else ...[
+              const Text(
+                'آخر الحجوزات المكتملة',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 8),
+              ...latestRows.map((request) {
+                final amount = _serviceRequestGrossAmount(request);
+                final rowCommission = _servicePlatformCommission(amount);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.black.withValues(alpha: 0.04),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${request.requestCode} - ${request.offeringName ?? 'خدمة'}',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 4),
+                          Text('قيمة الحجز: ${_formatIqd(amount)}'),
+                          Text('استقطاع مسلكي: ${_formatIqd(rowCommission)}'),
+                          Text('الصافي: ${_formatIqd(amount - rowCommission)}'),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _financeTile({
+    required String title,
+    required String value,
+    required IconData icon,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 145),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: Colors.black.withValues(alpha: 0.05),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontSize: 11),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -975,6 +1162,8 @@ class _RequestCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final amount = _serviceRequestGrossAmount(request);
+    final commission = _servicePlatformCommission(amount);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(10),
@@ -1005,6 +1194,28 @@ class _RequestCard extends StatelessWidget {
             if ((request.city ?? '').trim().isNotEmpty ||
                 (request.area ?? '').trim().isNotEmpty)
               Text('الموقع: ${request.city ?? ''} ${request.area ?? ''}'),
+            if (amount > 0) ...[
+              const SizedBox(height: 8),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.black.withValues(alpha: 0.04),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('قيمة الحجز: ${_formatIqd(amount)}'),
+                      Text('استقطاع مسلكي 10%: ${_formatIqd(commission)}'),
+                      Text(
+                        'صافي مقدم الخدمة: ${_formatIqd(amount - commission)}',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,

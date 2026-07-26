@@ -54,8 +54,8 @@ class _FakeStartupController extends AppStartupController {
 
 class _FakeSettingsController extends AppSettingsController {
   _FakeSettingsController() : super(SecureStore(), storageScope: 'test') {
-    state = const AppSettingsState(
-      locale: Locale('en'),
+    state = AppSettingsState.initial().copyWith(
+      locale: const Locale('en'),
       animationsEnabled: false,
       weatherEffectsEnabled: false,
       themePreset: AppThemePreset.midnightBlue,
@@ -319,47 +319,50 @@ void main() {
     },
   );
 
-  testWidgets('stale token without verified user opens login, not startup gate', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          authControllerProvider.overrideWith(
-            (ref) =>
-                _FakeAuthController(ref, const AuthState(token: 'stale-token')),
-          ),
-          appStartupControllerProvider.overrideWith(
-            (ref) => _FakeStartupController(),
-          ),
-          appSettingsControllerProvider.overrideWith(
-            (ref) => _FakeSettingsController(),
-          ),
-          sectionAvailabilityControllerProvider.overrideWith(
-            (ref) => _FakeSectionAvailabilityController(ref),
-          ),
-          maslakiRealtimeServiceProvider.overrideWithValue(
-            _FakeMaslakiRealtimeService(),
-          ),
-          localNotificationsProvider.overrideWithValue(
-            _FakeLocalNotificationService(),
-          ),
-          pushNotificationsProvider.overrideWithValue(
-            _FakePushNotificationService(),
-          ),
-        ],
-        child: const MaslakiApp(),
-      ),
-    );
+  testWidgets(
+    'stale token without verified user opens login, not startup gate',
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith(
+              (ref) => _FakeAuthController(
+                ref,
+                const AuthState(token: 'stale-token'),
+              ),
+            ),
+            appStartupControllerProvider.overrideWith(
+              (ref) => _FakeStartupController(),
+            ),
+            appSettingsControllerProvider.overrideWith(
+              (ref) => _FakeSettingsController(),
+            ),
+            sectionAvailabilityControllerProvider.overrideWith(
+              (ref) => _FakeSectionAvailabilityController(ref),
+            ),
+            maslakiRealtimeServiceProvider.overrideWithValue(
+              _FakeMaslakiRealtimeService(),
+            ),
+            localNotificationsProvider.overrideWithValue(
+              _FakeLocalNotificationService(),
+            ),
+            pushNotificationsProvider.overrideWithValue(
+              _FakePushNotificationService(),
+            ),
+          ],
+          child: const MaslakiApp(),
+        ),
+      );
 
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 250));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
 
-    expect(find.byType(LoginScreen), findsOneWidget);
-    expect(find.byType(AppFirstLaunchScreen), findsNothing);
-    expect(find.byType(MaslakiUserShell), findsNothing);
-    expect(find.byType(CustomerHomeSelectorScreen), findsNothing);
-  });
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(find.byType(AppFirstLaunchScreen), findsNothing);
+      expect(find.byType(MaslakiUserShell), findsNothing);
+      expect(find.byType(CustomerHomeSelectorScreen), findsNothing);
+    },
+  );
 
   testWidgets(
     'authenticated backoffice user with missing explicit super flag opens the admin dashboard',

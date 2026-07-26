@@ -427,7 +427,7 @@ void main() {
     expect(find.text(l10n.mapPageChatWithCaptain), findsNothing);
     expect(find.text(l10n.mapPageActiveRideTitle('41')), findsNothing);
     expect(find.text(l10n.mapPageRideRequestCreateTitle), findsNothing);
-    expect(find.text(l10n.mapPageRideCancelAction), findsNothing);
+    expect(find.text(l10n.mapPageRideCancelAction), findsOneWidget);
   });
 
   testWidgets(
@@ -560,7 +560,9 @@ void main() {
     final api = _FakeTaxiApi(currentRideEnvelope: envelope);
     await _pumpMapPage(tester, currentRideEnvelope: envelope, taxiApi: api);
 
-    await tester.tap(find.text('Raise fare now'));
+    final raiseFareAction = find.text('Raise fare now');
+    await tester.ensureVisible(raiseFareAction);
+    await tester.tap(raiseFareAction);
     await tester.pump();
 
     expect(api.raiseRideFareCalls, 1);

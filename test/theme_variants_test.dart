@@ -1,5 +1,4 @@
 import 'package:core_design_system/core_design_system.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -37,6 +36,9 @@ void main() {
       expect(MaslakiTheme.fromStorageValue(theme.storageValue), theme);
     }
     expect(MaslakiTheme.fromStorageValue(null), MaslakiTheme.original);
-    expect(MaslakiTheme.fromStorageValue('legacy_unknown'), MaslakiTheme.original);
+    expect(
+      MaslakiTheme.fromStorageValue('legacy_unknown'),
+      MaslakiTheme.original,
+    );
   });
 }

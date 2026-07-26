@@ -9,7 +9,7 @@ import '../state/admin_controller.dart';
 import 'admin_approvals_hub_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_services_hub_screen.dart';
-import 'admin_service_provider_subscription_requests_screen.dart';
+import 'admin_service_provider_applications_screen.dart';
 
 class AdminDeliveryApprovalsScreen extends ConsumerWidget {
   const AdminDeliveryApprovalsScreen({super.key});
@@ -78,7 +78,7 @@ class AdminDeliveryApprovalsScreen extends ConsumerWidget {
                 await Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) =>
-                        const AdminServiceProviderSubscriptionRequestsScreen(),
+                        const AdminServiceProviderApplicationsScreen(),
                   ),
                 );
               },

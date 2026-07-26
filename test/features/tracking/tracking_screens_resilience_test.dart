@@ -237,11 +237,8 @@ class _ForbiddenOrdersApi extends OrdersApi {
 }
 
 class _FakeTaxiApi extends TaxiApi {
-  _FakeTaxiApi(
-    this.envelope, {
-    this.streamController,
-    this.currentRideEnvelope,
-  }) : super(Dio());
+  _FakeTaxiApi(this.envelope, {this.streamController, this.currentRideEnvelope})
+    : super(Dio());
 
   final Map<String, dynamic> envelope;
   final StreamController<TaxiLiveEvent>? streamController;
@@ -294,8 +291,7 @@ class _FakeTaxiApi extends TaxiApi {
     required double longitude,
     int radiusM = 3500,
     int limit = 60,
-  }) async =>
-      const [];
+  }) async => const [];
 }
 
 class _FakeAuthController extends AuthController {
@@ -709,7 +705,8 @@ void main() {
     expect(find.text('Captain is heading to pickup'), findsOneWidget);
     expect(find.text('Captain Noor'), findsWidgets);
     expect(find.textContaining('Toyota'), findsWidgets);
-    expect(find.textContaining('TX-001'), findsWidgets);
+    expect(find.text('T'), findsAtLeastNWidgets(1));
+    expect(find.text('0 0 1'), findsAtLeastNWidgets(1));
     await _scrollTaxiActionsIntoView(tester);
     expect(find.text('Message captain'), findsOneWidget);
     expect(find.text('Ride details'), findsOneWidget);
@@ -717,15 +714,11 @@ void main() {
     expect(find.text('Cancel ride'), findsOneWidget);
   });
 
-  testWidgets(
-    'taxi tracking returns to home once after a completed ride',
-    (tester) async {
-      await _expectTerminalTaxiRideReturnsHomeOnce(
-        tester,
-        status: 'completed',
-      );
-    },
-  );
+  testWidgets('taxi tracking returns to home once after a completed ride', (
+    tester,
+  ) async {
+    await _expectTerminalTaxiRideReturnsHomeOnce(tester, status: 'completed');
+  });
 
   testWidgets(
     'taxi tracking returns to home once after a customer-cancelled ride',
@@ -757,15 +750,11 @@ void main() {
     },
   );
 
-  testWidgets(
-    'taxi tracking returns to home once after an expired ride',
-    (tester) async {
-      await _expectTerminalTaxiRideReturnsHomeOnce(
-        tester,
-        status: 'expired',
-      );
-    },
-  );
+  testWidgets('taxi tracking returns to home once after an expired ride', (
+    tester,
+  ) async {
+    await _expectTerminalTaxiRideReturnsHomeOnce(tester, status: 'expired');
+  });
 
   testWidgets(
     'taxi tracking preserves captain and vehicle snapshot after location updates',

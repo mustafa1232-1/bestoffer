@@ -16,98 +16,120 @@ void main() {
     test('ensureLocationPermission returns false without throwing', () async {
       expect(await service.ensureLocationPermission(), isFalse);
     });
-    test('ensureMediaImagesPermission returns false without throwing', () async {
-      expect(await service.ensureMediaImagesPermission(), isFalse);
-    });
-    test('ensureNotificationPermission returns false without throwing', () async {
-      expect(await service.ensureNotificationPermission(), isFalse);
-    });
+    test(
+      'ensureMediaImagesPermission returns false without throwing',
+      () async {
+        expect(await service.ensureMediaImagesPermission(), isFalse);
+      },
+    );
+    test(
+      'ensureNotificationPermission returns false without throwing',
+      () async {
+        expect(await service.ensureNotificationPermission(), isFalse);
+      },
+    );
   });
 
   group('MaslakiPermissionPolicy', () {
-    test('customer: notifications required, foreground location on-demand, no background', () {
-      const role = MaslakiAppRole.customer;
-      final required = MaslakiPermissionPolicy.requiredPermissions(role);
-      expect(required, contains(MaslakiPermission.notifications));
-      expect(required, isNot(contains(MaslakiPermission.locationWhenInUse)));
-      expect(required, isNot(contains(MaslakiPermission.locationAlways)));
-      expect(MaslakiPermissionPolicy.requiresBackgroundLocation(role), isFalse);
-      final requirements = MaslakiPermissionPolicy.requirementsForRole(role);
-      expect(
-        requirements
-            .where(
-              (req) =>
-                  req.permission == MaslakiPermission.locationWhenInUse &&
-                  req.isOnDemand,
-            )
-            .length,
-        1,
-      );
-      // camera/mic/photos must be on-demand (never spammed at startup).
-      final firstRun = MaslakiPermissionPolicy.firstRunRequirements(role)
-          .map((r) => r.permission);
-      expect(firstRun, isNot(contains(MaslakiPermission.locationWhenInUse)));
-      expect(firstRun, isNot(contains(MaslakiPermission.camera)));
-      expect(firstRun, isNot(contains(MaslakiPermission.microphone)));
-      expect(firstRun, isNot(contains(MaslakiPermission.photos)));
-    });
+    test(
+      'customer: notifications required, foreground location on-demand, no background',
+      () {
+        const role = MaslakiAppRole.customer;
+        final required = MaslakiPermissionPolicy.requiredPermissions(role);
+        expect(required, contains(MaslakiPermission.notifications));
+        expect(required, isNot(contains(MaslakiPermission.locationWhenInUse)));
+        expect(required, isNot(contains(MaslakiPermission.locationAlways)));
+        expect(
+          MaslakiPermissionPolicy.requiresBackgroundLocation(role),
+          isFalse,
+        );
+        final requirements = MaslakiPermissionPolicy.requirementsForRole(role);
+        expect(
+          requirements
+              .where(
+                (req) =>
+                    req.permission == MaslakiPermission.locationWhenInUse &&
+                    req.isOnDemand,
+              )
+              .length,
+          1,
+        );
+        // camera/mic/photos must be on-demand (never spammed at startup).
+        final firstRun = MaslakiPermissionPolicy.firstRunRequirements(
+          role,
+        ).map((r) => r.permission);
+        expect(firstRun, isNot(contains(MaslakiPermission.locationWhenInUse)));
+        expect(firstRun, isNot(contains(MaslakiPermission.camera)));
+        expect(firstRun, isNot(contains(MaslakiPermission.microphone)));
+        expect(firstRun, isNot(contains(MaslakiPermission.photos)));
+      },
+    );
 
-    test('taxi captain requires background location', () {
+    test('taxi captain uses foreground location only', () {
       const role = MaslakiAppRole.taxiCaptain;
-      expect(MaslakiPermissionPolicy.requiresBackgroundLocation(role), isTrue);
+      expect(MaslakiPermissionPolicy.requiresBackgroundLocation(role), isFalse);
       expect(
         MaslakiPermissionPolicy.requiredPermissions(role),
         containsAll(<MaslakiPermission>[
           MaslakiPermission.notifications,
           MaslakiPermission.locationWhenInUse,
-          MaslakiPermission.locationAlways,
         ]),
+      );
+      expect(
+        MaslakiPermissionPolicy.requiredPermissions(role),
+        isNot(contains(MaslakiPermission.locationAlways)),
       );
     });
 
-    test('delivery requires background location', () {
+    test('delivery uses foreground location only', () {
       const role = MaslakiAppRole.delivery;
-      expect(MaslakiPermissionPolicy.requiresBackgroundLocation(role), isTrue);
+      expect(MaslakiPermissionPolicy.requiresBackgroundLocation(role), isFalse);
       expect(
         MaslakiPermissionPolicy.isRequiredForRole(
-            role, MaslakiPermission.locationAlways),
-        isTrue,
+          role,
+          MaslakiPermission.locationAlways,
+        ),
+        isFalse,
       );
     });
 
     test('merchant: notifications required, camera optional, no location', () {
       const role = MaslakiAppRole.merchant;
-      expect(MaslakiPermissionPolicy.requiredPermissions(role),
-          <MaslakiPermission>[MaslakiPermission.notifications]);
+      expect(
+        MaslakiPermissionPolicy.requiredPermissions(role),
+        <MaslakiPermission>[MaslakiPermission.notifications],
+      );
       expect(MaslakiPermissionPolicy.requiresBackgroundLocation(role), isFalse);
-      final optional = MaslakiPermissionPolicy.requirementsForRole(role)
-          .where((r) => r.isOptional)
-          .map((r) => r.permission);
+      final optional = MaslakiPermissionPolicy.requirementsForRole(
+        role,
+      ).where((r) => r.isOptional).map((r) => r.permission);
       expect(optional, contains(MaslakiPermission.camera));
       // Photos uses the permissionless Photo Picker → on-demand, not first-run.
-      final firstRun = MaslakiPermissionPolicy.firstRunRequirements(role)
-          .map((r) => r.permission);
+      final firstRun = MaslakiPermissionPolicy.firstRunRequirements(
+        role,
+      ).map((r) => r.permission);
       expect(firstRun, isNot(contains(MaslakiPermission.photos)));
     });
 
     test('admin: only notifications required, no location at all', () {
       const role = MaslakiAppRole.admin;
-      expect(MaslakiPermissionPolicy.requiredPermissions(role),
-          <MaslakiPermission>[MaslakiPermission.notifications]);
+      expect(
+        MaslakiPermissionPolicy.requiredPermissions(role),
+        <MaslakiPermission>[MaslakiPermission.notifications],
+      );
       expect(MaslakiPermissionPolicy.requiresBackgroundLocation(role), isFalse);
-      final all = MaslakiPermissionPolicy.requirementsForRole(role)
-          .map((r) => r.permission);
+      final all = MaslakiPermissionPolicy.requirementsForRole(
+        role,
+      ).map((r) => r.permission);
       expect(all, isNot(contains(MaslakiPermission.locationWhenInUse)));
       expect(all, isNot(contains(MaslakiPermission.locationAlways)));
     });
 
-    test('only delivery and taxi captain get background location', () {
+    test('no role requires background location', () {
       for (final role in MaslakiAppRole.values) {
-        final expected =
-            role == MaslakiAppRole.delivery || role == MaslakiAppRole.taxiCaptain;
         expect(
           MaslakiPermissionPolicy.requiresBackgroundLocation(role),
-          expected,
+          isFalse,
           reason: '$role background-location gating',
         );
       }
@@ -117,7 +139,9 @@ void main() {
       for (final role in MaslakiAppRole.values) {
         expect(
           MaslakiPermissionPolicy.isRequiredForRole(
-              role, MaslakiPermission.notifications),
+            role,
+            MaslakiPermission.notifications,
+          ),
           isTrue,
           reason: '$role notifications',
         );

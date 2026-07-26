@@ -166,9 +166,6 @@ async function main() {
   ) {
     throw new Error("provider review account is not approved before review");
   }
-  if (/payment|cash|bank|whatsapp|receipt|subscription/i.test(JSON.stringify(providerStatus.data))) {
-    throw new Error("provider status response contains payment instructions");
-  }
   const workspace = await request(
     baseUrl,
     "GET",
@@ -178,9 +175,15 @@ async function main() {
   if (workspace.status !== 200) {
     throw new Error(`provider workspace probe failed with HTTP ${workspace.status}`);
   }
+  if (workspace.data?.provider?.acceptsElectronic === true) {
+    throw new Error("provider review account unexpectedly enables electronic payment");
+  }
+  if (workspace.data?.provider?.acceptsCash !== true) {
+    throw new Error("provider review account does not clearly support cash payment");
+  }
   console.log("[review-validation] provider review account ok");
 
-  console.log("[review-validation] credentials were accepted without OTP, payment, or manual approval during validation");
+  console.log("[review-validation] credentials were accepted without OTP, electronic payment, or manual approval during validation");
 }
 
 main().catch((error) => {

@@ -2451,10 +2451,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your owner account is pending approval';
 
   @override
-  String get authLogin => 'Login';
+  String get authLogin => 'Sign In';
 
   @override
-  String get authCreateUserAccount => 'Create user account';
+  String get authCreateUserAccount => 'Create customer account';
 
   @override
   String get authCreateOwnerAccount => 'Create store account';
@@ -13071,7 +13071,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get authLoginFailedGeneric =>
-      'Unable to sign in. Check your phone number and PIN.';
+      'Unable to sign in. Check your phone number and PIN, then try again.';
 
   @override
   String get authLogoutOtherDevicesFailed =>
@@ -15055,21 +15055,32 @@ class AppLocalizationsEn extends AppLocalizations {
       'How we collect, use, and protect your data';
 
   @override
-  String get settingsDeleteAccount => 'Delete my account';
+  String get settingsDeleteAccount => 'Delete Account Permanently';
 
   @override
   String get settingsDeleteAccountHint =>
-      'Permanently delete your account and associated data.';
+      'Deleting your account will revoke access and remove personal data that we are not legally required to retain. This action cannot be reversed after completion.';
 
   @override
-  String get settingsDeleteAccountConfirmTitle => 'Delete account?';
+  String get settingsDeleteAccountConfirmTitle => 'Delete Account Permanently';
 
   @override
   String get settingsDeleteAccountConfirmBody =>
-      'This permanently deletes your account and associated data. This action cannot be undone.';
+      'Deleting your account will revoke access and remove personal data that we are not legally required to retain. This action cannot be reversed after completion.';
 
   @override
-  String get settingsDeleteAccountConfirmAction => 'Delete';
+  String get settingsDeleteAccountConfirmAction => 'Continue';
+
+  @override
+  String get settingsDeleteAccountFinalConfirmTitle => 'Final confirmation';
+
+  @override
+  String get settingsDeleteAccountFinalConfirmBody =>
+      'This is permanent. Your sessions will be revoked and your public profile will be removed.';
+
+  @override
+  String get settingsDeleteAccountFinalConfirmAction =>
+      'I understand, delete my account';
 
   @override
   String get settingsDeleteAccountFailed =>

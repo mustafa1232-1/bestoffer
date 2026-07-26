@@ -707,10 +707,9 @@ class ServiceBookingPreviewSnapshotModel {
   factory ServiceBookingPreviewSnapshotModel.fromJson(
     Map<String, dynamic> json,
   ) {
-    final promotionSnapshot =
-        json['promotionSnapshot'] is Map
-            ? Map<String, dynamic>.from(json['promotionSnapshot'] as Map)
-            : null;
+    final promotionSnapshot = json['promotionSnapshot'] is Map
+        ? Map<String, dynamic>.from(json['promotionSnapshot'] as Map)
+        : null;
     return ServiceBookingPreviewSnapshotModel(
       pricingType: parseString(json['pricingType']),
       priceVersion: parseString(json['priceVersion']),
@@ -756,14 +755,12 @@ class ServiceBookingPreviewModel {
   });
 
   factory ServiceBookingPreviewModel.fromJson(Map<String, dynamic> json) {
-    final providerJson =
-        json['provider'] is Map
-            ? Map<String, dynamic>.from(json['provider'] as Map)
-            : null;
-    final pricingOptionJson =
-        json['pricingOption'] is Map
-            ? Map<String, dynamic>.from(json['pricingOption'] as Map)
-            : null;
+    final providerJson = json['provider'] is Map
+        ? Map<String, dynamic>.from(json['provider'] as Map)
+        : null;
+    final pricingOptionJson = json['pricingOption'] is Map
+        ? Map<String, dynamic>.from(json['pricingOption'] as Map)
+        : null;
     return ServiceBookingPreviewModel(
       offeringId: parseInt(json['offeringId']),
       providerId: parseInt(json['providerId']),
@@ -886,14 +883,15 @@ class ServiceRequestModel {
       bookingServiceFeeIqd: parseNullableDouble(json['bookingServiceFeeIqd']),
       bookingTotalIqd: parseNullableDouble(json['bookingTotalIqd']),
       bookingPromotionSnapshot: json['bookingPromotionSnapshot'] is Map
-          ? Map<String, dynamic>.from(
-              json['bookingPromotionSnapshot'] as Map,
-            )
+          ? Map<String, dynamic>.from(json['bookingPromotionSnapshot'] as Map)
           : null,
       bookingExpiresAt: parseNullableString(json['bookingExpiresAt']),
-      bookingProviderCompletedAt:
-          parseNullableString(json['bookingProviderCompletedAt']),
-      bookingFinalizationDueAt: parseNullableString(json['bookingFinalizationDueAt']),
+      bookingProviderCompletedAt: parseNullableString(
+        json['bookingProviderCompletedAt'],
+      ),
+      bookingFinalizationDueAt: parseNullableString(
+        json['bookingFinalizationDueAt'],
+      ),
       bookingFinalizedAt: parseNullableString(json['bookingFinalizedAt']),
       bookingTransitionNote: parseNullableString(json['bookingTransitionNote']),
       notes: parseNullableString(json['notes']),
@@ -1237,96 +1235,85 @@ class ServiceProviderWorkspaceModel {
   }
 }
 
-class ServiceProviderSubscriptionOfferModel {
-  final int id;
-  final int requestId;
-  final double? amount;
-  final String currency;
-  final String? title;
-  final String? description;
-  final String? validUntil;
+class ServiceProviderApplicationProgressModel {
+  final int applicationId;
+  final String applicationCode;
   final String status;
+  final String nextAction;
+  final bool canLogin;
+  final bool reusedExistingApplication;
+  final bool compatibilityWarning;
+  final String businessName;
+  final String phone;
+  final String? approvalNote;
 
-  const ServiceProviderSubscriptionOfferModel({
-    required this.id,
-    required this.requestId,
-    required this.amount,
-    required this.currency,
-    required this.title,
-    required this.description,
-    required this.validUntil,
+  const ServiceProviderApplicationProgressModel({
+    required this.applicationId,
+    required this.applicationCode,
     required this.status,
+    required this.nextAction,
+    required this.canLogin,
+    required this.reusedExistingApplication,
+    required this.compatibilityWarning,
+    required this.businessName,
+    required this.phone,
+    required this.approvalNote,
   });
 
-  factory ServiceProviderSubscriptionOfferModel.fromJson(
+  factory ServiceProviderApplicationProgressModel.fromJson(
     Map<String, dynamic> json,
   ) {
-    return ServiceProviderSubscriptionOfferModel(
-      id: parseInt(json['id']),
-      requestId: parseInt(json['requestId']),
-      amount: parseNullableDouble(json['amount']),
-      currency: parseString(json['currency'], fallback: 'IQD'),
-      title: parseNullableString(json['title']),
-      description: parseNullableString(json['description']),
-      validUntil: parseNullableString(json['validUntil']),
-      status: parseString(json['status'], fallback: 'pending_provider'),
+    final applicationJson = json['application'] is Map
+        ? Map<String, dynamic>.from(json['application'] as Map)
+        : json['provider'] is Map
+        ? Map<String, dynamic>.from(json['provider'] as Map)
+        : json['request'] is Map
+        ? Map<String, dynamic>.from(json['request'] as Map)
+        : const <String, dynamic>{};
+    final rawStatus = parseString(
+      json['status'] ??
+          applicationJson['providerApprovalStatus'] ??
+          applicationJson['status'],
+      fallback: 'submitted',
+    );
+    final normalizedStatus = _normalizeProviderApplicationStatus(rawStatus);
+    return ServiceProviderApplicationProgressModel(
+      applicationId: parseInt(applicationJson['id']),
+      applicationCode: parseString(
+        applicationJson['applicationCode'] ?? applicationJson['requestCode'],
+        fallback: '',
+      ),
+      status: normalizedStatus,
+      nextAction: parseString(
+        json['nextAction'],
+        fallback: 'wait_admin_review',
+      ),
+      canLogin: parseBool(json['canLogin']),
+      reusedExistingApplication: parseBool(
+        json['reusedExistingApplication'] ?? json['reusedActiveRequest'],
+      ),
+      compatibilityWarning: parseBool(json['compatibilityWarning']),
+      businessName: parseString(applicationJson['businessName']),
+      phone: parseString(applicationJson['phone']),
+      approvalNote: parseNullableString(applicationJson['approvalNote']),
     );
   }
 }
 
-class ServiceProviderSubscriptionProgressModel {
-  final int requestId;
-  final String requestCode;
-  final String status;
-  final String nextAction;
-  final bool requiresProviderAction;
-  final bool canLogin;
-  final bool reusedActiveRequest;
-  final String businessName;
-  final String phone;
-  final ServiceProviderSubscriptionOfferModel? activeOffer;
-
-  const ServiceProviderSubscriptionProgressModel({
-    required this.requestId,
-    required this.requestCode,
-    required this.status,
-    required this.nextAction,
-    required this.requiresProviderAction,
-    required this.canLogin,
-    required this.reusedActiveRequest,
-    required this.businessName,
-    required this.phone,
-    required this.activeOffer,
-  });
-
-  factory ServiceProviderSubscriptionProgressModel.fromJson(
-    Map<String, dynamic> json,
-  ) {
-    final requestJson = json['request'] is Map
-        ? Map<String, dynamic>.from(json['request'] as Map)
-        : const <String, dynamic>{};
-    final offerJson = json['activeOffer'] is Map
-        ? Map<String, dynamic>.from(json['activeOffer'] as Map)
-        : requestJson['activeOffer'] is Map
-        ? Map<String, dynamic>.from(requestJson['activeOffer'] as Map)
-        : null;
-    final status = parseString(
-      json['status'] ?? requestJson['status'],
-      fallback: 'pending_offer',
-    );
-    return ServiceProviderSubscriptionProgressModel(
-      requestId: parseInt(requestJson['id']),
-      requestCode: parseString(requestJson['requestCode'], fallback: ''),
-      status: status,
-      nextAction: parseString(json['nextAction'], fallback: 'wait_admin_offer'),
-      requiresProviderAction: parseBool(json['requiresProviderAction']),
-      canLogin: parseBool(json['canLogin']),
-      reusedActiveRequest: parseBool(json['reusedActiveRequest']),
-      businessName: parseString(requestJson['businessName']),
-      phone: parseString(requestJson['phone']),
-      activeOffer: offerJson == null
-          ? null
-          : ServiceProviderSubscriptionOfferModel.fromJson(offerJson),
-    );
+String _normalizeProviderApplicationStatus(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'not_submitted':
+    case 'draft':
+    case 'submitted':
+    case 'under_review':
+    case 'approved':
+    case 'rejected':
+    case 'suspended':
+      return value.trim().toLowerCase();
+    case 'pending':
+    case 'pending_review':
+      return 'under_review';
+    default:
+      return 'under_review';
   }
 }

@@ -12,7 +12,7 @@ import 'widgets/admin_financial_request_actions_sheet.dart';
 import 'admin_approvals_hub_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_services_hub_screen.dart';
-import 'admin_service_provider_subscription_requests_screen.dart';
+import 'admin_service_provider_applications_screen.dart';
 
 class AdminReceivablesScreen extends ConsumerStatefulWidget {
   const AdminReceivablesScreen({super.key});
@@ -117,8 +117,7 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
           onTap: (_) async {
             await Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) =>
-                    const AdminServiceProviderSubscriptionRequestsScreen(),
+                builder: (_) => const AdminServiceProviderApplicationsScreen(),
               ),
             );
           },

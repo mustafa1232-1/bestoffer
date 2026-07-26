@@ -15,7 +15,7 @@ import '../state/admin_controller.dart';
 import 'admin_approvals_hub_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_services_hub_screen.dart';
-import 'admin_service_provider_subscription_requests_screen.dart';
+import 'admin_service_provider_applications_screen.dart';
 import 'admin_taxi_captain_details_screen.dart';
 
 class AdminTaxiCashPaymentsScreen extends ConsumerStatefulWidget {
@@ -85,8 +85,7 @@ class _AdminTaxiCashPaymentsScreenState
           onTap: (_) async {
             await Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) =>
-                    const AdminServiceProviderSubscriptionRequestsScreen(),
+                builder: (_) => const AdminServiceProviderApplicationsScreen(),
               ),
             );
           },

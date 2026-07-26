@@ -53,12 +53,17 @@ Future<LocalImageFile?> pickImageFromDevice() async {
       _logMedia('pickImage returned empty bytes');
       return null;
     }
-    _logMedia('pickImage succeeded (${bytes.length} bytes)');
-    return LocalImageFile(
+    final file = LocalImageFile(
       name: image.name.isEmpty ? 'image.jpg' : image.name,
       path: image.path,
       bytes: bytes,
     );
+    if (file.uploadValidationError != null) {
+      _logMedia('pickImage rejected: ${file.uploadValidationError}');
+      return null;
+    }
+    _logMedia('pickImage succeeded (${bytes.length} bytes)');
+    return file;
   } catch (e) {
     _logMedia('pickImage failed: $e');
     return null;
@@ -84,13 +89,13 @@ Future<List<LocalImageFile>> pickMultipleImagesFromDevice({
     for (final image in images.take(maxFiles)) {
       final bytes = await image.readAsBytes();
       if (bytes.isEmpty) continue;
-      out.add(
-        LocalImageFile(
-          name: image.name.isEmpty ? 'image.jpg' : image.name,
-          path: image.path,
-          bytes: bytes,
-        ),
+      final file = LocalImageFile(
+        name: image.name.isEmpty ? 'image.jpg' : image.name,
+        path: image.path,
+        bytes: bytes,
       );
+      if (file.uploadValidationError != null) continue;
+      out.add(file);
     }
     _logMedia('pickMultiImage succeeded (${out.length} files)');
     return out;
@@ -112,12 +117,17 @@ Future<LocalImageFile?> captureImageFromCamera() async {
     if (image == null) return null;
     final bytes = await image.readAsBytes();
     if (bytes.isEmpty) return null;
-    _logMedia('captureImage succeeded');
-    return LocalImageFile(
+    final file = LocalImageFile(
       name: image.name.isEmpty ? 'camera_image.jpg' : image.name,
       path: image.path,
       bytes: bytes,
     );
+    if (file.uploadValidationError != null) {
+      _logMedia('captureImage rejected: ${file.uploadValidationError}');
+      return null;
+    }
+    _logMedia('captureImage succeeded');
+    return file;
   } catch (e) {
     _logMedia('captureImage failed: $e');
     return null;

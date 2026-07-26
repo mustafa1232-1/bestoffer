@@ -222,7 +222,8 @@ class _MonitoringDetailScreenState
     final payload = _payload ?? const <String, dynamic>{};
     final children = <Widget>[
       _SectionCard(
-        title: 'Summary',
+        title: 'ملخص الحالة',
+        subtitle: _modeHint(),
         icon: Icons.fact_check_rounded,
         rows: _summaryRows(payload),
       ),
@@ -234,6 +235,7 @@ class _MonitoringDetailScreenState
       children.add(
         _SectionCard(
           title: _label(entry.key),
+          subtitle: _sectionHint(entry.key),
           icon: _iconFor(entry.key),
           rows: _rowsFor(entry.value),
         ),
@@ -288,14 +290,14 @@ class _MonitoringDetailScreenState
           .toList(growable: false);
     }
     if (value is List) {
-      if (value.isEmpty) return const [_DetailRow('Items', '0')];
+      if (value.isEmpty) return const [_DetailRow('العدد', '0')];
       return [
-        _DetailRow('Items', '${value.length}'),
+        _DetailRow('العدد', '${value.length}'),
         for (var i = 0; i < value.length && i < 20; i++)
-          _DetailRow('#${i + 1}', _format(value[i])),
+          _DetailRow('العنصر ${i + 1}', _formatListItem(value[i])),
       ];
     }
-    return [_DetailRow('Value', _format(value))];
+    return [_DetailRow('القيمة', _format(value))];
   }
 
   bool _isScalar(Object? value) {
@@ -304,6 +306,13 @@ class _MonitoringDetailScreenState
 
   String _format(Object? value) {
     if (value == null) return '-';
+    if (value is bool) return value ? 'نعم' : 'لا';
+    if (value is String) {
+      final date = DateTime.tryParse(value);
+      if (date != null) return _formatDate(date);
+      if (value.contains('_')) return value.replaceAll('_', ' ');
+      return value;
+    }
     if (value is Map) {
       final parts = value.entries
           .take(8)
@@ -315,6 +324,49 @@ class _MonitoringDetailScreenState
       return value.take(4).map(_format).join('\n---\n');
     }
     return '$value';
+  }
+
+  String _formatListItem(Object? value) {
+    if (value is! Map) return _format(value);
+    final map = Map<dynamic, dynamic>.from(value);
+    final keys = <String>[
+      'id',
+      'status',
+      'title',
+      'name',
+      'full_name',
+      'customer_name',
+      'merchant_name',
+      'captain_name',
+      'courier_name',
+      'total_amount',
+      'created_at',
+      'updated_at',
+    ];
+    final rows = <String>[];
+    for (final key in keys) {
+      if (map.containsKey(key) && _isScalar(map[key])) {
+        rows.add('${_label(key)}: ${_format(map[key])}');
+      }
+    }
+    if (rows.isEmpty) {
+      for (final entry in map.entries.take(5)) {
+        if (_isScalar(entry.value)) {
+          rows.add('${_label('${entry.key}')}: ${_format(entry.value)}');
+        }
+      }
+    }
+    return rows.isEmpty ? _format(value) : rows.join('\n');
+  }
+
+  String _formatDate(DateTime date) {
+    final local = date.toLocal();
+    final y = local.year.toString().padLeft(4, '0');
+    final m = local.month.toString().padLeft(2, '0');
+    final d = local.day.toString().padLeft(2, '0');
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $hh:$mm';
   }
 
   IconData _iconFor(String key) {
@@ -334,10 +386,101 @@ class _MonitoringDetailScreenState
   }
 
   String _label(String key) {
+    const labels = <String, String>{
+      'id': 'المعرف',
+      'status': 'الحالة',
+      'assignment_status': 'حالة التعيين',
+      'lifecycle_status': 'حالة دورة العمل',
+      'customer_name': 'اسم الزبون',
+      'customer_phone': 'هاتف الزبون',
+      'captain_name': 'اسم الكابتن',
+      'captain_phone': 'هاتف الكابتن',
+      'courier_name': 'اسم الدلفري',
+      'courier_phone': 'هاتف الدلفري',
+      'merchant_name': 'اسم المتجر',
+      'merchant_phone': 'هاتف المتجر',
+      'provider_name': 'مقدم الخدمة',
+      'owner_name': 'المالك',
+      'title': 'العنوان',
+      'full_name': 'الاسم الكامل',
+      'username': 'اسم المستخدم',
+      'total_amount': 'المبلغ الكلي',
+      'final_price': 'السعر النهائي',
+      'price': 'السعر',
+      'created_at': 'تاريخ الإنشاء',
+      'updated_at': 'آخر تحديث',
+      'pickup_location': 'نقطة الانطلاق',
+      'dropoff_location': 'نقطة الوصول',
+      'from_address': 'من',
+      'to_address': 'إلى',
+      'messages': 'المحادثات',
+      'tickets': 'الشكاوى والتذاكر',
+      'reports': 'البلاغات',
+      'applications': 'طلبات التقديم',
+      'content': 'المحتوى',
+      'items': 'العناصر',
+      'products': 'المنتجات',
+      'invoice': 'الفاتورة',
+      'delivery_job': 'مهمة التوصيل',
+      'assignments': 'التعيينات',
+      'timeline': 'السجل الزمني',
+      'rating': 'التقييم',
+      'reviews': 'المراجعات',
+      'is_online': 'متصل',
+      'busy': 'مشغول',
+      'active': 'نشط',
+      'reason': 'السبب',
+      'note': 'ملاحظة',
+      'notes': 'الملاحظات',
+    };
+    final mapped = labels[key];
+    if (mapped != null) return mapped;
     return key
         .replaceAll('_', ' ')
         .replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}')
         .trim();
+  }
+
+  String _modeHint() {
+    return switch (widget.mode) {
+      MonitoringDetailMode.taxiRide =>
+        'يعرض مسار الرحلة، الكابتن، الزبون، الأجرة، الرسائل، والحالة الحالية.',
+      MonitoringDetailMode.order =>
+        'يعرض الطلب، المتجر، الزبون، الدلفري، المنتجات، الفاتورة، وأي تعديلات أو شكاوى.',
+      MonitoringDetailMode.deliveryCourier =>
+        'يعرض حالة الدلفري، تواجده، انشغاله، المهام الحالية والسابقة.',
+      MonitoringDetailMode.serviceRequest =>
+        'يعرض طلب الخدمة، المزود، الزبون، الموعد، السعر، والمحادثات عند السماح.',
+      MonitoringDetailMode.realEstateListing =>
+        'يعرض إعلان العقار، صاحبه، بيانات التواصل، البلاغات، وحالة النشر.',
+      MonitoringDetailMode.carListing =>
+        'يعرض إعلان السيارة، صاحب الإعلان، بيانات التواصل، البلاغات، وحالة النشر.',
+      MonitoringDetailMode.job =>
+        'يعرض الوظيفة، صاحبها، وعدد المتقدمين وتفاصيل التقديم.',
+      MonitoringDetailMode.communityUser =>
+        'يعرض نشاط المستخدم في المجتمع، المحتوى، البلاغات، والقيود.',
+    };
+  }
+
+  String? _sectionHint(String key) {
+    final lower = key.toLowerCase();
+    if (lower.contains('message')) return 'المحادثات المرتبطة بهذا السجل.';
+    if (lower.contains('ticket') || lower.contains('report')) {
+      return 'الشكاوى أو البلاغات المرتبطة، مع أسبابها وحالتها.';
+    }
+    if (lower.contains('assignment') || lower.contains('delivery')) {
+      return 'معلومات التعيين، الدلفري، وحالة التسليم.';
+    }
+    if (lower.contains('invoice') || lower.contains('payment')) {
+      return 'تفاصيل المبلغ، الدفع، والرسوم.';
+    }
+    if (lower.contains('item') || lower.contains('product')) {
+      return 'العناصر التي يراها الطرف المسؤول في التطبيق.';
+    }
+    if (lower.contains('timeline') || lower.contains('history')) {
+      return 'تسلسل الأحداث من الإنشاء حتى آخر تحديث.';
+    }
+    return null;
   }
 }
 
@@ -366,11 +509,13 @@ class _ErrorPanel extends StatelessWidget {
 class _SectionCard extends StatelessWidget {
   const _SectionCard({
     required this.title,
+    this.subtitle,
     required this.icon,
     required this.rows,
   });
 
   final String title;
+  final String? subtitle;
   final IconData icon;
   final List<_DetailRow> rows;
 
@@ -392,6 +537,17 @@ class _SectionCard extends StatelessWidget {
               ),
             ],
           ),
+          if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.72),
+              ),
+            ),
+          ],
           const SizedBox(height: MaslakiSpacing.sm),
           if (rows.isEmpty)
             Text('-', style: Theme.of(context).textTheme.bodyMedium)

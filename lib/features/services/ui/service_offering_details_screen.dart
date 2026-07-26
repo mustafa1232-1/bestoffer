@@ -29,6 +29,10 @@ class _ServiceOfferingDetailsScreenState
   String? _error;
   ServiceOfferingModel? _offering;
 
+  bool get _isArabic => Localizations.localeOf(context).languageCode == 'ar';
+
+  String _t({required String ar, required String en}) => _isArabic ? ar : en;
+
   @override
   void initState() {
     super.initState();
@@ -115,22 +119,22 @@ class _ServiceOfferingDetailsScreenState
       case 'per_hour':
       case 'hourly':
       case 'HOURLY':
-        return 'حسب الساعات';
+        return _t(ar: 'حسب الساعات', en: 'Hourly');
       case 'fixed_package':
       case 'fixed':
       case 'FIXED':
       case 'starting_from':
-        return 'حسب الحجز';
+        return _t(ar: 'حسب الحجز', en: 'Fixed booking');
       case 'per_visit':
       case 'PER_VISIT':
-        return 'حسب الزيارة';
+        return _t(ar: 'حسب الزيارة', en: 'Per visit');
       case 'per_unit':
       case 'PER_UNIT':
-        return 'حسب الكمية';
+        return _t(ar: 'حسب الكمية', en: 'Per unit');
       case 'inspection_required':
       case 'custom_quote':
       case 'INSPECTION_REQUIRED':
-        return 'بعد المعاينة';
+        return _t(ar: 'بعد المعاينة', en: 'After inspection');
       default:
         return value;
     }
@@ -139,22 +143,22 @@ class _ServiceOfferingDetailsScreenState
   String _pricingUnitLabel(String value) {
     switch (value) {
       case 'hour':
-        return 'ساعة';
+        return _t(ar: 'ساعة', en: 'hour');
       case 'visit':
-        return 'زيارة';
+        return _t(ar: 'زيارة', en: 'visit');
       case 'day':
-        return 'يوم';
+        return _t(ar: 'يوم', en: 'day');
       case 'device':
-        return 'جهاز';
+        return _t(ar: 'جهاز', en: 'device');
       case 'room':
-        return 'غرفة';
+        return _t(ar: 'غرفة', en: 'room');
       case 'meter':
-        return 'متر';
+        return _t(ar: 'متر', en: 'meter');
       case 'item':
-        return 'قطعة';
+        return _t(ar: 'قطعة', en: 'item');
       case 'package':
       case 'job':
-        return 'حجز';
+        return _t(ar: 'حجز', en: 'booking');
       default:
         return value;
     }
@@ -163,13 +167,13 @@ class _ServiceOfferingDetailsScreenState
   String _executionModeLabel(String value) {
     switch (value) {
       case 'home':
-        return 'في المنزل';
+        return _t(ar: 'في المنزل', en: 'At home');
       case 'provider_location':
-        return 'عند مقدم الخدمة';
+        return _t(ar: 'عند مقدم الخدمة', en: 'At provider location');
       case 'remote':
-        return 'عن بعد';
+        return _t(ar: 'عن بعد', en: 'Remote');
       case 'both':
-        return 'منزلي أو عند المقدم';
+        return _t(ar: 'منزلي أو عند المقدم', en: 'Home or provider location');
       default:
         return value;
     }
@@ -186,7 +190,10 @@ class _ServiceOfferingDetailsScreenState
   Widget build(BuildContext context) {
     final servicesSection = ref
         .watch(sectionAvailabilityControllerProvider)
-        .entryFor(AppSectionKeys.services, displayName: 'الخدمات');
+        .entryFor(
+          AppSectionKeys.services,
+          displayName: _t(ar: 'الخدمات', en: 'Services'),
+        );
     if (servicesSection.isBlocked) {
       return SectionUnavailableScreen(entry: servicesSection);
     }
@@ -195,7 +202,9 @@ class _ServiceOfferingDetailsScreenState
     }
     if (_error != null || _offering == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('تفاصيل الخدمة')),
+        appBar: AppBar(
+          title: Text(_t(ar: 'تفاصيل الخدمة', en: 'Service details')),
+        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -203,13 +212,13 @@ class _ServiceOfferingDetailsScreenState
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'تعذر تحميل الخدمة.\n${_error ?? ''}',
+                  '${_t(ar: 'تعذر تحميل الخدمة.', en: 'Unable to load service.')}\n${_error ?? ''}',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 10),
                 FilledButton(
                   onPressed: _load,
-                  child: const Text('إعادة المحاولة'),
+                  child: Text(_t(ar: 'إعادة المحاولة', en: 'Retry')),
                 ),
               ],
             ),
@@ -233,7 +242,9 @@ class _ServiceOfferingDetailsScreenState
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('تفاصيل الخدمة')),
+      appBar: AppBar(
+        title: Text(_t(ar: 'تفاصيل الخدمة', en: 'Service details')),
+      ),
       bottomNavigationBar: _privatePreview
           ? null
           : SafeArea(
@@ -261,36 +272,117 @@ class _ServiceOfferingDetailsScreenState
             if (_privatePreview)
               Card(
                 color: Theme.of(context).colorScheme.primaryContainer,
-                child: const Padding(
-                  padding: EdgeInsets.all(14),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
                   child: Text(
-                    'هذه الخدمة غير منشورة للجمهور بعد، لكن تم تحميلها لك من مساحة مقدم الخدمة.',
+                    _t(
+                      ar: 'هذه الخدمة غير منشورة للجمهور بعد، لكن تم تحميلها لك من مساحة مقدم الخدمة.',
+                      en: 'This service is not public yet, but it was loaded from the provider workspace.',
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ),
               ),
             if (_privatePreview) const SizedBox(height: 10),
             if (primaryMediaUrl != null) ...[
-              Center(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    width: double.infinity,
-                    constraints: const BoxConstraints(maxHeight: 280),
-                    color: Colors.black12,
-                    alignment: Alignment.center,
-                    child: AspectRatio(
-                      aspectRatio: 16 / 10,
-                      child: Image.network(
-                        primaryMediaUrl,
-                        fit: BoxFit.contain,
-                        alignment: Alignment.center,
-                        errorBuilder: (_, _, _) => const Center(
-                          child: Icon(Icons.broken_image_outlined, size: 42),
-                        ),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final height = (constraints.maxWidth * 0.68).clamp(
+                    240.0,
+                    390.0,
+                  );
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: height,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.network(
+                            primaryMediaUrl,
+                            fit: BoxFit.cover,
+                            alignment: Alignment.center,
+                            errorBuilder: (_, _, _) => Container(
+                              color: Colors.black12,
+                              alignment: Alignment.center,
+                              child: const Icon(
+                                Icons.broken_image_outlined,
+                                size: 42,
+                              ),
+                            ),
+                          ),
+                          DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.72),
+                                ],
+                              ),
+                            ),
+                          ),
+                          PositionedDirectional(
+                            start: 16,
+                            end: 16,
+                            bottom: 16,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  offering.name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  provider.businessName ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
+                  );
+                },
+              ),
+              const SizedBox(height: 14),
+            ] else ...[
+              Container(
+                height: 180,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.65),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.home_repair_service_outlined, size: 42),
+                    const SizedBox(height: 8),
+                    Text(
+                      _t(
+                        ar: 'صورة الخدمة غير متوفرة',
+                        en: 'Service image unavailable',
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 14),
@@ -318,7 +410,9 @@ class _ServiceOfferingDetailsScreenState
                       ),
                     );
                   },
-                  child: const Text('صفحة مقدم الخدمة'),
+                  child: Text(
+                    _t(ar: 'صفحة مقدم الخدمة', en: 'Provider profile'),
+                  ),
                 ),
               ],
             ),
@@ -344,28 +438,34 @@ class _ServiceOfferingDetailsScreenState
                         runSpacing: 8,
                         children: [
                           _specChip(
-                            'التسعير',
+                            _t(ar: 'التسعير', en: 'Pricing'),
                             _pricingModelLabel(leadPricing.pricingModel),
                           ),
                           _specChip(
-                            'الوحدة',
+                            _t(ar: 'الوحدة', en: 'Unit'),
                             _pricingUnitLabel(leadPricing.pricingUnit),
                           ),
                           _specChip(
-                            'مكان التنفيذ',
+                            _t(ar: 'مكان التنفيذ', en: 'Execution'),
                             _executionModeLabel(offering.executionMode),
                           ),
                           if (offering.estimatedDurationMinutes != null)
                             _specChip(
-                              'المدة',
-                              '${offering.estimatedDurationMinutes} دقيقة',
+                              _t(ar: 'المدة', en: 'Duration'),
+                              _t(
+                                ar: '${offering.estimatedDurationMinutes} دقيقة',
+                                en: '${offering.estimatedDurationMinutes} minutes',
+                              ),
                             ),
                         ],
                       ),
                     if (offering.inspectionRequired || offering.customQuoteOnly)
-                      const Text(
-                        'الخدمة تتطلب معاينة/تسعير قبل الاتفاق النهائي.',
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      Text(
+                        _t(
+                          ar: 'الخدمة تتطلب معاينة/تسعير قبل الاتفاق النهائي.',
+                          en: 'This service requires inspection or quote before final confirmation.',
+                        ),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                   ],
                 ),
@@ -373,9 +473,12 @@ class _ServiceOfferingDetailsScreenState
             ),
             if (galleryMedia.isNotEmpty) ...[
               const SizedBox(height: 10),
-              const Text(
-                'الصور',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              Text(
+                _t(ar: 'الصور', en: 'Photos'),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 8),
               SizedBox(
@@ -407,36 +510,48 @@ class _ServiceOfferingDetailsScreenState
             ],
             const SizedBox(height: 12),
             if ((offering.description ?? '').trim().isNotEmpty) ...[
-              const Text(
-                'وصف الخدمة',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              Text(
+                _t(ar: 'وصف الخدمة', en: 'Service description'),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 6),
               Text(offering.description!),
               const SizedBox(height: 12),
             ],
             if ((offering.includesText ?? '').trim().isNotEmpty) ...[
-              const Text(
-                'يشمل السعر',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              Text(
+                _t(ar: 'يشمل السعر', en: 'Included'),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 6),
               Text(offering.includesText!),
               const SizedBox(height: 12),
             ],
             if ((offering.excludesText ?? '').trim().isNotEmpty) ...[
-              const Text(
-                'لا يشمل السعر',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              Text(
+                _t(ar: 'لا يشمل السعر', en: 'Not included'),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 6),
               Text(offering.excludesText!),
               const SizedBox(height: 12),
             ],
             if (offering.activePromotions.isNotEmpty) ...[
-              const Text(
-                'العروض الفعالة',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              Text(
+                _t(ar: 'العروض الفعالة', en: 'Active offers'),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 8),
               ...offering.activePromotions.map(
@@ -456,9 +571,12 @@ class _ServiceOfferingDetailsScreenState
             ],
             if (offering.reviews.isNotEmpty) ...[
               const SizedBox(height: 12),
-              const Text(
-                'آراء العملاء',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              Text(
+                _t(ar: 'آراء العملاء', en: 'Customer reviews'),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 8),
               ...offering.reviews
@@ -466,7 +584,10 @@ class _ServiceOfferingDetailsScreenState
                   .map(
                     (review) => Card(
                       child: ListTile(
-                        title: Text(review.customerFullName ?? 'عميل'),
+                        title: Text(
+                          review.customerFullName ??
+                              _t(ar: 'عميل', en: 'Customer'),
+                        ),
                         subtitle: Text(review.comment ?? ''),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,

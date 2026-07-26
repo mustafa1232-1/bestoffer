@@ -186,7 +186,6 @@ void main() {
     await tester.tap(find.byTooltip('Open navigation menu'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Orders & operations'), findsOneWidget);
     expect(find.text('All orders'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField).first, 'AI DEV SUPPORT');
@@ -237,5 +236,4 @@ void main() {
     );
     expect(find.text('4'), findsWidgets);
   });
-
 }

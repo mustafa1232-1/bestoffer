@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 
 class MaslakiWordmark extends StatelessWidget {
@@ -21,14 +22,14 @@ class MaslakiWordmark extends StatelessWidget {
     this.arabicSize = 28,
     this.latinSize = 12,
     this.showLatin = false,
-    this.arabicText = 'مسلكي',
+    this.arabicText = '',
     this.subtitle,
     this.crossAxisAlignment = CrossAxisAlignment.start,
     this.arabicColor,
     this.latinColor,
     this.arabicWeight = FontWeight.w900,
     this.latinWeight = FontWeight.w500,
-    this.latinLetterSpacing = 5.2,
+    this.latinLetterSpacing = 0,
   });
 
   @override
@@ -37,22 +38,36 @@ class MaslakiWordmark extends StatelessWidget {
     final visual = context.visualTheme;
     final arColor = arabicColor ?? tokens.textPrimary;
     final enColor = latinColor ?? visual.accentGold;
+    final locale = Localizations.localeOf(context).languageCode.toLowerCase();
+    final localizedBrand = AppLocalizations.of(context).splashBrandName;
+    final resolvedText = arabicText.trim().isEmpty
+        ? localizedBrand
+        : arabicText;
+    final useLatinStyle = locale.startsWith('en') && arabicText.trim().isEmpty;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: crossAxisAlignment,
       children: [
         Text(
-          arabicText,
-          textDirection: TextDirection.rtl,
+          resolvedText,
+          textDirection: useLatinStyle ? TextDirection.ltr : TextDirection.rtl,
           maxLines: 1,
-          style: GoogleFonts.cairo(
-            color: arColor,
-            fontSize: arabicSize,
-            fontWeight: arabicWeight,
-            height: 1.02,
-            letterSpacing: 0.1,
-          ),
+          style: useLatinStyle
+              ? GoogleFonts.montserrat(
+                  color: arColor,
+                  fontSize: arabicSize,
+                  fontWeight: arabicWeight,
+                  height: 1.02,
+                  letterSpacing: 0,
+                )
+              : GoogleFonts.cairo(
+                  color: arColor,
+                  fontSize: arabicSize,
+                  fontWeight: arabicWeight,
+                  height: 1.02,
+                  letterSpacing: 0,
+                ),
         ),
         if ((subtitle ?? '').trim().isNotEmpty) ...[
           const SizedBox(height: 3),
@@ -69,7 +84,7 @@ class MaslakiWordmark extends StatelessWidget {
             ),
           ),
         ],
-        if (showLatin) ...[
+        if (showLatin && !useLatinStyle) ...[
           const SizedBox(height: 2),
           Text(
             'MASLAKI',

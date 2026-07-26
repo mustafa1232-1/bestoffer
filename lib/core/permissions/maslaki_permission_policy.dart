@@ -4,8 +4,9 @@ import 'maslaki_permission_models.dart';
 /// and *how* (required at first run / optional / on-demand).
 ///
 /// Key safety rules encoded here:
-/// - Background location (`locationAlways`) is required ONLY for delivery and
-///   taxi-captain (live tracking while backgrounded). Customers never get it.
+/// - Location is requested as when-in-use. Continuous background location is
+///   not requested unless a future build adds a real, reviewed background
+///   tracking feature.
 /// - Camera / microphone / photos are on-demand for most roles (requested when
 ///   the actual feature is used), never spammed at startup.
 /// - Notifications are required for every role (orders, taxi, delivery, chat).
@@ -17,93 +18,133 @@ class MaslakiPermissionPolicy {
       case MaslakiAppRole.customer:
         return const [
           PermissionRequirement(
-              MaslakiPermission.notifications, MaslakiPermissionImportance.required),
-          PermissionRequirement(MaslakiPermission.locationWhenInUse,
-              MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.notifications,
+            MaslakiPermissionImportance.required,
+          ),
           PermissionRequirement(
-              MaslakiPermission.camera, MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.locationWhenInUse,
+            MaslakiPermissionImportance.onDemand,
+          ),
           PermissionRequirement(
-              MaslakiPermission.microphone, MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.camera,
+            MaslakiPermissionImportance.onDemand,
+          ),
           PermissionRequirement(
-              MaslakiPermission.photos, MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.microphone,
+            MaslakiPermissionImportance.onDemand,
+          ),
+          PermissionRequirement(
+            MaslakiPermission.photos,
+            MaslakiPermissionImportance.onDemand,
+          ),
         ];
       case MaslakiAppRole.taxiCaptain:
         return const [
           PermissionRequirement(
-              MaslakiPermission.notifications, MaslakiPermissionImportance.required),
-          PermissionRequirement(MaslakiPermission.locationWhenInUse,
-              MaslakiPermissionImportance.required),
-          PermissionRequirement(MaslakiPermission.locationAlways,
-              MaslakiPermissionImportance.required),
+            MaslakiPermission.notifications,
+            MaslakiPermissionImportance.required,
+          ),
           PermissionRequirement(
-              MaslakiPermission.camera, MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.locationWhenInUse,
+            MaslakiPermissionImportance.required,
+          ),
           PermissionRequirement(
-              MaslakiPermission.photos, MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.camera,
+            MaslakiPermissionImportance.onDemand,
+          ),
+          PermissionRequirement(
+            MaslakiPermission.photos,
+            MaslakiPermissionImportance.onDemand,
+          ),
         ];
       case MaslakiAppRole.delivery:
         return const [
           PermissionRequirement(
-              MaslakiPermission.notifications, MaslakiPermissionImportance.required),
-          PermissionRequirement(MaslakiPermission.locationWhenInUse,
-              MaslakiPermissionImportance.required),
-          PermissionRequirement(MaslakiPermission.locationAlways,
-              MaslakiPermissionImportance.required),
+            MaslakiPermission.notifications,
+            MaslakiPermissionImportance.required,
+          ),
           PermissionRequirement(
-              MaslakiPermission.camera, MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.locationWhenInUse,
+            MaslakiPermissionImportance.required,
+          ),
           PermissionRequirement(
-              MaslakiPermission.photos, MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.camera,
+            MaslakiPermissionImportance.onDemand,
+          ),
+          PermissionRequirement(
+            MaslakiPermission.photos,
+            MaslakiPermissionImportance.onDemand,
+          ),
         ];
       case MaslakiAppRole.merchant:
         return const [
           PermissionRequirement(
-              MaslakiPermission.notifications, MaslakiPermissionImportance.required),
+            MaslakiPermission.notifications,
+            MaslakiPermissionImportance.required,
+          ),
           PermissionRequirement(
-              MaslakiPermission.camera, MaslakiPermissionImportance.optional),
+            MaslakiPermission.camera,
+            MaslakiPermissionImportance.optional,
+          ),
           // Gallery uses the permissionless Android Photo Picker, so media is
           // on-demand (no system media permission card needed).
           PermissionRequirement(
-              MaslakiPermission.photos, MaslakiPermissionImportance.onDemand),
-          PermissionRequirement(MaslakiPermission.locationWhenInUse,
-              MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.photos,
+            MaslakiPermissionImportance.onDemand,
+          ),
+          PermissionRequirement(
+            MaslakiPermission.locationWhenInUse,
+            MaslakiPermissionImportance.onDemand,
+          ),
         ];
       case MaslakiAppRole.pharmacy:
         return const [
           PermissionRequirement(
-              MaslakiPermission.notifications, MaslakiPermissionImportance.required),
+            MaslakiPermission.notifications,
+            MaslakiPermissionImportance.required,
+          ),
           PermissionRequirement(
-              MaslakiPermission.camera, MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.camera,
+            MaslakiPermissionImportance.onDemand,
+          ),
           PermissionRequirement(
-              MaslakiPermission.photos, MaslakiPermissionImportance.onDemand),
-          PermissionRequirement(MaslakiPermission.locationWhenInUse,
-              MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.photos,
+            MaslakiPermissionImportance.onDemand,
+          ),
+          PermissionRequirement(
+            MaslakiPermission.locationWhenInUse,
+            MaslakiPermissionImportance.onDemand,
+          ),
         ];
       case MaslakiAppRole.admin:
         return const [
           PermissionRequirement(
-              MaslakiPermission.notifications, MaslakiPermissionImportance.required),
+            MaslakiPermission.notifications,
+            MaslakiPermissionImportance.required,
+          ),
           PermissionRequirement(
-              MaslakiPermission.photos, MaslakiPermissionImportance.onDemand),
+            MaslakiPermission.photos,
+            MaslakiPermissionImportance.onDemand,
+          ),
         ];
     }
   }
 
   /// Permissions to surface on the first-run readiness screen (required +
   /// optional), in a stable order.
-  static List<PermissionRequirement> firstRunRequirements(MaslakiAppRole role) =>
-      requirementsForRole(role).where((r) => r.isFirstRun).toList();
+  static List<PermissionRequirement> firstRunRequirements(
+    MaslakiAppRole role,
+  ) => requirementsForRole(role).where((r) => r.isFirstRun).toList();
 
   /// Permissions that block "fully ready" until granted.
   static List<MaslakiPermission> requiredPermissions(MaslakiAppRole role) =>
-      requirementsForRole(role)
-          .where((r) => r.isRequired)
-          .map((r) => r.permission)
-          .toList();
+      requirementsForRole(
+        role,
+      ).where((r) => r.isRequired).map((r) => r.permission).toList();
 
-  /// Background location is gated to roles that actually track in the background.
-  static bool requiresBackgroundLocation(MaslakiAppRole role) =>
-      role == MaslakiAppRole.delivery || role == MaslakiAppRole.taxiCaptain;
+  /// Background location is currently not declared in the iOS build.
+  static bool requiresBackgroundLocation(MaslakiAppRole role) => false;
 
   static bool isRequiredForRole(MaslakiAppRole role, MaslakiPermission p) =>
-      requirementsForRole(role)
-          .any((r) => r.permission == p && r.isRequired);
+      requirementsForRole(role).any((r) => r.permission == p && r.isRequired);
 }

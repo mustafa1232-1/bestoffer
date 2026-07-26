@@ -9,6 +9,40 @@ import '../data/services_api.dart';
 import '../models/service_models.dart';
 import 'service_my_requests_screen.dart';
 
+const double _servicePlatformCommissionRate = 0.10;
+
+double _serviceRequestGrossAmount(ServiceRequestModel request) {
+  final candidates = <double?>[
+    request.bookingTotalIqd,
+    request.finalPrice,
+    request.bookingSubtotalIqd,
+    if (request.quotes.isNotEmpty) request.quotes.first.amount,
+    if (request.quotes.isNotEmpty) request.quotes.first.minAmount,
+  ];
+  for (final value in candidates) {
+    if (value != null && value > 0) return value;
+  }
+  return 0;
+}
+
+double _servicePlatformCommission(double amount) {
+  if (amount <= 0) return 0;
+  return amount * _servicePlatformCommissionRate;
+}
+
+String _formatIqd(num value) {
+  final rounded = value.round().toString();
+  final buffer = StringBuffer();
+  for (var i = 0; i < rounded.length; i++) {
+    final remaining = rounded.length - i;
+    buffer.write(rounded[i]);
+    if (remaining > 1 && remaining % 3 == 1) {
+      buffer.write(',');
+    }
+  }
+  return '${buffer.toString()} IQD';
+}
+
 class ServiceRequestDetailsScreen extends ConsumerStatefulWidget {
   final int requestId;
 
@@ -39,9 +73,9 @@ class _ServiceRequestDetailsScreenState
       _error = null;
     });
     try {
-      final raw = await ref.read(servicesApiProvider).getMyRequest(
-            widget.requestId,
-          );
+      final raw = await ref
+          .read(servicesApiProvider)
+          .getMyRequest(widget.requestId);
       if (!mounted) return;
       setState(() {
         _request = ServiceRequestModel.fromJson(raw);
@@ -60,7 +94,9 @@ class _ServiceRequestDetailsScreenState
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await ref.read(servicesApiProvider).updateMyRequestStatus(
+      await ref
+          .read(servicesApiProvider)
+          .updateMyRequestStatus(
             requestId: widget.requestId,
             status: status,
             note: note,
@@ -85,7 +121,9 @@ class _ServiceRequestDetailsScreenState
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await ref.read(servicesApiProvider).updateProviderRequestStatus(
+      await ref
+          .read(servicesApiProvider)
+          .updateProviderRequestStatus(
             requestId: widget.requestId,
             status: status,
             note: note,
@@ -107,7 +145,9 @@ class _ServiceRequestDetailsScreenState
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await ref.read(servicesApiProvider).respondToQuote(
+      await ref
+          .read(servicesApiProvider)
+          .respondToQuote(
             requestId: widget.requestId,
             quoteId: quote.id,
             action: action,
@@ -131,29 +171,27 @@ class _ServiceRequestDetailsScreenState
     setState(() => _busy = true);
     try {
       await ref.read(servicesApiProvider).createReview({
-            'requestId': request.id,
-            'rating': payload.rating,
-            if ((payload.comment ?? '').trim().isNotEmpty)
-              'comment': payload.comment!.trim(),
-            'serviceAsDescribed': payload.serviceAsDescribed,
-            'onTime': payload.onTime,
-            'priceFair': payload.priceFair,
-            'recommend': payload.recommend,
-          });
+        'requestId': request.id,
+        'rating': payload.rating,
+        if ((payload.comment ?? '').trim().isNotEmpty)
+          'comment': payload.comment!.trim(),
+        'serviceAsDescribed': payload.serviceAsDescribed,
+        'onTime': payload.onTime,
+        'priceFair': payload.priceFair,
+        'recommend': payload.recommend,
+      });
       if (!mounted) return;
       setState(() => _reviewSubmitted = true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال التقييم بنجاح.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم إرسال التقييم بنجاح.')));
     } catch (error) {
       if (!mounted) return;
       final text = '$error';
       if (text.toLowerCase().contains('review_already_exists')) {
         setState(() => _reviewSubmitted = true);
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(text)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -164,7 +202,9 @@ class _ServiceRequestDetailsScreenState
     if (payload == null || _busy) return;
     setState(() => _busy = true);
     try {
-      await ref.read(servicesApiProvider).createQuote(
+      await ref
+          .read(servicesApiProvider)
+          .createQuote(
             requestId: widget.requestId,
             payload: {
               'pricingModel': payload.pricingModel,
@@ -228,13 +268,16 @@ class _ServiceRequestDetailsScreenState
     if (!_canAccessRequestWithSectionPolicy(request, servicesSection)) {
       return SectionUnavailableScreen(entry: servicesSection);
     }
+    final amount = _serviceRequestGrossAmount(request);
+    final commission = _servicePlatformCommission(amount);
 
     final allowCustomerReview =
         !isProvider &&
         request.status.trim().toLowerCase() == 'completed' &&
         !_reviewSubmitted;
     final latestQuote = request.quotes.isEmpty ? null : request.quotes.first;
-    final pendingCustomerQuote = !isProvider &&
+    final pendingCustomerQuote =
+        !isProvider &&
             latestQuote != null &&
             latestQuote.quoteStatus.trim().toLowerCase() == 'pending_customer'
         ? latestQuote
@@ -330,6 +373,35 @@ class _ServiceRequestDetailsScreenState
                           'السعر النهائي: ${request.finalPrice} ${request.finalCurrency ?? 'IQD'}',
                         ),
                       ),
+                    if (amount > 0) ...[
+                      const SizedBox(height: 10),
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: Colors.black.withValues(alpha: 0.04),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('قيمة الحجز: ${_formatIqd(amount)}'),
+                              Text(
+                                'استقطاع مسلكي 10%: ${_formatIqd(commission)}',
+                              ),
+                              Text(
+                                'صافي مقدم الخدمة: ${_formatIqd(amount - commission)}',
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'الدفع نقداً عبر المكتب، ويتم تسليم الصافي لصاحب الخدمة بعد انتهاء الخدمة.',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -462,9 +534,7 @@ class _ServiceRequestDetailsScreenState
                   title: Text(
                     '${item['toStatus'] ?? item['status'] ?? 'تحديث'}',
                   ),
-                  subtitle: Text(
-                    '${item['note'] ?? item['createdAt'] ?? ''}',
-                  ),
+                  subtitle: Text('${item['note'] ?? item['createdAt'] ?? ''}'),
                 ),
               ),
             ),
@@ -495,8 +565,11 @@ class _ServiceRequestDetailsScreenState
                       icon: const Icon(Icons.cancel_outlined),
                       label: const Text('إلغاء الطلب'),
                     ),
-                  if (<String>{'accepted', 'scheduled', 'in_progress'}
-                      .contains(request.status.trim().toLowerCase()))
+                  if (<String>{
+                    'accepted',
+                    'scheduled',
+                    'in_progress',
+                  }.contains(request.status.trim().toLowerCase()))
                     OutlinedButton.icon(
                       onPressed: _busy
                           ? null
@@ -513,23 +586,31 @@ class _ServiceRequestDetailsScreenState
                 runSpacing: 8,
                 children: [
                   if (request.status.trim().toLowerCase() == 'pending' ||
-                      request.status.trim().toLowerCase() == 'awaiting_provider')
+                      request.status.trim().toLowerCase() ==
+                          'awaiting_provider')
                     OutlinedButton(
                       onPressed: _busy
                           ? null
                           : () => _updateProviderStatus('accepted'),
                       child: const Text('قبول'),
                     ),
-                  if (<String>{'accepted', 'awaiting_provider'}
-                      .contains(request.status.trim().toLowerCase()))
+                  if (<String>{
+                    'accepted',
+                    'awaiting_provider',
+                  }.contains(request.status.trim().toLowerCase()))
                     OutlinedButton(
                       onPressed: _busy
                           ? null
-                          : () => _showScheduleDialog(context, _updateProviderStatus),
+                          : () => _showScheduleDialog(
+                              context,
+                              _updateProviderStatus,
+                            ),
                       child: const Text('جدولة'),
                     ),
-                  if (<String>{'accepted', 'scheduled'}
-                      .contains(request.status.trim().toLowerCase()))
+                  if (<String>{
+                    'accepted',
+                    'scheduled',
+                  }.contains(request.status.trim().toLowerCase()))
                     OutlinedButton(
                       onPressed: _busy
                           ? null
@@ -543,8 +624,10 @@ class _ServiceRequestDetailsScreenState
                           : () => _updateProviderStatus('completed'),
                       child: const Text('إنهاء'),
                     ),
-                  if (<String>{'pending', 'awaiting_provider'}
-                      .contains(request.status.trim().toLowerCase()))
+                  if (<String>{
+                    'pending',
+                    'awaiting_provider',
+                  }.contains(request.status.trim().toLowerCase()))
                     OutlinedButton(
                       onPressed: _busy
                           ? null
@@ -571,9 +654,11 @@ bool _canAccessRequestWithSectionPolicy(
 }
 
 bool _isTerminalServiceRequestStatus(String? value) {
-  return <String>{'completed', 'cancelled', 'rejected'}.contains(
-    (value ?? '').trim().toLowerCase(),
-  );
+  return <String>{
+    'completed',
+    'cancelled',
+    'rejected',
+  }.contains((value ?? '').trim().toLowerCase());
 }
 
 class _ServiceReviewPayload {
@@ -667,8 +752,7 @@ Future<_ServiceReviewPayload?> _showReviewDialog(BuildContext context) async {
                   ),
                   SwitchListTile(
                     value: onTime,
-                    onChanged: (value) =>
-                        setDialogState(() => onTime = value),
+                    onChanged: (value) => setDialogState(() => onTime = value),
                     title: const Text('الالتزام بالموعد'),
                   ),
                   SwitchListTile(
@@ -757,7 +841,10 @@ Future<_ServiceQuotePayload?> _showQuoteDialog(BuildContext context) async {
                     child: Text('باقة ثابتة'),
                   ),
                   DropdownMenuItem(value: 'per_hour', child: Text('لكل ساعة')),
-                  DropdownMenuItem(value: 'per_visit', child: Text('لكل زيارة')),
+                  DropdownMenuItem(
+                    value: 'per_visit',
+                    child: Text('لكل زيارة'),
+                  ),
                 ],
                 onChanged: (value) => pricingModel = value ?? 'custom_quote',
               ),
@@ -777,7 +864,9 @@ Future<_ServiceQuotePayload?> _showQuoteDialog(BuildContext context) async {
               const SizedBox(height: 10),
               TextField(
                 controller: amountCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: const InputDecoration(labelText: 'السعر'),
               ),
               const SizedBox(height: 10),
@@ -807,7 +896,9 @@ Future<_ServiceQuotePayload?> _showQuoteDialog(BuildContext context) async {
               const SizedBox(height: 10),
               TextField(
                 controller: feeCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: const InputDecoration(labelText: 'رسوم الزيارة'),
               ),
               const SizedBox(height: 10),
@@ -910,7 +1001,9 @@ Future<void> _showScheduleDialog(
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(
-                  end == null ? 'اختر وقت النهاية' : 'النهاية: ${end!.toLocal()}',
+                  end == null
+                      ? 'اختر وقت النهاية'
+                      : 'النهاية: ${end!.toLocal()}',
                 ),
                 trailing: const Icon(Icons.event_available_outlined),
                 onTap: () async {

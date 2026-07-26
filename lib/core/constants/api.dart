@@ -10,7 +10,9 @@ class Api {
   static List<String> get fallbackBaseUrls {
     final envUrl = _baseUrlFromEnv.trim();
     if (envUrl.isNotEmpty) {
-      return [envUrl];
+      if (!kReleaseMode || _isAllowedReleaseBaseUrl(envUrl)) {
+        return [envUrl];
+      }
     }
 
     final prodUrl = _defaultProductionUrl.trim();
@@ -54,4 +56,17 @@ class Api {
   static String get baseUrl {
     return fallbackBaseUrls.first;
   }
+}
+
+bool _isAllowedReleaseBaseUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) return false;
+  final host = uri.host.toLowerCase();
+  return host != 'localhost' &&
+      host != '127.0.0.1' &&
+      host != '10.0.2.2' &&
+      host != '10.0.3.2' &&
+      !host.startsWith('192.168.') &&
+      !host.startsWith('10.') &&
+      !RegExp(r'^172\.(1[6-9]|2[0-9]|3[0-1])\.').hasMatch(host);
 }

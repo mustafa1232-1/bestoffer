@@ -5389,7 +5389,7 @@
   "deliveryAddressesUpdateFailed": "تعذر تحديث عنوان التوصيل.",
   "deliveryAddressesDeleteFailed": "تعذر حذف عنوان التوصيل.",
   "deliveryAddressesDefaultFailed": "تعذر تعيين العنوان الافتراضي.",
-  "authLoginFailedGeneric": "تعذر تسجيل الدخول. تحقق من رقم الهاتف والرمز السري.",
+  "authLoginFailedGeneric": "تعذر تسجيل الدخول. تحقق من رقم الهاتف والرمز وحاول مرة أخرى.",
   "authLogoutOtherDevicesFailed": "تعذر تسجيل الخروج من الأجهزة الأخرى.",
   "authLoadSessionsFailed": "تعذر تحميل الجلسات النشطة.",
   "authUpdateAccountFailedGeneric": "تعذر تحديث بيانات الحساب.",
@@ -6102,11 +6102,14 @@
   "socialCreatorTextEmpty": "اكتب نصًا أولًا",
   "settingsPrivacyPolicy": "سياسة الخصوصية",
   "settingsPrivacyPolicyHint": "كيف نجمع بياناتك ونستخدمها ونحميها",
-  "settingsDeleteAccount": "حذف حسابي",
-  "settingsDeleteAccountHint": "حذف حسابك وبياناتك المرتبطة نهائيًا.",
-  "settingsDeleteAccountConfirmTitle": "حذف الحساب؟",
-  "settingsDeleteAccountConfirmBody": "سيتم حذف حسابك وبياناتك المرتبطة نهائيًا، ولا يمكن التراجع عن هذا الإجراء.",
-  "settingsDeleteAccountConfirmAction": "حذف",
+  "settingsDeleteAccount": "حذف الحساب نهائياً",
+  "settingsDeleteAccountHint": "سيؤدي حذف الحساب إلى إلغاء إمكانية الوصول وإزالة بياناتك الشخصية التي لا يلزم الاحتفاظ بها قانونياً. لا يمكن التراجع عن هذه العملية بعد اكتمالها.",
+  "settingsDeleteAccountConfirmTitle": "حذف الحساب نهائياً",
+  "settingsDeleteAccountConfirmBody": "سيؤدي حذف الحساب إلى إلغاء إمكانية الوصول وإزالة بياناتك الشخصية التي لا يلزم الاحتفاظ بها قانونياً. لا يمكن التراجع عن هذه العملية بعد اكتمالها.",
+  "settingsDeleteAccountConfirmAction": "متابعة",
+  "settingsDeleteAccountFinalConfirmTitle": "تأكيد نهائي",
+  "settingsDeleteAccountFinalConfirmBody": "هذه العملية دائمة. سيتم إلغاء جلساتك وإزالة ملفك العام.",
+  "settingsDeleteAccountFinalConfirmAction": "أفهم ذلك، احذف حسابي",
   "settingsDeleteAccountFailed": "تعذّر حذف الحساب. حاول مجددًا."
 }
 

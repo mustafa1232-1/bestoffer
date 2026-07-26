@@ -22,8 +22,8 @@ const List<String> _forbiddenTechnicalStrings = <String>[
 
 class _FakeSettingsController extends AppSettingsController {
   _FakeSettingsController() : super(SecureStore(), storageScope: 'test') {
-    state = const AppSettingsState(
-      locale: Locale('ar'),
+    state = AppSettingsState.initial().copyWith(
+      locale: const Locale('ar'),
       animationsEnabled: false,
       weatherEffectsEnabled: false,
       themePreset: AppThemePreset.midnightBlue,
@@ -88,27 +88,26 @@ void _expectNoTechnicalStrings(WidgetTester tester) {
 }
 
 void main() {
-  testWidgets(
-    'login screen never renders a raw backend error code',
-    (tester) async {
-      await tester.pumpWidget(
-        _app(
-          const LoginScreen(),
-          overrides: [
-            authControllerProvider.overrideWith(
-              (ref) => _LeakingAuthController(ref),
-            ),
-            appSettingsControllerProvider.overrideWith(
-              (ref) => _FakeSettingsController(),
-            ),
-          ],
-        ),
-      );
-      await tester.pump();
+  testWidgets('login screen never renders a raw backend error code', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        const LoginScreen(),
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) => _LeakingAuthController(ref),
+          ),
+          appSettingsControllerProvider.overrideWith(
+            (ref) => _FakeSettingsController(),
+          ),
+        ],
+      ),
+    );
+    await tester.pump();
 
-      _expectNoTechnicalStrings(tester);
-    },
-  );
+    _expectNoTechnicalStrings(tester);
+  });
 
   testWidgets(
     'login screen does not overflow on a small phone with the keyboard open',

@@ -237,7 +237,7 @@ class ServicesApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> createProviderSubscriptionRequest(
+  Future<Map<String, dynamic>> createProviderApplication(
     Map<String, dynamic> body, {
     LocalImageFile? logoFile,
     LocalImageFile? coverFile,
@@ -258,34 +258,13 @@ class ServicesApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> getProviderSubscriptionStatus({
+  Future<Map<String, dynamic>> getProviderApplicationStatus({
     required String phone,
     required String pin,
   }) async {
     final response = await _dio.post(
-      '/api/services/provider/subscription/status',
+      '/api/services/provider/application/status',
       data: {'phone': phone, 'pin': pin},
-    );
-    return Map<String, dynamic>.from(response.data as Map);
-  }
-
-  Future<Map<String, dynamic>> respondProviderSubscriptionOffer({
-    required int requestId,
-    required String phone,
-    required String pin,
-    required String action,
-    int? offerId,
-    String? note,
-  }) async {
-    final response = await _dio.post(
-      '/api/services/provider/subscription/requests/$requestId/respond-offer',
-      data: {
-        'phone': phone,
-        'pin': pin,
-        'action': action,
-        if (offerId != null) 'offerId': offerId,
-        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
-      },
     );
     return Map<String, dynamic>.from(response.data as Map);
   }

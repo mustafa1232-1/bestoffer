@@ -19,6 +19,7 @@ import '../../../core/platform/app_flavor.dart';
 import '../data/auth_api.dart';
 import '../data/auth_repo_impl.dart';
 import '../domain/auth_repo.dart';
+import '../domain/login_error_mapper.dart';
 import '../models/user_model.dart';
 
 final secureStoreProvider = Provider<SecureStore>((ref) {
@@ -872,27 +873,7 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   String _mapLoginError(DioException e) {
-    final data = e.response?.data;
-    final code = data is Map ? '${data['message'] ?? ''}'.trim() : '';
-    if (code.toUpperCase() == 'ACCOUNT_DISABLED') {
-      final details = data is Map && data['details'] is Map
-          ? Map<String, dynamic>.from(data['details'] as Map)
-          : const <String, dynamic>{};
-      final note = '${details['note'] ?? ''}'.trim();
-      if (note.isNotEmpty) {
-        return 'الحساب معطّل من الإدارة. السبب: $note';
-      }
-      return 'الحساب معطّل من الإدارة.';
-    }
-    return mapDioError(
-      e,
-      fallback: 'Login failed. Please check your phone and PIN.',
-      customMessages: const {
-        'DELIVERY_ACCOUNT_PENDING_APPROVAL':
-            'Your account is pending admin approval.',
-      },
-      appendRequestId: true,
-    );
+    return mapLoginDioErrorForUser(e);
   }
 
   String _mapRegisterError(DioException e) {

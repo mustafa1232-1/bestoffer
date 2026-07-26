@@ -1,58 +1,57 @@
-﻿import { AppError } from '../../shared/utils/errors.js';
-import { hashPin, verifyPinDetailed } from '../../shared/utils/hash.js';
-import {
-  createUser,
-  findUserByPhone,
-} from '../auth/auth.repo.js';
-import { runWithGeneratedAppUserUsername } from '../auth/auth.service.js';
+﻿import { AppError } from "../../shared/utils/errors.js";
+import { hashPin, verifyPinDetailed } from "../../shared/utils/hash.js";
+import { createUser, findUserByPhone } from "../auth/auth.repo.js";
+import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
 import {
   createManyNotifications,
   createNotification,
-} from '../notifications/notifications.repo.js';
-import { listBackofficeUserIds } from '../paid-upgrades/paid-upgrades.repo.js';
+} from "../notifications/notifications.repo.js";
+import { listBackofficeUserIds } from "../paid-upgrades/paid-upgrades.repo.js";
 import {
   PRICING_MODE_TO_CTA,
   SERVICE_PRICING_MODELS,
-} from './services.constants.js';
-import * as repo from './services.repo.js';
+} from "./services.constants.js";
+import * as repo from "./services.repo.js";
 import {
   buildWorkspacePermissionPayload,
   hasPermission,
   SERVICE_PROVIDER_EMPLOYEE_PERMISSION_KEYS,
-} from '../../shared/workspaces/employee-permissions.js';
+} from "../../shared/workspaces/employee-permissions.js";
 
 function normalizeDigits(value) {
-  return String(value || '')
+  return String(value || "")
     .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
     .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
 }
 
 function normalizePhone(value) {
-  const digits = normalizeDigits(value).replace(/[^\d]/g, '');
-  if (digits.startsWith('00964') && digits.length >= 14) {
+  const digits = normalizeDigits(value).replace(/[^\d]/g, "");
+  if (digits.startsWith("00964") && digits.length >= 14) {
     return `0${digits.slice(5)}`;
   }
-  if (digits.startsWith('964') && digits.length >= 13) {
+  if (digits.startsWith("964") && digits.length >= 13) {
     return `0${digits.slice(3)}`;
   }
-  if (digits.startsWith('7') && digits.length === 10) {
+  if (digits.startsWith("7") && digits.length === 10) {
     return `0${digits}`;
   }
   return digits;
 }
 
 function normalizePin(value) {
-  return normalizeDigits(value).replace(/[^\d]/g, '');
+  return normalizeDigits(value).replace(/[^\d]/g, "");
 }
 
 function normalizeRole(value) {
-  return String(value || '').trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
 function toActorUserId(actor) {
   const id = Number(actor?.userId || 0);
   if (!Number.isInteger(id) || id <= 0) {
-    throw new AppError('UNAUTHORIZED', { status: 401 });
+    throw new AppError("UNAUTHORIZED", { status: 401 });
   }
   return id;
 }
@@ -61,11 +60,11 @@ function mapProviderEmployeeProfileRow(row) {
   if (!row) return null;
   const payload = buildWorkspacePermissionPayload(
     row.permissions_json,
-    'service_provider'
+    "service_provider",
   );
   return {
     id: Number(row.id),
-    roleTag: row.role_tag || 'staff',
+    roleTag: row.role_tag || "staff",
     displayName: row.display_name || null,
     contactEmail: row.contact_email || null,
     permissions: payload.permissions,
@@ -84,83 +83,90 @@ function mapProviderEmployeeRow(row) {
   if (!row) return null;
   return {
     userId: Number(row.id),
-    fullName: row.full_name || '',
-    phone: row.phone || '',
-    role: row.role || 'service_provider',
+    fullName: row.full_name || "",
+    phone: row.phone || "",
+    role: row.role || "service_provider",
     imageUrl: row.image_url || null,
     displayName: row.display_name || row.full_name || null,
     contactEmail: row.contact_email || null,
-    profile: row.employee_profile_id ? mapProviderEmployeeProfileRow(row) : null,
+    profile: row.employee_profile_id
+      ? mapProviderEmployeeProfileRow(row)
+      : null,
   };
 }
 
 function mapProviderEmployeeActivityLog(row) {
   return {
     id: Number(row.id),
-    workspaceKind: row.workspace_kind || 'service_provider',
+    workspaceKind: row.workspace_kind || "service_provider",
     workspaceId: Number(row.workspace_id),
     employeeProfileId:
       row.employee_profile_id == null ? null : Number(row.employee_profile_id),
     employeeUserId: Number(row.employee_user_id),
-    employeeFullName: row.employee_full_name || '',
-    employeePhone: row.employee_phone || '',
+    employeeFullName: row.employee_full_name || "",
+    employeePhone: row.employee_phone || "",
     actorUserId: row.actor_user_id == null ? null : Number(row.actor_user_id),
     actorFullName: row.actor_full_name || null,
-    actorRole: row.actor_role || '',
-    actionKey: row.action_key || '',
+    actorRole: row.actor_role || "",
+    actionKey: row.action_key || "",
     reason: row.reason || null,
     oldValue:
-      row.old_value && typeof row.old_value === 'object' ? row.old_value : {},
+      row.old_value && typeof row.old_value === "object" ? row.old_value : {},
     newValue:
-      row.new_value && typeof row.new_value === 'object' ? row.new_value : {},
+      row.new_value && typeof row.new_value === "object" ? row.new_value : {},
     note: row.note || null,
     createdAt: row.created_at || null,
   };
 }
 
 const FREE_PROVIDER_APPLICATION_STATES = new Set([
-  'not_submitted',
-  'draft',
-  'submitted',
-  'under_review',
-  'approved',
-  'rejected',
-  'suspended',
+  "not_submitted",
+  "draft",
+  "submitted",
+  "under_review",
+  "approved",
+  "rejected",
+  "suspended",
 ]);
 
 const LEGACY_PROVIDER_PAYMENT_STATES = new Set([
-  'pending_offer',
-  'offer_sent',
-  'offer_accepted',
-  'offer_rejected',
-  'payment_pending_confirmation',
-  'payment_confirmed',
-  'account_created',
-  'cancelled',
+  "pending_offer",
+  "offer_sent",
+  "offer_accepted",
+  "offer_rejected",
+  "payment_pending_confirmation",
+  "payment_confirmed",
+  "account_created",
+  "cancelled",
 ]);
 
+const FREE_PROVIDER_COMMISSION_POLICY_NOTE =
+  "Provider account policy applied to old and new accounts. Registration is free; Maslaki records a 10% commission on each completed booking. Cash is handled through the office and electronic payment is not available yet.";
+
 function normalizeProviderApplicationState(value) {
-  const status = String(value || '').trim().toLowerCase();
+  const status = String(value || "")
+    .trim()
+    .toLowerCase();
   switch (status) {
-    case 'pending':
-    case 'pending_review':
-    case 'submitted':
-    case 'under_review':
-      return 'under_review';
-    case 'approved':
-      return 'approved';
-    case 'rejected':
-      return 'rejected';
-    case 'suspended':
-      return 'suspended';
-    case 'draft':
-      return 'draft';
-    case 'not_submitted':
-      return 'not_submitted';
+    case "pending":
+    case "pending_review":
+    case "submitted":
+    case "under_review":
+      return "under_review";
+    case "approved":
+      return "approved";
+    case "rejected":
+      return "rejected";
+    case "suspended":
+      return "suspended";
+    case "draft":
+      return "draft";
+    case "not_submitted":
+      return "not_submitted";
     default:
       return LEGACY_PROVIDER_PAYMENT_STATES.has(status)
-        ? 'under_review'
-        : 'under_review';
+        ? "under_review"
+        : "under_review";
   }
 }
 
@@ -171,49 +177,52 @@ function mapFreeProviderApplicationProgress({
   legacyRequest = null,
 }) {
   const legacyStatus = legacyRequest
-    ? String(legacyRequest.status || '').trim().toLowerCase()
-    : '';
-  const hasLegacyPaymentState = LEGACY_PROVIDER_PAYMENT_STATES.has(legacyStatus);
+    ? String(legacyRequest.status || "")
+        .trim()
+        .toLowerCase()
+    : "";
+  const hasLegacyPaymentState =
+    LEGACY_PROVIDER_PAYMENT_STATES.has(legacyStatus);
   const status = provider
     ? normalizeProviderApplicationState(provider.providerApprovalStatus)
     : submitted
-      ? 'submitted'
-      : normalizeProviderApplicationState(legacyStatus || 'not_submitted');
+      ? "submitted"
+      : normalizeProviderApplicationState(legacyStatus || "not_submitted");
   const normalizedStatus = FREE_PROVIDER_APPLICATION_STATES.has(status)
     ? status
-    : 'under_review';
+    : "under_review";
   const nextAction =
-    normalizedStatus === 'approved'
-      ? 'login_available'
-      : normalizedStatus === 'rejected'
-        ? 'review_rejection_reason'
-        : normalizedStatus === 'suspended'
-          ? 'contact_support'
-          : 'wait_admin_review';
+    normalizedStatus === "approved"
+      ? "login_available"
+      : normalizedStatus === "rejected"
+        ? "review_rejection_reason"
+        : normalizedStatus === "suspended"
+          ? "contact_support"
+          : "wait_admin_review";
 
   return {
     application: provider
       ? {
           id: provider.id,
           applicationCode: `SP-${provider.id}`,
-          businessName: provider.businessName || '',
-          phone: provider.phone || '',
-          providerApprovalStatus: provider.providerApprovalStatus || 'pending',
+          businessName: provider.businessName || "",
+          phone: provider.phone || "",
+          providerApprovalStatus: provider.providerApprovalStatus || "pending",
           approvalNote: provider.approvalNote || null,
         }
       : legacyRequest
         ? {
             id: legacyRequest.id,
-            applicationCode: legacyRequest.requestCode || '',
-            businessName: legacyRequest.businessName || '',
-            phone: legacyRequest.phone || '',
+            applicationCode: legacyRequest.requestCode || "",
+            businessName: legacyRequest.businessName || "",
+            phone: legacyRequest.phone || "",
             legacyStatus,
             approvalNote: legacyRequest.statusNote || null,
           }
         : null,
     status: normalizedStatus,
     nextAction,
-    canLogin: normalizedStatus === 'approved',
+    canLogin: normalizedStatus === "approved",
     requiresProviderAction: false,
     reusedExistingApplication,
     compatibilityWarning: hasLegacyPaymentState,
@@ -221,31 +230,40 @@ function mapFreeProviderApplicationProgress({
 }
 
 function pricingCta(pricingModel) {
-  const key = String(pricingModel || '').trim().toLowerCase();
-  return PRICING_MODE_TO_CTA[key] || 'Ø§Ø·Ù„Ø¨ Ø§Ù„Ø®Ø¯Ù…Ø©';
+  const key = String(pricingModel || "")
+    .trim()
+    .toLowerCase();
+  return PRICING_MODE_TO_CTA[key] || "Ø§Ø·Ù„Ø¨ Ø§Ù„Ø®Ø¯Ù…Ø©";
 }
 
 function attachPricingDisplay(item) {
-  const pricing = Array.isArray(item?.pricingOptions) ? item.pricingOptions : [];
+  const pricing = Array.isArray(item?.pricingOptions)
+    ? item.pricingOptions
+    : [];
   const lead = pricing.find((x) => x.isDefault) || pricing[0] || null;
   if (!lead) {
     return {
       ...item,
-      displayPriceText: 'Ø¨Ø¹Ø¯ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©',
-      bookingCta: 'Ø§Ø·Ù„Ø¨ ØªØ³Ø¹ÙŠØ±',
+      displayPriceText: "Ø¨Ø¹Ø¯ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©",
+      bookingCta: "Ø§Ø·Ù„Ø¨ ØªØ³Ø¹ÙŠØ±",
       leadPricing: null,
     };
   }
 
-  const model = String(lead.pricingModel || '').trim().toLowerCase();
+  const model = String(lead.pricingModel || "")
+    .trim()
+    .toLowerCase();
   const amount = lead.amount == null ? null : Number(lead.amount);
-  let displayPriceText = 'Ø¨Ø¹Ø¯ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©';
-  if (model === 'starting_from' && amount != null) {
+  let displayPriceText = "Ø¨Ø¹Ø¯ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©";
+  if (model === "starting_from" && amount != null) {
     displayPriceText = `ÙŠØ¨Ø¯Ø£ Ù…Ù† ${amount}`;
-  } else if (['inspection_required', 'custom_quote'].includes(model)) {
-    displayPriceText = model === 'inspection_required' ? 'Ø­Ø³Ø¨ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©' : 'ØªØ³Ø¹ÙŠØ± Ù…Ø®ØµØµ';
+  } else if (["inspection_required", "custom_quote"].includes(model)) {
+    displayPriceText =
+      model === "inspection_required"
+        ? "Ø­Ø³Ø¨ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©"
+        : "ØªØ³Ø¹ÙŠØ± Ù…Ø®ØµØµ";
   } else if (amount != null) {
-    displayPriceText = `${amount} / ${lead.pricingUnit || 'Ø®Ø¯Ù…Ø©'}`;
+    displayPriceText = `${amount} / ${lead.pricingUnit || "Ø®Ø¯Ù…Ø©"}`;
   }
 
   return {
@@ -260,7 +278,7 @@ async function notifyBackoffice(payloadFactory) {
   const adminIds = await listBackofficeUserIds().catch(() => []);
   if (!Array.isArray(adminIds) || adminIds.length === 0) return;
   await createManyNotifications(
-    adminIds.map((id) => payloadFactory(Number(id))).filter(Boolean)
+    adminIds.map((id) => payloadFactory(Number(id))).filter(Boolean),
   ).catch(() => {});
 }
 
@@ -271,18 +289,22 @@ async function notifyOfferingModerationToProvider({
 }) {
   if (!offering?.providerId || !offering?.id) return;
 
-  const provider = await repo.getProviderByIdForAdmin(offering.providerId).catch(() => null);
+  const provider = await repo
+    .getProviderByIdForAdmin(offering.providerId)
+    .catch(() => null);
   if (!provider?.userId) return;
 
   const recipients = new Map();
   recipients.set(Number(provider.userId), {
     userId: Number(provider.userId),
-    type: `services.offering.status.${String(status || 'pending').trim().toLowerCase()}`,
-    title: 'تحديث على الخدمة',
+    type: `services.offering.status.${String(status || "pending")
+      .trim()
+      .toLowerCase()}`,
+    title: "تحديث على الخدمة",
     body: `${offering.name} تم تحديثها.`,
     payload: {
-      target: 'services_provider_workspace',
-      targetModule: 'customer',
+      target: "services_provider_workspace",
+      targetModule: "customer",
       providerId: offering.providerId,
       offeringId: offering.id,
       requiresAction: false,
@@ -292,19 +314,21 @@ async function notifyOfferingModerationToProvider({
   const employees = await repo
     .listActiveProviderNotificationRecipients({
       providerId: offering.providerId,
-      requiredPermissions: ['edit_services'],
+      requiredPermissions: ["edit_services"],
     })
     .catch(() => []);
   for (const employee of employees) {
     if (!employee?.userId) continue;
     recipients.set(Number(employee.userId), {
       userId: Number(employee.userId),
-      type: `services.offering.status.${String(status || 'pending').trim().toLowerCase()}`,
-      title: 'تحديث على الخدمة',
+      type: `services.offering.status.${String(status || "pending")
+        .trim()
+        .toLowerCase()}`,
+      title: "تحديث على الخدمة",
       body: `${offering.name} تم تحديثها.`,
       payload: {
-        target: 'services_provider_workspace',
-        targetModule: 'customer',
+        target: "services_provider_workspace",
+        targetModule: "customer",
         providerId: offering.providerId,
         offeringId: offering.id,
         requiresAction: false,
@@ -312,13 +336,15 @@ async function notifyOfferingModerationToProvider({
     });
   }
 
-  const normalizedStatus = String(status || 'pending').trim().toLowerCase();
+  const normalizedStatus = String(status || "pending")
+    .trim()
+    .toLowerCase();
   const titleMap = {
-    approved: 'تمت الموافقة على الخدمة',
-    rejected: 'تم رفض الخدمة',
-    changes_requested: 'تحتاج الخدمة إلى تعديلات',
-    hidden: 'تم إخفاء الخدمة',
-    pending: 'تحديث على الخدمة',
+    approved: "تمت الموافقة على الخدمة",
+    rejected: "تم رفض الخدمة",
+    changes_requested: "تحتاج الخدمة إلى تعديلات",
+    hidden: "تم إخفاء الخدمة",
+    pending: "تحديث على الخدمة",
   };
   const bodyMap = {
     approved: `${offering.name} أصبحت جاهزة للنشر.`,
@@ -327,34 +353,34 @@ async function notifyOfferingModerationToProvider({
     hidden: `${offering.name} تم إخفاؤها من الإدارة.`,
     pending: `${offering.name} تم تحديثها وتنتظر مراجعة جديدة.`,
   };
-  const details = note ? `\n${note}` : '';
+  const details = note ? `\n${note}` : "";
 
   await createManyNotifications(
     [...recipients.values()].map((item) => ({
       ...item,
-      title: titleMap[normalizedStatus] || 'تحديث على الخدمة',
+      title: titleMap[normalizedStatus] || "تحديث على الخدمة",
       body: `${bodyMap[normalizedStatus] || `${offering.name} تم تحديثها.`}${details}`,
       payload: {
         ...item.payload,
         moderationStatus: normalizedStatus,
         moderationNote: note || offering.moderationNote || null,
-        requiresAction: normalizedStatus !== 'approved',
+        requiresAction: normalizedStatus !== "approved",
       },
-    }))
+    })),
   ).catch(() => {});
 }
 
 async function ensureProviderExists(userId) {
   const provider = await repo.getProviderProfileByUserId(userId);
   if (!provider) {
-    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_PROVIDER_PROFILE_NOT_FOUND", { status: 404 });
   }
   return provider;
 }
 
 function assertRoleIsServiceProvider(userRole) {
-  if (String(userRole || '').toLowerCase() !== 'service_provider') {
-    throw new AppError('FORBIDDEN_SERVICE_PROVIDER_ONLY', { status: 403 });
+  if (String(userRole || "").toLowerCase() !== "service_provider") {
+    throw new AppError("FORBIDDEN_SERVICE_PROVIDER_ONLY", { status: 403 });
   }
 }
 
@@ -365,7 +391,7 @@ async function resolveProviderAccess({ userId, userRole }) {
   if (ownerProvider) {
     const ownerPermissions = buildWorkspacePermissionPayload(
       SERVICE_PROVIDER_EMPLOYEE_PERMISSION_KEYS,
-      'service_provider'
+      "service_provider",
     );
     return {
       provider: ownerProvider,
@@ -378,7 +404,7 @@ async function resolveProviderAccess({ userId, userRole }) {
 
   const employeeAccess = await repo.findProviderByEmployeeUserId(actorUserId);
   if (!employeeAccess?.provider) {
-    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_PROVIDER_PROFILE_NOT_FOUND", { status: 404 });
   }
 
   return {
@@ -388,17 +414,17 @@ async function resolveProviderAccess({ userId, userRole }) {
     permissions: employeeAccess.employeeProfile?.permissions || [],
     permissionMap: buildWorkspacePermissionPayload(
       employeeAccess.employeeProfile?.permissions || [],
-      'service_provider'
+      "service_provider",
     ).permissionMap,
   };
 }
 
 function assertProviderApproved(provider) {
   const status = normalizeProviderApplicationState(
-    provider?.providerApprovalStatus
+    provider?.providerApprovalStatus,
   );
-  if (status !== 'approved') {
-    throw new AppError('SERVICE_PROVIDER_APPLICATION_UNDER_REVIEW', {
+  if (status !== "approved") {
+    throw new AppError("SERVICE_PROVIDER_APPLICATION_UNDER_REVIEW", {
       status: 403,
       details: { status },
     });
@@ -410,45 +436,54 @@ async function ensureProviderPermission(actor, permission) {
   assertProviderApproved(access.provider);
   if (access.isOwner) return access;
   if (!hasPermission(access.employeeProfile?.permissions || [], permission)) {
-    throw new AppError('FORBIDDEN_SERVICE_PROVIDER_PERMISSION', { status: 403 });
+    throw new AppError("FORBIDDEN_SERVICE_PROVIDER_PERMISSION", {
+      status: 403,
+    });
   }
   return access;
 }
 
-export async function registerServiceProvider(dto, assets = {}, _deviceContext = {}) {
+export async function registerServiceProvider(
+  dto,
+  assets = {},
+  _deviceContext = {},
+) {
   const phone = normalizePhone(dto.phone);
   const pin = normalizePin(dto.pin);
 
   if (!phone) {
-    throw new AppError('VALIDATION_ERROR', {
+    throw new AppError("VALIDATION_ERROR", {
       status: 400,
-      details: { fields: ['phone'] },
+      details: { fields: ["phone"] },
     });
   }
   if (!pin || !/^\d{4,8}$/.test(pin)) {
-    throw new AppError('VALIDATION_ERROR', {
+    throw new AppError("VALIDATION_ERROR", {
       status: 400,
-      details: { fields: ['pin'] },
+      details: { fields: ["pin"] },
     });
   }
 
-  const fullName = String(dto.fullName || dto.businessName || '').trim();
+  const fullName = String(dto.fullName || dto.businessName || "").trim();
   if (!fullName) {
-    throw new AppError('VALIDATION_ERROR', {
+    throw new AppError("VALIDATION_ERROR", {
       status: 400,
-      details: { fields: ['fullName'] },
+      details: { fields: ["fullName"] },
     });
   }
 
   const existingUser = await findUserByPhone(phone);
   let user = existingUser || null;
   if (existingUser) {
-    if (String(existingUser.role || '').toLowerCase() !== 'service_provider') {
-      throw new AppError('PHONE_EXISTS', { status: 409 });
+    if (String(existingUser.role || "").toLowerCase() !== "service_provider") {
+      throw new AppError("PHONE_EXISTS", { status: 409 });
     }
-    const pinVerification = await verifyPinDetailed(pin, existingUser.pin_hash || '');
+    const pinVerification = await verifyPinDetailed(
+      pin,
+      existingUser.pin_hash || "",
+    );
     if (!pinVerification.ok) {
-      throw new AppError('INVALID_CREDENTIALS', { status: 401 });
+      throw new AppError("INVALID_CREDENTIALS", { status: 401 });
     }
   } else {
     const pinHash = await hashPin(pin);
@@ -461,13 +496,13 @@ export async function registerServiceProvider(dto, assets = {}, _deviceContext =
           username,
           phone,
           pinHash,
-          block: 'A1',
-          buildingNumber: 'A101',
-          apartment: '101',
+          block: "A1",
+          buildingNumber: "A101",
+          apartment: "101",
           imageUrl: assets.logoUrl || null,
-          role: 'service_provider',
+          role: "service_provider",
           analyticsConsentGranted: true,
-          analyticsConsentVersion: 'analytics_v1',
+          analyticsConsentVersion: "analytics_v1",
           analyticsConsentGrantedAt: new Date().toISOString(),
         });
       },
@@ -483,28 +518,21 @@ export async function registerServiceProvider(dto, assets = {}, _deviceContext =
         ...dto,
         phone,
         businessName: dto.businessName || fullName,
+        acceptsCash: true,
+        acceptsElectronic: false,
       },
       assets,
       moderation: {
-        approvalStatus: 'pending',
-        approvalNote: 'Submitted for free provider review',
+        approvalStatus: "approved",
+        approvalNote: FREE_PROVIDER_COMMISSION_POLICY_NOTE,
+        approvedAt: new Date().toISOString(),
       },
     });
-  }
-
-  if (!reusedExistingApplication) {
-    await notifyBackoffice((adminUserId) => ({
-      userId: adminUserId,
-      type: 'services.provider.application.submitted',
-      title: 'طلب تسجيل مقدم خدمة جديد',
-      body: `${provider.businessName || fullName} أرسل طلب تسجيل مجاني للمراجعة.`,
-      payload: {
-        target: 'admin_services_pending_providers',
-        targetModule: 'admin',
-        providerId: provider.id,
-        requiresAction: true,
-      },
-    }));
+  } else {
+    provider = await repo.normalizeProviderFreeCommissionPolicyByUserId({
+      userId: user.id,
+      approvalNote: FREE_PROVIDER_COMMISSION_POLICY_NOTE,
+    });
   }
 
   return mapFreeProviderApplicationProgress({
@@ -518,78 +546,80 @@ export async function getProviderSubscriptionStatus({ phone, pin }) {
   const normalizedPhone = normalizePhone(phone);
   const normalizedPin = normalizePin(pin);
   if (!normalizedPhone || !normalizedPin) {
-    throw new AppError('VALIDATION_ERROR', {
+    throw new AppError("VALIDATION_ERROR", {
       status: 400,
-      details: { fields: ['phone', 'pin'] },
+      details: { fields: ["phone", "pin"] },
     });
   }
 
   const user = await findUserByPhone(normalizedPhone);
   if (user) {
-    if (String(user.role || '').toLowerCase() !== 'service_provider') {
-      throw new AppError('SERVICE_PROVIDER_APPLICATION_NOT_FOUND', {
+    if (String(user.role || "").toLowerCase() !== "service_provider") {
+      throw new AppError("SERVICE_PROVIDER_APPLICATION_NOT_FOUND", {
         status: 404,
       });
     }
     const pinVerification = await verifyPinDetailed(
       normalizedPin,
-      user.pin_hash || ''
+      user.pin_hash || "",
     );
     if (!pinVerification.ok) {
-      throw new AppError('INVALID_CREDENTIALS', { status: 401 });
+      throw new AppError("INVALID_CREDENTIALS", { status: 401 });
     }
-    const provider = await repo.getProviderProfileByUserId(user.id);
+    let provider = await repo.getProviderProfileByUserId(user.id);
     if (!provider) {
-      throw new AppError('SERVICE_PROVIDER_APPLICATION_NOT_FOUND', {
+      throw new AppError("SERVICE_PROVIDER_APPLICATION_NOT_FOUND", {
         status: 404,
       });
     }
+    provider = await repo.normalizeProviderFreeCommissionPolicyByUserId({
+      userId: user.id,
+      approvalNote: FREE_PROVIDER_COMMISSION_POLICY_NOTE,
+    });
     return mapFreeProviderApplicationProgress({ provider });
   }
 
-  const authRow = await repo.getProviderSubscriptionRequestAuthByPhone(
-    normalizedPhone
-  );
+  const authRow =
+    await repo.getProviderSubscriptionRequestAuthByPhone(normalizedPhone);
   if (!authRow) {
-    throw new AppError('SERVICE_PROVIDER_APPLICATION_NOT_FOUND', {
+    throw new AppError("SERVICE_PROVIDER_APPLICATION_NOT_FOUND", {
       status: 404,
     });
   }
 
   const pinVerification = await verifyPinDetailed(
     normalizedPin,
-    authRow.pin_hash || ''
+    authRow.pin_hash || "",
   );
   if (!pinVerification.ok) {
-    throw new AppError('INVALID_CREDENTIALS', { status: 401 });
+    throw new AppError("INVALID_CREDENTIALS", { status: 401 });
   }
   if (pinVerification.needsUpgrade) {
-    await repo.updateProviderSubscriptionRequestPinHash(
-      authRow.id,
-      await hashPin(normalizedPin)
-    ).catch(() => null);
+    await repo
+      .updateProviderSubscriptionRequestPinHash(
+        authRow.id,
+        await hashPin(normalizedPin),
+      )
+      .catch(() => null);
   }
 
   const request = await repo.getProviderSubscriptionRequestById(authRow.id);
   if (!request) {
-    throw new AppError('SERVICE_PROVIDER_SUBSCRIPTION_REQUEST_NOT_FOUND', {
+    throw new AppError("SERVICE_PROVIDER_SUBSCRIPTION_REQUEST_NOT_FOUND", {
       status: 404,
     });
   }
   return mapFreeProviderApplicationProgress({ legacyRequest: request });
 }
 
-export async function respondProviderSubscriptionOffer({
-  requestId,
-  dto,
-}) {
-  throw new AppError('SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED', {
+export async function respondProviderSubscriptionOffer({ requestId, dto }) {
+  throw new AppError("SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED", {
     status: 410,
   });
 }
 
 export async function listProviderSubscriptionRequestsForAdmin({ query }) {
-  throw new AppError('SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED', {
+  throw new AppError("SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED", {
     status: 410,
   });
 }
@@ -599,7 +629,7 @@ export async function adminSendProviderSubscriptionOffer({
   dto,
   adminUserId,
 }) {
-  throw new AppError('SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED', {
+  throw new AppError("SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED", {
     status: 410,
   });
 }
@@ -609,7 +639,7 @@ export async function adminRejectProviderSubscriptionRequest({
   dto,
   adminUserId,
 }) {
-  throw new AppError('SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED', {
+  throw new AppError("SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED", {
     status: 410,
   });
 }
@@ -619,25 +649,26 @@ export async function adminConfirmProviderSubscriptionCashPayment({
   dto,
   adminUserId,
 }) {
-  throw new AppError('SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED', {
+  throw new AppError("SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED", {
     status: 410,
   });
 }
 
-export async function listPublicCategories({ q = '' } = {}) {
+export async function listPublicCategories({ q = "" } = {}) {
   return repo.listPublicCategories({ q });
 }
 
 export async function createPublicCategory({ userId, dto }) {
   const actorUserId = Number(userId);
   if (!Number.isInteger(actorUserId) || actorUserId <= 0) {
-    throw new AppError('UNAUTHORIZED', { status: 401 });
+    throw new AppError("UNAUTHORIZED", { status: 401 });
   }
-  const parentCategoryId = dto.parentCategoryId == null ? null : Number(dto.parentCategoryId);
+  const parentCategoryId =
+    dto.parentCategoryId == null ? null : Number(dto.parentCategoryId);
   if (parentCategoryId != null) {
     const parent = await repo.getPublicCategoryById(parentCategoryId);
     if (!parent || parent.level !== 1) {
-      throw new AppError('SERVICE_CATEGORY_PARENT_NOT_FOUND', { status: 404 });
+      throw new AppError("SERVICE_CATEGORY_PARENT_NOT_FOUND", { status: 404 });
     }
   }
   return repo.createPublicCategory({
@@ -656,11 +687,13 @@ export async function getPublicProvider(providerId, viewerUserId = null) {
   const provider = await repo.getPublicProviderById(providerId);
   if (!provider) return null;
   if (viewerUserId) {
-    await repo.recordRecentView({
-      userId: viewerUserId,
-      providerId: provider.id,
-      offeringId: null,
-    }).catch(() => {});
+    await repo
+      .recordRecentView({
+        userId: viewerUserId,
+        providerId: provider.id,
+        offeringId: null,
+      })
+      .catch(() => {});
   }
   return provider;
 }
@@ -669,11 +702,13 @@ export async function getPublicOffering(offeringId, viewerUserId = null) {
   const offering = await repo.getPublicOfferingById(offeringId);
   if (!offering) return null;
   if (viewerUserId) {
-    await repo.recordRecentView({
-      userId: viewerUserId,
-      providerId: offering.providerId,
-      offeringId: offering.id,
-    }).catch(() => {});
+    await repo
+      .recordRecentView({
+        userId: viewerUserId,
+        providerId: offering.providerId,
+        offeringId: offering.id,
+      })
+      .catch(() => {});
   }
   return attachPricingDisplay(offering);
 }
@@ -683,17 +718,21 @@ export async function getProviderWorkspace({ userId, userRole }) {
   assertProviderApproved(access.provider);
   const workspace = await repo.listProviderWorkspace(userId);
   if (!workspace) {
-    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_PROVIDER_PROFILE_NOT_FOUND", { status: 404 });
   }
-  const canViewRequests = access.isOwner || hasPermission(access.permissions, 'view_service_requests');
-  const canManageEmployees = access.isOwner || hasPermission(access.permissions, 'manage_employees');
-  const canViewAuditLog = access.isOwner || hasPermission(access.permissions, 'view_audit_log');
+  const canViewRequests =
+    access.isOwner ||
+    hasPermission(access.permissions, "view_service_requests");
+  const canManageEmployees =
+    access.isOwner || hasPermission(access.permissions, "manage_employees");
+  const canViewAuditLog =
+    access.isOwner || hasPermission(access.permissions, "view_audit_log");
   const employeePermissions = access.isOwner
     ? SERVICE_PROVIDER_EMPLOYEE_PERMISSION_KEYS
     : access.permissions;
   const permissionPayload = buildWorkspacePermissionPayload(
     employeePermissions,
-    'service_provider'
+    "service_provider",
   );
 
   const employees = canManageEmployees
@@ -729,17 +768,22 @@ export async function getProviderProfile({ userId, userRole }) {
   return ensureProviderExists(userId);
 }
 
-export async function updateProviderProfile({ userId, userRole, dto, assets = {} }) {
+export async function updateProviderProfile({
+  userId,
+  userRole,
+  dto,
+  assets = {},
+}) {
   const access = await ensureProviderPermission(
     { userId, userRole },
-    'manage_service_profile'
+    "manage_service_profile",
   );
   const profile = await repo.updateProviderProfile({ userId, dto, assets });
   if (!profile) {
-    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_PROVIDER_PROFILE_NOT_FOUND", { status: 404 });
   }
   if (!access.provider) {
-    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_PROVIDER_PROFILE_NOT_FOUND", { status: 404 });
   }
   return profile;
 }
@@ -750,14 +794,14 @@ export async function createOffering({
   dto,
   mediaUrls = [],
 }) {
-  await ensureProviderPermission({ userId, userRole }, 'create_services');
+  await ensureProviderPermission({ userId, userRole }, "create_services");
   const offering = await repo.createOfferingForProvider({
     userId,
     dto,
     mediaUrls,
   });
   if (!offering) {
-    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_PROVIDER_PROFILE_NOT_FOUND", { status: 404 });
   }
   return offering;
 }
@@ -769,7 +813,7 @@ export async function updateOffering({
   dto,
   mediaUrls = [],
 }) {
-  await ensureProviderPermission({ userId, userRole }, 'edit_services');
+  await ensureProviderPermission({ userId, userRole }, "edit_services");
   const offering = await repo.updateOfferingForProvider({
     userId,
     offeringId,
@@ -777,7 +821,7 @@ export async function updateOffering({
     mediaUrls,
   });
   if (!offering) {
-    throw new AppError('SERVICE_OFFERING_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_OFFERING_NOT_FOUND", { status: 404 });
   }
   return offering;
 }
@@ -788,19 +832,21 @@ export async function replaceOfferingPricing({
   offeringId,
   pricingOptions,
 }) {
-  await ensureProviderPermission({ userId, userRole }, 'edit_services');
+  await ensureProviderPermission({ userId, userRole }, "edit_services");
   if (!Array.isArray(pricingOptions) || pricingOptions.length === 0) {
-    throw new AppError('VALIDATION_ERROR', {
+    throw new AppError("VALIDATION_ERROR", {
       status: 400,
-      details: { fields: ['pricingOptions'] },
+      details: { fields: ["pricingOptions"] },
     });
   }
   for (const item of pricingOptions) {
-    const model = String(item?.pricingModel || '').trim().toLowerCase();
+    const model = String(item?.pricingModel || "")
+      .trim()
+      .toLowerCase();
     if (!SERVICE_PRICING_MODELS.includes(model)) {
-      throw new AppError('VALIDATION_ERROR', {
+      throw new AppError("VALIDATION_ERROR", {
         status: 400,
-        details: { fields: ['pricingModel'] },
+        details: { fields: ["pricingModel"] },
       });
     }
   }
@@ -810,31 +856,26 @@ export async function replaceOfferingPricing({
     pricingOptions,
   });
   if (!offering) {
-    throw new AppError('SERVICE_OFFERING_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_OFFERING_NOT_FOUND", { status: 404 });
   }
   return offering;
 }
 
 export async function createPromotion({ userId, userRole, dto }) {
-  await ensureProviderPermission({ userId, userRole }, 'manage_offers');
+  await ensureProviderPermission({ userId, userRole }, "manage_offers");
   const promotion = await repo.createPromotionForProvider({ userId, dto });
   if (!promotion) {
-    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_PROVIDER_PROFILE_NOT_FOUND", { status: 404 });
   }
   return promotion;
 }
 
-export async function createPortfolioItem({
-  userId,
-  userRole,
-  dto,
-  mediaUrl,
-}) {
-  await ensureProviderPermission({ userId, userRole }, 'edit_services');
+export async function createPortfolioItem({ userId, userRole, dto, mediaUrl }) {
+  await ensureProviderPermission({ userId, userRole }, "edit_services");
   if (!mediaUrl) {
-    throw new AppError('VALIDATION_ERROR', {
+    throw new AppError("VALIDATION_ERROR", {
       status: 400,
-      details: { fields: ['mediaUrl'] },
+      details: { fields: ["mediaUrl"] },
     });
   }
   const item = await repo.createPortfolioItemForProvider({
@@ -843,16 +884,16 @@ export async function createPortfolioItem({
     mediaUrl,
   });
   if (!item) {
-    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_PROVIDER_PROFILE_NOT_FOUND", { status: 404 });
   }
   return item;
 }
 
 export async function deletePortfolioItem({ userId, userRole, portfolioId }) {
-  await ensureProviderPermission({ userId, userRole }, 'edit_services');
+  await ensureProviderPermission({ userId, userRole }, "edit_services");
   const ok = await repo.deletePortfolioItemForProvider({ userId, portfolioId });
   if (!ok) {
-    throw new AppError('SERVICE_PORTFOLIO_ITEM_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_PORTFOLIO_ITEM_NOT_FOUND", { status: 404 });
   }
   return { deleted: true };
 }
@@ -868,30 +909,30 @@ export async function listMyCategorySuggestions({ userId, userRole, query }) {
 }
 
 export async function listProviderRequests({ userId, userRole, query }) {
-  await ensureProviderPermission({ userId, userRole }, 'view_service_requests');
+  await ensureProviderPermission({ userId, userRole }, "view_service_requests");
   return repo.listProviderRequestsByUser({ userId, query });
 }
 
 export async function createQuote({ userId, userRole, requestId, dto }) {
-  await ensureProviderPermission({ userId, userRole }, 'view_service_requests');
+  await ensureProviderPermission({ userId, userRole }, "view_service_requests");
   const quote = await repo.createQuoteForRequest({
     userId,
     requestId,
     dto,
   });
   if (!quote) {
-    throw new AppError('SERVICE_REQUEST_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
   }
   const request = await repo.getServiceRequestForUser({ userId, requestId });
   if (request?.customerUserId) {
     await createNotification({
       userId: Number(request.customerUserId),
-      type: 'services.request.quote_received',
-      title: 'ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø¹Ø±Ø¶ Ø³Ø¹Ø± Ù„Ø·Ù„Ø¨Ùƒ',
-      body: 'Ø±Ø§Ø¬Ø¹ Ø§Ù„Ø¹Ø±Ø¶ Ø§Ù„Ø¬Ø¯ÙŠØ¯ ÙˆÙ‚Ø±Ø± Ø§Ù„Ù‚Ø¨ÙˆÙ„ Ø£Ùˆ Ø§Ù„Ø±ÙØ¶.',
+      type: "services.request.quote_received",
+      title: "ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø¹Ø±Ø¶ Ø³Ø¹Ø± Ù„Ø·Ù„Ø¨Ùƒ",
+      body: "Ø±Ø§Ø¬Ø¹ Ø§Ù„Ø¹Ø±Ø¶ Ø§Ù„Ø¬Ø¯ÙŠØ¯ ÙˆÙ‚Ø±Ø± Ø§Ù„Ù‚Ø¨ÙˆÙ„ Ø£Ùˆ Ø§Ù„Ø±ÙØ¶.",
       payload: {
-        target: 'service_request_details',
-        targetModule: 'customer',
+        target: "service_request_details",
+        targetModule: "customer",
         requestId: Number(requestId),
         quoteId: quote.id,
         requiresAction: true,
@@ -907,15 +948,28 @@ export async function updateRequestStatusByProvider({
   requestId,
   dto,
 }) {
-  const normalizedStatus = String(dto.status || '').trim().toLowerCase();
-  if (normalizedStatus === 'rejected') {
-    await ensureProviderPermission({ userId, userRole }, 'reject_service_requests');
+  const normalizedStatus = String(dto.status || "")
+    .trim()
+    .toLowerCase();
+  if (normalizedStatus === "rejected") {
+    await ensureProviderPermission(
+      { userId, userRole },
+      "reject_service_requests",
+    );
   } else if (
-    ['accepted', 'scheduled', 'in_progress', 'completed'].includes(normalizedStatus)
+    ["accepted", "scheduled", "in_progress", "completed"].includes(
+      normalizedStatus,
+    )
   ) {
-    await ensureProviderPermission({ userId, userRole }, 'accept_service_requests');
+    await ensureProviderPermission(
+      { userId, userRole },
+      "accept_service_requests",
+    );
   } else {
-    await ensureProviderPermission({ userId, userRole }, 'view_service_requests');
+    await ensureProviderPermission(
+      { userId, userRole },
+      "view_service_requests",
+    );
   }
   const updated = await repo.updateRequestStatusByProviderUser({
     userId,
@@ -928,20 +982,20 @@ export async function updateRequestStatusByProvider({
     idempotencyKey: dto.idempotencyKey ?? null,
   });
   if (!updated) {
-    throw new AppError('SERVICE_REQUEST_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
   }
   if (updated.customerUserId) {
-    const notificationStatus = String(updated.status || dto.status || '')
+    const notificationStatus = String(updated.status || dto.status || "")
       .trim()
       .toLowerCase();
     await createNotification({
       userId: Number(updated.customerUserId),
       type: `services.request.status.${notificationStatus}`,
-      title: 'ØªÙ… ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø·Ù„Ø¨ Ø§Ù„Ø®Ø¯Ù…Ø©',
+      title: "ØªÙ… ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø·Ù„Ø¨ Ø§Ù„Ø®Ø¯Ù…Ø©",
       body: `Ø­Ø§Ù„Ø© Ø·Ù„Ø¨Ùƒ Ø§Ù„Ø¢Ù†: ${notificationStatus}`,
       payload: {
-        target: 'service_request_details',
-        targetModule: 'customer',
+        target: "service_request_details",
+        targetModule: "customer",
         requestId: updated.id,
         requiresAction: false,
       },
@@ -952,11 +1006,11 @@ export async function updateRequestStatusByProvider({
 
 export async function listProviderEmployees(
   { userId, userRole },
-  { search = '', limit = 120 } = {}
+  { search = "", limit = 120 } = {},
 ) {
   const access = await ensureProviderPermission(
     { userId, userRole },
-    'manage_employees'
+    "manage_employees",
   );
   const rows = await repo.listProviderEmployees({
     providerId: access.provider.id,
@@ -979,46 +1033,51 @@ export async function listProviderEmployees(
 export async function upsertProviderEmployee({ userId, userRole }, dto) {
   const access = await ensureProviderPermission(
     { userId, userRole },
-    'manage_employees'
+    "manage_employees",
   );
   const actorUserId = toActorUserId({ userId });
   const employeeUserId = Number(dto.employeeUserId);
   if (!Number.isInteger(employeeUserId) || employeeUserId <= 0) {
-    throw new AppError('EMPLOYEE_REQUIRED', { status: 400 });
+    throw new AppError("EMPLOYEE_REQUIRED", { status: 400 });
   }
 
   const permissions = buildWorkspacePermissionPayload(
     dto.permissions,
-    'service_provider'
+    "service_provider",
   ).permissions;
   const previousProfile = await repo.findAnyEmployeeProfileForProvider({
     providerId: access.provider.id,
     employeeUserId,
   });
   const archivedAt =
-    dto.archivedAt || (dto.isActive === false ? new Date().toISOString() : null);
+    dto.archivedAt ||
+    (dto.isActive === false ? new Date().toISOString() : null);
   const out = await repo.upsertProviderEmployeeProfile({
     providerId: access.provider.id,
     employeeUserId,
-    roleTag: String(dto.roleTag || 'staff').trim().slice(0, 80) || 'staff',
+    roleTag:
+      String(dto.roleTag || "staff")
+        .trim()
+        .slice(0, 80) || "staff",
     displayName: dto.displayName || null,
     contactEmail: dto.contactEmail || null,
     permissions,
     isActive: dto.isActive !== false,
     archivedAt,
     notes: dto.notes || null,
-    invitedByUserId: dto.invitedByUserId == null ? actorUserId : Number(dto.invitedByUserId),
+    invitedByUserId:
+      dto.invitedByUserId == null ? actorUserId : Number(dto.invitedByUserId),
     updatedByUserId: actorUserId,
   });
 
   await repo.insertProviderEmployeeActivityLog({
-    workspaceKind: 'service_provider',
+    workspaceKind: "service_provider",
     workspaceId: access.provider.id,
     employeeProfileId: Number(out.id),
     employeeUserId,
     actorUserId,
     actorRole: normalizeRole(userRole),
-    actionKey: 'service_provider.employee.updated',
+    actionKey: "service_provider.employee.updated",
     reason: dto.reason || null,
     oldValue: previousProfile
       ? {
@@ -1050,28 +1109,28 @@ export async function upsertProviderEmployee({ userId, userRole }, dto) {
 export async function inviteProviderEmployee({ userId, userRole }, dto) {
   const access = await ensureProviderPermission(
     { userId, userRole },
-    'manage_employees'
+    "manage_employees",
   );
   const actorUserId = toActorUserId({ userId });
   const phone = normalizePhone(dto.phone);
   const pin = normalizePin(dto.pin);
-  const fullName = String(dto.fullName || '').trim();
-  const displayName = String(dto.displayName || fullName || '').trim();
-  const contactEmail = String(dto.contactEmail || '').trim() || null;
+  const fullName = String(dto.fullName || "").trim();
+  const displayName = String(dto.displayName || fullName || "").trim();
+  const contactEmail = String(dto.contactEmail || "").trim() || null;
 
   if (!fullName) {
-    throw new AppError('FULL_NAME_REQUIRED', { status: 400 });
+    throw new AppError("FULL_NAME_REQUIRED", { status: 400 });
   }
   if (!/^\d{8,20}$/.test(phone)) {
-    throw new AppError('PHONE_INVALID', { status: 400 });
+    throw new AppError("PHONE_INVALID", { status: 400 });
   }
   if (!/^\d{4,8}$/.test(pin)) {
-    throw new AppError('PIN_INVALID', { status: 400 });
+    throw new AppError("PIN_INVALID", { status: 400 });
   }
 
   const existing = await findUserByPhone(phone);
   if (existing) {
-    throw new AppError('PHONE_EXISTS', { status: 409 });
+    throw new AppError("PHONE_EXISTS", { status: 409 });
   }
 
   const pinHash = await hashPin(pin);
@@ -1084,13 +1143,13 @@ export async function inviteProviderEmployee({ userId, userRole }, dto) {
         username,
         phone,
         pinHash,
-        block: 'A',
-        buildingNumber: 'A101',
-        apartment: '101',
+        block: "A",
+        buildingNumber: "A101",
+        apartment: "101",
         imageUrl: null,
-        role: 'service_provider',
+        role: "service_provider",
         analyticsConsentGranted: true,
-        analyticsConsentVersion: 'service_provider_employee_v1',
+        analyticsConsentVersion: "service_provider_employee_v1",
         analyticsConsentGrantedAt: new Date().toISOString(),
         chatQualityReviewConsent: true,
       }),
@@ -1098,12 +1157,15 @@ export async function inviteProviderEmployee({ userId, userRole }, dto) {
 
   const permissions = buildWorkspacePermissionPayload(
     dto.permissions,
-    'service_provider'
+    "service_provider",
   ).permissions;
   const out = await repo.upsertProviderEmployeeProfile({
     providerId: access.provider.id,
     employeeUserId: Number(created.id),
-    roleTag: String(dto.roleTag || 'staff').trim().slice(0, 80) || 'staff',
+    roleTag:
+      String(dto.roleTag || "staff")
+        .trim()
+        .slice(0, 80) || "staff",
     displayName,
     contactEmail,
     permissions,
@@ -1115,13 +1177,13 @@ export async function inviteProviderEmployee({ userId, userRole }, dto) {
   });
 
   await repo.insertProviderEmployeeActivityLog({
-    workspaceKind: 'service_provider',
+    workspaceKind: "service_provider",
     workspaceId: access.provider.id,
     employeeProfileId: Number(out.id),
     employeeUserId: Number(created.id),
     actorUserId,
     actorRole: normalizeRole(userRole),
-    actionKey: 'service_provider.employee.invited',
+    actionKey: "service_provider.employee.invited",
     reason: dto.reason || null,
     oldValue: {},
     newValue: {
@@ -1147,11 +1209,11 @@ export async function inviteProviderEmployee({ userId, userRole }, dto) {
 
 export async function listProviderEmployeeActivityLogs(
   { userId, userRole },
-  { employeeUserId = null, limit = 120 } = {}
+  { employeeUserId = null, limit = 120 } = {},
 ) {
   const access = await ensureProviderPermission(
     { userId, userRole },
-    'view_audit_log'
+    "view_audit_log",
   );
   const rows = await repo.listProviderEmployeeActivityLogs({
     providerId: access.provider.id,
@@ -1164,30 +1226,28 @@ export async function listProviderEmployeeActivityLogs(
   };
 }
 
-export async function createServiceRequest({
-  userId,
-  dto,
-  attachments = [],
-}) {
+export async function createServiceRequest({ userId, dto, attachments = [] }) {
   const created = await repo.createServiceRequestByCustomer({
     customerUserId: userId,
     dto,
     attachments,
   });
   if (!created) {
-    throw new AppError('SERVICE_OFFERING_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_OFFERING_NOT_FOUND", { status: 404 });
   }
 
-  const provider = await repo.getPublicProviderById(created.providerId).catch(() => null);
+  const provider = await repo
+    .getPublicProviderById(created.providerId)
+    .catch(() => null);
   if (provider?.userId) {
     await createNotification({
       userId: Number(provider.userId),
-      type: 'services.request.created',
-      title: 'Ø·Ù„Ø¨ Ø®Ø¯Ù…Ø© Ø¬Ø¯ÙŠØ¯',
-      body: `Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯ Ù…Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ø®ØµÙˆØµ ${created.offeringName || 'Ø®Ø¯Ù…Ø©'}.`,
+      type: "services.request.created",
+      title: "Ø·Ù„Ø¨ Ø®Ø¯Ù…Ø© Ø¬Ø¯ÙŠØ¯",
+      body: `Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯ Ù…Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ø®ØµÙˆØµ ${created.offeringName || "Ø®Ø¯Ù…Ø©"}.`,
       payload: {
-        target: 'service_request_details',
-        targetModule: 'customer',
+        target: "service_request_details",
+        targetModule: "customer",
         requestId: created.id,
         requiresAction: true,
       },
@@ -1198,9 +1258,9 @@ export async function createServiceRequest({
     .listActiveProviderNotificationRecipients({
       providerId: created.providerId,
       requiredPermissions: [
-        'view_service_requests',
-        'accept_service_requests',
-        'reject_service_requests',
+        "view_service_requests",
+        "accept_service_requests",
+        "reject_service_requests",
       ],
     })
     .catch(() => []);
@@ -1208,16 +1268,16 @@ export async function createServiceRequest({
     await createManyNotifications(
       providerEmployees.map((employee) => ({
         userId: Number(employee.userId),
-        type: 'services.request.created',
-        title: 'Ø·Ù„Ø¨ Ø®Ø¯Ù…Ø© Ø¬Ø¯ÙŠØ¯',
-        body: `Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯ Ù…Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ø®ØµÙˆØµ ${created.offeringName || 'Ø®Ø¯Ù…Ø©'}.`,
+        type: "services.request.created",
+        title: "Ø·Ù„Ø¨ Ø®Ø¯Ù…Ø© Ø¬Ø¯ÙŠØ¯",
+        body: `Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯ Ù…Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ø®ØµÙˆØµ ${created.offeringName || "Ø®Ø¯Ù…Ø©"}.`,
         payload: {
-          target: 'service_request_details',
-          targetModule: 'customer',
+          target: "service_request_details",
+          targetModule: "customer",
           requestId: created.id,
           requiresAction: true,
         },
-      }))
+      })),
     ).catch(() => {});
   }
 
@@ -1230,7 +1290,7 @@ export async function previewServiceBooking({ userId, dto }) {
     dto,
   });
   if (!out) {
-    throw new AppError('SERVICE_OFFERING_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_OFFERING_NOT_FOUND", { status: 404 });
   }
   return out;
 }
@@ -1242,7 +1302,7 @@ export async function listMyRequests({ userId, query }) {
 export async function getMyRequest({ userId, requestId }) {
   const item = await repo.getServiceRequestForUser({ userId, requestId });
   if (!item) {
-    throw new AppError('SERVICE_REQUEST_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
   }
   return item;
 }
@@ -1261,17 +1321,12 @@ export async function updateRequestStatusByCustomer({
     idempotencyKey: dto.idempotencyKey ?? null,
   });
   if (!updated) {
-    throw new AppError('SERVICE_REQUEST_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
   }
   return updated;
 }
 
-export async function respondToQuote({
-  userId,
-  requestId,
-  quoteId,
-  dto,
-}) {
+export async function respondToQuote({ userId, requestId, quoteId, dto }) {
   const updated = await repo.respondToQuoteByCustomer({
     userId,
     requestId,
@@ -1280,7 +1335,7 @@ export async function respondToQuote({
     note: dto.note || null,
   });
   if (!updated) {
-    throw new AppError('SERVICE_REQUEST_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
   }
   return updated;
 }
@@ -1288,7 +1343,7 @@ export async function respondToQuote({
 export async function createReview({ userId, dto }) {
   const out = await repo.createReviewByCustomer({ userId, dto });
   if (!out) {
-    throw new AppError('SERVICE_REQUEST_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
   }
   if (out.error) {
     throw new AppError(out.error, { status: 400 });
@@ -1339,7 +1394,7 @@ export async function listRecentViews({ userId, query }) {
 
 export async function listPendingProviders({ query }) {
   return repo.listPendingProvidersForAdmin({
-    status: query.providerStatus || 'pending',
+    status: query.providerStatus || "pending",
     limit: query.limit,
     offset: query.offset,
   });
@@ -1357,17 +1412,17 @@ export async function adminUpdateProviderStatus({
     adminUserId,
   });
   if (!provider) {
-    throw new AppError('SERVICE_PROVIDER_PROFILE_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_PROVIDER_PROFILE_NOT_FOUND", { status: 404 });
   }
   if (provider.userId) {
     await createNotification({
       userId: Number(provider.userId),
       type: `services.provider.status.${dto.status}`,
-      title: 'ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ù…Ø²ÙˆØ¯ Ø§Ù„Ø®Ø¯Ù…Ø©',
+      title: "ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ù…Ø²ÙˆØ¯ Ø§Ù„Ø®Ø¯Ù…Ø©",
       body: `ØªÙ… ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø­Ø³Ø§Ø¨Ùƒ Ø¥Ù„Ù‰: ${dto.status}`,
       payload: {
-        target: 'services_provider_workspace',
-        targetModule: 'customer',
+        target: "services_provider_workspace",
+        targetModule: "customer",
         providerId: provider.id,
         requiresAction: false,
       },
@@ -1378,7 +1433,7 @@ export async function adminUpdateProviderStatus({
 
 export async function listOfferingsForAdmin({ query }) {
   return repo.listOfferingsForAdmin({
-    status: query.offeringStatus || 'pending',
+    status: query.offeringStatus || "pending",
     limit: query.limit,
     offset: query.offset,
   });
@@ -1396,7 +1451,7 @@ export async function adminUpdateOfferingStatus({
     adminUserId,
   });
   if (!offering) {
-    throw new AppError('SERVICE_OFFERING_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_OFFERING_NOT_FOUND", { status: 404 });
   }
   await notifyOfferingModerationToProvider({
     offering,
@@ -1408,7 +1463,7 @@ export async function adminUpdateOfferingStatus({
 
 export async function listCategorySuggestionsForAdmin({ query }) {
   return repo.listCategorySuggestionsForAdmin({
-    status: query.categorySuggestionStatus || 'pending',
+    status: query.categorySuggestionStatus || "pending",
     limit: query.limit || 60,
     offset: query.offset || 0,
   });
@@ -1427,14 +1482,16 @@ export async function adminReviewCategorySuggestion({
     adminUserId,
   });
   if (!suggestion) {
-    throw new AppError('SERVICE_CATEGORY_SUGGESTION_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_CATEGORY_SUGGESTION_NOT_FOUND", {
+      status: 404,
+    });
   }
   return suggestion;
 }
 
 export async function listServiceReportsForAdmin({ query }) {
   return repo.listServiceReportsForAdmin({
-    status: query.status || 'pending',
+    status: query.status || "pending",
     limit: query.limit || 60,
     offset: query.offset || 0,
   });
@@ -1448,7 +1505,7 @@ export async function adminReviewReport({ reportId, dto, adminUserId }) {
     adminUserId,
   });
   if (!reviewed) {
-    throw new AppError('SERVICE_REPORT_NOT_FOUND', { status: 404 });
+    throw new AppError("SERVICE_REPORT_NOT_FOUND", { status: 404 });
   }
   return reviewed;
 }
@@ -1476,4 +1533,3 @@ export async function upsertModuleSetting({ key, value, adminUserId }) {
     adminUserId,
   });
 }
-
