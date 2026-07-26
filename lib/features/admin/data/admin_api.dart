@@ -222,6 +222,44 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> monitoringJobs({
+    String? status,
+    String? search,
+    String? region,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/jobs',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+        if ((region ?? '').trim().isNotEmpty) 'region': region!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> monitoringCommunityUsers({
+    String? status,
+    String? search,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/monitoring/community/users',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> myPermissions() async {
     final response = await dio.get('/api/admin/me/permissions');
     return Map<String, dynamic>.from(response.data as Map);

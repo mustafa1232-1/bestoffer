@@ -123,6 +123,16 @@ adminRouter.get(
   requirePermission("cars.read"),
   monitoring.carListings
 );
+adminRouter.get(
+  "/monitoring/jobs",
+  requirePermission("jobs.read"),
+  monitoring.jobs
+);
+adminRouter.get(
+  "/monitoring/community/users",
+  requirePermission("community.users.read"),
+  monitoring.communityUsers
+);
 
 // إعدادات الدعم المركزية (المرحلة 8).
 adminRouter.get(

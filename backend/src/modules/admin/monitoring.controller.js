@@ -60,8 +60,22 @@ const CARD_DEFS = [
     detailPath: "/admin/monitoring/cars/listings",
     counters: () => monitoringRepo.getCarMonitoringCounters(),
   },
-  { key: "jobs", title: "متابعة الوظائف", permission: "jobs.read", wired: false },
-  { key: "community", title: "متابعة المجتمع", permission: "community.users.read", wired: false },
+  {
+    key: "jobs",
+    title: "متابعة الوظائف",
+    permission: "jobs.read",
+    wired: true,
+    detailPath: "/admin/monitoring/jobs",
+    counters: () => monitoringRepo.getJobMonitoringCounters(),
+  },
+  {
+    key: "community",
+    title: "متابعة المجتمع",
+    permission: "community.users.read",
+    wired: true,
+    detailPath: "/admin/monitoring/community/users",
+    counters: () => monitoringRepo.getCommunityMonitoringCounters(),
+  },
   { key: "tickets", title: "الشكاوى والتذاكر", permission: "support.tickets.read", wired: false },
 ];
 
@@ -328,6 +342,61 @@ export async function carListings(req, res, next) {
       permissionKey: "cars.read",
     });
     const out = await monitoringRepo.listCarListingsForMonitoring({
+      ...query,
+      from: query.from ? query.from.toISOString() : null,
+      to: query.to ? query.to.toISOString() : null,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function jobs(req, res, next) {
+  try {
+    const query = readListQuery(req);
+    if (!validateListDates(query, res)) return;
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "monitoring.jobs.read",
+      summary: "عرض متابعة الوظائف",
+      targetType: "job_post",
+      metadata: {
+        status: query.status,
+        region: query.region,
+        limit: query.limit,
+        offset: query.offset,
+      },
+      permissionKey: "jobs.read",
+    });
+    const out = await monitoringRepo.listJobsForMonitoring({
+      ...query,
+      from: query.from ? query.from.toISOString() : null,
+      to: query.to ? query.to.toISOString() : null,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function communityUsers(req, res, next) {
+  try {
+    const query = readListQuery(req);
+    if (!validateListDates(query, res)) return;
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "monitoring.community.users.read",
+      summary: "عرض متابعة مستخدمي المجتمع",
+      targetType: "community_user",
+      metadata: {
+        status: query.status,
+        limit: query.limit,
+        offset: query.offset,
+      },
+      permissionKey: "community.users.read",
+    });
+    const out = await monitoringRepo.listCommunityUsersForMonitoring({
       ...query,
       from: query.from ? query.from.toISOString() : null,
       to: query.to ? query.to.toISOString() : null,

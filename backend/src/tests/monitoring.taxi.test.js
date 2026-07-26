@@ -29,6 +29,12 @@ const serviceProviderIds = [];
 const serviceCategoryIds = [];
 const realEstateListingIds = [];
 const carListingIds = [];
+const jobPostIds = [];
+const jobApplicationIds = [];
+const socialPostIds = [];
+const socialStoryIds = [];
+const socialUserReportIds = [];
+const socialRestrictionIds = [];
 
 async function makeUser(role) {
   const user = await createUser({
@@ -214,7 +220,122 @@ async function makeCarListing({ ownerId, status = "active" }) {
   return id;
 }
 
+async function makeJobPost({ publisherId, status = "active" }) {
+  const r = await q(
+    `INSERT INTO job_post
+       (title, company_name, category, city, description, status,
+        created_by_user_id, created_by_role, published_at)
+     VALUES ($1,'MON Company','operations','Baghdad','MON job description',
+        $2::varchar,$3,'user',NOW())
+     RETURNING id`,
+    [`MON Job ${suffix()}`, status, publisherId]
+  );
+  const id = Number(r.rows[0].id);
+  jobPostIds.push(id);
+  return id;
+}
+
+async function makeJobApplication({ jobId, applicantId }) {
+  const r = await q(
+    `INSERT INTO job_application
+       (job_id, applicant_user_id, full_name, phone, resume_url, status)
+     VALUES ($1,$2,'MON Applicant',$3,'https://private.example/cv.pdf','submitted')
+     RETURNING id`,
+    [jobId, applicantId, makePhone()]
+  );
+  const id = Number(r.rows[0].id);
+  jobApplicationIds.push(id);
+  return id;
+}
+
+async function makeSocialPost({ userId, postKind = "text" }) {
+  const r = await q(
+    `INSERT INTO social_post
+       (user_id, post_kind, caption, media_kind, moderation_status)
+     VALUES ($1,$2::varchar,'MON social content',
+       CASE WHEN $2::text IN ('image','reel') THEN 'image' ELSE NULL END,
+       'approved')
+     RETURNING id`,
+    [userId, postKind]
+  );
+  const id = Number(r.rows[0].id);
+  socialPostIds.push(id);
+  return id;
+}
+
+async function makeSocialStory({ userId }) {
+  const r = await q(
+    `INSERT INTO social_story (user_id, caption, moderation_status)
+     VALUES ($1,'MON story','approved')
+     RETURNING id`,
+    [userId]
+  );
+  const id = Number(r.rows[0].id);
+  socialStoryIds.push(id);
+  return id;
+}
+
+async function makeSocialUserReport({ reportedUserId, reporterUserId }) {
+  const r = await q(
+    `INSERT INTO social_user_report (reported_user_id, reporter_user_id, reason)
+     VALUES ($1,$2,'MON report')
+     RETURNING id`,
+    [reportedUserId, reporterUserId]
+  );
+  const id = Number(r.rows[0].id);
+  socialUserReportIds.push(id);
+  return id;
+}
+
+async function makeSocialRestriction({ userId, adminUserId }) {
+  const r = await q(
+    `INSERT INTO social_capability_restriction
+       (user_id, capability_key, reason, created_by_user_id)
+     VALUES ($1,'post_create','MON restriction',$2)
+     RETURNING id`,
+    [userId, adminUserId]
+  );
+  const id = Number(r.rows[0].id);
+  socialRestrictionIds.push(id);
+  return id;
+}
+
 test.after(async () => {
+  if (jobApplicationIds.length) {
+    await q(`DELETE FROM job_application_status_history WHERE application_id = ANY($1::bigint[])`, [
+      jobApplicationIds,
+    ]);
+    await q(`DELETE FROM job_application WHERE id = ANY($1::bigint[])`, [
+      jobApplicationIds,
+    ]);
+  }
+  if (jobPostIds.length) {
+    await q(`DELETE FROM job_application_status_history WHERE job_id = ANY($1::bigint[])`, [
+      jobPostIds,
+    ]);
+    await q(`DELETE FROM job_application WHERE job_id = ANY($1::bigint[])`, [
+      jobPostIds,
+    ]);
+    await q(`DELETE FROM job_post WHERE id = ANY($1::bigint[])`, [jobPostIds]);
+  }
+  if (socialUserReportIds.length) {
+    await q(`DELETE FROM social_user_report WHERE id = ANY($1::bigint[])`, [
+      socialUserReportIds,
+    ]);
+  }
+  if (socialRestrictionIds.length) {
+    await q(`DELETE FROM social_capability_restriction WHERE id = ANY($1::bigint[])`, [
+      socialRestrictionIds,
+    ]);
+  }
+  if (socialPostIds.length) {
+    await q(`DELETE FROM social_post WHERE id = ANY($1::bigint[])`, [socialPostIds]);
+  }
+  if (socialStoryIds.length) {
+    await q(`DELETE FROM social_story WHERE id = ANY($1::bigint[])`, [
+      socialStoryIds,
+    ]);
+  }
   if (serviceRequestIds.length) {
     await q(`DELETE FROM service_reports WHERE target_type = 'request' AND target_id = ANY($1::bigint[])`, [
       serviceRequestIds,
@@ -544,4 +665,68 @@ test("services and marketplace monitoring use real rows", async () => {
   assert.ok(carPage.total >= 1);
   assert.ok(carPage.items.every((item) => item.status === "active"));
   assert.ok(!("phone" in carPage.items[0]), "car DTO does not expose phone");
+});
+
+test("jobs and community monitoring use real rows without sensitive URLs", async () => {
+  const jobsBefore = await monitoringRepo.getJobMonitoringCounters();
+  const communityBefore = await monitoringRepo.getCommunityMonitoringCounters();
+
+  const publisherId = await makeUser("user");
+  const applicantId = await makeUser("user");
+  const communityUserId = await makeUser("user");
+  const reporterId = await makeUser("user");
+  const adminId = await makeUser("admin");
+
+  const activeJobId = await makeJobPost({ publisherId, status: "active" });
+  await makeJobPost({ publisherId, status: "closed" });
+  await makeJobApplication({ jobId: activeJobId, applicantId });
+
+  await makeSocialPost({ userId: communityUserId, postKind: "text" });
+  await makeSocialPost({ userId: communityUserId, postKind: "reel" });
+  await makeSocialStory({ userId: communityUserId });
+  await makeSocialUserReport({ reportedUserId: communityUserId, reporterUserId: reporterId });
+  await makeSocialRestriction({ userId: communityUserId, adminUserId: adminId });
+
+  const jobsAfter = await monitoringRepo.getJobMonitoringCounters();
+  const communityAfter = await monitoringRepo.getCommunityMonitoringCounters();
+
+  assert.ok(jobsAfter.active - jobsBefore.active >= 1, "active job counted");
+  assert.ok(
+    jobsAfter.completedToday - jobsBefore.completedToday >= 1,
+    "closed job counted"
+  );
+  assert.ok(
+    communityAfter.active - communityBefore.active >= 3,
+    "non-internal community users counted"
+  );
+  assert.ok(
+    communityAfter.needsAttention - communityBefore.needsAttention >= 1,
+    "reported/restricted community user counted"
+  );
+
+  const jobsPage = await monitoringRepo.listJobsForMonitoring({
+    status: "active",
+    search: "MON Job",
+    limit: 5,
+    offset: 0,
+  });
+  assert.ok(jobsPage.total >= 1);
+  assert.ok(jobsPage.items.every((item) => item.status === "active"));
+  assert.ok(!("contact_phone" in jobsPage.items[0]), "job DTO does not expose phone");
+  assert.ok(!("contact_email" in jobsPage.items[0]), "job DTO does not expose email");
+  assert.ok(!("resume_url" in jobsPage.items[0]), "job DTO does not expose CV URL");
+  assert.ok(Number(jobsPage.items[0].resume_count || 0) >= 1);
+
+  const communityPage = await monitoringRepo.listCommunityUsersForMonitoring({
+    status: "reported",
+    search: "MON user",
+    limit: 5,
+    offset: 0,
+  });
+  assert.ok(communityPage.total >= 1);
+  assert.ok(!("phone" in communityPage.items[0]), "community DTO does not expose phone");
+  assert.ok(
+    communityPage.items.some((item) => Number(item.id) === communityUserId),
+    "reported community user appears"
+  );
 });

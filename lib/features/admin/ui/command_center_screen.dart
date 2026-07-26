@@ -180,6 +180,14 @@ class _MonitoringCard extends StatelessWidget {
         return const MonitoringOperationsListScreen(
           mode: MonitoringOperationsMode.cars,
         );
+      case 'jobs':
+        return const MonitoringOperationsListScreen(
+          mode: MonitoringOperationsMode.jobs,
+        );
+      case 'community':
+        return const MonitoringOperationsListScreen(
+          mode: MonitoringOperationsMode.community,
+        );
       default:
         return null;
     }

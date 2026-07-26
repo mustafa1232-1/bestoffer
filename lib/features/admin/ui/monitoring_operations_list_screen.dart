@@ -5,7 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../state/admin_controller.dart';
 
-enum MonitoringOperationsMode { orders, delivery, services, realEstate, cars }
+enum MonitoringOperationsMode {
+  orders,
+  delivery,
+  services,
+  realEstate,
+  cars,
+  jobs,
+  community,
+}
 
 class MonitoringOperationsListScreen extends ConsumerStatefulWidget {
   const MonitoringOperationsListScreen({super.key, required this.mode});
@@ -59,6 +67,10 @@ class _MonitoringOperationsListScreenState
           'archived',
           'hidden_due_subscription_expiry',
         ];
+      case MonitoringOperationsMode.jobs:
+        return const ['draft', 'active', 'paused', 'closed'];
+      case MonitoringOperationsMode.community:
+        return const ['normal', 'gray_zone', 'reported', 'restricted'];
       case MonitoringOperationsMode.orders:
         return const [
           'pending',
@@ -115,6 +127,19 @@ class _MonitoringOperationsListScreenState
           limit: _pageSize,
           offset: _offset,
         ),
+        MonitoringOperationsMode.jobs => await api.monitoringJobs(
+          status: _status,
+          search: _search,
+          limit: _pageSize,
+          offset: _offset,
+        ),
+        MonitoringOperationsMode.community =>
+          await api.monitoringCommunityUsers(
+            status: _status,
+            search: _search,
+            limit: _pageSize,
+            offset: _offset,
+          ),
         MonitoringOperationsMode.orders => await api.monitoringOrders(
           status: _status,
           search: _search,
@@ -160,6 +185,12 @@ class _MonitoringOperationsListScreenState
     }
     if (widget.mode == MonitoringOperationsMode.cars) {
       return context.lt(ar: 'متابعة السيارات', en: 'Cars monitoring');
+    }
+    if (widget.mode == MonitoringOperationsMode.jobs) {
+      return context.lt(ar: 'متابعة الوظائف', en: 'Jobs monitoring');
+    }
+    if (widget.mode == MonitoringOperationsMode.community) {
+      return context.lt(ar: 'متابعة المجتمع', en: 'Community monitoring');
     }
     return widget.mode == MonitoringOperationsMode.delivery
         ? context.lt(ar: 'متابعة الدلفري', en: 'Delivery monitoring')
@@ -207,6 +238,20 @@ class _MonitoringOperationsListScreenState
         return context.lt(ar: 'مجدول', en: 'Scheduled');
       case 'in_progress':
         return context.lt(ar: 'قيد التنفيذ', en: 'In progress');
+      case 'draft':
+        return context.lt(ar: 'مسودة', en: 'Draft');
+      case 'paused':
+        return context.lt(ar: 'متوقف', en: 'Paused');
+      case 'closed':
+        return context.lt(ar: 'مغلق', en: 'Closed');
+      case 'normal':
+        return context.lt(ar: 'طبيعي', en: 'Normal');
+      case 'gray_zone':
+        return context.lt(ar: 'تحت المراقبة', en: 'Gray zone');
+      case 'reported':
+        return context.lt(ar: 'عليه بلاغ', en: 'Reported');
+      case 'restricted':
+        return context.lt(ar: 'مقيد', en: 'Restricted');
       default:
         return status;
     }
@@ -316,6 +361,10 @@ class _MonitoringOperationsListScreenState
                           MonitoringOperationsMode.realEstate =>
                             _RealEstateTile(item: item),
                           MonitoringOperationsMode.cars => _CarTile(item: item),
+                          MonitoringOperationsMode.jobs => _JobTile(item: item),
+                          MonitoringOperationsMode.community => _CommunityTile(
+                            item: item,
+                          ),
                           MonitoringOperationsMode.orders => _OrderTile(
                             item: item,
                           ),
@@ -500,6 +549,65 @@ class _CarTile extends StatelessWidget {
         trailing: _TicketBadge(
           active: item['has_open_ticket'] == true,
           value: '${item['price'] ?? 0}',
+        ),
+        isThreeLine: true,
+      ),
+    );
+  }
+}
+
+class _JobTile extends StatelessWidget {
+  const _JobTile({required this.item});
+
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaslakiCard(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.work_rounded),
+        title: Text('${item['title'] ?? item['id']}'),
+        subtitle: Text(
+          '${item['status'] ?? '-'} • ${item['company_name'] ?? '-'} • ${item['city'] ?? '-'}\n'
+          '${context.lt(ar: 'الناشر', en: 'Publisher')}: ${item['publisher_name'] ?? '-'} • '
+          '${context.lt(ar: 'المتقدمون', en: 'Applications')}: ${item['application_count'] ?? 0} • '
+          '${context.lt(ar: 'سير ذاتية', en: 'CVs')}: ${item['resume_count'] ?? 0}',
+        ),
+        trailing: _TicketBadge(
+          active: item['has_open_ticket'] == true,
+          value: '${item['vacancies'] ?? 0}',
+        ),
+        isThreeLine: true,
+      ),
+    );
+  }
+}
+
+class _CommunityTile extends StatelessWidget {
+  const _CommunityTile({required this.item});
+
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaslakiCard(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.groups_rounded),
+        title: Text('${item['full_name'] ?? item['username'] ?? item['id']}'),
+        subtitle: Text(
+          '@${item['username'] ?? '-'} • ${item['social_visibility_tier'] ?? 'normal'}\n'
+          '${context.lt(ar: 'منشورات', en: 'Posts')}: ${item['post_count'] ?? 0} • '
+          '${context.lt(ar: 'ريلز', en: 'Reels')}: ${item['reel_count'] ?? 0} • '
+          '${context.lt(ar: 'قصص', en: 'Stories')}: ${item['story_count'] ?? 0} • '
+          '${context.lt(ar: 'بلاغات', en: 'Reports')}: ${item['report_count'] ?? 0}',
+        ),
+        trailing: _TicketBadge(
+          active:
+              item['has_open_ticket'] == true ||
+              ((item['active_restriction_count'] as num?)?.toInt() ?? 0) > 0,
+          value: '${item['social_violation_strikes'] ?? 0}',
         ),
         isThreeLine: true,
       ),

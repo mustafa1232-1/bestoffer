@@ -96,6 +96,17 @@ const MARKETPLACE_CANCELLED_STATUSES = [
   "archived",
   "hidden_due_subscription_expiry",
 ];
+const JOB_ACTIVE_STATUSES = ["active"];
+const JOB_CLOSED_STATUSES = ["closed"];
+const JOB_ATTENTION_STATUSES = ["draft", "paused"];
+const INTERNAL_COMMUNITY_ROLES = [
+  "admin",
+  "deputy_admin",
+  "call_center",
+  "accountant",
+  "hr",
+  "company_portal",
+];
 
 function safeLimitOffset({ limit = 25, offset = 0 } = {}) {
   return {
@@ -995,6 +1006,353 @@ export async function listCarListingsForMonitoring({
      LEFT JOIN car_listing_media cm ON cm.listing_id = l.id
      ${where}
      GROUP BY l.id, u.full_name
+     ORDER BY ${orderBy}
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    [...params, SUPPORT_OPEN_STATUSES]
+  );
+
+  return {
+    total: Number(countRes.rows[0]?.total || 0),
+    limit: page.limit,
+    offset: page.offset,
+    items: rows.rows,
+  };
+}
+
+export async function getJobMonitoringCounters() {
+  const r = await q(
+    `SELECT
+       COUNT(*) FILTER (
+         WHERE jp.status = ANY($1)
+           AND jp.deleted_at IS NULL
+           AND (jp.expires_at IS NULL OR jp.expires_at >= NOW())
+       )::int AS active,
+       COUNT(*) FILTER (
+         WHERE jp.status = ANY($2)
+           AND (jp.updated_at AT TIME ZONE 'Asia/Baghdad')::date
+             = (NOW() AT TIME ZONE 'Asia/Baghdad')::date
+       )::int AS completed_today,
+       COUNT(*) FILTER (
+         WHERE jp.deleted_at IS NOT NULL
+           AND (jp.deleted_at AT TIME ZONE 'Asia/Baghdad')::date
+             = (NOW() AT TIME ZONE 'Asia/Baghdad')::date
+       )::int AS cancelled_today,
+       COUNT(*) FILTER (
+         WHERE jp.status = 'active'
+           AND jp.expires_at IS NOT NULL
+           AND jp.expires_at < NOW()
+       )::int AS delayed,
+       COUNT(*) FILTER (
+         WHERE jp.status = ANY($3)
+            OR EXISTS (
+              SELECT 1 FROM support_ticket st
+              WHERE st.entity_id = jp.id
+                AND (
+                  st.domain = 'JOBS'
+                  OR st.entity_type IN ('job_post','job')
+                )
+                AND st.status = ANY($4)
+            )
+       )::int AS needs_attention,
+       COUNT(*) FILTER (
+         WHERE EXISTS (
+           SELECT 1 FROM support_ticket st
+           WHERE st.entity_id = jp.id
+             AND (
+               st.domain = 'JOBS'
+               OR st.entity_type IN ('job_post','job')
+             )
+             AND st.status = ANY($4)
+         )
+       )::int AS open_tickets
+     FROM job_post jp`,
+    [
+      JOB_ACTIVE_STATUSES,
+      JOB_CLOSED_STATUSES,
+      JOB_ATTENTION_STATUSES,
+      SUPPORT_OPEN_STATUSES,
+    ]
+  );
+  const row = r.rows[0] || {};
+  return {
+    active: Number(row.active || 0),
+    completedToday: Number(row.completed_today || 0),
+    cancelledToday: Number(row.cancelled_today || 0),
+    delayed: Number(row.delayed || 0),
+    needsAttention: Number(row.needs_attention || 0),
+    openTickets: Number(row.open_tickets || 0),
+  };
+}
+
+export async function getCommunityMonitoringCounters() {
+  const r = await q(
+    `SELECT
+       COUNT(*) FILTER (
+         WHERE u.role::text <> ALL($1)
+       )::int AS active,
+       (
+         SELECT COUNT(*)::int
+         FROM social_post p
+         WHERE p.is_deleted = FALSE
+           AND p.moderation_status = 'approved'
+           AND (p.created_at AT TIME ZONE 'Asia/Baghdad')::date
+             = (NOW() AT TIME ZONE 'Asia/Baghdad')::date
+       ) AS completed_today,
+       (
+         SELECT COUNT(*)::int
+         FROM social_post p
+         WHERE p.is_deleted = TRUE
+           AND (p.updated_at AT TIME ZONE 'Asia/Baghdad')::date
+             = (NOW() AT TIME ZONE 'Asia/Baghdad')::date
+       ) AS cancelled_today,
+       0::int AS delayed,
+       COUNT(*) FILTER (
+         WHERE COALESCE(u.social_violation_strikes, 0) > 0
+            OR COALESCE(u.social_visibility_tier, 'normal') <> 'normal'
+            OR EXISTS (
+              SELECT 1 FROM social_user_report sur
+              WHERE sur.reported_user_id = u.id
+            )
+            OR EXISTS (
+              SELECT 1 FROM social_capability_restriction scr
+              WHERE scr.user_id = u.id
+                AND scr.revoked_at IS NULL
+                AND (scr.ends_at IS NULL OR scr.ends_at > NOW())
+            )
+       )::int AS needs_attention,
+       COUNT(*) FILTER (
+         WHERE EXISTS (
+           SELECT 1 FROM support_ticket st
+           WHERE st.entity_id = u.id
+             AND (
+               st.domain = 'COMMUNITY'
+               OR st.entity_type IN ('community_user','social_user','user')
+             )
+             AND st.status = ANY($2)
+         )
+       )::int AS open_tickets
+     FROM app_user u`,
+    [INTERNAL_COMMUNITY_ROLES, SUPPORT_OPEN_STATUSES]
+  );
+  const row = r.rows[0] || {};
+  return {
+    active: Number(row.active || 0),
+    completedToday: Number(row.completed_today || 0),
+    cancelledToday: Number(row.cancelled_today || 0),
+    delayed: Number(row.delayed || 0),
+    needsAttention: Number(row.needs_attention || 0),
+    openTickets: Number(row.open_tickets || 0),
+  };
+}
+
+export async function listJobsForMonitoring({
+  status = null,
+  search = "",
+  region = null,
+  from = null,
+  to = null,
+  userId = null,
+  sort = "updated_desc",
+  limit = 25,
+  offset = 0,
+} = {}) {
+  const page = safeLimitOffset({ limit, offset });
+  const conds = [];
+  const params = [];
+
+  if (status) {
+    params.push(String(status));
+    conds.push(`jp.status = $${params.length}`);
+  }
+  if (region) {
+    params.push(String(region));
+    conds.push(`(jp.city = $${params.length} OR jp.area = $${params.length})`);
+  }
+  if (userId) {
+    params.push(Number(userId));
+    conds.push(`jp.created_by_user_id = $${params.length}`);
+  }
+  const term = String(search || "").trim();
+  if (term) {
+    params.push(`%${term}%`);
+    conds.push(
+      `(jp.id::text ILIKE $${params.length}
+        OR jp.title ILIKE $${params.length}
+        OR jp.company_name ILIKE $${params.length}
+        OR jp.category ILIKE $${params.length}
+        OR jp.city ILIKE $${params.length}
+        OR COALESCE(jp.area, '') ILIKE $${params.length}
+        OR u.full_name ILIKE $${params.length})`
+    );
+  }
+  addDateFilters({ conds, params, from, to, column: "jp.created_at" });
+  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+  const orderBy =
+    sort === "created_asc"
+      ? "jp.created_at ASC, jp.id ASC"
+      : sort === "expires_asc"
+        ? "jp.expires_at ASC NULLS LAST, jp.updated_at DESC"
+        : sort === "applications_desc"
+          ? "application_count DESC, jp.updated_at DESC"
+          : "jp.updated_at DESC, jp.id DESC";
+
+  const countRes = await q(
+    `SELECT COUNT(*)::int AS total
+     FROM job_post jp
+     JOIN app_user u ON u.id = jp.created_by_user_id
+     ${where}`,
+    params
+  );
+
+  params.push(page.limit);
+  params.push(page.offset);
+  const rows = await q(
+    `SELECT
+       jp.id,
+       jp.title,
+       jp.company_name,
+       jp.category,
+       jp.city,
+       jp.area,
+       jp.workplace_type,
+       jp.employment_type,
+       jp.experience_level,
+       jp.status,
+       jp.vacancies,
+       jp.is_featured,
+       jp.published_at,
+       jp.expires_at,
+       jp.created_by_user_id,
+       u.full_name AS publisher_name,
+       jp.created_at,
+       jp.updated_at,
+       COUNT(ja.id)::int AS application_count,
+       COUNT(ja.id) FILTER (WHERE ja.status = 'submitted')::int AS submitted_count,
+       COUNT(ja.id) FILTER (WHERE ja.resume_url IS NOT NULL AND ja.resume_url <> '')::int AS resume_count,
+       EXISTS (
+         SELECT 1 FROM support_ticket st
+         WHERE st.entity_id = jp.id
+           AND (
+             st.domain = 'JOBS'
+             OR st.entity_type IN ('job_post','job')
+           )
+           AND st.status = ANY($${params.length + 1})
+       ) AS has_open_ticket
+     FROM job_post jp
+     JOIN app_user u ON u.id = jp.created_by_user_id
+     LEFT JOIN job_application ja ON ja.job_id = jp.id
+     ${where}
+     GROUP BY jp.id, u.full_name
+     ORDER BY ${orderBy}
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    [...params, SUPPORT_OPEN_STATUSES]
+  );
+
+  return {
+    total: Number(countRes.rows[0]?.total || 0),
+    limit: page.limit,
+    offset: page.offset,
+    items: rows.rows,
+  };
+}
+
+export async function listCommunityUsersForMonitoring({
+  status = null,
+  search = "",
+  from = null,
+  to = null,
+  userId = null,
+  sort = "updated_desc",
+  limit = 25,
+  offset = 0,
+} = {}) {
+  const page = safeLimitOffset({ limit, offset });
+  const conds = [`u.role::text <> ALL($1)`];
+  const params = [INTERNAL_COMMUNITY_ROLES];
+
+  if (status === "reported") {
+    conds.push(`EXISTS (SELECT 1 FROM social_user_report sur WHERE sur.reported_user_id = u.id)`);
+  } else if (status === "restricted") {
+    conds.push(
+      `EXISTS (
+        SELECT 1 FROM social_capability_restriction scr
+        WHERE scr.user_id = u.id
+          AND scr.revoked_at IS NULL
+          AND (scr.ends_at IS NULL OR scr.ends_at > NOW())
+      )`
+    );
+  } else if (status) {
+    params.push(String(status));
+    conds.push(`u.social_visibility_tier = $${params.length}`);
+  }
+  if (userId) {
+    params.push(Number(userId));
+    conds.push(`u.id = $${params.length}`);
+  }
+  const term = String(search || "").trim();
+  if (term) {
+    params.push(`%${term}%`);
+    conds.push(
+      `(u.id::text ILIKE $${params.length}
+        OR u.full_name ILIKE $${params.length}
+        OR COALESCE(u.username, '') ILIKE $${params.length})`
+    );
+  }
+  addDateFilters({ conds, params, from, to, column: "u.created_at" });
+  const where = `WHERE ${conds.join(" AND ")}`;
+  const orderBy =
+    sort === "created_asc"
+      ? "u.created_at ASC, u.id ASC"
+      : sort === "reports_desc"
+        ? "report_count DESC, u.updated_at DESC"
+        : "u.updated_at DESC, u.id DESC";
+
+  const countRes = await q(
+    `SELECT COUNT(*)::int AS total
+     FROM app_user u
+     ${where}`,
+    params
+  );
+
+  params.push(page.limit);
+  params.push(page.offset);
+  const rows = await q(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.username,
+       u.role::text AS role,
+       u.created_at,
+       u.updated_at,
+       COALESCE(u.social_violation_strikes, 0)::int AS social_violation_strikes,
+       COALESCE(u.social_visibility_tier, 'normal') AS social_visibility_tier,
+       COUNT(DISTINCT sp.id) FILTER (WHERE sp.post_kind NOT IN ('reel','merchant_review'))::int AS post_count,
+       COUNT(DISTINCT sp.id) FILTER (WHERE sp.post_kind = 'image')::int AS photo_count,
+       COUNT(DISTINCT sp.id) FILTER (WHERE sp.post_kind = 'reel')::int AS reel_count,
+       COUNT(DISTINCT ss.id)::int AS story_count,
+       COUNT(DISTINCT pc.id)::int AS comment_count,
+       COUNT(DISTINCT sur.id)::int AS report_count,
+       COUNT(DISTINCT scr.id) FILTER (
+         WHERE scr.revoked_at IS NULL
+           AND (scr.ends_at IS NULL OR scr.ends_at > NOW())
+       )::int AS active_restriction_count,
+       EXISTS (
+         SELECT 1 FROM support_ticket st
+         WHERE st.entity_id = u.id
+           AND (
+             st.domain = 'COMMUNITY'
+             OR st.entity_type IN ('community_user','social_user','user')
+           )
+           AND st.status = ANY($${params.length + 1})
+       ) AS has_open_ticket
+     FROM app_user u
+     LEFT JOIN social_post sp ON sp.user_id = u.id AND sp.is_deleted = FALSE
+     LEFT JOIN social_story ss ON ss.user_id = u.id AND ss.is_deleted = FALSE
+     LEFT JOIN social_post_comment pc ON pc.user_id = u.id AND pc.is_deleted = FALSE
+     LEFT JOIN social_user_report sur ON sur.reported_user_id = u.id
+     LEFT JOIN social_capability_restriction scr ON scr.user_id = u.id
+     ${where}
+     GROUP BY u.id
      ORDER BY ${orderBy}
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     [...params, SUPPORT_OPEN_STATUSES]
