@@ -18,6 +18,8 @@ import 'admin_approvals_hub_screen.dart';
 import 'admin_ad_board_screen.dart';
 import 'admin_audit_log_screen.dart';
 import 'admin_support_settings_screen.dart';
+import 'admin_employees_screen.dart';
+import 'admin_payroll_screen.dart';
 import 'command_center_screen.dart';
 import '../../guides/ui/app_guide_screen.dart';
 import 'admin_companies_screen.dart';
@@ -38,7 +40,7 @@ import 'admin_permissions_matrix_screen.dart';
 import 'admin_rbac_management_screen.dart';
 import 'admin_receivables_screen.dart';
 import 'admin_residence_change_requests_screen.dart';
-import 'admin_service_provider_subscription_requests_screen.dart';
+import 'admin_service_provider_applications_screen.dart';
 import 'admin_services_hub_screen.dart';
 import 'admin_social_reports_screen.dart';
 import 'admin_social_restrictions_screen.dart';
@@ -494,6 +496,26 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           group: groupHome,
           onTap: (_) => _openPage(const CommandCenterScreen()),
         ),
+        AppUserDrawerItem(
+          icon: Icons.badge_rounded,
+          label: navText(ar: 'إدارة الموظفين', en: 'Employees'),
+          subtitle: navText(
+            ar: 'الموظفون والأقسام والرواتب والصلاحيات',
+            en: 'Staff, departments, salaries and permissions',
+          ),
+          group: groupHome,
+          onTap: (_) => _openPage(const AdminEmployeesScreen()),
+        ),
+        AppUserDrawerItem(
+          icon: Icons.payments_rounded,
+          label: navText(ar: 'الرواتب', en: 'Payroll'),
+          subtitle: navText(
+            ar: 'دورات الرواتب: احتساب ومراجعة واعتماد وتسديد',
+            en: 'Payroll runs: calculate, review, approve, pay',
+          ),
+          group: groupHome,
+          onTap: (_) => _openPage(const AdminPayrollScreen()),
+        ),
         if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.space_dashboard_rounded,
@@ -527,7 +549,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 state.pendingTaxiCaptainAccounts.length +
                 state.pendingTaxiProfileEditRequests.length +
                 state.pendingTaxiCashPayments.length +
-                state.pendingServiceProviderSubscriptionRequests.length +
+                state.pendingServiceProviderApplications.length +
                 state.pendingServiceOfferings.length,
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminApprovalsHubScreen()),
@@ -563,11 +585,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             icon: Icons.home_repair_service_outlined,
             label: 'اشتراكات أصحاب الخدمة',
             subtitle: 'تسعير الاشتراك وتأكيد الاستلام النقدي',
-            badgeCount: state.pendingServiceProviderSubscriptionRequests.length,
+            badgeCount: state.pendingServiceProviderApplications.length,
             group: groupApprovals,
-            onTap: (_) => _openPage(
-              const AdminServiceProviderSubscriptionRequestsScreen(),
-            ),
+            onTap: (_) =>
+                _openPage(const AdminServiceProviderApplicationsScreen()),
           ),
         if (canAdminOps)
           AppUserDrawerItem(

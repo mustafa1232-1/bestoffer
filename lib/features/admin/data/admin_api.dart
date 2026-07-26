@@ -424,6 +424,157 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  // ---------- إدارة موظفي الشركة ----------
+
+  Future<Map<String, dynamic>> listEmployees({
+    String? department,
+    String? status,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/employees',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((department ?? '').trim().isNotEmpty) 'department': department!.trim(),
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getEmployee(int userId) async {
+    final response = await dio.get('/api/admin/employees/$userId');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> saveEmployee(Map<String, dynamic> body) async {
+    final response = await dio.post('/api/admin/employees', data: body);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> updateEmployee(
+    int userId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await dio.put('/api/admin/employees/$userId', data: body);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getEmployeeSalary(int userId) async {
+    final response = await dio.get('/api/admin/employees/$userId/salary');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> updateEmployeeSalary(
+    int userId, {
+    required int baseSalaryIqd,
+    String? effectiveFrom,
+    String? reason,
+  }) async {
+    final response = await dio.put(
+      '/api/admin/employees/$userId/salary',
+      data: {
+        'baseSalaryIqd': baseSalaryIqd,
+        if ((effectiveFrom ?? '').trim().isNotEmpty)
+          'effectiveFrom': effectiveFrom!.trim(),
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  // ---------- الحضور والمصاريف ----------
+
+  Future<Map<String, dynamic>> listAttendance({int? userId, int limit = 50}) async {
+    final response = await dio.get(
+      '/api/admin/attendance',
+      queryParameters: {
+        'limit': limit,
+        if (userId != null && userId > 0) 'userId': userId,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> listExpenses({String? status, int limit = 100}) async {
+    final response = await dio.get(
+      '/api/admin/expenses',
+      queryParameters: {
+        'limit': limit,
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> reviewExpense(int expenseId, String status) async {
+    final response = await dio.post(
+      '/api/admin/expenses/$expenseId/review',
+      data: {'status': status},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  // ---------- دورة الرواتب ----------
+
+  Future<Map<String, dynamic>> payrollRuns({int limit = 24}) async {
+    final response = await dio.get(
+      '/api/admin/payroll/runs',
+      queryParameters: {'limit': limit},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> createPayrollRun(
+    String periodMonth, {
+    String? notes,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/payroll/runs',
+      data: {
+        'periodMonth': periodMonth,
+        if ((notes ?? '').trim().isNotEmpty) 'notes': notes!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> payrollRun(int runId) async {
+    final response = await dio.get('/api/admin/payroll/runs/$runId');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> calculatePayrollRun(int runId) async {
+    final response = await dio.post('/api/admin/payroll/runs/$runId/calculate');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// action: submit | approve | release | acknowledge | archive
+  Future<Map<String, dynamic>> payrollRunAction(int runId, String action) async {
+    final response = await dio.post('/api/admin/payroll/runs/$runId/$action');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> markPayrollRunPaid(
+    int runId, {
+    required String paymentMethod,
+    String? paymentReference,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/payroll/runs/$runId/mark-paid',
+      data: {
+        'paymentMethod': paymentMethod,
+        if ((paymentReference ?? '').trim().isNotEmpty)
+          'paymentReference': paymentReference!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> rbacRoles({
     bool includeArchived = false,
     String? search,
@@ -621,7 +772,9 @@ class AdminApi {
   }
 
   /// يقترح أحدث طلبات/رحلات صاحب التذكرة لربطها.
-  Future<Map<String, dynamic>> supportTicketLinkSuggestions(int ticketId) async {
+  Future<Map<String, dynamic>> supportTicketLinkSuggestions(
+    int ticketId,
+  ) async {
     final response = await dio.get(
       '/api/admin/support/tickets/$ticketId/link-suggestions',
     );
@@ -1101,77 +1254,6 @@ class AdminApi {
       '/api/admin/taxi-captains/$captainUserId/subscription/discount',
       data: {'discountPercent': discountPercent},
     );
-  }
-
-  Future<List<dynamic>> serviceProviderSubscriptionRequests({
-    String? status,
-    String? search,
-    int limit = 100,
-    int offset = 0,
-  }) async {
-    final response = await dio.get(
-      '/api/admin/services/subscription-requests',
-      queryParameters: {
-        if ((status ?? '').trim().isNotEmpty)
-          'subscriptionRequestStatus': status!.trim(),
-        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
-        'limit': limit,
-        'offset': offset,
-      },
-    );
-    final data = response.data;
-    if (data is List) return List<dynamic>.from(data);
-    if (data is Map && data['items'] is List) {
-      return List<dynamic>.from(data['items'] as List);
-    }
-    return const <dynamic>[];
-  }
-
-  Future<Map<String, dynamic>> sendServiceProviderSubscriptionOffer({
-    required int requestId,
-    required num amount,
-    String currency = 'IQD',
-    String? title,
-    String? description,
-    String? validUntilIso,
-    String? note,
-  }) async {
-    final response = await dio.post(
-      '/api/admin/services/subscription-requests/$requestId/offer',
-      data: {
-        'amount': amount,
-        'currency': currency,
-        if ((title ?? '').trim().isNotEmpty) 'title': title!.trim(),
-        if ((description ?? '').trim().isNotEmpty)
-          'description': description!.trim(),
-        if ((validUntilIso ?? '').trim().isNotEmpty)
-          'validUntil': validUntilIso!.trim(),
-        if ((note ?? '').trim().isNotEmpty) 'note': note!.trim(),
-      },
-    );
-    return _safeMapResponse(response.data);
-  }
-
-  Future<Map<String, dynamic>> rejectServiceProviderSubscriptionRequest({
-    required int requestId,
-    String? note,
-  }) async {
-    final response = await dio.post(
-      '/api/admin/services/subscription-requests/$requestId/reject',
-      data: {if ((note ?? '').trim().isNotEmpty) 'note': note!.trim()},
-    );
-    return _safeMapResponse(response.data);
-  }
-
-  Future<Map<String, dynamic>> confirmServiceProviderSubscriptionCashPayment({
-    required int requestId,
-    String? note,
-  }) async {
-    final response = await dio.post(
-      '/api/admin/services/subscription-requests/$requestId/confirm-cash-payment',
-      data: {if ((note ?? '').trim().isNotEmpty) 'note': note!.trim()},
-    );
-    return _safeMapResponse(response.data);
   }
 
   Future<List<dynamic>> listSectionAvailability({
