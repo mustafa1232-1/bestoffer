@@ -76,7 +76,22 @@ const CARD_DEFS = [
     detailPath: "/admin/monitoring/community/users",
     counters: () => monitoringRepo.getCommunityMonitoringCounters(),
   },
-  { key: "tickets", title: "الشكاوى والتذاكر", permission: "support.tickets.read", wired: false },
+  {
+    key: "tickets",
+    title: "الشكاوى والتذاكر",
+    permission: "support.tickets.read",
+    wired: true,
+    detailPath: "/admin/support/tickets",
+    counters: () => monitoringRepo.getTicketMonitoringCounters(),
+  },
+  {
+    key: "ops_alerts",
+    title: "التنبيهات التشغيلية",
+    permission: "settings.guides.manage",
+    wired: true,
+    detailPath: "/admin/ops/alerts",
+    counters: () => monitoringRepo.getOpsAlertMonitoringCounters(),
+  },
 ];
 
 function hasPermission(effective, key) {

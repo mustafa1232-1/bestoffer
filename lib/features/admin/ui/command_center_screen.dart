@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/locale_text.dart';
 import '../state/admin_controller.dart';
+import 'admin_notification_center_screen.dart';
+import 'admin_support_tickets_screen.dart';
 import 'monitoring_operations_list_screen.dart';
 import 'monitoring_taxi_rides_screen.dart';
 
@@ -188,6 +190,10 @@ class _MonitoringCard extends StatelessWidget {
         return const MonitoringOperationsListScreen(
           mode: MonitoringOperationsMode.community,
         );
+      case 'tickets':
+        return const AdminSupportTicketsScreen();
+      case 'ops_alerts':
+        return const AdminNotificationCenterScreen();
       default:
         return null;
     }
@@ -227,6 +233,8 @@ class _MonitoringCard extends StatelessWidget {
         return context.lt(ar: 'بلا دلفري', en: 'No courier');
       case 'deliveriesToday':
         return context.lt(ar: 'توصيلات اليوم', en: 'Deliveries today');
+      case 'acknowledged':
+        return context.lt(ar: 'تم التعامل', en: 'Acknowledged');
       default:
         return key;
     }

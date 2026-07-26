@@ -35,6 +35,8 @@ const socialPostIds = [];
 const socialStoryIds = [];
 const socialUserReportIds = [];
 const socialRestrictionIds = [];
+const supportTicketIds = [];
+const opsAlertIds = [];
 
 async function makeUser(role) {
   const user = await createUser({
@@ -300,7 +302,57 @@ async function makeSocialRestriction({ userId, adminUserId }) {
   return id;
 }
 
+async function makeSupportTicket({
+  userId,
+  status = "NEW",
+  priority = "normal",
+  resolutionDue = null,
+}) {
+  const r = await q(
+    `INSERT INTO support_ticket
+       (user_id, domain, type, priority, subject, description, status,
+        sla_resolution_due_at, resolved_at, closed_at)
+     VALUES ($1,'OTHER','PROBLEM',$2,'MON Ticket','MON ticket body',$3::varchar,
+        $4,
+        CASE WHEN $3::text IN ('RESOLVED','CLOSED') THEN NOW() ELSE NULL END,
+        CASE WHEN $3::text = 'CLOSED' THEN NOW() ELSE NULL END)
+     RETURNING id`,
+    [userId, priority, status, resolutionDue]
+  );
+  const id = Number(r.rows[0].id);
+  supportTicketIds.push(id);
+  return id;
+}
+
+async function makeOpsAlert({ status = "open", severity = "medium" }) {
+  const r = await q(
+    `INSERT INTO ops_alert
+       (source, event_type, severity, status, title, details, resolved_at)
+     VALUES ('monitoring_test','MON_EVENT',$1,$2,'MON Alert','{}'::jsonb,
+       CASE WHEN $2 IN ('resolved','ignored') THEN NOW() ELSE NULL END)
+     RETURNING id`,
+    [severity, status]
+  );
+  const id = Number(r.rows[0].id);
+  opsAlertIds.push(id);
+  return id;
+}
+
 test.after(async () => {
+  if (supportTicketIds.length) {
+    await q(`DELETE FROM support_ticket_event WHERE ticket_id = ANY($1::bigint[])`, [
+      supportTicketIds,
+    ]);
+    await q(`DELETE FROM support_ticket WHERE id = ANY($1::bigint[])`, [
+      supportTicketIds,
+    ]);
+  }
+  if (opsAlertIds.length) {
+    await q(`DELETE FROM ops_alert_ack WHERE alert_id = ANY($1::bigint[])`, [
+      opsAlertIds,
+    ]);
+    await q(`DELETE FROM ops_alert WHERE id = ANY($1::bigint[])`, [opsAlertIds]);
+  }
   if (jobApplicationIds.length) {
     await q(`DELETE FROM job_application_status_history WHERE application_id = ANY($1::bigint[])`, [
       jobApplicationIds,
@@ -728,5 +780,49 @@ test("jobs and community monitoring use real rows without sensitive URLs", async
   assert.ok(
     communityPage.items.some((item) => Number(item.id) === communityUserId),
     "reported community user appears"
+  );
+});
+
+test("ticket and ops alert monitoring counters use real rows", async () => {
+  const ticketBefore = await monitoringRepo.getTicketMonitoringCounters();
+  const alertBefore = await monitoringRepo.getOpsAlertMonitoringCounters();
+  const userId = await makeUser("user");
+
+  await makeSupportTicket({
+    userId,
+    status: "NEW",
+    priority: "urgent",
+    resolutionDue: new Date(Date.now() - 60_000).toISOString(),
+  });
+  await makeSupportTicket({ userId, status: "RESOLVED" });
+  await makeOpsAlert({ status: "open", severity: "critical" });
+  await makeOpsAlert({ status: "acknowledged", severity: "medium" });
+  await makeOpsAlert({ status: "resolved", severity: "low" });
+
+  const ticketAfter = await monitoringRepo.getTicketMonitoringCounters();
+  const alertAfter = await monitoringRepo.getOpsAlertMonitoringCounters();
+
+  assert.ok(ticketAfter.active - ticketBefore.active >= 1, "open ticket counted");
+  assert.ok(
+    ticketAfter.completedToday - ticketBefore.completedToday >= 1,
+    "resolved ticket counted"
+  );
+  assert.ok(ticketAfter.delayed - ticketBefore.delayed >= 1, "breached SLA counted");
+  assert.ok(
+    ticketAfter.needsAttention - ticketBefore.needsAttention >= 1,
+    "urgent ticket counted"
+  );
+  assert.ok(alertAfter.active - alertBefore.active >= 1, "open alert counted");
+  assert.ok(
+    alertAfter.needsAttention - alertBefore.needsAttention >= 1,
+    "critical alert counted"
+  );
+  assert.ok(
+    alertAfter.completedToday - alertBefore.completedToday >= 1,
+    "resolved alert counted"
+  );
+  assert.ok(
+    alertAfter.acknowledged - alertBefore.acknowledged >= 1,
+    "acknowledged alert counted"
   );
 });
