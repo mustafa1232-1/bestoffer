@@ -12,6 +12,7 @@ import * as rbac from "../security/permissions.controller.js";
 import * as auditCtrl from "../security/audit.controller.js";
 import * as monitoring from "./monitoring.controller.js";
 import * as settings from "../settings/settings.controller.js";
+import * as support from "../support/support.controller.js";
 
 export const adminRouter = Router();
 
@@ -107,6 +108,53 @@ adminRouter.put(
   "/settings/support",
   requirePermission("settings.support_phone.update"),
   settings.updateSupport
+);
+
+// نظام التذاكر الموحّد (المرحلة 4) — إدارة/دعم.
+adminRouter.get(
+  "/support/tickets",
+  requirePermission("support.tickets.read"),
+  support.adminListTickets
+);
+adminRouter.get(
+  "/support/tickets/:ticketId",
+  requirePermission("support.tickets.read"),
+  support.adminGetTicket
+);
+adminRouter.post(
+  "/support/tickets/:ticketId/assign",
+  requirePermission("support.tickets.assign"),
+  support.adminAssign
+);
+adminRouter.post(
+  "/support/tickets/:ticketId/join",
+  requirePermission("support.tickets.reply"),
+  support.adminJoin
+);
+adminRouter.post(
+  "/support/tickets/:ticketId/messages",
+  requirePermission("support.tickets.reply"),
+  support.adminReply
+);
+adminRouter.post(
+  "/support/tickets/:ticketId/link",
+  requirePermission("support.tickets.assign"),
+  support.adminLinkEntity
+);
+adminRouter.post(
+  "/support/tickets/:ticketId/transition",
+  requirePermission("support.tickets.reply"),
+  support.adminTransition
+);
+adminRouter.post(
+  "/support/tickets/:ticketId/resolve",
+  requirePermission("support.tickets.resolve"),
+  support.adminResolve
+);
+adminRouter.post(
+  "/support/tickets/:ticketId/escalate",
+  requirePermission("support.tickets.escalate"),
+  support.adminEscalate
 );
 
 // إدارة الصلاحيات الدقيقة (RBAC).
