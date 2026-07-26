@@ -574,6 +574,11 @@ class _AdminMerchantStateManagementScreenState
         ? merchant.activityType
         : (activities.isNotEmpty ? activities.first.activityType : null);
     var saving = false;
+    // القسم الفرعي (discovery subcategory) — يُحمّل حسب القسم المختار.
+    String? selectedSubcategory = merchant.discoverySubcategory;
+    var discoveryOptions = <Map<String, dynamic>>[];
+    var optionsForActivity = '';
+    var loadingOptions = false;
 
     final ok = await showModalBottomSheet<bool>(
       context: context,
@@ -589,8 +594,14 @@ class _AdminMerchantStateManagementScreenState
               }
             }
 
+            // "جاهز" فقط بعد أن نعرف أقسام القسم المختار (حمّلناها فعلاً).
+            final optionsReady = optionsForActivity == selectedActivity;
+
             Future<void> submit() async {
               if (nameCtrl.text.trim().isEmpty || selected == null) return;
+              // بعض الأقسام لا تملك أقساماً فرعية: لا نرسل selectAll إطلاقاً
+              // كي لا يرفضه الباك اند (DISCOVERY_SUBCATEGORY_NOT_SUPPORTED).
+              final hasOptions = discoveryOptions.isNotEmpty;
               setSheetState(() => saving = true);
               final saved = await ref
                   .read(adminControllerProvider.notifier)
@@ -606,12 +617,44 @@ class _AdminMerchantStateManagementScreenState
                     type: selected.baseType,
                     activityType: selected.activityType,
                     storeDepartment: merchant.storeDepartment,
-                    discoverySubcategory: merchant.discoverySubcategory,
-                    discoverySelectAll: merchant.discoverySelectAll,
+                    discoverySubcategory: hasOptions ? selectedSubcategory : null,
+                    discoverySelectAll:
+                        hasOptions ? (selectedSubcategory == null) : false,
                   );
               if (!context.mounted) return;
               setSheetState(() => saving = false);
               if (saved) Navigator.of(context).pop(true);
+            }
+
+            // يحمّل الأقسام الفرعية للقسم المختار (مرة واحدة لكل قسم).
+            Future<void> loadOptionsFor(String? activityType) async {
+              if (activityType == null || activityType.isEmpty) return;
+              if (optionsForActivity == activityType) return;
+              setSheetState(() => loadingOptions = true);
+              try {
+                final opts = await ref
+                    .read(adminApiProvider)
+                    .activityDiscoveryOptions(activityType);
+                if (!context.mounted) return;
+                setSheetState(() {
+                  discoveryOptions = opts;
+                  optionsForActivity = activityType;
+                  loadingOptions = false;
+                  final codes = opts.map((o) => '${o['code']}').toSet();
+                  if (selectedSubcategory != null &&
+                      !codes.contains(selectedSubcategory)) {
+                    selectedSubcategory = null;
+                  }
+                });
+              } catch (_) {
+                if (context.mounted) {
+                  setSheetState(() => loadingOptions = false);
+                }
+              }
+            }
+
+            if (!loadingOptions && optionsForActivity != selectedActivity) {
+              Future.microtask(() => loadOptionsFor(selectedActivity));
             }
 
             return Padding(
@@ -679,10 +722,62 @@ class _AdminMerchantStateManagementScreenState
                         .toList(),
                     onChanged: saving
                         ? null
-                        : (value) =>
-                              setSheetState(() => selectedActivity = value),
+                        : (value) => setSheetState(() {
+                            selectedActivity = value;
+                            // القسم تغيّر: الأقسام الفرعية القديمة لم تعد صالحة.
+                            selectedSubcategory = null;
+                          }),
                   ),
                   const SizedBox(height: 10),
+                  if (loadingOptions)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: LinearProgressIndicator(),
+                    )
+                  else if (discoveryOptions.isNotEmpty)
+                    DropdownButtonFormField<String?>(
+                      initialValue: selectedSubcategory,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: _t(
+                          context,
+                          ar: 'القسم الفرعي',
+                          en: 'Subcategory',
+                        ),
+                        helperText: _t(
+                          context,
+                          ar: 'اترك (كل الأقسام) لعرض المتجر في كامل القسم',
+                          en: 'Leave (All) to show the store across the section',
+                        ),
+                      ),
+                      items: [
+                        DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text(
+                            _t(context, ar: 'كل الأقسام', en: 'All'),
+                          ),
+                        ),
+                        ...discoveryOptions.map((opt) {
+                          final isAr =
+                              Localizations.localeOf(context).languageCode ==
+                              'ar';
+                          final label = isAr
+                              ? '${opt['labelAr'] ?? opt['labelEn'] ?? opt['code']}'
+                              : '${opt['labelEn'] ?? opt['labelAr'] ?? opt['code']}';
+                          return DropdownMenuItem<String?>(
+                            value: '${opt['code']}',
+                            child: Text(label),
+                          );
+                        }),
+                      ],
+                      onChanged: saving
+                          ? null
+                          : (value) => setSheetState(
+                              () => selectedSubcategory = value,
+                            ),
+                    ),
+                  if (loadingOptions || discoveryOptions.isNotEmpty)
+                    const SizedBox(height: 10),
                   TextField(
                     controller: descCtrl,
                     maxLines: 3,
@@ -696,7 +791,7 @@ class _AdminMerchantStateManagementScreenState
                   ),
                   const SizedBox(height: 12),
                   FilledButton.icon(
-                    onPressed: saving ? null : submit,
+                    onPressed: (saving || !optionsReady) ? null : submit,
                     icon: saving
                         ? const SizedBox(
                             width: 18,

@@ -1066,6 +1066,21 @@ class AdminApi {
     return _safeMapResponse(response.data);
   }
 
+  /// خيارات القسم الفرعي (discovery subcategory) لنوع نشاط متجر معيّن.
+  Future<List<Map<String, dynamic>>> activityDiscoveryOptions(
+    String activityType,
+  ) async {
+    final response = await dio.get(
+      '/api/merchants/discovery/options',
+      queryParameters: {'activityType': activityType},
+    );
+    final data = response.data;
+    final list = data is Map ? (data['items'] as List?) : (data as List?);
+    return (list ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList(growable: false);
+  }
+
   Future<List<dynamic>> adminStoreActivities() async {
     final response = await dio.get('/api/admin/store-activities');
     final data = response.data;
