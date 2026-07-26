@@ -228,8 +228,8 @@ class _MaslakiTaxiCaptainAppState extends ConsumerState<MaslakiTaxiCaptainApp>
       locale: settings.locale,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
-      theme: AppTheme.light(preset: settings.themePreset),
-      darkTheme: AppTheme.dark(preset: settings.themePreset),
+      theme: AppTheme.themed(settings.maslakiTheme),
+      darkTheme: AppTheme.themed(settings.maslakiTheme),
       themeMode: ThemeMode.dark,
       builder: (ctx, child) {
         if (child == null) return const SizedBox.shrink();

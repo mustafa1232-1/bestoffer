@@ -69,6 +69,55 @@ class MaslakiThemeTokens extends ThemeExtension<MaslakiThemeTokens> {
         glowSecondary: const Color(0x332B4F78),
       );
 
+  /// «مسلكي الأصلي» — نيلي/كحلي + كريمي + ذهبي (الاتجاه الرسمي، = darkPremium).
+  const MaslakiThemeTokens.maslakiOriginal() : this.darkPremium();
+
+  /// «شفق مسلكي» — أزرق ليلي + تركوازي + بنفسجي مضيء، حديث دون التضحية بالوضوح.
+  const MaslakiThemeTokens.maslakiTwilight()
+    : this(
+        backgroundPrimary: const Color(0xFF0A1230),
+        backgroundSecondary: const Color(0xFF0E1A44),
+        backgroundTertiary: const Color(0xFF122152),
+        surfacePrimary: const Color(0xFF12204C),
+        surfaceSecondary: const Color(0xFF17285C),
+        cardPrimary: const Color(0xFF122152),
+        cardElevated: const Color(0xFF1B2E6B),
+        primaryAccent: const Color(0xFF2DD4BF),
+        secondaryAccent: const Color(0xFF9B7BFF),
+        textPrimary: const Color(0xFFF2F5FF),
+        textSecondary: const Color(0xFFC7D0EE),
+        textMuted: const Color(0xFF8A96C4),
+        borderSubtle: const Color(0x442DD4BF),
+        success: const Color(0xFF4ADE80),
+        warning: const Color(0xFFF5B759),
+        danger: const Color(0xFFF87171),
+        glowPrimary: const Color(0x552DD4BF),
+        glowSecondary: const Color(0x339B7BFF),
+      );
+
+  /// «مسلكي المرجاني» — فحمي داكن + مرجاني + فيروزي + عاجي، جريء ومختلف.
+  const MaslakiThemeTokens.maslakiCoral()
+    : this(
+        backgroundPrimary: const Color(0xFF1A1A1D),
+        backgroundSecondary: const Color(0xFF212127),
+        backgroundTertiary: const Color(0xFF27272E),
+        surfacePrimary: const Color(0xFF212127),
+        surfaceSecondary: const Color(0xFF2B2B33),
+        cardPrimary: const Color(0xFF232329),
+        cardElevated: const Color(0xFF2E2E37),
+        primaryAccent: const Color(0xFFFF6F61),
+        secondaryAccent: const Color(0xFF20C4B4),
+        textPrimary: const Color(0xFFFDF6EC),
+        textSecondary: const Color(0xFFE4D9C8),
+        textMuted: const Color(0xFFB5A996),
+        borderSubtle: const Color(0x44FF6F61),
+        success: const Color(0xFF6FCF97),
+        warning: const Color(0xFFE8B057),
+        danger: const Color(0xFFE5695F),
+        glowPrimary: const Color(0x55FF6F61),
+        glowSecondary: const Color(0x3320C4B4),
+      );
+
   @override
   MaslakiThemeTokens copyWith({
     Color? backgroundPrimary,
@@ -520,46 +569,68 @@ class AppTheme {
   static const MaslakiMotionTokens _motion = MaslakiMotionTokens.luxury();
   static const MaslakiShellTokens _shell = MaslakiShellTokens.luxury();
 
-  static ThemeData light({
-    AppThemePreset preset = AppThemePreset.midnightBlue,
-  }) {
-    return dark(preset: preset);
+  /// يختار لوحة الألوان حسب الثيم الرسمي (المرحلة 9).
+  static MaslakiThemeTokens tokensForTheme(MaslakiTheme theme) {
+    switch (theme) {
+      case MaslakiTheme.twilight:
+        return const MaslakiThemeTokens.maslakiTwilight();
+      case MaslakiTheme.coral:
+        return const MaslakiThemeTokens.maslakiCoral();
+      case MaslakiTheme.original:
+        return const MaslakiThemeTokens.maslakiOriginal();
+    }
   }
 
-  static ThemeData dark({AppThemePreset preset = AppThemePreset.midnightBlue}) {
+  /// يبني ThemeData لأحد الثيمات الثلاثة.
+  static ThemeData themed(MaslakiTheme theme) {
+    return dark(tokens: tokensForTheme(theme));
+  }
+
+  static ThemeData light({
+    AppThemePreset preset = AppThemePreset.midnightBlue,
+    MaslakiThemeTokens? tokens,
+  }) {
+    return dark(preset: preset, tokens: tokens);
+  }
+
+  static ThemeData dark({
+    AppThemePreset preset = AppThemePreset.midnightBlue,
+    MaslakiThemeTokens? tokens,
+  }) {
+    final MaslakiThemeTokens t = tokens ?? _tokens;
     final scheme = ColorScheme(
       brightness: Brightness.dark,
-      primary: _tokens.primaryAccent,
-      onPrimary: _tokens.backgroundPrimary,
-      secondary: _tokens.secondaryAccent,
-      onSecondary: _tokens.backgroundPrimary,
-      tertiary: _tokens.success,
-      onTertiary: _tokens.backgroundPrimary,
-      error: _tokens.danger,
-      onError: _tokens.textPrimary,
-      surface: _tokens.surfacePrimary,
-      onSurface: _tokens.textPrimary,
-      primaryContainer: _tokens.surfaceSecondary,
-      onPrimaryContainer: _tokens.textPrimary,
-      secondaryContainer: _tokens.cardElevated,
-      onSecondaryContainer: _tokens.textPrimary,
-      tertiaryContainer: _tokens.backgroundSecondary,
-      onTertiaryContainer: _tokens.textPrimary,
-      outline: _tokens.borderSubtle,
-      outlineVariant: _tokens.borderSubtle.withValues(alpha: 0.72),
+      primary: t.primaryAccent,
+      onPrimary: t.backgroundPrimary,
+      secondary: t.secondaryAccent,
+      onSecondary: t.backgroundPrimary,
+      tertiary: t.success,
+      onTertiary: t.backgroundPrimary,
+      error: t.danger,
+      onError: t.textPrimary,
+      surface: t.surfacePrimary,
+      onSurface: t.textPrimary,
+      primaryContainer: t.surfaceSecondary,
+      onPrimaryContainer: t.textPrimary,
+      secondaryContainer: t.cardElevated,
+      onSecondaryContainer: t.textPrimary,
+      tertiaryContainer: t.backgroundSecondary,
+      onTertiaryContainer: t.textPrimary,
+      outline: t.borderSubtle,
+      outlineVariant: t.borderSubtle.withValues(alpha: 0.72),
       shadow: Colors.black,
       scrim: Colors.black,
-      inverseSurface: _tokens.textPrimary,
-      onInverseSurface: _tokens.backgroundPrimary,
-      inversePrimary: _tokens.primaryAccent.withValues(alpha: 0.48),
+      inverseSurface: t.textPrimary,
+      onInverseSurface: t.backgroundPrimary,
+      inversePrimary: t.primaryAccent.withValues(alpha: 0.48),
     );
 
     final base = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
       brightness: Brightness.dark,
-      extensions: const <ThemeExtension<dynamic>>[
-        _tokens,
+      extensions: <ThemeExtension<dynamic>>[
+        t,
         _visual,
         _type,
         _motion,
@@ -567,7 +638,7 @@ class AppTheme {
       ],
     );
 
-    final textTheme = _buildHybridTextTheme(base.textTheme, _tokens);
+    final textTheme = _buildHybridTextTheme(base.textTheme, t);
 
     return base.copyWith(
       textTheme: textTheme,
@@ -580,15 +651,15 @@ class AppTheme {
         centerTitle: true,
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
-        foregroundColor: _tokens.textPrimary,
+        foregroundColor: t.textPrimary,
         titleTextStyle: textTheme.titleLarge?.copyWith(
           fontWeight: FontWeight.w800,
-          color: _tokens.textPrimary,
+          color: t.textPrimary,
         ),
-        iconTheme: IconThemeData(color: _tokens.secondaryAccent),
+        iconTheme: IconThemeData(color: t.secondaryAccent),
       ),
       drawerTheme: DrawerThemeData(
-        backgroundColor: _tokens.surfacePrimary.withValues(alpha: 0.97),
+        backgroundColor: t.surfacePrimary.withValues(alpha: 0.97),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.horizontal(
             right: Radius.circular(_shell.screenRadius),
@@ -596,55 +667,55 @@ class AppTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: _tokens.cardPrimary.withValues(alpha: 0.96),
+        color: t.cardPrimary.withValues(alpha: 0.96),
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.cardRadius),
           side: BorderSide(
-            color: _tokens.borderSubtle.withValues(alpha: 0.90),
+            color: t.borderSubtle.withValues(alpha: 0.90),
           ),
         ),
       ),
-      dividerColor: _tokens.borderSubtle.withValues(alpha: 0.66),
+      dividerColor: t.borderSubtle.withValues(alpha: 0.66),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: _tokens.surfaceSecondary.withValues(alpha: 0.82),
+        fillColor: t.surfaceSecondary.withValues(alpha: 0.82),
         errorMaxLines: 3,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 18,
           vertical: 16,
         ),
         errorStyle: textTheme.bodySmall?.copyWith(
-          color: _tokens.danger,
+          color: t.danger,
           fontWeight: FontWeight.w700,
         ),
-        border: _outlineBorder(_tokens, _shell.fieldRadius),
-        enabledBorder: _outlineBorder(_tokens, _shell.fieldRadius),
-        disabledBorder: _outlineBorder(_tokens, _shell.fieldRadius),
+        border: _outlineBorder(t, _shell.fieldRadius),
+        enabledBorder: _outlineBorder(t, _shell.fieldRadius),
+        disabledBorder: _outlineBorder(t, _shell.fieldRadius),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
-          borderSide: BorderSide(color: _tokens.primaryAccent, width: 1.2),
+          borderSide: BorderSide(color: t.primaryAccent, width: 1.2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
-          borderSide: BorderSide(color: _tokens.danger, width: 1.1),
+          borderSide: BorderSide(color: t.danger, width: 1.1),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
-          borderSide: BorderSide(color: _tokens.danger, width: 1.3),
+          borderSide: BorderSide(color: t.danger, width: 1.3),
         ),
-        labelStyle: textTheme.bodyMedium?.copyWith(color: _tokens.textSecondary),
-        hintStyle: textTheme.bodyMedium?.copyWith(color: _tokens.textMuted),
-        prefixIconColor: _tokens.primaryAccent,
-        suffixIconColor: _tokens.secondaryAccent,
+        labelStyle: textTheme.bodyMedium?.copyWith(color: t.textSecondary),
+        hintStyle: textTheme.bodyMedium?.copyWith(color: t.textMuted),
+        prefixIconColor: t.primaryAccent,
+        suffixIconColor: t.secondaryAccent,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           minimumSize: const Size(0, 54),
           elevation: 0,
-          backgroundColor: _tokens.primaryAccent,
-          foregroundColor: _tokens.backgroundPrimary,
+          backgroundColor: t.primaryAccent,
+          foregroundColor: t.backgroundPrimary,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(_shell.fieldRadius),
           ),
@@ -658,8 +729,8 @@ class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(0, 50),
-          foregroundColor: _tokens.textPrimary,
-          side: BorderSide(color: _tokens.borderSubtle.withValues(alpha: 0.95)),
+          foregroundColor: t.textPrimary,
+          side: BorderSide(color: t.borderSubtle.withValues(alpha: 0.95)),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(_shell.fieldRadius),
           ),
@@ -671,22 +742,22 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: _tokens.secondaryAccent,
+          foregroundColor: t.secondaryAccent,
           textStyle: textTheme.labelLarge?.copyWith(
             fontWeight: FontWeight.w800,
           ),
         ),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
-        backgroundColor: _tokens.primaryAccent,
-        foregroundColor: _tokens.backgroundPrimary,
+        backgroundColor: t.primaryAccent,
+        foregroundColor: t.backgroundPrimary,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: _tokens.surfacePrimary.withValues(alpha: 0.98),
-        indicatorColor: _tokens.primaryAccent.withValues(alpha: 0.14),
+        backgroundColor: t.surfacePrimary.withValues(alpha: 0.98),
+        indicatorColor: t.primaryAccent.withValues(alpha: 0.14),
         indicatorShape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.navRadius),
         ),
@@ -694,71 +765,71 @@ class AppTheme {
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return textTheme.labelSmall?.copyWith(
-            color: selected ? _tokens.primaryAccent : _tokens.textMuted,
+            color: selected ? t.primaryAccent : t.textMuted,
             fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
           );
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return IconThemeData(
-            color: selected ? _tokens.primaryAccent : _tokens.textMuted,
+            color: selected ? t.primaryAccent : t.textMuted,
           );
         }),
       ),
       chipTheme: base.chipTheme.copyWith(
-        backgroundColor: _tokens.surfaceSecondary.withValues(alpha: 0.72),
-        selectedColor: _tokens.primaryAccent.withValues(alpha: 0.16),
-        side: BorderSide(color: _tokens.borderSubtle.withValues(alpha: 0.94)),
+        backgroundColor: t.surfaceSecondary.withValues(alpha: 0.72),
+        selectedColor: t.primaryAccent.withValues(alpha: 0.16),
+        side: BorderSide(color: t.borderSubtle.withValues(alpha: 0.94)),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.chipRadius),
         ),
         labelStyle: textTheme.bodyMedium?.copyWith(
-          color: _tokens.textSecondary,
+          color: t.textSecondary,
           fontWeight: FontWeight.w700,
         ),
         secondaryLabelStyle: textTheme.bodyMedium?.copyWith(
-          color: _tokens.backgroundPrimary,
+          color: t.backgroundPrimary,
           fontWeight: FontWeight.w800,
         ),
       ),
       listTileTheme: ListTileThemeData(
-        iconColor: _tokens.primaryAccent,
-        textColor: _tokens.textPrimary,
+        iconColor: t.primaryAccent,
+        textColor: t.textPrimary,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: _tokens.surfaceSecondary.withValues(alpha: 0.98),
+        backgroundColor: t.surfaceSecondary.withValues(alpha: 0.98),
         contentTextStyle: textTheme.bodyMedium?.copyWith(
-          color: _tokens.textPrimary,
+          color: t.textPrimary,
         ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
-          side: BorderSide(color: _tokens.borderSubtle.withValues(alpha: 0.92)),
+          side: BorderSide(color: t.borderSubtle.withValues(alpha: 0.92)),
         ),
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
-        color: _tokens.primaryAccent,
-        circularTrackColor: _tokens.borderSubtle.withValues(alpha: 0.42),
+        color: t.primaryAccent,
+        circularTrackColor: t.borderSubtle.withValues(alpha: 0.42),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: _tokens.surfacePrimary.withValues(alpha: 0.98),
+        backgroundColor: t.surfacePrimary.withValues(alpha: 0.98),
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
             top: Radius.circular(_shell.screenRadius),
           ),
-          side: BorderSide(color: _tokens.borderSubtle.withValues(alpha: 0.90)),
+          side: BorderSide(color: t.borderSubtle.withValues(alpha: 0.90)),
         ),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: _tokens.surfacePrimary,
+        backgroundColor: t.surfacePrimary,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.cardRadius),
-          side: BorderSide(color: _tokens.borderSubtle.withValues(alpha: 0.92)),
+          side: BorderSide(color: t.borderSubtle.withValues(alpha: 0.92)),
         ),
       ),
       pageTransitionsTheme: const PageTransitionsTheme(

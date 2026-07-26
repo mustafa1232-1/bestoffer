@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:core_design_system/core_design_system.dart' show MaslakiTheme;
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -14,6 +15,7 @@ class AppSettingsState {
   final bool animationsEnabled;
   final bool weatherEffectsEnabled;
   final AppThemePreset themePreset;
+  final MaslakiTheme maslakiTheme;
   final bool loaded;
 
   const AppSettingsState({
@@ -21,6 +23,7 @@ class AppSettingsState {
     required this.animationsEnabled,
     required this.weatherEffectsEnabled,
     required this.themePreset,
+    required this.maslakiTheme,
     required this.loaded,
   });
 
@@ -29,6 +32,7 @@ class AppSettingsState {
     animationsEnabled: true,
     weatherEffectsEnabled: true,
     themePreset: AppThemePreset.midnightBlue,
+    maslakiTheme: MaslakiTheme.original,
     loaded: false,
   );
 
@@ -37,6 +41,7 @@ class AppSettingsState {
     bool? animationsEnabled,
     bool? weatherEffectsEnabled,
     AppThemePreset? themePreset,
+    MaslakiTheme? maslakiTheme,
     bool? loaded,
   }) {
     return AppSettingsState(
@@ -45,6 +50,7 @@ class AppSettingsState {
       weatherEffectsEnabled:
           weatherEffectsEnabled ?? this.weatherEffectsEnabled,
       themePreset: themePreset ?? this.themePreset,
+      maslakiTheme: maslakiTheme ?? this.maslakiTheme,
       loaded: loaded ?? this.loaded,
     );
   }
@@ -80,6 +86,7 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
   static const _keyAnimationsBase = 'app_animations';
   static const _keyWeatherEffectsBase = 'app_weather_effects';
   static const _keyThemePresetBase = 'app_theme_preset';
+  static const _keyMaslakiThemeBase = 'app_maslaki_theme';
   static const _legacyKeyLocale = _keyLocaleBase;
   static const _legacyKeyAnimations = _keyAnimationsBase;
   static const _legacyKeyWeatherEffects = _keyWeatherEffectsBase;
@@ -105,6 +112,7 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
   String get _keyAnimations => '${storageScope}_$_keyAnimationsBase';
   String get _keyWeatherEffects => '${storageScope}_$_keyWeatherEffectsBase';
   String get _keyThemePreset => '${storageScope}_$_keyThemePresetBase';
+  String get _keyMaslakiTheme => '${storageScope}_$_keyMaslakiThemeBase';
 
   /// يحمّل التفضيلات من التخزين، مع أولوية للقيمة المحفوظة ثم لغة الجهاز
   /// ثم fallback عربي.
@@ -125,6 +133,7 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
       _keyThemePreset,
       _legacyKeyThemePreset,
     );
+    final maslakiThemeRaw = await store.readString(_keyMaslakiTheme);
 
     final locale =
         _normalizeLocale(localeRaw) ??
@@ -135,8 +144,15 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
       animationsEnabled: animationsRaw ?? true,
       weatherEffectsEnabled: weatherRaw ?? true,
       themePreset: AppThemePreset.fromStorageValue(themePresetRaw),
+      maslakiTheme: MaslakiTheme.fromStorageValue(maslakiThemeRaw),
       loaded: true,
     );
+  }
+
+  /// يثبّت الثيم الرسمي المختار (الأصلي/الشفق/المرجاني) محلياً. المرحلة 9.
+  Future<void> setMaslakiTheme(MaslakiTheme theme) async {
+    state = state.copyWith(maslakiTheme: theme);
+    await store.writeString(_keyMaslakiTheme, theme.storageValue);
   }
 
   /// يثبت اللغة المختارة محلياً ويحدث Directionality على مستوى التطبيق.
@@ -177,12 +193,17 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
       animationsEnabled: true,
       weatherEffectsEnabled: true,
       themePreset: AppThemePreset.midnightBlue,
+      maslakiTheme: MaslakiTheme.original,
     );
     await store.writeBool(_keyAnimations, true);
     await store.writeBool(_keyWeatherEffects, true);
     await store.writeString(
       _keyThemePreset,
       AppThemePreset.midnightBlue.storageValue,
+    );
+    await store.writeString(
+      _keyMaslakiTheme,
+      MaslakiTheme.original.storageValue,
     );
   }
 

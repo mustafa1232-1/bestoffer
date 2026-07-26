@@ -92,7 +92,8 @@
 ### المرحلة 8 — رقم الدعم المركزي ✅
 **ما نُفِّذ (commit مستقل):** جدول `platform_setting` (key/value، migration 171)، وحدة `settings` بتحقق E164 وتنظيف نصوص (إزالة أحرف التحكم و`<>` لمنع الحقن)، `GET /api/settings/public` عام (مع Cache-Control) يخدم كل التطبيقات بلا تحديث، `GET/PUT /admin/settings/support` خلف `settings.support_phone.update` مع تدقيق before/after عبر سجل المرحلة 11. واجهة Flutter: `AdminSupportSettingsScreen` + مدخل في لوحة الإدارة + طرق `AdminApi`. اختبارات (3/3). **المتبقي:** استهلاك `/settings/public` في صفحات دعم التطبيقات (مع cache وfallback محلي) — الـendpoint جاهز.
 
-### المرحلة 9 — ثلاثة ثيمات 🟡
+### المرحلة 9 — ثلاثة ثيمات ✅
+**ما نُفِّذ (commit مستقل):** أُعيد فتح نظام الثيمات (كان مقفولاً على ثيم واحد). ثلاث لوحات semantic tokens عبر `MaslakiThemeTokens` (ThemeExtension): **مسلكي الأصلي** (نيلي/كريمي/ذهبي)، **شفق مسلكي** (أزرق ليلي/تركوازي/بنفسجي)، **مسلكي المرجاني** (فحمي/مرجاني/فيروزي/عاجي). `enum MaslakiTheme` + `AppTheme.themed()`/`tokensForTheme()` (تم تحويل `dark()` لاستقبال tokens بدل الثابت). حفظ الاختيار محلياً في `AppSettingsController` (بمفتاح لكل تطبيق) + تطبيقه في نقاط دخول التطبيقات الخمسة، وشاشة اختيار بمعاينة ألوان + «الرجوع للافتراضي». RTL محفوظ (Directionality عام). اختبار (3/3). **المتبقي:** Golden tests للشاشات الرئيسية؛ مزامنة الاختيار بالحساب (محلي الآن)؛ التخلص التدريجي من أي ألوان صلبة متبقية في شاشات قديمة.
 **الموجود:** `packages/core_design_system`، `UNIFIED_IDENTITY_AND_DESIGN_SYSTEM.md`.
 **الناقص:** 3 ثيمات (الأصلي/الشفق/المرجاني) عبر semantic tokens + `ThemeExtension`، حفظ/مزامنة الاختيار، preview، Golden tests.
 
