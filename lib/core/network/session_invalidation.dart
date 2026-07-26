@@ -274,6 +274,7 @@ bool isRecoverableSessionAuthCode(String? code) {
       normalized == 'NO_TOKEN' ||
       normalized == 'INVALID_REFRESH_TOKEN' ||
       normalized == 'SESSION_RECOVERY_REQUIRED' ||
+      normalized == 'PERMISSIONS_CHANGED' ||
       normalized == 'TOKEN_EXPIRED' ||
       normalized == 'ACCESS_TOKEN_EXPIRED' ||
       normalized == 'SESSION_EXPIRED';

@@ -34,6 +34,7 @@ import 'admin_notification_center_screen.dart';
 import 'admin_notifications_operations_screen.dart';
 import 'admin_orders_overview_screen.dart';
 import 'admin_permissions_matrix_screen.dart';
+import 'admin_rbac_management_screen.dart';
 import 'admin_receivables_screen.dart';
 import 'admin_residence_change_requests_screen.dart';
 import 'admin_service_provider_subscription_requests_screen.dart';
@@ -96,6 +97,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       currency: 'IQD',
     ),
   );
+  Set<String> _effectiveAdminPermissions = const <String>{};
+  bool _effectiveAdminWildcard = false;
 
   /// ÙŠØ­Ù…Ù„ snapshot Ø§Ù„Ø¨Ø¯Ø§ÙŠØ© Ù…Ù† `AdminController` Ø«Ù… ÙŠØ·Ù„Ø¨ summaries Ø§Ù„Ø¥Ø¶Ø§ÙÙŠØ©
   /// Ø§Ù„Ø®Ø§ØµØ© Ø¨Ø§Ù„Ø¹Ù†Ø§ÙˆÙŠÙ† Ø§Ù„Ø¹Ù„ÙŠØ§ ÙˆØ§Ù„ÙØªØ±Ø© Ø§Ù„Ù…Ø®ØªØ§Ø±Ø©.
@@ -109,7 +112,34 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   /// Ø§Ù„Ù…Ø­Ù„ÙŠØ© Ø§Ù„Ù…Ø¹ØªÙ…Ø¯Ø© Ø¹Ù„Ù‰ ÙÙ„Ø§ØªØ± Ø§Ù„ÙØªØ±Ø©.
   Future<void> _bootstrap() async {
     await ref.read(adminControllerProvider.notifier).bootstrap();
-    await Future.wait([_loadHeadlineSummary(), _loadPeriodSummary()]);
+    await Future.wait([
+      _loadMyPermissions(),
+      _loadHeadlineSummary(),
+      _loadPeriodSummary(),
+    ]);
+  }
+
+  Future<void> _loadMyPermissions() async {
+    try {
+      final raw = await ref.read(adminApiProvider).myPermissions();
+      final permissions =
+          List<dynamic>.from(raw['permissions'] as List? ?? const [])
+              .whereType<Map>()
+              .map((item) => '${item['key'] ?? ''}'.trim())
+              .where((item) => item.isNotEmpty)
+              .toSet();
+      if (!mounted) return;
+      setState(() {
+        _effectiveAdminWildcard = raw['wildcard'] == true;
+        _effectiveAdminPermissions = permissions;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _effectiveAdminWildcard = false;
+        _effectiveAdminPermissions = const <String>{};
+      });
+    }
   }
 
   bool _isTransientSummaryError(Object error) {
@@ -373,8 +403,18 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     final l10n = context.l10n;
     final state = ref.watch(adminControllerProvider);
     final auth = ref.watch(authControllerProvider);
-    final canBackoffice = auth.isBackoffice;
-    final canAdminOps = auth.isAdmin || auth.isSuperAdmin;
+    bool canPermission(String permission) {
+      return auth.isSuperAdmin ||
+          _effectiveAdminWildcard ||
+          _effectiveAdminPermissions.contains(permission);
+    }
+
+    final canBackoffice =
+        auth.isBackoffice && canPermission('dashboard.command_center.view');
+    final canAdminOps =
+        canPermission('dashboard.command_center.view') ||
+        canPermission('audit.read');
+    final canManagePermissions = canPermission('employees.permissions.manage');
     final useDesktop = DesktopDashboardFrame.shouldUse(context);
     final allTimeFinancial = _allTimeFinancial(state);
     final isArabic = Localizations.localeOf(
@@ -683,13 +723,27 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSecurity,
             onTap: (_) => _openPage(const AdminFeatureFlagsCenterScreen()),
           ),
-        if (canAdminOps)
+        if (canManagePermissions)
           AppUserDrawerItem(
             icon: Icons.fact_check_outlined,
             label: l10n.adminOpsPermissionsMatrixTitle,
             subtitle: l10n.adminOpsPermissionsMatrixDescription,
             group: groupSecurity,
             onTap: (_) => _openPage(const AdminPermissionsMatrixScreen()),
+          ),
+        if (canManagePermissions)
+          AppUserDrawerItem(
+            icon: Icons.admin_panel_settings_outlined,
+            label: navText(
+              ar: 'إدارة الأدوار والصلاحيات',
+              en: 'Roles & permissions',
+            ),
+            subtitle: navText(
+              ar: 'أدوار مخصصة، صلاحيات فردية، وسجل تغييرات الصلاحيات',
+              en: 'Custom roles, individual permissions, and change log',
+            ),
+            group: groupSecurity,
+            onTap: (_) => _openPage(const AdminRbacManagementScreen()),
           ),
         if (auth.isSuperAdmin)
           AppUserDrawerItem(

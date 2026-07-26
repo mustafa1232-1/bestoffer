@@ -105,10 +105,7 @@ class AdminApi {
     int limit = 25,
     int offset = 0,
   }) async {
-    final queryParameters = <String, dynamic>{
-      'limit': limit,
-      'offset': offset,
-    };
+    final queryParameters = <String, dynamic>{'limit': limit, 'offset': offset};
     if (status != null && status.trim().isNotEmpty) {
       queryParameters['status'] = status.trim();
     }
@@ -125,6 +122,152 @@ class AdminApi {
   /// الصلاحيات الفعّالة للموظف الحالي (لبناء القائمة). الفرض دائماً في الخادم.
   Future<Map<String, dynamic>> myPermissions() async {
     final response = await dio.get('/api/admin/me/permissions');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> rbacCatalog() async {
+    final response = await dio.get('/api/admin/rbac/catalog');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> rbacRoles({
+    bool includeArchived = false,
+    String? search,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/rbac/roles',
+      queryParameters: {
+        'includeArchived': includeArchived,
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> createRbacRole({
+    required String roleKey,
+    required String displayName,
+    String? description,
+    String category = 'custom',
+    List<Map<String, dynamic>> permissions = const <Map<String, dynamic>>[],
+    String? reason,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/rbac/roles',
+      data: {
+        'roleKey': roleKey,
+        'displayName': displayName,
+        if ((description ?? '').trim().isNotEmpty)
+          'description': description!.trim(),
+        'category': category,
+        'permissions': permissions,
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> updateRbacRole({
+    required String roleKey,
+    required String displayName,
+    String? description,
+    String category = 'custom',
+    List<Map<String, dynamic>>? permissions,
+    String? reason,
+  }) async {
+    final response = await dio.put(
+      '/api/admin/rbac/roles/$roleKey',
+      data: {
+        'displayName': displayName,
+        if ((description ?? '').trim().isNotEmpty)
+          'description': description!.trim(),
+        'category': category,
+        ...permissions == null
+            ? const <String, dynamic>{}
+            : {'permissions': permissions},
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> copyRbacRole({
+    required String sourceRoleKey,
+    required String roleKey,
+    required String displayName,
+    String? description,
+    String? reason,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/rbac/roles/$sourceRoleKey/copy',
+      data: {
+        'roleKey': roleKey,
+        'displayName': displayName,
+        if ((description ?? '').trim().isNotEmpty)
+          'description': description!.trim(),
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> archiveRbacRole({
+    required String roleKey,
+    String? reason,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/rbac/roles/$roleKey/archive',
+      data: {if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim()},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> rbacUserPermissions(int userId) async {
+    final response = await dio.get('/api/admin/rbac/users/$userId/permissions');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> upsertRbacUserPermission({
+    required int userId,
+    required String permissionKey,
+    required String effect,
+    String scope = 'all',
+    String? expiresAt,
+    String? reason,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/rbac/users/$userId/permissions',
+      data: {
+        'permissionKey': permissionKey,
+        'effect': effect,
+        'scope': scope,
+        if ((expiresAt ?? '').trim().isNotEmpty) 'expiresAt': expiresAt!.trim(),
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> assignRbacUserRole({
+    required int userId,
+    String? roleKey,
+    String? reason,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/rbac/users/$userId/role',
+      data: {
+        'roleKey': roleKey,
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> rbacChangeLog({int limit = 80}) async {
+    final response = await dio.get(
+      '/api/admin/rbac/change-log',
+      queryParameters: {'limit': limit},
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -190,7 +333,9 @@ class AdminApi {
         if ((note ?? '').trim().isNotEmpty) 'note': note!.trim(),
       },
     );
-    return OrderRevisionBundle.fromJson(Map<String, dynamic>.from(response.data as Map));
+    return OrderRevisionBundle.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
   }
 
   Future<OrderRevisionBundle> patchOrderRevision({
@@ -208,7 +353,9 @@ class AdminApi {
         if ((note ?? '').trim().isNotEmpty) 'note': note!.trim(),
       },
     );
-    return OrderRevisionBundle.fromJson(Map<String, dynamic>.from(response.data as Map));
+    return OrderRevisionBundle.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
   }
 
   Future<OrderRevisionBundle> submitOrderRevision({
@@ -218,7 +365,9 @@ class AdminApi {
     final response = await dio.post(
       '/api/admin/orders/$orderId/revisions/$revisionId/submit',
     );
-    return OrderRevisionBundle.fromJson(Map<String, dynamic>.from(response.data as Map));
+    return OrderRevisionBundle.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
   }
 
   Future<OrderRevisionBundle> applyOrderRevision({
@@ -228,7 +377,9 @@ class AdminApi {
     final response = await dio.post(
       '/api/admin/orders/$orderId/revisions/$revisionId/apply',
     );
-    return OrderRevisionBundle.fromJson(Map<String, dynamic>.from(response.data as Map));
+    return OrderRevisionBundle.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
   }
 
   Future<List<dynamic>> ordersPrintReport({required String period}) async {

@@ -19,6 +19,7 @@ function suffix() {
 }
 
 const createdUserIds = [];
+let permissionManagerId = null;
 
 async function makeUser(role, { superAdmin = false, adminRoleKey = null } = {}) {
   const user = await createUser({
@@ -45,6 +46,12 @@ async function makeUser(role, { superAdmin = false, adminRoleKey = null } = {}) 
     );
   }
   return id;
+}
+
+async function getPermissionManagerId() {
+  if (permissionManagerId) return permissionManagerId;
+  permissionManagerId = await makeUser("admin", { adminRoleKey: "super_admin" });
+  return permissionManagerId;
 }
 
 test.after(async () => {
@@ -84,7 +91,7 @@ test("per-user grant adds a permission and revoke removes an inherited one", asy
 
   // grant an extra capability not in the template
   await perms.grantUserPermission({
-    actorUserId: id,
+    actorUserId: await getPermissionManagerId(),
     targetUserId: id,
     permissionKey: "taxi.rides.emergency_cancel",
     scope: "all",
@@ -97,7 +104,7 @@ test("per-user grant adds a permission and revoke removes an inherited one", asy
 
   // revoke an inherited template capability
   await perms.grantUserPermission({
-    actorUserId: id,
+    actorUserId: await getPermissionManagerId(),
     targetUserId: id,
     permissionKey: "taxi.rides.read",
     effect: "revoke",
@@ -109,7 +116,7 @@ test("per-user grant adds a permission and revoke removes an inherited one", asy
 test("scope: a department-scoped grant does not satisfy an all-scope requirement", async () => {
   const id = await makeUser("user");
   await perms.grantUserPermission({
-    actorUserId: id,
+    actorUserId: await getPermissionManagerId(),
     targetUserId: id,
     permissionKey: "support.tickets.read",
     scope: "department",
@@ -129,10 +136,24 @@ test("scope: a department-scoped grant does not satisfy an all-scope requirement
   );
 });
 
+test("unauthorized user cannot grant a permission to self", async () => {
+  const id = await makeUser("user");
+  await assert.rejects(
+    perms.grantUserPermission({
+      actorUserId: id,
+      targetUserId: id,
+      permissionKey: "orders.read",
+      scope: "all",
+      effect: "grant",
+    }),
+    /FORBIDDEN_PERMISSION_MANAGER_REQUIRED/
+  );
+});
+
 test("expired grants are ignored", async () => {
   const id = await makeUser("user");
   await perms.grantUserPermission({
-    actorUserId: id,
+    actorUserId: await getPermissionManagerId(),
     targetUserId: id,
     permissionKey: "reports.export",
     scope: "all",
@@ -146,7 +167,7 @@ test("granting bumps permission_version each time", async () => {
   const id = await makeUser("user");
   const before = (await perms.getEffectivePermissionsResponse(id)).permissionVersion;
   await perms.grantUserPermission({
-    actorUserId: id,
+    actorUserId: await getPermissionManagerId(),
     targetUserId: id,
     permissionKey: "orders.read",
     scope: "all",
@@ -168,7 +189,7 @@ test("invalid permission key is rejected on grant", async () => {
   const id = await makeUser("user");
   await assert.rejects(
     perms.grantUserPermission({
-      actorUserId: id,
+      actorUserId: await getPermissionManagerId(),
       targetUserId: id,
       permissionKey: "taxi.rides.launch_rocket",
       scope: "all",

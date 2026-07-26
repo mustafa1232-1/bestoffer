@@ -19,6 +19,7 @@ import 'admin_merchant_state_management_screen.dart';
 import 'admin_notification_center_screen.dart';
 import 'admin_notifications_operations_screen.dart';
 import 'admin_permissions_matrix_screen.dart';
+import 'admin_rbac_management_screen.dart';
 import 'admin_receivables_screen.dart';
 import 'admin_support_tickets_screen.dart';
 import 'admin_taxi_captain_requests_screen.dart';
@@ -185,6 +186,13 @@ class AdminPermissionsMatrixPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const AdminPermissionsMatrixScreen();
+}
+
+class AdminRbacManagementPage extends StatelessWidget {
+  const AdminRbacManagementPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => const AdminRbacManagementScreen();
 }
 
 class AdminNotificationsOperationsPage extends StatelessWidget {

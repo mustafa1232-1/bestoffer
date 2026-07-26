@@ -50,6 +50,100 @@ export async function getCatalog(req, res, next) {
   }
 }
 
+function readRolePayload(body = {}) {
+  return {
+    roleKey: String(body.roleKey || body.role_key || "").trim(),
+    displayName: String(body.displayName || body.display_name || "").trim(),
+    description:
+      typeof body.description === "string" ? body.description.trim() || null : null,
+    category: String(body.category || "custom").trim() || "custom",
+    permissions: Array.isArray(body.permissions) ? body.permissions : [],
+    reason: typeof body.reason === "string" ? body.reason.trim() || null : null,
+  };
+}
+
+export async function listRoles(req, res, next) {
+  try {
+    const items = await service.listAdminRoles({
+      includeArchived: req.query?.includeArchived === "true",
+      search: req.query?.search || "",
+    });
+    return res.json({ items });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function createRole(req, res, next) {
+  try {
+    const payload = readRolePayload(req.body || {});
+    if (!payload.roleKey || !payload.displayName) {
+      return badRequest(res, ["roleKey", "displayName"]);
+    }
+    const role = await service.createAdminRole({
+      actorUserId: req.userId,
+      ...payload,
+    });
+    return res.status(201).json({ role });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function updateRole(req, res, next) {
+  try {
+    const roleKey = String(req.params?.roleKey || "").trim();
+    const payload = readRolePayload({ ...(req.body || {}), roleKey });
+    if (!roleKey || !payload.displayName) {
+      return badRequest(res, ["roleKey", "displayName"]);
+    }
+    const out = await service.updateAdminRole({
+      actorUserId: req.userId,
+      ...payload,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function copyRole(req, res, next) {
+  try {
+    const sourceRoleKey = String(req.params?.roleKey || "").trim();
+    const payload = readRolePayload(req.body || {});
+    if (!sourceRoleKey || !payload.roleKey || !payload.displayName) {
+      return badRequest(res, ["sourceRoleKey", "roleKey", "displayName"]);
+    }
+    const role = await service.copyAdminRole({
+      actorUserId: req.userId,
+      sourceRoleKey,
+      roleKey: payload.roleKey,
+      displayName: payload.displayName,
+      description: payload.description,
+      reason: payload.reason,
+    });
+    return res.status(201).json({ role });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function archiveRole(req, res, next) {
+  try {
+    const roleKey = String(req.params?.roleKey || "").trim();
+    if (!roleKey) return badRequest(res, ["roleKey"]);
+    const role = await service.archiveAdminRole({
+      actorUserId: req.userId,
+      roleKey,
+      reason:
+        typeof req.body?.reason === "string" ? req.body.reason.trim() || null : null,
+    });
+    return res.json({ role });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function getUserPermissions(req, res, next) {
   try {
     const userId = parseUserId(req, res);

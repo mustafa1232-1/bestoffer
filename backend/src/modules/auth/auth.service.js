@@ -317,6 +317,7 @@ async function issueSessionToken(user, deviceContext = {}) {
       role: user.role || "user",
       isSuperAdmin: resolveSuperAdmin(user),
       appSurface,
+      permissionVersion: user.permission_version,
     },
     {
       sessionId: session?.id || null,
@@ -649,6 +650,7 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
       isSuperAdmin: resolveSuperAdmin(row),
       isTaxiCaptain: row.is_taxi_captain === true,
       appSurface: resolveRoleAppSurface(row.role),
+      permissionVersion: row.permission_version,
     },
     {
       sessionId: session.id,
@@ -767,6 +769,7 @@ export async function recoverSession(dto = {}, deviceContext = {}) {
       isSuperAdmin: resolveSuperAdmin(row),
       isTaxiCaptain: row.is_taxi_captain === true,
       appSurface,
+      permissionVersion: row.permission_version,
     },
     {
       sessionId: session.id,

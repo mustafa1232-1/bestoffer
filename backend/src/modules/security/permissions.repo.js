@@ -31,6 +31,287 @@ export async function listRoleOverrides(roleKey) {
   return r.rows;
 }
 
+export async function getAdminRole(roleKey) {
+  const key = String(roleKey || "").trim();
+  if (!key) return null;
+  const r = await q(
+    `SELECT role_key, display_name, description, category, is_system, is_archived
+     FROM admin_role
+     WHERE role_key = $1
+     LIMIT 1`,
+    [key]
+  );
+  return r.rows[0] || null;
+}
+
+export async function listAdminRolePermissions(roleKey) {
+  const key = String(roleKey || "").trim();
+  if (!key) return [];
+  const r = await q(
+    `SELECT permission_key, scope
+     FROM admin_role_permission
+     WHERE role_key = $1
+     ORDER BY permission_key ASC`,
+    [key]
+  );
+  return r.rows;
+}
+
+export async function listAdminRoles({ includeArchived = false, search = "" } = {}) {
+  const params = [];
+  const clauses = [];
+  if (!includeArchived) clauses.push(`is_archived = FALSE`);
+  const term = String(search || "").trim();
+  if (term) {
+    params.push(`%${term}%`);
+    clauses.push(
+      `(role_key ILIKE $${params.length} OR display_name ILIKE $${params.length} OR COALESCE(description, '') ILIKE $${params.length})`
+    );
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const r = await q(
+    `SELECT r.role_key, r.display_name, r.description, r.category,
+            r.is_system, r.is_archived, r.copied_from_role_key,
+            r.created_at, r.updated_at,
+            COUNT(DISTINCT u.id)::int AS employee_count,
+            COUNT(DISTINCT p.permission_key)::int AS permission_count
+     FROM admin_role r
+     LEFT JOIN app_user u ON u.admin_role_key = r.role_key
+     LEFT JOIN admin_role_permission p ON p.role_key = r.role_key
+     ${where}
+     GROUP BY r.role_key
+     ORDER BY r.is_archived ASC, r.is_system DESC, r.role_key ASC`,
+    params
+  );
+  return r.rows;
+}
+
+async function bumpUsersForRoleTx(client, roleKey) {
+  const updated = await client.query(
+    `UPDATE app_user
+     SET permission_version = permission_version + 1,
+         updated_at = NOW()
+     WHERE admin_role_key = $1
+     RETURNING id`,
+    [String(roleKey)]
+  );
+  return updated.rows.map((row) => Number(row.id)).filter(Boolean);
+}
+
+export async function createAdminRole({
+  roleKey,
+  displayName,
+  description = null,
+  category = "custom",
+  actorUserId = null,
+  permissions = [],
+  reason = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const created = await client.query(
+      `INSERT INTO admin_role
+         (role_key, display_name, description, category, created_by_user_id, updated_by_user_id)
+       VALUES ($1,$2,$3,$4,$5,$5)
+       RETURNING *`,
+      [
+        String(roleKey),
+        String(displayName),
+        description,
+        String(category || "custom"),
+        actorUserId ? Number(actorUserId) : null,
+      ]
+    );
+    for (const permission of permissions) {
+      await client.query(
+        `INSERT INTO admin_role_permission
+           (role_key, permission_key, scope, granted_by_user_id)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (role_key, permission_key)
+         DO UPDATE SET scope = EXCLUDED.scope, updated_at = NOW()`,
+        [
+          String(roleKey),
+          String(permission.permissionKey),
+          String(permission.scope || "all"),
+          actorUserId ? Number(actorUserId) : null,
+        ]
+      );
+    }
+    await client.query(
+      `INSERT INTO admin_permission_change_log
+         (actor_user_id, action, role_key, target_role_key, after_value, reason)
+       VALUES ($1, 'role_create', $2, $2, $3, $4)`,
+      [
+        actorUserId ? Number(actorUserId) : null,
+        String(roleKey),
+        JSON.stringify({ ...created.rows[0], permissions }),
+        reason,
+      ]
+    );
+    await client.query("COMMIT");
+    return created.rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateAdminRole({
+  roleKey,
+  displayName,
+  description = null,
+  category = "custom",
+  actorUserId = null,
+  permissions = null,
+  reason = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const beforeRole = await client.query(
+      `SELECT * FROM admin_role WHERE role_key=$1 FOR UPDATE`,
+      [String(roleKey)]
+    );
+    if (!beforeRole.rows[0]) {
+      const error = new Error("ADMIN_ROLE_NOT_FOUND");
+      error.status = 404;
+      throw error;
+    }
+    const updated = await client.query(
+      `UPDATE admin_role
+       SET display_name = $2,
+           description = $3,
+           category = $4,
+           updated_by_user_id = $5,
+           updated_at = NOW()
+       WHERE role_key = $1
+       RETURNING *`,
+      [
+        String(roleKey),
+        String(displayName),
+        description,
+        String(category || "custom"),
+        actorUserId ? Number(actorUserId) : null,
+      ]
+    );
+    if (Array.isArray(permissions)) {
+      await client.query(`DELETE FROM admin_role_permission WHERE role_key=$1`, [
+        String(roleKey),
+      ]);
+      for (const permission of permissions) {
+        await client.query(
+          `INSERT INTO admin_role_permission
+             (role_key, permission_key, scope, granted_by_user_id)
+           VALUES ($1,$2,$3,$4)`,
+          [
+            String(roleKey),
+            String(permission.permissionKey),
+            String(permission.scope || "all"),
+            actorUserId ? Number(actorUserId) : null,
+          ]
+        );
+      }
+    }
+    const affectedUsers = await bumpUsersForRoleTx(client, roleKey);
+    await client.query(
+      `INSERT INTO admin_permission_change_log
+         (actor_user_id, action, role_key, target_role_key, before_value, after_value, reason)
+       VALUES ($1, 'role_update', $2, $2, $3, $4, $5)`,
+      [
+        actorUserId ? Number(actorUserId) : null,
+        String(roleKey),
+        JSON.stringify(beforeRole.rows[0]),
+        JSON.stringify({ ...updated.rows[0], permissions, affectedUsers }),
+        reason,
+      ]
+    );
+    await client.query("COMMIT");
+    return { role: updated.rows[0], affectedUsers };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function copyAdminRole({
+  sourceRoleKey,
+  roleKey,
+  displayName,
+  description = null,
+  actorUserId = null,
+  reason = null,
+}) {
+  const sourcePermissions = await listAdminRolePermissions(sourceRoleKey);
+  return createAdminRole({
+    roleKey,
+    displayName,
+    description,
+    category: "custom",
+    actorUserId,
+    permissions: sourcePermissions.map((permission) => ({
+      permissionKey: permission.permission_key,
+      scope: permission.scope,
+    })),
+    reason,
+  });
+}
+
+export async function archiveAdminRole({ roleKey, actorUserId = null, reason = null }) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const users = await client.query(
+      `SELECT id FROM app_user WHERE admin_role_key=$1 LIMIT 1`,
+      [String(roleKey)]
+    );
+    if (users.rows[0]) {
+      const error = new Error("ADMIN_ROLE_IN_USE");
+      error.status = 409;
+      throw error;
+    }
+    const archived = await client.query(
+      `UPDATE admin_role
+       SET is_archived = TRUE,
+           archived_at = NOW(),
+           archived_by_user_id = $2,
+           updated_by_user_id = $2,
+           updated_at = NOW()
+       WHERE role_key = $1
+         AND is_archived = FALSE
+       RETURNING *`,
+      [String(roleKey), actorUserId ? Number(actorUserId) : null]
+    );
+    if (!archived.rows[0]) {
+      const error = new Error("ADMIN_ROLE_NOT_FOUND");
+      error.status = 404;
+      throw error;
+    }
+    await client.query(
+      `INSERT INTO admin_permission_change_log
+         (actor_user_id, action, role_key, target_role_key, after_value, reason)
+       VALUES ($1, 'role_archive', $2, $2, $3, $4)`,
+      [
+        actorUserId ? Number(actorUserId) : null,
+        String(roleKey),
+        JSON.stringify(archived.rows[0]),
+        reason,
+      ]
+    );
+    await client.query("COMMIT");
+    return archived.rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function listUserPermissionGrants(userId) {
   const r = await q(
     `SELECT permission_key, effect, scope, expires_at

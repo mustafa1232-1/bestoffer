@@ -61,6 +61,17 @@ function asInvalidToken() {
   return new AppError("INVALID_TOKEN", { status: 401 });
 }
 
+function asPermissionsChanged({ tokenPermissionVersion = null, currentPermissionVersion = null } = {}) {
+  const error = new AppError("PERMISSIONS_CHANGED", { status: 401 });
+  error.details = {
+    tokenPermissionVersion:
+      tokenPermissionVersion == null ? null : Number(tokenPermissionVersion),
+    currentPermissionVersion:
+      currentPermissionVersion == null ? null : Number(currentPermissionVersion),
+  };
+  return error;
+}
+
 function asForbiddenAppSurface({
   appSurface = null,
   roleSurface = null,
@@ -88,6 +99,18 @@ function isSuperAdminUserSurfaceBypass({
     return headerSurface == null || headerSurface === "user";
   }
   return routeSurface == null && headerSurface === "user";
+}
+
+function requiresPermissionVersionCheck({ role, routeSurface, headerSurface }) {
+  return (
+    routeSurface === "admin" ||
+    routeSurface === "company" ||
+    headerSurface === "admin" ||
+    headerSurface === "company" ||
+    isCompanyBackofficeRole(role) ||
+    role === "admin" ||
+    role === "deputy_admin"
+  );
 }
 
 function buildSessionAccessCacheKey({
@@ -386,7 +409,14 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
     tokenJti,
     deviceFingerprint: deviceContext.deviceFingerprint,
   });
-  const cachedSession = readSessionAccessCache(sessionCacheKey);
+  const enforcePermissionVersion = requiresPermissionVersionCheck({
+    role,
+    routeSurface,
+    headerSurface,
+  });
+  const cachedSession = enforcePermissionVersion
+    ? null
+    : readSessionAccessCache(sessionCacheKey);
   let session = null;
   if (cachedSession) {
     const revoked = await readSessionRevocationState({
@@ -431,6 +461,25 @@ export async function resolveAccessAuth(req, { strict = true } = {}) {
   if (deviceHashInJwt && expectedDevice && deviceHashInJwt !== expectedDevice) {
     if (strict) throw asInvalidToken();
     return null;
+  }
+
+  if (enforcePermissionVersion) {
+    const tokenPermissionVersion =
+      payload?.pv == null ? null : Number(payload.pv);
+    const currentPermissionVersion = Number(session.permission_version || 1);
+    if (
+      !Number.isInteger(tokenPermissionVersion) ||
+      tokenPermissionVersion !== currentPermissionVersion
+    ) {
+      invalidateSessionAccessCacheForSession({ sessionId, userId });
+      if (strict) {
+        throw asPermissionsChanged({
+          tokenPermissionVersion,
+          currentPermissionVersion,
+        });
+      }
+      return null;
+    }
   }
 
   if (shouldTouchSession(sessionId)) {

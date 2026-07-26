@@ -212,6 +212,10 @@ String? _messageForCode(AppLocalizations l10n, String code) {
       return l10n.apiDeliveryDriverTypeChangeBlockedByActiveOrders;
     case 'ORDER_ALREADY_ASSIGNED':
       return l10n.apiOrderAlreadyAssigned;
+    case 'PERMISSIONS_CHANGED':
+      return l10n.localeName.startsWith('ar')
+          ? 'تم تحديث صلاحياتك. أعد المحاولة بعد تحديث الجلسة.'
+          : 'Your permissions changed. Retry after the session refreshes.';
     case 'ORDER_REVISION_CONFLICT':
       return l10n.localeName.startsWith('ar')
           ? 'تغيّر الطلب أثناء مراجعة التعديل. حدّث التفاصيل ثم أعد المحاولة.'

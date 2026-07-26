@@ -216,6 +216,31 @@ adminRouter.get(
   rbac.getChangeLog
 );
 adminRouter.get(
+  "/rbac/roles",
+  requirePermission("employees.permissions.manage"),
+  rbac.listRoles
+);
+adminRouter.post(
+  "/rbac/roles",
+  requirePermission("employees.permissions.manage"),
+  rbac.createRole
+);
+adminRouter.put(
+  "/rbac/roles/:roleKey",
+  requirePermission("employees.permissions.manage"),
+  rbac.updateRole
+);
+adminRouter.post(
+  "/rbac/roles/:roleKey/copy",
+  requirePermission("employees.permissions.manage"),
+  rbac.copyRole
+);
+adminRouter.post(
+  "/rbac/roles/:roleKey/archive",
+  requirePermission("employees.permissions.manage"),
+  rbac.archiveRole
+);
+adminRouter.get(
   "/audit/events",
   requirePermission("audit.read"),
   auditCtrl.listAuditEvents

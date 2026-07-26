@@ -40,6 +40,7 @@ export async function findUserByPhone(phone) {
        u.work_title,
        u.work_company,
        u.is_super_admin,
+       u.permission_version,
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
@@ -79,6 +80,7 @@ export async function findUserByIdWithAuthFields(id) {
        u.work_title,
        u.work_company,
        u.is_super_admin,
+       u.permission_version,
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
@@ -420,6 +422,7 @@ export async function findActiveSessionByRefreshToken(refreshToken) {
        u.work_title,
        u.work_company,
        u.is_super_admin,
+       u.permission_version,
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
@@ -469,6 +472,7 @@ function sessionAuthSelect() {
        u.work_title,
        u.work_company,
        u.is_super_admin,
+       u.permission_version,
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
@@ -681,6 +685,7 @@ export async function findRecoverableSessionByDeviceSession(deviceSessionId) {
        u.work_title,
        u.work_company,
        u.is_super_admin,
+       u.permission_version,
        u.is_account_disabled,
        u.account_disabled_note,
        u.delivery_account_approved,
@@ -777,7 +782,11 @@ export async function getActiveSessionByAccess({
        s.expires_at,
        s.access_expires_at,
        s.is_revoked,
-       s.revoked_at
+       s.revoked_at,
+       u.role,
+       u.is_super_admin,
+       u.admin_role_key,
+       u.permission_version
      FROM user_session s
      JOIN app_user u ON u.id = s.user_id
      WHERE s.id = $1
