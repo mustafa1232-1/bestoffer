@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/files/image_picker_service.dart';
+import '../../../core/files/local_image_file.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/parsers.dart';
@@ -229,6 +231,15 @@ class _AdminSupportTicketDetailsScreenState
             padding: const EdgeInsets.all(12),
             children: [
               _TicketSummary(ticket: _map(data.ticket['ticket'])),
+              const SizedBox(height: 12),
+              _ConversationSection(detail: data.ticket),
+              if (_can('support.tickets.reply')) ...[
+                const SizedBox(height: 8),
+                _SupportComposer(
+                  ticketId: widget.ticketId,
+                  onSent: () async => _refresh(),
+                ),
+              ],
               const SizedBox(height: 12),
               _LinkedOrderSection(contextData: data.orderContext),
               const SizedBox(height: 12),
@@ -587,6 +598,286 @@ class _ErrorState extends StatelessWidget {
           label: const Text('إعادة المحاولة'),
         ),
       ],
+    );
+  }
+}
+
+/// عرض محادثة التذكرة: الرسائل الظاهرة + الملاحظات الداخلية + المرفقات (صور).
+class _ConversationSection extends StatelessWidget {
+  final Map<String, dynamic> detail;
+  const _ConversationSection({required this.detail});
+
+  List<Map<String, dynamic>> _rows(String key) {
+    final raw = detail[key];
+    if (raw is List) {
+      return raw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList(growable: false);
+    }
+    return const [];
+  }
+
+  List<Map<String, dynamic>> _attachmentsFor(int? id, bool internal) {
+    return _rows('attachments').where((a) {
+      final key = internal ? 'internal_note_id' : 'message_id';
+      final ref = int.tryParse('${a[key] ?? ''}');
+      return id != null && ref != null && ref == id;
+    }).toList(growable: false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final messages = _rows('messages');
+    final internalNotes = _rows('internalNotes');
+    if (messages.isEmpty && internalNotes.isEmpty) {
+      return const _Panel(title: 'المحادثة', child: Text('لا توجد رسائل بعد.'));
+    }
+    return _Panel(
+      title: 'المحادثة',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final m in messages)
+            _MessageBubble(
+              body: '${m['body'] ?? ''}',
+              author: '${m['author_role'] ?? ''}',
+              internal: false,
+              attachments: _attachmentsFor(int.tryParse('${m['id']}'), false),
+            ),
+          for (final n in internalNotes)
+            _MessageBubble(
+              body: '${n['body'] ?? ''}',
+              author: '${n['author_role'] ?? ''}',
+              internal: true,
+              attachments: _attachmentsFor(int.tryParse('${n['id']}'), true),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MessageBubble extends StatelessWidget {
+  final String body;
+  final String author;
+  final bool internal;
+  final List<Map<String, dynamic>> attachments;
+  const _MessageBubble({
+    required this.body,
+    required this.author,
+    required this.internal,
+    required this.attachments,
+  });
+
+  bool _isImage(Map<String, dynamic> a) =>
+      '${a['mime_type'] ?? ''}'.startsWith('image/');
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color:
+            internal ? scheme.errorContainer : scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(author, style: Theme.of(context).textTheme.labelSmall),
+              if (internal) ...[
+                const SizedBox(width: 6),
+                Text(
+                  'ملاحظة داخلية',
+                  style: TextStyle(
+                    color: scheme.error,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (body.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(body),
+          ],
+          if (attachments.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final a in attachments)
+                  _isImage(a)
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            '${a['file_url'] ?? ''}',
+                            width: 84,
+                            height: 84,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) =>
+                                const Icon(Icons.broken_image_outlined),
+                          ),
+                        )
+                      : Chip(
+                          avatar:
+                              const Icon(Icons.attach_file_rounded, size: 16),
+                          label: Text('${a['file_name'] ?? 'ملف'}'),
+                        ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// مُنشئ الرد: نص + إرفاق صورة + خيار ملاحظة داخلية + إرسال. يحفظ في الخادم.
+class _SupportComposer extends ConsumerStatefulWidget {
+  final int ticketId;
+  final Future<void> Function() onSent;
+  const _SupportComposer({required this.ticketId, required this.onSent});
+
+  @override
+  ConsumerState<_SupportComposer> createState() => _SupportComposerState();
+}
+
+class _SupportComposerState extends ConsumerState<_SupportComposer> {
+  final _controller = TextEditingController();
+  final List<Map<String, dynamic>> _attachments = [];
+  bool _internal = false;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _attach() async {
+    final LocalImageFile? file = await pickImageFromDevice();
+    if (file == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final att = await ref.read(adminApiProvider).uploadSupportAttachment(
+            file,
+            visibility: _internal ? 'internal' : 'customer',
+          );
+      setState(() => _attachments.add(att));
+    } catch (e) {
+      setState(() => _error = e is DioException
+          ? mapDioError(e, fallback: 'تعذّر رفع الصورة.')
+          : 'تعذّر رفع الصورة.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final body = _controller.text.trim();
+    if (body.isEmpty && _attachments.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(adminApiProvider).replySupportTicket(
+            widget.ticketId,
+            body: body,
+            isInternal: _internal,
+            attachments: List<Map<String, dynamic>>.from(_attachments),
+          );
+      _controller.clear();
+      _attachments.clear();
+      await widget.onSent();
+    } catch (e) {
+      setState(() => _error = e is DioException
+          ? mapDioError(e, fallback: 'تعذّر إرسال الرسالة.')
+          : 'تعذّر إرسال الرسالة.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      title: 'الرد على التذكرة',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          TextField(
+            controller: _controller,
+            minLines: 1,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              hintText: 'اكتب ردك للمستخدم…',
+            ),
+          ),
+          if (_attachments.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Wrap(
+                spacing: 6,
+                children: [
+                  for (var i = 0; i < _attachments.length; i++)
+                    Chip(
+                      label: Text('${_attachments[i]['fileName'] ?? 'صورة'}'),
+                      onDeleted: () => setState(() => _attachments.removeAt(i)),
+                    ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              IconButton(
+                onPressed: _busy ? null : _attach,
+                icon: const Icon(Icons.image_outlined),
+                tooltip: 'إرفاق صورة',
+              ),
+              Switch(
+                value: _internal,
+                onChanged: _busy ? null : (v) => setState(() => _internal = v),
+              ),
+              const Text('داخلية'),
+              const Spacer(),
+              FilledButton.icon(
+                onPressed: _busy ? null : _send,
+                icon: _busy
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send_rounded),
+                label: const Text('إرسال'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

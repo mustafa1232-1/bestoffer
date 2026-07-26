@@ -18,6 +18,7 @@ export const EMPLOYEE_STATUSES = Object.freeze(["active", "suspended", "terminat
 export async function getEmployeeByUserId(userId) {
   const r = await q(
     `SELECT e.*, u.full_name, u.phone, u.username, u.is_internal_staff,
+            u.admin_role_key, u.permission_version,
             m.full_name AS manager_name
      FROM company_employee_profile e
      JOIN app_user u ON u.id = e.user_id

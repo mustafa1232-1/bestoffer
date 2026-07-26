@@ -620,6 +620,67 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  /// يرفع صورة/ملف لمحادثة الدعم ويعيد بيانات المرفق لإرفاقها برسالة.
+  Future<Map<String, dynamic>> uploadSupportAttachment(
+    LocalImageFile file, {
+    String visibility = 'customer',
+  }) async {
+    final data = FormData.fromMap({'file': await file.toMultipartFile()});
+    final response = await dio.post('/api/support/attachments', data: data);
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final attachment = Map<String, dynamic>.from(map['attachment'] as Map);
+    attachment['visibility'] = visibility;
+    return attachment;
+  }
+
+  /// ردّ الموظف على تذكرة (أو ملاحظة داخلية) مع مرفقات اختيارية.
+  Future<Map<String, dynamic>> replySupportTicket(
+    int ticketId, {
+    required String body,
+    bool isInternal = false,
+    List<Map<String, dynamic>> attachments = const [],
+  }) async {
+    final response = await dio.post(
+      '/api/admin/support/tickets/$ticketId/messages',
+      data: {
+        'body': body,
+        'isInternal': isInternal,
+        if (attachments.isNotEmpty) 'attachments': attachments,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> assignSupportTicket(
+    int ticketId, {
+    int? assigneeUserId,
+    String? team,
+  }) async {
+    final data = <String, dynamic>{};
+    if (assigneeUserId != null) data['assigneeUserId'] = assigneeUserId;
+    if ((team ?? '').trim().isNotEmpty) data['team'] = team!.trim();
+    final response = await dio.post(
+      '/api/admin/support/tickets/$ticketId/assign',
+      data: data,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> resolveSupportTicket(
+    int ticketId, {
+    required String summary,
+    String? reason,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/support/tickets/$ticketId/resolve',
+      data: {
+        'summary': summary,
+        if ((reason ?? '').trim().isNotEmpty) 'reason': reason!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<OrderRevisionBundle> createOrderRevisionFromTicket({
     required int ticketId,
     required int orderId,

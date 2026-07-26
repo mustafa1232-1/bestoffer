@@ -5,6 +5,10 @@
 
 import { AppError } from "../../shared/utils/errors.js";
 import * as repo from "./employees.repo.js";
+import {
+  assignAdminRole,
+  grantUserPermission,
+} from "../security/permissions.service.js";
 
 function assertEnum(value, allowed, code) {
   if (!allowed.includes(String(value || ""))) {
@@ -23,7 +27,7 @@ export async function saveEmployee({ actorUserId, dto }) {
   const status = dto.status || "active";
   assertEnum(status, repo.EMPLOYEE_STATUSES, "INVALID_EMPLOYEE_STATUS");
 
-  return repo.upsertEmployee({
+  const result = await repo.upsertEmployee({
     userId,
     department: dto.department,
     jobTitle: dto.jobTitle || null,
@@ -38,6 +42,34 @@ export async function saveEmployee({ actorUserId, dto }) {
     notes: dto.notes || null,
     actorUserId,
   });
+
+  // إعطاء الصلاحيات عند الإنشاء/التعديل: قالب دور اختياري + منح فردية اختيارية.
+  // تمرّ عبر خدمة RBAC التي تفرض أن يملك المنفِّذ employees.permissions.manage
+  // وتسجّل التدقيق وترفع permission_version — فتُصبح الصلاحيات سارية فوراً.
+  if (dto.adminRoleKey !== undefined) {
+    await assignAdminRole({
+      actorUserId,
+      targetUserId: userId,
+      roleKey: dto.adminRoleKey || null,
+      reason: "assigned during employee save",
+    });
+  }
+  if (Array.isArray(dto.permissions)) {
+    for (const grant of dto.permissions) {
+      if (!grant || !grant.permissionKey) continue;
+      await grantUserPermission({
+        actorUserId,
+        targetUserId: userId,
+        permissionKey: String(grant.permissionKey),
+        scope: grant.scope || "all",
+        effect: grant.effect === "revoke" ? "revoke" : "grant",
+        expiresAt: grant.expiresAt || null,
+        reason: grant.reason || "assigned during employee save",
+      });
+    }
+  }
+
+  return result;
 }
 
 export async function listEmployees(query) {

@@ -1,5 +1,6 @@
 import * as service from "./support.service.js";
 import { recordAudit, auditContextFromReq } from "../security/audit.service.js";
+import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 import {
   validateCreateTicket,
   validateMessage,
@@ -12,6 +13,30 @@ import {
 
 function badRequest(res, fields) {
   return res.status(400).json({ message: "VALIDATION_ERROR", fields });
+}
+
+/**
+ * رفع مرفق (صورة/ملف) لمحادثة الدعم. يعيد بيانات المرفق ليُرفق برسالة لاحقاً.
+ * يُستخدم من المستخدم والموظف على السواء (requireAuth).
+ */
+export async function uploadAttachment(req, res, next) {
+  try {
+    if (!req.file) return badRequest(res, ["file"]);
+    const fileUrl = buildUploadedFileUrl(req, req.file);
+    if (!fileUrl) return badRequest(res, ["file"]);
+    return res.status(201).json({
+      attachment: {
+        fileUrl,
+        storageKey: req.file.key || req.file.filename || null,
+        fileName: req.file.originalname || null,
+        mimeType: req.file.mimetype || null,
+        fileSizeBytes:
+          typeof req.file.size === "number" ? req.file.size : null,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 function ticketId(req, res) {
