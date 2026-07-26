@@ -180,6 +180,30 @@ export async function setSalary({
   }
 }
 
+export async function lookupUsers({ search = "", limit = 15 } = {}) {
+  const term = String(search || "").trim();
+  if (!term) return [];
+  const digits = term.replace(/[^\d]/g, "");
+  const like = `%${term}%`;
+  const r = await q(
+    `SELECT u.id, u.full_name, u.phone, u.role,
+            COALESCE(u.is_internal_staff, FALSE) AS is_internal_staff,
+            (e.user_id IS NOT NULL) AS is_employee
+     FROM app_user u
+     LEFT JOIN company_employee_profile e ON e.user_id = u.id
+     WHERE COALESCE(u.is_account_disabled, FALSE) = FALSE
+       AND (
+         u.full_name ILIKE $1
+         OR u.phone ILIKE $1
+         OR ($2 <> '' AND regexp_replace(COALESCE(u.phone,''),'\\D','','g') LIKE ('%' || $2 || '%'))
+       )
+     ORDER BY (e.user_id IS NOT NULL) ASC, u.full_name ASC
+     LIMIT $3`,
+    [like, digits, Math.max(1, Math.min(50, Number(limit) || 15))]
+  );
+  return r.rows;
+}
+
 export async function listSalaryHistory(userId) {
   const r = await q(
     `SELECT id, base_salary_iqd, effective_from, reason, created_at

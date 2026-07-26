@@ -219,6 +219,10 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
   final _userId = TextEditingController();
   final _jobTitle = TextEditingController();
   final _salary = TextEditingController();
+  final _userSearch = TextEditingController();
+  List<Map<String, dynamic>> _userResults = const [];
+  bool _searching = false;
+  String? _selectedUserLabel;
   String _department = 'customer_service';
   String _employmentType = 'full_time';
   String _status = 'active';
@@ -241,8 +245,35 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
       _employmentType = '${e['employment_type'] ?? 'full_time'}';
       _status = '${e['status'] ?? 'active'}';
       _roleKey = e['admin_role_key'] as String?;
+      _selectedUserLabel = '${e['full_name'] ?? ''} — ${e['phone'] ?? ''}';
     }
     _loadRoles();
+  }
+
+  Future<void> _searchUsers(String q) async {
+    if (q.trim().length < 2) {
+      setState(() => _userResults = const []);
+      return;
+    }
+    setState(() => _searching = true);
+    try {
+      final rows = await ref.read(adminApiProvider).lookupUsersForEmployee(q.trim());
+      if (!mounted) return;
+      setState(() => _userResults = rows);
+    } catch (_) {
+      /* ignore */
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  void _pickUser(Map<String, dynamic> row) {
+    setState(() {
+      _userId.text = '${row['id']}';
+      _selectedUserLabel = '${row['full_name'] ?? ''} — ${row['phone'] ?? ''}';
+      _userResults = const [];
+      _userSearch.text = '';
+    });
   }
 
   Future<void> _loadRoles() async {
@@ -262,6 +293,7 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
     _userId.dispose();
     _jobTitle.dispose();
     _salary.dispose();
+    _userSearch.dispose();
     super.dispose();
   }
 
@@ -323,15 +355,74 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
               ),
-            TextField(
-              controller: _userId,
-              enabled: !_isEdit,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                border: const OutlineInputBorder(),
-                labelText: context.lt(ar: 'معرّف المستخدم (app_user id)', en: 'User id'),
-              ),
-            ),
+            // اختيار المستخدم: بحث بالاسم/الهاتف (عند الإنشاء)، ثابت عند التعديل.
+            if (_isEdit)
+              InputDecorator(
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  labelText: context.lt(ar: 'الموظف', en: 'Employee'),
+                ),
+                child: Text(_selectedUserLabel ?? '#${_userId.text}'),
+              )
+            else ...[
+              if (_selectedUserLabel != null)
+                InputDecorator(
+                  decoration: InputDecoration(
+                    border: const OutlineInputBorder(),
+                    labelText: context.lt(ar: 'المستخدم المختار', en: 'Selected user'),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => setState(() {
+                        _selectedUserLabel = null;
+                        _userId.text = '';
+                      }),
+                    ),
+                  ),
+                  child: Text(_selectedUserLabel!),
+                )
+              else ...[
+                TextField(
+                  controller: _userSearch,
+                  onChanged: _searchUsers,
+                  decoration: InputDecoration(
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: _searching
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox(
+                              width: 16, height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : null,
+                    labelText: context.lt(ar: 'ابحث عن مستخدم (اسم/هاتف)', en: 'Search user (name/phone)'),
+                  ),
+                ),
+                if (_userResults.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 6),
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final u in _userResults)
+                          ListTile(
+                            dense: true,
+                            title: Text('${u['full_name'] ?? '—'}'),
+                            subtitle: Text('${u['phone'] ?? ''}'
+                                '${u['is_employee'] == true ? context.lt(ar: ' · موظف بالفعل', en: ' · already employee') : ''}'),
+                            onTap: () => _pickUser(u),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ],
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
               initialValue: _department,

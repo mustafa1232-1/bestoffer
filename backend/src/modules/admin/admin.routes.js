@@ -314,6 +314,11 @@ adminRouter.post(
 
 // إدارة موظفي الشركة (المرحلة 6).
 adminRouter.get(
+  "/employees/lookup-users",
+  requirePermission("employees.read"),
+  employees.lookupUsers
+);
+adminRouter.get(
   "/employees",
   requirePermission("employees.read"),
   employees.listEmployees
@@ -537,7 +542,12 @@ adminRouter.post(
   imageUpload.single("imageFile"),
   c.createAdBoardItem
 );
-adminRouter.patch("/merchants/:merchantId/approve", requireAdmin, c.approveMerchant);
+adminRouter.patch(
+  "/merchants/:merchantId/approve",
+  requireAdmin,
+  requirePermission("merchants.approve"),
+  c.approveMerchant
+);
 adminRouter.patch(
   "/ad-board/items/:itemId",
   requireAdmin,
@@ -547,6 +557,7 @@ adminRouter.patch(
 adminRouter.patch(
   "/delivery/:deliveryUserId/approve",
   requireAdmin,
+  requirePermission("delivery.accounts.create"),
   c.approveDeliveryAccount
 );
 adminRouter.patch(
@@ -557,6 +568,7 @@ adminRouter.patch(
 adminRouter.patch(
   "/taxi-captains/:captainUserId/approve",
   requireAdmin,
+  requirePermission("taxi.captains.approve"),
   c.approveTaxiCaptainAccount
 );
 adminRouter.patch(

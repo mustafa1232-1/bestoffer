@@ -451,6 +451,18 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  /// بحث عن مستخدمين لإضافتهم كموظفين (بالاسم/الهاتف).
+  Future<List<Map<String, dynamic>>> lookupUsersForEmployee(String query) async {
+    final response = await dio.get(
+      '/api/admin/employees/lookup-users',
+      queryParameters: {'q': query},
+    );
+    final data = Map<String, dynamic>.from(response.data as Map);
+    return ((data['items'] as List?) ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList(growable: false);
+  }
+
   Future<Map<String, dynamic>> saveEmployee(Map<String, dynamic> body) async {
     final response = await dio.post('/api/admin/employees', data: body);
     return Map<String, dynamic>.from(response.data as Map);

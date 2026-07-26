@@ -5,6 +5,7 @@ import { requireOwner } from "../../shared/middleware/owner.middleware.js";
 import { requireDeliveryAgent } from "../../shared/middleware/delivery-agent.middleware.js";
 import { requireCustomer } from "../../shared/middleware/customer.middleware.js";
 import { requireBackoffice } from "../../shared/middleware/backoffice.middleware.js";
+import { requirePermission } from "../../shared/middleware/permission.middleware.js";
 import { requireSignedRequest } from "../../shared/middleware/request-signing.middleware.js";
 
 export const commerceRouter = Router();
@@ -178,12 +179,14 @@ commerceRouter.get(
 commerceRouter.patch(
   "/admin/merchants/:merchantId/billing-profile",
   requireBackoffice,
+  requirePermission("merchants.financial_terms.send"),
   requireSensitiveWriteSignature,
   c.adminPatchMerchantBillingProfile
 );
 commerceRouter.post(
   "/admin/payment-requests/:paymentRequestId/mark-received",
   requireBackoffice,
+  requirePermission("merchants.financial_terms.approve"),
   requireSensitiveWriteSignature,
   c.adminMarkPaymentReceived
 );
@@ -195,6 +198,7 @@ commerceRouter.get(
 commerceRouter.post(
   "/admin/payment-requests/:paymentRequestId/approve",
   requireBackoffice,
+  requirePermission("merchants.financial_terms.approve"),
   requireSensitiveWriteSignature,
   c.adminApprovePaymentRequest
 );
@@ -207,6 +211,7 @@ commerceRouter.post(
 commerceRouter.post(
   "/admin/payment-requests/:paymentRequestId/mark-paid",
   requireBackoffice,
+  requirePermission("merchants.financial_terms.approve"),
   requireSensitiveWriteSignature,
   c.adminMarkPaymentRequestPaid
 );

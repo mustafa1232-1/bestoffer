@@ -76,6 +76,10 @@ export async function listEmployees(query) {
   return repo.listEmployees(query);
 }
 
+export async function lookupUsers(query) {
+  return repo.lookupUsers(query);
+}
+
 export async function getEmployeeProfile(userId) {
   const employee = await repo.getEmployeeByUserId(userId);
   if (!employee) throw new AppError("EMPLOYEE_NOT_FOUND", { status: 404 });

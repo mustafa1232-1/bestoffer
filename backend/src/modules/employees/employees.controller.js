@@ -16,6 +16,18 @@ function parseUserId(req, res) {
   return id;
 }
 
+export async function lookupUsers(req, res, next) {
+  try {
+    const items = await service.lookupUsers({
+      search: req.query?.q || req.query?.search || "",
+      limit: req.query?.limit ? Number(req.query.limit) : 15,
+    });
+    return res.json({ items });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function listEmployees(req, res, next) {
   try {
     const out = await service.listEmployees({
