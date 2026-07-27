@@ -333,6 +333,70 @@ void main() {
     expect(selection.sizeCode, 'm');
   });
 
+  test(
+    'selection resolves variant id from selections when signature diverges',
+    () {
+      final product = buildProduct(
+        name: 'منتج بتوقيع قديم',
+        categoryName: 'cloths',
+        variantGroups: const [
+          {
+            'code': 'color',
+            'labelAr': 'اللون',
+            'labelEn': 'Color',
+            'displayMode': 'swatches',
+            'selectionMode': 'single',
+            'required': true,
+            'options': [
+              {
+                'code': 'نيلي',
+                'labelAr': 'نيلي',
+                'labelEn': 'Navy',
+                'swatchHex': '#000080',
+                'isAvailable': true,
+              },
+            ],
+          },
+          {
+            'code': 'size',
+            'labelAr': 'المقاس',
+            'labelEn': 'Size',
+            'displayMode': 'chips',
+            'selectionMode': 'single',
+            'required': true,
+            'options': [
+              {
+                'code': 'XL',
+                'labelAr': 'XL',
+                'labelEn': 'XL',
+                'isAvailable': true,
+              },
+            ],
+          },
+        ],
+        variants: const [
+          {
+            'id': 77,
+            'signature': 'SIZE=XL;COLOR=Navy',
+            'selections': [
+              {'groupCode': 'color', 'optionCode': 'نيلي '},
+              {'groupCode': 'size', 'optionCode': ' xl'},
+            ],
+            'stockQuantity': 3,
+            'isAvailable': true,
+          },
+        ],
+      );
+
+      final selection = ProductSummaryCardData.fromProduct(
+        product,
+      ).resolveSelection(selectedColorCode: 'نيلي', selectedSizeCode: 'XL');
+
+      expect(selection.variantId, 77);
+      expect(selection.selectedVariantSelections, hasLength(2));
+    },
+  );
+
   testWidgets('simple product without variants still renders normally', (
     tester,
   ) async {

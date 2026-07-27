@@ -441,17 +441,31 @@ class ProductSummaryCardData {
       normalized[groupCode] = optionCode;
     }
     if (normalized.isEmpty) return null;
-    final parts =
+    final signatureParts =
         normalized.entries
-            .map(
-              (entry) =>
-                  '${entry.key.toLowerCase()}:${entry.value.toLowerCase()}',
-            )
+            .map((entry) => '${entry.key}:${entry.value}')
             .toList()
           ..sort();
-    final signature = parts.join('|');
+    final fallbackSignature = signatureParts.join('|');
     for (final variant in variants) {
-      if (variant.signature.toLowerCase() == signature) return variant;
+      final variantSelections = <String, String>{};
+      for (final item in variant.selections) {
+        final groupCode = _normalizeCode(item['groupCode']);
+        final optionCode = _normalizeCode(item['optionCode']);
+        if (groupCode == null || optionCode == null) continue;
+        variantSelections[groupCode] = optionCode;
+      }
+      if (variantSelections.isEmpty) {
+        if (variant.signature.toLowerCase() == fallbackSignature) {
+          return variant;
+        }
+        continue;
+      }
+      if (variantSelections.length != normalized.length) continue;
+      final matches = normalized.entries.every(
+        (entry) => variantSelections[entry.key] == entry.value,
+      );
+      if (matches) return variant;
     }
     return null;
   }
