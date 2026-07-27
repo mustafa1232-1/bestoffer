@@ -20,7 +20,9 @@ class MerchantsController
     extends StateNotifier<AsyncValue<List<MerchantModel>>> {
   final Ref ref;
   String? _lastRequestKey;
+  String? _inFlightRequestKey;
   Future<void>? _inFlight;
+  int _loadGeneration = 0;
 
   MerchantsController(this.ref) : super(const AsyncValue.loading());
 
@@ -64,7 +66,9 @@ class MerchantsController
     final requestedDiscovery = _normalizeDiscovery(discoverySubcategory);
     final departmentRaw = department?.trim().toLowerCase();
     final requestedDepartment =
-        departmentRaw == 'men' || departmentRaw == 'women' ? departmentRaw : null;
+        departmentRaw == 'men' || departmentRaw == 'women'
+        ? departmentRaw
+        : null;
     final normalizedSearch = search?.trim().toLowerCase();
     final requestKey = [
       requestedType ?? '',
@@ -76,8 +80,12 @@ class MerchantsController
 
     final hasLoadedCurrent = _lastRequestKey == requestKey && state.hasValue;
     if (!force && hasLoadedCurrent) return;
-    if (!force && _inFlight != null) return _inFlight!;
+    if (!force && _inFlight != null && _inFlightRequestKey == requestKey) {
+      return _inFlight!;
+    }
 
+    final generation = ++_loadGeneration;
+    _inFlightRequestKey = requestKey;
     final future = () async {
       if (!state.hasValue) {
         state = const AsyncValue.loading();
@@ -94,16 +102,21 @@ class MerchantsController
         );
         final merchants = _parseMerchants(primaryList);
 
-        _lastRequestKey = requestKey;
-        state = AsyncValue.data(merchants);
+        if (generation == _loadGeneration) {
+          _lastRequestKey = requestKey;
+          state = AsyncValue.data(merchants);
+        }
       } catch (error, stackTrace) {
-        state = AsyncValue.error(error, stackTrace);
+        if (generation == _loadGeneration) {
+          state = AsyncValue.error(error, stackTrace);
+        }
       }
     }();
     _inFlight = future;
     return future.whenComplete(() {
       if (identical(_inFlight, future)) {
         _inFlight = null;
+        _inFlightRequestKey = null;
       }
     });
   }
