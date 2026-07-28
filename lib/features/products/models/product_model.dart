@@ -578,9 +578,11 @@ class ProductModel {
 }
 
 List<ProductAttributeModel> _parseAttributes(Map<String, dynamic> j) {
-  final raw = _toList(j['attributes']).isNotEmpty
-      ? _toList(j['attributes'])
-      : _toList(j['richAttributes']);
+  final raw = _firstNonEmptyList([
+    j['attributes'],
+    j['richAttributes'],
+    _richCatalogValue(j, 'attributes'),
+  ]);
   return raw
       .map(
         (entry) => ProductAttributeModel.fromJson(
@@ -610,9 +612,12 @@ List<ProductAttributeModel> _parseSummaryAttributes(
 }
 
 List<ProductVariantGroupModel> _parseVariantGroups(Map<String, dynamic> j) {
-  final raw = _toList(j['variant_groups']).isNotEmpty
-      ? _toList(j['variant_groups'])
-      : _toList(j['variantGroups']);
+  final raw = _firstNonEmptyList([
+    j['variant_groups'],
+    j['variantGroups'],
+    _richCatalogValue(j, 'variantGroups'),
+    _richCatalogValue(j, 'variant_groups'),
+  ]);
   return raw
       .map(
         (entry) => ProductVariantGroupModel.fromJson(
@@ -623,7 +628,10 @@ List<ProductVariantGroupModel> _parseVariantGroups(Map<String, dynamic> j) {
 }
 
 List<ProductVariantModel> _parseVariants(Map<String, dynamic> j) {
-  return _toList(j['variants'])
+  return _firstNonEmptyList([
+        j['variants'],
+        _richCatalogValue(j, 'variants'),
+      ])
       .whereType<Map>()
       .map(
         (entry) =>
@@ -633,7 +641,10 @@ List<ProductVariantModel> _parseVariants(Map<String, dynamic> j) {
 }
 
 List<ProductMediaModel> _parseMedia(Map<String, dynamic> j) {
-  final raw = _toList(j['media']);
+  final raw = _firstNonEmptyList([
+    j['media'],
+    _richCatalogValue(j, 'media'),
+  ]);
   return raw
       .map(
         (entry) =>
@@ -660,6 +671,24 @@ Map<String, dynamic> _toMap(dynamic value) {
   if (value is Map<String, dynamic>) return value;
   if (value is Map) return Map<String, dynamic>.from(value);
   return const <String, dynamic>{};
+}
+
+List<dynamic> _firstNonEmptyList(Iterable<dynamic> values) {
+  for (final value in values) {
+    final parsed = _toList(value);
+    if (parsed.isNotEmpty) return parsed;
+  }
+  return const [];
+}
+
+dynamic _richCatalogValue(Map<String, dynamic> j, String key) {
+  final metadata = _toMap(
+    j['metadata_json'] ?? j['metadataJson'] ?? j['metadata'],
+  );
+  final richCatalog = _toMap(
+    metadata['richCatalog'] ?? metadata['rich_catalog'],
+  );
+  return richCatalog[key];
 }
 
 int? _parseNullableInt(dynamic value) {

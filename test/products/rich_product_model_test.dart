@@ -130,6 +130,70 @@ void main() {
     },
   );
 
+  test('parses production rich catalog variants from metadata fallback', () {
+    final product = ProductModel.fromJson({
+      'id': 4,
+      'merchantId': 34,
+      'name': 'هاتف سامسونك',
+      'description': 'سامسونك zflip30',
+      'price': '590000.00',
+      'isAvailable': true,
+      'sortOrder': 0,
+      'variantGroups': [
+        {
+          'code': 'color',
+          'labelAr': 'اللون',
+          'options': [
+            {
+              'code': 'ابيض',
+              'labelAr': 'ابيض',
+              'swatchHex': '#FFFFFF',
+              'isAvailable': true,
+            },
+          ],
+        },
+        {
+          'code': 'size',
+          'labelAr': 'المقاس',
+          'options': [
+            {
+              'code': 'ذاكرة_512',
+              'labelAr': 'ذاكرة 512',
+              'isAvailable': true,
+            },
+          ],
+        },
+      ],
+      'metadata': {
+        'richCatalog': {
+          'variants': [
+            {
+              'id': 3,
+              'signature': 'color:ابيض|size:ذاكرة_512',
+              'selections': [
+                {'groupCode': 'color', 'optionCode': 'ابيض'},
+                {'groupCode': 'size', 'optionCode': 'ذاكرة_512'},
+              ],
+              'stockQuantity': 10000,
+              'isAvailable': true,
+            },
+          ],
+        },
+      },
+    });
+
+    final variant = product.variantForSelections({
+      'color': 'ابيض',
+      'size': 'ذاكرة_512',
+    });
+
+    expect(product.hasVariants, isTrue);
+    expect(product.variants, hasLength(1));
+    expect(variant, isNotNull);
+    expect(variant!.id, 3);
+    expect(product.canOrderVariant(variant), isTrue);
+  });
+
   test('legacy product without inventory remains orderable', () {
     final product = ProductModel.fromJson({
       'id': 11,
