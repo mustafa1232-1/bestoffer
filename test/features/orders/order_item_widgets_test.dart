@@ -67,6 +67,41 @@ OrderItemPresentationModel _legacyPresentation() {
   });
 }
 
+OrderItemPresentationModel _arabicVariantPresentation() {
+  return OrderItemPresentationModel.fromRawMap(<String, dynamic>{
+    'id': 56,
+    'order_id': 78,
+    'product_id': 4,
+    'product_name': 'هاتف سامسونك',
+    'quantity': 1,
+    'unit_price': 590000,
+    'line_total': 590000,
+    'currency': 'IQD',
+    'selected_variant_json': <String, dynamic>{
+      'variantId': 3,
+      'signature': 'color:ابيض|size:ذاكرة_512',
+    },
+    'selected_variant_options_json': <Map<String, dynamic>>[
+      <String, dynamic>{
+        'groupCode': 'color',
+        'groupLabel': 'اللون',
+        'optionCode': 'ابيض',
+        'optionLabel': 'ابيض',
+        'hex': '#FFFFFF',
+      },
+      <String, dynamic>{
+        'groupCode': 'size',
+        'groupLabel': 'المقاس',
+        'optionCode': 'ذاكرة_512',
+        'optionLabel': 'ذاكرة 512',
+      },
+    ],
+    'activity_type': 'electronics_mobile',
+    'store_id': 34,
+    'store_name': 'الضمان التقني للموبايلات',
+  });
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -181,6 +216,31 @@ void main() {
     expect(find.textContaining('2 x IQD5,000'), findsOneWidget);
     expect(find.textContaining('IQD5,000'), findsWidgets);
     expect(find.textContaining('IQD10,000'), findsWidgets);
+  });
+
+  testWidgets('store order item shows Arabic color and size selections', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('ar'),
+        home: Scaffold(
+          body: Directionality(
+            textDirection: ui.TextDirection.rtl,
+            child: OrderItemMiniCard(
+              item: _arabicVariantPresentation(),
+              compact: false,
+              showStoreName: true,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('هاتف سامسونك'), findsOneWidget);
+    expect(find.text('الضمان التقني للموبايلات'), findsOneWidget);
+    expect(find.textContaining('اللون: ابيض'), findsWidgets);
+    expect(find.textContaining('المقاس: ذاكرة 512'), findsWidgets);
   });
 
   testWidgets('order invoice section groups by store and shows totals', (
