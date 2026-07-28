@@ -106,6 +106,7 @@ void main() {
     await container.read(customerAdBoardControllerProvider.notifier).load();
 
     expect(spy.adBoardCalls, 1);
+    expect(spy.lastPlacement, 'HOME_MAIN');
   });
 
   test('marketplace ad provider sends placement and category targeting', () async {

@@ -14,6 +14,7 @@ class CustomerAdBoardController
     extends StateNotifier<AsyncValue<List<CustomerAdBoardItem>>> {
   final Ref ref;
   String? _loadedType;
+  String? _loadedPlacement;
   Future<void>? _inFlight;
 
   CustomerAdBoardController(this.ref) : super(const AsyncValue.loading());
@@ -28,14 +29,22 @@ class CustomerAdBoardController
     return role != null && role.trim().toLowerCase() == 'user';
   }
 
-  Future<void> load({String? type, bool force = false}) {
+  Future<void> load({
+    String? type,
+    String placement = 'HOME_MAIN',
+    bool force = false,
+  }) {
     final normalizedType = type?.trim().toLowerCase();
+    final normalizedPlacement = placement.trim().toUpperCase();
     if (!_isCustomerSession()) {
       _loadedType = normalizedType;
+      _loadedPlacement = normalizedPlacement;
       state = const AsyncValue.data(<CustomerAdBoardItem>[]);
       return Future.value();
     }
-    final hasLoadedCurrent = _loadedType == normalizedType && state.hasValue;
+    final hasLoadedCurrent = _loadedType == normalizedType &&
+        _loadedPlacement == normalizedPlacement &&
+        state.hasValue;
     if (!force && hasLoadedCurrent) {
       return Future.value();
     }
@@ -43,7 +52,10 @@ class CustomerAdBoardController
       return _inFlight!;
     }
 
-    final future = _performLoad(normalizedType);
+    final future = _performLoad(
+      normalizedType,
+      normalizedPlacement: normalizedPlacement,
+    );
     _inFlight = future;
     return future.whenComplete(() {
       if (identical(_inFlight, future)) {
@@ -52,19 +64,23 @@ class CustomerAdBoardController
     });
   }
 
-  Future<void> _performLoad(String? normalizedType) async {
+  Future<void> _performLoad(
+    String? normalizedType, {
+    required String normalizedPlacement,
+  }) async {
     if (!state.hasValue) {
       state = const AsyncValue.loading();
     }
     try {
       final raw = await ref
           .read(merchantsApiProvider)
-          .adBoard(type: normalizedType);
+          .adBoard(type: normalizedType, placement: normalizedPlacement);
       final items = raw
           .map((e) => Map<String, dynamic>.from(e as Map))
           .map(CustomerAdBoardItem.fromJson)
           .toList();
       _loadedType = normalizedType;
+      _loadedPlacement = normalizedPlacement;
       state = AsyncValue.data(items);
     } catch (error, stackTrace) {
       state = AsyncValue.error(error, stackTrace);

@@ -5,6 +5,8 @@ import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
+import '../../merchants/models/store_activity_model.dart';
+import '../../merchants/state/merchants_controller.dart';
 import '../models/ad_board_item_model.dart';
 import '../state/admin_ad_board_controller.dart';
 import '../state/admin_controller.dart';
@@ -117,6 +119,15 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
 
   Future<void> _openSheet([AdBoardItemModel? item]) async {
     final merchants = ref.read(adminControllerProvider).managedMerchants;
+    var activities = const <StoreActivityModel>[];
+    try {
+      activities = await ref
+          .read(merchantsControllerProvider.notifier)
+          .listActivities();
+    } catch (_) {
+      activities = const <StoreActivityModel>[];
+    }
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -124,6 +135,7 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
       builder: (_) => _AdBoardSheet(
         initial: item,
         merchants: merchants,
+        activities: activities,
         onSubmit: (payload, imageFile) {
           if (item == null) {
             return ref
@@ -736,16 +748,27 @@ class _AdCategoryTarget {
 
   String label(BuildContext context) =>
       context.lt(ar: labelAr, en: labelEn);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _AdCategoryTarget &&
+      other.category == category &&
+      other.activityType == activityType;
+
+  @override
+  int get hashCode => Object.hash(category, activityType);
 }
 
 class _AdBoardSheet extends ConsumerStatefulWidget {
   final AdBoardItemModel? initial;
   final List<dynamic> merchants;
+  final List<StoreActivityModel> activities;
   final _AdBoardSubmit onSubmit;
 
   const _AdBoardSheet({
     this.initial,
     required this.merchants,
+    required this.activities,
     required this.onSubmit,
   });
 
@@ -782,7 +805,7 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
     'MARKETPLACE_HOME',
     'MARKETPLACE_CATEGORY',
   ];
-  static const List<_AdCategoryTarget> _categoryTargets =
+  static const List<_AdCategoryTarget> _baseCategoryTargets =
       <_AdCategoryTarget>[
     _AdCategoryTarget(
       labelAr: 'عام لكل صفحات الأقسام',
@@ -998,6 +1021,40 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
   static String? _emptyToNull(String value) {
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  List<_AdCategoryTarget> get _categoryTargets {
+    final byScope = <String, _AdCategoryTarget>{};
+    void add(_AdCategoryTarget target) {
+      final key = '${target.category ?? ''}|${target.activityType ?? ''}';
+      byScope[key] = target;
+    }
+
+    for (final target in _baseCategoryTargets) {
+      add(target);
+    }
+
+    final sortedActivities = widget.activities
+        .where((activity) => activity.activityType.trim().isNotEmpty)
+        .toList(growable: false)
+      ..sort((a, b) => a.activityType.compareTo(b.activityType));
+    for (final activity in sortedActivities) {
+      final code = activity.activityType.trim();
+      add(
+        _AdCategoryTarget(
+          labelAr: activity.displayNameAr.trim().isNotEmpty
+              ? activity.displayNameAr.trim()
+              : code,
+          labelEn: activity.displayNameEn.trim().isNotEmpty
+              ? activity.displayNameEn.trim()
+              : code,
+          category: null,
+          activityType: code,
+        ),
+      );
+    }
+
+    return byScope.values.toList(growable: false);
   }
 
   _AdCategoryTarget? _findCategoryTarget({
