@@ -243,7 +243,11 @@ class _QaAdBoardController extends CustomerAdBoardController {
   }
 
   @override
-  Future<void> load({String? type, bool force = false}) async {}
+  Future<void> load({
+    String? type,
+    String placement = 'HOME_MAIN',
+    bool force = false,
+  }) async {}
 }
 
 class _QaHomePrefsController extends CustomerHomePrefsController {
