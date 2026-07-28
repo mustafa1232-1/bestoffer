@@ -1,100 +1,80 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 
-class CustomerElectronicsHubScreen extends StatelessWidget {
-  const CustomerElectronicsHubScreen({super.key});
+/// Dedicated phones section. Phones span three real store activities
+/// (`phones_technology`, `phone_maintenance`, `electronics_mobile`), and the
+/// merchants list can only filter by one activity at a time, so we surface each
+/// as a strict single-activity entry here. Every entry opens without a keyword
+/// search so stores whose names don't contain "هواتف" (e.g. صيانة المحترف /
+/// الضمان التقني للموبايلات) are never filtered out.
+class CustomerPhonesHubScreen extends StatelessWidget {
+  const CustomerPhonesHubScreen({super.key});
 
-  void _open(BuildContext context, _ElectronicsTopic topic) {
+  void _open(BuildContext context, _PhonesTopic topic) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
-          // Strict isolation by real activity category — never market+keyword.
+          // Strict isolation by real activity category — no market+keyword.
           initialActivityType: topic.activityType,
-          initialSearchQuery: topic.searchQuery,
           overrideTitle: topic.title,
           compactCustomerMode: true,
           strictCategoryMode: true,
-          applyInitialSearchQuery: topic.searchQuery.trim().isNotEmpty,
         ),
       ),
     );
   }
 
-  List<_ElectronicsTopic> _topics(BuildContext context) {
-    final l10n = context.l10n;
+  List<_PhonesTopic> _topics(BuildContext context) {
     return [
-      _ElectronicsTopic(
-        title: l10n.customerElectronicsHubHomeAppliancesTitle,
-        subtitle: l10n.customerElectronicsHubHomeAppliancesSubtitle,
-        searchQuery: 'كهربائيات',
-        searchTerms: [
-          'كهربائيات',
-          'كهرباء',
-          'أجهزة',
-          'electrical',
-          'electronics',
-          'appliance',
-        ],
-        icon: Icons.electrical_services_rounded,
+      _PhonesTopic(
+        title: context.lt(ar: 'إلكترونيات وموبايل', en: 'Electronics & Mobile'),
+        subtitle: context.lt(
+          ar: 'هواتف وأجهزة وإلكترونيات وموبايلات',
+          en: 'Phones, devices, electronics & mobiles',
+        ),
+        icon: Icons.smartphone_rounded,
         colorA: const Color(0xFF365F94),
         colorB: const Color(0xFF244066),
-        activityType: 'electrical_lighting',
+        activityType: 'electronics_mobile',
       ),
-      _ElectronicsTopic(
-        title: l10n.customerElectronicsHubSmallAppliancesTitle,
-        subtitle: l10n.customerElectronicsHubSmallAppliancesSubtitle,
-        searchQuery: 'أجهزة',
-        searchTerms: [
-          'أجهزة',
-          'صغيرة',
-          'خلاط',
-          'غلاية',
-          'machine',
-          'appliance',
-        ],
-        icon: Icons.kitchen_rounded,
-        colorA: const Color(0xFF4F6D95),
-        colorB: const Color(0xFF33475F),
-        activityType: 'home_kitchen',
-      ),
-      _ElectronicsTopic(
-        title: l10n.customerElectronicsHubAccessoriesTitle,
-        subtitle: l10n.customerElectronicsHubAccessoriesSubtitle,
-        searchQuery: 'اكسسوارات كهرباء',
-        searchTerms: [
-          'اكسسوارات كهرباء',
-          'مفاتيح',
-          'أسلاك',
-          'قابس',
-          'adapter',
-          'cable',
-          'switch',
-        ],
-        icon: Icons.settings_input_hdmi_rounded,
+      _PhonesTopic(
+        title: context.lt(ar: 'صيانة الهواتف', en: 'Phone Maintenance'),
+        subtitle: context.lt(
+          ar: 'صيانة الشاشات والبطاريات والبرمجة والضمان',
+          en: 'Screen, battery, software repair & warranty',
+        ),
+        icon: Icons.build_rounded,
         colorA: const Color(0xFF3A6B78),
         colorB: const Color(0xFF254751),
-        activityType: 'electronics_mobile',
+        activityType: 'phone_maintenance',
       ),
     ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.customerElectronicsHubTitle),
+        title: Text(
+          context.lt(ar: 'الهواتف والتكنولوجيا', en: 'Phones & Technology'),
+        ),
         actions: const [AppBarQuickActions()],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
         children: [
           _HeaderCard(
-            title: l10n.customerElectronicsHubHeaderTitle,
-            subtitle: l10n.customerElectronicsHubHeaderSubtitle,
+            title: context.lt(
+              ar: 'كل ما يخص الهواتف في مكان واحد',
+              en: 'Everything phones in one place',
+            ),
+            subtitle: context.lt(
+              ar: 'بيع الهواتف والتقنيات، صيانة محترفة، وضمان تقني وملحقات.',
+              en: 'Phone sales, professional maintenance, technical warranty & accessories.',
+            ),
           ),
           const SizedBox(height: 12),
           _TopicGrid(
@@ -123,7 +103,7 @@ class _HeaderCard extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [Color(0xFF34558E), Color(0xFF22375F)],
+          colors: [Color(0xFF3D3D66), Color(0xFF25254A)],
         ),
         border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
       ),
@@ -146,8 +126,8 @@ class _HeaderCard extends StatelessWidget {
 }
 
 class _TopicGrid extends StatelessWidget {
-  final List<_ElectronicsTopic> topics;
-  final ValueChanged<_ElectronicsTopic> onTap;
+  final List<_PhonesTopic> topics;
+  final ValueChanged<_PhonesTopic> onTap;
 
   const _TopicGrid({required this.topics, required this.onTap});
 
@@ -214,23 +194,17 @@ class _TopicGrid extends StatelessWidget {
   }
 }
 
-class _ElectronicsTopic {
+class _PhonesTopic {
   final String title;
   final String subtitle;
-  final String searchQuery;
-  final List<String> searchTerms;
   final IconData icon;
   final Color colorA;
   final Color colorB;
-
-  /// Strict store activity this topic isolates to.
   final String activityType;
 
-  const _ElectronicsTopic({
+  const _PhonesTopic({
     required this.title,
     required this.subtitle,
-    required this.searchQuery,
-    required this.searchTerms,
     required this.icon,
     required this.colorA,
     required this.colorB,

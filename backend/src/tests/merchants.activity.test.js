@@ -45,6 +45,15 @@ test("validateCreateMerchant accepts phone maintenance and phones technology mar
   }
 });
 
+test("validateCreateMerchant accepts home furniture and kitchens & decor market activities", () => {
+  for (const activityType of ["home_furniture", "kitchens_decor"]) {
+    const result = validateCreateMerchant(
+      baseCreateBody({ activityType, type: "market" })
+    );
+    assert.equal(result.ok, true, `${activityType}: ${JSON.stringify(result.errors)}`);
+  }
+});
+
 test("validateCreateMerchant rejects missing type", () => {
   const body = baseCreateBody();
   delete body.type;

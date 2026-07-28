@@ -8320,7 +8320,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get customerElectronicsHubHeaderSubtitle =>
-      'Home appliances, electrical accessories, phones, and daily tech.';
+      'Home appliances, electrical accessories, and daily tech.';
 
   @override
   String get customerElectronicsHubHomeAppliancesTitle => 'Home appliances';

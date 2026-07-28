@@ -15257,7 +15257,7 @@ abstract class AppLocalizations {
   /// No description provided for @customerElectronicsHubHeaderSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Home appliances, electrical accessories, phones, and daily tech.'**
+  /// **'Home appliances, electrical accessories, and daily tech.'**
   String get customerElectronicsHubHeaderSubtitle;
 
   /// No description provided for @customerElectronicsHubHomeAppliancesTitle.

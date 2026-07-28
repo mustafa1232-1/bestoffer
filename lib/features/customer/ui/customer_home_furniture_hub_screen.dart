@@ -1,100 +1,89 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 
-class CustomerElectronicsHubScreen extends StatelessWidget {
-  const CustomerElectronicsHubScreen({super.key});
+/// Dedicated "Home Furniture" section. Each card isolates to a real store
+/// activity so stores registered under it (and only it) appear, with no keyword
+/// search that could wrongly exclude a store.
+///   مفروشات        -> furnishings      (existing)
+///   أثاث منزلي      -> home_furniture   (added in migration 187)
+///   مطابخ وديكورات  -> kitchens_decor   (added in migration 187)
+class CustomerHomeFurnitureHubScreen extends StatelessWidget {
+  const CustomerHomeFurnitureHubScreen({super.key});
 
-  void _open(BuildContext context, _ElectronicsTopic topic) {
+  void _open(BuildContext context, _FurnitureTopic topic) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MerchantsListScreen(
-          // Strict isolation by real activity category — never market+keyword.
+          // Strict isolation by real activity category — no market+keyword.
           initialActivityType: topic.activityType,
-          initialSearchQuery: topic.searchQuery,
           overrideTitle: topic.title,
           compactCustomerMode: true,
           strictCategoryMode: true,
-          applyInitialSearchQuery: topic.searchQuery.trim().isNotEmpty,
         ),
       ),
     );
   }
 
-  List<_ElectronicsTopic> _topics(BuildContext context) {
-    final l10n = context.l10n;
+  List<_FurnitureTopic> _topics(BuildContext context) {
     return [
-      _ElectronicsTopic(
-        title: l10n.customerElectronicsHubHomeAppliancesTitle,
-        subtitle: l10n.customerElectronicsHubHomeAppliancesSubtitle,
-        searchQuery: 'كهربائيات',
-        searchTerms: [
-          'كهربائيات',
-          'كهرباء',
-          'أجهزة',
-          'electrical',
-          'electronics',
-          'appliance',
-        ],
-        icon: Icons.electrical_services_rounded,
-        colorA: const Color(0xFF365F94),
-        colorB: const Color(0xFF244066),
-        activityType: 'electrical_lighting',
+      _FurnitureTopic(
+        title: context.lt(ar: 'مفروشات', en: 'Furnishings'),
+        subtitle: context.lt(
+          ar: 'كنب وأسرّة وسجاد وستائر',
+          en: 'Sofas, beds, carpets & curtains',
+        ),
+        icon: Icons.weekend_rounded,
+        colorA: const Color(0xFF7A5E3B),
+        colorB: const Color(0xFF52401F),
+        activityType: 'furnishings',
       ),
-      _ElectronicsTopic(
-        title: l10n.customerElectronicsHubSmallAppliancesTitle,
-        subtitle: l10n.customerElectronicsHubSmallAppliancesSubtitle,
-        searchQuery: 'أجهزة',
-        searchTerms: [
-          'أجهزة',
-          'صغيرة',
-          'خلاط',
-          'غلاية',
-          'machine',
-          'appliance',
-        ],
+      _FurnitureTopic(
+        title: context.lt(ar: 'أثاث منزلي', en: 'Home Furniture'),
+        subtitle: context.lt(
+          ar: 'أثاث غرف الجلوس والنوم والطعام',
+          en: 'Living room, bedroom & dining furniture',
+        ),
+        icon: Icons.chair_rounded,
+        colorA: const Color(0xFF6E5A86),
+        colorB: const Color(0xFF463A5C),
+        activityType: 'home_furniture',
+      ),
+      _FurnitureTopic(
+        title: context.lt(ar: 'مطابخ وديكورات', en: 'Kitchens & Decor'),
+        subtitle: context.lt(
+          ar: 'مطابخ وإكسسوارات وإنارة وديكور',
+          en: 'Kitchens, accessories, lighting & decor',
+        ),
         icon: Icons.kitchen_rounded,
-        colorA: const Color(0xFF4F6D95),
-        colorB: const Color(0xFF33475F),
-        activityType: 'home_kitchen',
-      ),
-      _ElectronicsTopic(
-        title: l10n.customerElectronicsHubAccessoriesTitle,
-        subtitle: l10n.customerElectronicsHubAccessoriesSubtitle,
-        searchQuery: 'اكسسوارات كهرباء',
-        searchTerms: [
-          'اكسسوارات كهرباء',
-          'مفاتيح',
-          'أسلاك',
-          'قابس',
-          'adapter',
-          'cable',
-          'switch',
-        ],
-        icon: Icons.settings_input_hdmi_rounded,
         colorA: const Color(0xFF3A6B78),
         colorB: const Color(0xFF254751),
-        activityType: 'electronics_mobile',
+        activityType: 'kitchens_decor',
       ),
     ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.customerElectronicsHubTitle),
+        title: Text(context.lt(ar: 'الأثاث المنزلي', en: 'Home Furniture')),
         actions: const [AppBarQuickActions()],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
         children: [
           _HeaderCard(
-            title: l10n.customerElectronicsHubHeaderTitle,
-            subtitle: l10n.customerElectronicsHubHeaderSubtitle,
+            title: context.lt(
+              ar: 'كل ما يخص أثاث المنزل في مكان واحد',
+              en: 'Everything for your home furniture in one place',
+            ),
+            subtitle: context.lt(
+              ar: 'مفروشات، أثاث منزلي، ومطابخ وديكورات.',
+              en: 'Furnishings, home furniture, kitchens & decor.',
+            ),
           ),
           const SizedBox(height: 12),
           _TopicGrid(
@@ -123,7 +112,7 @@ class _HeaderCard extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [Color(0xFF34558E), Color(0xFF22375F)],
+          colors: [Color(0xFF5B4A32), Color(0xFF3A2F1F)],
         ),
         border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
       ),
@@ -146,8 +135,8 @@ class _HeaderCard extends StatelessWidget {
 }
 
 class _TopicGrid extends StatelessWidget {
-  final List<_ElectronicsTopic> topics;
-  final ValueChanged<_ElectronicsTopic> onTap;
+  final List<_FurnitureTopic> topics;
+  final ValueChanged<_FurnitureTopic> onTap;
 
   const _TopicGrid({required this.topics, required this.onTap});
 
@@ -214,23 +203,17 @@ class _TopicGrid extends StatelessWidget {
   }
 }
 
-class _ElectronicsTopic {
+class _FurnitureTopic {
   final String title;
   final String subtitle;
-  final String searchQuery;
-  final List<String> searchTerms;
   final IconData icon;
   final Color colorA;
   final Color colorB;
-
-  /// Strict store activity this topic isolates to.
   final String activityType;
 
-  const _ElectronicsTopic({
+  const _FurnitureTopic({
     required this.title,
     required this.subtitle,
-    required this.searchQuery,
-    required this.searchTerms,
     required this.icon,
     required this.colorA,
     required this.colorB,

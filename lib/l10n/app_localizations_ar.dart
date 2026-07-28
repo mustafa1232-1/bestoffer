@@ -8226,7 +8226,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get customerElectronicsHubHeaderSubtitle =>
-      'الأجهزة المنزلية والإكسسوارات الكهربائية والهواتف والتكنولوجيا اليومية.';
+      'الأجهزة المنزلية والإكسسوارات الكهربائية والتكنولوجيا اليومية.';
 
   @override
   String get customerElectronicsHubHomeAppliancesTitle => 'الأجهزة المنزلية';

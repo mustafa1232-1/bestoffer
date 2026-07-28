@@ -51,6 +51,12 @@ class MerchantsListScreen extends ConsumerStatefulWidget {
   /// page. The general "all stores" surface leaves this false.
   final bool strictCategoryMode;
 
+  /// When false, the in-category "smart" discovery block (category intelligence
+  /// panel + fastest / top-rated / best-price / offers rails) is hidden and not
+  /// fetched. Used by surfaces that want a plain store list, e.g. the
+  /// tobacco & hookah section.
+  final bool showCategoryIntelligence;
+
   const MerchantsListScreen({
     super.key,
     this.initialType,
@@ -63,6 +69,7 @@ class MerchantsListScreen extends ConsumerStatefulWidget {
     this.compactCustomerMode = false,
     this.applyInitialSearchQuery = true,
     this.strictCategoryMode = false,
+    this.showCategoryIntelligence = true,
   });
 
   @override
@@ -310,7 +317,8 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
   }
 
   bool _shouldUseCategoryDiscovery(AuthState auth, String? type) {
-    return _isCustomerView(auth) &&
+    return widget.showCategoryIntelligence &&
+        _isCustomerView(auth) &&
         widget.compactCustomerMode &&
         type != null &&
         type.trim().isNotEmpty;
@@ -1093,6 +1101,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
             for (final merchant in list) merchant.id: merchant,
           };
           final categoryDiscoveryEnabled =
+              widget.showCategoryIntelligence &&
               widget.compactCustomerMode &&
               (filterType ?? widget.initialType) != null;
           final fastestMerchants = discoveryData == null
@@ -1146,8 +1155,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
             totalCount: list.length,
           );
           final categoryAdActivityType =
-              (selectedActivityType ?? widget.initialActivityType)
-                  ?.trim();
+              (selectedActivityType ?? widget.initialActivityType)?.trim();
           final categoryAdKey =
               (selectedDiscoverySubcategory ??
                       widget.initialDiscoverySubcategory ??
@@ -1211,15 +1219,18 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                 MarketplaceAdCard(
                   request: MarketplaceAdRequest(
                     placement: marketplaceAdPlacement,
-                    type: (filterType ?? widget.initialType)?.trim().isNotEmpty ==
+                    type:
+                        (filterType ?? widget.initialType)?.trim().isNotEmpty ==
                             true
                         ? (filterType ?? widget.initialType)!.trim()
                         : null,
-                    categoryKey: hasMarketplaceCategoryContext &&
+                    categoryKey:
+                        hasMarketplaceCategoryContext &&
                             categoryAdKey?.isNotEmpty == true
                         ? categoryAdKey
                         : null,
-                    activityType: hasMarketplaceCategoryContext &&
+                    activityType:
+                        hasMarketplaceCategoryContext &&
                             categoryAdActivityType?.isNotEmpty == true
                         ? categoryAdActivityType
                         : null,
@@ -3093,10 +3104,7 @@ class _MerchantTalabatCard extends StatelessWidget {
       final local = next.toLocal();
       final hh = local.hour.toString().padLeft(2, '0');
       final mm = local.minute.toString().padLeft(2, '0');
-      return context.lt(
-        ar: 'يفتح $hh:$mm',
-        en: 'Opens $hh:$mm',
-      );
+      return context.lt(ar: 'يفتح $hh:$mm', en: 'Opens $hh:$mm');
     }
     return l10n.merchantListStatusClosedNow;
   }
@@ -3592,16 +3600,4 @@ class _BackofficeFilters extends StatelessWidget {
       ),
     );
   }
-}
-
-class _PromoItem {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-
-  const _PromoItem({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-  });
 }

@@ -16,6 +16,8 @@ const Map<String, List<String>> _allowedCatalogTypesByActivity = {
   'seafood': ['grocery'],
   'home_kitchen': ['furniture', 'electronics'],
   'furnishings': ['furniture'],
+  'home_furniture': ['furniture'],
+  'kitchens_decor': ['furniture'],
   'dietary_supplements': ['generic', 'supplements'],
   'smoking_supplies': ['generic', 'smoking', 'vapes', 'hookah'],
 };

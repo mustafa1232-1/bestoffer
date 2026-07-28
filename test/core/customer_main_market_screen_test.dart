@@ -45,4 +45,28 @@ void main() {
     await _pumpMarket(tester);
     expect(find.text('Fashion market'), findsWidgets);
   });
+
+  testWidgets('tobacco & hookah hub replaces cars in the market hubs', (
+    tester,
+  ) async {
+    await _pumpMarket(tester);
+    // The tobacco/hookah section is now offered where Cars used to be. Entry is
+    // gated behind an 18+ confirmation handled inside _openSmokingSection.
+    expect(find.text('Tobacco & Hookah'), findsWidgets);
+    expect(find.text('Cars'), findsNothing);
+  });
+
+  testWidgets('phones are offered as a standalone market section', (
+    tester,
+  ) async {
+    await _pumpMarket(tester);
+    expect(find.text('Phones & Technology'), findsWidgets);
+  });
+
+  testWidgets('home furniture is offered as a dedicated market section', (
+    tester,
+  ) async {
+    await _pumpMarket(tester);
+    expect(find.text('Home Furniture'), findsWidgets);
+  });
 }
