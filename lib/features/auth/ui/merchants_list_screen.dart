@@ -1238,6 +1238,12 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                   ),
                   const SizedBox(height: 12),
                 ],
+                _PromoCarousel(
+                  controller: promoController,
+                  promoItems: _promoItems(context),
+                  currentPage: promoPage,
+                ),
+                const SizedBox(height: 12),
                 // MARKETPLACE_CATEGORY ad: targeted at this page's category /
                 // activity, with the general ad as fallback; sits above search
                 // and collapses fully when there is no eligible ad.
@@ -1298,13 +1304,6 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                   ),
                   const SizedBox(height: 10),
                 ],
-                if (showRichDiscovery) const SizedBox(height: 14),
-                if (showRichDiscovery)
-                  _PromoCarousel(
-                    controller: promoController,
-                    promoItems: _promoItems(context),
-                    currentPage: promoPage,
-                  ),
                 if (categoryDiscoveryEnabled) ...[
                   const SizedBox(height: 14),
                   if (discovery.isLoading)
