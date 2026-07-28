@@ -832,6 +832,30 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
       activityType: 'fashion_clothing',
     ),
     _AdCategoryTarget(
+      labelAr: 'الأثاث المنزلي - مفروشات',
+      labelEn: 'Home furniture - furnishings',
+      category: null,
+      activityType: 'furnishings',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'الأثاث المنزلي - أثاث منزلي',
+      labelEn: 'Home furniture - furniture',
+      category: null,
+      activityType: 'home_furniture',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'الأثاث المنزلي - مطابخ وديكورات',
+      labelEn: 'Home furniture - kitchens & decor',
+      category: null,
+      activityType: 'kitchens_decor',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'الهواتف والتكنولوجيا - صيانة الهواتف',
+      labelEn: 'Phones & technology - maintenance',
+      category: null,
+      activityType: 'phone_maintenance',
+    ),
+    _AdCategoryTarget(
       labelAr: 'المطاعم',
       labelEn: 'Restaurants',
       category: null,
@@ -868,8 +892,8 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
       activityType: 'home_kitchen',
     ),
     _AdCategoryTarget(
-      labelAr: 'الإلكترونيات والموبايلات',
-      labelEn: 'Electronics & mobile',
+      labelAr: 'الهواتف والتكنولوجيا - أجهزة وموبايلات',
+      labelEn: 'Phones & technology - devices',
       category: null,
       activityType: 'electronics_mobile',
     ),
@@ -1027,7 +1051,7 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
     final byScope = <String, _AdCategoryTarget>{};
     void add(_AdCategoryTarget target) {
       final key = '${target.category ?? ''}|${target.activityType ?? ''}';
-      byScope[key] = target;
+      byScope.putIfAbsent(key, () => target);
     }
 
     for (final target in _baseCategoryTargets) {
