@@ -46,12 +46,14 @@ class MarketplaceAdCard extends ConsumerStatefulWidget {
   /// Vertical space kept above the card when an ad is present. Collapses to zero
   /// along with the card when there is no ad.
   final EdgeInsetsGeometry margin;
+  final double height;
 
   const MarketplaceAdCard({
     super.key,
     required this.request,
     this.onTapAd,
     this.margin = const EdgeInsets.only(bottom: 12),
+    this.height = 138,
   });
 
   @override
@@ -123,8 +125,8 @@ class _MarketplaceAdCardState extends ConsumerState<MarketplaceAdCard> {
 
     return Padding(
       padding: widget.margin,
-      child: AspectRatio(
-        aspectRatio: 2.6,
+      child: SizedBox(
+        height: widget.height,
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
           onTap: () => _handleTap(item),

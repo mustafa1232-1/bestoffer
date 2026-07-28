@@ -75,29 +75,6 @@ enum _CustomerMerchantSort { recommended, openFirst, offersFirst, alphabetical }
 enum _DiscoveryMode { quick, savings, favorites, surprise }
 
 class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
-  static const int _promoItemCount = 3;
-
-  static List<_PromoItem> _promoItems(BuildContext context) {
-    final l10n = context.l10n;
-    return <_PromoItem>[
-      _PromoItem(
-        title: l10n.customerDiscoveryBannerOfferTitle,
-        subtitle: l10n.customerDiscoveryBannerOfferSubtitle,
-        icon: Icons.local_offer_rounded,
-      ),
-      _PromoItem(
-        title: l10n.merchantListPromoFastDeliveryTitle,
-        subtitle: l10n.merchantListPromoFastDeliverySubtitle,
-        icon: Icons.delivery_dining_rounded,
-      ),
-      _PromoItem(
-        title: l10n.merchantListPromoNeighborhoodTitle,
-        subtitle: l10n.merchantListPromoNeighborhoodSubtitle,
-        icon: Icons.storefront_rounded,
-      ),
-    ];
-  }
-
   String? filterType;
   String? selectedActivityType;
   String? selectedDiscoverySubcategory;
@@ -117,9 +94,6 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
       const <StoreDiscoveryOptionModel>[];
 
   final searchCtrl = TextEditingController();
-  final promoController = PageController(viewportFraction: 0.92);
-  Timer? promoTimer;
-  int promoPage = 0;
   String? _lastTrackedBrowseSignature;
 
   String? _normalizeNullableToken(String? value) {
@@ -181,22 +155,10 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
       }
       await _trackBrowseSurface();
     });
-    promoTimer = Timer.periodic(const Duration(seconds: 6), (_) {
-      if (!mounted || !promoController.hasClients) return;
-      promoPage = (promoPage + 1) % _promoItemCount;
-      promoController.animateToPage(
-        promoPage,
-        duration: const Duration(milliseconds: 520),
-        curve: Curves.easeOutCubic,
-      );
-      setState(() {});
-    });
   }
 
   @override
   void dispose() {
-    promoTimer?.cancel();
-    promoController.dispose();
     searchCtrl.dispose();
     super.dispose();
   }
@@ -1193,6 +1155,12 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                       selectedActivityType ??
                       widget.initialActivityType)
                   ?.trim();
+          final hasMarketplaceCategoryContext =
+              (categoryAdActivityType?.isNotEmpty ?? false) ||
+              (categoryAdKey?.isNotEmpty ?? false);
+          final marketplaceAdPlacement = hasMarketplaceCategoryContext
+              ? 'MARKETPLACE_CATEGORY'
+              : 'MARKETPLACE_HOME';
           return RefreshIndicator(
             onRefresh: _refresh,
             child: ListView(
@@ -1238,26 +1206,21 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                _PromoCarousel(
-                  controller: promoController,
-                  promoItems: _promoItems(context),
-                  currentPage: promoPage,
-                ),
-                const SizedBox(height: 12),
-                // MARKETPLACE_CATEGORY ad: targeted at this page's category /
-                // activity, with the general ad as fallback; sits above search
-                // and collapses fully when there is no eligible ad.
+                // Admin-managed marketplace ad only. It sits above search and
+                // collapses fully when the admin has not published one.
                 MarketplaceAdCard(
                   request: MarketplaceAdRequest(
-                    placement: 'MARKETPLACE_CATEGORY',
+                    placement: marketplaceAdPlacement,
                     type: (filterType ?? widget.initialType)?.trim().isNotEmpty ==
                             true
                         ? (filterType ?? widget.initialType)!.trim()
                         : null,
-                    categoryKey: categoryAdKey?.isNotEmpty == true
+                    categoryKey: hasMarketplaceCategoryContext &&
+                            categoryAdKey?.isNotEmpty == true
                         ? categoryAdKey
                         : null,
-                    activityType: categoryAdActivityType?.isNotEmpty == true
+                    activityType: hasMarketplaceCategoryContext &&
+                            categoryAdActivityType?.isNotEmpty == true
                         ? categoryAdActivityType
                         : null,
                   ),
@@ -3009,111 +2972,6 @@ class _CategoryPill extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _PromoCarousel extends StatelessWidget {
-  final PageController controller;
-  final List<_PromoItem> promoItems;
-  final int currentPage;
-
-  const _PromoCarousel({
-    required this.controller,
-    required this.promoItems,
-    required this.currentPage,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        SizedBox(
-          height: 138,
-          child: PageView.builder(
-            controller: controller,
-            itemCount: promoItems.length,
-            itemBuilder: (context, index) {
-              final promo = promoItems[index];
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    gradient: const LinearGradient(
-                      begin: Alignment.topRight,
-                      end: Alignment.bottomLeft,
-                      colors: [Color(0xFF203E72), Color(0xFF0D2A4F)],
-                    ),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.10),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Icon(promo.icon, size: 24),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              promo.title,
-                              textDirection: TextDirection.rtl,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              promo.subtitle,
-                              textDirection: TextDirection.rtl,
-                              textAlign: TextAlign.right,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.88),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(promoItems.length, (index) {
-            final selected = index == currentPage;
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 220),
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              width: selected ? 20 : 8,
-              height: 8,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(999),
-                color: selected
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.white.withValues(alpha: 0.24),
-              ),
-            );
-          }),
-        ),
-      ],
     );
   }
 }

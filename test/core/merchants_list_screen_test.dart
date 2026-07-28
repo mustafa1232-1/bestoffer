@@ -366,7 +366,7 @@ void main() {
       final l10n = AppLocalizations.of(
         tester.element(find.byType(MerchantsListScreen)),
       );
-      expect(find.text(l10n.customerDiscoveryBannerOfferTitle), findsOneWidget);
+      expect(find.text(l10n.customerDiscoveryBannerOfferTitle), findsNothing);
       expect(find.text('Pharmacy'), findsWidgets);
       expect(find.text('Restaurants'), findsNothing);
       expect(find.text('Markets'), findsNothing);
