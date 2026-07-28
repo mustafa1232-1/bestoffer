@@ -22,12 +22,7 @@ import {
   computeMerchantOfferState,
 } from "./merchant-offers.logic.js";
 import { hasPermission } from "../../shared/workspaces/employee-permissions.js";
-import {
-  applyStoreActivityInternalTemplateToMerchants,
-  ensureStoreActivityDefinition,
-  invalidateMerchantCatalogCache,
-  upsertStoreActivityInternalTemplate,
-} from "../merchants/merchants.repo.js";
+import { invalidateMerchantCatalogCache } from "../merchants/merchants.repo.js";
 import {
   hasRichProductInput,
   normalizeRichProductPayload,
@@ -36,7 +31,6 @@ import { loadProductRichCatalogById } from "../products/products.repo.js";
 import crypto from "crypto";
 import {
   buildMerchantCapabilities,
-  getActivityConfig,
   inferActivityTypeFromMerchantType,
   normalizeActivityType,
   normalizeDiscoverySubcategoryList,
@@ -526,22 +520,6 @@ function assertCategoryCatalogScope(activityType, catalogType, field = "catalogT
   if (!isAllowed) {
     throwCategoryScopeError(field);
   }
-}
-
-function buildCatalogTemplateCode(name, catalogType) {
-  const normalized = String(name || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  if (normalized) return normalized.slice(0, 120);
-  const digest = crypto
-    .createHash("sha1")
-    .update(`${catalogType || "generic"}:${String(name || "").trim()}`)
-    .digest("hex")
-    .slice(0, 10);
-  return `custom_${catalogType || "generic"}_${digest}`.slice(0, 120);
 }
 
 // eslint-disable-next-line no-unused-vars
@@ -1421,50 +1399,12 @@ export async function createOwnerCategory(ownerUserId, dto) {
   }
   await invalidateMerchantCatalogCache(created.merchant_id);
 
-  if (dto.publishGlobally === true) {
-    // Publishing the new category as a shared template for every store of this
-    // activity is a best-effort secondary action — the merchant's own category
-    // was already created above. A failure here (e.g. the activity has no
-    // store_activity_definition row and the template FK rejects the write) must
-    // NEVER fail the request; previously it surfaced as a 500 that then became a
-    // 409 duplicate on retry.
-    try {
-      // Built-in activities can live only in the in-app registry with no DB row,
-      // while the template table has an FK to store_activity_definition. Ensure
-      // the row exists first so the template upsert (and the FK) succeed.
-      const activityConfig = await getActivityConfig(merchantActivityType, {
-        includeInactive: true,
-      });
-      if (activityConfig) {
-        await ensureStoreActivityDefinition(activityConfig);
-      }
-      const template = await upsertStoreActivityInternalTemplate({
-        activityType: merchantActivityType,
-        code: buildCatalogTemplateCode(dto.name, resolvedCatalogType),
-        nameEn: dto.name.trim(),
-        nameAr: dto.name.trim(),
-        icon: null,
-        orderIndex: Number(dto.sortOrder ?? 0),
-        catalogType: resolvedCatalogType,
-        isActive: true,
-      });
-      if (template?.id) {
-        const appliedMerchantIds = await applyStoreActivityInternalTemplateToMerchants(
-          template.id
-        );
-        await Promise.all(
-          appliedMerchantIds.map((merchantId) =>
-            invalidateMerchantCatalogCache(merchantId)
-          )
-        );
-      }
-    } catch (globalPublishError) {
-      console.warn(
-        `[owner] global category publish failed for activity=${merchantActivityType}:`,
-        globalPublishError?.message || globalPublishError
-      );
-    }
-  }
+  // Store categories are PRIVATE to the store that creates them. We deliberately
+  // never publish a merchant's own product category as a shared template applied
+  // to every store of the same activity — doing so leaked one store's categories
+  // onto all stores of that type. `dto.publishGlobally` is ignored on this
+  // merchant self-service endpoint. Built-in starter categories come only from
+  // migrations / the boot-time activity seed.
 
   return mapCategory(created);
 }

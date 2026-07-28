@@ -3084,7 +3084,6 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
   late final TextEditingController nameCtrl;
   late final TextEditingController sortCtrl;
   late String catalogType;
-  late bool publishGlobally;
 
   @override
   void initState() {
@@ -3100,7 +3099,6 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
         ? const <String>['generic']
         : allowedTypes;
     catalogType = widget.category?.catalogType ?? catalogTypeOptions.first;
-    publishGlobally = widget.category == null;
   }
 
   @override
@@ -3176,16 +3174,6 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
                   ),
                 ),
               ),
-            if (!isEdit)
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                value: publishGlobally,
-                onChanged: (value) => setState(() => publishGlobally = value),
-                title: const Text('إظهاره لكل المتاجر من نفس النشاط'),
-                subtitle: const Text(
-                  'سيصبح هذا الكاتالوگ قالباً عاماً ويمكن للأدمن تعديله أو حذفه لاحقاً.',
-                ),
-              ),
             const SizedBox(height: 10),
             TextField(
               controller: sortCtrl,
@@ -3226,7 +3214,6 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
                       name: nameCtrl.text,
                       sortOrder: int.tryParse(sortCtrl.text.trim()) ?? 0,
                       catalogType: catalogType,
-                      publishGlobally: publishGlobally,
                     ),
                   );
                 },
