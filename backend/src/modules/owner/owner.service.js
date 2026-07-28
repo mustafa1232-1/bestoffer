@@ -24,6 +24,7 @@ import {
 import { hasPermission } from "../../shared/workspaces/employee-permissions.js";
 import {
   applyStoreActivityInternalTemplateToMerchants,
+  ensureStoreActivityDefinition,
   invalidateMerchantCatalogCache,
   upsertStoreActivityInternalTemplate,
 } from "../merchants/merchants.repo.js";
@@ -35,6 +36,7 @@ import { loadProductRichCatalogById } from "../products/products.repo.js";
 import crypto from "crypto";
 import {
   buildMerchantCapabilities,
+  getActivityConfig,
   inferActivityTypeFromMerchantType,
   normalizeActivityType,
   normalizeDiscoverySubcategoryList,
@@ -1420,24 +1422,46 @@ export async function createOwnerCategory(ownerUserId, dto) {
   await invalidateMerchantCatalogCache(created.merchant_id);
 
   if (dto.publishGlobally === true) {
-    const template = await upsertStoreActivityInternalTemplate({
-      activityType: merchantActivityType,
-      code: buildCatalogTemplateCode(dto.name, resolvedCatalogType),
-      nameEn: dto.name.trim(),
-      nameAr: dto.name.trim(),
-      icon: null,
-      orderIndex: Number(dto.sortOrder ?? 0),
-      catalogType: resolvedCatalogType,
-      isActive: true,
-    });
-    if (template?.id) {
-      const appliedMerchantIds = await applyStoreActivityInternalTemplateToMerchants(
-        template.id
-      );
-      await Promise.all(
-        appliedMerchantIds.map((merchantId) =>
-          invalidateMerchantCatalogCache(merchantId)
-        )
+    // Publishing the new category as a shared template for every store of this
+    // activity is a best-effort secondary action — the merchant's own category
+    // was already created above. A failure here (e.g. the activity has no
+    // store_activity_definition row and the template FK rejects the write) must
+    // NEVER fail the request; previously it surfaced as a 500 that then became a
+    // 409 duplicate on retry.
+    try {
+      // Built-in activities can live only in the in-app registry with no DB row,
+      // while the template table has an FK to store_activity_definition. Ensure
+      // the row exists first so the template upsert (and the FK) succeed.
+      const activityConfig = await getActivityConfig(merchantActivityType, {
+        includeInactive: true,
+      });
+      if (activityConfig) {
+        await ensureStoreActivityDefinition(activityConfig);
+      }
+      const template = await upsertStoreActivityInternalTemplate({
+        activityType: merchantActivityType,
+        code: buildCatalogTemplateCode(dto.name, resolvedCatalogType),
+        nameEn: dto.name.trim(),
+        nameAr: dto.name.trim(),
+        icon: null,
+        orderIndex: Number(dto.sortOrder ?? 0),
+        catalogType: resolvedCatalogType,
+        isActive: true,
+      });
+      if (template?.id) {
+        const appliedMerchantIds = await applyStoreActivityInternalTemplateToMerchants(
+          template.id
+        );
+        await Promise.all(
+          appliedMerchantIds.map((merchantId) =>
+            invalidateMerchantCatalogCache(merchantId)
+          )
+        );
+      }
+    } catch (globalPublishError) {
+      console.warn(
+        `[owner] global category publish failed for activity=${merchantActivityType}:`,
+        globalPublishError?.message || globalPublishError
       );
     }
   }

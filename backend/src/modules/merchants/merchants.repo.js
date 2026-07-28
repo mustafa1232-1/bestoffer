@@ -1445,6 +1445,58 @@ export async function listStoreActivityInternalTemplates(
   return r.rows;
 }
 
+/**
+ * Materialises a store activity definition row from a registry config object if
+ * it does not already exist. Many built-in activities live only in the in-app
+ * registry and have no DB row; several tables (e.g. the internal category
+ * template) carry an FK to store_activity_definition, so writing to them for a
+ * built-in-only activity would raise a foreign-key violation. This upsert makes
+ * the FK satisfiable without disturbing existing rows (ON CONFLICT DO NOTHING,
+ * so a deliberately deactivated activity is never reactivated).
+ */
+export async function ensureStoreActivityDefinition(config) {
+  const activityType = String(config?.activityType || "").trim();
+  if (!activityType) return;
+  await q(
+    `INSERT INTO store_activity_definition (
+       activity_type,
+       base_type,
+       display_name_en,
+       display_name_ar,
+       has_discovery_subcategories,
+       supports_chat,
+       supports_attachments,
+       supports_pharmacy_workflow,
+       internal_category_mode,
+       default_service_flags_json,
+       default_badges_json,
+       is_active
+     )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12)
+     ON CONFLICT (activity_type) DO NOTHING`,
+    [
+      activityType,
+      String(config.baseType || "market").trim() || "market",
+      String(config.displayNameEn || activityType),
+      String(config.displayNameAr || activityType),
+      config.hasDiscoverySubcategories === true,
+      config.supportsChat === true,
+      config.supportsAttachments === true,
+      config.supportsPharmacyWorkflow === true,
+      String(config.internalCategoryMode || "merchant_defined_with_templates"),
+      JSON.stringify(
+        config.defaultServiceFlags && typeof config.defaultServiceFlags === "object"
+          ? config.defaultServiceFlags
+          : {}
+      ),
+      JSON.stringify(
+        Array.isArray(config.defaultBadges) ? config.defaultBadges : []
+      ),
+      config.isActive !== false,
+    ]
+  );
+}
+
 export async function upsertStoreActivityInternalTemplate({
   activityType,
   code,
