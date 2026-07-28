@@ -1456,8 +1456,8 @@ export async function listStoreActivityInternalTemplates(
  */
 export async function ensureStoreActivityDefinition(config) {
   const activityType = String(config?.activityType || "").trim();
-  if (!activityType) return;
-  await q(
+  if (!activityType) return 0;
+  const r = await q(
     `INSERT INTO store_activity_definition (
        activity_type,
        base_type,
@@ -1495,6 +1495,7 @@ export async function ensureStoreActivityDefinition(config) {
       config.isActive !== false,
     ]
   );
+  return r?.rowCount ?? 0;
 }
 
 export async function upsertStoreActivityInternalTemplate({

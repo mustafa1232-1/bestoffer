@@ -561,6 +561,36 @@ export async function listActivityRegistry({ includeInactive = false } = {}) {
   return list;
 }
 
+/**
+ * Ensures every ACTIVE built-in activity exists as a row in
+ * store_activity_definition. Many built-in activities historically had no DB
+ * row, which broke any write to a table that FKs to store_activity_definition
+ * (e.g. adding a store category with global publish -> internal category
+ * template -> 500 then 409 on retry). Runs on boot so every environment
+ * self-heals; it is idempotent (ON CONFLICT DO NOTHING) and never touches
+ * existing rows, so deliberately deactivated built-ins (e.g. phones_technology,
+ * excluded here because it is inactive) are never re-created or reactivated.
+ */
+export async function seedBuiltinStoreActivityDefinitions() {
+  const activities = listFallbackActivities({ includeInactive: false });
+  let created = 0;
+  for (const activity of activities) {
+    try {
+      const inserted = await merchantsRepo.ensureStoreActivityDefinition(activity);
+      if (inserted) created += 1;
+    } catch (error) {
+      console.warn(
+        `[seed] store activity "${activity.activityType}" seed failed:`,
+        error?.message || error
+      );
+    }
+  }
+  if (created > 0) {
+    console.log(`[seed] created ${created} missing store activity definition(s).`);
+  }
+  return created;
+}
+
 export async function getActivityConfig(activityType, { includeInactive = false } = {}) {
   const normalized = normalizeActivityType(activityType);
   if (!normalized) return null;

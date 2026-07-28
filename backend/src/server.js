@@ -26,6 +26,7 @@ import {
 } from "./modules/delivery/notification-outbox.worker.js";
 import { startPaidUpgradeMaintenanceWorker, stopPaidUpgradeMaintenanceWorker } from "./modules/paid-upgrades/paid-upgrades.service.js";
 import { startTaxiLifecycleWorker } from "./modules/taxi/taxi.service.js";
+import { seedBuiltinStoreActivityDefinitions } from "./modules/merchants/store-activity.registry.js";
 import { seedOpsRunbooks } from "./ops/runbooksLoader.js";
 import { initDatadogTracing } from "./ops/tools/datadogTool.js";
 import { hashPin } from "./shared/utils/hash.js";
@@ -268,6 +269,15 @@ async function start() {
   await initDatadogTracing({ env });
   await runSqlMigrations();
   await ensureSchema();
+  try {
+    await seedBuiltinStoreActivityDefinitions();
+  } catch (error) {
+    // Best-effort self-heal of the activity taxonomy; never block boot.
+    console.warn(
+      "[seed] built-in store activity seeding failed:",
+      error?.message || error
+    );
+  }
   await seedOpsRunbooks();
   await ensureSuperAdminAccount();
   await ensureDevAdmin();
