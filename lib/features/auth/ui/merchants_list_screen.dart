@@ -1225,6 +1225,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                         : null,
                   ),
                   onTapAd: _handleCategoryAdTap,
+                  showEmptyState: true,
                 ),
                 TextField(
                   controller: searchCtrl,

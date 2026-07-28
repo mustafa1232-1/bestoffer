@@ -47,6 +47,7 @@ class MarketplaceAdCard extends ConsumerStatefulWidget {
   /// along with the card when there is no ad.
   final EdgeInsetsGeometry margin;
   final double height;
+  final bool showEmptyState;
 
   const MarketplaceAdCard({
     super.key,
@@ -54,6 +55,7 @@ class MarketplaceAdCard extends ConsumerStatefulWidget {
     this.onTapAd,
     this.margin = const EdgeInsets.only(bottom: 12),
     this.height = 138,
+    this.showEmptyState = false,
   });
 
   @override
@@ -107,7 +109,16 @@ class _MarketplaceAdCardState extends ConsumerState<MarketplaceAdCard> {
     final asyncAd = ref.watch(marketplaceAdProvider(widget.request));
     final item = asyncAd.asData?.value;
     if (item == null) {
-      // Collapse fully: loading, error, and no-ad all render nothing.
+      if (widget.showEmptyState) {
+        return _MarketplaceAdEmptyState(
+          height: widget.height,
+          margin: widget.margin,
+          isLoading: asyncAd.isLoading && !asyncAd.hasValue,
+          hasError: asyncAd.hasError && !asyncAd.hasValue,
+          onRetry: () => ref.invalidate(marketplaceAdProvider(widget.request)),
+        );
+      }
+      // Collapse fully by default: loading, error, and no-ad all render nothing.
       return const SizedBox.shrink();
     }
 
@@ -264,6 +275,122 @@ class _MarketplaceAdCardState extends ConsumerState<MarketplaceAdCard> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MarketplaceAdEmptyState extends StatelessWidget {
+  final double height;
+  final EdgeInsetsGeometry margin;
+  final bool isLoading;
+  final bool hasError;
+  final VoidCallback onRetry;
+
+  const _MarketplaceAdEmptyState({
+    required this.height,
+    required this.margin,
+    required this.isLoading,
+    required this.hasError,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final visual = context.visualTheme;
+    final isArabic = context.appTextDirection == TextDirection.rtl;
+    final title = hasError
+        ? (isArabic
+            ? 'تعذر تحميل الإعلانات حالياً'
+            : 'Could not load ads right now')
+        : (isArabic
+            ? 'لا توجد إعلانات مفعلة حالياً'
+            : 'No active ads right now');
+    final message = hasError
+        ? (isArabic
+            ? 'تحقق من اتصال الشبكة أو إعدادات الإعلان ثم أعد المحاولة'
+            : 'Check the network or ad settings, then try again.')
+        : (isArabic
+            ? 'تأكد من تفعيل الإعلان والتاريخ وأن المتجر المرتبط موافق عليه'
+            : 'Make sure the ad is active, in date, and linked to an approved store.');
+    final buttonLabel = isArabic ? 'تحديث الإعلانات' : 'Refresh ads';
+
+    return Padding(
+      padding: margin,
+      child: Container(
+        height: height,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: const Color(0xFF142D51).withValues(alpha: 0.62),
+          border: Border.all(color: visual.accentGold.withValues(alpha: 0.82)),
+        ),
+        child: isLoading
+            ? Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.4,
+                    color: visual.accentGold,
+                  ),
+                ),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Row(
+                    textDirection: context.appTextDirection,
+                    children: [
+                      Icon(
+                        hasError
+                            ? Icons.warning_amber_rounded
+                            : Icons.campaign_outlined,
+                        color: visual.accentGold,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          title,
+                          textDirection: context.appTextDirection,
+                          textAlign: isArabic ? TextAlign.right : TextAlign.left,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Text(
+                    message,
+                    textDirection: context.appTextDirection,
+                    textAlign: isArabic ? TextAlign.right : TextAlign.left,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.76),
+                      fontSize: 12,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment:
+                        isArabic ? Alignment.centerLeft : Alignment.centerRight,
+                    child: OutlinedButton.icon(
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh_rounded, size: 17),
+                      label: Text(buttonLabel),
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
