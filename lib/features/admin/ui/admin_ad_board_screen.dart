@@ -827,8 +827,8 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
       activityType: 'coffee_drinks',
     ),
     _AdCategoryTarget(
-      labelAr: 'البقالة والتنظيف',
-      labelEn: 'Grocery & cleaning',
+      labelAr: 'ماركت وأسواق يومية',
+      labelEn: 'Daily markets',
       category: null,
       activityType: 'supermarket',
     ),

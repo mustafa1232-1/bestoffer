@@ -1856,11 +1856,11 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get customerDiscoveryCategoryMarketsCleaningTitle =>
-      'أسواق ومواد تنظيف';
+      'ماركت وأسواق يومية';
 
   @override
   String get customerDiscoveryCategoryMarketsCleaningSubtitle =>
-      'مواد غذائية ومنزلية وتنظيف بمكان واحد';
+      'مواد غذائية وتنظيف واحتياجات البيت اليومية';
 
   @override
   String get customerDiscoveryCategoryFruitVegetablesTitle => 'خضار وفواكه';
@@ -8303,11 +8303,11 @@ class AppLocalizationsAr extends AppLocalizations {
       'البقالة والمنتجات واللحوم والأدوات المنزلية والهدايا والعناية الشخصية.';
 
   @override
-  String get customerHomeShoppingHubGroceriesTitle => 'البقالة والتنظيف';
+  String get customerHomeShoppingHubGroceriesTitle => 'ماركت وأسواق يومية';
 
   @override
   String get customerHomeShoppingHubGroceriesSubtitle =>
-      'التسوق المنزلي اليومي';
+      'مواد غذائية وتنظيف واحتياجات البيت اليومية';
 
   @override
   String get customerHomeShoppingHubProduceTitle => 'الفواكه والخضروات';

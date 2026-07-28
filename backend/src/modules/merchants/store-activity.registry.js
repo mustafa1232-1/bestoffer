@@ -39,8 +39,8 @@ const BUILTIN_ACTIVITY_REGISTRY = Object.freeze([
   {
     activityType: "supermarket",
     baseType: "market",
-    displayNameEn: "Supermarket",
-    displayNameAr: "سوبرماركت",
+    displayNameEn: "Daily markets",
+    displayNameAr: "ماركت وأسواق يومية",
     hasDiscoverySubcategories: false,
     supportsChat: false,
     supportsAttachments: false,

@@ -3581,13 +3581,13 @@ abstract class AppLocalizations {
   /// No description provided for @customerDiscoveryCategoryMarketsCleaningTitle.
   ///
   /// In en, this message translates to:
-  /// **'Markets and cleaning'**
+  /// **'Daily markets'**
   String get customerDiscoveryCategoryMarketsCleaningTitle;
 
   /// No description provided for @customerDiscoveryCategoryMarketsCleaningSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Groceries, home goods, and cleaning in one place'**
+  /// **'Groceries, cleaning, and daily home essentials'**
   String get customerDiscoveryCategoryMarketsCleaningSubtitle;
 
   /// No description provided for @customerDiscoveryCategoryFruitVegetablesTitle.
@@ -15395,13 +15395,13 @@ abstract class AppLocalizations {
   /// No description provided for @customerHomeShoppingHubGroceriesTitle.
   ///
   /// In en, this message translates to:
-  /// **'Groceries & cleaning'**
+  /// **'Daily markets'**
   String get customerHomeShoppingHubGroceriesTitle;
 
   /// No description provided for @customerHomeShoppingHubGroceriesSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Daily home shopping'**
+  /// **'Groceries, cleaning, and daily home essentials'**
   String get customerHomeShoppingHubGroceriesSubtitle;
 
   /// No description provided for @customerHomeShoppingHubProduceTitle.

@@ -2461,7 +2461,7 @@ class _DiscoveryCategory {
       'Women fashion' => l10n.customerDiscoveryCategoryWomenFashionTitle,
       'Men fashion' => l10n.customerDiscoveryCategoryMenFashionTitle,
       'Desserts and pastries' => l10n.customerDiscoveryCategoryDessertsTitle,
-      'Markets and cleaning' =>
+      'Daily markets' =>
         l10n.customerDiscoveryCategoryMarketsCleaningTitle,
       'Fruit and vegetables' =>
         l10n.customerDiscoveryCategoryFruitVegetablesTitle,
@@ -2484,7 +2484,7 @@ class _DiscoveryCategory {
       'Women fashion' => l10n.customerDiscoveryCategoryWomenFashionSubtitle,
       'Men fashion' => l10n.customerDiscoveryCategoryMenFashionSubtitle,
       'Desserts and pastries' => l10n.customerDiscoveryCategoryDessertsSubtitle,
-      'Markets and cleaning' =>
+      'Daily markets' =>
         l10n.customerDiscoveryCategoryMarketsCleaningSubtitle,
       'Fruit and vegetables' =>
         l10n.customerDiscoveryCategoryFruitVegetablesSubtitle,
@@ -2888,10 +2888,10 @@ const _categories = <_DiscoveryCategory>[
     motion: _CategoryMotion.cake,
   ),
   _DiscoveryCategory(
-    titleAr: 'أسواق ومواد تنظيف',
-    titleEn: 'Markets and cleaning',
-    subtitleAr: 'مواد غذائية ومنزلية وتنظيف بمكان واحد',
-    subtitleEn: 'Groceries, home goods, and cleaning in one place',
+    titleAr: 'ماركت وأسواق يومية',
+    titleEn: 'Daily markets',
+    subtitleAr: 'مواد غذائية وتنظيف واحتياجات البيت اليومية',
+    subtitleEn: 'Groceries, cleaning, and daily home essentials',
     type: 'market',
     seedQuery: 'سوق',
     searchTerms: [

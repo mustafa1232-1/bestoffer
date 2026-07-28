@@ -332,8 +332,8 @@ const List<StoreActivityModel> _fallbackStoreActivities = <StoreActivityModel>[
   StoreActivityModel(
     activityType: 'supermarket',
     baseType: 'market',
-    displayNameEn: 'Supermarket',
-    displayNameAr: 'سوبرماركت',
+    displayNameEn: 'Daily markets',
+    displayNameAr: 'ماركت وأسواق يومية',
     hasDiscoverySubcategories: false,
     supportsChat: false,
     supportsAttachments: false,

@@ -1889,12 +1889,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Cake, baklava, and fresh pastries';
 
   @override
-  String get customerDiscoveryCategoryMarketsCleaningTitle =>
-      'Markets and cleaning';
+  String get customerDiscoveryCategoryMarketsCleaningTitle => 'Daily markets';
 
   @override
   String get customerDiscoveryCategoryMarketsCleaningSubtitle =>
-      'Groceries, home goods, and cleaning in one place';
+      'Groceries, cleaning, and daily home essentials';
 
   @override
   String get customerDiscoveryCategoryFruitVegetablesTitle =>
@@ -8398,10 +8397,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Groceries, produce, meats, houseware, gifts, and personal care.';
 
   @override
-  String get customerHomeShoppingHubGroceriesTitle => 'Groceries & cleaning';
+  String get customerHomeShoppingHubGroceriesTitle => 'Daily markets';
 
   @override
-  String get customerHomeShoppingHubGroceriesSubtitle => 'Daily home shopping';
+  String get customerHomeShoppingHubGroceriesSubtitle =>
+      'Groceries, cleaning, and daily home essentials';
 
   @override
   String get customerHomeShoppingHubProduceTitle => 'Fruits & vegetables';
