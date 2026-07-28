@@ -78,6 +78,9 @@ const ALLOWED_CATALOG_TYPES_BY_ACTIVITY = Object.freeze({
   kitchens_decor: ["furniture"],
   dietary_supplements: ["generic", "supplements"],
   smoking_supplies: ["generic", "smoking", "vapes", "hookah"],
+  nuts_snacks: ["grocery"],
+  mineral_water: ["grocery"],
+  art_studio: ["generic"],
 });
 
 function asText(value) {

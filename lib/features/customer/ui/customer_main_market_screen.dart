@@ -107,6 +107,27 @@ class _CustomerMainMarketScreenState
           MaterialPageRoute(builder: (_) => const CustomerPhonesHubScreen()),
         );
         return;
+      case 'nuts_snacks':
+        _openActivitySection(
+          context,
+          activityType: 'nuts_snacks',
+          title: context.lt(ar: 'الكرزات', en: 'Snacks & Nuts'),
+        );
+        return;
+      case 'mineral_water':
+        _openActivitySection(
+          context,
+          activityType: 'mineral_water',
+          title: context.lt(ar: 'مياه معدنية', en: 'Mineral Water'),
+        );
+        return;
+      case 'art_studio':
+        _openActivitySection(
+          context,
+          activityType: 'art_studio',
+          title: context.lt(ar: 'مرسم لبيع الصور', en: 'Art Studio'),
+        );
+        return;
       case 'pharmacy':
         Navigator.of(context).push(
           MaterialPageRoute(
@@ -177,6 +198,24 @@ class _CustomerMainMarketScreenState
           strictCategoryMode: true,
           // Plain store list for this section — no smart discovery panel/rails.
           showCategoryIntelligence: false,
+        ),
+      ),
+    );
+  }
+
+  void _openActivitySection(
+    BuildContext context, {
+    required String activityType,
+    required String title,
+  }) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MerchantsListScreen(
+          initialType: 'market',
+          initialActivityType: activityType,
+          overrideTitle: title,
+          compactCustomerMode: true,
+          strictCategoryMode: true,
         ),
       ),
     );
@@ -279,6 +318,36 @@ class _CustomerMainMarketScreenState
         ),
         icon: Icons.smartphone_rounded,
         accent: const Color(0xFF5F5F9A), // indigo
+      ),
+      _MainHubCard(
+        id: 'nuts_snacks',
+        title: context.lt(ar: 'الكرزات', en: 'Snacks & Nuts'),
+        subtitle: context.lt(
+          ar: 'مكسرات وبذور وشيبس ومقرمشات',
+          en: 'Nuts, seeds, chips & snacks',
+        ),
+        icon: Icons.cookie,
+        accent: const Color(0xFF8A6D3B), // warm amber
+      ),
+      _MainHubCard(
+        id: 'mineral_water',
+        title: context.lt(ar: 'مياه معدنية', en: 'Mineral Water'),
+        subtitle: context.lt(
+          ar: 'عبوات وقناني وغالونات مياه',
+          en: 'Bottles, packs & water gallons',
+        ),
+        icon: Icons.water_drop_rounded,
+        accent: const Color(0xFF3E86A0), // water blue
+      ),
+      _MainHubCard(
+        id: 'art_studio',
+        title: context.lt(ar: 'مرسم لبيع الصور', en: 'Art Studio'),
+        subtitle: context.lt(
+          ar: 'لوحات وصور وبورتريه وإطارات',
+          en: 'Paintings, pictures, portraits & frames',
+        ),
+        icon: Icons.palette_rounded,
+        accent: const Color(0xFF9C6BA8), // art lavender
       ),
     ];
   }

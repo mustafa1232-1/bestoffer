@@ -69,4 +69,13 @@ void main() {
     await _pumpMarket(tester);
     expect(find.text('Home Furniture'), findsWidgets);
   });
+
+  testWidgets('snacks, mineral water and art studio are offered as sections', (
+    tester,
+  ) async {
+    await _pumpMarket(tester);
+    expect(find.text('Snacks & Nuts'), findsWidgets);
+    expect(find.text('Mineral Water'), findsWidgets);
+    expect(find.text('Art Studio'), findsWidgets);
+  });
 }

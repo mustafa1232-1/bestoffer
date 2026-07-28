@@ -20,6 +20,9 @@ const Map<String, List<String>> _allowedCatalogTypesByActivity = {
   'kitchens_decor': ['furniture'],
   'dietary_supplements': ['generic', 'supplements'],
   'smoking_supplies': ['generic', 'smoking', 'vapes', 'hookah'],
+  'nuts_snacks': ['grocery'],
+  'mineral_water': ['grocery'],
+  'art_studio': ['generic'],
 };
 
 const Map<String, String> _catalogTypeAliases = {
