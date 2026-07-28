@@ -1198,7 +1198,7 @@ class HomeHeader extends StatelessWidget {
           Row(
             textDirection: TextDirection.rtl,
             children: [
-              const _HeaderBrandLogo(),
+              const _HeaderBrandLogo(compact: true),
               const SizedBox(width: 11),
               Expanded(
                 child: Column(
@@ -1296,7 +1296,9 @@ class HomeHeader extends StatelessWidget {
 }
 
 class _HeaderBrandLogo extends StatelessWidget {
-  const _HeaderBrandLogo();
+  final bool compact;
+
+  const _HeaderBrandLogo({this.compact = false});
 
   @override
   Widget build(BuildContext context) {
@@ -1304,7 +1306,7 @@ class _HeaderBrandLogo extends StatelessWidget {
     final visual = context.visualTheme;
 
     return Container(
-      height: 60,
+      height: compact ? 52 : 60,
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(19),
@@ -1329,21 +1331,25 @@ class _HeaderBrandLogo extends StatelessWidget {
           borderRadius: BorderRadius.circular(17),
           color: tokens.cardPrimary.withValues(alpha: 0.92),
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           textDirection: TextDirection.rtl,
           children: [
-            SizedBox(width: 4),
-            MaslakiBrandMark(size: 54, borderRadius: 16),
-            Padding(
-              padding: EdgeInsetsDirectional.only(start: 8, end: 14),
-              child: MaslakiWordmark(
-                arabicSize: 24,
-                latinSize: 10.5,
-                latinLetterSpacing: 3.4,
-                crossAxisAlignment: CrossAxisAlignment.start,
-              ),
+            const SizedBox(width: 4),
+            MaslakiBrandMark(
+              size: compact ? 46 : 54,
+              borderRadius: compact ? 14 : 16,
             ),
+            if (!compact)
+              const Padding(
+                padding: EdgeInsetsDirectional.only(start: 8, end: 14),
+                child: MaslakiWordmark(
+                  arabicSize: 24,
+                  latinSize: 10.5,
+                  latinLetterSpacing: 3.4,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
           ],
         ),
       ),
@@ -1996,25 +2002,34 @@ class MainCategoryCard extends StatelessWidget {
                 Row(
                   children: [
                     if ((item.badgeLabel ?? '').trim().isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(999),
-                          color: Colors.white.withValues(alpha: 0.2),
-                        ),
-                        child: Text(
-                          item.badgeLabel!,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 11,
+                      Flexible(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(999),
+                              color: Colors.white.withValues(alpha: 0.2),
+                            ),
+                            child: Text(
+                              item.badgeLabel!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    const Spacer(),
+                      )
+                    else
+                      const Spacer(),
+                    const SizedBox(width: 8),
                     Container(
                       width: 48,
                       height: 48,
