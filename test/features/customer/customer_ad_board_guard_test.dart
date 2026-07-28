@@ -13,6 +13,10 @@ class _SpyMerchantsApi extends MerchantsApi {
   _SpyMerchantsApi() : super(Dio());
 
   int adBoardCalls = 0;
+  String? lastType;
+  String? lastPlacement;
+  String? lastCategoryKey;
+  String? lastActivityType;
 
   @override
   Future<List<dynamic>> adBoard({
@@ -22,6 +26,10 @@ class _SpyMerchantsApi extends MerchantsApi {
     String? activityType,
   }) async {
     adBoardCalls += 1;
+    lastType = type;
+    lastPlacement = placement;
+    lastCategoryKey = categoryKey;
+    lastActivityType = activityType;
     return const <dynamic>[];
   }
 }
@@ -98,5 +106,27 @@ void main() {
     await container.read(customerAdBoardControllerProvider.notifier).load();
 
     expect(spy.adBoardCalls, 1);
+  });
+
+  test('marketplace ad provider sends placement and category targeting', () async {
+    final spy = _SpyMerchantsApi();
+    final container = _container(spy, 'user');
+
+    await container.read(
+      marketplaceAdProvider(
+        const MarketplaceAdRequest(
+          placement: 'MARKETPLACE_CATEGORY',
+          type: 'market',
+          categoryKey: 'men',
+          activityType: 'fashion_clothing',
+        ),
+      ).future,
+    );
+
+    expect(spy.adBoardCalls, 1);
+    expect(spy.lastPlacement, 'MARKETPLACE_CATEGORY');
+    expect(spy.lastType, 'market');
+    expect(spy.lastCategoryKey, 'men');
+    expect(spy.lastActivityType, 'fashion_clothing');
   });
 }

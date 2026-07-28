@@ -721,6 +721,23 @@ class _ProductOption {
   }
 }
 
+class _AdCategoryTarget {
+  final String labelAr;
+  final String labelEn;
+  final String? category;
+  final String? activityType;
+
+  const _AdCategoryTarget({
+    required this.labelAr,
+    required this.labelEn,
+    required this.category,
+    required this.activityType,
+  });
+
+  String label(BuildContext context) =>
+      context.lt(ar: labelAr, en: labelEn);
+}
+
 class _AdBoardSheet extends ConsumerStatefulWidget {
   final AdBoardItemModel? initial;
   final List<dynamic> merchants;
@@ -765,7 +782,95 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
     'MARKETPLACE_HOME',
     'MARKETPLACE_CATEGORY',
   ];
+  static const List<_AdCategoryTarget> _categoryTargets =
+      <_AdCategoryTarget>[
+    _AdCategoryTarget(
+      labelAr: 'عام لكل صفحات الأقسام',
+      labelEn: 'All category pages',
+      category: null,
+      activityType: null,
+    ),
+    _AdCategoryTarget(
+      labelAr: 'الألبسة - عام',
+      labelEn: 'Fashion - all',
+      category: null,
+      activityType: 'fashion_clothing',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'الألبسة - رجالي',
+      labelEn: 'Fashion - men',
+      category: 'men',
+      activityType: 'fashion_clothing',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'الألبسة - نسائي',
+      labelEn: 'Fashion - women',
+      category: 'women',
+      activityType: 'fashion_clothing',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'المطاعم',
+      labelEn: 'Restaurants',
+      category: null,
+      activityType: 'restaurant',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'حلويات ومخابز',
+      labelEn: 'Sweets & bakery',
+      category: null,
+      activityType: 'sweets_bakery',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'قهوة ومشروبات',
+      labelEn: 'Coffee & drinks',
+      category: null,
+      activityType: 'coffee_drinks',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'البقالة والتنظيف',
+      labelEn: 'Grocery & cleaning',
+      category: null,
+      activityType: 'supermarket',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'خضار وفواكه',
+      labelEn: 'Fruits & vegetables',
+      category: null,
+      activityType: 'fruits_vegetables',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'مستلزمات المنزل',
+      labelEn: 'Home & kitchen',
+      category: null,
+      activityType: 'home_kitchen',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'الإلكترونيات والموبايلات',
+      labelEn: 'Electronics & mobile',
+      category: null,
+      activityType: 'electronics_mobile',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'الكهربائيات والإنارة',
+      labelEn: 'Electrical & lighting',
+      category: null,
+      activityType: 'electrical_lighting',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'الصيدليات',
+      labelEn: 'Pharmacies',
+      category: null,
+      activityType: 'pharmacy',
+    ),
+    _AdCategoryTarget(
+      labelAr: 'الدخان والأراكيل',
+      labelEn: 'Tobacco & hookah',
+      category: null,
+      activityType: 'smoking_supplies',
+    ),
+  ];
   String _placement = 'HOME_MAIN';
+  _AdCategoryTarget? _selectedCategoryTarget;
 
   bool _saving = false;
   bool _isActive = true;
@@ -811,6 +916,10 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
     _placement = _placements.contains(initial?.placement)
         ? initial!.placement
         : 'HOME_MAIN';
+    _selectedCategoryTarget = _findCategoryTarget(
+      category: initial?.category,
+      activityType: initial?.activityType,
+    );
     _ctaType = (initial?.type ?? initial?.ctaTargetType ?? 'none').trim();
     _merchantId = initial?.merchantId;
     _selectedProductId = int.tryParse(initial?.ctaTargetValue ?? '');
@@ -889,6 +998,32 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
   static String? _emptyToNull(String value) {
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  _AdCategoryTarget? _findCategoryTarget({
+    String? category,
+    String? activityType,
+  }) {
+    final normalizedCategory = (category ?? '').trim().toLowerCase();
+    final normalizedActivity = (activityType ?? '').trim().toLowerCase();
+    for (final target in _categoryTargets) {
+      final targetCategory = (target.category ?? '').trim().toLowerCase();
+      final targetActivity = (target.activityType ?? '').trim().toLowerCase();
+      if (targetCategory == normalizedCategory &&
+          targetActivity == normalizedActivity) {
+        return target;
+      }
+    }
+    return null;
+  }
+
+  void _applyCategoryTarget(_AdCategoryTarget? target) {
+    setState(() {
+      _selectedCategoryTarget = target;
+      if (target == null) return;
+      _categoryCtrl.text = target.category ?? '';
+      _activityTypeCtrl.text = target.activityType ?? '';
+    });
   }
 
   String _placementLabel(String placement) {
@@ -1111,22 +1246,53 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
                       ),
                     )
                     .toList(growable: false),
-                onChanged: (value) =>
-                    setState(() => _placement = value ?? 'HOME_MAIN'),
+                onChanged: (value) => setState(() {
+                  _placement = value ?? 'HOME_MAIN';
+                  if (_placement == 'MARKETPLACE_CATEGORY' &&
+                      _selectedCategoryTarget == null &&
+                      _categoryCtrl.text.trim().isEmpty &&
+                      _activityTypeCtrl.text.trim().isEmpty) {
+                    _selectedCategoryTarget = _categoryTargets.first;
+                  }
+                }),
               ),
               // ---- Category targeting (MARKETPLACE_CATEGORY only) ----
               if (_placement == 'MARKETPLACE_CATEGORY') ...[
+                const SizedBox(height: 8),
+                DropdownButtonFormField<_AdCategoryTarget?>(
+                  initialValue: _selectedCategoryTarget,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: context.lt(
+                      ar: 'القسم الذي يظهر فيه الإعلان',
+                      en: 'Ad section',
+                    ),
+                    helperText: context.lt(
+                      ar: 'اختر الصفحة المحددة، وسيظهر الإعلان هناك فقط. العام يظهر كاحتياط لكل صفحات الأقسام.',
+                      en: 'Choose the exact page. General acts as fallback for category pages.',
+                    ),
+                  ),
+                  items: _categoryTargets
+                      .map(
+                        (target) => DropdownMenuItem<_AdCategoryTarget?>(
+                          value: target,
+                          child: Text(target.label(context)),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: _applyCategoryTarget,
+                ),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _categoryCtrl,
                   decoration: InputDecoration(
                     labelText: context.lt(
-                      ar: 'مفتاح التصنيف (categoryKey)',
+                      ar: 'مفتاح القسم الفرعي (اختياري)',
                       en: 'Category key',
                     ),
                     helperText: context.lt(
-                      ar: 'اتركه فارغاً ليكون الإعلان عاماً لكل الأقسام (fallback)',
-                      en: 'Leave empty to target all categories (fallback)',
+                      ar: 'مثال: men أو women. يملأ تلقائياً عند اختيار قسم من القائمة.',
+                      en: 'Example: men or women. Filled automatically from the section list.',
                     ),
                   ),
                 ),
@@ -1135,8 +1301,12 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
                   controller: _activityTypeCtrl,
                   decoration: InputDecoration(
                     labelText: context.lt(
-                      ar: 'نوع النشاط (activityType) — اختياري',
+                      ar: 'نوع النشاط (اختياري)',
                       en: 'Activity type (optional)',
+                    ),
+                    helperText: context.lt(
+                      ar: 'مثال: fashion_clothing أو electronics_mobile.',
+                      en: 'Example: fashion_clothing or electronics_mobile.',
                     ),
                   ),
                 ),

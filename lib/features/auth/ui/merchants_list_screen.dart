@@ -1183,6 +1183,16 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
             offersCount: offersCount,
             totalCount: list.length,
           );
+          final categoryAdActivityType =
+              (selectedActivityType ?? widget.initialActivityType)
+                  ?.trim();
+          final categoryAdKey =
+              (selectedDiscoverySubcategory ??
+                      widget.initialDiscoverySubcategory ??
+                      widget.initialDepartment ??
+                      selectedActivityType ??
+                      widget.initialActivityType)
+                  ?.trim();
           return RefreshIndicator(
             onRefresh: _refresh,
             child: ListView(
@@ -1238,22 +1248,12 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                             true
                         ? (filterType ?? widget.initialType)!.trim()
                         : null,
-                    categoryKey:
-                        (selectedActivityType ?? widget.initialActivityType)
-                                    ?.trim()
-                                    .isNotEmpty ==
-                                true
-                            ? (selectedActivityType ?? widget.initialActivityType)!
-                                .trim()
-                            : null,
-                    activityType:
-                        (selectedActivityType ?? widget.initialActivityType)
-                                    ?.trim()
-                                    .isNotEmpty ==
-                                true
-                            ? (selectedActivityType ?? widget.initialActivityType)!
-                                .trim()
-                            : null,
+                    categoryKey: categoryAdKey?.isNotEmpty == true
+                        ? categoryAdKey
+                        : null,
+                    activityType: categoryAdActivityType?.isNotEmpty == true
+                        ? categoryAdActivityType
+                        : null,
                   ),
                   onTapAd: _handleCategoryAdTap,
                 ),

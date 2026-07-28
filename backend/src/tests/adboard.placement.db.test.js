@@ -64,6 +64,19 @@ test("ad_board placement engine (DB): filtering, targeting, fallback, schedule, 
       category: "fashion",
       priority: 10,
     });
+    ids.fashionActivity = await seedAd({
+      title: "fashion_activity",
+      placement: "MARKETPLACE_CATEGORY",
+      activityType: "fashion_clothing",
+      priority: 1,
+    });
+    ids.fashionMen = await seedAd({
+      title: "fashion_men",
+      placement: "MARKETPLACE_CATEGORY",
+      category: "men",
+      activityType: "fashion_clothing",
+      priority: 100,
+    });
     ids.catGeneral = await seedAd({
       title: "general",
       placement: "MARKETPLACE_CATEGORY",
@@ -113,6 +126,19 @@ test("ad_board placement engine (DB): filtering, targeting, fallback, schedule, 
       titles(fashionRows),
       ["fashion", "general"],
       "category-specific ad ranks before the general fallback"
+    );
+
+    // --- department/category targeting outranks activity fallback ---
+    const fashionMenRows = await getPublicAdBoardItems({
+      type: null,
+      placement: "MARKETPLACE_CATEGORY",
+      categoryKey: "men",
+      activityType: "fashion_clothing",
+    });
+    assert.deepEqual(
+      titles(fashionMenRows).slice(0, 3),
+      ["fashion_men", "fashion_activity", "general"],
+      "department ad ranks before activity-wide fashion ad and fallback"
     );
 
     // --- unmatched category → only the general fallback ---
