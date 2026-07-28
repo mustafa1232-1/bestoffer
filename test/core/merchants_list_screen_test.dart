@@ -364,6 +364,8 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('Pharmacy'), findsWidgets);
+      expect(find.text('Restaurants'), findsNothing);
+      expect(find.text('Markets'), findsNothing);
 
       await _pumpMerchantsList(
         tester,

@@ -956,8 +956,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
         showCustomerActions && !widget.compactCustomerMode;
     final lockTypeSelection =
         widget.compactCustomerMode && widget.initialType != null;
-    final showSecondaryFilters =
-        showCustomerActions && !lockTypeSelection && !widget.strictCategoryMode;
+    final showMerchantToolbar = showCustomerActions && !lockTypeSelection;
     final hasInitialActivityContext = (widget.initialActivityType ?? '')
         .trim()
         .isNotEmpty;
@@ -1277,7 +1276,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                if (showSecondaryFilters) ...[
+                if (showMerchantToolbar) ...[
                   _MerchantDiscoveryToolbar(
                     favoritesOnly: favoritesOnly,
                     sortBy: sortBy,
@@ -1286,11 +1285,6 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                     onChangeSort: (value) => setState(() => sortBy = value),
                   ),
                   const SizedBox(height: 14),
-                  _CustomerCategoryRail(
-                    selectedType: filterType,
-                    onSelectType: _onChangeType,
-                  ),
-                  const SizedBox(height: 10),
                 ],
                 if (showActivityFilters) ...[
                   _ActivityDiscoveryRail(
@@ -2794,49 +2788,6 @@ class _BasmayaLocationStrip extends ConsumerWidget {
             ),
           ),
           const Icon(Icons.place_rounded),
-        ],
-      ),
-    );
-  }
-}
-
-class _CustomerCategoryRail extends StatelessWidget {
-  final String? selectedType;
-  final void Function(String? value) onSelectType;
-
-  const _CustomerCategoryRail({
-    required this.selectedType,
-    required this.onSelectType,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return SizedBox(
-      height: 56,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: [
-          _CategoryPill(
-            label: l10n.commonAll,
-            icon: Icons.grid_view_rounded,
-            selected: selectedType == null,
-            onTap: () => onSelectType(null),
-          ),
-          const SizedBox(width: 8),
-          _CategoryPill(
-            label: l10n.customerDiscoveryRestaurants,
-            icon: Icons.restaurant_menu_rounded,
-            selected: selectedType == 'restaurant',
-            onTap: () => onSelectType('restaurant'),
-          ),
-          const SizedBox(width: 8),
-          _CategoryPill(
-            label: l10n.customerDiscoveryMarkets,
-            icon: Icons.storefront_rounded,
-            selected: selectedType == 'market',
-            onTap: () => onSelectType('market'),
-          ),
         ],
       ),
     );
