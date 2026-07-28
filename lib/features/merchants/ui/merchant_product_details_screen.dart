@@ -74,14 +74,6 @@ class _MerchantProductDetailsScreenState
   void _seedVariantSelections() {
     _selectedByGroup.clear();
     _multiSelectedByGroup.clear();
-    if (_requiresStrictVariantSelection) {
-      for (final group in widget.product.variantGroups) {
-        if (group.selectionMode == 'multiple') {
-          _multiSelectedByGroup[group.code] = <ProductVariantOptionModel>{};
-        }
-      }
-      return;
-    }
     final availableVariant = widget.product.variants.where(
       (variant) => widget.product.canOrderVariant(variant),
     );
@@ -111,6 +103,7 @@ class _MerchantProductDetailsScreenState
         _selectedByGroup[group.code] = available.first;
       }
     }
+    _summarySelection = _selectionFromCurrentState();
   }
 
   ProductVariantLabelSet _variantLabels() {
@@ -241,6 +234,26 @@ class _MerchantProductDetailsScreenState
 
   String? get _selectedColorCode => _selectedByGroup['color']?.code;
   String? get _selectedSizeCode => _selectedByGroup['size']?.code;
+
+  ProductSummaryCardSelection? _selectionFromCurrentState() {
+    if (!widget.product.hasVariants) return null;
+    final labels = _variantLabels();
+    final data = ProductSummaryCardData.fromProduct(
+      widget.product,
+      selectedColorCode: _selectedColorCode,
+      selectedSizeCode: _selectedSizeCode,
+      strictVariantSelection: _requiresStrictVariantSelection,
+      colorGroupLabelAr: labels.colorLabelAr,
+      colorGroupLabelEn: labels.colorLabelEn,
+      sizeGroupLabelAr: labels.sizeLabelAr,
+      sizeGroupLabelEn: labels.sizeLabelEn,
+    );
+    final selection = data.resolveSelection(
+      selectedColorCode: _selectedColorCode,
+      selectedSizeCode: _selectedSizeCode,
+    );
+    return selection.selectedVariantSelections.isEmpty ? null : selection;
+  }
 
   void _applyCardSelection(ProductSummaryCardSelection selection) {
     setState(() {

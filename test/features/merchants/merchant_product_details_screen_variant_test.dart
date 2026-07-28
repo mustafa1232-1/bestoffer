@@ -10,10 +10,7 @@ Widget _wrap(Widget child) {
     locale: const Locale('ar'),
     supportedLocales: AppLocalizations.supportedLocales,
     localizationsDelegates: AppLocalizations.localizationsDelegates,
-    home: Directionality(
-      textDirection: TextDirection.rtl,
-      child: child,
-    ),
+    home: Directionality(textDirection: TextDirection.rtl, child: child),
   );
 }
 
@@ -177,18 +174,19 @@ void main() {
           similarProducts: const [],
           canOrder: true,
           unavailableLabel: 'غير متوفر',
-          onAddToCart: (
-            productArg,
-            quantityArg, {
-            List<Map<String, dynamic>> selectedVariantSelections = const [],
-            int? selectedVariantId,
-          }) async {
-            expect(productArg.id, product.id);
-            expect(quantityArg, 1);
-            addCount += 1;
-            expect(selectedVariantId, isNotNull);
-            expect(selectedVariantSelections, isNotEmpty);
-          },
+          onAddToCart:
+              (
+                productArg,
+                quantityArg, {
+                List<Map<String, dynamic>> selectedVariantSelections = const [],
+                int? selectedVariantId,
+              }) async {
+                expect(productArg.id, product.id);
+                expect(quantityArg, 1);
+                addCount += 1;
+                expect(selectedVariantId, isNotNull);
+                expect(selectedVariantSelections, isNotEmpty);
+              },
           onOpenProduct: (_) {},
         ),
       ),
@@ -197,21 +195,20 @@ void main() {
 
     expect(find.text('درجة التتبيل'), findsOneWidget);
     expect(find.text('الحجم'), findsOneWidget);
-    expect(find.text('اختر درجة التتبيل والحجم أولاً'), findsOneWidget);
+    expect(find.text('اختر درجة التتبيل والحجم أولاً'), findsNothing);
     expect(find.text('المواصفات الكاملة'), findsOneWidget);
     expect(find.textContaining('الحجم: صغير / وسط / كبير'), findsWidgets);
     expect(find.textContaining('التتبيل: حار متوسط'), findsWidgets);
 
-    await tester.scrollUntilVisible(find.text('حار').first, 300);
-    await tester.tap(find.text('حار').first);
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('صغير').first, 300);
-    await tester.tap(find.text('صغير').first);
-    await tester.pumpAndSettle();
-
     expect(find.text('إضافة إلى السلة'), findsWidgets);
 
-    await tester.tap(find.text('إضافة إلى السلة').first);
+    final addButton = find
+        .byWidgetPredicate(
+          (widget) => widget is ButtonStyleButton && widget.onPressed != null,
+        )
+        .last;
+    expect(tester.widget<ButtonStyleButton>(addButton).onPressed, isNotNull);
+    await tester.tap(addButton);
     await tester.pumpAndSettle();
 
     expect(addCount, 1);
