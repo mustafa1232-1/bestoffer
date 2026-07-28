@@ -29,7 +29,7 @@ class CustomerHomeShoppingHubScreen extends StatelessWidget {
       _HomeTopic(
         title: l10n.customerHomeShoppingHubGroceriesTitle,
         subtitle: l10n.customerHomeShoppingHubGroceriesSubtitle,
-        searchQuery: 'سوق',
+        searchQuery: '',
         searchTerms: [
           'سوق',
           'ماركت',
