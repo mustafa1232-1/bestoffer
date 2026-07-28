@@ -956,7 +956,8 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
         showCustomerActions && !widget.compactCustomerMode;
     final lockTypeSelection =
         widget.compactCustomerMode && widget.initialType != null;
-    final showSecondaryFilters = showCustomerActions && !lockTypeSelection;
+    final showSecondaryFilters =
+        showCustomerActions && !lockTypeSelection && !widget.strictCategoryMode;
     final hasInitialActivityContext = (widget.initialActivityType ?? '')
         .trim()
         .isNotEmpty;

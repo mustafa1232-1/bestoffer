@@ -378,6 +378,23 @@ void main() {
     },
   );
 
+  testWidgets('strict category pages hide global type filters', (
+    tester,
+  ) async {
+    await _pumpMerchantsList(
+      tester,
+      screen: const MerchantsListScreen(
+        compactCustomerMode: true,
+        initialActivityType: 'pharmacy',
+        strictCategoryMode: true,
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Restaurants'), findsNothing);
+    expect(find.text('Markets'), findsNothing);
+  });
+
   testWidgets('drawer home item returns to root stack', (tester) async {
     await _pumpMerchantsFlowWithRoot(tester);
 
