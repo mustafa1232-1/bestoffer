@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 
@@ -14,6 +15,10 @@ class CustomerStyleHubScreen extends StatelessWidget {
           // Strict isolation by real activity category — no market+keyword
           // fallback that would surface pharmacies/restaurants/general stores.
           initialActivityType: topic.activityType,
+          initialDiscoverySubcategory:
+              topic.discoverySubcategory.trim().isEmpty
+              ? null
+              : topic.discoverySubcategory,
           initialSearchQuery: topic.searchQuery,
           overrideTitle: topic.title,
           compactCustomerMode: true,
@@ -95,6 +100,23 @@ class CustomerStyleHubScreen extends StatelessWidget {
         colorA: const Color(0xFF4E6E95),
         colorB: const Color(0xFF314A69),
         activityType: 'personal_care_beauty',
+      ),
+      _StyleTopic(
+        title: context.lt(ar: 'العطور', en: 'Perfumes'),
+        subtitle: context.lt(
+          ar: 'عطور نسائية ورجالية ونيش',
+          en: 'Women, men & niche fragrances',
+        ),
+        // Strict perfumes section: filters the beauty activity by the
+        // "perfumes" discovery subcategory (no keyword), so perfume stores
+        // like "عطور البارون" surface here.
+        searchQuery: '',
+        searchTerms: const ['عطور', 'عطر', 'perfume', 'fragrance', 'niche'],
+        icon: Icons.water_drop_rounded,
+        colorA: const Color(0xFF6C5B8E),
+        colorB: const Color(0xFF433A5C),
+        activityType: 'personal_care_beauty',
+        discoverySubcategory: 'perfumes',
       ),
     ];
   }
@@ -325,6 +347,10 @@ class _StyleTopic {
   /// map to `fashion_clothing`; beauty/fragrance map to `personal_care_beauty`.
   final String activityType;
 
+  /// Optional discovery subcategory to filter by (e.g. `perfumes`). Empty means
+  /// no subcategory filter.
+  final String discoverySubcategory;
+
   const _StyleTopic({
     required this.title,
     required this.subtitle,
@@ -334,5 +360,6 @@ class _StyleTopic {
     required this.colorA,
     required this.colorB,
     this.activityType = 'fashion_clothing',
+    this.discoverySubcategory = '',
   });
 }
