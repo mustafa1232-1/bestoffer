@@ -21,6 +21,7 @@ import '../../products/models/product_model.dart';
 import '../../products/ui/product_summary_card.dart';
 import '../../products/ui/product_variant_picker_sheet.dart';
 import '../../products/utils/product_variant_label_set.dart';
+import '../data/merchants_api.dart';
 import '../utils/catalog_taxonomy.dart';
 import 'merchant_product_details_screen.dart';
 import '../models/merchant_model.dart';
@@ -144,7 +145,7 @@ class _MerchantProductsScreenState
     setState(() => state = const AsyncValue.loading());
     try {
       final api = ref.read(merchantsApiProvider);
-      final productsFuture = api.listProducts(widget.merchant.id);
+      final productsFuture = _loadAllProducts(api);
       final categoriesFuture = api.listCategories(widget.merchant.id);
       final responses = await Future.wait([productsFuture, categoriesFuture]);
 
@@ -213,6 +214,24 @@ class _MerchantProductsScreenState
         ),
       );
     }
+  }
+
+  Future<List<dynamic>> _loadAllProducts(MerchantsApi api) async {
+    const pageSize = 200;
+    const maxProducts = 5000;
+    final products = <dynamic>[];
+    var offset = 0;
+    while (products.length < maxProducts) {
+      final page = await api.listProducts(
+        widget.merchant.id,
+        limit: pageSize,
+        offset: offset,
+      );
+      products.addAll(page);
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
+    return products;
   }
 
   List<ProductModel> _buildVisibleProducts(

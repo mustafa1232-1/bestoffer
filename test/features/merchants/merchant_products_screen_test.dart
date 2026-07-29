@@ -15,7 +15,10 @@ import 'package:maslaki/features/orders/state/orders_controller.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
 
 class _FakeMerchantsApi extends MerchantsApi {
-  _FakeMerchantsApi() : super(Dio());
+  final List<List<dynamic>>? productPages;
+  final List<int> requestedOffsets = <int>[];
+
+  _FakeMerchantsApi({this.productPages}) : super(Dio());
 
   @override
   Future<List<dynamic>> listProducts(
@@ -23,6 +26,13 @@ class _FakeMerchantsApi extends MerchantsApi {
     int limit = 80,
     int offset = 0,
   }) async {
+    requestedOffsets.add(offset);
+    final pages = productPages;
+    if (pages != null) {
+      final pageIndex = offset ~/ limit;
+      if (pageIndex < 0 || pageIndex >= pages.length) return <dynamic>[];
+      return pages[pageIndex];
+    }
     return [
       {
         'id': 11,
@@ -247,6 +257,21 @@ MerchantModel _merchant() {
   );
 }
 
+Map<String, dynamic> _productJson(int id) {
+  return {
+    'id': id,
+    'merchant_id': 5,
+    'category_id': 1,
+    'category_name': 'cloths',
+    'name': 'Product $id',
+    'price': 10000,
+    'image_url': null,
+    'sort_order': id,
+    'is_available': true,
+    'free_delivery': false,
+  };
+}
+
 void main() {
   testWidgets('merchant products screen hides unrelated section categories', (
     tester,
@@ -281,6 +306,46 @@ void main() {
     expect(find.text('Blue Shirt'), findsOneWidget);
     expect(find.text('USB Charger'), findsNothing);
     expect(find.text('Chargers'), findsNothing);
+  });
+
+  testWidgets('merchant products screen loads every product page', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final api = _FakeMerchantsApi(
+      productPages: [
+        List<dynamic>.generate(200, (index) => _productJson(index + 1)),
+        [_productJson(201)],
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) => _FakeAuthController(ref, AuthState(user: _customerUser())),
+          ),
+          merchantsApiProvider.overrideWithValue(api),
+          behaviorApiProvider.overrideWithValue(_FakeBehaviorApi()),
+          ordersControllerProvider.overrideWith(
+            (ref) => _FakeOrdersController(ref),
+          ),
+        ],
+        child: MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: MerchantProductsScreen(merchant: _merchant()),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(api.requestedOffsets, [0, 200]);
+    expect(find.text('Product 1'), findsOneWidget);
   });
 
   testWidgets(
@@ -375,5 +440,4 @@ void main() {
       );
     },
   );
-
 }
