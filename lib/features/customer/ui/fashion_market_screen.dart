@@ -22,6 +22,7 @@ class FashionMarketScreen extends StatelessWidget {
           compactCustomerMode: true,
           // Strict: only fashion stores of this department, no keyword fallback.
           strictCategoryMode: true,
+          showCategoryIntelligence: false,
         ),
       ),
     );

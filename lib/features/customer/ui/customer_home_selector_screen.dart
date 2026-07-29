@@ -164,6 +164,8 @@ class _CustomerHomeSelectorScreenState
             initialSearchQuery: query,
             overrideTitle: title,
             compactCustomerMode: true,
+            strictCategoryMode: true,
+            showCategoryIntelligence: false,
           ),
         ),
       );

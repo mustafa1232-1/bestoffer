@@ -69,9 +69,9 @@ class _CustomerMainMarketScreenState
         );
         return;
       case 'style':
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const FashionMarketScreen()),
-        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const FashionMarketScreen()));
         return;
       case 'food':
         Navigator.of(context).push(
@@ -137,6 +137,7 @@ class _CustomerMainMarketScreenState
               overrideTitle: context.l10n.customerDiscoveryHubPharmacyTitle,
               compactCustomerMode: true,
               strictCategoryMode: true,
+              showCategoryIntelligence: false,
             ),
           ),
         );
@@ -175,7 +176,10 @@ class _CustomerMainMarketScreenState
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: Text(
-                dialogContext.lt(ar: 'نعم، أنا 18 أو أكثر', en: 'Yes, I am 18+'),
+                dialogContext.lt(
+                  ar: 'نعم، أنا 18 أو أكثر',
+                  en: 'Yes, I am 18+',
+                ),
               ),
             ),
           ],
@@ -216,6 +220,7 @@ class _CustomerMainMarketScreenState
           overrideTitle: title,
           compactCustomerMode: true,
           strictCategoryMode: true,
+          showCategoryIntelligence: false,
         ),
       ),
     );
@@ -238,6 +243,7 @@ class _CustomerMainMarketScreenState
           compactCustomerMode: true,
           // Quick categories are strict single-activity pages.
           strictCategoryMode: initialActivityType != null,
+          showCategoryIntelligence: false,
           applyInitialSearchQuery: initialSearchQuery.trim().isNotEmpty,
         ),
       ),
@@ -311,7 +317,10 @@ class _CustomerMainMarketScreenState
       ),
       _MainHubCard(
         id: 'phones',
-        title: context.lt(ar: 'الهواتف والتكنولوجيا', en: 'Phones & Technology'),
+        title: context.lt(
+          ar: 'الهواتف والتكنولوجيا',
+          en: 'Phones & Technology',
+        ),
         subtitle: context.lt(
           ar: 'هواتف وموبايلات واكسسوارات وتقنيات',
           en: 'Phones, mobiles, accessories & tech',
@@ -358,10 +367,9 @@ class _CustomerMainMarketScreenState
     BuildContext context,
     CustomerAdBoardItem ad,
   ) async {
-    final actionType =
-        (ad.type.trim().isNotEmpty ? ad.type : ad.ctaTargetType)
-            .trim()
-            .toLowerCase();
+    final actionType = (ad.type.trim().isNotEmpty ? ad.type : ad.ctaTargetType)
+        .trim()
+        .toLowerCase();
 
     switch (actionType) {
       case 'store_ad':
@@ -379,7 +387,9 @@ class _CustomerMainMarketScreenState
         if (category.isNotEmpty) {
           _openCategory(
             context,
-            title: ad.resolvedTitle(context.appTextDirection == TextDirection.rtl),
+            title: ad.resolvedTitle(
+              context.appTextDirection == TextDirection.rtl,
+            ),
             type: category,
             initialActivityType: ad.activityType,
           );
@@ -459,7 +469,10 @@ class _CustomerMainMarketScreenState
               physics: const NeverScrollableScrollPhysics(),
               itemBuilder: (context, index) {
                 final card = mainHubs[index];
-                return _MainHubTile(card: card, onTap: () => _openHub(context, card));
+                return _MainHubTile(
+                  card: card,
+                  onTap: () => _openHub(context, card),
+                );
               },
               separatorBuilder: (_, _) => const SizedBox(height: 10),
             ),

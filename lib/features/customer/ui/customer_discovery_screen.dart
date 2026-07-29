@@ -205,9 +205,9 @@ class _CustomerDiscoveryScreenState
 
     switch (hub.id) {
       case 'style':
-        await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const FashionMarketScreen()),
-        );
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const FashionMarketScreen()));
         return;
       case 'food':
         await Navigator.of(context).push(
@@ -241,6 +241,8 @@ class _CustomerDiscoveryScreenState
               initialActivityType: 'pharmacy',
               overrideTitle: context.l10n.customerDiscoveryHubPharmacyTitle,
               compactCustomerMode: true,
+              strictCategoryMode: true,
+              showCategoryIntelligence: false,
             ),
           ),
         );
@@ -325,6 +327,7 @@ class _CustomerDiscoveryScreenState
           initialSearchQuery: category.seedQuery,
           overrideTitle: localizedTitle,
           compactCustomerMode: true,
+          showCategoryIntelligence: false,
           applyInitialSearchQuery: false,
         ),
       ),
@@ -2461,8 +2464,7 @@ class _DiscoveryCategory {
       'Women fashion' => l10n.customerDiscoveryCategoryWomenFashionTitle,
       'Men fashion' => l10n.customerDiscoveryCategoryMenFashionTitle,
       'Desserts and pastries' => l10n.customerDiscoveryCategoryDessertsTitle,
-      'Daily markets' =>
-        l10n.customerDiscoveryCategoryMarketsCleaningTitle,
+      'Daily markets' => l10n.customerDiscoveryCategoryMarketsCleaningTitle,
       'Fruit and vegetables' =>
         l10n.customerDiscoveryCategoryFruitVegetablesTitle,
       'Meat and poultry' => l10n.customerDiscoveryCategoryMeatPoultryTitle,
@@ -2484,8 +2486,7 @@ class _DiscoveryCategory {
       'Women fashion' => l10n.customerDiscoveryCategoryWomenFashionSubtitle,
       'Men fashion' => l10n.customerDiscoveryCategoryMenFashionSubtitle,
       'Desserts and pastries' => l10n.customerDiscoveryCategoryDessertsSubtitle,
-      'Daily markets' =>
-        l10n.customerDiscoveryCategoryMarketsCleaningSubtitle,
+      'Daily markets' => l10n.customerDiscoveryCategoryMarketsCleaningSubtitle,
       'Fruit and vegetables' =>
         l10n.customerDiscoveryCategoryFruitVegetablesSubtitle,
       'Meat and poultry' => l10n.customerDiscoveryCategoryMeatPoultrySubtitle,

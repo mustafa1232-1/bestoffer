@@ -22,6 +22,7 @@ class CustomerPhonesHubScreen extends StatelessWidget {
           overrideTitle: topic.title,
           compactCustomerMode: true,
           strictCategoryMode: true,
+          showCategoryIntelligence: false,
         ),
       ),
     );

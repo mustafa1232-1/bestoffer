@@ -15,14 +15,14 @@ class CustomerStyleHubScreen extends StatelessWidget {
           // Strict isolation by real activity category — no market+keyword
           // fallback that would surface pharmacies/restaurants/general stores.
           initialActivityType: topic.activityType,
-          initialDiscoverySubcategory:
-              topic.discoverySubcategory.trim().isEmpty
+          initialDiscoverySubcategory: topic.discoverySubcategory.trim().isEmpty
               ? null
               : topic.discoverySubcategory,
           initialSearchQuery: topic.searchQuery,
           overrideTitle: topic.title,
           compactCustomerMode: true,
           strictCategoryMode: true,
+          showCategoryIntelligence: false,
           applyInitialSearchQuery: topic.searchQuery.trim().isNotEmpty,
         ),
       ),

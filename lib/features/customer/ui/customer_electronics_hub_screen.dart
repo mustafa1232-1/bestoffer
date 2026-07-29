@@ -17,6 +17,7 @@ class CustomerElectronicsHubScreen extends StatelessWidget {
           overrideTitle: topic.title,
           compactCustomerMode: true,
           strictCategoryMode: true,
+          showCategoryIntelligence: false,
           applyInitialSearchQuery: topic.searchQuery.trim().isNotEmpty,
         ),
       ),
