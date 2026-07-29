@@ -461,7 +461,7 @@ export async function listCustomerCoupons({
 
 export async function createCoupon({
   code, description, discountType, discountValue, minOrderTotal,
-  maxUses, merchantId, validFrom, validUntil, createdBy,
+  maxUses, merchantId, validFrom, validUntil, createdBy, agentUserId = null,
 }) {
   // scope_kind MUST be set explicitly (see resolveCouponScopeKind). The column
   // defaults to 'merchant', so omitting it made global coupons (no merchant_id)
@@ -469,11 +469,14 @@ export async function createCoupon({
   // can never match, making every global coupon report as invalid.
   const resolvedMerchantId = merchantId ? Number(merchantId) : null;
   const scopeKind = resolveCouponScopeKind({ merchantId: resolvedMerchantId });
+  const resolvedAgentUserId =
+    agentUserId != null && Number(agentUserId) > 0 ? Number(agentUserId) : null;
   const r = await q(
     `INSERT INTO coupon
        (code, description, discount_type, discount_value, min_order_total,
-        max_uses, merchant_id, scope_kind, valid_from, valid_until, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        max_uses, merchant_id, scope_kind, valid_from, valid_until, created_by,
+        agent_user_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      RETURNING *`,
     [
       code.toUpperCase().trim(), description || null, discountType,
@@ -482,9 +485,94 @@ export async function createCoupon({
       resolvedMerchantId,
       scopeKind,
       validFrom || null, validUntil || null, createdBy,
+      resolvedAgentUserId,
     ]
   );
   return r.rows[0];
+}
+
+/**
+ * Update a coupon's discount (type + value). Used by the admin to attach or
+ * change the discount on an employee referral coupon (0 = attribution only).
+ */
+export async function updateCouponDiscount(couponId, { discountType, discountValue }) {
+  const r = await q(
+    `UPDATE coupon
+        SET discount_type = $2,
+            discount_value = $3,
+            updated_at = NOW()
+      WHERE id = $1
+      RETURNING *`,
+    [Number(couponId), discountType, Number(discountValue)]
+  );
+  return r.rows[0] || null;
+}
+
+/**
+ * Admin report: every employee referral coupon (agent_user_id set) with the
+ * employee's identity and its attribution stats — how many customers/orders came
+ * through it, and the total discount granted.
+ */
+export async function listAgentReferralCoupons() {
+  const r = await q(
+    `SELECT
+       c.id,
+       c.code,
+       c.discount_type,
+       c.discount_value,
+       c.is_active,
+       c.created_at,
+       c.agent_user_id,
+       u.full_name  AS agent_name,
+       u.phone      AS agent_phone,
+       u.role       AS agent_role,
+       COALESCE(rc.redemptions, 0)        AS redemptions,
+       COALESCE(rc.unique_customers, 0)   AS unique_customers,
+       COALESCE(rc.total_discount, 0)     AS total_discount
+     FROM coupon c
+     JOIN app_user u ON u.id = c.agent_user_id
+     LEFT JOIN (
+       SELECT
+         coupon_id,
+         COUNT(*) FILTER (WHERE COALESCE(is_void, FALSE) = FALSE)          AS redemptions,
+         COUNT(DISTINCT customer_id) FILTER (WHERE COALESCE(is_void, FALSE) = FALSE) AS unique_customers,
+         COALESCE(SUM(discount_amount) FILTER (WHERE COALESCE(is_void, FALSE) = FALSE), 0) AS total_discount
+       FROM coupon_redemption
+       GROUP BY coupon_id
+     ) rc ON rc.coupon_id = c.id
+     WHERE c.agent_user_id IS NOT NULL
+     ORDER BY COALESCE(rc.redemptions, 0) DESC, c.created_at DESC`
+  );
+  return r.rows;
+}
+
+/**
+ * The customers + orders that redeemed a specific agent coupon (attribution
+ * detail for one employee).
+ */
+export async function listAgentCouponRedemptions(couponId, { limit = 200 } = {}) {
+  const r = await q(
+    `SELECT
+       cr.customer_id,
+       cu.full_name AS customer_name,
+       cu.phone     AS customer_phone,
+       cr.order_id,
+       cr.discount_amount,
+       cr.created_at
+     FROM coupon_redemption cr
+     LEFT JOIN app_user cu ON cu.id = cr.customer_id
+     WHERE cr.coupon_id = $1
+       AND COALESCE(cr.is_void, FALSE) = FALSE
+     ORDER BY cr.created_at DESC
+     LIMIT $2`,
+    [Number(couponId), Math.max(1, Math.min(500, Number(limit) || 200))]
+  );
+  return r.rows;
+}
+
+export async function getCouponById(couponId) {
+  const r = await q(`SELECT * FROM coupon WHERE id = $1`, [Number(couponId)]);
+  return r.rows[0] || null;
 }
 
 export async function listCoupons({

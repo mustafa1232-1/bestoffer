@@ -111,6 +111,50 @@ export async function getCouponStats(req, res, next) {
   }
 }
 
+export async function updateCoupon(req, res, next) {
+  try {
+    const { discountType, discountValue } = req.body || {};
+    const out = await service.updateCoupon(
+      req.params.couponId,
+      { discountType, discountValue },
+      {
+        userId: req.userId,
+        role: req.userRole,
+        isSuperAdmin: req.userIsSuperAdmin === true,
+      }
+    );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function listAgentReferralCoupons(req, res, next) {
+  try {
+    const out = await service.listAgentReferralCoupons({
+      userId: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin === true,
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getAgentCouponRedemptions(req, res, next) {
+  try {
+    const out = await service.getAgentCouponRedemptions(req.params.couponId, {
+      userId: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin === true,
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function deleteCoupon(req, res, next) {
   try {
     const out = await service.deleteCoupon(req.params.couponId, {

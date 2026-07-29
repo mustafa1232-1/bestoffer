@@ -303,6 +303,127 @@ export async function toggleCouponActive(couponId, isActive, actor) {
   return { ok: true };
 }
 
+// ── Employee referral / sales-attribution coupons ────────────────────────────
+
+/**
+ * Creates a GLOBAL, zero-discount referral coupon linked to an employee. Called
+ * internally when an admin creates an employee (with the referral option). The
+ * coupon works immediately for attribution; the admin can add a discount later
+ * via updateCoupon.
+ */
+export async function createAgentReferralCoupon({
+  employeeUserId,
+  employeeName,
+  adminUserId,
+}) {
+  const agentId = Number(employeeUserId);
+  if (!Number.isFinite(agentId) || agentId <= 0) {
+    throw new AppError("VALIDATION_ERROR", { status: 400 });
+  }
+  const code = `REF${agentId}`;
+  const coupon = await repo.createCoupon({
+    code,
+    description: `كوبون إحالة${employeeName ? ` - ${employeeName}` : ""}`,
+    discountType: "percent",
+    discountValue: 0, // attribution-only until the admin sets a discount
+    minOrderTotal: 0,
+    maxUses: null,
+    merchantId: null, // global
+    validFrom: null,
+    validUntil: null,
+    createdBy: Number(adminUserId) || null,
+    agentUserId: agentId,
+  });
+  return coupon;
+}
+
+/**
+ * Admin (super-admin) updates the discount on a coupon — e.g. attach 5% / 10% /
+ * a fixed amount to an employee referral coupon, or set it back to 0 (tracking).
+ */
+export async function updateCoupon(couponId, { discountType, discountValue }, actor) {
+  const manager = await resolveCouponManager(actor);
+  if (manager.kind !== "super_admin") {
+    throw new AppError("FORBIDDEN_SUPER_ADMIN_ONLY", { status: 403 });
+  }
+  const id = Number(couponId);
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new AppError("COUPON_NOT_FOUND", { status: 404 });
+  }
+  if (!["percent", "fixed"].includes(discountType)) {
+    throwCouponValidation({ discountType: "SELECT_OPTION" });
+  }
+  const value = Number(discountValue);
+  if (!Number.isFinite(value) || value < 0) {
+    throwCouponValidation({ discountValue: "INVALID_NUMBER" });
+  }
+  if (discountType === "percent" && value > 100) {
+    throwCouponValidation({ discountValue: "PERCENT_DISCOUNT_TOO_HIGH" });
+  }
+  const updated = await repo.updateCouponDiscount(id, {
+    discountType,
+    discountValue: value,
+  });
+  if (!updated) {
+    throw new AppError("COUPON_NOT_FOUND", { status: 404 });
+  }
+  return { coupon: updated };
+}
+
+/**
+ * Admin (super-admin) report: coupons grouped by employee (agent) with
+ * attribution stats — customers/orders that came through each employee.
+ */
+export async function listAgentReferralCoupons(actor) {
+  const manager = await resolveCouponManager(actor);
+  if (manager.kind !== "super_admin") {
+    throw new AppError("FORBIDDEN_SUPER_ADMIN_ONLY", { status: 403 });
+  }
+  const rows = await repo.listAgentReferralCoupons();
+  return {
+    agents: rows.map((row) => ({
+      couponId: Number(row.id),
+      code: row.code,
+      discountType: row.discount_type,
+      discountValue: Number(row.discount_value || 0),
+      isActive: row.is_active === true,
+      createdAt: row.created_at || null,
+      agentUserId: Number(row.agent_user_id),
+      agentName: row.agent_name || null,
+      agentPhone: row.agent_phone || null,
+      agentRole: row.agent_role || null,
+      redemptions: Number(row.redemptions || 0),
+      uniqueCustomers: Number(row.unique_customers || 0),
+      totalDiscount: Number(row.total_discount || 0),
+    })),
+  };
+}
+
+/**
+ * Attribution detail for one agent coupon: the customers/orders that used it.
+ */
+export async function getAgentCouponRedemptions(couponId, actor) {
+  const manager = await resolveCouponManager(actor);
+  if (manager.kind !== "super_admin") {
+    throw new AppError("FORBIDDEN_SUPER_ADMIN_ONLY", { status: 403 });
+  }
+  const id = Number(couponId);
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new AppError("COUPON_NOT_FOUND", { status: 404 });
+  }
+  const rows = await repo.listAgentCouponRedemptions(id, { limit: 300 });
+  return {
+    redemptions: rows.map((row) => ({
+      customerId: row.customer_id == null ? null : Number(row.customer_id),
+      customerName: row.customer_name || null,
+      customerPhone: row.customer_phone || null,
+      orderId: row.order_id == null ? null : Number(row.order_id),
+      discountAmount: Number(row.discount_amount || 0),
+      createdAt: row.created_at || null,
+    })),
+  };
+}
+
 export async function deleteCoupon(couponId, actor) {
   const manager = await resolveCouponManager(actor);
   const id = Number(couponId);

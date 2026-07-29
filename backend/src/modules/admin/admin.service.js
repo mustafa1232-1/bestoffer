@@ -17,6 +17,8 @@ import * as taxiService from "../taxi/taxi.service.js";
 import * as ownerService from "../owner/owner.service.js";
 import * as adminRepo from "./admin.repo.js";
 import * as merchantsRepo from "../merchants/merchants.repo.js";
+import * as couponsService from "../coupons/coupons.service.js";
+import { createNotification } from "../notifications/notifications.repo.js";
 import {
   listActivityRegistry,
   requireActivityConfig,
@@ -259,11 +261,38 @@ export async function createManagedUser(dto, actor = {}) {
     },
   });
 
+  // Optional employee referral / sales-attribution coupon. Best-effort: a
+  // failure here must never fail the employee creation itself.
+  let referralCoupon = null;
+  if (dto.createReferralCoupon === true) {
+    try {
+      const coupon = await couponsService.createAgentReferralCoupon({
+        employeeUserId: Number(user.id),
+        employeeName: user.full_name,
+        adminUserId: requesterId,
+      });
+      referralCoupon = { id: Number(coupon.id), code: coupon.code };
+      await createNotification({
+        userId: Number(user.id),
+        type: "referral_coupon",
+        title: "كوبون الإحالة الخاص بك",
+        body: `رمز كوبونك للإحالة هو ${coupon.code}. عندما يستخدمه الزبون عند الشراء يُحتسب لك.`,
+        payload: { code: coupon.code, couponId: Number(coupon.id) },
+      });
+    } catch (couponError) {
+      console.warn(
+        "[admin] referral coupon creation failed:",
+        couponError?.message || couponError
+      );
+    }
+  }
+
   return {
     ...mapUser(user),
     merchantId: staffMerchantId,
     merchantName: merchant?.name || null,
     driverType: requestedDriverType,
+    referralCoupon,
   };
 }
 
