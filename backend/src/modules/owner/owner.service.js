@@ -31,6 +31,7 @@ import { loadProductRichCatalogById } from "../products/products.repo.js";
 import crypto from "crypto";
 import {
   buildMerchantCapabilities,
+  getActivityConfig,
   inferActivityTypeFromMerchantType,
   normalizeActivityType,
   normalizeDiscoverySubcategoryList,
@@ -1086,23 +1087,47 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
   if (dto.name !== undefined) patch.name = dto.name.trim();
   if (dto.type !== undefined) patch.type = dto.type;
 
-  const nextActivityType =
-    dto.activityType !== undefined
-      ? normalizeOptional(dto.activityType)?.toLowerCase() || null
-      : normalizeOptional(currentMerchant.activity_type)?.toLowerCase() || null;
-  if (!nextActivityType) {
-    const err = new Error("VALIDATION_ERROR");
-    err.status = 400;
-    err.fields = ["activityType"];
-    throw err;
+  const activityChanged = dto.activityType !== undefined;
+  const nextActivityType = activityChanged
+    ? normalizeOptional(dto.activityType)?.toLowerCase() || null
+    : normalizeOptional(currentMerchant.activity_type)?.toLowerCase() || null;
+
+  // Only require a valid, active activity when the merchant is explicitly
+  // changing it. A partial edit that leaves the activity untouched must succeed
+  // even when the stored activity is missing, legacy, or deactivated — the user
+  // isn't touching it, so it must never become a save-blocking "required field"
+  // with no field to fill.
+  let activityConfig = null;
+  if (activityChanged) {
+    if (!nextActivityType) {
+      const err = new Error("VALIDATION_ERROR");
+      err.status = 400;
+      err.fields = ["activityType"];
+      throw err;
+    }
+    activityConfig = await requireActivityConfig(nextActivityType);
+  } else if (nextActivityType) {
+    // May resolve to null for a legacy/unknown activity — acceptable on a
+    // partial edit; we simply skip activity-derived validation below.
+    activityConfig = await getActivityConfig(nextActivityType, {
+      includeInactive: true,
+    });
   }
 
-  const activityConfig = await requireActivityConfig(nextActivityType);
   const nextType =
     dto.type !== undefined
       ? normalizeOptional(dto.type)
       : normalizeOptional(currentMerchant.type);
+  // The edit form always echoes the current `type` back, so only enforce the
+  // type/baseType consistency check when the merchant actually changes the type
+  // or the activity. A partial edit that merely re-sends the existing (possibly
+  // legacy-drifted) type must not be blocked over state it isn't touching.
+  const typeChanged =
+    dto.type !== undefined &&
+    normalizeOptional(dto.type) !== normalizeOptional(currentMerchant.type);
   if (
+    (typeChanged || activityChanged) &&
+    activityConfig &&
     nextType &&
     normalizeOptional(activityConfig.baseType) &&
     nextType !== normalizeOptional(activityConfig.baseType)
@@ -1113,7 +1138,11 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
     throw err;
   }
 
-  patch.activityType = nextActivityType;
+  // Persist the (possibly unchanged) activity type; never null it out on a
+  // partial edit of a store that already has one.
+  if (nextActivityType) {
+    patch.activityType = nextActivityType;
+  }
 
   // Department (رجالي / نسائي) for fashion stores.
   if (activityRequiresDepartment(nextActivityType)) {
@@ -1123,17 +1152,12 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
         activityType: nextActivityType,
         department: dto.department,
       });
-    } else if (currentMerchant.store_department == null) {
-      // Legacy fashion store never classified -> must classify before saving.
-      const err = new Error("VALIDATION_ERROR");
-      err.status = 400;
-      err.fields = ["department"];
-      err.details = { fields: { department: "DEPARTMENT_REQUIRED" } };
-      throw err;
     }
-    // else: keep the existing department (including 'needs_review') so
-    // unrelated edits are not blocked.
-  } else if (dto.activityType !== undefined) {
+    // else: keep the existing department (including null / 'needs_review') so a
+    // partial edit that doesn't touch the department is never blocked. A legacy
+    // fashion store can still be classified later by editing that field
+    // explicitly.
+  } else if (activityChanged) {
     // Switched away from fashion -> department no longer applies.
     patch.storeDepartment = null;
   }
