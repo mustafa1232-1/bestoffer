@@ -149,27 +149,27 @@ test("readNumber uses fallback when env var is unset or blank", async () => {
   );
 });
 
-test("env prefers railway deployment commit sha over legacy git commit sha", async () => {
+test("env prefers explicit git commit sha over railway deployment sha", async () => {
   await withEnv(
     {
       RAILWAY_GIT_COMMIT_SHA: "railway-sha",
-      GIT_COMMIT_SHA: "legacy-sha",
+      GIT_COMMIT_SHA: "explicit-sha",
     },
     async () => {
       const mod = await loadEnvModule();
-      assert.equal(mod.env.gitCommitSha, "railway-sha");
+      assert.equal(mod.env.gitCommitSha, "explicit-sha");
     }
   );
 });
 
-test("env falls back to legacy git commit sha when railway sha is missing", async () => {
+test("env falls back to railway commit sha when explicit git sha is missing", async () => {
   await withEnv(
     {
-      GIT_COMMIT_SHA: "local-sha",
+      RAILWAY_GIT_COMMIT_SHA: "railway-sha",
     },
     async () => {
       const mod = await loadEnvModule();
-      assert.equal(mod.env.gitCommitSha, "local-sha");
+      assert.equal(mod.env.gitCommitSha, "railway-sha");
     }
   );
 });

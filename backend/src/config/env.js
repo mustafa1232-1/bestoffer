@@ -181,8 +181,8 @@ export const env = {
   appEnv: readString("APP_ENV", readString("NODE_ENV", "development")),
   appVersion: readString("APP_VERSION", "0.0.0-dev"),
   gitCommitSha: readString(
-    "RAILWAY_GIT_COMMIT_SHA",
-    readString("GIT_COMMIT_SHA", "")
+    "GIT_COMMIT_SHA",
+    readString("RAILWAY_GIT_COMMIT_SHA", "")
   ),
   appClusterMode: readString(
     "APP_CLUSTER_MODE",
