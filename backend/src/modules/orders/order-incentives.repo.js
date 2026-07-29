@@ -79,8 +79,10 @@ export async function consumeCouponRedemptionByOrderTx(
     normalizedCustomerId <= 0 ||
     !Number.isInteger(normalizedOrderId) ||
     normalizedOrderId <= 0 ||
-    normalizedDiscountAmount <= 0
+    normalizedDiscountAmount < 0
   ) {
+    // A zero discount is valid — attribution-only (referral) coupons record the
+    // redemption with discount_amount = 0.
     return { changed: false, couponId: normalizedCouponId || null };
   }
 
@@ -165,11 +167,12 @@ export async function syncCouponRedemptionForOrderStatusTx(
   { orderId, nextStatus, reason = null }
 ) {
   const order = await getOrderIncentiveSnapshotTx(client, orderId);
+  // A coupon may be attribution-only (zero discount) — still manage its
+  // redemption through the order lifecycle. Only skip when there is no coupon.
   if (
     !order ||
     order.couponId == null ||
-    order.customerUserId == null ||
-    order.couponDiscountTotal <= 0
+    order.customerUserId == null
   ) {
     return { changed: false, couponId: order?.couponId || null };
   }

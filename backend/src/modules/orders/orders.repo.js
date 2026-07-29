@@ -2656,7 +2656,10 @@ export async function createOrderWithItems({
       await markOfferUsageByOrderTx(client, offerUsages);
     }
 
-    if (coupon && couponDiscountTotal > 0) {
+    // Record the redemption for ANY valid coupon, even a zero-discount one:
+    // attribution-only (referral) coupons carry discount 0 but must still be
+    // tracked so we know which employee the customer came through.
+    if (coupon) {
       await consumeCouponRedemptionByOrderTx(client, {
         couponId: Number(coupon.id),
         customerId: Number(customer.id),
