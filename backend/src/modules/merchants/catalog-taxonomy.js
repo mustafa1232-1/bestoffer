@@ -81,6 +81,9 @@ const ALLOWED_CATALOG_TYPES_BY_ACTIVITY = Object.freeze({
   nuts_snacks: ["grocery"],
   mineral_water: ["grocery"],
   art_studio: ["generic"],
+  kids_clothing: ["clothes"],
+  kids_toys: ["generic"],
+  kids_essentials: ["generic"],
 });
 
 function asText(value) {

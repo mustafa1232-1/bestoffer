@@ -176,6 +176,50 @@ class CustomerStyleHubScreen extends StatelessWidget {
     ];
   }
 
+  List<_StyleTopic> _kidsTopics(BuildContext context) {
+    return [
+      _StyleTopic(
+        title: context.lt(ar: 'ملابس أطفال', en: 'Kids Clothing'),
+        subtitle: context.lt(
+          ar: 'ملابس للأولاد والبنات والرضّع',
+          en: 'Boys, girls & baby clothing',
+        ),
+        searchQuery: '',
+        searchTerms: const ['ملابس اطفال', 'اطفال', 'kids clothing', 'children'],
+        icon: Icons.checkroom_rounded,
+        colorA: const Color(0xFF4E8D9A),
+        colorB: const Color(0xFF2F5A63),
+        activityType: 'kids_clothing',
+      ),
+      _StyleTopic(
+        title: context.lt(ar: 'ألعاب أطفال', en: 'Kids Toys'),
+        subtitle: context.lt(
+          ar: 'ألعاب ومجسمات وألعاب تعليمية',
+          en: 'Toys, figures & educational toys',
+        ),
+        searchQuery: '',
+        searchTerms: const ['العاب', 'toys', 'games'],
+        icon: Icons.toys_rounded,
+        colorA: const Color(0xFF8A5A44),
+        colorB: const Color(0xFF5A3A2C),
+        activityType: 'kids_toys',
+      ),
+      _StyleTopic(
+        title: context.lt(ar: 'كل ما يحتاجه الطفل', en: 'Kids Essentials'),
+        subtitle: context.lt(
+          ar: 'حفاضات ورضّاعات وعناية وتغذية وعربات',
+          en: 'Diapers, bottles, care, food & strollers',
+        ),
+        searchQuery: '',
+        searchTerms: const ['مستلزمات', 'حفاضات', 'baby', 'essentials'],
+        icon: Icons.child_friendly_rounded,
+        colorA: const Color(0xFF6E7B4E),
+        colorB: const Color(0xFF454E31),
+        activityType: 'kids_essentials',
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -203,6 +247,13 @@ class CustomerStyleHubScreen extends StatelessWidget {
           const SizedBox(height: 8),
           _TopicGrid(
             topics: _menTopics(context),
+            onTap: (topic) => _open(context, topic),
+          ),
+          const SizedBox(height: 14),
+          _SectionTitle(title: context.lt(ar: 'عالم الأطفال', en: 'Kids World')),
+          const SizedBox(height: 8),
+          _TopicGrid(
+            topics: _kidsTopics(context),
             onTap: (topic) => _open(context, topic),
           ),
         ],

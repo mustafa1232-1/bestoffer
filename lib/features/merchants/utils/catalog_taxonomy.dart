@@ -23,6 +23,9 @@ const Map<String, List<String>> _allowedCatalogTypesByActivity = {
   'nuts_snacks': ['grocery'],
   'mineral_water': ['grocery'],
   'art_studio': ['generic'],
+  'kids_clothing': ['clothes'],
+  'kids_toys': ['generic'],
+  'kids_essentials': ['generic'],
 };
 
 const Map<String, String> _catalogTypeAliases = {
