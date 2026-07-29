@@ -89,4 +89,44 @@ class CouponsApi {
   Future<void> deleteCoupon(int couponId) async {
     await dio.delete('/api/coupons/$couponId');
   }
+
+  // ── Employee referral / sales-attribution coupons ──────────────────────────
+
+  /// Super-admin report: coupons grouped by employee with attribution stats.
+  Future<List<Map<String, dynamic>>> listAgentReferralCoupons() async {
+    final response = await dio.get('/api/coupons/agents');
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final raw = map['agents'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: false);
+  }
+
+  /// The customers/orders that used a specific agent coupon.
+  Future<List<Map<String, dynamic>>> getAgentCouponRedemptions(
+    int couponId,
+  ) async {
+    final response = await dio.get('/api/coupons/$couponId/redemptions');
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final raw = map['redemptions'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: false);
+  }
+
+  /// Admin edits the discount on a coupon (e.g. attach 5%/10%/fixed, or 0).
+  Future<void> updateCouponDiscount({
+    required int couponId,
+    required String discountType, // 'percent' | 'fixed'
+    required num discountValue,
+  }) async {
+    await dio.patch(
+      '/api/coupons/$couponId/discount',
+      data: {'discountType': discountType, 'discountValue': discountValue},
+    );
+  }
 }

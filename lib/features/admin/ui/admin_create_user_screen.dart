@@ -50,6 +50,7 @@ class _AdminCreateUserScreenState extends ConsumerState<AdminCreateUserScreen> {
   String _role = 'user';
   String _driverType = 'app_driver';
   int? _merchantId;
+  bool _createReferralCoupon = false;
 
   String? _block = 'A1';
   String? _building;
@@ -209,6 +210,7 @@ class _AdminCreateUserScreenState extends ConsumerState<AdminCreateUserScreen> {
           if (_role == 'delivery') 'driverType': _driverType,
           if (_showMerchantField && _merchantId != null)
             'merchantId': _merchantId,
+          if (_role != 'user') 'createReferralCoupon': _createReferralCoupon,
         }, imageFile: _profileImageFile);
         break;
       case _AdminCreateKind.store:
@@ -479,6 +481,19 @@ class _AdminCreateUserScreenState extends ConsumerState<AdminCreateUserScreen> {
             });
           },
         ),
+        if (_role != 'user') ...[
+          const SizedBox(height: 8),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: _createReferralCoupon,
+            onChanged: (value) =>
+                setState(() => _createReferralCoupon = value),
+            title: const Text('أنشئ كوبون إحالة لهذا الموظف'),
+            subtitle: const Text(
+              'كوبون عام باسم الموظف لتتبّع الزبائن الذين يأتون عبره. بلا خصم افتراضيًا، ويمكنك إضافة خصم لاحقًا من شاشة المراقبة. يصل الموظف إشعار بكوبونه.',
+            ),
+          ),
+        ],
         if (_role == 'delivery') ...[
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(

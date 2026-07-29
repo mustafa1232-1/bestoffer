@@ -6,6 +6,7 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../auth/ui/add_merchant_screen.dart';
 import '../../coupons/ui/coupon_management_screen.dart';
+import 'admin_referral_coupons_screen.dart';
 import '../../jobs/ui/job_admin_jobs_reader_screen.dart';
 import '../../jobs/ui/job_super_admin_monitor_screen.dart';
 import '../../jobs/ui/jobs_hub_screen.dart';
@@ -86,6 +87,17 @@ class AdminAdvancedToolsHubScreen extends ConsumerWidget {
               ),
             ),
           ),
+          if (isSuperAdmin)
+            _ToolTile(
+              icon: Icons.badge_outlined,
+              title: 'كوبونات الموظفين',
+              subtitle: 'مراقبة كوبونات الإحالة حسب الموظفين وتعديل الخصم',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AdminReferralCouponsScreen(),
+                ),
+              ),
+            ),
           if (isSuperAdmin)
             _ToolTile(
               icon: Icons.monitor_heart_outlined,
