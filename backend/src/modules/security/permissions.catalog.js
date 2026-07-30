@@ -93,6 +93,8 @@ export const PERMISSION_KEYS = Object.freeze([
 
   "audit.read",
   "reports.export",
+
+  "coupons.agents.manage",
 ]);
 
 const PERMISSION_KEY_SET = new Set(PERMISSION_KEYS);
@@ -176,6 +178,45 @@ export const ROLE_TEMPLATES = Object.freeze({
     "attendance.read",
     "audit.read",
     "reports.export",
+  ],
+
+  // مدير عمليات الموظفين: دور وظيفي مقيّد يرى ويعمل فقط ضمن 7 مجالات:
+  // (1) إضافة/تعديل موظف، (2) كوبونات الموظفين، (3) الحضور والمكافآت/الخصومات
+  // والرواتب، (4) حالات الحضور اليدوية، (5) متابعة الطلبات والمبيعات (قراءة)،
+  // (6) تعديل صلاحيات الموظفين، (7) تعطيل الزبائن والشكاوى وخدمة العملاء.
+  // كل ما عداها مخفي. لاحظ: امتلاك مفتاح حسّاس (كـ employees.permissions.manage /
+  // payroll.approve/release) يسمح لها بالاستخدام، لكن *منح* المفاتيح الحسّاسة
+  // لغيرها يبقى للسوبر أدمن فقط (assertActorCanManagePermission).
+  staff_ops_manager: [
+    "dashboard.command_center.view",
+    // (1) حسابات الموظفين
+    "employees.read",
+    "employees.create",
+    "employees.update",
+    // (6) صلاحيات الموظفين
+    "employees.permissions.manage",
+    // (3) الرواتب والحضور والمكافآت/الخصومات + (4) الحالات اليدوية
+    "employees.salary.read",
+    "employees.salary.update",
+    "attendance.read",
+    "attendance.approve",
+    "payroll.prepare",
+    "payroll.review",
+    "payroll.approve",
+    "payroll.release",
+    "payroll.mark_paid",
+    // (5) متابعة الطلبات والمبيعات — قراءة فقط
+    "orders.read",
+    "reports.export",
+    // (2) كوبونات الموظفين
+    "coupons.agents.manage",
+    // (7) تعطيل الزبائن + الشكاوى + خدمة العملاء
+    "accounts.suspend",
+    "community.users.read",
+    "support.tickets.read",
+    "support.tickets.assign",
+    "support.tickets.reply",
+    "support.tickets.resolve",
   ],
 
   taxi_monitoring: [

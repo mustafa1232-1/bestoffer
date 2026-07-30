@@ -18,6 +18,7 @@ import * as ownerService from "../owner/owner.service.js";
 import * as adminRepo from "./admin.repo.js";
 import * as merchantsRepo from "../merchants/merchants.repo.js";
 import * as couponsService from "../coupons/coupons.service.js";
+import { resolveEffectivePermissions } from "../security/permissions.service.js";
 import { createNotification } from "../notifications/notifications.repo.js";
 import {
   listActivityRegistry,
@@ -136,9 +137,24 @@ export async function createManagedUser(dto, actor = {}) {
 
   const role = String(dto.role || "").trim();
   if (role === "admin" && !requesterIsSuperAdmin) {
-    const err = new Error("FORBIDDEN_SUPER_ADMIN_ONLY");
-    err.status = 403;
-    throw err;
+    // A non-super-admin may create a full `admin` account only if they hold the
+    // permission-management capability (employees.permissions.manage). The new
+    // account receives the base `admin` template, which contains no sensitive
+    // keys and no wildcard, so it cannot itself grant sensitive permissions or
+    // escalate to super-admin — this delegation cannot mint a super-admin.
+    const actorPermissions =
+      requesterId > 0 ? await resolveEffectivePermissions(requesterId) : null;
+    const actorCanManagePermissions =
+      !!actorPermissions &&
+      actorPermissions.disabled !== true &&
+      (actorPermissions.permissions === "ALL" ||
+        (actorPermissions.permissions instanceof Map &&
+          actorPermissions.permissions.has("employees.permissions.manage")));
+    if (!actorCanManagePermissions) {
+      const err = new Error("FORBIDDEN_SUPER_ADMIN_ONLY");
+      err.status = 403;
+      throw err;
+    }
   }
 
   let merchant = null;
