@@ -60,9 +60,32 @@ function canonicalAttributeCode(code) {
   return normalizeText(code, 80)?.toLowerCase().replace(/\s+/g, "_") || null;
 }
 
+// A few predefined fields historically embedded their options hint inside the
+// label, e.g. gender = "الجنس: رجالي / نسائي / أطفال / عام". The product card
+// renders "<label>: <value>", so that produced an ugly doubled string. Strip the
+// hint suffix (everything from the first ':') at write time — scoped to the known
+// codes so free-form custom labels are never touched — regardless of which app
+// version submitted it.
+const OPTION_HINT_LABEL_CODES = new Set(["gender", "fit", "assembly_required"]);
+
+function stripLabelOptionHint(code, label) {
+  if (!label || !OPTION_HINT_LABEL_CODES.has(code)) return label;
+  const idx = label.indexOf(":");
+  // Only strip when the suffix looks like an options list (contains a '/').
+  if (idx > 0 && label.slice(idx + 1).includes("/")) {
+    return label.slice(0, idx).trim() || label;
+  }
+  return label;
+}
+
 function attributeDisplayLabel(code, labelAr, labelEn) {
   const normalized = canonicalAttributeCode(code);
-  if (labelAr || labelEn) return { labelAr, labelEn };
+  if (labelAr || labelEn) {
+    return {
+      labelAr: stripLabelOptionHint(normalized, labelAr),
+      labelEn: stripLabelOptionHint(normalized, labelEn),
+    };
+  }
   switch (normalized) {
     case "brand":
       return { labelAr: "العلامة التجارية", labelEn: "Brand" };

@@ -763,6 +763,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
                                   field.label,
                                   number: field.valueType == 'number',
                                   lines: field.multiline ? 3 : 1,
+                                  hint: field.hint,
                                 ),
                               )
                               .toList(),
@@ -1085,6 +1086,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     bool number = false,
     int lines = 1,
     Key? key,
+    String? hint,
   }) => TextField(
     key: key,
     controller: controller,
@@ -1095,7 +1097,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     onChanged: (_) {
       if (mounted) setState(() {});
     },
-    decoration: InputDecoration(labelText: label),
+    decoration: InputDecoration(labelText: label, helperText: hint),
   );
 
   Future<String?> _pickColorHex({required String initialHex}) async {
@@ -1670,6 +1672,10 @@ class _FieldDefinition {
   final String valueType;
   final bool showInCard;
   final bool multiline;
+  /// Optional guidance shown under the input (the allowed options). Kept out of
+  /// [label] so the product card renders a clean `label: value` instead of
+  /// repeating the whole options list.
+  final String? hint;
   const _FieldDefinition(
     this.code,
     this.label,
@@ -1677,6 +1683,7 @@ class _FieldDefinition {
     this.valueType = 'text',
     this.showInCard = false,
     this.multiline = false,
+    this.hint,
   });
 }
 
@@ -1710,8 +1717,18 @@ const Map<String, List<_FieldDefinition>> _categoryFields = {
       'Material',
       showInCard: true,
     ),
-    _FieldDefinition('gender', 'الجنس: رجالي / نسائي / أطفال / عام', 'Gender'),
-    _FieldDefinition('fit', 'القصة: Slim / Regular / Oversized', 'Fit'),
+    _FieldDefinition(
+      'gender',
+      'الجنس',
+      'Gender',
+      hint: 'رجالي / نسائي / أطفال / عام',
+    ),
+    _FieldDefinition(
+      'fit',
+      'القصة',
+      'Fit',
+      hint: 'Slim / Regular / Oversized',
+    ),
     _FieldDefinition('season', 'الموسم', 'Season'),
     _FieldDefinition(
       'wash_instructions',
@@ -1731,8 +1748,9 @@ const Map<String, List<_FieldDefinition>> _categoryFields = {
     _FieldDefinition('weight', 'الوزن', 'Weight', valueType: 'number'),
     _FieldDefinition(
       'assembly_required',
-      'يحتاج تركيب: نعم/لا',
+      'يحتاج تركيب',
       'Assembly required',
+      hint: 'نعم / لا',
     ),
     _FieldDefinition('room_type', 'نوع الغرفة', 'Room type'),
     _FieldDefinition('warranty', 'الضمان', 'Warranty', showInCard: true),
