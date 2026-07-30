@@ -136,7 +136,11 @@ export async function createManagedUser(dto, actor = {}) {
     (requesterId > 0 && (await adminRepo.isUserSuperAdmin(requesterId)));
 
   const role = String(dto.role || "").trim();
-  if (role === "admin" && !requesterIsSuperAdmin) {
+  // `admin` and `deputy_admin` both resolve to the full admin permission
+  // template, so both are elevated-account creations and share the same gate.
+  // (deputy_admin previously had no gate — any admin could mint an
+  // admin-equivalent; this closes that gap.)
+  if ((role === "admin" || role === "deputy_admin") && !requesterIsSuperAdmin) {
     // A non-super-admin may create a full `admin` account only if they hold the
     // permission-management capability (employees.permissions.manage). The new
     // account receives the base `admin` template, which contains no sensitive

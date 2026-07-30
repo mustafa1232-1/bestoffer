@@ -13,6 +13,8 @@ import '../models/admin_financial_kpi_model.dart';
 import '../models/admin_orders_overview_model.dart';
 import '../state/admin_controller.dart';
 import 'admin_advanced_tools_hub_screen.dart';
+import 'admin_create_user_screen.dart';
+import 'admin_referral_coupons_screen.dart';
 import 'admin_audit_security_center_screen.dart';
 import 'admin_approvals_hub_screen.dart';
 import 'admin_ad_board_screen.dart';
@@ -412,11 +414,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           _effectiveAdminPermissions.contains(permission);
     }
 
-    final canBackoffice =
-        auth.isBackoffice && canPermission('dashboard.command_center.view');
-    final canAdminOps =
-        canPermission('dashboard.command_center.view') ||
-        canPermission('audit.read');
+    bool canAny(List<String> permissions) => permissions.any(canPermission);
+
     final canManagePermissions = canPermission('employees.permissions.manage');
     final useDesktop = DesktopDashboardFrame.shouldUse(context);
     final allTimeFinancial = _allTimeFinancial(state);
@@ -486,36 +485,67 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         en: 'Search admin navigation',
       ),
       items: [
-        AppUserDrawerItem(
-          icon: Icons.dashboard_customize_rounded,
-          label: navText(ar: 'لوحة المتابعة', en: 'Command center'),
-          subtitle: navText(
-            ar: 'متابعة تشغيلية موحدة حسب صلاحياتك',
-            en: 'Unified operational monitoring by your permissions',
+        if (canPermission('dashboard.command_center.view'))
+          AppUserDrawerItem(
+            icon: Icons.dashboard_customize_rounded,
+            label: navText(ar: 'لوحة المتابعة', en: 'Command center'),
+            subtitle: navText(
+              ar: 'متابعة تشغيلية موحدة حسب صلاحياتك',
+              en: 'Unified operational monitoring by your permissions',
+            ),
+            group: groupHome,
+            onTap: (_) => _openPage(const CommandCenterScreen()),
           ),
-          group: groupHome,
-          onTap: (_) => _openPage(const CommandCenterScreen()),
-        ),
-        AppUserDrawerItem(
-          icon: Icons.badge_rounded,
-          label: navText(ar: 'إدارة الموظفين', en: 'Employees'),
-          subtitle: navText(
-            ar: 'الموظفون والأقسام والرواتب والصلاحيات',
-            en: 'Staff, departments, salaries and permissions',
+        if (canPermission('employees.read'))
+          AppUserDrawerItem(
+            icon: Icons.badge_rounded,
+            label: navText(ar: 'إدارة الموظفين', en: 'Employees'),
+            subtitle: navText(
+              ar: 'الموظفون والأقسام والرواتب والصلاحيات',
+              en: 'Staff, departments, salaries and permissions',
+            ),
+            group: groupHome,
+            onTap: (_) => _openPage(const AdminEmployeesScreen()),
           ),
-          group: groupHome,
-          onTap: (_) => _openPage(const AdminEmployeesScreen()),
-        ),
-        AppUserDrawerItem(
-          icon: Icons.payments_rounded,
-          label: navText(ar: 'الرواتب', en: 'Payroll'),
-          subtitle: navText(
-            ar: 'دورات الرواتب: احتساب ومراجعة واعتماد وتسديد',
-            en: 'Payroll runs: calculate, review, approve, pay',
+        if (canPermission('employees.create'))
+          AppUserDrawerItem(
+            icon: Icons.person_add_alt_1_rounded,
+            label: navText(ar: 'إنشاء حساب موظف', en: 'Create employee account'),
+            subtitle: navText(
+              ar: 'حساب موظف كامل بدوره وواجهته الخاصة',
+              en: 'A full employee account with its own role and app',
+            ),
+            group: groupHome,
+            onTap: (_) => _openPage(const AdminCreateUserScreen()),
           ),
-          group: groupHome,
-          onTap: (_) => _openPage(const AdminPayrollScreen()),
-        ),
+        if (canPermission('coupons.agents.manage'))
+          AppUserDrawerItem(
+            icon: Icons.badge_outlined,
+            label: navText(ar: 'كوبونات الموظفين', en: 'Employee coupons'),
+            subtitle: navText(
+              ar: 'مراقبة كوبونات الإحالة حسب الموظفين وتعديل الخصم',
+              en: 'Track referral coupons per employee and edit discounts',
+            ),
+            group: groupHome,
+            onTap: (_) => _openPage(const AdminReferralCouponsScreen()),
+          ),
+        if (canAny(const [
+          'payroll.prepare',
+          'payroll.review',
+          'payroll.approve',
+          'payroll.release',
+          'payroll.mark_paid',
+        ]))
+          AppUserDrawerItem(
+            icon: Icons.payments_rounded,
+            label: navText(ar: 'الرواتب', en: 'Payroll'),
+            subtitle: navText(
+              ar: 'دورات الرواتب: احتساب ومراجعة واعتماد وتسديد',
+              en: 'Payroll runs: calculate, review, approve, pay',
+            ),
+            group: groupHome,
+            onTap: (_) => _openPage(const AdminPayrollScreen()),
+          ),
         if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.space_dashboard_rounded,
@@ -531,14 +561,19 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           group: groupHome,
           onTap: (_) => _refreshAll(),
         ),
-        AppUserDrawerItem(
-          icon: Icons.receipt_long_rounded,
-          label: l10n.adminOrdersOverviewTitleAllOrders,
-          subtitle: l10n.adminDashboardAllOrdersHint,
-          group: groupOrders,
-          onTap: (_) => _openPage(const AdminOrdersOverviewScreen()),
-        ),
-        if (canAdminOps)
+        if (canPermission('orders.read'))
+          AppUserDrawerItem(
+            icon: Icons.receipt_long_rounded,
+            label: l10n.adminOrdersOverviewTitleAllOrders,
+            subtitle: l10n.adminDashboardAllOrdersHint,
+            group: groupOrders,
+            onTap: (_) => _openPage(const AdminOrdersOverviewScreen()),
+          ),
+        if (canAny(const [
+          'merchants.approve',
+          'taxi.captains.approve',
+          'services.read',
+        ]))
           AppUserDrawerItem(
             icon: Icons.verified_user_outlined,
             label: l10n.adminDashboardApprovalsHub,
@@ -554,7 +589,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminApprovalsHubScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('merchants.approve'))
           AppUserDrawerItem(
             icon: Icons.storefront_outlined,
             label: l10n.adminDashboardMerchantApprovals,
@@ -563,7 +598,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminMerchantApprovalsScreen()),
           ),
-        if (canAdminOps)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.home_work_outlined,
             label: l10n.adminDashboardResidenceChangeRequests,
@@ -571,7 +606,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminResidenceChangeRequestsScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('services.read'))
           AppUserDrawerItem(
             icon: Icons.home_repair_service_outlined,
             label: 'إدارة الخدمات',
@@ -580,7 +615,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminServicesHubScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('services.read'))
           AppUserDrawerItem(
             icon: Icons.home_repair_service_outlined,
             label: 'اشتراكات أصحاب الخدمة',
@@ -590,7 +625,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             onTap: (_) =>
                 _openPage(const AdminServiceProviderApplicationsScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('taxi.captains.approve'))
           AppUserDrawerItem(
             icon: Icons.local_taxi_outlined,
             label: l10n.adminDashboardTaxiCaptainRequests,
@@ -601,7 +636,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupDeliveryTaxi,
             onTap: (_) => _openPage(const AdminTaxiCaptainRequestsScreen()),
           ),
-        if (canAdminOps)
+        if (canAny(const ['taxi.rides.read', 'taxi.captains.approve']))
           AppUserDrawerItem(
             icon: Icons.payments_outlined,
             label: l10n.adminDashboardCaptainSubscriptionPayments,
@@ -610,7 +645,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupDeliveryTaxi,
             onTap: (_) => _openPage(const AdminTaxiCashPaymentsScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('taxi.rides.read'))
           AppUserDrawerItem(
             icon: Icons.local_taxi_outlined,
             label: l10n.adminTaxiGovernanceTitle,
@@ -618,7 +653,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupDeliveryTaxi,
             onTap: (_) => _openPage(const AdminTaxiGovernanceScreen()),
           ),
-        if (canBackoffice)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.workspace_premium_outlined,
             label: l10n.adminDashboardPaidUpgradeRequests,
@@ -626,7 +661,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminPaidUpgradeRequestsScreen()),
           ),
-        if (canBackoffice)
+        if (canAny(const ['real_estate.moderate', 'real_estate.read']))
           AppUserDrawerItem(
             icon: Icons.apartment_outlined,
             label: l10n.adminDashboardRealEstateModeration,
@@ -634,7 +669,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminRealEstatePendingScreen()),
           ),
-        if (canBackoffice)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.business_outlined,
             label: l10n.adminCompaniesScreenTitle,
@@ -645,7 +680,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupCompanies,
             onTap: (_) => _openPage(const AdminCompaniesScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('merchants.approve'))
           AppUserDrawerItem(
             icon: Icons.manage_accounts_outlined,
             label: l10n.adminDashboardMerchantStatusManagement,
@@ -653,7 +688,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupStores,
             onTap: (_) => _openPage(const AdminMerchantStateManagementScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canAny(const ['community.users.read', 'accounts.suspend']))
           AppUserDrawerItem(
             icon: Icons.people_alt_outlined,
             label: l10n.adminDashboardCustomerProfiles,
@@ -669,16 +704,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSystem,
             onTap: (_) => _openPage(const AdminSectionAvailabilityScreen()),
           ),
-        AppUserDrawerItem(
-          icon: Icons.support_agent_rounded,
-          label: navText(ar: 'تذاكر الدعم', en: 'Support tickets'),
-          subtitle: navText(
-            ar: 'متابعة الشكاوى وتعديل الطلبات المرتبطة',
-            en: 'Handle complaints and linked order amendments',
+        if (canPermission('support.tickets.read'))
+          AppUserDrawerItem(
+            icon: Icons.support_agent_rounded,
+            label: navText(ar: 'تذاكر الدعم', en: 'Support tickets'),
+            subtitle: navText(
+              ar: 'متابعة الشكاوى وتعديل الطلبات المرتبطة',
+              en: 'Handle complaints and linked order amendments',
+            ),
+            group: groupOrders,
+            onTap: (_) => _openPage(const AdminSupportTicketsScreen()),
           ),
-          group: groupOrders,
-          onTap: (_) => _openPage(const AdminSupportTicketsScreen()),
-        ),
         AppUserDrawerItem(
           icon: Icons.menu_book_rounded,
           label: navText(ar: 'دليل الاستخدام', en: 'Usage guide'),
@@ -689,17 +725,18 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           group: groupSystem,
           onTap: (_) => _openPage(const AppGuideScreen(appScope: 'admin')),
         ),
-        AppUserDrawerItem(
-          icon: Icons.support_agent_rounded,
-          label: navText(ar: 'رقم الدعم المركزي', en: 'Central support number'),
-          subtitle: navText(
-            ar: 'رقم دعم واحد يصل كل التطبيقات دون تحديث',
-            en: 'One support number reaching all apps without an update',
+        if (canPermission('settings.support_phone.update'))
+          AppUserDrawerItem(
+            icon: Icons.support_agent_rounded,
+            label: navText(ar: 'رقم الدعم المركزي', en: 'Central support number'),
+            subtitle: navText(
+              ar: 'رقم دعم واحد يصل كل التطبيقات دون تحديث',
+              en: 'One support number reaching all apps without an update',
+            ),
+            group: groupSystem,
+            onTap: (_) => _openPage(const AdminSupportSettingsScreen()),
           ),
-          group: groupSystem,
-          onTap: (_) => _openPage(const AdminSupportSettingsScreen()),
-        ),
-        if (canAdminOps)
+        if (canPermission('audit.read'))
           AppUserDrawerItem(
             icon: Icons.rule_folder_outlined,
             label: l10n.adminDashboardAuditLog,
@@ -707,7 +744,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSecurity,
             onTap: (_) => _openPage(const AdminAuditLogScreen()),
           ),
-        if (canAdminOps)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.notifications_active_outlined,
             label: l10n.adminOpsNotificationCenterTitle,
@@ -715,7 +752,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSystem,
             onTap: (_) => _openPage(const AdminNotificationCenterScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('settings.guides.manage'))
           AppUserDrawerItem(
             icon: Icons.settings_input_antenna_outlined,
             label: l10n.adminOpsNotificationsOperationsTitle,
@@ -723,7 +760,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSystem,
             onTap: (_) => _openPage(const AdminNotificationsOperationsScreen()),
           ),
-        if (canAdminOps)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.devices_other_outlined,
             label: l10n.adminOpsDeviceReliabilityTitle,
@@ -731,7 +768,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSystem,
             onTap: (_) => _openPage(const AdminDeviceReliabilityScreen()),
           ),
-        if (canAdminOps)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.bug_report_outlined,
             label: l10n.adminOpsCrashCenterTitle,
@@ -739,7 +776,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSystem,
             onTap: (_) => _openPage(const AdminCrashErrorCenterScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('audit.read'))
           AppUserDrawerItem(
             icon: Icons.shield_outlined,
             label: l10n.adminOpsAuditSecurityTitle,
@@ -747,7 +784,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSecurity,
             onTap: (_) => _openPage(const AdminAuditSecurityCenterScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('settings.guides.manage'))
           AppUserDrawerItem(
             icon: Icons.toggle_on_outlined,
             label: l10n.adminOpsFeatureFlagsTitle,
@@ -788,7 +825,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupAiOps,
             onTap: (_) => _openPage(const AiDevSupportDashboardScreen()),
           ),
-        if (canBackoffice)
+        if (canPermission('reports.export'))
           AppUserDrawerItem(
             icon: Icons.account_balance_wallet_outlined,
             label: l10n.adminDashboardMerchantReceivables,
@@ -797,7 +834,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupFinance,
             onTap: (_) => _openPage(const AdminReceivablesScreen()),
           ),
-        if (canBackoffice)
+        if (canPermission('reports.export'))
           AppUserDrawerItem(
             icon: Icons.insert_chart_outlined_rounded,
             label: l10n.adminDashboardFinancialReports,
@@ -805,7 +842,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupReports,
             onTap: (_) => _openPage(const AdminFinancialReportsHubScreen()),
           ),
-        if (canBackoffice)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.verified_user_outlined,
             label: navText(
@@ -820,14 +857,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             onTap: (_) =>
                 _openPage(const AdminCustomerReliabilityPolicyScreen()),
           ),
-        if (canBackoffice)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.emoji_events_outlined,
             label: l10n.adminDashboardCourierCompetitions,
             group: groupMarketing,
             onTap: (_) => _openPage(const AdminCompetitionsScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('community.posts.read'))
           AppUserDrawerItem(
             icon: Icons.report_gmailerrorred_outlined,
             label: l10n.adminDashboardReports,
@@ -835,7 +872,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupReports,
             onTap: (_) => _openPage(const AdminSocialReportsScreen()),
           ),
-        if (canAdminOps)
+        if (canAny(const [
+          'community.users.read',
+          'accounts.suspend',
+          'accounts.restrict',
+        ]))
           AppUserDrawerItem(
             icon: Icons.manage_accounts_outlined,
             label: navText(
@@ -849,7 +890,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupUsers,
             onTap: (_) => _openPage(const AdminSocialUsersScreen()),
           ),
-        if (canAdminOps)
+        if (canPermission('accounts.restrict'))
           AppUserDrawerItem(
             icon: Icons.gpp_bad_outlined,
             label: l10n.adminDashboardSocialRestrictions,
@@ -857,7 +898,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupUsers,
             onTap: (_) => _openPage(const AdminSocialRestrictionsScreen()),
           ),
-        if (canBackoffice)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.campaign_outlined,
             label: navText(ar: 'Ad board', en: 'Ad board'),
@@ -868,7 +909,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupMarketing,
             onTap: (_) => _openPage(const AdminAdBoardScreen()),
           ),
-        if (canBackoffice)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.confirmation_number_outlined,
             label: navText(ar: 'Coupons', en: 'Coupons'),
@@ -881,7 +922,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               const CouponManagementScreen(mode: CouponManagerMode.superAdmin),
             ),
           ),
-        if (canBackoffice)
+        if (auth.isSuperAdmin)
           AppUserDrawerItem(
             icon: Icons.home_repair_service_outlined,
             label: l10n.adminDashboardMaintenanceCenter,
@@ -942,6 +983,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       onOpenFinancialReports: () =>
           _openPage(const AdminFinancialReportsHubScreen()),
       onOpenNotifications: () => _openPage(const NotificationsScreen()),
+      canOrders: canPermission('orders.read'),
+      canFinance: canPermission('reports.export'),
+      canMerchantApprovals: canPermission('merchants.approve'),
+      canTaxiApprovals: canPermission('taxi.captains.approve'),
     );
 
     if (useDesktop) {
@@ -961,16 +1006,23 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     label: l10n.commonRefresh,
                     onPressed: _refreshAll,
                   ),
-                  DesktopQuickActionButton(
-                    icon: Icons.verified_user_outlined,
-                    label: l10n.adminDashboardApprovalsHub,
-                    onPressed: () => _openPage(const AdminApprovalsHubScreen()),
-                  ),
-                  DesktopQuickActionButton(
-                    icon: Icons.account_balance_wallet_outlined,
-                    label: l10n.adminDashboardMerchantReceivables,
-                    onPressed: () => _openPage(const AdminReceivablesScreen()),
-                  ),
+                  if (canAny(const [
+                    'merchants.approve',
+                    'taxi.captains.approve',
+                    'services.read',
+                  ]))
+                    DesktopQuickActionButton(
+                      icon: Icons.verified_user_outlined,
+                      label: l10n.adminDashboardApprovalsHub,
+                      onPressed: () =>
+                          _openPage(const AdminApprovalsHubScreen()),
+                    ),
+                  if (canPermission('reports.export'))
+                    DesktopQuickActionButton(
+                      icon: Icons.account_balance_wallet_outlined,
+                      label: l10n.adminDashboardMerchantReceivables,
+                      onPressed: () => _openPage(const AdminReceivablesScreen()),
+                    ),
                   DesktopQuickActionButton(
                     icon: Icons.notifications_active_outlined,
                     label: l10n.notificationsTitle,
@@ -1079,6 +1131,11 @@ class _AdminDashboardBody extends StatelessWidget {
   final VoidCallback onOpenReceivables;
   final VoidCallback onOpenFinancialReports;
   final VoidCallback onOpenNotifications;
+  // Permission gates — landing sections show only what the admin may act on.
+  final bool canOrders;
+  final bool canFinance;
+  final bool canMerchantApprovals;
+  final bool canTaxiApprovals;
 
   const _AdminDashboardBody({
     required this.headlineLoading,
@@ -1111,6 +1168,10 @@ class _AdminDashboardBody extends StatelessWidget {
     required this.onOpenReceivables,
     required this.onOpenFinancialReports,
     required this.onOpenNotifications,
+    required this.canOrders,
+    required this.canFinance,
+    required this.canMerchantApprovals,
+    required this.canTaxiApprovals,
   });
 
   @override
@@ -1134,18 +1195,20 @@ class _AdminDashboardBody extends StatelessWidget {
                 value: l10n.adminDashboardLive,
                 onTap: onOpenNotifications,
               ),
-              _HeroChip(
-                icon: Icons.account_balance_wallet_outlined,
-                label: l10n.adminDashboardMerchantReceivables,
-                value: formatIqd(allTimeFinancial.totals.totalAppDue),
-                onTap: onOpenReceivables,
-              ),
-              _HeroChip(
-                icon: Icons.analytics_outlined,
-                label: l10n.adminDashboardReports,
-                value: periodLabel,
-                onTap: onOpenFinancialReports,
-              ),
+              if (canFinance)
+                _HeroChip(
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: l10n.adminDashboardMerchantReceivables,
+                  value: formatIqd(allTimeFinancial.totals.totalAppDue),
+                  onTap: onOpenReceivables,
+                ),
+              if (canFinance)
+                _HeroChip(
+                  icon: Icons.analytics_outlined,
+                  label: l10n.adminDashboardReports,
+                  value: periodLabel,
+                  onTap: onOpenFinancialReports,
+                ),
             ],
           ),
           const SizedBox(height: 18),
@@ -1226,56 +1289,62 @@ class _AdminDashboardBody extends StatelessWidget {
                 );
               },
             ),
-          const SizedBox(height: 22),
-          _SectionHeader(
-            title: l10n.adminDashboardCriticalApprovals,
-            subtitle: l10n.adminDashboardCriticalApprovalsDescription,
-            actionLabel: l10n.adminDashboardOpenApprovalsHub,
-            onAction: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const AdminApprovalsHubScreen(),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
+          if (canMerchantApprovals || canTaxiApprovals) ...[
+            const SizedBox(height: 22),
+            _SectionHeader(
+              title: l10n.adminDashboardCriticalApprovals,
+              subtitle: l10n.adminDashboardCriticalApprovalsDescription,
+              actionLabel: l10n.adminDashboardOpenApprovalsHub,
+              onAction: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AdminApprovalsHubScreen(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
           LayoutBuilder(
             builder: (context, constraints) {
               final compact = constraints.maxWidth < 760;
               final items = [
-                _ApprovalCard(
-                  icon: Icons.storefront_outlined,
-                  title: l10n.adminDashboardPendingMerchants,
-                  count: pendingMerchantCount,
-                  description: l10n.adminDashboardPendingMerchantsDescription,
-                  color: const Color(0xFFA78BFA),
-                  onTap: onOpenMerchantApprovals,
-                ),
-                _ApprovalCard(
-                  icon: Icons.local_taxi_outlined,
-                  title: l10n.adminDashboardCaptainApprovals,
-                  count: pendingTaxiApprovalsCount,
-                  description: l10n.adminDashboardCaptainApprovalsDescription,
-                  color: const Color(0xFF60A5FA),
-                  onTap: onOpenTaxiApprovals,
-                ),
-                _ApprovalCard(
-                  icon: Icons.edit_note_outlined,
-                  title: l10n.adminDashboardProfileEdits,
-                  count: pendingTaxiEditsCount,
-                  description: l10n.adminDashboardProfileEditsDescription,
-                  color: const Color(0xFF38BDF8),
-                  onTap: onOpenTaxiEdits,
-                ),
-                _ApprovalCard(
-                  icon: Icons.payments_outlined,
-                  title: l10n.adminDashboardFinancialActions,
-                  count: pendingFinancialActionsCount,
-                  description: l10n.adminDashboardFinancialActionsDescription,
-                  color: const Color(0xFFF59E0B),
-                  onTap: onOpenFinancialActions,
-                ),
+                if (canMerchantApprovals)
+                  _ApprovalCard(
+                    icon: Icons.storefront_outlined,
+                    title: l10n.adminDashboardPendingMerchants,
+                    count: pendingMerchantCount,
+                    description: l10n.adminDashboardPendingMerchantsDescription,
+                    color: const Color(0xFFA78BFA),
+                    onTap: onOpenMerchantApprovals,
+                  ),
+                if (canTaxiApprovals)
+                  _ApprovalCard(
+                    icon: Icons.local_taxi_outlined,
+                    title: l10n.adminDashboardCaptainApprovals,
+                    count: pendingTaxiApprovalsCount,
+                    description: l10n.adminDashboardCaptainApprovalsDescription,
+                    color: const Color(0xFF60A5FA),
+                    onTap: onOpenTaxiApprovals,
+                  ),
+                if (canTaxiApprovals)
+                  _ApprovalCard(
+                    icon: Icons.edit_note_outlined,
+                    title: l10n.adminDashboardProfileEdits,
+                    count: pendingTaxiEditsCount,
+                    description: l10n.adminDashboardProfileEditsDescription,
+                    color: const Color(0xFF38BDF8),
+                    onTap: onOpenTaxiEdits,
+                  ),
+                if (canMerchantApprovals || canTaxiApprovals)
+                  _ApprovalCard(
+                    icon: Icons.payments_outlined,
+                    title: l10n.adminDashboardFinancialActions,
+                    count: pendingFinancialActionsCount,
+                    description: l10n.adminDashboardFinancialActionsDescription,
+                    color: const Color(0xFFF59E0B),
+                    onTap: onOpenFinancialActions,
+                  ),
               ];
               if (compact) {
                 return Column(
