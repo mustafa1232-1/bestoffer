@@ -95,6 +95,25 @@ export const PERMISSION_KEYS = Object.freeze([
   "reports.export",
 
   "coupons.agents.manage",
+
+  // Every super-admin capability is a grantable key (except the chat quality
+  // monitor, which is intentionally NOT here — super-admin surface only).
+  "merchants.create",
+  "jobs.manage",
+  "feed.moderate",
+  "ads.manage",
+  "competitions.manage",
+  "coupons.manage",
+  "residence.requests.manage",
+  "paid_upgrades.manage",
+  "companies.manage",
+  "sections.availability.manage",
+  "customer_reliability.manage",
+  "system.notifications.view",
+  "system.device_reliability.view",
+  "system.crash_center.view",
+  "system.feature_flags.manage",
+  "system.maintenance.manage",
 ]);
 
 const PERMISSION_KEY_SET = new Set(PERMISSION_KEYS);
@@ -217,6 +236,82 @@ export const ROLE_TEMPLATES = Object.freeze({
     "support.tickets.assign",
     "support.tickets.reply",
     "support.tickets.resolve",
+  ],
+
+  // ── الوظائف الافتراضية (يمكن تعديل صلاحيات أي موظف فردياً فوقها) ──
+  follow_up_manager: [
+    "dashboard.command_center.view",
+    "orders.read",
+    "orders.modify",
+    "orders.cancel",
+    "orders.revisions.create",
+    "orders.revisions.submit",
+    "orders.revisions.apply",
+    "orders.messages.read",
+    "support.tickets.read",
+    "support.tickets.assign",
+    "support.tickets.reply",
+    "support.tickets.resolve",
+    "support.tickets.escalate",
+    "support.sla.manage",
+    "ops.alerts.read",
+    "ops.alerts.acknowledge",
+    "ops.alerts.assign",
+    "ops.alerts.resolve",
+    "employees.read",
+    "employees.create",
+    "employees.update",
+    "employees.permissions.manage",
+    "employees.salary.read",
+    "employees.salary.update",
+    "attendance.read",
+    "attendance.approve",
+    "payroll.prepare",
+    "payroll.review",
+    "payroll.approve",
+    "payroll.release",
+    "payroll.mark_paid",
+    "coupons.agents.manage",
+    "reports.export",
+    "audit.read",
+    "community.users.read",
+  ],
+
+  sales_agent: [
+    "dashboard.command_center.view",
+    "orders.read",
+    "reports.export",
+    "coupons.agents.manage",
+    "community.users.read",
+  ],
+
+  marketing_agent: [
+    "dashboard.command_center.view",
+    "ads.manage",
+    "competitions.manage",
+    "coupons.manage",
+    "coupons.agents.manage",
+    "reports.export",
+  ],
+
+  subscriptions_monitor: [
+    "dashboard.command_center.view",
+    "taxi.rides.read",
+    "taxi.captains.approve",
+    "merchants.approve",
+    "merchants.financial_terms.send",
+    "merchants.financial_terms.approve",
+    "reports.export",
+  ],
+
+  residents_moderator: [
+    "dashboard.command_center.view",
+    "community.users.read",
+    "community.posts.read",
+    "community.moderate",
+    "accounts.restrict",
+    "accounts.suspend",
+    "support.tickets.read",
   ],
 
   taxi_monitoring: [

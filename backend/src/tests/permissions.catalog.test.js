@@ -11,6 +11,33 @@ import {
   isValidScope,
   scopeSatisfies,
 } from "../modules/security/permissions.catalog.js";
+import {
+  PERMISSION_METADATA,
+  PERMISSION_GROUPS,
+} from "../modules/security/permissions.metadata.js";
+
+test("every permission key has Arabic metadata (label + description + valid group)", () => {
+  const groupKeys = new Set(PERMISSION_GROUPS.map((g) => g.key));
+  for (const key of PERMISSION_KEYS) {
+    const meta = PERMISSION_METADATA[key];
+    assert.ok(meta, `permission key missing metadata: ${key}`);
+    assert.ok(
+      meta.labelAr && meta.labelAr.trim().length > 0,
+      `missing labelAr: ${key}`
+    );
+    assert.ok(
+      meta.descriptionAr && meta.descriptionAr.trim().length > 0,
+      `missing descriptionAr: ${key}`
+    );
+    assert.ok(groupKeys.has(meta.group), `bad group "${meta.group}" for ${key}`);
+  }
+  for (const key of Object.keys(PERMISSION_METADATA)) {
+    assert.ok(
+      PERMISSION_KEYS.includes(key),
+      `metadata for unknown permission key: ${key}`
+    );
+  }
+});
 
 test("permission keys are unique and non-empty", () => {
   const set = new Set(PERMISSION_KEYS);

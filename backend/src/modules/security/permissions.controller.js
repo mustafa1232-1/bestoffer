@@ -12,6 +12,11 @@ import {
   ROLE_TEMPLATE_KEYS,
   ROLE_TEMPLATES,
 } from "./permissions.catalog.js";
+import {
+  PERMISSION_GROUPS,
+  PERMISSION_METADATA,
+  JOB_ROLE_METADATA,
+} from "./permissions.metadata.js";
 
 function badRequest(res, fields) {
   return res.status(400).json({ message: "VALIDATION_ERROR", fields });
@@ -38,17 +43,46 @@ export async function getMyPermissions(req, res, next) {
 export async function getCatalog(req, res, next) {
   try {
     return res.json({
+      // Backward-compatible flat key list.
       permissions: PERMISSION_KEYS,
+      // Rich, Arabic-explained catalog for the permission picker.
+      groups: PERMISSION_GROUPS,
+      permissionDetails: PERMISSION_KEYS.map((key) => {
+        const meta = PERMISSION_METADATA[key] || {};
+        return {
+          key,
+          group: meta.group || "system",
+          labelAr: meta.labelAr || key,
+          descriptionAr: meta.descriptionAr || "",
+          sensitive: SENSITIVE_HINT_KEYS.has(key),
+        };
+      }),
       scopes: PERMISSION_SCOPES,
-      roleTemplates: ROLE_TEMPLATE_KEYS.map((key) => ({
-        key,
-        permissions: ROLE_TEMPLATES[key],
-      })),
+      roleTemplates: ROLE_TEMPLATE_KEYS.map((key) => {
+        const jobMeta = JOB_ROLE_METADATA[key] || {};
+        return {
+          key,
+          permissions: ROLE_TEMPLATES[key],
+          labelAr: jobMeta.labelAr || null,
+          descriptionAr: jobMeta.descriptionAr || null,
+          isJobRole: Boolean(JOB_ROLE_METADATA[key]),
+        };
+      }),
     });
   } catch (error) {
     return next(error);
   }
 }
+
+// Keys that are extra-sensitive to *grant* (super-admin only) — surfaced so the
+// UI can flag them; matches isSensitivePermissionKey in permissions.service.js.
+const SENSITIVE_HINT_KEYS = new Set([
+  "employees.permissions.manage",
+  "accounts.delete_approve",
+  "payroll.release",
+  "payroll.approve",
+  "taxi.rides.emergency_cancel",
+]);
 
 function readRolePayload(body = {}) {
   return {
