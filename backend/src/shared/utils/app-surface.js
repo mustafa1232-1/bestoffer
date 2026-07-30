@@ -103,7 +103,10 @@ export function resolveRoleAppSurface(role) {
     normalized === "super_admin" ||
     normalized === "call_center" ||
     normalized === "accountant" ||
-    normalized === "hr"
+    normalized === "hr" ||
+    // Employees: a company back-office surface, gated entirely by their
+    // job-role permissions (never admin-only routes).
+    normalized === "staff"
   ) {
     return "company";
   }
