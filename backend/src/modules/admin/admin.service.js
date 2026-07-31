@@ -18,7 +18,10 @@ import * as ownerService from "../owner/owner.service.js";
 import * as adminRepo from "./admin.repo.js";
 import * as merchantsRepo from "../merchants/merchants.repo.js";
 import * as couponsService from "../coupons/coupons.service.js";
-import { resolveEffectivePermissions } from "../security/permissions.service.js";
+import {
+  resolveEffectivePermissions,
+  grantUserPermission,
+} from "../security/permissions.service.js";
 import { createNotification } from "../notifications/notifications.repo.js";
 import {
   listActivityRegistry,
@@ -307,10 +310,39 @@ export async function createManagedUser(dto, actor = {}) {
     }
   }
 
+  // Delegated employee management: a super-admin can flip a single checkbox when
+  // creating an admin to let that admin create employee accounts and manage their
+  // permissions. Only a super-admin may grant these (permissions.manage is a
+  // sensitive key), which matches the intended "the admin the super-admin places"
+  // model. The admin base template already includes employees.read.
+  let employeeManagementEnabled = false;
+  if (
+    dto.enableEmployeeManagement === true &&
+    requesterIsSuperAdmin &&
+    (role === "admin" || role === "deputy_admin")
+  ) {
+    for (const key of [
+      "employees.create",
+      "employees.update",
+      "employees.permissions.manage",
+    ]) {
+      await grantUserPermission({
+        actorUserId: requesterId,
+        targetUserId: Number(user.id),
+        permissionKey: key,
+        scope: "all",
+        effect: "grant",
+        reason: "employee management delegation",
+      });
+    }
+    employeeManagementEnabled = true;
+  }
+
   return {
     ...mapUser(user),
     merchantId: staffMerchantId,
     merchantName: merchant?.name || null,
+    employeeManagementEnabled,
     driverType: requestedDriverType,
     referralCoupon,
   };

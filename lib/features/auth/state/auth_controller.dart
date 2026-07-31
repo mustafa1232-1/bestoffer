@@ -90,7 +90,15 @@ class AuthState {
 
   bool get isServiceProvider => _resolveRole() == 'service_provider';
 
+  /// Employee accounts: a dedicated back-office role that lands on the
+  /// permission-gated admin dashboard (seeing only what their job grants) and is
+  /// fully separate from the customer surface.
+  bool get isStaff => _resolveRole() == 'staff';
+
   bool get isBackoffice => isAdmin || isDeputyAdmin || isSuperAdmin;
+
+  /// Anyone who lands on the admin dashboard shell (admins + employees).
+  bool get isAdminDashboardUser => isBackoffice || isStaff;
 
   bool get isCompanyBackoffice =>
       isBackoffice || isAccountant || isHr || isCompanyPortal;

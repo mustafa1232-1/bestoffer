@@ -97,6 +97,7 @@ class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
 
   bool _isCompanySurfaceAuth(AuthState auth) {
     return auth.isBackoffice ||
+        auth.isStaff ||
         auth.isAccountant ||
         auth.isHr ||
         auth.isCompanyPortal;
@@ -148,7 +149,7 @@ class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
       return const CompanyLoginScreen();
     }
 
-    if (auth.isBackoffice || auth.isSuperAdmin) {
+    if (auth.isBackoffice || auth.isSuperAdmin || auth.isStaff) {
       return const AdminDashboardScreen();
     }
     if (auth.isAccountant) {

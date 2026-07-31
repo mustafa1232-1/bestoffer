@@ -579,14 +579,16 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   /// Critical notes:
   /// - Ù‡Ø°Ø§ Ù„ÙŠØ³ route guard ÙƒØ§Ù…Ù„Ø§Ù‹ØŒ Ù„ÙƒÙ†Ù‡ Ø£ÙˆÙ„ Ù†Ù‚Ø·Ø© ØªÙ‚Ø³ÙŠÙ… UX Ø­Ø³Ø¨ Ø§Ù„Ø¯ÙˆØ±.
   Widget _homeForAuth(AuthState auth) {
-    if (auth.isBackoffice) {
+    if (auth.isAdminDashboardUser) {
       return const AdminDashboardScreen();
     }
     return const MaslakiUserShell();
   }
 
   bool _isUserAppRole(AuthState auth) {
-    return auth.isCustomer || auth.isBackoffice || auth.isServiceProvider;
+    return auth.isCustomer ||
+        auth.isAdminDashboardUser ||
+        auth.isServiceProvider;
   }
 
   bool _hasVerifiedSession(AuthState auth) =>

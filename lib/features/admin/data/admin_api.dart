@@ -473,6 +473,18 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  /// Creates a standalone employee account (staff role, phone+PIN, job role +
+  /// explained permission overrides).
+  Future<Map<String, dynamic>> createEmployeeAccount(
+    Map<String, dynamic> body,
+  ) async {
+    final response = await dio.post(
+      '/api/admin/employees/create-account',
+      data: body,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> updateEmployee(
     int userId,
     Map<String, dynamic> body,

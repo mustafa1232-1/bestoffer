@@ -13,7 +13,7 @@ import '../models/admin_financial_kpi_model.dart';
 import '../models/admin_orders_overview_model.dart';
 import '../state/admin_controller.dart';
 import 'admin_advanced_tools_hub_screen.dart';
-import 'admin_create_user_screen.dart';
+import 'admin_create_employee_screen.dart';
 import 'admin_referral_coupons_screen.dart';
 import 'admin_audit_security_center_screen.dart';
 import 'admin_approvals_hub_screen.dart';
@@ -516,7 +516,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               en: 'A full employee account with its own role and app',
             ),
             group: groupHome,
-            onTap: (_) => _openPage(const AdminCreateUserScreen()),
+            onTap: (_) => _openPage(const AdminCreateEmployeeScreen()),
           ),
         if (canPermission('coupons.agents.manage'))
           AppUserDrawerItem(
@@ -598,7 +598,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminMerchantApprovalsScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('residence.requests.manage'))
           AppUserDrawerItem(
             icon: Icons.home_work_outlined,
             label: l10n.adminDashboardResidenceChangeRequests,
@@ -653,7 +653,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupDeliveryTaxi,
             onTap: (_) => _openPage(const AdminTaxiGovernanceScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('paid_upgrades.manage'))
           AppUserDrawerItem(
             icon: Icons.workspace_premium_outlined,
             label: l10n.adminDashboardPaidUpgradeRequests,
@@ -669,7 +669,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminRealEstatePendingScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('companies.manage'))
           AppUserDrawerItem(
             icon: Icons.business_outlined,
             label: l10n.adminCompaniesScreenTitle,
@@ -696,7 +696,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupUsers,
             onTap: (_) => _openPage(const AdminCustomerProfilesScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('sections.availability.manage'))
           AppUserDrawerItem(
             icon: Icons.toggle_off_outlined,
             label: 'إتاحة الأقسام',
@@ -744,7 +744,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSecurity,
             onTap: (_) => _openPage(const AdminAuditLogScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('system.notifications.view'))
           AppUserDrawerItem(
             icon: Icons.notifications_active_outlined,
             label: l10n.adminOpsNotificationCenterTitle,
@@ -760,7 +760,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSystem,
             onTap: (_) => _openPage(const AdminNotificationsOperationsScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('system.device_reliability.view'))
           AppUserDrawerItem(
             icon: Icons.devices_other_outlined,
             label: l10n.adminOpsDeviceReliabilityTitle,
@@ -768,7 +768,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSystem,
             onTap: (_) => _openPage(const AdminDeviceReliabilityScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('system.crash_center.view'))
           AppUserDrawerItem(
             icon: Icons.bug_report_outlined,
             label: l10n.adminOpsCrashCenterTitle,
@@ -784,7 +784,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSecurity,
             onTap: (_) => _openPage(const AdminAuditSecurityCenterScreen()),
           ),
-        if (canPermission('settings.guides.manage'))
+        if (canPermission('system.feature_flags.manage'))
           AppUserDrawerItem(
             icon: Icons.toggle_on_outlined,
             label: l10n.adminOpsFeatureFlagsTitle,
@@ -842,7 +842,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupReports,
             onTap: (_) => _openPage(const AdminFinancialReportsHubScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('customer_reliability.manage'))
           AppUserDrawerItem(
             icon: Icons.verified_user_outlined,
             label: navText(
@@ -857,7 +857,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             onTap: (_) =>
                 _openPage(const AdminCustomerReliabilityPolicyScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('competitions.manage'))
           AppUserDrawerItem(
             icon: Icons.emoji_events_outlined,
             label: l10n.adminDashboardCourierCompetitions,
@@ -898,7 +898,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupUsers,
             onTap: (_) => _openPage(const AdminSocialRestrictionsScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('ads.manage'))
           AppUserDrawerItem(
             icon: Icons.campaign_outlined,
             label: navText(ar: 'Ad board', en: 'Ad board'),
@@ -909,7 +909,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupMarketing,
             onTap: (_) => _openPage(const AdminAdBoardScreen()),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('coupons.manage'))
           AppUserDrawerItem(
             icon: Icons.confirmation_number_outlined,
             label: navText(ar: 'Coupons', en: 'Coupons'),
@@ -922,7 +922,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               const CouponManagementScreen(mode: CouponManagerMode.superAdmin),
             ),
           ),
-        if (auth.isSuperAdmin)
+        if (canPermission('system.maintenance.manage'))
           AppUserDrawerItem(
             icon: Icons.home_repair_service_outlined,
             label: l10n.adminDashboardMaintenanceCenter,

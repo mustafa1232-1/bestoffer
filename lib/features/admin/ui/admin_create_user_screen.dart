@@ -51,6 +51,7 @@ class _AdminCreateUserScreenState extends ConsumerState<AdminCreateUserScreen> {
   String _driverType = 'app_driver';
   int? _merchantId;
   bool _createReferralCoupon = false;
+  bool _enableEmployeeManagement = false;
 
   String? _block = 'A1';
   String? _building;
@@ -211,6 +212,8 @@ class _AdminCreateUserScreenState extends ConsumerState<AdminCreateUserScreen> {
           if (_showMerchantField && _merchantId != null)
             'merchantId': _merchantId,
           if (_role != 'user') 'createReferralCoupon': _createReferralCoupon,
+          if (_role == 'admin' || _role == 'deputy_admin')
+            'enableEmployeeManagement': _enableEmployeeManagement,
         }, imageFile: _profileImageFile);
         break;
       case _AdminCreateKind.store:
@@ -491,6 +494,26 @@ class _AdminCreateUserScreenState extends ConsumerState<AdminCreateUserScreen> {
             title: const Text('أنشئ كوبون إحالة لهذا الموظف'),
             subtitle: const Text(
               'كوبون عام باسم الموظف لتتبّع الزبائن الذين يأتون عبره. بلا خصم افتراضيًا، ويمكنك إضافة خصم لاحقًا من شاشة المراقبة. يصل الموظف إشعار بكوبونه.',
+            ),
+          ),
+        ],
+        if (_role == 'admin' || _role == 'deputy_admin') ...[
+          const SizedBox(height: 8),
+          Card(
+            color: Theme.of(context).colorScheme.primaryContainer.withValues(
+              alpha: 0.35,
+            ),
+            child: SwitchListTile.adaptive(
+              value: _enableEmployeeManagement,
+              onChanged: (value) =>
+                  setState(() => _enableEmployeeManagement = value),
+              title: const Text(
+                'تفعيل إنشاء حسابات الموظفين وصلاحياتهم',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: const Text(
+                'يمنح هذا الأدمن القدرة على إنشاء حسابات موظفين جدد وتعديل صلاحياتهم مباشرةً. (متاح للسوبر أدمن فقط عند الإنشاء.)',
+              ),
             ),
           ),
         ],
