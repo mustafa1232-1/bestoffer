@@ -54,6 +54,27 @@ export async function getEmployee(req, res, next) {
   }
 }
 
+export async function createEmployeeAccount(req, res, next) {
+  try {
+    const result = await service.createEmployeeAccount({
+      actorUserId: req.userId,
+      dto: { ...(req.body || {}) },
+    });
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "employees.create",
+      summary: `إنشاء حساب موظف #${result.id} (${result.jobRoleKey})`,
+      targetType: "company_employee",
+      targetId: result.id,
+      permissionKey: "employees.create",
+      after: result,
+    });
+    return res.status(201).json({ employee: result });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function saveEmployee(req, res, next) {
   try {
     const dto = { ...(req.body || {}) };

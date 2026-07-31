@@ -329,6 +329,11 @@ adminRouter.get(
   employees.getEmployee
 );
 adminRouter.post(
+  "/employees/create-account",
+  requirePermission("employees.create"),
+  employees.createEmployeeAccount
+);
+adminRouter.post(
   "/employees",
   requirePermission("employees.create"),
   employees.saveEmployee

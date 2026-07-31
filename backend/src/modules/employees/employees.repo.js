@@ -88,6 +88,7 @@ export async function upsertEmployee({
   startDate = null,
   baseSalaryIqd = null,
   notes = null,
+  employeeCode = null,
   actorUserId = null,
 }) {
   const client = await pool.connect();
@@ -100,8 +101,8 @@ export async function upsertEmployee({
     const upserted = await client.query(
       `INSERT INTO company_employee_profile
          (user_id, department, job_title, employment_type, manager_user_id, status,
-          start_date, base_salary_iqd, notes, created_by_user_id, updated_by_user_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
+          start_date, base_salary_iqd, notes, employee_code, created_by_user_id, updated_by_user_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
        ON CONFLICT (user_id) DO UPDATE SET
          department = EXCLUDED.department,
          job_title = EXCLUDED.job_title,
@@ -110,6 +111,7 @@ export async function upsertEmployee({
          status = EXCLUDED.status,
          start_date = COALESCE(EXCLUDED.start_date, company_employee_profile.start_date),
          notes = EXCLUDED.notes,
+         employee_code = COALESCE(EXCLUDED.employee_code, company_employee_profile.employee_code),
          updated_by_user_id = EXCLUDED.updated_by_user_id,
          updated_at = NOW()
        RETURNING *`,
@@ -117,6 +119,7 @@ export async function upsertEmployee({
         Number(userId), department, jobTitle, employmentType,
         managerUserId ? Number(managerUserId) : null, status, startDate,
         baseSalaryIqd != null ? Number(baseSalaryIqd) : null, notes,
+        employeeCode || null,
         actorUserId ? Number(actorUserId) : null,
       ]
     );
@@ -142,6 +145,16 @@ export async function upsertEmployee({
   } finally {
     client.release();
   }
+}
+
+// Compensating delete for a half-created employee account (role must be 'staff'
+// so this can never remove a real user/admin). Profile + salary contracts cascade.
+export async function deleteStaffAccount(userId) {
+  const r = await q(
+    `DELETE FROM app_user WHERE id = $1 AND role = 'staff'`,
+    [Number(userId)]
+  );
+  return r.rowCount > 0;
 }
 
 export async function setSalary({

@@ -4,11 +4,25 @@
  */
 
 import { AppError } from "../../shared/utils/errors.js";
+import { hashPin } from "../../shared/utils/hash.js";
 import * as repo from "./employees.repo.js";
+import { createUser, findUserByPhone } from "../auth/auth.repo.js";
+import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
 import {
   assignAdminRole,
   grantUserPermission,
 } from "../security/permissions.service.js";
+import { ROLE_TEMPLATES } from "../security/permissions.catalog.js";
+import { JOB_ROLE_METADATA } from "../security/permissions.metadata.js";
+
+// Maps a job role to its HR department bucket (company_employee_profile enum).
+const JOB_ROLE_DEPARTMENT = Object.freeze({
+  follow_up_manager: "management",
+  sales_agent: "marketing",
+  marketing_agent: "marketing",
+  subscriptions_monitor: "monitoring",
+  residents_moderator: "monitoring",
+});
 
 function assertEnum(value, allowed, code) {
   if (!allowed.includes(String(value || ""))) {
@@ -70,6 +84,127 @@ export async function saveEmployee({ actorUserId, dto }) {
   }
 
   return result;
+}
+
+/**
+ * Creates a brand-new, standalone employee account — NOT linked to any existing
+ * user and fully separated from the customer surface. The account gets the
+ * dedicated `staff` base role (routes to the permission-gated admin dashboard,
+ * never the customer UI, and never passes admin-only routes), a job-role
+ * template, an HR profile (residence, employee code, salary), and optional
+ * individual permission overrides. RBAC enforces the actor's authority to grant
+ * the role/permissions. On any downstream failure the half-created account is
+ * removed so no orphan is left behind.
+ */
+export async function createEmployeeAccount({ actorUserId, dto }) {
+  const fullName = String(dto?.fullName || "").trim();
+  const phone = String(dto?.phone || "").trim();
+  const pin = String(dto?.pin || "").trim();
+  const jobRoleKey = String(dto?.jobRoleKey || "").trim();
+
+  if (fullName.length < 2) {
+    throw new AppError("INVALID_EMPLOYEE_NAME", { status: 400 });
+  }
+  if (!/^\d{6,15}$/.test(phone)) {
+    throw new AppError("INVALID_EMPLOYEE_PHONE", { status: 400 });
+  }
+  if (!/^\d{4,8}$/.test(pin)) {
+    throw new AppError("INVALID_EMPLOYEE_PIN", { status: 400 });
+  }
+  if (!JOB_ROLE_METADATA[jobRoleKey] || !ROLE_TEMPLATES[jobRoleKey]) {
+    throw new AppError("INVALID_JOB_ROLE", { status: 400 });
+  }
+
+  const residence = String(dto?.residence || "").trim();
+  const employeeCode = String(dto?.employeeCode || "").trim() || null;
+  const jobTitle =
+    String(dto?.jobTitle || "").trim() ||
+    JOB_ROLE_METADATA[jobRoleKey].labelAr ||
+    null;
+  const department = JOB_ROLE_DEPARTMENT[jobRoleKey] || "other";
+  const baseSalaryIqd =
+    dto?.baseSalaryIqd != null && dto.baseSalaryIqd !== ""
+      ? Number(dto.baseSalaryIqd)
+      : null;
+  if (
+    baseSalaryIqd != null &&
+    (!Number.isFinite(baseSalaryIqd) || baseSalaryIqd < 0)
+  ) {
+    throw new AppError("INVALID_SALARY_AMOUNT", { status: 400 });
+  }
+  const permissions = Array.isArray(dto?.permissions) ? dto.permissions : [];
+
+  const exists = await findUserByPhone(phone);
+  if (exists) {
+    throw new AppError("PHONE_EXISTS", { status: 409 });
+  }
+
+  const pinHash = await hashPin(pin);
+  const user = await runWithGeneratedAppUserUsername({
+    fullName,
+    phone,
+    execute: (username) =>
+      createUser({
+        fullName,
+        username,
+        phone,
+        pinHash,
+        block: residence,
+        buildingNumber: "",
+        apartment: "",
+        role: "staff",
+        analyticsConsentGranted: true,
+        analyticsConsentVersion: "employee_created_v1",
+        analyticsConsentGrantedAt: new Date(),
+      }),
+  });
+
+  try {
+    await repo.upsertEmployee({
+      userId: Number(user.id),
+      department,
+      jobTitle,
+      employmentType: "full_time",
+      status: "active",
+      baseSalaryIqd,
+      employeeCode,
+      actorUserId,
+    });
+    // RBAC guards apply here: the actor must be allowed to grant this role's keys.
+    await assignAdminRole({
+      actorUserId,
+      targetUserId: Number(user.id),
+      roleKey: jobRoleKey,
+      reason: "employee account creation",
+    });
+    for (const grant of permissions) {
+      if (!grant || !grant.permissionKey) continue;
+      await grantUserPermission({
+        actorUserId,
+        targetUserId: Number(user.id),
+        permissionKey: String(grant.permissionKey),
+        scope: grant.scope || "all",
+        effect: grant.effect === "revoke" ? "revoke" : "grant",
+        reason: "employee account creation",
+      });
+    }
+  } catch (error) {
+    // Roll back the half-created account so no orphan staff row survives.
+    await repo.deleteStaffAccount(Number(user.id)).catch(() => {});
+    throw error;
+  }
+
+  return {
+    id: Number(user.id),
+    fullName: user.full_name,
+    phone: user.phone,
+    role: user.role,
+    jobRoleKey,
+    jobTitle,
+    department,
+    employeeCode,
+    baseSalaryIqd,
+  };
 }
 
 export async function listEmployees(query) {
