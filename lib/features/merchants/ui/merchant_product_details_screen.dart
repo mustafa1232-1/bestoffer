@@ -110,11 +110,31 @@ class _MerchantProductDetailsScreenState
     return productVariantLabelsForCatalogType(widget.merchant.type);
   }
 
-  double get _effectivePrice =>
-      _selectedVariant?.discountedPriceOverride ??
-      _selectedVariant?.priceOverride ??
-      ((widget.product.discountedPrice ?? widget.product.price) +
-          _variantDeltaTotal);
+  double get _effectivePrice {
+    // 1) A full size+color combination price wins (most specific).
+    final combo =
+        _selectedVariant?.discountedPriceOverride ??
+        _selectedVariant?.priceOverride;
+    if (combo != null) return combo;
+    // 2) A special price on the selected option (size takes priority over color,
+    //    then any other single-select group) — سعر خاص لكل مقاس/لون.
+    final optionPrice = _selectedOptionPriceOverride();
+    final base =
+        optionPrice ?? (widget.product.discountedPrice ?? widget.product.price);
+    // 3) Add any paid-addition deltas on top.
+    return base + _variantDeltaTotal;
+  }
+
+  double? _selectedOptionPriceOverride() {
+    for (final code in const ['size', 'color']) {
+      final option = _selectedByGroup[code];
+      if (option?.priceOverride != null) return option!.priceOverride;
+    }
+    for (final option in _selectedByGroup.values) {
+      if (option.priceOverride != null) return option.priceOverride;
+    }
+    return null;
+  }
 
   ProductVariantModel? get _selectedVariant =>
       _variantFromSelectionId(_summarySelection?.variantId) ??

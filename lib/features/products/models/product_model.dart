@@ -54,6 +54,10 @@ class ProductVariantOptionModel {
   final String? labelEn;
   final String? swatchHex;
   final double priceDelta;
+
+  /// Optional absolute special price for this single option (سعر خاص لكل
+  /// مقاس/لون). null when the option has no special price.
+  final double? priceOverride;
   final String? imageUrl;
   final bool isAvailable;
   final int sortOrder;
@@ -66,6 +70,7 @@ class ProductVariantOptionModel {
     required this.labelEn,
     required this.swatchHex,
     required this.priceDelta,
+    this.priceOverride,
     required this.imageUrl,
     required this.isAvailable,
     required this.sortOrder,
@@ -80,6 +85,9 @@ class ProductVariantOptionModel {
       labelEn: parseNullableString(j['label_en'] ?? j['labelEn']),
       swatchHex: parseNullableString(j['swatch_hex'] ?? j['swatchHex']),
       priceDelta: parseDouble(j['price_delta'] ?? j['priceDelta']),
+      priceOverride: _parseNullableDouble(
+        j['price_override'] ?? j['priceOverride'],
+      ),
       imageUrl: parseNullableString(
         j['image_url'] ??
             j['imageUrl'] ??

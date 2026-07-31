@@ -86,6 +86,7 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
          o.label_en AS option_label_en,
          o.swatch_hex,
          o.price_delta,
+         o.price_override,
          o.image_url,
          o.is_available,
          o.sort_order AS option_sort_order,
@@ -180,6 +181,7 @@ async function loadProductCatalogByProductIdsTx(client, productIds) {
       labelEn: row.option_label_en,
       swatchHex: row.swatch_hex,
       priceDelta: row.price_delta,
+      priceOverride: row.price_override,
       imageUrl: row.image_url,
       isAvailable: row.is_available !== false,
       sortOrder: row.option_sort_order,
@@ -370,8 +372,8 @@ export async function syncProductRichCatalogTx(client, productId, dto = {}) {
     for (const option of group.options || []) {
       await client.query(
         `INSERT INTO product_variant_option
-         (group_id, option_code, label_ar, label_en, swatch_hex, price_delta, image_url, is_available, sort_order, metadata_json)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+         (group_id, option_code, label_ar, label_en, swatch_hex, price_delta, price_override, image_url, is_available, sort_order, metadata_json)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           Number(insertedGroup.id),
           option.code,
@@ -379,6 +381,7 @@ export async function syncProductRichCatalogTx(client, productId, dto = {}) {
           option.labelEn,
           option.swatchHex,
           Number(option.priceDelta || 0),
+          option.priceOverride == null ? null : Number(option.priceOverride),
           option.imageUrl,
           option.isAvailable !== false,
           Number(option.sortOrder || 0),

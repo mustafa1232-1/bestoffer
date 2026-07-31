@@ -93,7 +93,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
   final List<_SpecDraft> _shortSpecs = [];
   final List<_SpecDraft> _fullSpecs = [];
   final List<_ColorDraft> _colors = [];
-  final List<TextEditingController> _sizes = [];
+  final List<_SizeDraft> _sizes = [];
   final Map<String, _VariantDraft> _variants = {};
   final List<LocalImageFile> _galleryFiles = [];
   late List<Map<String, dynamic>> _existingMedia;
@@ -211,12 +211,18 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
               name: option.title,
               hex: option.swatchHex ?? '',
               imageUrl: option.imageUrl ?? '',
+              price: option.priceOverride?.toString() ?? '',
             ),
           );
         }
       } else if (group.code == 'size') {
         for (final option in group.options) {
-          _sizes.add(TextEditingController(text: option.title));
+          _sizes.add(
+            _SizeDraft(
+              name: option.title,
+              price: option.priceOverride?.toString() ?? '',
+            ),
+          );
         }
       }
     }
@@ -327,7 +333,9 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     final colors = _colors
         .where((item) => item.name.text.trim().isNotEmpty)
         .toList();
-    final sizes = _sizes.where((item) => item.text.trim().isNotEmpty).toList();
+    final sizes = _sizes
+        .where((item) => item.name.text.trim().isNotEmpty)
+        .toList();
     if (colors.isNotEmpty) {
       groups.add({
         'code': 'color',
@@ -351,6 +359,10 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
             'labelEn': draft.name.text.trim(),
             'swatchHex': draft.hex.text.trim(),
           };
+          final colorPrice = double.tryParse(draft.price.text.trim());
+          if (colorPrice != null && colorPrice > 0) {
+            option['priceOverride'] = colorPrice;
+          }
           if (imageUrl.isNotEmpty) option['imageUrl'] = imageUrl;
           if (uploadIndex != null) option['uploadIndex'] = uploadIndex;
           option['isAvailable'] = true;
@@ -366,18 +378,20 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
         'displayMode': 'chips',
         'selectionMode': 'single',
         'required': true,
-        'options': sizes
-            .asMap()
-            .entries
-            .map(
-              (entry) => {
-                'code': _slug(entry.value.text, 'size_${entry.key + 1}'),
-                'labelAr': entry.value.text.trim(),
-                'labelEn': entry.value.text.trim(),
-                'isAvailable': true,
-              },
-            )
-            .toList(),
+        'options': sizes.asMap().entries.map((entry) {
+          final draft = entry.value;
+          final option = <String, dynamic>{
+            'code': _slug(draft.name.text, 'size_${entry.key + 1}'),
+            'labelAr': draft.name.text.trim(),
+            'labelEn': draft.name.text.trim(),
+            'isAvailable': true,
+          };
+          final sizePrice = double.tryParse(draft.price.text.trim());
+          if (sizePrice != null && sizePrice > 0) {
+            option['priceOverride'] = sizePrice;
+          }
+          return option;
+        }).toList(),
       });
     }
     if (_catalogType == 'restaurant') {
@@ -418,7 +432,9 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     final colors = _colors
         .where((item) => item.name.text.trim().isNotEmpty)
         .toList();
-    final sizes = _sizes.where((item) => item.text.trim().isNotEmpty).toList();
+    final sizes = _sizes
+        .where((item) => item.name.text.trim().isNotEmpty)
+        .toList();
     if (colors.isEmpty && sizes.isEmpty) return const [];
     if (colors.isEmpty) {
       return sizes
@@ -426,7 +442,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
           .entries
           .map(
             (entry) =>
-                'size:${_slug(entry.value.text, 'size_${entry.key + 1}')}',
+                'size:${_slug(entry.value.name.text, 'size_${entry.key + 1}')}',
           )
           .toList();
     }
@@ -443,7 +459,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     return [
       for (final color in colors.asMap().entries)
         for (final size in sizes.asMap().entries)
-          'color:${_slug(color.value.name.text, 'color_${color.key + 1}')}|size:${_slug(size.value.text, 'size_${size.key + 1}')}',
+          'color:${_slug(color.value.name.text, 'color_${color.key + 1}')}|size:${_slug(size.value.name.text, 'size_${size.key + 1}')}',
     ];
   }
 
@@ -817,6 +833,12 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
                                         ),
                                       ],
                                     ),
+                                    const SizedBox(height: 6),
+                                    _field(
+                                      draft.price,
+                                      'سعر خاص لهذا اللون (اختياري)',
+                                      number: true,
+                                    ),
                                     const SizedBox(height: 8),
                                     Row(
                                       children: [
@@ -925,30 +947,42 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
                             ),
                           ),
                           ..._sizes.asMap().entries.map(
-                            (entry) => Row(
-                              children: [
-                                Expanded(
-                                  child: _field(
-                                    entry.value,
-                                    'المقاس (XS / S / مخصص)',
+                            (entry) => Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    flex: 3,
+                                    child: _field(
+                                      entry.value.name,
+                                      'المقاس (XS / S / مخصص)',
+                                    ),
                                   ),
-                                ),
-                                IconButton(
-                                  onPressed: () => setState(() {
-                                    _sizes.removeAt(entry.key).dispose();
-                                    _syncVariants();
-                                  }),
-                                  icon: const Icon(Icons.delete_outline),
-                                ),
-                              ],
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    flex: 3,
+                                    child: _field(
+                                      entry.value.price,
+                                      'سعر خاص (اختياري)',
+                                      number: true,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    onPressed: () => setState(() {
+                                      _sizes.removeAt(entry.key).dispose();
+                                      _syncVariants();
+                                    }),
+                                    icon: const Icon(Icons.delete_outline),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton.icon(
-                              onPressed: () => setState(
-                                () => _sizes.add(TextEditingController()),
-                              ),
+                              onPressed: () =>
+                                  setState(() => _sizes.add(_SizeDraft())),
                               icon: const Icon(Icons.add),
                               label: const Text('إضافة مقاس'),
                             ),
@@ -1381,8 +1415,8 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
                 : entry.value.imageUrl.text.trim(),
             available: true,
             availableSizeCodes: _sizes
-                .where((size) => size.text.trim().isNotEmpty)
-                .map((size) => _slug(size.text, 'size_1'))
+                .where((size) => size.name.text.trim().isNotEmpty)
+                .map((size) => _slug(size.name.text, 'size_1'))
                 .toList(growable: false),
           ),
         )
@@ -1393,12 +1427,12 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     final previewSizes = _sizes
         .asMap()
         .entries
-        .where((entry) => entry.value.text.trim().isNotEmpty)
+        .where((entry) => entry.value.name.text.trim().isNotEmpty)
         .map(
           (entry) => ProductSummarySizeData(
             optionId: null,
-            code: _slug(entry.value.text, 'size_${entry.key + 1}'),
-            label: entry.value.text.trim(),
+            code: _slug(entry.value.name.text, 'size_${entry.key + 1}'),
+            label: entry.value.name.text.trim(),
             available: true,
             availableColorCodes: previewColorCodes,
           ),
@@ -1450,11 +1484,11 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
             ),
           ),
       ..._sizes
-          .where((item) => item.text.trim().isNotEmpty)
+          .where((item) => item.name.text.trim().isNotEmpty)
           .take(4)
           .map(
             (item) => ProductSummaryBadgeData(
-              text: 'المقاس: ${item.text.trim()}',
+              text: 'المقاس: ${item.name.text.trim()}',
               kind: ProductSummaryBadgeKind.variant,
             ),
           ),
@@ -1595,15 +1629,35 @@ class _ColorDraft {
   final TextEditingController name;
   final TextEditingController hex;
   final TextEditingController imageUrl;
+  final TextEditingController price; // سعر خاص لهذا اللون (اختياري)
   LocalImageFile? imageFile;
-  _ColorDraft({String name = '', String hex = '', String imageUrl = ''})
-    : name = TextEditingController(text: name),
-      hex = TextEditingController(text: hex),
-      imageUrl = TextEditingController(text: imageUrl);
+  _ColorDraft({
+    String name = '',
+    String hex = '',
+    String imageUrl = '',
+    String price = '',
+  }) : name = TextEditingController(text: name),
+       hex = TextEditingController(text: hex),
+       imageUrl = TextEditingController(text: imageUrl),
+       price = TextEditingController(text: price);
   void dispose() {
     name.dispose();
     hex.dispose();
     imageUrl.dispose();
+    price.dispose();
+  }
+}
+
+/// مقاس واحد: الاسم + سعر خاص اختياري لهذا المقاس.
+class _SizeDraft {
+  final TextEditingController name;
+  final TextEditingController price;
+  _SizeDraft({String name = '', String price = ''})
+    : name = TextEditingController(text: name),
+      price = TextEditingController(text: price);
+  void dispose() {
+    name.dispose();
+    price.dispose();
   }
 }
 

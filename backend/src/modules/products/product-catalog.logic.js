@@ -165,6 +165,10 @@ function normalizeVariantOptionInput(input, index = 0) {
     priceDelta: normalizeOptionalNumber(
       source.priceDelta ?? source.price_delta ?? 0
     ) || 0,
+    // Optional absolute special price for this single option (null = none).
+    priceOverride: normalizeOptionalNumber(
+      source.priceOverride ?? source.price_override
+    ),
     imageUrl: normalizeText(
       source.imageUrl ??
         source.image_url ??
