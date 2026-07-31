@@ -7,6 +7,7 @@ import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/parsers.dart';
 import '../state/admin_controller.dart';
+import 'admin_create_employee_screen.dart';
 import 'admin_rbac_management_screen.dart';
 
 const _departments = <String>[
@@ -83,7 +84,17 @@ class _AdminEmployeesScreenState extends ConsumerState<AdminEmployeesScreen> {
     }
   }
 
+  // Primary path: create a brand-new standalone employee account (phone + PIN +
+  // role + salary + explained permissions).
   Future<void> _openCreate() async {
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const AdminCreateEmployeeScreen()),
+    );
+    if (created == true) _load();
+  }
+
+  // Secondary path: attach an employee HR profile to an existing user account.
+  Future<void> _openLinkExisting() async {
     final created = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -99,6 +110,14 @@ class _AdminEmployeesScreenState extends ConsumerState<AdminEmployeesScreen> {
       appBar: AppBar(
         title: Text(context.lt(ar: 'إدارة الموظفين', en: 'Employees')),
         actions: [
+          IconButton(
+            tooltip: context.lt(
+              ar: 'ربط مستخدم موجود كموظف',
+              en: 'Link existing user as employee',
+            ),
+            onPressed: _openLinkExisting,
+            icon: const Icon(Icons.link_rounded),
+          ),
           IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
