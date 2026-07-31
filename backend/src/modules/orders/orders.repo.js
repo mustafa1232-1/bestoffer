@@ -748,6 +748,7 @@ async function loadProductVariantCatalogTx(client, productIds) {
        o.label_en AS option_label_en,
        o.swatch_hex,
        o.price_delta,
+       o.price_override AS option_price_override,
        o.image_url,
        o.is_available,
        o.sort_order AS option_sort_order,
@@ -805,6 +806,10 @@ async function loadProductVariantCatalogTx(client, productIds) {
       labelEn: row.option_label_en || null,
       swatchHex: row.swatch_hex || null,
       priceDelta: Number(row.price_delta || 0),
+      priceOverride:
+        row.option_price_override == null
+          ? null
+          : Number(row.option_price_override),
       imageUrl: row.image_url || null,
       isAvailable: row.is_available !== false,
       sortOrder: Number(row.option_sort_order || 0),
@@ -986,6 +991,23 @@ function buildVariantSelectionSignature(selections) {
     .join("|");
 }
 
+// The effective per-option special price from a set of selected options: size
+// takes priority over color, then any other group (mirrors the product card).
+function pickOptionPriceOverride(selections = []) {
+  const withOverride = (code) =>
+    selections.find(
+      (s) =>
+        String(s.groupCode || "").toLowerCase() === code &&
+        s.priceOverride != null
+    );
+  const size = withOverride("size");
+  if (size) return Number(size.priceOverride);
+  const color = withOverride("color");
+  if (color) return Number(color.priceOverride);
+  const any = selections.find((s) => s.priceOverride != null);
+  return any ? Number(any.priceOverride) : null;
+}
+
 function buildSelectionsFromVariantCatalog(variantCatalog, variant) {
   const selections = [];
   for (const selection of Array.isArray(variant?.selections) ? variant.selections : []) {
@@ -1005,8 +1027,11 @@ function buildSelectionsFromVariantCatalog(variantCatalog, variant) {
       swatchHex: option.swatchHex || null,
       imageUrl: option.imageUrl || null,
       priceDelta: Number(option.priceDelta || 0),
+      priceOverride:
+        option.priceOverride == null ? null : Number(option.priceOverride),
     });
   }
+  const optionPriceOverride = pickOptionPriceOverride(selections);
   const normalized = normalizeVariantSelectionInput({ selections });
   const colorSelection =
     normalized.selections.find((entry) => String(entry.groupCode || "").toLowerCase() === "color") ||
@@ -1016,6 +1041,7 @@ function buildSelectionsFromVariantCatalog(variantCatalog, variant) {
     null;
   return {
     ...normalized,
+    optionPriceOverride,
     selectionSignature: buildVariantSelectionSignature(normalized.selections),
     colorSelection,
     sizeSelection,
@@ -1138,6 +1164,7 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
       variantPriceDeltaTotal: Number(exactSelections.priceDeltaTotal || 0),
       variantId: exactVariant?.variantId || null,
       priceOverride: exactVariant?.priceOverride ?? null,
+      optionPriceOverride: exactSelections.optionPriceOverride ?? null,
       discountedPriceOverride: exactVariant?.discountedPriceOverride ?? null,
     };
   }
@@ -1191,6 +1218,8 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
       swatchHex: option.swatchHex || null,
       imageUrl: option.imageUrl || null,
       priceDelta: Number(option.priceDelta || 0),
+      priceOverride:
+        option.priceOverride == null ? null : Number(option.priceOverride),
     });
   }
 
@@ -1305,6 +1334,7 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
     variantPriceDeltaTotal: Number(variantPriceDeltaTotal || 0),
     variantId: exactVariant?.variantId || null,
     priceOverride: exactVariant?.priceOverride ?? null,
+    optionPriceOverride: pickOptionPriceOverride(resolvedSelections),
     discountedPriceOverride: exactVariant?.discountedPriceOverride ?? null,
   };
 }
@@ -1966,6 +1996,7 @@ async function calculateStoreOrderDraft({
 
     const activeOffer = activeOfferMap.get(String(item.productId)) || null;
     const baseUnitPrice = variantResolution.priceOverride ??
+      variantResolution.optionPriceOverride ??
       (Number(product.price) + Number(variantResolution.variantPriceDeltaTotal || 0));
     const fallbackDiscountedPrice = variantResolution.discountedPriceOverride ??
       (product.discounted_price == null
@@ -2301,6 +2332,7 @@ export async function createOrderWithItems({
 
       const activeOffer = activeOfferMap.get(String(item.productId)) || null;
       const baseUnitPrice = variantResolution.priceOverride ??
+        variantResolution.optionPriceOverride ??
         (Number(product.price) + Number(variantResolution.variantPriceDeltaTotal || 0));
       const fallbackDiscountedPrice = variantResolution.discountedPriceOverride ??
         (product.discounted_price == null

@@ -29,6 +29,11 @@ class CartStoreSection {
       final pricing = computeProductOfferPricing(
         item.product,
         quantity: item.quantity,
+        unitPriceOverride: variantSelectionUnitPriceOverride(
+          item.product,
+          variantId: item.selectedVariantId,
+          selections: item.selectedVariantSelections,
+        ),
       );
       return sum + pricing.grossLineTotal;
     });
@@ -39,6 +44,11 @@ class CartStoreSection {
       final pricing = computeProductOfferPricing(
         item.product,
         quantity: item.quantity,
+        unitPriceOverride: variantSelectionUnitPriceOverride(
+          item.product,
+          variantId: item.selectedVariantId,
+          selections: item.selectedVariantSelections,
+        ),
       );
       return sum + pricing.lineDiscountTotal;
     });
@@ -49,6 +59,11 @@ class CartStoreSection {
       final pricing = computeProductOfferPricing(
         item.product,
         quantity: item.quantity,
+        unitPriceOverride: variantSelectionUnitPriceOverride(
+          item.product,
+          variantId: item.selectedVariantId,
+          selections: item.selectedVariantSelections,
+        ),
       );
       return sum + pricing.lineTotal;
     });

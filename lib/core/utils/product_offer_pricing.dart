@@ -26,12 +26,76 @@ class ProductOfferPricingResult {
 
 double _roundMoney(double value) => double.parse(value.toStringAsFixed(2));
 
+/// The effective per-unit price for a cart item's variant selection: a full
+/// size+color combination override wins, then a per-option special price (size
+/// before color, then any group). Returns null when nothing special is set.
+double? variantSelectionUnitPriceOverride(
+  ProductModel product, {
+  int? variantId,
+  List<Map<String, dynamic>> selections = const [],
+}) {
+  // 1) A full size+color combination override wins. Resolve the combination by
+  //    its id, or by matching the selected options.
+  ProductVariantModel? variant;
+  if (variantId != null) {
+    for (final v in product.variants) {
+      if (v.id == variantId) {
+        variant = v;
+        break;
+      }
+    }
+  }
+  variant ??= selections.isEmpty
+      ? null
+      : product.variantForSelectionEntries(selections);
+  if (variant != null) {
+    final combo = variant.discountedPriceOverride ?? variant.priceOverride;
+    if (combo != null) return combo;
+  }
+  double? optionOverride(String groupCode) {
+    for (final entry in selections) {
+      final gc = '${entry['groupCode'] ?? entry['group_code'] ?? ''}'
+          .trim()
+          .toLowerCase();
+      if (gc != groupCode) continue;
+      final oc = '${entry['optionCode'] ?? entry['option_code'] ?? ''}'
+          .trim()
+          .toLowerCase();
+      for (final group in product.variantGroups) {
+        if (group.code.trim().toLowerCase() != groupCode) continue;
+        for (final option in group.options) {
+          if (option.code.trim().toLowerCase() == oc &&
+              option.priceOverride != null) {
+            return option.priceOverride;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  final sizePrice = optionOverride('size');
+  if (sizePrice != null) return sizePrice;
+  final colorPrice = optionOverride('color');
+  if (colorPrice != null) return colorPrice;
+  for (final entry in selections) {
+    final gc = '${entry['groupCode'] ?? entry['group_code'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    final anyPrice = optionOverride(gc);
+    if (anyPrice != null) return anyPrice;
+  }
+  return null;
+}
+
 ProductOfferPricingResult computeProductOfferPricing(
   ProductModel product, {
   int quantity = 1,
+  double? unitPriceOverride,
 }) {
   final qty = quantity < 1 ? 1 : quantity;
-  final baseUnitPrice = product.price;
+  final hasOverride = unitPriceOverride != null && unitPriceOverride > 0;
+  final baseUnitPrice = hasOverride ? unitPriceOverride : product.price;
   final grossLineTotal = _roundMoney(baseUnitPrice * qty);
   final offerType = product.activeOfferType;
 
@@ -56,7 +120,9 @@ ProductOfferPricingResult computeProductOfferPricing(
     );
   }
 
-  final discountedUnitPrice = product.discountedPrice;
+  // A variant override is already the final price for that option — don't layer
+  // the product-level discount on top of it.
+  final discountedUnitPrice = hasOverride ? null : product.discountedPrice;
   final unitPrice = discountedUnitPrice != null && discountedUnitPrice > 0
       ? discountedUnitPrice
       : baseUnitPrice;

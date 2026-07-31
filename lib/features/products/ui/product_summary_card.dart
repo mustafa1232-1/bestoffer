@@ -4,6 +4,7 @@ import '../../../core/files/local_image_file.dart';
 import '../../../core/media/cached_app_image.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/utils/product_offer_pricing.dart';
 import '../models/product_model.dart';
 import '../utils/product_variant_label_set.dart';
 
@@ -35,6 +36,7 @@ class ProductSummaryColorData {
   final String? imageUrl;
   final bool available;
   final List<String> availableSizeCodes;
+  final double? priceOverride;
 
   const ProductSummaryColorData({
     required this.optionId,
@@ -44,6 +46,7 @@ class ProductSummaryColorData {
     required this.imageUrl,
     required this.available,
     required this.availableSizeCodes,
+    this.priceOverride,
   });
 }
 
@@ -53,6 +56,7 @@ class ProductSummarySizeData {
   final String label;
   final bool available;
   final List<String> availableColorCodes;
+  final double? priceOverride;
 
   const ProductSummarySizeData({
     required this.optionId,
@@ -60,6 +64,7 @@ class ProductSummarySizeData {
     required this.label,
     required this.available,
     required this.availableColorCodes,
+    this.priceOverride,
   });
 }
 
@@ -336,7 +341,18 @@ class ProductSummaryCardData {
       imageFile: imageFile,
       priceText:
           priceTextOverride ??
-          formatIqd(product.discountedPrice ?? product.price),
+          formatIqd(
+            variantSelectionUnitPriceOverride(
+                  product,
+                  selections: [
+                    if (resolvedColorCode != null)
+                      {'groupCode': 'color', 'optionCode': resolvedColorCode},
+                    if (resolvedSizeCode != null)
+                      {'groupCode': 'size', 'optionCode': resolvedSizeCode},
+                  ],
+                ) ??
+                (product.discountedPrice ?? product.price),
+          ),
       originalPriceText: product.hasDiscount ? formatIqd(product.price) : null,
       discountBadge: product.hasDiscount
           ? ProductSummaryBadgeData(
@@ -689,6 +705,7 @@ List<ProductSummaryColorData> _buildColorOptions(
               : _resolveColorMediaUrl(product, code),
           available: enabled,
           availableSizeCodes: linkedSizes.toList(growable: false)..sort(),
+          priceOverride: option.priceOverride,
         );
       })
       .toList(growable: false);
@@ -719,6 +736,7 @@ List<ProductSummarySizeData> _buildSizeOptions(
           label: option.title,
           available: enabled,
           availableColorCodes: colors.toList(growable: false)..sort(),
+          priceOverride: option.priceOverride,
         );
       })
       .toList(growable: false);
@@ -1139,6 +1157,33 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
     );
   }
 
+  /// The price to show right now for the live in-card selection: a full
+  /// combination override wins, then a per-option special price (size before
+  /// color), else the parent-provided priceText (base / forced override).
+  String get _currentPriceText {
+    final selection = _currentSelection();
+    if (selection.variantId != null) {
+      for (final v in widget.data.variants) {
+        if (v.id == selection.variantId) {
+          final combo = v.discountedPriceOverride ?? v.priceOverride;
+          if (combo != null) return formatIqd(combo);
+          break;
+        }
+      }
+    }
+    for (final s in widget.data.sizes) {
+      if (_sameCode(s.code, _selectedSizeCode) && s.priceOverride != null) {
+        return formatIqd(s.priceOverride!);
+      }
+    }
+    for (final c in widget.data.colors) {
+      if (_sameCode(c.code, _selectedColorCode) && c.priceOverride != null) {
+        return formatIqd(c.priceOverride!);
+      }
+    }
+    return widget.data.priceText;
+  }
+
   void _emitSelection() {
     final callback = widget.onSelectionChanged;
     if (callback == null) return;
@@ -1405,7 +1450,7 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                 children: [
                   Flexible(
                     child: Text(
-                      widget.data.priceText,
+                      _currentPriceText,
                       textDirection: TextDirection.rtl,
                       textAlign: TextAlign.right,
                       style: TextStyle(

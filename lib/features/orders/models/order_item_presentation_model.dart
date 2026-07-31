@@ -254,7 +254,15 @@ class OrderItemPresentationModel {
     CartItemModel item, {
     Map<String, dynamic>? orderContext,
   }) {
-    final pricing = computeProductOfferPricing(item.product, quantity: item.quantity);
+    final pricing = computeProductOfferPricing(
+      item.product,
+      quantity: item.quantity,
+      unitPriceOverride: variantSelectionUnitPriceOverride(
+        item.product,
+        variantId: item.selectedVariantId,
+        selections: item.selectedVariantSelections,
+      ),
+    );
     final modifiersUnitTotal = item.selectedModifiers.fold<double>(
       0,
       (sum, modifier) =>
