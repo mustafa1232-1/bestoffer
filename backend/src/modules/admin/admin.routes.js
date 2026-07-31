@@ -313,6 +313,8 @@ adminRouter.post(
 );
 
 // إدارة موظفي الشركة (المرحلة 6).
+// Self-scoped: any back-office/staff account reads its OWN employee dashboard.
+adminRouter.get("/employees/me/dashboard", employees.myDashboard);
 adminRouter.get(
   "/employees/lookup-users",
   requirePermission("employees.read"),

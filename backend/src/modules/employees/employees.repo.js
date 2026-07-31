@@ -147,6 +147,85 @@ export async function upsertEmployee({
   }
 }
 
+// The signed-in employee's own dashboard: profile + current/earned salary +
+// this-month attendance summary + salary history. Self-scoped (no admin perm).
+export async function getMyEmployeeDashboard(userId) {
+  const id = Number(userId);
+  const profileRes = await q(
+    `SELECT p.user_id, u.full_name, u.phone, u.admin_role_key,
+            p.department, p.job_title, p.employment_type, p.status,
+            p.base_salary_iqd, p.employee_code, p.start_date
+     FROM company_employee_profile p
+     JOIN app_user u ON u.id = p.user_id
+     WHERE p.user_id = $1`,
+    [id]
+  );
+  const profile = profileRes.rows[0];
+  if (!profile) return null;
+
+  const salaryHistory = (
+    await q(
+      `SELECT base_salary_iqd, effective_from, reason
+       FROM company_salary_contract
+       WHERE employee_user_id = $1
+       ORDER BY effective_from DESC, id DESC
+       LIMIT 12`,
+      [id]
+    )
+  ).rows;
+
+  const att = (
+    await q(
+      `SELECT
+         COUNT(DISTINCT ((check_in_at AT TIME ZONE 'Asia/Baghdad')::date)) AS present_days,
+         COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(check_out_at, NOW()) - check_in_at))) / 3600.0, 0) AS hours,
+         MAX(check_in_at) AS last_check_in,
+         BOOL_OR(check_out_at IS NULL) AS currently_in
+       FROM company_attendance
+       WHERE employee_user_id = $1
+         AND (check_in_at AT TIME ZONE 'Asia/Baghdad')
+             >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Baghdad'))`,
+      [id]
+    )
+  ).rows[0];
+
+  const monthlySalary = Number(profile.base_salary_iqd || 0);
+  const presentDays = Number(att.present_days || 0);
+  const dailyRate = monthlySalary > 0 ? monthlySalary / 30 : 0;
+  const earnedThisMonth = Math.round(dailyRate * presentDays);
+
+  return {
+    profile: {
+      userId: Number(profile.user_id),
+      fullName: profile.full_name,
+      phone: profile.phone,
+      jobRoleKey: profile.admin_role_key || null,
+      department: profile.department,
+      jobTitle: profile.job_title,
+      employmentType: profile.employment_type,
+      status: profile.status,
+      employeeCode: profile.employee_code,
+      startDate: profile.start_date,
+    },
+    salary: {
+      monthlySalaryIqd: monthlySalary,
+      dailyRateIqd: Math.round(dailyRate),
+      earnedThisMonthIqd: earnedThisMonth,
+    },
+    attendance: {
+      presentDaysThisMonth: presentDays,
+      hoursThisMonth: Math.round(Number(att.hours || 0) * 10) / 10,
+      lastCheckIn: att.last_check_in,
+      currentlyCheckedIn: att.currently_in === true,
+    },
+    salaryHistory: salaryHistory.map((r) => ({
+      baseSalaryIqd: Number(r.base_salary_iqd || 0),
+      effectiveFrom: r.effective_from,
+      reason: r.reason || null,
+    })),
+  };
+}
+
 // Compensating delete for a half-created employee account (role must be 'staff'
 // so this can never remove a real user/admin). Profile + salary contracts cascade.
 export async function deleteStaffAccount(userId) {

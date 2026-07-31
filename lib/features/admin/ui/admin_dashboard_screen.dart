@@ -14,6 +14,7 @@ import '../models/admin_orders_overview_model.dart';
 import '../state/admin_controller.dart';
 import 'admin_advanced_tools_hub_screen.dart';
 import 'admin_create_employee_screen.dart';
+import 'employee_self_portal_screen.dart';
 import 'admin_referral_coupons_screen.dart';
 import 'admin_audit_security_center_screen.dart';
 import 'admin_approvals_hub_screen.dart';
@@ -485,6 +486,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         en: 'Search admin navigation',
       ),
       items: [
+        if (auth.isStaff)
+          AppUserDrawerItem(
+            icon: Icons.badge_rounded,
+            label: navText(ar: 'بوابتي', en: 'My portal'),
+            subtitle: navText(
+              ar: 'راتبك وحضورك والمكتسب حتى الآن',
+              en: 'Your salary, attendance and earnings',
+            ),
+            group: groupHome,
+            onTap: (_) => _openPage(const EmployeeSelfPortalScreen()),
+          ),
         if (canPermission('dashboard.command_center.view'))
           AppUserDrawerItem(
             icon: Icons.dashboard_customize_rounded,

@@ -54,6 +54,15 @@ export async function getEmployee(req, res, next) {
   }
 }
 
+export async function myDashboard(req, res, next) {
+  try {
+    const dashboard = await service.getMyEmployeeDashboard(req.userId);
+    return res.json({ dashboard });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function createEmployeeAccount(req, res, next) {
   try {
     const result = await service.createEmployeeAccount({

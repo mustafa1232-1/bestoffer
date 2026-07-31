@@ -473,6 +473,15 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  /// The signed-in employee's own dashboard (profile, salary, attendance).
+  /// Returns null when the caller has no employee profile.
+  Future<Map<String, dynamic>?> myEmployeeDashboard() async {
+    final response = await dio.get('/api/admin/employees/me/dashboard');
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final d = map['dashboard'];
+    return d == null ? null : Map<String, dynamic>.from(d as Map);
+  }
+
   /// Creates a standalone employee account (staff role, phone+PIN, job role +
   /// explained permission overrides).
   Future<Map<String, dynamic>> createEmployeeAccount(

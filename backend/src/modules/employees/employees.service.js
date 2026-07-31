@@ -211,6 +211,12 @@ export async function listEmployees(query) {
   return repo.listEmployees(query);
 }
 
+/// The signed-in employee's own dashboard (self-scoped). Returns null when the
+/// caller has no employee profile (e.g. a plain admin) so the UI can say so.
+export async function getMyEmployeeDashboard(userId) {
+  return repo.getMyEmployeeDashboard(userId);
+}
+
 export async function lookupUsers(query) {
   return repo.lookupUsers(query);
 }
