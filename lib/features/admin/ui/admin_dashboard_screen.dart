@@ -1234,7 +1234,6 @@ class _AdminDashboardBody extends StatelessWidget {
           else
             LayoutBuilder(
               builder: (context, constraints) {
-                final compact = constraints.maxWidth < 760;
                 final children = [
                   _ActionMetricCard(
                     icon: Icons.receipt_long_rounded,
@@ -1277,28 +1276,7 @@ class _AdminDashboardBody extends StatelessWidget {
                     onTap: onOpenInProgressOrders,
                   ),
                 ];
-                if (compact) {
-                  return Column(
-                    children: [
-                      for (final child in children) ...[
-                        child,
-                        const SizedBox(height: 12),
-                      ],
-                    ],
-                  );
-                }
-                return Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: children
-                      .map(
-                        (child) => SizedBox(
-                          width: (constraints.maxWidth - 12) / 2,
-                          child: child,
-                        ),
-                      )
-                      .toList(growable: false),
-                );
+                return _dashboardCardGrid(children, constraints.maxWidth);
               },
             ),
           if (canMerchantApprovals || canTaxiApprovals) ...[
@@ -1319,7 +1297,6 @@ class _AdminDashboardBody extends StatelessWidget {
           ],
           LayoutBuilder(
             builder: (context, constraints) {
-              final compact = constraints.maxWidth < 760;
               final items = [
                 if (canMerchantApprovals)
                   _ApprovalCard(
@@ -1358,28 +1335,7 @@ class _AdminDashboardBody extends StatelessWidget {
                     onTap: onOpenFinancialActions,
                   ),
               ];
-              if (compact) {
-                return Column(
-                  children: [
-                    for (final item in items) ...[
-                      item,
-                      const SizedBox(height: 12),
-                    ],
-                  ],
-                );
-              }
-              return Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: items
-                    .map(
-                      (item) => SizedBox(
-                        width: (constraints.maxWidth - 12) / 2,
-                        child: item,
-                      ),
-                    )
-                    .toList(growable: false),
-              );
+              return _dashboardCardGrid(items, constraints.maxWidth);
             },
           ),
           const SizedBox(height: 22),
@@ -1439,7 +1395,6 @@ class _AdminDashboardBody extends StatelessWidget {
                   else
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        final compact = constraints.maxWidth < 760;
                         final cards = [
                           _PeriodMetricCard(
                             icon: Icons.percent_rounded,
@@ -1493,28 +1448,7 @@ class _AdminDashboardBody extends StatelessWidget {
                             color: const Color(0xFFFBBF24),
                           ),
                         ];
-                        if (compact) {
-                          return Column(
-                            children: [
-                              for (final card in cards) ...[
-                                card,
-                                const SizedBox(height: 12),
-                              ],
-                            ],
-                          );
-                        }
-                        return Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: cards
-                              .map(
-                                (card) => SizedBox(
-                                  width: (constraints.maxWidth - 24) / 3,
-                                  child: card,
-                                ),
-                              )
-                              .toList(growable: false),
-                        );
+                        return _dashboardCardGrid(cards, constraints.maxWidth);
                       },
                     ),
                 ],
@@ -1737,59 +1671,73 @@ class _ActionMetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: Ink(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(color: color.withValues(alpha: 0.22)),
             gradient: LinearGradient(
               begin: Alignment.topRight,
               end: Alignment.bottomLeft,
               colors: [
-                color.withValues(alpha: 0.18),
-                Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.42),
+                color.withValues(alpha: 0.16),
+                scheme.surfaceContainerHighest.withValues(alpha: 0.32),
               ],
             ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: color),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(icon, color: color, size: 20),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      value,
+                      textAlign: TextAlign.end,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: color,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Text(
                 title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(
                   context,
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
-              const SizedBox(height: 8),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Text(
                 hint,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  height: 1.35,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.3,
                 ),
               ),
             ],
@@ -1798,6 +1746,36 @@ class _ActionMetricCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Lays cards out in an aligned, equal-height responsive grid: 2 columns on
+/// phones, 3 on small tablets, 4 on wide screens.
+Widget _dashboardCardGrid(List<Widget> children, double maxWidth) {
+  if (children.isEmpty) return const SizedBox.shrink();
+  final columns = maxWidth >= 900 ? 4 : (maxWidth >= 600 ? 3 : 2);
+  final rows = <Widget>[];
+  for (var i = 0; i < children.length; i += columns) {
+    final cells = <Widget>[];
+    for (var j = 0; j < columns; j++) {
+      final index = i + j;
+      cells.add(
+        Expanded(
+          child: index < children.length ? children[index] : const SizedBox(),
+        ),
+      );
+      if (j < columns - 1) cells.add(const SizedBox(width: 10));
+    }
+    if (rows.isNotEmpty) rows.add(const SizedBox(height: 10));
+    rows.add(
+      IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: cells,
+        ),
+      ),
+    );
+  }
+  return Column(children: rows);
 }
 
 class _ApprovalCard extends StatelessWidget {
@@ -1822,23 +1800,23 @@ class _ApprovalCard extends StatelessWidget {
     final hasItems = count > 0;
     return Card(
       child: InkWell(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
                   Container(
-                    width: 42,
-                    height: 42,
+                    width: 38,
+                    height: 38,
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(icon, color: color),
+                    child: Icon(icon, color: color, size: 20),
                   ),
                   const Spacer(),
                   Container(
@@ -1866,19 +1844,23 @@ class _ApprovalCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
               Text(
                 title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(
                   context,
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Text(
                 description,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  height: 1.35,
+                  height: 1.3,
                 ),
               ),
             ],
@@ -1907,12 +1889,12 @@ class _PeriodMetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         color: Theme.of(
           context,
-        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.42),
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.38),
         border: Border.all(color: color.withValues(alpha: 0.20)),
       ),
       child: Column(
@@ -1920,11 +1902,21 @@ class _PeriodMetricCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, color: color, size: 20),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 18),
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(
                     context,
                   ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
@@ -1932,19 +1924,24 @@ class _PeriodMetricCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Text(
             value,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
             note,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
-              height: 1.35,
+              height: 1.3,
             ),
           ),
         ],
