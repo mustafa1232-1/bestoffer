@@ -1,6 +1,8 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/currency.dart';
 import '../state/admin_controller.dart';
 
@@ -18,8 +20,36 @@ class EmployeeSelfPortalScreen extends ConsumerStatefulWidget {
 class _EmployeeSelfPortalScreenState
     extends ConsumerState<EmployeeSelfPortalScreen> {
   bool _loading = true;
+  bool _toggling = false;
   String? _error;
   Map<String, dynamic>? _data;
+
+  Future<void> _toggleAttendance(bool currentlyIn) async {
+    setState(() => _toggling = true);
+    try {
+      final api = ref.read(adminApiProvider);
+      if (currentlyIn) {
+        await api.staffCheckOut();
+      } else {
+        await api.staffCheckIn();
+      }
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(currentlyIn ? 'تم تسجيل الانصراف' : 'تم تسجيل الحضور'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e is DioException
+          ? mapDioError(e, fallback: 'تعذّر تسجيل الحضور/الانصراف.')
+          : 'تعذّر تسجيل الحضور/الانصراف.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } finally {
+      if (mounted) setState(() => _toggling = false);
+    }
+  }
 
   @override
   void initState() {
@@ -201,6 +231,28 @@ class _EmployeeSelfPortalScreenState
           ),
         ),
         const SizedBox(height: 12),
+
+        // Check-in / check-out — the employee records attendance directly.
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _toggling ? null : () => _toggleAttendance(checkedIn),
+            icon: _toggling
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(checkedIn ? Icons.logout_rounded : Icons.login_rounded),
+            label: Text(checkedIn ? 'تسجيل انصراف' : 'تسجيل حضور'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(50),
+              backgroundColor: checkedIn ? Colors.orange : Colors.green,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
 
         // Salary cards
         _sectionTitle('الراتب'),

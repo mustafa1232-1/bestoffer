@@ -473,6 +473,21 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  /// Employee self-service: record own check-in / check-out (attendance).
+  Future<void> staffCheckIn({String? note}) async {
+    await dio.post(
+      '/api/staff/attendance/check-in',
+      data: {if (note != null && note.trim().isNotEmpty) 'note': note.trim()},
+    );
+  }
+
+  Future<void> staffCheckOut({String? note}) async {
+    await dio.post(
+      '/api/staff/attendance/check-out',
+      data: {if (note != null && note.trim().isNotEmpty) 'note': note.trim()},
+    );
+  }
+
   /// The signed-in employee's own dashboard (profile, salary, attendance).
   /// Returns null when the caller has no employee profile.
   Future<Map<String, dynamic>?> myEmployeeDashboard() async {
