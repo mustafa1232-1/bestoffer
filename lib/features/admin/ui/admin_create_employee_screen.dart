@@ -288,17 +288,26 @@ class _AdminCreateEmployeeScreenState
           keyboard: TextInputType.number,
         ),
         const SizedBox(height: 16),
-        _section('الصلاحيات'),
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            _jobRoleKey == null
-                ? 'اختر وظيفة أولاً لتُفعّل صلاحياتها تلقائياً، ثم عدّل ما تشاء.'
-                : 'صلاحيات الوظيفة مفعّلة تلقائياً. يمكنك إضافة أو إزالة أي صلاحية.',
-            style: TextStyle(color: Theme.of(context).hintColor, fontSize: 12),
+        // Permissions are auto-filled by the chosen job role, so they're tucked
+        // into a single collapsible section — the fast path never needs to open
+        // it. Expand only to fine-tune.
+        Card(
+          child: ExpansionTile(
+            initiallyExpanded: false,
+            leading: const Icon(Icons.shield_outlined),
+            title: const Text(
+              'الصلاحيات (اختياري)',
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+            subtitle: Text(
+              _jobRoleKey == null
+                  ? 'ستُفعَّل تلقائياً حسب الوظيفة — اختر وظيفة'
+                  : 'مفعّلة تلقائياً حسب الوظيفة · ${_checked.length} صلاحية — اضغط للتخصيص',
+            ),
+            childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            children: _groups.map((g) => _permGroup(g, isSuper)).toList(),
           ),
         ),
-        ..._groups.map((g) => _permGroup(g, isSuper)),
       ],
     );
   }
