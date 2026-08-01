@@ -462,6 +462,7 @@ export async function listCustomerCoupons({
 export async function createCoupon({
   code, description, discountType, discountValue, minOrderTotal,
   maxUses, merchantId, validFrom, validUntil, createdBy, agentUserId = null,
+  agentCommissionSharePercent = null,
 }) {
   // scope_kind MUST be set explicitly (see resolveCouponScopeKind). The column
   // defaults to 'merchant', so omitting it made global coupons (no merchant_id)
@@ -471,12 +472,17 @@ export async function createCoupon({
   const scopeKind = resolveCouponScopeKind({ merchantId: resolvedMerchantId });
   const resolvedAgentUserId =
     agentUserId != null && Number(agentUserId) > 0 ? Number(agentUserId) : null;
+  // Only agent coupons carry an earning share; clamp to [0, 100].
+  const resolvedShare =
+    resolvedAgentUserId != null && agentCommissionSharePercent != null
+      ? Math.max(0, Math.min(100, Number(agentCommissionSharePercent)))
+      : null;
   const r = await q(
     `INSERT INTO coupon
        (code, description, discount_type, discount_value, min_order_total,
         max_uses, merchant_id, scope_kind, valid_from, valid_until, created_by,
-        agent_user_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        agent_user_id, agent_commission_share_percent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      RETURNING *`,
     [
       code.toUpperCase().trim(), description || null, discountType,
@@ -486,9 +492,75 @@ export async function createCoupon({
       scopeKind,
       validFrom || null, validUntil || null, createdBy,
       resolvedAgentUserId,
+      resolvedShare,
     ]
   );
   return r.rows[0];
+}
+
+/**
+ * Every agent (employee) coupon owned by a user — even those with no redemptions
+ * yet — so the employee portal can show the coupon code + earning share.
+ */
+export async function listAgentCouponsForUser(agentUserId) {
+  const r = await q(
+    `SELECT
+       id,
+       code,
+       discount_type,
+       discount_value,
+       is_active,
+       COALESCE(agent_commission_share_percent, 25) AS share_percent,
+       created_at
+     FROM coupon
+     WHERE agent_user_id = $1
+     ORDER BY created_at DESC, id DESC`,
+    [Number(agentUserId)]
+  );
+  return r.rows;
+}
+
+/**
+ * The redeemed, COMPLETED orders behind agent coupons, with each order's full
+ * row and its merchant billing profile — enough to recompute the company
+ * commission per order via `computeOrderFinancialSnapshot`. Only completed
+ * orders count (an employee earns once the order is actually delivered, never on
+ * pending/cancelled ones). Pass an agentUserId to scope to one employee, or omit
+ * for every agent coupon (admin report).
+ */
+export async function listAgentCouponEarningRows({ agentUserId = null } = {}) {
+  const params = [];
+  let filter = "";
+  if (agentUserId != null && Number(agentUserId) > 0) {
+    params.push(Number(agentUserId));
+    filter = `AND c.agent_user_id = $${params.length}`;
+  }
+  const r = await q(
+    `SELECT
+       c.id                                       AS coupon_id,
+       c.agent_user_id                            AS agent_user_id,
+       COALESCE(c.agent_commission_share_percent, 25) AS share_percent,
+       cr.order_id                                AS order_id,
+       cr.customer_id                             AS customer_id,
+       cr.redeemed_at                             AS redeemed_at,
+       to_jsonb(o.*)                              AS order_json,
+       to_jsonb(bp.*)                             AS profile_json
+     FROM coupon c
+     JOIN coupon_redemption cr
+       ON cr.coupon_id = c.id
+      AND COALESCE(cr.is_void, FALSE) = FALSE
+     JOIN customer_order o
+       ON o.id = cr.order_id
+      AND o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')
+     LEFT JOIN merchant_billing_profile bp
+       ON bp.merchant_id = o.merchant_id
+     WHERE c.agent_user_id IS NOT NULL
+       ${filter}
+     ORDER BY cr.redeemed_at DESC
+     LIMIT 1000`,
+    params
+  );
+  return r.rows;
 }
 
 /**
@@ -523,6 +595,7 @@ export async function listAgentReferralCoupons() {
        c.is_active,
        c.created_at,
        c.agent_user_id,
+       c.agent_commission_share_percent,
        u.full_name  AS agent_name,
        u.phone      AS agent_phone,
        u.role       AS agent_role,
@@ -558,12 +631,12 @@ export async function listAgentCouponRedemptions(couponId, { limit = 200 } = {})
        cu.phone     AS customer_phone,
        cr.order_id,
        cr.discount_amount,
-       cr.created_at
+       cr.redeemed_at AS created_at
      FROM coupon_redemption cr
      LEFT JOIN app_user cu ON cu.id = cr.customer_id
      WHERE cr.coupon_id = $1
        AND COALESCE(cr.is_void, FALSE) = FALSE
-     ORDER BY cr.created_at DESC
+     ORDER BY cr.redeemed_at DESC
      LIMIT $2`,
     [Number(couponId), Math.max(1, Math.min(500, Number(limit) || 200))]
   );

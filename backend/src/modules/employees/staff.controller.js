@@ -9,6 +9,7 @@ import * as attendance from "./attendance.repo.js";
 import * as payroll from "./payroll.repo.js";
 import * as evaluation from "./evaluation.repo.js";
 import { getEmployeeByUserId } from "./employees.repo.js";
+import { getMyCouponEarnings } from "../coupons/coupons.service.js";
 
 const EXPENSE_CATEGORIES = ["food", "transport", "communication", "work_task", "other"];
 
@@ -137,6 +138,16 @@ export async function objectToReview(req, res, next) {
     });
     if (result.code !== "OK") throw new AppError("REVIEW_NOT_FOUND", { status: 404 });
     return res.json({ review: result.review });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function myCouponEarnings(req, res, next) {
+  try {
+    await assertEmployee(req.userId);
+    const earnings = await getMyCouponEarnings(req.userId);
+    return res.json(earnings);
   } catch (error) {
     return next(error);
   }

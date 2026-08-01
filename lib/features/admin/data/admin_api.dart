@@ -497,6 +497,13 @@ class AdminApi {
     return d == null ? null : Map<String, dynamic>.from(d as Map);
   }
 
+  /// The signed-in employee's own referral-coupon earnings ("كوبوني"):
+  /// their coupon code(s), redemptions, company commission, and their share.
+  Future<Map<String, dynamic>> myCouponEarnings() async {
+    final response = await dio.get('/api/staff/coupon/earnings');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   /// Creates a standalone employee account (staff role, phone+PIN, job role +
   /// explained permission overrides).
   Future<Map<String, dynamic>> createEmployeeAccount(

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_error_mapper.dart';
@@ -23,6 +24,7 @@ class _EmployeeSelfPortalScreenState
   bool _toggling = false;
   String? _error;
   Map<String, dynamic>? _data;
+  Map<String, dynamic>? _coupon;
 
   Future<void> _toggleAttendance(bool currentlyIn) async {
     setState(() => _toggling = true);
@@ -63,10 +65,19 @@ class _EmployeeSelfPortalScreenState
       _error = null;
     });
     try {
-      final d = await ref.read(adminApiProvider).myEmployeeDashboard();
+      final api = ref.read(adminApiProvider);
+      final d = await api.myEmployeeDashboard();
+      // "كوبوني" earnings — best-effort; the portal still loads without it.
+      Map<String, dynamic>? coupon;
+      try {
+        coupon = await api.myCouponEarnings();
+      } catch (_) {
+        coupon = null;
+      }
       if (!mounted) return;
       setState(() {
         _data = d;
+        _coupon = coupon;
         _loading = false;
       });
     } catch (e) {
@@ -314,6 +325,9 @@ class _EmployeeSelfPortalScreenState
         ),
         const SizedBox(height: 16),
 
+        // "كوبوني" — the employee's referral coupon and earnings from it.
+        ..._couponSection(),
+
         // Salary history
         if (history.isNotEmpty) ...[
           _sectionTitle('سجل الراتب'),
@@ -341,6 +355,139 @@ class _EmployeeSelfPortalScreenState
         ),
       ],
     );
+  }
+
+  List<Widget> _couponSection() {
+    final c = _coupon;
+    if (c == null || c['hasCoupon'] != true) {
+      return [
+        _sectionTitle('كوبوني'),
+        const Card(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'لا يوجد كوبون إحالة خاص بك بعد. تواصل مع الإدارة لإنشائه.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ];
+    }
+    final summary = Map<String, dynamic>.from(
+      (c['summary'] as Map?) ?? const {},
+    );
+    final coupons = ((c['coupons'] as List?) ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList(growable: false);
+    final primary = coupons.isNotEmpty ? coupons.first : <String, dynamic>{};
+    final code = '${primary['code'] ?? ''}';
+    final share = (primary['sharePercent'] as num?) ?? (c['sharePercent'] as num?) ?? 25;
+    final redemptions = (summary['totalRedemptions'] as num?)?.toInt() ?? 0;
+
+    return [
+      _sectionTitle('كوبوني'),
+      // Coupon code header with copy + share badge.
+      Card(
+        color: Colors.teal.withValues(alpha: 0.08),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.confirmation_number_rounded,
+                color: Colors.teal,
+                size: 30,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'رمز كوبونك',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    Text(
+                      code.isEmpty ? '—' : code,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 20,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'حصّتك: $share% من عمولة الشركة على كل طلب',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.teal,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (code.isNotEmpty)
+                IconButton(
+                  tooltip: 'نسخ',
+                  icon: const Icon(Icons.copy_rounded),
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: code));
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('تم نسخ رمز الكوبون')),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 10),
+      Row(
+        children: [
+          _statCard(
+            'أرباح كوبوني',
+            _num(summary['totalEarnings']),
+            Icons.savings_rounded,
+            Colors.green,
+          ),
+          const SizedBox(width: 10),
+          _statCard(
+            'عمولة الشركة (طلباتك)',
+            _num(summary['totalCompanyCommission']),
+            Icons.account_balance_rounded,
+            Colors.blue,
+          ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      Row(
+        children: [
+          _statCard(
+            'مرات الاستخدام',
+            '$redemptions',
+            Icons.shopping_bag_rounded,
+            Colors.deepPurple,
+          ),
+          const SizedBox(width: 10),
+          _statCard(
+            'نسبة حصّتك',
+            '$share%',
+            Icons.percent_rounded,
+            Colors.orange,
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Text(
+        'تُحتسب الأرباح عند اكتمال الطلب (تسليمه) فقط.',
+        style: TextStyle(color: Theme.of(context).hintColor, fontSize: 11),
+        textAlign: TextAlign.center,
+      ),
+      const SizedBox(height: 16),
+    ];
   }
 
   Widget _sectionTitle(String t) => Padding(

@@ -14,6 +14,7 @@ import {
 } from "../security/permissions.service.js";
 import { ROLE_TEMPLATES } from "../security/permissions.catalog.js";
 import { JOB_ROLE_METADATA } from "../security/permissions.metadata.js";
+import { createAgentReferralCoupon } from "../coupons/coupons.service.js";
 
 // Maps a job role to its HR department bucket (company_employee_profile enum).
 const JOB_ROLE_DEPARTMENT = Object.freeze({
@@ -194,6 +195,41 @@ export async function createEmployeeAccount({ actorUserId, dto }) {
     throw error;
   }
 
+  // Optional employee referral coupon ("كوبوني"). Best-effort: the account is
+  // already committed, so a coupon failure must never fail the creation. When a
+  // customer redeems this coupon, the employee earns `agentCommissionSharePercent`
+  // (default 25%) of the company's commission on that completed order.
+  let referralCoupon = null;
+  if (dto?.createReferralCoupon === true) {
+    try {
+      const coupon = await createAgentReferralCoupon({
+        employeeUserId: Number(user.id),
+        employeeName: fullName,
+        adminUserId: actorUserId,
+        discountType: dto?.couponDiscountType === "fixed" ? "fixed" : "percent",
+        discountValue:
+          dto?.couponDiscountValue != null && dto.couponDiscountValue !== ""
+            ? Number(dto.couponDiscountValue)
+            : 0,
+        agentCommissionSharePercent:
+          dto?.agentCommissionSharePercent != null &&
+          dto.agentCommissionSharePercent !== ""
+            ? Number(dto.agentCommissionSharePercent)
+            : 25,
+      });
+      referralCoupon = {
+        id: Number(coupon.id),
+        code: coupon.code,
+        sharePercent: Number(coupon.agent_commission_share_percent ?? 25),
+      };
+    } catch (couponError) {
+      console.warn(
+        "[employees] referral coupon creation failed:",
+        couponError?.message || couponError
+      );
+    }
+  }
+
   return {
     id: Number(user.id),
     fullName: user.full_name,
@@ -204,6 +240,7 @@ export async function createEmployeeAccount({ actorUserId, dto }) {
     department,
     employeeCode,
     baseSalaryIqd,
+    referralCoupon,
   };
 }
 

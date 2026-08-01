@@ -1,5 +1,15 @@
 import { AppError } from "../../shared/utils/errors.js";
+import { checkPermission } from "../security/permissions.service.js";
+import { computeOrderFinancialSnapshot } from "../commerce/merchant-financial.logic.js";
 import * as repo from "./coupons.repo.js";
+
+const DEFAULT_AGENT_COMMISSION_SHARE_PERCENT = 25;
+
+function normalizeSharePercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_AGENT_COMMISSION_SHARE_PERCENT;
+  return Math.max(0, Math.min(100, n));
+}
 
 /**
  * Validate a coupon code and return the potential discount.
@@ -136,6 +146,27 @@ async function resolveCouponManager(actor) {
   }
 
   throw new AppError("FORBIDDEN_COUPON_MANAGEMENT", { status: 403 });
+}
+
+/**
+ * Authorization for the employee/agent-coupon monitoring surface
+ * (list, redemptions, discount edit). Unlike general coupon CRUD — which is
+ * limited to owners and super-admins — these company-wide reports are open to
+ * anyone holding the `coupons.agents.manage` permission (staff employees and
+ * delegated admins), as well as super-admins. The matching routes already gate
+ * on this permission; this resolver enforces it again at the service layer so
+ * the scope can never be reached without it.
+ */
+async function resolveAgentCouponManager(actor) {
+  const userId = Number(actor?.userId || 0);
+  if (!Number.isFinite(userId) || userId <= 0) {
+    throw new AppError("UNAUTHORIZED", { status: 401 });
+  }
+  const check = await checkPermission(userId, "coupons.agents.manage");
+  if (!check.allowed) {
+    throw new AppError("FORBIDDEN_COUPON_MANAGEMENT", { status: 403 });
+  }
+  return { kind: "agent_manager", userId, merchantId: null };
 }
 
 function throwCouponValidation(fields, formCode = null) {
@@ -315,17 +346,24 @@ export async function createAgentReferralCoupon({
   employeeUserId,
   employeeName,
   adminUserId,
+  discountType = "percent",
+  discountValue = 0,
+  agentCommissionSharePercent = DEFAULT_AGENT_COMMISSION_SHARE_PERCENT,
 }) {
   const agentId = Number(employeeUserId);
   if (!Number.isFinite(agentId) || agentId <= 0) {
     throw new AppError("VALIDATION_ERROR", { status: 400 });
   }
+  const resolvedType = discountType === "fixed" ? "fixed" : "percent";
+  let resolvedValue = Number(discountValue);
+  if (!Number.isFinite(resolvedValue) || resolvedValue < 0) resolvedValue = 0;
+  if (resolvedType === "percent" && resolvedValue > 100) resolvedValue = 100;
   const code = `REF${agentId}`;
   const coupon = await repo.createCoupon({
     code,
     description: `كوبون إحالة${employeeName ? ` - ${employeeName}` : ""}`,
-    discountType: "percent",
-    discountValue: 0, // attribution-only until the admin sets a discount
+    discountType: resolvedType,
+    discountValue: resolvedValue, // 0 = attribution-only (no customer discount)
     minOrderTotal: 0,
     maxUses: null,
     merchantId: null, // global
@@ -333,8 +371,107 @@ export async function createAgentReferralCoupon({
     validUntil: null,
     createdBy: Number(adminUserId) || null,
     agentUserId: agentId,
+    agentCommissionSharePercent: normalizeSharePercent(
+      agentCommissionSharePercent
+    ),
   });
   return coupon;
+}
+
+/**
+ * Reduces the redeemed-order rows (from repo.listAgentCouponEarningRows) into a
+ * per-coupon tally of the company commission earned and the employee's share of
+ * it, plus a flat, most-recent-first breakdown of each qualifying order.
+ */
+function aggregateAgentEarnings(rows) {
+  const byCoupon = new Map();
+  const breakdown = [];
+  for (const row of rows || []) {
+    const order = row.order_json || {};
+    const profile = row.profile_json || {};
+    const snapshot = computeOrderFinancialSnapshot(order, profile);
+    const companyCommission = Math.max(
+      0,
+      Math.round(Number(snapshot.commissionAmount) || 0)
+    );
+    const share = normalizeSharePercent(row.share_percent);
+    const earning = Math.round((companyCommission * share) / 100);
+
+    const couponId = Number(row.coupon_id);
+    const acc =
+      byCoupon.get(couponId) ||
+      { redemptions: 0, companyCommission: 0, earnings: 0 };
+    acc.redemptions += 1;
+    acc.companyCommission += companyCommission;
+    acc.earnings += earning;
+    byCoupon.set(couponId, acc);
+
+    breakdown.push({
+      couponId,
+      orderId: row.order_id == null ? null : Number(row.order_id),
+      redeemedAt: row.redeemed_at || null,
+      orderSubtotal: Math.round(Number(snapshot.subtotal) || 0),
+      companyCommission,
+      sharePercent: share,
+      earning,
+    });
+  }
+  return { byCoupon, breakdown };
+}
+
+/**
+ * The signed-in employee's own coupon earnings ("كوبوني"): their referral
+ * coupon(s), how many completed orders came through each, the company commission
+ * those orders generated, and the employee's share of it.
+ */
+export async function getMyCouponEarnings(agentUserId) {
+  const userId = Number(agentUserId);
+  if (!Number.isFinite(userId) || userId <= 0) {
+    throw new AppError("UNAUTHORIZED", { status: 401 });
+  }
+  const [coupons, rows] = await Promise.all([
+    repo.listAgentCouponsForUser(userId),
+    repo.listAgentCouponEarningRows({ agentUserId: userId }),
+  ]);
+  const { byCoupon, breakdown } = aggregateAgentEarnings(rows);
+
+  const couponViews = coupons.map((c) => {
+    const tally = byCoupon.get(Number(c.id)) || {
+      redemptions: 0,
+      companyCommission: 0,
+      earnings: 0,
+    };
+    return {
+      couponId: Number(c.id),
+      code: c.code,
+      discountType: c.discount_type,
+      discountValue: Number(c.discount_value || 0),
+      sharePercent: normalizeSharePercent(c.share_percent),
+      isActive: c.is_active === true,
+      redemptions: tally.redemptions,
+      companyCommission: tally.companyCommission,
+      earnings: tally.earnings,
+    };
+  });
+
+  const summary = couponViews.reduce(
+    (acc, c) => {
+      acc.totalRedemptions += c.redemptions;
+      acc.totalCompanyCommission += c.companyCommission;
+      acc.totalEarnings += c.earnings;
+      return acc;
+    },
+    { totalRedemptions: 0, totalCompanyCommission: 0, totalEarnings: 0 }
+  );
+
+  return {
+    hasCoupon: couponViews.length > 0,
+    sharePercent: couponViews[0]?.sharePercent ??
+      DEFAULT_AGENT_COMMISSION_SHARE_PERCENT,
+    coupons: couponViews,
+    summary,
+    breakdown: breakdown.slice(0, 50),
+  };
 }
 
 /**
@@ -342,10 +479,7 @@ export async function createAgentReferralCoupon({
  * a fixed amount to an employee referral coupon, or set it back to 0 (tracking).
  */
 export async function updateCoupon(couponId, { discountType, discountValue }, actor) {
-  const manager = await resolveCouponManager(actor);
-  if (manager.kind !== "super_admin") {
-    throw new AppError("FORBIDDEN_SUPER_ADMIN_ONLY", { status: 403 });
-  }
+  await resolveAgentCouponManager(actor);
   const id = Number(couponId);
   if (!Number.isFinite(id) || id <= 0) {
     throw new AppError("COUPON_NOT_FOUND", { status: 404 });
@@ -375,27 +509,37 @@ export async function updateCoupon(couponId, { discountType, discountValue }, ac
  * attribution stats — customers/orders that came through each employee.
  */
 export async function listAgentReferralCoupons(actor) {
-  const manager = await resolveCouponManager(actor);
-  if (manager.kind !== "super_admin") {
-    throw new AppError("FORBIDDEN_SUPER_ADMIN_ONLY", { status: 403 });
-  }
-  const rows = await repo.listAgentReferralCoupons();
+  await resolveAgentCouponManager(actor);
+  const [rows, earningRows] = await Promise.all([
+    repo.listAgentReferralCoupons(),
+    repo.listAgentCouponEarningRows({}),
+  ]);
+  const { byCoupon } = aggregateAgentEarnings(earningRows);
   return {
-    agents: rows.map((row) => ({
-      couponId: Number(row.id),
-      code: row.code,
-      discountType: row.discount_type,
-      discountValue: Number(row.discount_value || 0),
-      isActive: row.is_active === true,
-      createdAt: row.created_at || null,
-      agentUserId: Number(row.agent_user_id),
-      agentName: row.agent_name || null,
-      agentPhone: row.agent_phone || null,
-      agentRole: row.agent_role || null,
-      redemptions: Number(row.redemptions || 0),
-      uniqueCustomers: Number(row.unique_customers || 0),
-      totalDiscount: Number(row.total_discount || 0),
-    })),
+    agents: rows.map((row) => {
+      const tally = byCoupon.get(Number(row.id)) || {
+        companyCommission: 0,
+        earnings: 0,
+      };
+      return {
+        couponId: Number(row.id),
+        code: row.code,
+        discountType: row.discount_type,
+        discountValue: Number(row.discount_value || 0),
+        sharePercent: normalizeSharePercent(row.agent_commission_share_percent),
+        isActive: row.is_active === true,
+        createdAt: row.created_at || null,
+        agentUserId: Number(row.agent_user_id),
+        agentName: row.agent_name || null,
+        agentPhone: row.agent_phone || null,
+        agentRole: row.agent_role || null,
+        redemptions: Number(row.redemptions || 0),
+        uniqueCustomers: Number(row.unique_customers || 0),
+        totalDiscount: Number(row.total_discount || 0),
+        companyCommission: tally.companyCommission,
+        earnings: tally.earnings,
+      };
+    }),
   };
 }
 
@@ -403,10 +547,7 @@ export async function listAgentReferralCoupons(actor) {
  * Attribution detail for one agent coupon: the customers/orders that used it.
  */
 export async function getAgentCouponRedemptions(couponId, actor) {
-  const manager = await resolveCouponManager(actor);
-  if (manager.kind !== "super_admin") {
-    throw new AppError("FORBIDDEN_SUPER_ADMIN_ONLY", { status: 403 });
-  }
+  await resolveAgentCouponManager(actor);
   const id = Number(couponId);
   if (!Number.isFinite(id) || id <= 0) {
     throw new AppError("COUPON_NOT_FOUND", { status: 404 });

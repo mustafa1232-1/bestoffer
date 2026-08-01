@@ -27,10 +27,17 @@ class _AdminCreateEmployeeScreenState
   final _pin = TextEditingController();
   final _salary = TextEditingController();
   final _jobTitle = TextEditingController();
+  final _couponShare = TextEditingController(text: '25');
+  final _couponDiscount = TextEditingController(text: '0');
 
   bool _loading = true;
   bool _submitting = false;
   String? _error;
+
+  // "كوبوني": give the employee a referral coupon. When a customer uses it, the
+  // employee earns [_couponShare]% of the company's commission on that order.
+  bool _createCoupon = true;
+  String _couponDiscountType = 'percent'; // percent | fixed
 
   List<Map<String, dynamic>> _groups = const [];
   List<Map<String, dynamic>> _perms = const [];
@@ -55,6 +62,8 @@ class _AdminCreateEmployeeScreenState
       _pin,
       _salary,
       _jobTitle,
+      _couponShare,
+      _couponDiscount,
     ]) {
       c.dispose();
     }
@@ -159,6 +168,8 @@ class _AdminCreateEmployeeScreenState
     setState(() => _submitting = true);
     try {
       final salary = int.tryParse(_salary.text.trim());
+      final share = num.tryParse(_couponShare.text.trim()) ?? 25;
+      final discount = num.tryParse(_couponDiscount.text.trim()) ?? 0;
       await ref.read(adminApiProvider).createEmployeeAccount({
         'fullName': name,
         'phone': phone,
@@ -169,6 +180,10 @@ class _AdminCreateEmployeeScreenState
         'jobTitle': _jobTitle.text.trim(),
         'baseSalaryIqd': ?salary,
         'permissions': overrides,
+        'createReferralCoupon': _createCoupon,
+        if (_createCoupon) 'agentCommissionSharePercent': share,
+        if (_createCoupon) 'couponDiscountType': _couponDiscountType,
+        if (_createCoupon) 'couponDiscountValue': discount,
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -288,6 +303,8 @@ class _AdminCreateEmployeeScreenState
           keyboard: TextInputType.number,
         ),
         const SizedBox(height: 16),
+        _couponSection(),
+        const SizedBox(height: 16),
         // Permissions are auto-filled by the chosen job role, so they're tucked
         // into a single collapsible section — the fast path never needs to open
         // it. Expand only to fine-tune.
@@ -398,6 +415,108 @@ class _AdminCreateEmployeeScreenState
         style: const TextStyle(fontSize: 12),
       ),
       dense: false,
+    );
+  }
+
+  Widget _couponSection() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile(
+              value: _createCoupon,
+              onChanged: (v) => setState(() => _createCoupon = v),
+              secondary: const Icon(Icons.confirmation_number_rounded),
+              title: const Text(
+                'كوبون الموظف (كوبوني)',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: const Text(
+                'أنشئ كوبون إحالة خاصاً بالموظف — عند استخدامه يكسب حصّته من عمولة الشركة على الطلب.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+            if (_createCoupon) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _text(
+                      _couponShare,
+                      'حصّة الموظف من عمولة الشركة (%) — الافتراضي 25',
+                      keyboard: TextInputType.number,
+                    ),
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .secondaryContainer
+                            .withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Text(
+                        'مثال: إذا كانت قيمة الطلب 10,000 وعمولة الشركة 10% (=1,000)، '
+                        'فبحصّة 25% يكسب الموظف 250 د.ع عن كل طلب يُستخدم فيه كوبونه.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    const Text(
+                      'خصم للزبون (اختياري) — 0 يعني كوبون إحالة فقط بدون خصم',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: DropdownButtonFormField<String>(
+                            initialValue: _couponDiscountType,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'نوع الخصم',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'percent',
+                                child: Text('نسبة %'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'fixed',
+                                child: Text('مبلغ ثابت'),
+                              ),
+                            ],
+                            onChanged: (v) => setState(
+                              () => _couponDiscountType = v ?? 'percent',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 2,
+                          child: TextField(
+                            controller: _couponDiscount,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'قيمة الخصم',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

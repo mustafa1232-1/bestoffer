@@ -21,3 +21,7 @@ staffRouter.get("/payslips/mine", staff.myPayslips);
 staffRouter.post("/payslips/:runId/acknowledge", staff.acknowledgePayslip);
 
 staffRouter.post("/reviews/:period/objection", staff.objectToReview);
+
+// "كوبوني": the employee's own referral-coupon earnings (25% of company
+// commission on completed orders redeemed through their coupon).
+staffRouter.get("/coupon/earnings", staff.myCouponEarnings);
