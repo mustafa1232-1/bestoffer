@@ -1255,11 +1255,27 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
   return mapMerchant(merchant);
 }
 
-export async function listOwnerProducts(ownerUserId) {
+export async function listOwnerProducts(ownerUserId, options = {}) {
   const merchant = await getOwnerMerchant(ownerUserId);
   await ensureMerchantPermission(ownerUserId, merchant.id, "view_products");
+  if (options.summary === true) {
+    return repo.listOwnerProductSummaries(ownerUserId);
+  }
   const rows = await repo.listOwnerProducts(ownerUserId);
   return repo.hydrateOwnerProducts(rows);
+}
+
+export async function getOwnerProduct(ownerUserId, productId) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "view_products");
+  const row = await repo.findOwnerProductById(ownerUserId, Number(productId));
+  if (!row) {
+    const err = new Error("PRODUCT_NOT_FOUND");
+    err.status = 404;
+    throw err;
+  }
+  const products = await repo.hydrateOwnerProducts([row]);
+  return products[0] || row;
 }
 
 /**

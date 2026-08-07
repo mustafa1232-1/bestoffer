@@ -245,8 +245,21 @@ export async function updateMerchant(req, res, next) {
 
 export async function listProducts(req, res, next) {
   try {
-    const data = await service.listOwnerProducts(req.userId);
+    const summary = String(req.query?.summary || '').toLowerCase() === 'true';
+    const data = await service.listOwnerProducts(req.userId, { summary });
     res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getProduct(req, res, next) {
+  try {
+    const product = await service.getOwnerProduct(
+      req.userId,
+      Number(req.params.productId)
+    );
+    res.json(product);
   } catch (e) {
     next(e);
   }

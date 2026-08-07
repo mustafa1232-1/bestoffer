@@ -39,6 +39,7 @@ ownerRouter.put("/categories/:categoryId", c.updateCategory);
 ownerRouter.delete("/categories/:categoryId", c.deleteCategory);
 
 ownerRouter.get("/products", c.listProducts);
+ownerRouter.get("/products/:productId", c.getProduct);
 ownerRouter.get("/offers", c.listOffers);
 const productImageFields = imageUpload.fields([
   { name: "imageFile", maxCount: 1 },

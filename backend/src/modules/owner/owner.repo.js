@@ -726,6 +726,48 @@ export async function listOwnerProducts(ownerUserId) {
   return r.rows;
 }
 
+export async function listOwnerProductSummaries(ownerUserId) {
+  const r = await q(
+    `SELECT
+       p.id,
+       p.merchant_id,
+       p.category_id,
+       p.name,
+       p.description,
+       p.price,
+       p.discounted_price,
+       p.image_url,
+       p.free_delivery,
+       p.offer_label,
+       p.requires_prescription,
+       p.requires_review,
+       p.is_available,
+       p.unavailable_reason,
+       p.unavailable_until,
+       p.sort_order,
+       p.created_at,
+       p.updated_at,
+       si.quantity AS stock_quantity,
+       COALESCE(inv.inventory_enabled, FALSE) AS track_stock,
+       CASE
+         WHEN COALESCE(inv.inventory_enabled, FALSE) THEN 'tracked'
+         ELSE 'untracked'
+       END AS stock_mode,
+       c.name AS category_name,
+       c.catalog_type AS category_catalog_type,
+       c.sort_order AS category_sort_order
+     FROM product p
+     JOIN merchant m ON m.id = p.merchant_id
+     LEFT JOIN merchant_category c ON c.id = p.category_id
+     LEFT JOIN inventory_settings inv ON inv.merchant_id = p.merchant_id
+     LEFT JOIN store_inventory_item si ON si.merchant_id = p.merchant_id AND si.product_id = p.id
+     WHERE m.owner_user_id=$1
+     ORDER BY COALESCE(c.sort_order, 999999), COALESCE(c.id, 0), p.sort_order ASC, p.id DESC`,
+    [ownerUserId]
+  );
+  return r.rows;
+}
+
 async function upsertSimpleProductStockTx(client, {
   merchantId,
   productId,
