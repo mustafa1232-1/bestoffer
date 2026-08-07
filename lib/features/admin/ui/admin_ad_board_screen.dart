@@ -904,12 +904,6 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
           category: null,
           activityType: 'pharmacy',
         ),
-        _AdCategoryTarget(
-          labelAr: 'الدخان والأراكيل',
-          labelEn: 'Tobacco & hookah',
-          category: null,
-          activityType: 'smoking_supplies',
-        ),
       ];
   String _placement = 'HOME_MAIN';
   _AdCategoryTarget? _selectedCategoryTarget;

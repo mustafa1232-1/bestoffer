@@ -375,7 +375,10 @@ const BUILTIN_ACTIVITY_REGISTRY = Object.freeze([
     internalCategoryMode: "merchant_defined_with_templates",
     defaultServiceFlags: {},
     defaultBadges: [],
-    isActive: true,
+    // Deprecated: reclassified into `market` (General Market, see migration 199).
+    // Kept in the registry (inactive) so any legacy value still resolves, but no
+    // longer offered at store signup or shown as a customer section.
+    isActive: false,
   },
   {
     activityType: "nuts_snacks",

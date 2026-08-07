@@ -46,13 +46,14 @@ void main() {
     expect(find.text('Fashion market'), findsWidgets);
   });
 
-  testWidgets('tobacco & hookah hub replaces cars in the market hubs', (
+  testWidgets('tobacco & hookah hub is no longer offered in the market hubs', (
     tester,
   ) async {
     await _pumpMarket(tester);
-    // The tobacco/hookah section is now offered where Cars used to be. Entry is
-    // gated behind an 18+ confirmation handled inside _openSmokingSection.
-    expect(find.text('Tobacco & Hookah'), findsWidgets);
+    // The tobacco/hookah section was removed; those stores now live under the
+    // general market ("متجر عام"). Neither the smoking hub nor the old Cars hub
+    // appear.
+    expect(find.text('Tobacco & Hookah'), findsNothing);
     expect(find.text('Cars'), findsNothing);
   });
 

@@ -6,7 +6,6 @@ import '../../../core/i18n/locale_text.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../behavior/data/behavior_api.dart';
-import '../../auth/state/auth_controller.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 import '../../merchants/models/merchant_model.dart';
 import '../../merchants/state/merchants_controller.dart';
@@ -32,10 +31,6 @@ class CustomerMainMarketScreen extends ConsumerStatefulWidget {
 
 class _CustomerMainMarketScreenState
     extends ConsumerState<CustomerMainMarketScreen> {
-  // Persisted once the customer confirms they are 18+ for the tobacco/hookah
-  // section, so the age gate is shown a single time per device.
-  static const _tobaccoAgeGateKey = 'age_gate_tobacco_18_confirmed';
-
   @override
   void initState() {
     super.initState();
@@ -99,9 +94,6 @@ class _CustomerMainMarketScreenState
           ),
         );
         return;
-      case 'smoking':
-        _openSmokingSection();
-        return;
       case 'phones':
         Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const CustomerPhonesHubScreen()),
@@ -145,66 +137,6 @@ class _CustomerMainMarketScreenState
       default:
         return;
     }
-  }
-
-  /// Tobacco & hookah section. Restricted to 18+: the age gate is asked once
-  /// and the confirmation is remembered on the device, after which the section
-  /// opens directly.
-  Future<void> _openSmokingSection() async {
-    final store = ref.read(secureStoreProvider);
-    final alreadyConfirmed = await store.readBool(_tobaccoAgeGateKey) ?? false;
-    if (!alreadyConfirmed) {
-      if (!mounted) return;
-      final accepted = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(
-            dialogContext.lt(ar: 'تأكيد العمر', en: 'Age verification'),
-          ),
-          content: Text(
-            dialogContext.lt(
-              ar: 'قسم الدخان والأراكيل مخصّص لمن أعمارهم 18 سنة فأكثر ويحتوي على منتجات تبغ وأراكيل. هل أنت بعمر 18 سنة أو أكثر؟',
-              en: 'The tobacco & hookah section is for ages 18 and over and contains tobacco and hookah products. Are you 18 or older?',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(dialogContext.lt(ar: 'لا', en: 'No')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text(
-                dialogContext.lt(
-                  ar: 'نعم، أنا 18 أو أكثر',
-                  en: 'Yes, I am 18+',
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-      if (accepted != true) return;
-      await store.writeBool(_tobaccoAgeGateKey, true);
-    }
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => MerchantsListScreen(
-          initialType: 'market',
-          initialActivityType: 'smoking_supplies',
-          overrideTitle: context.lt(
-            ar: 'الدخان والأراكيل',
-            en: 'Tobacco & Hookah',
-          ),
-          compactCustomerMode: true,
-          strictCategoryMode: true,
-          // Plain store list for this section — no smart discovery panel/rails.
-          showCategoryIntelligence: false,
-        ),
-      ),
-    );
   }
 
   void _openActivitySection(
@@ -304,16 +236,6 @@ class _CustomerMainMarketScreenState
         subtitle: l10n.customerDiscoveryHubPharmacySubtitle,
         icon: Icons.local_hospital_rounded,
         accent: const Color(0xFF3E9488), // controlled medical mint/teal
-      ),
-      _MainHubCard(
-        id: 'smoking',
-        title: context.lt(ar: 'الدخان والأراكيل', en: 'Tobacco & Hookah'),
-        subtitle: context.lt(
-          ar: 'سكائر وأراكيل وملحقاتها — مخصّص لعمر 18+',
-          en: 'Cigarettes, hookahs & accessories — 18+ only',
-        ),
-        icon: Icons.smoking_rooms,
-        accent: const Color(0xFF8A5A44), // tobacco brown
       ),
       _MainHubCard(
         id: 'phones',
