@@ -1648,8 +1648,18 @@ class _LinkSuggestionsSectionState
       final rides = ((data['rides'] as List?) ?? const []).map(
         (e) => Map<String, dynamic>.from(e as Map),
       );
+      final merged = [...orders, ...rides]
+        ..sort((a, b) {
+          final ta =
+              DateTime.tryParse('${a['createdAt'] ?? ''}') ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+          final tb =
+              DateTime.tryParse('${b['createdAt'] ?? ''}') ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+          return tb.compareTo(ta); // الأحدث أولاً
+        });
       setState(() {
-        _items = [...orders, ...rides];
+        _items = merged;
         _loaded = true;
       });
     } catch (e) {
@@ -1692,6 +1702,59 @@ class _LinkSuggestionsSectionState
     }
   }
 
+  String _recency(String iso) {
+    final t = DateTime.tryParse(iso);
+    if (t == null) return '';
+    final d = DateTime.now().difference(t.toLocal());
+    if (d.inMinutes < 1) return 'الآن';
+    if (d.inMinutes < 60) return 'منذ ${d.inMinutes} دقيقة';
+    if (d.inHours < 24) return 'منذ ${d.inHours} ساعة';
+    if (d.inDays < 30) return 'منذ ${d.inDays} يوم';
+    return 'منذ ${(d.inDays / 30).floor()} شهر';
+  }
+
+  // تاك بجانب الاقتراح: جارية (أخضر) أو انتهت منذ كذا (برتقالي).
+  Widget _statusTag(BuildContext context, Map<String, dynamic> item) {
+    final ongoing = item['ongoing'] == true;
+    final endedIso = '${item['endedAt'] ?? ''}'.trim();
+    final createdIso = '${item['createdAt'] ?? ''}'.trim();
+    final ref = endedIso.isNotEmpty ? endedIso : createdIso;
+    final label = ongoing ? 'جارية' : 'انتهت · ${_recency(ref)}';
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final fg = ongoing
+        ? (dark ? const Color(0xFF4ADE80) : const Color(0xFF15803D))
+        : (dark ? const Color(0xFFFBBF24) : const Color(0xFFB45309));
+    final bg = ongoing
+        ? (dark ? const Color(0x3322C55E) : const Color(0x1A22C55E))
+        : (dark ? const Color(0x33F59E0B) : const Color(0x1AF59E0B));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            ongoing ? Icons.play_circle_fill_rounded : Icons.check_circle_rounded,
+            size: 13,
+            color: fg,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return _Panel(
@@ -1726,8 +1789,21 @@ class _LinkSuggestionsSectionState
                       : Icons.receipt_long_rounded,
                 ),
                 title: Text('${item['label'] ?? ''}'),
-                subtitle: Text(
-                  '${item['status'] ?? ''} ${item['route'] ?? ''}'.trim(),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 2),
+                    _statusTag(context, item),
+                    if ('${item['route'] ?? ''}'.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          '${item['route']}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
                 ),
                 trailing: TextButton(
                   onPressed: _loading ? null : () => _link(item),
