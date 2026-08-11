@@ -13,7 +13,6 @@ import '../models/admin_financial_kpi_model.dart';
 import '../models/admin_orders_overview_model.dart';
 import '../state/admin_controller.dart';
 import 'admin_advanced_tools_hub_screen.dart';
-import 'admin_create_employee_screen.dart';
 import 'employee_self_portal_screen.dart';
 import 'admin_referral_coupons_screen.dart';
 import 'admin_audit_security_center_screen.dart';
@@ -21,9 +20,11 @@ import 'admin_approvals_hub_screen.dart';
 import 'admin_ad_board_screen.dart';
 import 'admin_audit_log_screen.dart';
 import 'admin_support_settings_screen.dart';
+import 'admin_attendance_screen.dart';
 import 'admin_employees_screen.dart';
 import 'admin_payroll_screen.dart';
 import 'command_center_screen.dart';
+import '../../settings/ui/pages/settings_account_screen.dart';
 import '../../guides/ui/app_guide_screen.dart';
 import 'admin_companies_screen.dart';
 import 'admin_competitions_screen.dart';
@@ -486,6 +487,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         en: 'Search admin navigation',
       ),
       items: [
+        // أمان الحساب متاح لكل موظف/أدمن لتغيير رمزه الشخصي (PIN) دون صلاحية خاصة.
+        AppUserDrawerItem(
+          icon: Icons.lock_reset_rounded,
+          label: navText(ar: 'أمان الحساب', en: 'Account security'),
+          subtitle: navText(
+            ar: 'تغيير رمز الدخول (PIN) ورقم الهاتف',
+            en: 'Change your login PIN and phone',
+          ),
+          group: groupHome,
+          onTap: (_) => _openPage(const SettingsAccountScreen()),
+        ),
         if (auth.isStaff)
           AppUserDrawerItem(
             icon: Icons.badge_rounded,
@@ -519,16 +531,16 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupHome,
             onTap: (_) => _openPage(const AdminEmployeesScreen()),
           ),
-        if (canPermission('employees.create'))
+        if (canPermission('attendance.read'))
           AppUserDrawerItem(
-            icon: Icons.person_add_alt_1_rounded,
-            label: navText(ar: 'إنشاء حساب موظف', en: 'Create employee account'),
+            icon: Icons.fact_check_rounded,
+            label: navText(ar: 'جدول الحضور', en: 'Attendance'),
             subtitle: navText(
-              ar: 'حساب موظف كامل بدوره وواجهته الخاصة',
-              en: 'A full employee account with its own role and app',
+              ar: 'حضور وانصراف موظفي مسلكي',
+              en: 'Maslaki employee check-ins and check-outs',
             ),
             group: groupHome,
-            onTap: (_) => _openPage(const AdminCreateEmployeeScreen()),
+            onTap: (_) => _openPage(const AdminAttendanceScreen()),
           ),
         if (canPermission('coupons.agents.manage'))
           AppUserDrawerItem(
@@ -740,7 +752,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         if (canPermission('settings.support_phone.update'))
           AppUserDrawerItem(
             icon: Icons.support_agent_rounded,
-            label: navText(ar: 'رقم الدعم المركزي', en: 'Central support number'),
+            label: navText(
+              ar: 'رقم الدعم المركزي',
+              en: 'Central support number',
+            ),
             subtitle: navText(
               ar: 'رقم دعم واحد يصل كل التطبيقات دون تحديث',
               en: 'One support number reaching all apps without an update',
@@ -1033,7 +1048,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     DesktopQuickActionButton(
                       icon: Icons.account_balance_wallet_outlined,
                       label: l10n.adminDashboardMerchantReceivables,
-                      onPressed: () => _openPage(const AdminReceivablesScreen()),
+                      onPressed: () =>
+                          _openPage(const AdminReceivablesScreen()),
                     ),
                   DesktopQuickActionButton(
                     icon: Icons.notifications_active_outlined,
@@ -1713,10 +1729,8 @@ class _ActionMetricCard extends StatelessWidget {
                       textAlign: TextAlign.end,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: color,
-                      ),
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w900, color: color),
                     ),
                   ),
                 ],

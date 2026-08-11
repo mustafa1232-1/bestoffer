@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/currency.dart';
+import '../../settings/ui/pages/settings_account_screen.dart';
 import '../state/admin_controller.dart';
 
 /// The employee's own portal: their role, salary, what they've earned so far
@@ -119,7 +120,20 @@ class _EmployeeSelfPortalScreenState
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('بوابتي — لوحة الموظف')),
+        appBar: AppBar(
+          title: const Text('بوابتي — لوحة الموظف'),
+          actions: [
+            IconButton(
+              tooltip: 'أمان الحساب',
+              icon: const Icon(Icons.lock_reset_rounded),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SettingsAccountScreen(),
+                ),
+              ),
+            ),
+          ],
+        ),
         body: RefreshIndicator(
           onRefresh: _load,
           child: _loading
