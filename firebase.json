@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "target": "maslaki-app",
     "public": "build/web",
     "ignore": [
       "firebase.json",

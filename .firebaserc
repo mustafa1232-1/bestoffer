@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "maslaki-61a97"
-  }
+  },
+  "targets": {
+    "maslaki-61a97": {
+      "hosting": {
+        "maslaki-app": [
+          "maslaki-app"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }
