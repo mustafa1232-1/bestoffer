@@ -597,7 +597,13 @@ class _AdminSupportTicketDetailsScreenState
             children: [
               _TicketSummary(ticket: ticket),
               const SizedBox(height: 12),
-              _ConversationSection(detail: data.ticket),
+              _ConversationSection(
+                detail: data.ticket,
+                ticketId: widget.ticketId,
+                ticketNumber:
+                    '${ticket['ticket_number'] ?? ticket['ticketNumber'] ?? ''}',
+                subject: '${ticket['subject'] ?? ''}',
+              ),
               if (_can('support.tickets.reply')) ...[
                 const SizedBox(height: 8),
                 _SupportComposer(
@@ -651,7 +657,9 @@ class _AdminSupportTicketDetailsScreenState
                 },
               ),
               const SizedBox(height: 12),
-              if (_can('orders.revisions.create'))
+              if (!_can('orders.revisions.create'))
+                const Text('لا تملك صلاحية اقتراح تعديل على الطلب.')
+              else if (parseInt(order['id']) > 0)
                 FilledButton.icon(
                   onPressed: _saving ? null : () => _createDraft(data),
                   icon: _saving
@@ -662,9 +670,35 @@ class _AdminSupportTicketDetailsScreenState
                         )
                       : const Icon(Icons.edit_note_rounded),
                   label: const Text('اقتراح تعديل على الطلب'),
+                )
+              else
+                // لا يمكن اقتراح تعديل دون طلب مرتبط — نوضّح ذلك بدل زر لا يعمل.
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'اربط التذكرة بطلب أولاً (من قسم «ربط بطلب/رحلة») '
+                          'لتتمكّن من اقتراح تعديل عليه.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              if (!_can('orders.revisions.create'))
-                const Text('لا تملك صلاحية اقتراح تعديل على الطلب.'),
             ],
           );
         },
@@ -995,7 +1029,15 @@ class _ErrorState extends StatelessWidget {
 /// عرض محادثة التذكرة: الرسائل الظاهرة + الملاحظات الداخلية + المرفقات (صور).
 class _ConversationSection extends StatelessWidget {
   final Map<String, dynamic> detail;
-  const _ConversationSection({required this.detail});
+  final int ticketId;
+  final String ticketNumber;
+  final String subject;
+  const _ConversationSection({
+    required this.detail,
+    required this.ticketId,
+    required this.ticketNumber,
+    required this.subject,
+  });
 
   List<Map<String, dynamic>> _rows(String key) {
     final raw = detail[key];
@@ -1022,17 +1064,14 @@ class _ConversationSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final messages = _rows('messages');
     final internalNotes = _rows('internalNotes');
-    final ticketId = int.tryParse('${detail['id'] ?? ''}');
-    final number = '${detail['ticket_number'] ?? ''}';
-    final subject = '${detail['subject'] ?? ''}';
 
     void open() {
-      if (ticketId == null) return;
+      if (ticketId <= 0) return;
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => _ConversationScreen(
             ticketId: ticketId,
-            ticketNumber: number,
+            ticketNumber: ticketNumber,
             subject: subject,
           ),
         ),
@@ -1180,7 +1219,14 @@ class _ConversationScreenState extends ConsumerState<_ConversationScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: Text('محادثة ${widget.ticketNumber}')),
+        appBar: AppBar(
+          title: Text('محادثة ${widget.ticketNumber}'),
+          leading: IconButton(
+            tooltip: 'رجوع',
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
+        ),
         body: Column(
           children: [
             Expanded(
