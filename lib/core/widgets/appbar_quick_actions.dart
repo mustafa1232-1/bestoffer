@@ -7,8 +7,11 @@ import '../../features/settings/ui/pages/settings_account_screen.dart';
 import '../../features/social/ui/social_profile_screen.dart';
 import '../../features/social/ui/social_relation_requests_screen.dart';
 import '../../features/social/ui/social_shell_screen.dart';
+import '../../features/support/models/support_context.dart';
+import '../../features/support/ui/support_request_sheet.dart';
 import '../auth/app_permission_matrix.dart';
 import '../i18n/app_localizations_context.dart';
+import '../i18n/locale_text.dart';
 
 class AppBarQuickActions extends ConsumerWidget {
   final bool includeNotifications;
@@ -43,6 +46,12 @@ class AppBarQuickActions extends ConsumerWidget {
             tooltip: l10n.appBarQuickActionsQuickAccess,
             onSelected: (value) {
               switch (value) {
+                case _QuickAction.support:
+                  showSupportRequestSheet(
+                    context,
+                    supportContext: const SupportContext.general(),
+                  );
+                  break;
                 case _QuickAction.friendRequests:
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -81,6 +90,14 @@ class AppBarQuickActions extends ConsumerWidget {
               }
             },
             itemBuilder: (context) => [
+              PopupMenuItem<_QuickAction>(
+                value: _QuickAction.support,
+                child: ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.support_agent_rounded),
+                  title: Text(context.lt(ar: 'الدعم / مشكلة', en: 'Support')),
+                ),
+              ),
               if (includeFriendRequests && canUseSocial)
                 PopupMenuItem<_QuickAction>(
                   value: _QuickAction.friendRequests,
@@ -118,6 +135,14 @@ class AppBarQuickActions extends ConsumerWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        IconButton(
+          tooltip: context.lt(ar: 'الدعم / مشكلة', en: 'Support'),
+          onPressed: () => showSupportRequestSheet(
+            context,
+            supportContext: const SupportContext.general(),
+          ),
+          icon: const Icon(Icons.support_agent_rounded),
+        ),
         if (includeFriendRequests && canUseSocial)
           IconButton(
             tooltip: l10n.socialBasmayaFriendRequests,
@@ -173,4 +198,4 @@ class AppBarQuickActions extends ConsumerWidget {
   }
 }
 
-enum _QuickAction { friendRequests, messages, profile }
+enum _QuickAction { support, friendRequests, messages, profile }
