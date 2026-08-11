@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:social_core/social_core.dart';
 import '../media/social_media_cache_manager.dart';
+import '../media/social_media_url.dart';
 
 String _t(BuildContext context, {required String ar, required String en}) {
   final code = Localizations.maybeLocaleOf(context)?.languageCode.toLowerCase();
@@ -9,8 +10,8 @@ String _t(BuildContext context, {required String ar, required String en}) {
 }
 
 ImageProvider<Object>? _cachedAvatarProvider(String? url) {
-  final value = (url ?? '').trim();
-  if (value.isEmpty) return null;
+  final value = resolveSocialMediaUrl(url);
+  if (value == null || value.isEmpty) return null;
   return CachedNetworkImageProvider(
     value,
     cacheManager: SocialMediaCacheManager.instance,
@@ -273,7 +274,8 @@ class SocialMediaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final visualUrl = resolveSocialPostPosterUrl(post);
+    final visualUrl = resolveSocialMediaUrl(resolveSocialPostPosterUrl(post));
+    final hasVisual = visualUrl != null && visualUrl.trim().isNotEmpty;
     final mediaClass = normalizeSocialPostMediaClass(post);
     final isVideo = mediaClass == 'video' || mediaClass == 'reel';
     final chipLabel = switch (mediaClass) {
@@ -294,9 +296,9 @@ class SocialMediaCard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if ((visualUrl ?? '').trim().isNotEmpty)
+                if (hasVisual)
                   CachedNetworkImage(
-                    imageUrl: visualUrl!,
+                    imageUrl: visualUrl,
                     cacheManager: SocialMediaCacheManager.instance,
                     fit: BoxFit.cover,
                     errorWidget: (_, __, ___) => const SocialMediaFallback(),

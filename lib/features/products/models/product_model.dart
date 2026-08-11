@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../../core/media/media_url.dart';
 import '../../../core/utils/parsers.dart';
 
 class ProductAttributeModel {
@@ -88,11 +89,13 @@ class ProductVariantOptionModel {
       priceOverride: _parseNullableDouble(
         j['price_override'] ?? j['priceOverride'],
       ),
-      imageUrl: parseNullableString(
-        j['image_url'] ??
-            j['imageUrl'] ??
-            j['color_image_url'] ??
-            j['colorImageUrl'],
+      imageUrl: resolveMediaUrl(
+        parseNullableString(
+          j['image_url'] ??
+              j['imageUrl'] ??
+              j['color_image_url'] ??
+              j['colorImageUrl'],
+        ),
       ),
       isAvailable: j['is_available'] == null
           ? true
@@ -240,7 +243,9 @@ class ProductVariantModel {
         j['discounted_price_override'] ?? j['discountedPriceOverride'],
       ),
       stockQuantity: parseInt(j['stock_quantity'] ?? j['stockQuantity']),
-      imageUrl: parseNullableString(j['image_url'] ?? j['imageUrl']),
+      imageUrl: resolveMediaUrl(
+        parseNullableString(j['image_url'] ?? j['imageUrl']),
+      ),
       isAvailable: j['is_available'] == null
           ? parseBool(j['isAvailable'] ?? true)
           : parseBool(j['is_available']),
@@ -282,7 +287,7 @@ class ProductMediaModel {
   factory ProductMediaModel.fromJson(Map<String, dynamic> j) {
     return ProductMediaModel(
       id: j['id'] == null ? null : parseInt(j['id']),
-      imageUrl: parseString(j['image_url'] ?? j['imageUrl']),
+      imageUrl: _resolveRequiredMediaUrl(j['image_url'] ?? j['imageUrl']),
       altText: parseNullableString(j['alt_text'] ?? j['altText']),
       isPrimary: j['is_primary'] == null
           ? false
@@ -382,7 +387,7 @@ class ProductModel {
     final media = _parseMedia(j);
     final primaryMedia = _parsePrimaryMedia(j, media);
     final imageUrl =
-        parseNullableString(j['image_url'] ?? j['imageUrl']) ??
+        resolveMediaUrl(parseNullableString(j['image_url'] ?? j['imageUrl'])) ??
         primaryMedia?.imageUrl;
     final metadata = _toMap(
       j['metadata_json'] ?? j['metadataJson'] ?? j['metadata'],
@@ -585,6 +590,11 @@ class ProductModel {
   }
 }
 
+String _resolveRequiredMediaUrl(dynamic raw) {
+  final value = parseString(raw);
+  return resolveMediaUrl(value) ?? value;
+}
+
 List<ProductAttributeModel> _parseAttributes(Map<String, dynamic> j) {
   final raw = _firstNonEmptyList([
     j['attributes'],
@@ -636,10 +646,7 @@ List<ProductVariantGroupModel> _parseVariantGroups(Map<String, dynamic> j) {
 }
 
 List<ProductVariantModel> _parseVariants(Map<String, dynamic> j) {
-  return _firstNonEmptyList([
-        j['variants'],
-        _richCatalogValue(j, 'variants'),
-      ])
+  return _firstNonEmptyList([j['variants'], _richCatalogValue(j, 'variants')])
       .whereType<Map>()
       .map(
         (entry) =>
@@ -649,10 +656,7 @@ List<ProductVariantModel> _parseVariants(Map<String, dynamic> j) {
 }
 
 List<ProductMediaModel> _parseMedia(Map<String, dynamic> j) {
-  final raw = _firstNonEmptyList([
-    j['media'],
-    _richCatalogValue(j, 'media'),
-  ]);
+  final raw = _firstNonEmptyList([j['media'], _richCatalogValue(j, 'media')]);
   return raw
       .map(
         (entry) =>

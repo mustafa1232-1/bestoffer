@@ -17,6 +17,55 @@ import 'package:shared_models/shared_models.dart';
 import 'package:social_core/social_core.dart';
 import 'package:social_ui/social_ui.dart';
 
+String? _runtimeResolveMediaUrl(String? raw) {
+  final value = (raw ?? '').trim();
+  if (value.isEmpty) return null;
+  if (value.startsWith('data:') || value.startsWith('blob:')) return value;
+  if (value.startsWith('//')) return _runtimeEncodeMediaUrl('https:$value');
+
+  final base = RuntimeApiConfig.baseUrl.trim();
+  final normalizedBase = base.endsWith('/')
+      ? base.substring(0, base.length - 1)
+      : base;
+  if (value.startsWith('/')) {
+    return _runtimeEncodeMediaUrl('$normalizedBase$value');
+  }
+
+  final hasScheme = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.\-]*:').hasMatch(value);
+  if (!hasScheme) {
+    return _runtimeEncodeMediaUrl('$normalizedBase/$value');
+  }
+
+  if (value.toLowerCase().startsWith('http://')) {
+    final uri = Uri.tryParse(value);
+    if (uri != null && uri.host.isNotEmpty && !_runtimeIsLocalHost(uri.host)) {
+      return _runtimeEncodeMediaUrl(
+        'https://${value.substring('http://'.length)}',
+      );
+    }
+  }
+
+  return _runtimeEncodeMediaUrl(value);
+}
+
+bool _runtimeIsLocalHost(String host) {
+  final h = host.toLowerCase();
+  return h == 'localhost' ||
+      h == '127.0.0.1' ||
+      h == '10.0.2.2' ||
+      h == '10.0.3.2' ||
+      h.startsWith('192.168.') ||
+      h.startsWith('10.') ||
+      h.startsWith('172.');
+}
+
+String _runtimeEncodeMediaUrl(String url) {
+  final hasUnsafe = url.contains(' ') || url.runes.any((rune) => rune > 0x7F);
+  if (!hasUnsafe) return url;
+  if (RegExp(r'%[0-9A-Fa-f]{2}').hasMatch(url)) return url;
+  return Uri.encodeFull(url);
+}
+
 final _consentAcceptedProvider = StateProvider<bool>((_) => false);
 final _selectedTabProvider = StateProvider<int>((_) => 0);
 final _locationRefreshTickProvider = StateProvider<int>((_) => 0);
@@ -1492,6 +1541,7 @@ class _RuntimeSuggestedPersonTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final user = item.user;
+    final imageUrl = _runtimeResolveMediaUrl(user.imageUrl);
     return Container(
       width: 188,
       padding: const EdgeInsets.all(14),
@@ -1509,10 +1559,8 @@ class _RuntimeSuggestedPersonTile extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 24,
-            backgroundImage: (user.imageUrl ?? '').trim().isNotEmpty
-                ? NetworkImage(user.imageUrl!)
-                : null,
-            child: (user.imageUrl ?? '').trim().isEmpty
+            backgroundImage: imageUrl == null ? null : NetworkImage(imageUrl),
+            child: imageUrl == null
                 ? Text(
                     user.fullName.trim().isEmpty
                         ? '?'
@@ -1581,13 +1629,12 @@ class _RuntimeSuggestedPersonRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final user = item.user;
+    final imageUrl = _runtimeResolveMediaUrl(user.imageUrl);
     return Card(
       child: ListTile(
         leading: CircleAvatar(
-          backgroundImage: (user.imageUrl ?? '').trim().isNotEmpty
-              ? NetworkImage(user.imageUrl!)
-              : null,
-          child: (user.imageUrl ?? '').trim().isEmpty
+          backgroundImage: imageUrl == null ? null : NetworkImage(imageUrl),
+          child: imageUrl == null
               ? Text(
                   user.fullName.trim().isEmpty ? '?' : user.fullName.trim()[0],
                   style: theme.textTheme.titleMedium,
@@ -1643,7 +1690,7 @@ class _RuntimeSocialMediaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final visualUrl = resolveSocialPostPosterUrl(post);
+    final visualUrl = _runtimeResolveMediaUrl(resolveSocialPostPosterUrl(post));
     final mediaClass = normalizeSocialPostMediaClass(post);
     final isVideo = mediaClass == 'video' || mediaClass == 'reel';
     final chipLabel = switch (mediaClass) {
@@ -1856,6 +1903,7 @@ class _RuntimeStoryGroupTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final imageUrl = _runtimeResolveMediaUrl(group.author.imageUrl);
     return SizedBox(
       width: 80,
       child: Column(
@@ -1876,10 +1924,8 @@ class _RuntimeStoryGroupTile extends StatelessWidget {
               ),
             ),
             child: CircleAvatar(
-              backgroundImage: (group.author.imageUrl ?? '').trim().isNotEmpty
-                  ? NetworkImage(group.author.imageUrl!)
-                  : null,
-              child: (group.author.imageUrl ?? '').trim().isEmpty
+              backgroundImage: imageUrl == null ? null : NetworkImage(imageUrl),
+              child: imageUrl == null
                   ? Text(
                       group.author.fullName.trim().isEmpty
                           ? '?'
@@ -2142,40 +2188,46 @@ class _RuntimeThreadTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundImage:
-                      (thread.displayImageUrl ?? '').trim().isNotEmpty
-                      ? NetworkImage(thread.displayImageUrl!)
-                      : null,
-                  child: (thread.displayImageUrl ?? '').trim().isEmpty
-                      ? Text(
-                          thread.displayTitle.isEmpty
-                              ? '?'
-                              : thread.displayTitle[0],
-                        )
-                      : null,
-                ),
-                PositionedDirectional(
-                  end: -2,
-                  bottom: -2,
-                  child: Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: presenceColor,
-                      border: Border.all(
-                        color: theme.colorScheme.surface,
-                        width: 2,
+            Builder(
+              builder: (context) {
+                final imageUrl = _runtimeResolveMediaUrl(
+                  thread.displayImageUrl,
+                );
+                return Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundImage: imageUrl == null
+                          ? null
+                          : NetworkImage(imageUrl),
+                      child: imageUrl == null
+                          ? Text(
+                              thread.displayTitle.isEmpty
+                                  ? '?'
+                                  : thread.displayTitle[0],
+                            )
+                          : null,
+                    ),
+                    PositionedDirectional(
+                      end: -2,
+                      bottom: -2,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: presenceColor,
+                          border: Border.all(
+                            color: theme.colorScheme.surface,
+                            width: 2,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -3678,10 +3730,12 @@ class _RuntimeThreadAttachmentView extends StatelessWidget {
       );
     }
     if (kind == 'image') {
+      final imageUrl = _runtimeResolveMediaUrl(attachment.url);
+      if (imageUrl == null) return const _RuntimeMediaFallback();
       return ClipRRect(
         borderRadius: BorderRadius.circular(14),
         child: Image.network(
-          attachment.url,
+          imageUrl,
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => const _RuntimeMediaFallback(),
         ),
@@ -4032,6 +4086,7 @@ class _RuntimeProfileOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final imageUrl = _runtimeResolveMediaUrl(profile.imageUrl);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -4042,10 +4097,10 @@ class _RuntimeProfileOverviewCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 28,
-                  backgroundImage: (profile.imageUrl ?? '').trim().isNotEmpty
-                      ? NetworkImage(profile.imageUrl!)
-                      : null,
-                  child: (profile.imageUrl ?? '').trim().isEmpty
+                  backgroundImage: imageUrl == null
+                      ? null
+                      : NetworkImage(imageUrl),
+                  child: imageUrl == null
                       ? Text(
                           profile.fullName.trim().isEmpty
                               ? '?'

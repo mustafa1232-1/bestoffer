@@ -1,3 +1,4 @@
+import '../../../core/media/media_url.dart';
 import '../../../core/utils/parsers.dart';
 
 class UserModel {
@@ -39,7 +40,9 @@ class UserModel {
     block: parseString(j['block']),
     buildingNumber: parseString(j['building_number'] ?? j['buildingNumber']),
     apartment: parseString(j['apartment']),
-    imageUrl: parseNullableString(j['image_url'] ?? j['imageUrl']),
+    imageUrl: resolveMediaUrl(
+      parseNullableString(j['image_url'] ?? j['imageUrl']),
+    ),
     workTitle: parseNullableString(j['work_title'] ?? j['workTitle']),
     workCompany: parseNullableString(j['work_company'] ?? j['workCompany']),
     preferredLocale: parseNullableString(
@@ -80,7 +83,9 @@ class UserModel {
       block: block ?? this.block,
       buildingNumber: buildingNumber ?? this.buildingNumber,
       apartment: apartment ?? this.apartment,
-      imageUrl: clearImageUrl ? null : (imageUrl ?? this.imageUrl),
+      imageUrl: clearImageUrl
+          ? null
+          : (resolveMediaUrl(imageUrl) ?? this.imageUrl),
       workTitle: clearWorkTitle ? null : (workTitle ?? this.workTitle),
       workCompany: clearWorkCompany ? null : (workCompany ?? this.workCompany),
       preferredLocale: preferredLocale ?? this.preferredLocale,

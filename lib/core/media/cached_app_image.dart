@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'media_cache_models.dart';
@@ -14,6 +15,8 @@ class CachedAppImage extends StatefulWidget {
   final BoxFit? fit;
   final double? width;
   final double? height;
+  final int? memCacheWidth;
+  final int? memCacheHeight;
   final int? maxWidthDiskCache;
   final int? maxHeightDiskCache;
   final Widget Function(BuildContext context, String url)? placeholder;
@@ -31,6 +34,8 @@ class CachedAppImage extends StatefulWidget {
     this.fit,
     this.width,
     this.height,
+    this.memCacheWidth,
+    this.memCacheHeight,
     this.maxWidthDiskCache,
     this.maxHeightDiskCache,
     this.placeholder,
@@ -64,6 +69,34 @@ class _CachedAppImageState extends State<CachedAppImage> {
           const _RetryableImageError(url: '', onRetry: null);
     }
 
+    if (kIsWeb) {
+      return Image.network(
+        url,
+        headers: widget.headers,
+        fit: widget.fit,
+        width: widget.width,
+        height: widget.height,
+        cacheWidth: widget.memCacheWidth,
+        cacheHeight: widget.memCacheHeight,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return widget.placeholder?.call(context, url) ??
+              _defaultPlaceholder(context);
+        },
+        errorBuilder: (context, error, stackTrace) {
+          if (kDebugMode) {
+            debugPrint(
+              '[media] web image load failed '
+              'raw=${widget.imageUrl} resolved=$url '
+              'error=${error.runtimeType}',
+            );
+          }
+          return widget.errorWidget?.call(context, url, error) ??
+              _RetryableImageError(url: url, onRetry: _retry);
+        },
+      );
+    }
+
     final service = MediaCacheService.instance;
     final key = service.buildKey(
       MediaCacheKeyInput(
@@ -86,14 +119,24 @@ class _CachedAppImageState extends State<CachedAppImage> {
       fit: widget.fit,
       width: widget.width,
       height: widget.height,
+      memCacheWidth: widget.memCacheWidth,
+      memCacheHeight: widget.memCacheHeight,
       maxWidthDiskCache: widget.maxWidthDiskCache,
       maxHeightDiskCache: widget.maxHeightDiskCache,
       placeholder: (context, value) =>
           widget.placeholder?.call(context, value) ??
           _defaultPlaceholder(context),
-      errorWidget: (context, value, error) =>
-          widget.errorWidget?.call(context, value, error) ??
-          _RetryableImageError(url: value, onRetry: _retry),
+      errorWidget: (context, value, error) {
+        if (kDebugMode) {
+          debugPrint(
+            '[media] image load failed '
+            'raw=${widget.imageUrl} resolved=$value '
+            'error=${error.runtimeType}',
+          );
+        }
+        return widget.errorWidget?.call(context, value, error) ??
+            _RetryableImageError(url: value, onRetry: _retry);
+      },
     );
   }
 
@@ -136,7 +179,11 @@ class _RetryableImageError extends StatelessWidget {
         const Icon(Icons.broken_image_outlined, color: Colors.white70),
         if (onRetry != null) ...[
           const SizedBox(height: 6),
-          Icon(Icons.refresh_rounded, size: 18, color: Colors.white.withValues(alpha: 0.85)),
+          Icon(
+            Icons.refresh_rounded,
+            size: 18,
+            color: Colors.white.withValues(alpha: 0.85),
+          ),
         ],
       ],
     );
@@ -172,16 +219,18 @@ class AppCachedImageProvider extends CachedNetworkImageProvider {
     super.maxHeight,
   }) : super(
          resolveMediaUrl(url) ?? url,
-         cacheManager: MediaCacheService.instance.imagesManager,
-         cacheKey: MediaCacheService.instance.buildKey(
-           MediaCacheKeyInput(
-             url: resolveMediaUrl(url) ?? url,
-             stableId: cacheIdentity,
-             version: version,
-             scope: scope,
-             userId: userId,
-           ),
-         ),
+         cacheManager: kIsWeb ? null : MediaCacheService.instance.imagesManager,
+         cacheKey: kIsWeb
+             ? null
+             : MediaCacheService.instance.buildKey(
+                 MediaCacheKeyInput(
+                   url: resolveMediaUrl(url) ?? url,
+                   stableId: cacheIdentity,
+                   version: version,
+                   scope: scope,
+                   userId: userId,
+                 ),
+               ),
        );
 }
 
@@ -197,6 +246,7 @@ ImageProvider<Object>? appCachedImageProvider(
 }) {
   final value = resolveMediaUrl(url);
   if (value == null || value.isEmpty) return null;
+  if (kIsWeb) return NetworkImage(value, headers: headers);
   return AppCachedImageProvider(
     value,
     cacheIdentity: cacheIdentity,

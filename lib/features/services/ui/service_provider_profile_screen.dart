@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/media/cached_app_image.dart';
+import '../../../core/media/media_url.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
@@ -442,13 +443,15 @@ class _ServiceProviderProfileScreenState
                         separatorBuilder: (_, _) => const SizedBox(width: 8),
                         itemBuilder: (context, index) {
                           final item = profile.portfolio[index];
-                          final url = '${item['mediaUrl'] ?? ''}'.trim();
+                          final url = resolveMediaUrl(
+                            '${item['mediaUrl'] ?? ''}'.trim(),
+                          );
                           return ClipRRect(
                             borderRadius: BorderRadius.circular(10),
                             child: Container(
                               width: 160,
                               color: Colors.black12,
-                              child: url.isEmpty
+                              child: url == null || url.isEmpty
                                   ? const Icon(
                                       Icons.image_not_supported_outlined,
                                     )

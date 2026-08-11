@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
+import '../../../core/media/media_url.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/services_api.dart';
 import '../models/service_models.dart';
@@ -421,13 +422,15 @@ class _ServiceRequestDetailsScreenState
                   separatorBuilder: (_, _) => const SizedBox(width: 8),
                   itemBuilder: (context, index) {
                     final attachment = request.attachments[index];
-                    final mediaUrl = '${attachment['mediaUrl'] ?? ''}'.trim();
+                    final mediaUrl = resolveMediaUrl(
+                      '${attachment['mediaUrl'] ?? ''}'.trim(),
+                    );
                     return ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: Container(
                         width: 140,
                         color: Colors.black12,
-                        child: mediaUrl.isEmpty
+                        child: mediaUrl == null || mediaUrl.isEmpty
                             ? const Icon(Icons.image_not_supported_outlined)
                             : Image.network(
                                 mediaUrl,

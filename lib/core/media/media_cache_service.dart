@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
@@ -38,6 +39,9 @@ class MediaCacheService {
   }
 
   MediaCacheService._({this.policy = const MediaCachePolicy()}) {
+    if (kIsWeb) {
+      return;
+    }
     _imagesRepo = JsonCacheInfoRepository(databaseName: imageCacheKey);
     _videosRepo = JsonCacheInfoRepository(databaseName: videoCacheKey);
     _imagesManager = CacheManager(
@@ -66,6 +70,9 @@ class MediaCacheService {
 
   void bindGlobalImageCacheManager() {
     CachedNetworkImageProvider.defaultCacheManager = _imagesManager;
+    final imageCache = PaintingBinding.instance.imageCache;
+    imageCache.maximumSize = policy.imageMemoryMaxObjects;
+    imageCache.maximumSizeBytes = policy.imageMemoryMaxBytes;
   }
 
   static String computeKey(MediaCacheKeyInput input) {
@@ -82,6 +89,7 @@ class MediaCacheService {
   }
 
   Future<void> scheduleMaintenance({bool force = false}) async {
+    if (kIsWeb) return;
     final now = DateTime.now();
     if (!force && _lastMaintenanceAt != null) {
       final elapsed = now.difference(_lastMaintenanceAt!);
@@ -116,6 +124,7 @@ class MediaCacheService {
     int? userId,
     Map<String, String>? headers,
   }) async {
+    if (kIsWeb) return;
     if (url.trim().isEmpty) return;
     final key = buildKey(
       MediaCacheKeyInput(
@@ -145,6 +154,10 @@ class MediaCacheService {
     }
 
     if (_looksLikeStreamingUrl(cleaned)) {
+      return CachedVideoSource.network(cleaned);
+    }
+
+    if (kIsWeb) {
       return CachedVideoSource.network(cleaned);
     }
 
@@ -184,6 +197,7 @@ class MediaCacheService {
     MediaCacheScope scope = MediaCacheScope.public,
     int? userId,
   }) async {
+    if (kIsWeb) return;
     if (urls.isEmpty) return;
     final count = policy.videoPrefetchLimit.clamp(0, urls.length);
     for (var i = 0; i < count; i++) {
@@ -201,6 +215,7 @@ class MediaCacheService {
   }
 
   Future<void> clearAllCaches() async {
+    if (kIsWeb) return;
     await Future.wait<void>([
       _imagesManager.emptyCache(),
       _videosManager.emptyCache(),
@@ -208,6 +223,7 @@ class MediaCacheService {
   }
 
   Future<void> clearUserScopedCache(int userId) async {
+    if (kIsWeb) return;
     if (userId <= 0) return;
     final prefix = _scopePrefix(MediaCacheScope.userPrivate, userId);
     await _removeByPrefix(_imagesManager, _imagesRepo, prefix);
@@ -215,6 +231,14 @@ class MediaCacheService {
   }
 
   Future<MediaCacheStats> getStats() async {
+    if (kIsWeb) {
+      return const MediaCacheStats(
+        imageBytes: 0,
+        imageFiles: 0,
+        videoBytes: 0,
+        videoFiles: 0,
+      );
+    }
     final imagesDir = await _resolveCacheDirectory(imageCacheKey);
     final videosDir = await _resolveCacheDirectory(videoCacheKey);
     final imageStats = await _calculateDirectoryStats(imagesDir);

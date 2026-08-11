@@ -1,3 +1,4 @@
+import '../../../core/media/media_url.dart';
 import '../../../core/utils/parsers.dart';
 
 class RealEstateListingMediaModel {
@@ -14,10 +15,15 @@ class RealEstateListingMediaModel {
   factory RealEstateListingMediaModel.fromJson(Map<String, dynamic> j) {
     return RealEstateListingMediaModel(
       id: parseInt(j['id']),
-      imageUrl: parseString(j['imageUrl'] ?? j['image_url']),
+      imageUrl: _resolveRequiredMediaUrl(j['imageUrl'] ?? j['image_url']),
       sortOrder: parseInt(j['sortOrder'] ?? j['sort_order']),
     );
   }
+}
+
+String _resolveRequiredMediaUrl(dynamic raw) {
+  final value = parseString(raw);
+  return resolveMediaUrl(value) ?? value;
 }
 
 class RealEstateListingModel {
@@ -151,8 +157,8 @@ class RealEstateListingModel {
       detailsJson: j['detailsJson'] is Map
           ? Map<String, dynamic>.from(j['detailsJson'] as Map)
           : j['details_json'] is Map
-              ? Map<String, dynamic>.from(j['details_json'] as Map)
-              : const <String, dynamic>{},
+          ? Map<String, dynamic>.from(j['details_json'] as Map)
+          : const <String, dynamic>{},
       reviewNote: parseNullableString(j['reviewNote'] ?? j['review_note']),
       reviewedByUserId: parseNullableInt(
         j['reviewedByUserId'] ?? j['reviewed_by_user_id'],
@@ -253,11 +259,9 @@ class RealEstateWorkspaceModel {
           (e) => RealEstateListingModel.fromJson(Map<String, dynamic>.from(e)),
         )
         .toList(growable: false);
-    final syncChanged =
-        List<dynamic>.from(j['syncChangedListingIds'] as List? ?? const [])
-            .map((e) => parseInt(e))
-            .where((e) => e > 0)
-            .toList(growable: false);
+    final syncChanged = List<dynamic>.from(
+      j['syncChangedListingIds'] as List? ?? const [],
+    ).map((e) => parseInt(e)).where((e) => e > 0).toList(growable: false);
 
     return RealEstateWorkspaceModel(
       propertySellerMonthly: parseBool(
@@ -365,7 +369,9 @@ class RealEstateListingQuery {
     String? sort,
   }) {
     return RealEstateListingQuery(
-      purpose: identical(purpose, _sentinel) ? this.purpose : purpose as String?,
+      purpose: identical(purpose, _sentinel)
+          ? this.purpose
+          : purpose as String?,
       search: identical(search, _sentinel) ? this.search : search as String?,
       city: identical(city, _sentinel) ? this.city : city as String?,
       block: identical(block, _sentinel) ? this.block : block as String?,

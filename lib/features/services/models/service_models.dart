@@ -1,3 +1,4 @@
+import '../../../core/media/media_url.dart';
 import '../../../core/utils/parsers.dart';
 
 double? parseNullableDouble(dynamic value) {
@@ -186,7 +187,7 @@ class ServiceProviderSummaryModel {
       completedOrdersCount: parseNullableInt(json['completedOrdersCount']),
       hasEmergencyService: parseBool(json['hasEmergencyService']),
       isFeatured: parseBool(json['isFeatured']),
-      logoUrl: parseNullableString(json['logoUrl']),
+      logoUrl: resolveMediaUrl(parseNullableString(json['logoUrl'])),
       approvalStatus: parseNullableString(json['approvalStatus']),
       averageResponseMinutes: parseNullableInt(json['averageResponseMinutes']),
       isTemporarilyPaused: parseBool(json['isTemporarilyPaused']),
@@ -249,7 +250,7 @@ class ServiceMediaModel {
   factory ServiceMediaModel.fromJson(Map<String, dynamic> json) {
     return ServiceMediaModel(
       id: parseInt(json['id']),
-      mediaUrl: parseString(json['mediaUrl']),
+      mediaUrl: _resolveRequiredMediaUrl(json['mediaUrl']),
       mediaKind: parseString(json['mediaKind'], fallback: 'image'),
     );
   }
@@ -281,7 +282,9 @@ class ServiceReviewModel {
       rating: parseInt(json['rating']),
       comment: parseNullableString(json['comment']),
       customerFullName: parseNullableString(json['customerFullName']),
-      customerImageUrl: parseNullableString(json['customerImageUrl']),
+      customerImageUrl: resolveMediaUrl(
+        parseNullableString(json['customerImageUrl']),
+      ),
       createdAt: parseNullableString(json['createdAt']),
     );
   }
@@ -582,8 +585,10 @@ class ServiceProviderProfileModel {
       id: parseInt(json['id']),
       userId: parseInt(json['userId']),
       businessName: parseString(json['businessName']),
-      logoUrl: parseNullableString(json['logoUrl']),
-      coverImageUrl: parseNullableString(json['coverImageUrl']),
+      logoUrl: resolveMediaUrl(parseNullableString(json['logoUrl'])),
+      coverImageUrl: resolveMediaUrl(
+        parseNullableString(json['coverImageUrl']),
+      ),
       mainCategoryName: parseNullableString(json['mainCategoryName']),
       bio: parseNullableString(json['bio']),
       phone: parseNullableString(json['phone']),
@@ -1020,7 +1025,7 @@ class ServiceProviderEmployeeModel {
       fullName: parseString(json['fullName']),
       phone: parseString(json['phone']),
       role: parseString(json['role'], fallback: 'service_provider'),
-      imageUrl: parseNullableString(json['imageUrl']),
+      imageUrl: resolveMediaUrl(parseNullableString(json['imageUrl'])),
       displayName: parseNullableString(json['displayName']),
       contactEmail: parseNullableString(json['contactEmail']),
       profile: profileJson == null
@@ -1028,6 +1033,11 @@ class ServiceProviderEmployeeModel {
           : ServiceProviderEmployeeProfileModel.fromJson(profileJson),
     );
   }
+}
+
+String _resolveRequiredMediaUrl(dynamic raw) {
+  final value = parseString(raw);
+  return resolveMediaUrl(value) ?? value;
 }
 
 class ServiceProviderEmployeeActivityLogModel {

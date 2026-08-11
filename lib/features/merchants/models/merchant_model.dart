@@ -1,3 +1,4 @@
+import '../../../core/media/media_url.dart';
 import '../../../core/utils/parsers.dart';
 
 double? _toNullableDouble(dynamic raw) {
@@ -122,7 +123,9 @@ class MerchantModel {
     ),
     description: parseNullableString(j['description']),
     phone: parseNullableString(j['phone']),
-    imageUrl: parseNullableString(j['image_url'] ?? j['imageUrl']),
+    imageUrl: resolveMediaUrl(
+      parseNullableString(j['image_url'] ?? j['imageUrl']),
+    ),
     tagline: parseNullableString(j['tagline']),
     workingHours: parseNullableString(j['working_hours'] ?? j['workingHours']),
     serviceAreaNote: parseNullableString(
@@ -146,9 +149,11 @@ class MerchantModel {
             (j['has_free_delivery_offer'] ??
                 j['hasFreeDeliveryOffer'] ??
                 false)),
-    logoUrl: parseNullableString(j['logo_url'] ?? j['logoUrl']),
-    coverImageUrl: parseNullableString(
-      j['cover_image_url'] ?? j['coverImageUrl'],
+    logoUrl: resolveMediaUrl(
+      parseNullableString(j['logo_url'] ?? j['logoUrl']),
+    ),
+    coverImageUrl: resolveMediaUrl(
+      parseNullableString(j['cover_image_url'] ?? j['coverImageUrl']),
     ),
     isVerified: j['is_verified'] ?? j['isVerified'] ?? false,
     nextOpenAt: _toNullableDate(j['next_open_at'] ?? j['nextOpenAt']),
