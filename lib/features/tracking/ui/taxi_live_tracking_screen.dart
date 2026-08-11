@@ -9,6 +9,8 @@ import 'package:maslaki/core/utils/currency.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/core/network/session_invalidation.dart';
 import 'package:maslaki/core/network/api_error_mapper.dart';
+import 'package:maslaki/features/support/models/support_context.dart';
+import 'package:maslaki/features/support/ui/support_request_sheet.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
 import 'package:maslaki/features/taxi/ui/taxi_cancel_reason_sheet.dart';
 import 'package:maslaki/features/taxi/ui/taxi_share_ride_friends_sheet.dart';
@@ -1528,6 +1530,15 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: context.lt(ar: 'دعم / مشكلة', en: 'Support'),
+                onPressed: () => showSupportRequestSheet(
+                  context,
+                  supportContext: SupportContext.ride(rideId: widget.rideId),
+                ),
+                icon: const Icon(Icons.support_agent_rounded),
               ),
               if (_canCancelRide(ride)) ...[
                 const SizedBox(width: 12),
