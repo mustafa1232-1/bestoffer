@@ -20,6 +20,9 @@ import '../../../core/utils/parsers.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/taxi_api.dart';
 import '../../../pages/map_page.dart';
+import '../../../core/i18n/locale_text.dart';
+import '../../support/models/support_context.dart';
+import '../../support/ui/support_request_sheet.dart';
 
 final taxiCustomerToolsApiProvider = Provider<TaxiApi>(
   (ref) => TaxiApi(ref.read(dioClientProvider).dio),
@@ -49,6 +52,16 @@ class TaxiCustomerToolsScreen extends ConsumerWidget {
       child: Scaffold(
         appBar: AppBar(
           title: Text(l10n.taxiToolsTitle),
+          actions: [
+            IconButton(
+              tooltip: context.lt(ar: 'الدعم / مشكلة', en: 'Support'),
+              onPressed: () => showSupportRequestSheet(
+                context,
+                supportContext: const SupportContext.taxi(),
+              ),
+              icon: const Icon(Icons.support_agent_rounded),
+            ),
+          ],
           bottom: TabBar(
             isScrollable: true,
             tabs: [

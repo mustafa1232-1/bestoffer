@@ -19,6 +19,12 @@ class CustomerSupportApi {
     int? entityId,
     String? entityLabel,
   }) async {
+    // الربط بكيان يتطلب النوع والمعرّف معاً — وإلا لا نرسل نوعاً معلّقاً.
+    final hasEntity =
+        entityType != null &&
+        entityType.trim().isNotEmpty &&
+        entityId != null &&
+        entityId > 0;
     final body = <String, dynamic>{
       'domain': domain,
       'type': type,
@@ -26,9 +32,8 @@ class CustomerSupportApi {
       'priority': priority,
       if (description != null && description.trim().isNotEmpty)
         'description': description.trim(),
-      if (entityType != null && entityType.trim().isNotEmpty)
-        'entityType': entityType.trim(),
-      if (entityId != null && entityId > 0) 'entityId': entityId,
+      if (hasEntity) 'entityType': entityType.trim(),
+      if (hasEntity) 'entityId': entityId,
       if (entityLabel != null && entityLabel.trim().isNotEmpty)
         'entityLabel': entityLabel.trim(),
     };

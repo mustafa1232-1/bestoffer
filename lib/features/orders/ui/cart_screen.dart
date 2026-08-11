@@ -8,6 +8,8 @@ import '../../../core/utils/product_offer_pricing.dart';
 import '../../auth/state/auth_controller.dart';
 import '../models/order_item_presentation_model.dart';
 import '../logic/order_preview_errors.dart';
+import '../../support/models/support_context.dart';
+import '../../support/ui/support_request_sheet.dart';
 import '../state/cart_controller.dart';
 import '../state/delivery_address_controller.dart';
 import '../state/orders_controller.dart';
@@ -583,26 +585,36 @@ class _CartScreenState extends ConsumerState<CartScreen> {
             ? 'سلة التسوق'
             : 'سلة ${cart.merchantName}',
         subtitle: 'مراجعة الطلب والعنوان والخصومات قبل الإرسال',
-        actions: cart.items.isEmpty
-            ? const []
-            : [
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(end: 8),
-                  child: FilledButton.icon(
-                    onPressed: (orders.placingOrder || openingFinalReview)
-                        ? null
-                        : _submitCheckout,
-                    icon: (orders.placingOrder || openingFinalReview)
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.check_circle_outline_rounded),
-                    label: const Text('مراجعة نهائية'),
-                  ),
-                ),
-              ],
+        actions: [
+          IconButton(
+            tooltip: 'الدعم / مشكلة في السلة',
+            onPressed: () => showSupportRequestSheet(
+              context,
+              supportContext: SupportContext.cart(
+                merchantId: cart.merchantId,
+                merchantName: cart.merchantName,
+              ),
+            ),
+            icon: const Icon(Icons.support_agent_rounded),
+          ),
+          if (cart.items.isNotEmpty)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 8),
+              child: FilledButton.icon(
+                onPressed: (orders.placingOrder || openingFinalReview)
+                    ? null
+                    : _submitCheckout,
+                icon: (orders.placingOrder || openingFinalReview)
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check_circle_outline_rounded),
+                label: const Text('مراجعة نهائية'),
+              ),
+            ),
+        ],
       ),
       bottomNavigationBar: cart.items.isEmpty
           ? null

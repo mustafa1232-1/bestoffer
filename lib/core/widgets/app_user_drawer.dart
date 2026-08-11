@@ -14,7 +14,10 @@ import '../../features/social/ui/social_relation_requests_screen.dart';
 import '../../features/social/ui/social_reported_posts_screen.dart';
 import '../../features/social/ui/social_search_screen.dart';
 import '../../features/social/ui/social_shell_screen.dart';
+import '../../features/support/models/support_context.dart';
+import '../../features/support/ui/support_request_sheet.dart';
 import '../i18n/app_localizations_context.dart';
+import '../i18n/locale_text.dart';
 
 String _drawerText(String? value) => normalizeText((value ?? '').trim());
 
@@ -394,6 +397,20 @@ class _AppUserDrawerState extends ConsumerState<AppUserDrawer> {
 
     final resolvedItems = <AppUserDrawerItem>[
       ...drawerItems,
+      AppUserDrawerItem(
+        icon: Icons.support_agent_rounded,
+        label: context.lt(ar: 'الدعم / مشكلة', en: 'Support'),
+        subtitle: context.lt(
+          ar: 'أرسل مشكلة أو استفساراً للدعم',
+          en: 'Send a problem or question to support',
+        ),
+        onTap: (ctx) async {
+          await showSupportRequestSheet(
+            ctx,
+            supportContext: const SupportContext.general(),
+          );
+        },
+      ),
       if (canOpenSocialTools && !hasDrawerItem(l10n.drawerNotifications))
         AppUserDrawerItem(
           icon: Icons.notifications_outlined,
