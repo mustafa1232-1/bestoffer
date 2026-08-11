@@ -5,8 +5,17 @@
   "targets": {
     "maslaki-61a97": {
       "hosting": {
-        "maslaki-app": [
+        "main": [
           "maslaki-app"
+        ],
+        "store": [
+          "maslaki-store"
+        ],
+        "captain": [
+          "maslaki-captain"
+        ],
+        "delivery": [
+          "maslaki-delivery"
         ]
       }
     }
