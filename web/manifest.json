@@ -1,12 +1,15 @@
 {
-    "name": "مسلكي",
-    "short_name": "مسلكي",
-    "start_url": ".",
+    "name": "Maslaki",
+    "short_name": "Maslaki",
+    "start_url": "/",
+    "scope": "/",
     "display": "standalone",
     "background_color": "#F5EEE4",
     "theme_color": "#F5EEE4",
-    "description": "مسلكي: مجتمع وخدمات يومية في تطبيق واحد.",
+    "description": "Maslaki - Basmaya super-app for shopping, food, taxi, community, and daily services.",
     "orientation": "portrait-primary",
+    "dir": "rtl",
+    "lang": "ar",
     "prefer_related_applications": false,
     "icons": [
         {
