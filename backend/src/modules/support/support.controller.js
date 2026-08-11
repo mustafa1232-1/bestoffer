@@ -4,6 +4,7 @@ import { recordAudit, auditContextFromReq } from "../security/audit.service.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 import {
   validateCreateTicket,
+  validateAgentCreateTicket,
   validateMessage,
   validateResolve,
   validateTransition,
@@ -150,6 +151,32 @@ export async function rateMyTicket(req, res, next) {
       ...v.value,
     });
     return res.json({ ticket });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+// الموظف يفتح تذكرة نيابةً عن العميل (توثيق مكالمة/تواصل خارجي).
+export async function adminCreateTicket(req, res, next) {
+  try {
+    const v = validateAgentCreateTicket(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const ticket = await service.createTicketByAgent({
+      agentUserId: req.userId,
+      agentRole: req.userRole || "agent",
+      ...v.value,
+    });
+    audit(req, {
+      actionKey: "support.tickets.reply",
+      summary: `Agent opened support ticket #${ticket.id} on behalf of a customer (${v.value.channel})`,
+      targetId: Number(ticket.id),
+      metadata: {
+        channel: v.value.channel,
+        callOutcome: v.value.callOutcome,
+        onBehalfOfUserId: Number(ticket.user_id),
+      },
+    });
+    return res.status(201).json({ ticket });
   } catch (error) {
     return next(error);
   }

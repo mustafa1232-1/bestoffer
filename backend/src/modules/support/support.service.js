@@ -110,6 +110,9 @@ export async function createTicket({
   entityId = null,
   entityLabel = null,
   attachments = [],
+  channel = "app",
+  createdByUserId = null,
+  callOutcome = null,
 }) {
   const due = computeDueDates(priority, Date.now());
   const ticket = await repo.createTicket({
@@ -125,8 +128,121 @@ export async function createTicket({
     attachments,
     slaFirstResponseDueAt: due.firstResponseDueAt,
     slaResolutionDueAt: due.resolutionDueAt,
+    channel,
+    createdByUserId,
+    callOutcome,
   });
   return withSla(ticket);
+}
+
+/**
+ * ينشئ الموظف تذكرةً نيابةً عن العميل (توثيق مكالمة هاتفية أو تواصل خارجي).
+ * يُحلّ العميل عبر userId صريح أو رقم هاتف. اختيارياً يُسند التذكرة للموظف الذي
+ * تولّى المكالمة (assignToSelf) ويضيف ملخّص المكالمة كملاحظة داخلية.
+ */
+export async function createTicketByAgent({
+  agentUserId,
+  agentRole = "agent",
+  customerUserId = null,
+  customerPhone = null,
+  domain,
+  type,
+  priority = "normal",
+  subject,
+  description = null,
+  channel = "phone",
+  callOutcome = null,
+  entityType = null,
+  entityId = null,
+  entityLabel = null,
+  internalNote = null,
+  assignToSelf = true,
+}) {
+  let resolvedUserId = customerUserId ? Number(customerUserId) : null;
+  if (!resolvedUserId && customerPhone) {
+    const found = await repo.findCustomerByPhone(customerPhone);
+    if (!found) {
+      throw new AppError("CUSTOMER_NOT_FOUND", {
+        status: 404,
+        details: { phone: customerPhone },
+      });
+    }
+    resolvedUserId = Number(found.id);
+  }
+  if (!resolvedUserId) {
+    throw new AppError("CUSTOMER_REQUIRED", { status: 400 });
+  }
+
+  const ticket = await createTicket({
+    userId: resolvedUserId,
+    domain,
+    type,
+    priority,
+    subject,
+    description,
+    entityType,
+    entityId,
+    entityLabel,
+    channel,
+    createdByUserId: agentUserId,
+    callOutcome,
+  });
+
+  // ملخّص المكالمة كملاحظة داخلية (لا يراها العميل).
+  if (internalNote && String(internalNote).trim().length > 0) {
+    await repo.addInternalNote({
+      ticketId: ticket.id,
+      authorUserId: agentUserId,
+      authorRole: agentRole,
+      body: String(internalNote).trim(),
+      attachments: [],
+    });
+  }
+
+  // الموظف الذي تولّى المكالمة يملك التذكرة افتراضياً وتنتقل لِ IN_PROGRESS.
+  let finalTicket = ticket;
+  if (assignToSelf) {
+    const assigned = await repo.assignTicket({
+      ticketId: ticket.id,
+      actorUserId: agentUserId,
+      actorRole: agentRole,
+      assigneeUserId: agentUserId,
+      team: ticket.team || null,
+    });
+    if (assigned.code === "OK") {
+      const moved = await repo.transitionStatus({
+        ticketId: ticket.id,
+        toStatus: "IN_PROGRESS",
+        actorUserId: agentUserId,
+        actorRole: agentRole,
+        eventType: "status_changed",
+        allowedFrom: ["ASSIGNED"],
+      });
+      finalTicket = moved.code === "OK" ? moved.ticket : assigned.ticket;
+    }
+  }
+
+  // إن كانت المشكلة حُلّت أثناء المكالمة، توثَّق كمحلولة مباشرةً (بعد أن تصبح
+  // قيد المعالجة، حتى يكون الانتقال سليماً).
+  if (callOutcome === "resolved_on_call" && finalTicket.status === "IN_PROGRESS") {
+    const resolved = await repo.transitionStatus({
+      ticketId: ticket.id,
+      toStatus: "RESOLVED",
+      actorUserId: agentUserId,
+      actorRole: agentRole,
+      eventType: "resolved",
+      allowedFrom: [finalTicket.status],
+      extraSet: {
+        resolved_at: new Date().toISOString(),
+        resolution_summary: subject,
+        resolution_reason: "resolved_on_call",
+      },
+      metadata: { reason: "resolved_on_call" },
+    });
+    if (resolved.code === "OK") finalTicket = resolved.ticket;
+  }
+
+  return withSla(finalTicket);
 }
 
 export function createUrgentRideTicket({ userId, rideId, subject, description, attachments = [] }) {

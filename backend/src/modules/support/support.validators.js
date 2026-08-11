@@ -110,6 +110,69 @@ export function validateCreateTicket(body = {}) {
   };
 }
 
+const TICKET_CHANNELS = new Set(["app", "phone", "whatsapp", "email", "social", "other"]);
+const CALL_OUTCOMES = new Set([
+  "resolved_on_call",
+  "needs_follow_up",
+  "callback_requested",
+  "transferred",
+  "info_only",
+]);
+
+// إنشاء تذكرة من قبل الموظف نيابةً عن العميل (توثيق مكالمة/تواصل خارجي).
+export function validateAgentCreateTicket(body = {}) {
+  const errors = {};
+  const domain = text(body.domain, 24).toUpperCase();
+  const type = text(body.type, 24).toUpperCase();
+  const priority = text(body.priority, 12).toLowerCase() || "normal";
+  const subject = text(body.subject, 240);
+  const description = text(body.description, 5000);
+  const channel = text(body.channel, 16).toLowerCase() || "phone";
+  const callOutcome = text(body.callOutcome ?? body.call_outcome, 24).toLowerCase() || null;
+  const internalNote = text(body.internalNote ?? body.internal_note, 5000) || null;
+  const customerUserId = numberId(body.customerUserId ?? body.customer_user_id);
+  const customerPhone = text(body.customerPhone ?? body.customer_phone, 32) || null;
+  const entityType = validateEntityType(body.entityType ?? body.entity_type);
+  const entityId = numberId(body.entityId ?? body.entity_id);
+  const entityLabel = text(body.entityLabel ?? body.entity_label, 240) || null;
+  const assignToSelf = body.assignToSelf === undefined ? true : body.assignToSelf === true;
+
+  if (!isValidDomain(domain)) errors.domain = "INVALID";
+  if (!isValidType(type)) errors.type = "INVALID";
+  if (!isValidPriority(priority)) errors.priority = "INVALID";
+  if (!subject) errors.subject = "REQUIRED";
+  if (!TICKET_CHANNELS.has(channel)) errors.channel = "INVALID";
+  if (callOutcome && !CALL_OUTCOMES.has(callOutcome)) errors.callOutcome = "INVALID";
+  if (customerUserId === "INVALID") errors.customerUserId = "INVALID";
+  // يلزم تحديد العميل: إما معرّف صحيح أو رقم هاتف.
+  if ((customerUserId === null || customerUserId === "INVALID") && !customerPhone) {
+    errors.customer = "REQUIRED";
+  }
+  if (entityType === "INVALID") errors.entityType = "INVALID";
+  if (entityId === "INVALID") errors.entityId = "INVALID";
+
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: {
+      domain,
+      type,
+      priority,
+      subject,
+      description: description || null,
+      channel,
+      callOutcome,
+      internalNote,
+      customerUserId: customerUserId === "INVALID" ? null : customerUserId,
+      customerPhone,
+      entityType: entityType === "INVALID" ? null : entityType,
+      entityId: entityId === "INVALID" ? null : entityId,
+      entityLabel,
+      assignToSelf,
+    },
+  };
+}
+
 export function validateMessage(body = {}) {
   const errors = {};
   const bodyText = text(body.body, 5000);

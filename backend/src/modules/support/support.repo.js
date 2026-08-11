@@ -108,6 +108,9 @@ export async function createTicket({
   attachments = [],
   slaFirstResponseDueAt = null,
   slaResolutionDueAt = null,
+  channel = "app",
+  createdByUserId = null,
+  callOutcome = null,
 }) {
   const client = await pool.connect();
   try {
@@ -115,8 +118,9 @@ export async function createTicket({
     const ins = await client.query(
       `INSERT INTO support_ticket
          (user_id, domain, type, priority, subject, description,
-          entity_type, entity_id, sla_first_response_due_at, sla_resolution_due_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          entity_type, entity_id, sla_first_response_due_at, sla_resolution_due_at,
+          channel, created_by_user_id, call_outcome)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [
         Number(userId),
@@ -129,6 +133,9 @@ export async function createTicket({
         entityId != null ? Number(entityId) : null,
         slaFirstResponseDueAt,
         slaResolutionDueAt,
+        channel || "app",
+        createdByUserId != null ? Number(createdByUserId) : null,
+        callOutcome || null,
       ]
     );
     const row = ins.rows[0];
@@ -153,14 +160,17 @@ export async function createTicket({
     });
     await insertEvent(client, {
       ticketId: row.id,
-      actorUserId: userId,
-      actorRole: "customer",
+      actorUserId: createdByUserId != null ? Number(createdByUserId) : Number(userId),
+      actorRole: createdByUserId != null ? "agent" : "customer",
       eventType: "created",
       toStatus: "NEW",
       metadata: {
         entityType: entityType || null,
         entityId: entityId != null ? Number(entityId) : null,
         attachmentCount: attachmentRows.length,
+        channel: channel || "app",
+        onBehalf: createdByUserId != null,
+        callOutcome: callOutcome || null,
       },
     });
     await client.query("COMMIT");
@@ -188,6 +198,21 @@ export async function getUserDisplayName(userId) {
     [Number(userId)]
   );
   return r.rows[0]?.name || "Support";
+}
+
+// بحث عن عميل برقم الهاتف (مطابقة بالأرقام فقط) لفتح تذكرة نيابةً عنه.
+export async function findCustomerByPhone(phone) {
+  const raw = String(phone || "").trim();
+  if (!raw) return null;
+  const r = await q(
+    `SELECT id, full_name, phone, role
+     FROM app_user
+     WHERE regexp_replace(phone, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')
+     ORDER BY id ASC
+     LIMIT 1`,
+    [raw]
+  );
+  return r.rows[0] || null;
 }
 
 export async function listTickets({

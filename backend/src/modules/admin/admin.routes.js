@@ -4,7 +4,10 @@ import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireAdmin } from "../../shared/middleware/admin.middleware.js";
 import { requireBackoffice } from "../../shared/middleware/backoffice.middleware.js";
 import { requireSuperAdmin } from "../../shared/middleware/super-admin.middleware.js";
-import { requirePermission } from "../../shared/middleware/permission.middleware.js";
+import {
+  requireAnyPermission,
+  requirePermission,
+} from "../../shared/middleware/permission.middleware.js";
 import { imageUpload } from "../../shared/utils/upload.js";
 import * as taxiAdmin from "../taxi/taxi.admin.controller.js";
 import * as ops from "./admin.ops.controller.js";
@@ -216,6 +219,12 @@ adminRouter.put(
 );
 
 // نظام التذاكر الموحّد (المرحلة 4) — إدارة/دعم.
+// P0-1: الموظف يفتح تذكرة نيابةً عن المتصل (توثيق مكالمة).
+adminRouter.post(
+  "/support/tickets",
+  requirePermission("support.tickets.reply"),
+  support.adminCreateTicket
+);
 adminRouter.get(
   "/support/tickets",
   requirePermission("support.tickets.read"),
@@ -443,7 +452,7 @@ adminRouter.post(
 adminRouter.get("/me/permissions", rbac.getMyPermissions);
 adminRouter.get(
   "/rbac/catalog",
-  requirePermission("employees.permissions.manage"),
+  requireAnyPermission(["employees.create", "employees.permissions.manage"]),
   rbac.getCatalog
 );
 adminRouter.get(
